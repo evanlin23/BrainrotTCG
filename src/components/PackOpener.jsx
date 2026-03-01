@@ -44,6 +44,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
     const [preloadedAssets, setPreloadedAssets] = useState(null);
     const [showSummary, setShowSummary] = useState(false);
     const [packDesign, setPackDesign] = useState(() => PACK_DESIGNS[Math.floor(Math.random() * PACK_DESIGNS.length)]);
+    const [hasMovedMouse, setHasMovedMouse] = useState(false);
 
     const packRef = useRef(null);
     const cutSpanRef = useRef({ ...EMPTY_CUT_SPAN });
@@ -145,6 +146,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         setCurrentIndex(0);
         setIsPackCut(false);
         setShowSummary(false);
+        setHasMovedMouse(false);
         setPackDesign(PACK_DESIGNS[Math.floor(Math.random() * PACK_DESIGNS.length)]);
         resetCutState();
     }, [resetCutState]);
@@ -173,6 +175,14 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
             return () => clearTimeout(timer);
         }
     }, [isOpening, currentIndex, preloadedAssets, openedCards]);
+
+    // Hide mouse hint after user moves mouse
+    useEffect(() => {
+        if (!isOpening || hasMovedMouse) return;
+        const handleMouseMove = () => setHasMovedMouse(true);
+        window.addEventListener('mousemove', handleMouseMove);
+        return () => window.removeEventListener('mousemove', handleMouseMove);
+    }, [isOpening, hasMovedMouse]);
 
     const handleFlip = useCallback(() => {
         const currentCard = openedCards[currentIndex];
@@ -461,6 +471,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
                                 <div className="tip-text">
                                     {currentCard?.isRevealed ? "Click or Space to see next" : "Click or Space to reveal"}
                                 </div>
+                                <div className={`mouse-hint ${hasMovedMouse ? 'fade-out' : ''}`}>Move mouse around card to tilt</div>
                             </>
                         ) : (
                             <Motion.div
