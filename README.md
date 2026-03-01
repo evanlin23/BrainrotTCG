@@ -56,22 +56,7 @@ npm run dev
 
 ## Adding Cards
 
-1. Add an image to `src/assets/` (e.g., `mycard.png`)
-2. Optionally add metadata in `src/data/cards.json`:
-
-```json
-{
-  "mycard": {
-    "name": "My Card Name",
-    "rarity": "EPIC",
-    "description": "Card description here.",
-    "hp": 5000,
-    "atk": 3000
-  }
-}
-```
-
-Cards without metadata get default stats.
+Just drop images into `src/assets/cards/` and they're automatically added to the game.
 
 ## Tech Stack
 
