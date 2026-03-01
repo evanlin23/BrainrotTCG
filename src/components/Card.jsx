@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/Card.css';
+import cardBackImage from '../assets/card_back.png';
 
 const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
     const [isHovered, setIsHovered] = useState(false);
@@ -23,9 +24,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
             >
                 {/* Card Back */}
                 <div className="card-face card-back">
-                    <div className="back-design">
-                        <div className="logo-placeholder">ROT</div>
-                    </div>
+                    <img src={cardBackImage} alt="Card back" className="card-back-image" draggable="false" />
                 </div>
 
                 {/* Card Front */}
