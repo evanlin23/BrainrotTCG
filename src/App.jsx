@@ -37,13 +37,23 @@ function App() {
   const handleCardsOpened = (newCards) => {
     setCollection((prev) => {
       const next = { ...prev };
+
+      // First, count occurrences in this pack
+      const packCounts = {};
       newCards.forEach((card) => {
-        const existing = next[card.id];
-        next[card.id] = {
+        packCounts[card.id] = (packCounts[card.id] || 0) + 1;
+      });
+
+      // Then merge with existing collection
+      Object.entries(packCounts).forEach(([cardId, packCount]) => {
+        const card = newCards.find(c => c.id === cardId);
+        const existing = next[cardId];
+        next[cardId] = {
           card,
-          count: existing ? existing.count + 1 : 1,
+          count: (existing?.count || 0) + packCount,
         };
       });
+
       localStorage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(next));
       return next;
     });
