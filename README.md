@@ -8,15 +8,15 @@ We are professional brainrotters and so were inspired to create a trading card g
 
 ## What it does
 
-Open virtual card packs featuring internet meme characters. Each pack contains 5 cards with different rarities (Common, Rare, Epic, Legendary). Cards are revealed one at a time with animations, sound effects, and text-to-speech announcing each card name. Rare pulls trigger confetti celebrations.
+Open virtual card packs featuring internet meme characters by tearing them open! Drag across the dotted line to rip the pack, then reveal 5 cards one at a time. Cards come in four rarities (Common, Rare, Epic, Legendary) with weighted drop rates. Each reveal includes animations, sound effects, and 3D tilt interactions. Epic and Legendary pulls trigger confetti celebrations. Your collection is saved locally so you can track every card you've found.
 
 ## How we built it
 
 - **React 19** with Vite for fast development
 - **Framer Motion** for smooth card animations and transitions
-- **ElevenLabs TTS** API for dynamic card name announcements
 - **Canvas Confetti** for celebratory effects on rare pulls
-- Auto-discovery system that scans `src/assets/` for card images
+- **Custom audio system** with sound effects for tearing, flipping, and reveals
+- **Local Storage** for persistent collection tracking
 
 ## Challenges we ran into
 
@@ -38,10 +38,14 @@ We would love to expand the card selection to include more brainrot characters a
 
 ## Features
 
-- **Pack Opening Experience** - Open packs with smooth animations and confetti effects for rare pulls
+- **Interactive Pack Tearing** - Drag across the tear line to open packs with sparks and sound effects
+- **Pack Opening Experience** - Cards revealed with smooth animations and confetti effects for rare pulls
+- **Animated Title** - Wave animation with each character floating independently
+- **Responsive Cards** - Cards scale dynamically to fit between the title and viewport bottom
+- **Collection Browser** - Track your found cards with counts and rarity-colored borders
 - **Rarity System** - Common, Rare, Epic, and Legendary cards with weighted drop rates
-- **Text-to-Speech** - Card names announced via ElevenLabs TTS on reveal
-- **Auto Card Discovery** - Drop images in `src/assets/` and they're automatically added as cards
+- **Sound Effects** - Background music, card flips, and randomized reveal sounds
+- **3D Card Tilt** - Cards tilt based on mouse position for an interactive feel
 
 ## Setup
 
@@ -74,5 +78,5 @@ Cards without metadata get default stats.
 - React 19
 - Vite
 - Framer Motion
-- ElevenLabs TTS
 - Canvas Confetti
+- Local Storage (collection persistence)
