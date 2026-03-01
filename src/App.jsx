@@ -65,7 +65,21 @@ function App() {
   return (
     <div className="app-container">
       <header>
-        <h1>Brainrot TCG</h1>
+        <h1>
+          {"Brainrot TCG".split('').map((char, i) => (
+            char === ' ' ? (
+              <span key={i} className="title-space" />
+            ) : (
+              <span
+                key={i}
+                className="title-char"
+                style={{ animationDelay: `${i * 0.08}s` }}
+              >
+                {char}
+              </span>
+            )
+          ))}
+        </h1>
       </header>
 
       <main>

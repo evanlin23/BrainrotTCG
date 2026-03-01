@@ -54,12 +54,32 @@ h1 {
     font-weight: normal;
     text-transform: uppercase;
     letter-spacing: 0.1em;
+    margin-bottom: 2rem;
+    filter: drop-shadow(var(--shadow-neon));
+}
+
+h1 .title-char {
+    display: inline-block;
+    font-family: inherit;
     background: linear-gradient(45deg, var(--accent-primary), var(--accent-secondary));
     background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    margin-bottom: 2rem;
-    filter: drop-shadow(var(--shadow-neon));
+    animation: float 2.5s ease-in-out infinite;
+}
+
+h1 .title-space {
+    display: inline-block;
+    width: 0.3em;
+}
+
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-4px);
+    }
 }
 
 main {

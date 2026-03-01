@@ -435,6 +435,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
                                     </svg>
                                 )}
                             </div>
+                            <p className="pack-hint">nothing to see here!</p>
                         </div>
                     </Motion.div>
                 ) : (
