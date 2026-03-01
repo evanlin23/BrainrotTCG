@@ -1,0 +1,65 @@
+{
+    "skibidi": {
+        "name": "Skibidi Warrior",
+        "rarity": "EPIC",
+        "description": "Emits a devastating wave of neon energy.",
+        "hp": 9000,
+        "atk": 6500
+    },
+    "sigma": {
+        "name": "Sigma Gigachad",
+        "rarity": "LEGENDARY",
+        "description": "A legend cast in unbreakable stone.",
+        "hp": 9900,
+        "atk": 9900
+    },
+    "italian": {
+        "name": "Neo-Pisa Italian",
+        "rarity": "RARE",
+        "description": "Targets one opponent. Apply 3 Brainrot counters.",
+        "hp": 5000,
+        "atk": 4000
+    },
+    "gnat": {
+        "name": "The Gnat",
+        "rarity": "RARE",
+        "description": "Annoying pest. Buzzing irritation is permanent.",
+        "hp": 3000,
+        "atk": 1000
+    },
+    "rizzler": {
+        "name": "The Rizzler",
+        "rarity": "LEGENDARY",
+        "description": "Intense rizz expression. Paralyzes with charisma.",
+        "hp": 24000,
+        "atk": 12000
+    },
+    "instagram": {
+        "name": "Instagram Reels",
+        "rarity": "EPIC",
+        "description": "Chaotic meme content delivery system.",
+        "hp": 15000,
+        "atk": 8000
+    },
+    "caseoh": {
+        "name": "King CaseOh",
+        "rarity": "LEGENDARY",
+        "description": "The jovial king. His presence cracks the earth.",
+        "hp": 50000,
+        "atk": 15000
+    },
+    "looksmax": {
+        "name": "Mewing Master",
+        "rarity": "EPIC",
+        "description": "Impossibly sharp jawline. Cannot be silented.",
+        "hp": 12000,
+        "atk": 7000
+    },
+    "fanum": {
+        "name": "Fanum Taxer",
+        "rarity": "RARE",
+        "description": "Snatches 10% of opponent HP every turn.",
+        "hp": 8000,
+        "atk": 5000
+    }
+}

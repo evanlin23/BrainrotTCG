@@ -1,0 +1,75 @@
+:root {
+    --bg-dark: #0a0a0c;
+    --card-bg: #1a1a1e;
+    --accent-primary: #bc13fe;
+    --accent-secondary: #13fefe;
+    --text-main: #ffffff;
+    --text-muted: #a0a0a8;
+    --rarity-common: #aaaaaa;
+    --rarity-rare: #0070dd;
+    --rarity-epic: #a335ee;
+    --rarity-legendary: #ff8000;
+    --glass-bg: rgba(255, 255, 255, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --shadow-neon: 0 0 15px rgba(188, 19, 254, 0.3);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+    min-height: 100vh;
+    background: radial-gradient(circle at top center, #1a1a2e 0%, #0a0a0c 100%);
+}
+
+h1 {
+    font-size: 3rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    background: linear-gradient(45deg, var(--accent-primary), var(--accent-secondary));
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 2rem;
+    filter: drop-shadow(var(--shadow-neon));
+}
+
+.premium-btn {
+    background: linear-gradient(45deg, var(--accent-primary), #8a2be2);
+    color: white;
+    border: none;
+    padding: 1rem 2.5rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 0 4px 15px rgba(188, 19, 254, 0.4);
+}
+
+.premium-btn:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 8px 25px rgba(188, 19, 254, 0.6);
+}
+
+.premium-btn:active {
+    transform: translateY(0) scale(0.98);
+}
