@@ -15,6 +15,7 @@ Open virtual card packs featuring internet meme characters by tearing them open!
 - **React 19** with Vite for fast development
 - **Framer Motion** for smooth card animations and transitions
 - **Canvas Confetti** for celebratory effects on rare pulls
+- **ElevenLabs** for generating the majority of the voice lines
 - **Custom audio system** with sound effects for tearing, flipping, and reveals
 - **Local Storage** for persistent collection tracking
 
@@ -64,4 +65,5 @@ Just drop images into `src/assets/cards/` and they're automatically added to the
 - Vite
 - Framer Motion
 - Canvas Confetti
+- ElevenLabs (voice generation)
 - Local Storage (collection persistence)

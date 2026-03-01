@@ -6,8 +6,15 @@ import pack1 from '../assets/pack1.png';
 import pack2 from '../assets/pack2.png';
 
 const PACK_DESIGNS = [pack1, pack2];
-import whatBrainrotSrc from '../assets/what-brainrot.mp3';
+import whatBrainrotOriginal from '../assets/what-brainrot.mp3';
 import cardFlipSrc from '../assets/Card-flip-sound-effect.mp3';
+
+// Auto-scan for ElevenLabs voice files
+const elevenLabsVoices = import.meta.glob('../assets/ElevenLabs_*.mp3', { eager: true });
+const BRAINROT_VOICES = [
+    whatBrainrotOriginal,
+    ...Object.values(elevenLabsVoices).map(m => m.default)
+];
 import fairyDustSrc from '../assets/fairy-dust-sound-effect.mp3';
 import wooshSrc from '../assets/woosh.mp3';
 // Sound effects
@@ -118,9 +125,12 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         });
 
         // Preload MP3 files
-        const whatBrainrot = new Audio(whatBrainrotSrc);
-        whatBrainrot.preload = 'auto';
-        whatBrainrot.load();
+        const brainrotVoices = BRAINROT_VOICES.map(src => {
+            const audio = new Audio(src);
+            audio.preload = 'auto';
+            audio.load();
+            return audio;
+        });
 
         const cardFlip = new Audio(cardFlipSrc);
         cardFlip.preload = 'auto';
@@ -134,7 +144,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
             return audio;
         });
 
-        setPreloadedAssets({ whatBrainrot, cardFlip, effects });
+        setPreloadedAssets({ brainrotVoices, cardFlip, effects });
         setOpenedCards(pack);
         setCurrentIndex(0);
         setIsOpening(true);
@@ -169,8 +179,8 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
     useEffect(() => {
         if (isOpening && preloadedAssets && openedCards[currentIndex] && !openedCards[currentIndex].isRevealed) {
             const timer = setTimeout(() => {
-                const whatBrainrot = preloadedAssets.whatBrainrot.cloneNode();
-                whatBrainrot.play().catch(e => console.log("Audio playback failed:", e));
+                const randomVoice = preloadedAssets.brainrotVoices[Math.floor(Math.random() * preloadedAssets.brainrotVoices.length)].cloneNode();
+                randomVoice.play().catch(e => console.log("Audio playback failed:", e));
             }, 700);
             return () => clearTimeout(timer);
         }
