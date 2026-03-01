@@ -1,3 +1,10 @@
+@font-face {
+    font-family: 'RubikGlitch';
+    src: url('../assets/RubikGlitch-Regular.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
 :root {
     --bg-dark: #0a0a0c;
     --card-bg: #1a1a1e;
@@ -22,25 +29,29 @@
 }
 
 body {
-    background-color: var(--bg-dark);
+    background-color: #1a1a2e;
+    background-image: url('../assets/background.png');
+    background-repeat: repeat;
+    background-size: 256px 256px;
+    background-blend-mode: multiply;
     color: var(--text-main);
     min-height: 100vh;
-    overflow: hidden;
+    overflow-x: hidden;
 }
 
 .app-container {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 2rem;
+    padding: 2rem 2rem 0 2rem;
     height: 100vh;
-    overflow: hidden;
-    background: radial-gradient(circle at top center, #1a1a2e 0%, #0a0a0c 100%);
+    overflow: visible;
 }
 
 h1 {
-    font-size: 3rem;
-    font-weight: 900;
+    font-family: 'RubikGlitch', system-ui, sans-serif;
+    font-size: 5rem;
+    font-weight: normal;
     text-transform: uppercase;
     letter-spacing: 0.1em;
     background: linear-gradient(45deg, var(--accent-primary), var(--accent-secondary));
@@ -218,8 +229,6 @@ main {
     padding: 0.2rem 0.55rem;
     background: rgba(0, 0, 0, 0.58);
     border: 1px solid rgba(255, 255, 255, 0.18);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.55);
 }
 
 @media (max-width: 640px) {

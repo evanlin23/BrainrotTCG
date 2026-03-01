@@ -2,8 +2,22 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import Card from './Card';
-import packDesign from '../assets/pack1.png';
+import pack1 from '../assets/pack1.png';
+import pack2 from '../assets/pack2.png';
+
+const PACK_DESIGNS = [pack1, pack2];
+import whatBrainrotSrc from '../assets/what-brainrot.mp3';
+import cardFlipSrc from '../assets/Card-flip-sound-effect.mp3';
+import fairyDustSrc from '../assets/fairy-dust-sound-effect.mp3';
+import wooshSrc from '../assets/woosh.mp3';
+// Sound effects
+import dingSrc from '../assets/effects/ding.mp3';
+import rizzSrc from '../assets/effects/rizz-sound-effect.mp3';
+import tacoBellSrc from '../assets/effects/taco-bell-bong-sfx.mp3';
+import vineBoomSrc from '../assets/effects/vine-boom.mp3';
 import '../styles/PackOpener.css';
+
+const EFFECT_SOUNDS = [dingSrc, rizzSrc, tacoBellSrc, vineBoomSrc];
 
 const PACK_SIZE = 5;
 const TEAR_LINE_RATIO = 0.19;
@@ -11,7 +25,7 @@ const REQUIRED_CUT_RATIO = 0.72;
 const MAX_CUT_POINTS = 64;
 const MAX_SPARKS = 220;
 const SPARK_LIFETIME_MS = 620;
-const DRAWN_CUT_OFFSET_RATIO = 0.008;
+const DRAWN_CUT_OFFSET_RATIO = 0.000;
 const Motion = motion;
 
 const EMPTY_CUT_SPAN = {
@@ -27,6 +41,9 @@ const PackOpener = ({ onOpen, cards }) => {
     const [isCutting, setIsCutting] = useState(false);
     const [cutPoints, setCutPoints] = useState([]);
     const [sparks, setSparks] = useState([]);
+    const [preloadedAssets, setPreloadedAssets] = useState(null);
+    const [showSummary, setShowSummary] = useState(false);
+    const [packDesign, setPackDesign] = useState(() => PACK_DESIGNS[Math.floor(Math.random() * PACK_DESIGNS.length)]);
 
     const packRef = useRef(null);
     const cutSpanRef = useRef({ ...EMPTY_CUT_SPAN });
@@ -36,6 +53,7 @@ const PackOpener = ({ onOpen, cards }) => {
     const sparkIdRef = useRef(0);
     const sparkTimeoutsRef = useRef([]);
     const lastSparkAtRef = useRef(0);
+    const fairyDustRef = useRef(null);
 
     const clearSparks = useCallback(() => {
         sparkTimeoutsRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -85,7 +103,7 @@ const PackOpener = ({ onOpen, cards }) => {
     }, [clearSparks]);
 
     const startOpening = useCallback(() => {
-        setIsOpening(true);
+        // Generate 5 random cards for the pack
         const pack = Array.from({ length: PACK_SIZE }, () => {
             const random = Math.random() * 100;
             let filtered;
@@ -97,8 +115,28 @@ const PackOpener = ({ onOpen, cards }) => {
             if (!filtered.length) filtered = cards;
             return { ...filtered[Math.floor(Math.random() * filtered.length)], uniqueId: Math.random(), isRevealed: false };
         });
+
+        // Preload MP3 files
+        const whatBrainrot = new Audio(whatBrainrotSrc);
+        whatBrainrot.preload = 'auto';
+        whatBrainrot.load();
+
+        const cardFlip = new Audio(cardFlipSrc);
+        cardFlip.preload = 'auto';
+        cardFlip.load();
+
+        // Preload all effect sounds
+        const effects = EFFECT_SOUNDS.map(src => {
+            const audio = new Audio(src);
+            audio.preload = 'auto';
+            audio.load();
+            return audio;
+        });
+
+        setPreloadedAssets({ whatBrainrot, cardFlip, effects });
         setOpenedCards(pack);
         setCurrentIndex(0);
+        setIsOpening(true);
     }, [cards]);
 
     const finishPack = useCallback(() => {
@@ -106,6 +144,8 @@ const PackOpener = ({ onOpen, cards }) => {
         setOpenedCards([]);
         setCurrentIndex(0);
         setIsPackCut(false);
+        setShowSummary(false);
+        setPackDesign(PACK_DESIGNS[Math.floor(Math.random() * PACK_DESIGNS.length)]);
         resetCutState();
     }, [resetCutState]);
 
@@ -113,17 +153,40 @@ const PackOpener = ({ onOpen, cards }) => {
         if (currentIndex < openedCards.length - 1) {
             setCurrentIndex(currentIndex + 1);
         } else {
-            onOpen(openedCards);
-            finishPack();
+            // Show summary instead of finishing immediately
+            setShowSummary(true);
         }
-    }, [currentIndex, openedCards, onOpen, finishPack]);
+    }, [currentIndex, openedCards]);
+
+    const closeSummary = useCallback(() => {
+        onOpen(openedCards);
+        finishPack();
+    }, [openedCards, onOpen, finishPack]);
+
+    // Play "what kind of brainrot" when a new card appears (after card animation finishes)
+    useEffect(() => {
+        if (isOpening && preloadedAssets && openedCards[currentIndex] && !openedCards[currentIndex].isRevealed) {
+            const timer = setTimeout(() => {
+                const whatBrainrot = preloadedAssets.whatBrainrot.cloneNode();
+                whatBrainrot.play().catch(e => console.log("Audio playback failed:", e));
+            }, 700);
+            return () => clearTimeout(timer);
+        }
+    }, [isOpening, currentIndex, preloadedAssets, openedCards]);
 
     const handleFlip = useCallback(() => {
         const currentCard = openedCards[currentIndex];
-        if (!currentCard) return;
+        if (!currentCard || !preloadedAssets) return;
 
-        const audio = new Audio('/sounds/ding.mp3');
-        audio.play().catch(e => console.log("Audio playback failed:", e));
+        // Play card flip sound
+        const cardFlip = preloadedAssets.cardFlip.cloneNode();
+        cardFlip.play().catch(e => console.log("Audio playback failed:", e));
+
+        // Pick a random effect sound
+        const randomEffect = preloadedAssets.effects[Math.floor(Math.random() * preloadedAssets.effects.length)].cloneNode();
+
+        // Play effect sound on reveal
+        randomEffect.play().catch(e => console.log("Audio playback failed:", e));
 
         const newCards = [...openedCards];
         newCards[currentIndex].isRevealed = true;
@@ -137,7 +200,7 @@ const PackOpener = ({ onOpen, cards }) => {
                 colors: currentCard.rarity === 'LEGENDARY' ? ['#ff8000', '#ffd700'] : ['#a335ee', '#bc13fe']
             });
         }
-    }, [openedCards, currentIndex]);
+    }, [openedCards, currentIndex, preloadedAssets]);
 
     const getLocalPoint = useCallback((clientX, clientY) => {
         const rect = packRef.current?.getBoundingClientRect();
@@ -161,6 +224,10 @@ const PackOpener = ({ onOpen, cards }) => {
         setIsPackCut(true);
         setCutPoints([]);
         clearSparks();
+
+        // Play woosh sound
+        const woosh = new Audio(wooshSrc);
+        woosh.play().catch(e => console.log("Audio playback failed:", e));
 
         if (openTimeoutRef.current) {
             window.clearTimeout(openTimeoutRef.current);
@@ -192,6 +259,14 @@ const PackOpener = ({ onOpen, cards }) => {
             setCutPoints([{ x: xPercent, y: yPercent }]);
             cutSpanRef.current = { minX: clampedX, maxX: clampedX };
             emitSpark(clientX, sparkY);
+
+            // Play fairy dust sound when cutting starts
+            if (fairyDustRef.current) {
+                fairyDustRef.current.pause();
+                fairyDustRef.current.currentTime = 0;
+            }
+            fairyDustRef.current = new Audio(fairyDustSrc);
+            fairyDustRef.current.play().catch(e => console.log("Audio playback failed:", e));
             return;
         }
 
@@ -220,6 +295,12 @@ const PackOpener = ({ onOpen, cards }) => {
         setIsCutting(false);
         isPointerDownRef.current = false;
         clearSparks();
+
+        // Stop fairy dust sound
+        if (fairyDustRef.current) {
+            fairyDustRef.current.pause();
+            fairyDustRef.current = null;
+        }
 
         if (!cutCompletedRef.current) {
             setCutPoints([]);
@@ -302,9 +383,15 @@ const PackOpener = ({ onOpen, cards }) => {
                 {!isOpening ? (
                     <Motion.div
                         key="pack"
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
+                        initial={{ y: '-100vh', opacity: 0, rotate: -10 }}
+                        animate={{ y: 0, opacity: 1, rotate: 0 }}
                         exit={{ scale: 1.5, opacity: 0 }}
+                        transition={{
+                            type: 'spring',
+                            stiffness: 80,
+                            damping: 12,
+                            mass: 1
+                        }}
                         className="pack-display"
                     >
                         <div className="pack-shell-wrap">
@@ -326,6 +413,14 @@ const PackOpener = ({ onOpen, cards }) => {
                                     draggable="false"
                                 />
                                 <div className="tear-guide" />
+                                {cutPoints.length > 1 && (
+                                    <svg className="cut-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                        <polyline
+                                            className="cut-line"
+                                            points={cutPoints.map(p => `${p.x},${p.y}`).join(' ')}
+                                        />
+                                    </svg>
+                                )}
                             </div>
                         </div>
                     </Motion.div>
@@ -336,31 +431,63 @@ const PackOpener = ({ onOpen, cards }) => {
                         animate={{ opacity: 1 }}
                         className="card-reveal-area"
                     >
-                        <div className="reveal-counter">
-                            {currentIndex + 1} / {openedCards.length}
-                        </div>
+                        {!showSummary ? (
+                            <>
+                                <div className="reveal-counter">
+                                    {currentIndex + 1} / {openedCards.length}
+                                </div>
 
-                        <AnimatePresence mode="wait">
-                            {currentCard && (
-                                <Motion.div
-                                    key={currentCard.uniqueId}
-                                    initial={{ x: 500, opacity: 0, rotate: 10 }}
-                                    animate={{ x: 0, opacity: 1, rotate: 0 }}
-                                    exit={{ x: -500, opacity: 0, rotate: -10 }}
-                                    className="active-card-container"
-                                >
-                                    <Card
-                                        card={currentCard}
-                                        isFlipped={currentCard.isRevealed}
-                                        onFlip={handleInteraction}
-                                    />
-                                </Motion.div>
-                            )}
-                        </AnimatePresence>
+                                <AnimatePresence mode="wait">
+                                    {currentCard && (
+                                        <Motion.div
+                                            key={currentCard.uniqueId}
+                                            initial={{ x: 500, opacity: 0, rotate: 10 }}
+                                            animate={{ x: 0, opacity: 1, rotate: 0 }}
+                                            exit={{ x: -500, opacity: 0, rotate: -10 }}
+                                            className="active-card-container"
+                                        >
+                                            <Card
+                                                card={currentCard}
+                                                isFlipped={currentCard.isRevealed}
+                                                onFlip={handleInteraction}
+                                            />
+                                        </Motion.div>
+                                    )}
+                                </AnimatePresence>
 
-                        <div className="tip-text">
-                            {currentCard?.isRevealed ? "Click or Space to see next" : "Click or Space to reveal"}
-                        </div>
+                                <div className="tip-text">
+                                    {currentCard?.isRevealed ? "Click or Space to see next" : "Click or Space to reveal"}
+                                </div>
+                            </>
+                        ) : (
+                            <Motion.div
+                                className="pack-summary"
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                            >
+                                <h2 className="summary-title">Pack Summary</h2>
+                                <div className="summary-carousel">
+                                    {openedCards.map((card, index) => {
+                                        const totalCards = openedCards.length;
+                                        const offset = (index - (totalCards - 1) / 2);
+                                        return (
+                                            <div
+                                                key={card.uniqueId}
+                                                className={`summary-card ${card.rarity.toLowerCase()}`}
+                                                style={{
+                                                    '--offset': offset,
+                                                }}
+                                            >
+                                                <img src={card.image} alt={card.name} />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <button className="summary-close-btn" onClick={closeSummary}>
+                                    Open Another Pack
+                                </button>
+                            </Motion.div>
+                        )}
                     </Motion.div>
                 )}
             </AnimatePresence>

@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import './styles/index.css';
 import PackOpener from './components/PackOpener';
 import { INITIAL_CARDS } from './data/cards';
+import swedenSrc from './assets/Sweden.mp3';
 
 const COLLECTION_STORAGE_KEY = 'brainrot-found-collection-v1';
 
@@ -20,6 +21,18 @@ const getStoredCollection = () => {
 function App() {
   const [collection, setCollection] = useState(getStoredCollection);
   const [isCollectionOpen, setIsCollectionOpen] = useState(false);
+
+  // Play background music on page load
+  useEffect(() => {
+    const bgMusic = new Audio(swedenSrc);
+    bgMusic.volume = 0.05;
+    bgMusic.loop = true;
+    bgMusic.play().catch(e => console.log("Background music failed:", e));
+
+    return () => {
+      bgMusic.pause();
+    };
+  }, []);
 
   const handleCardsOpened = (newCards) => {
     setCollection((prev) => {
@@ -82,10 +95,6 @@ function App() {
               {collectionItems.map(({ card, count }) => (
                 <article key={card.id} className={`collection-item ${card.rarity.toLowerCase()}`}>
                   <img src={card.image} alt={card.name} />
-                  <div className="collection-item-meta">
-                    <h3>{card.name}</h3>
-                    <p>{card.rarity}</p>
-                  </div>
                   <span className="collection-count">x{count}</span>
                 </article>
               ))}

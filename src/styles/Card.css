@@ -4,6 +4,7 @@
     height: 560px;
     cursor: pointer;
     position: relative;
+    max-width: 100%;
 }
 
 .card-inner {
@@ -20,15 +21,17 @@
     height: 100%;
     backface-visibility: hidden;
     border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    border: 4px solid #1e1d1a;
+    overflow: visible;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.5),
+        0 0 30px rgba(188, 19, 254, 0.6),
+        0 0 60px rgba(188, 19, 254, 0.4),
+        0 0 100px rgba(188, 19, 254, 0.3);
 }
 
 /* Card Back */
 .card-back {
     background: #000;
-    border: 4px solid #1a1a1e;
 }
 
 .card-back-image {
@@ -36,50 +39,22 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    border-radius: 8px;
 }
 
 /* Card Front */
 .card-front {
-    background: #1a1a1e;
-    transform: rotateY(180deg);
-    display: flex;
-    flex-direction: column;
-    padding: 12px;
-}
-
-.card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 8px;
-}
-
-.card-name {
-    font-weight: 900;
-    font-size: 1.2rem;
-    color: white;
-}
-
-.card-hp {
-    font-weight: 700;
-    font-size: 0.9rem;
-    color: #ff4d4d;
-}
-
-.card-image-container {
-    position: relative;
-    width: 100%;
-    height: 300px;
     background: #000;
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 12px;
+    transform: rotateY(180deg);
+    position: relative;
 }
 
-.card-image {
+.card-full-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
+    border-radius: 8px;
 }
 
 .holo-overlay {

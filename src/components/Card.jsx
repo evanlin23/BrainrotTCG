@@ -1,15 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/Card.css';
 import cardBackImage from '../assets/card_back.png';
 
 const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
-    const [isHovered, setIsHovered] = useState(false);
+    const cardRef = useRef(null);
+    const [tilt, setTilt] = useState({ rotateX: 0, rotateY: 0 });
+
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (!cardRef.current) return;
+
+            const rect = cardRef.current.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+
+            // Calculate distance from center
+            const percentX = (e.clientX - centerX) / (rect.width / 2);
+            const percentY = (e.clientY - centerY) / (rect.height / 2);
+
+            // Clamp values for smoother effect at distance
+            const clampedX = Math.max(-2, Math.min(2, percentX));
+            const clampedY = Math.max(-2, Math.min(2, percentY));
+
+            // Apply rotation (max 15 degrees)
+            const maxTilt = 12;
+            setTilt({
+                rotateX: -clampedY * maxTilt,
+                rotateY: clampedX * maxTilt
+            });
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        return () => window.removeEventListener('mousemove', handleMouseMove);
+    }, []);
 
     return (
         <div
+            ref={cardRef}
             className={`card-wrapper ${card.rarity.toLowerCase()}`}
             onContextMenu={(e) => e.preventDefault()}
+            style={{
+                transform: `perspective(1000px) rotateX(${tilt.rotateX}deg) rotateY(${tilt.rotateY}deg)`,
+                transition: 'transform 0.15s ease-out'
+            }}
         >
             <motion.div
                 className="card-inner"
@@ -29,26 +63,8 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
 
                 {/* Card Front */}
                 <div className="card-face card-front">
-                    <div className="card-header">
-                        <span className="card-name">{card.name}</span>
-                        <span className="card-hp">HP {card.hp}</span>
-                    </div>
-
-                    <div className="card-image-container">
-                        <img src={card.image} alt={card.name} className="card-image" />
-                        <div className="holo-overlay"></div>
-                    </div>
-
-                    <div className="card-info">
-                        <div className="card-description">{card.description}</div>
-                        <div className="card-stats">
-                            <div className="stat-item">
-                                <span className="stat-label">ATK</span>
-                                <span className="stat-value">{card.atk}</span>
-                            </div>
-                            <div className="rarity-badge">{card.rarity}</div>
-                        </div>
-                    </div>
+                    <img src={card.image} alt={card.name} className="card-full-image" draggable="false" />
+                    <div className="holo-overlay"></div>
                 </div>
             </motion.div>
         </div>

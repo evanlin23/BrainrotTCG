@@ -1,7 +1,7 @@
 import cardMetadata from './cards.json';
 
 // Use Vite's glob import to scan the assets directory
-const images = import.meta.glob('../assets/*.{png,jpg,jpeg,svg}', { eager: true });
+const images = import.meta.glob('../assets/cards/*.{png,jpg,jpeg,svg}', { eager: true });
 
 export const CARD_RARITIES = {
   COMMON: { name: 'Common', color: '#aaaaaa', weight: 70 },
