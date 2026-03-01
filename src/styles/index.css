@@ -178,16 +178,6 @@ main {
     box-shadow: 0 0 0 1px rgba(255, 128, 0, 0.35), 0 0 20px rgba(255, 128, 0, 0.55), 6px 10px 16px rgba(0, 0, 0, 0.45);
 }
 
-.collection-item::after {
-    content: '';
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    width: 60%;
-    height: 55%;
-    background: radial-gradient(circle at bottom right, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.4) 48%, transparent 100%);
-    pointer-events: none;
-}
 
 .collection-item img {
     width: 100%;

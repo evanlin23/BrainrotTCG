@@ -33,7 +33,7 @@ const EMPTY_CUT_SPAN = {
     maxX: Number.NEGATIVE_INFINITY,
 };
 
-const PackOpener = ({ onOpen, cards }) => {
+const PackOpener = ({ onOpen, cards, disabled = false }) => {
     const [isOpening, setIsOpening] = useState(false);
     const [openedCards, setOpenedCards] = useState([]);
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -153,15 +153,15 @@ const PackOpener = ({ onOpen, cards }) => {
         if (currentIndex < openedCards.length - 1) {
             setCurrentIndex(currentIndex + 1);
         } else {
-            // Show summary instead of finishing immediately
+            // Add cards to collection and show summary
+            onOpen(openedCards);
             setShowSummary(true);
         }
-    }, [currentIndex, openedCards]);
+    }, [currentIndex, openedCards, onOpen]);
 
     const closeSummary = useCallback(() => {
-        onOpen(openedCards);
         finishPack();
-    }, [openedCards, onOpen, finishPack]);
+    }, [finishPack]);
 
     // Play "what kind of brainrot" when a new card appears (after card animation finishes)
     useEffect(() => {
@@ -321,14 +321,17 @@ const PackOpener = ({ onOpen, cards }) => {
 
     useEffect(() => {
         const handleKeyDown = (e) => {
-            if (e.code === 'Space' && isOpening) {
+            // Ignore if disabled, showing summary, not opening, or key is held down
+            if (disabled || showSummary || !isOpening || e.repeat) return;
+
+            if (e.code === 'Space') {
                 e.preventDefault();
                 handleInteraction();
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpening, handleInteraction]);
+    }, [isOpening, handleInteraction, disabled, showSummary]);
 
     useEffect(() => {
         const handlePointerDown = (event) => {

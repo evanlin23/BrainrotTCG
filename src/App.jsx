@@ -69,7 +69,7 @@ function App() {
       </header>
 
       <main>
-        <PackOpener onOpen={handleCardsOpened} cards={INITIAL_CARDS} />
+        <PackOpener onOpen={handleCardsOpened} cards={INITIAL_CARDS} disabled={isCollectionOpen} />
       </main>
 
       <button
