@@ -2,6 +2,8 @@
 
 A meme-themed Trading Card Game pack opener built with React.
 
+# Play live: https://evanlin23.github.io/BrainrotTCG
+
 ## Inspiration
 
 We are professional brainrotters and so were inspired to create a trading card game for brainrot. 
