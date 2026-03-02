@@ -23,7 +23,6 @@ export const createUtterance = (text, options = {}) => {
 export const speakUtterance = (utterance) => {
     return new Promise((resolve, reject) => {
         if (!('speechSynthesis' in window)) {
-            console.warn('Speech Synthesis not supported in this browser.');
             reject(new Error('Speech Synthesis not supported'));
             return;
         }
@@ -48,10 +47,7 @@ export const speakUtterance = (utterance) => {
  * @param {string} [options.lang='en-US'] - Language code.
  */
 export const speak = (text, options = {}) => {
-    console.log('Attempting to speak:', text, options);
-
     if (!('speechSynthesis' in window)) {
-        console.warn('Speech Synthesis not supported in this browser.');
         return;
     }
 
@@ -66,10 +62,5 @@ export const speak = (text, options = {}) => {
     utterance.volume = options.volume || 1;
     utterance.lang = options.lang || 'en-US';
 
-    utterance.onstart = () => console.log('Speech started');
-    utterance.onend = () => console.log('Speech ended');
-    utterance.onerror = (event) => console.error('Speech error:', event);
-
-    console.log('Utterance configured:', utterance);
     window.speechSynthesis.speak(utterance);
 };

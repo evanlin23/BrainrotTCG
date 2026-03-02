@@ -2,21 +2,21 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import Card from './Card';
-import pack1 from '../assets/pack1.png';
-import pack2 from '../assets/pack2.png';
+import pack1 from '../assets/packs/pack1.png';
+import pack2 from '../assets/packs/pack2.png';
 
 const PACK_DESIGNS = [pack1, pack2];
-import whatBrainrotOriginal from '../assets/what-brainrot.mp3';
-import cardFlipSrc from '../assets/Card-flip-sound-effect.mp3';
+import whatBrainrotOriginal from '../assets/voices/what-brainrot.mp3';
+import cardFlipSrc from '../assets/audio/Card-flip-sound-effect.mp3';
 
 // Auto-scan for ElevenLabs voice files
-const elevenLabsVoices = import.meta.glob('../assets/ElevenLabs_*.mp3', { eager: true });
+const elevenLabsVoices = import.meta.glob('../assets/voices/ElevenLabs_*.mp3', { eager: true });
 const BRAINROT_VOICES = [
     whatBrainrotOriginal,
     ...Object.values(elevenLabsVoices).map(m => m.default)
 ];
-import fairyDustSrc from '../assets/fairy-dust-sound-effect.mp3';
-import wooshSrc from '../assets/woosh.mp3';
+import fairyDustSrc from '../assets/audio/fairy-dust-sound-effect.mp3';
+import wooshSrc from '../assets/audio/woosh.mp3';
 // Sound effects
 import dingSrc from '../assets/effects/ding.mp3';
 import rizzSrc from '../assets/effects/rizz-sound-effect.mp3';
@@ -111,17 +111,23 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
     }, [clearSparks]);
 
     const startOpening = useCallback(() => {
-        // Generate 5 random cards for the pack
+        // Generate 5 random cards for the pack with new 6-tier rarity system
         const pack = Array.from({ length: PACK_SIZE }, () => {
             const random = Math.random() * 100;
             let filtered;
-            if (random < 2) filtered = cards.filter(c => c.rarity === 'LEGENDARY');
+            // Rarity thresholds: BRAINROT 0.5%, LEGENDARY 2.5%, EPIC 7%, RARE 15%, UNCOMMON 25%, COMMON 50%
+            if (random < 0.5) filtered = cards.filter(c => c.rarity === 'BRAINROT');
+            else if (random < 3) filtered = cards.filter(c => c.rarity === 'LEGENDARY');
             else if (random < 10) filtered = cards.filter(c => c.rarity === 'EPIC');
-            else if (random < 30) filtered = cards.filter(c => c.rarity === 'RARE');
+            else if (random < 25) filtered = cards.filter(c => c.rarity === 'RARE');
+            else if (random < 50) filtered = cards.filter(c => c.rarity === 'UNCOMMON');
             else filtered = cards.filter(c => c.rarity === 'COMMON');
 
             if (!filtered.length) filtered = cards;
-            return { ...filtered[Math.floor(Math.random() * filtered.length)], uniqueId: Math.random(), isRevealed: false };
+            const card = filtered[Math.floor(Math.random() * filtered.length)];
+            // 5% chance for holo
+            const isHolo = Math.random() < 0.05;
+            return { ...card, uniqueId: Math.random(), isRevealed: false, isHolo };
         });
 
         // Preload MP3 files
@@ -180,7 +186,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         if (isOpening && preloadedAssets && openedCards[currentIndex] && !openedCards[currentIndex].isRevealed) {
             const timer = setTimeout(() => {
                 const randomVoice = preloadedAssets.brainrotVoices[Math.floor(Math.random() * preloadedAssets.brainrotVoices.length)].cloneNode();
-                randomVoice.play().catch(e => console.log("Audio playback failed:", e));
+                randomVoice.play().catch(() => {});
             }, 700);
             return () => clearTimeout(timer);
         }
@@ -200,24 +206,29 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
 
         // Play card flip sound
         const cardFlip = preloadedAssets.cardFlip.cloneNode();
-        cardFlip.play().catch(e => console.log("Audio playback failed:", e));
+        cardFlip.play().catch(() => {});
 
         // Pick a random effect sound
         const randomEffect = preloadedAssets.effects[Math.floor(Math.random() * preloadedAssets.effects.length)].cloneNode();
 
         // Play effect sound on reveal
-        randomEffect.play().catch(e => console.log("Audio playback failed:", e));
+        randomEffect.play().catch(() => {});
 
         const newCards = [...openedCards];
         newCards[currentIndex].isRevealed = true;
         setOpenedCards(newCards);
 
-        if (currentCard.rarity === 'LEGENDARY' || currentCard.rarity === 'EPIC') {
+        if (currentCard.rarity === 'BRAINROT' || currentCard.rarity === 'LEGENDARY' || currentCard.rarity === 'EPIC') {
+            const colors = currentCard.rarity === 'BRAINROT'
+                ? ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#0000ff', '#9400d3']
+                : currentCard.rarity === 'LEGENDARY'
+                    ? ['#ff8000', '#ffd700']
+                    : ['#a335ee', '#bc13fe'];
             confetti({
-                particleCount: 150,
-                spread: 70,
+                particleCount: currentCard.rarity === 'BRAINROT' ? 250 : 150,
+                spread: currentCard.rarity === 'BRAINROT' ? 100 : 70,
                 origin: { y: 0.6 },
-                colors: currentCard.rarity === 'LEGENDARY' ? ['#ff8000', '#ffd700'] : ['#a335ee', '#bc13fe']
+                colors
             });
         }
     }, [openedCards, currentIndex, preloadedAssets]);
@@ -247,7 +258,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
 
         // Play woosh sound
         const woosh = new Audio(wooshSrc);
-        woosh.play().catch(e => console.log("Audio playback failed:", e));
+        woosh.play().catch(() => {});
 
         if (openTimeoutRef.current) {
             window.clearTimeout(openTimeoutRef.current);
@@ -286,7 +297,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
                 fairyDustRef.current.currentTime = 0;
             }
             fairyDustRef.current = new Audio(fairyDustSrc);
-            fairyDustRef.current.play().catch(e => console.log("Audio playback failed:", e));
+            fairyDustRef.current.play().catch(() => {});
             return;
         }
 
@@ -436,6 +447,10 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
                                     draggable="false"
                                 />
                                 <div className="tear-guide" />
+                                <div className="swipe-hint">
+                                    <span className="swipe-hint-icon">👆</span>
+                                    <span className="swipe-hint-text">Swipe to open</span>
+                                </div>
                                 {cutPoints.length > 1 && (
                                     <svg className="cut-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
                                         <polyline
@@ -495,13 +510,16 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
                                     {openedCards.map((card, index) => {
                                         const totalCards = openedCards.length;
                                         const offset = (index - (totalCards - 1) / 2);
+                                        const classes = [
+                                            'summary-card',
+                                            card.rarity.toLowerCase(),
+                                            card.isHolo ? 'holo' : ''
+                                        ].filter(Boolean).join(' ');
                                         return (
                                             <div
                                                 key={card.uniqueId}
-                                                className={`summary-card ${card.rarity.toLowerCase()}`}
-                                                style={{
-                                                    '--offset': offset,
-                                                }}
+                                                className={classes}
+                                                style={{ '--offset': offset }}
                                             >
                                                 <img src={card.image} alt={card.name} />
                                             </div>

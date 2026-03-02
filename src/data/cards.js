@@ -1,34 +1,45 @@
-import cardMetadata from './cards.json';
-
-// Use Vite's glob import to scan the assets directory
-const images = import.meta.glob('../assets/cards/*.{png,jpg,jpeg,svg}', { eager: true });
+// Use Vite's glob import to scan each rarity folder
+const commonImages = import.meta.glob('../assets/cards/common/*.{png,jpg,jpeg,svg}', { eager: true });
+const uncommonImages = import.meta.glob('../assets/cards/uncommon/*.{png,jpg,jpeg,svg}', { eager: true });
+const rareImages = import.meta.glob('../assets/cards/rare/*.{png,jpg,jpeg,svg}', { eager: true });
+const epicImages = import.meta.glob('../assets/cards/epic/*.{png,jpg,jpeg,svg}', { eager: true });
+const legendaryImages = import.meta.glob('../assets/cards/legendary/*.{png,jpg,jpeg,svg}', { eager: true });
+const brainrotImages = import.meta.glob('../assets/cards/brainrot/*.{png,jpg,jpeg,svg}', { eager: true });
 
 export const CARD_RARITIES = {
-  COMMON: { name: 'Common', color: '#aaaaaa', weight: 70 },
-  RARE: { name: 'Rare', color: '#0070dd', weight: 20 },
-  EPIC: { name: 'Epic', color: '#a335ee', weight: 8 },
-  LEGENDARY: { name: 'Legendary', color: '#ff8000', weight: 2 },
+  COMMON: { name: 'Common', color: '#aaaaaa', weight: 50 },
+  UNCOMMON: { name: 'Uncommon', color: '#1eff00', weight: 25 },
+  RARE: { name: 'Rare', color: '#0070dd', weight: 15 },
+  EPIC: { name: 'Epic', color: '#a335ee', weight: 7 },
+  LEGENDARY: { name: 'Legendary', color: '#ff8000', weight: 2.5 },
+  BRAINROT: { name: 'Brainrot', color: 'rainbow', weight: 0.5 },
 };
 
-// Transform the globbed images into a card list
-export const INITIAL_CARDS = Object.entries(images).map(([path, module]) => {
-  // Extract filename without extension (e.g., "../assets/skibidi.png" -> "skibidi")
-  const fileName = path.split('/').pop().split('.').shift();
+// Helper to create cards from a folder's images
+const createCardsFromFolder = (images, rarity) => {
+  return Object.entries(images).map(([path, module]) => {
+    const fileName = path.split('/').pop().replace(/\.[^.]+$/, '');
+    return {
+      id: fileName,
+      name: fileName,
+      rarity,
+      image: module.default || module,
+    };
+  });
+};
 
-  // Get metadata or use defaults
-  const meta = cardMetadata[fileName] || {
-    name: fileName.charAt(0).toUpperCase() + fileName.slice(1),
-    rarity: 'COMMON',
-    description: 'A newly discovered brainrot entity.',
-    hp: 1000,
-    atk: 1000
-  };
+// Combine all cards from each rarity folder
+export const INITIAL_CARDS = [
+  ...createCardsFromFolder(commonImages, 'COMMON'),
+  ...createCardsFromFolder(uncommonImages, 'UNCOMMON'),
+  ...createCardsFromFolder(rareImages, 'RARE'),
+  ...createCardsFromFolder(epicImages, 'EPIC'),
+  ...createCardsFromFolder(legendaryImages, 'LEGENDARY'),
+  ...createCardsFromFolder(brainrotImages, 'BRAINROT'),
+];
 
-  return {
-    id: fileName,
-    ...meta,
-    image: module.default || module,
-  };
-}).filter(card => card.id !== 'react'); // Exclude the default react icon if it exists
+// Get cards filtered by rarity
+export const getCardsByRarity = (rarity) => {
+  return INITIAL_CARDS.filter(card => card.rarity === rarity);
+};
 
-console.log('Detected Cards:', INITIAL_CARDS);

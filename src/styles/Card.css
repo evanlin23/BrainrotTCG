@@ -21,12 +21,9 @@
     height: 100%;
     backface-visibility: hidden;
     border-radius: 8px;
-    overflow: visible;
-    box-shadow:
-        0 10px 30px rgba(0, 0, 0, 0.5),
-        0 0 30px rgba(188, 19, 254, 0.6),
-        0 0 60px rgba(188, 19, 254, 0.4),
-        0 0 100px rgba(188, 19, 254, 0.3);
+    overflow: hidden;
+    border: 3px solid #333;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
 /* Card Back */
@@ -122,19 +119,66 @@
 
 /* Rarity Styles */
 .card-wrapper.common .card-face {
-    border-color: #333;
+    border-color: #aaaaaa;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.5),
+        0 0 20px rgba(170, 170, 170, 0.3),
+        0 0 40px rgba(170, 170, 170, 0.2);
+}
+
+.card-wrapper.uncommon .card-face {
+    border-color: #1eff00;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.5),
+        0 0 25px rgba(30, 255, 0, 0.5),
+        0 0 50px rgba(30, 255, 0, 0.3);
 }
 
 .card-wrapper.rare .card-face {
     border-color: #0070dd;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.5),
+        0 0 30px rgba(0, 112, 221, 0.6),
+        0 0 60px rgba(0, 112, 221, 0.4);
 }
 
 .card-wrapper.epic .card-face {
     border-color: #a335ee;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.5),
+        0 0 35px rgba(163, 53, 238, 0.6),
+        0 0 70px rgba(163, 53, 238, 0.4);
 }
 
 .card-wrapper.legendary .card-face {
     border-color: #ff8000;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.5),
+        0 0 40px rgba(255, 128, 0, 0.7),
+        0 0 80px rgba(255, 128, 0, 0.5);
+}
+
+.card-wrapper.brainrot .card-face {
+    border: 3px solid transparent;
+    background: linear-gradient(#000, #000) padding-box,
+                linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3, #ff0000) border-box;
+    background-size: 100% 100%, 200% 100%;
+    animation: rainbowCardBorder 3s linear infinite;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.5),
+        0 0 30px rgba(255, 0, 255, 0.5),
+        0 0 60px rgba(0, 255, 255, 0.4),
+        0 0 90px rgba(255, 0, 255, 0.3);
+}
+
+@keyframes rainbowCardBorder {
+    0% { background-position: 0 0, 0% 0; }
+    100% { background-position: 0 0, 200% 0; }
+}
+
+.card-wrapper.uncommon .rarity-badge {
+    background: #1eff00;
+    color: black;
 }
 
 .card-wrapper.rare .rarity-badge {
@@ -152,22 +196,100 @@
     color: white;
 }
 
-/* Holographic Effect Animation (Simplified) */
-@keyframes holo {
+.card-wrapper.brainrot .rarity-badge {
+    background: linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3);
+    background-size: 200% 100%;
+    animation: rainbowBadge 2s linear infinite;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+@keyframes rainbowBadge {
+    0% { background-position: 0% 0; }
+    100% { background-position: 200% 0; }
+}
+
+/* Holo Card Shine Effect */
+.holo-shine-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: hidden;
+    border-radius: 8px;
+}
+
+.holo-shine-overlay::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(
+        120deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0) 30%,
+        rgba(255, 255, 255, 0.5) 50%,
+        rgba(255, 255, 255, 0) 70%,
+        transparent 100%
+    );
+    transform: skewX(-20deg);
+}
+
+/* Initial shine when card is revealed */
+.card-wrapper.holo.shine-played .holo-shine-overlay::before {
+    animation: holoShine 0.8s ease-out forwards;
+}
+
+/* Shine on hover after initial animation */
+.card-wrapper.holo:hover .holo-shine-overlay::before {
+    animation: holoShine 0.6s ease-out;
+}
+
+@keyframes holoShine {
     0% {
-        transform: scale(1) rotate(0deg);
-        opacity: 0;
+        left: -100%;
     }
-
-    50% {
-        opacity: 0.5;
-    }
-
     100% {
-        transform: scale(1.5) rotate(45deg);
-        opacity: 0;
+        left: 150%;
     }
 }
+
+/* Holo card rainbow shimmer background */
+.card-wrapper.holo .card-front::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        45deg,
+        rgba(255, 0, 0, 0.1) 0%,
+        rgba(255, 127, 0, 0.1) 14%,
+        rgba(255, 255, 0, 0.1) 28%,
+        rgba(0, 255, 0, 0.1) 42%,
+        rgba(0, 0, 255, 0.1) 56%,
+        rgba(75, 0, 130, 0.1) 70%,
+        rgba(148, 0, 211, 0.1) 84%,
+        rgba(255, 0, 0, 0.1) 100%
+    );
+    background-size: 400% 400%;
+    animation: holoShimmer 3s ease infinite;
+    pointer-events: none;
+    border-radius: 8px;
+    mix-blend-mode: overlay;
+}
+
+@keyframes holoShimmer {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
 
 @media (max-width: 640px) {
     .card-wrapper {

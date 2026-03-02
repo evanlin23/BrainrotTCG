@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import '../styles/Card.css';
-import cardBackImage from '../assets/card_back.png';
+import cardBackImage from '../assets/images/card_back.png';
 
 const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
     const cardRef = useRef(null);
     const [tilt, setTilt] = useState({ rotateX: 0, rotateY: 0 });
+    const [hasShined, setHasShined] = useState(false);
 
     useEffect(() => {
         const handleMouseMove = (e) => {
@@ -15,15 +16,12 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
             const centerX = rect.left + rect.width / 2;
             const centerY = rect.top + rect.height / 2;
 
-            // Calculate distance from center
             const percentX = (e.clientX - centerX) / (rect.width / 2);
             const percentY = (e.clientY - centerY) / (rect.height / 2);
 
-            // Clamp values for smoother effect at distance
             const clampedX = Math.max(-2, Math.min(2, percentX));
             const clampedY = Math.max(-2, Math.min(2, percentY));
 
-            // Apply rotation (max 15 degrees)
             const maxTilt = 12;
             setTilt({
                 rotateX: -clampedY * maxTilt,
@@ -35,10 +33,24 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, []);
 
+    // Trigger shine animation when card is flipped and is holo
+    useEffect(() => {
+        if (isFlipped && card.isHolo && !hasShined) {
+            setHasShined(true);
+        }
+    }, [isFlipped, card.isHolo, hasShined]);
+
+    const cardClasses = [
+        'card-wrapper',
+        isFlipped ? card.rarity.toLowerCase() : '',
+        card.isHolo ? 'holo' : '',
+        hasShined ? 'shine-played' : ''
+    ].filter(Boolean).join(' ');
+
     return (
         <div
             ref={cardRef}
-            className={`card-wrapper ${card.rarity.toLowerCase()}`}
+            className={cardClasses}
             onContextMenu={(e) => e.preventDefault()}
             style={{
                 transform: `perspective(1000px) rotateX(${tilt.rotateX}deg) rotateY(${tilt.rotateY}deg)`,
@@ -64,6 +76,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
                 {/* Card Front */}
                 <div className="card-face card-front">
                     <img src={card.image} alt={card.name} className="card-full-image" draggable="false" />
+                    {card.isHolo && <div className="holo-shine-overlay"></div>}
                     <div className="holo-overlay"></div>
                 </div>
             </motion.div>
