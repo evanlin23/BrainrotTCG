@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import Card, { CardWithMeta } from './Card';
+import CardViewerModal from './CardViewerModal';
 import pack1 from '../assets/packs/pack1.png';
 import pack2 from '../assets/packs/pack2.png';
 import type { Card as CardType } from '../data/cards';
@@ -85,6 +86,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
     const [showSummary, setShowSummary] = useState(false);
     const [packDesign, setPackDesign] = useState(() => PACK_DESIGNS[Math.floor(Math.random() * PACK_DESIGNS.length)]);
     const [hasMovedMouse, setHasMovedMouse] = useState(false);
+    const [selectedSummaryCard, setSelectedSummaryCard] = useState<CardWithMeta | null>(null);
 
     const packRef = useRef<HTMLDivElement>(null);
     const cutSpanRef = useRef<CutSpan>({ ...EMPTY_CUT_SPAN });
@@ -275,6 +277,45 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                 origin: { y: 0.6 },
                 colors
             });
+        }
+
+        // Sparkles for holo cards
+        if (currentCard.isHolo) {
+            // Burst of star-shaped sparkles
+            confetti({
+                particleCount: 60,
+                spread: 80,
+                origin: { y: 0.55 },
+                colors: ['#ffffff', '#fffacd', '#f0f8ff', '#e6e6fa', '#ffd700'],
+                shapes: ['star'],
+                scalar: 1.2,
+                gravity: 0.8,
+                drift: 0,
+                ticks: 150
+            });
+            // Second burst slightly delayed for more sparkle effect
+            setTimeout(() => {
+                confetti({
+                    particleCount: 40,
+                    spread: 60,
+                    origin: { y: 0.5, x: 0.4 },
+                    colors: ['#ffffff', '#fffacd', '#87ceeb', '#dda0dd'],
+                    shapes: ['star'],
+                    scalar: 0.9,
+                    gravity: 0.6,
+                    ticks: 120
+                });
+                confetti({
+                    particleCount: 40,
+                    spread: 60,
+                    origin: { y: 0.5, x: 0.6 },
+                    colors: ['#ffffff', '#fffacd', '#87ceeb', '#dda0dd'],
+                    shapes: ['star'],
+                    scalar: 0.9,
+                    gravity: 0.6,
+                    ticks: 120
+                });
+            }, 150);
         }
     }, [openedCards, currentIndex, preloadedAssets, playAndCleanup]);
 
@@ -571,6 +612,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                                                 key={card.uniqueId}
                                                 className={classes}
                                                 style={{ '--offset': offset } as React.CSSProperties}
+                                                onClick={() => setSelectedSummaryCard(card)}
                                             >
                                                 <img src={card.image} alt={card.name} />
                                             </div>
@@ -580,6 +622,15 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                                 <button className="summary-close-btn" onClick={closeSummary}>
                                     Open Another Pack
                                 </button>
+
+                                {/* Card Viewer Modal for summary */}
+                                {selectedSummaryCard && (
+                                    <CardViewerModal
+                                        card={selectedSummaryCard}
+                                        isHolo={selectedSummaryCard.isHolo}
+                                        onClose={() => setSelectedSummaryCard(null)}
+                                    />
+                                )}
                             </Motion.div>
                         )}
                     </Motion.div>

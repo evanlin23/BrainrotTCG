@@ -258,36 +258,12 @@
     }
 }
 
-/* Holo card rainbow shimmer background */
-.card-wrapper.holo .card-front::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-        45deg,
-        rgba(255, 0, 0, 0.1) 0%,
-        rgba(255, 127, 0, 0.1) 14%,
-        rgba(255, 255, 0, 0.1) 28%,
-        rgba(0, 255, 0, 0.1) 42%,
-        rgba(0, 0, 255, 0.1) 56%,
-        rgba(75, 0, 130, 0.1) 70%,
-        rgba(148, 0, 211, 0.1) 84%,
-        rgba(255, 0, 0, 0.1) 100%
-    );
-    background-size: 400% 400%;
-    animation: holoShimmer 3s ease infinite;
-    pointer-events: none;
-    border-radius: 8px;
-    mix-blend-mode: overlay;
-}
-
-@keyframes holoShimmer {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+/* Holo card glow effect */
+.card-wrapper.holo .card-face {
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.5),
+        0 0 25px rgba(255, 255, 255, 0.3),
+        0 0 50px rgba(255, 255, 255, 0.2);
 }
 
 

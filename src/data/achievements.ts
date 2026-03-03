@@ -13,6 +13,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'packs_67', name: 'Committed', description: 'Open 67 packs', icon: '📦' },
   { id: 'packs_100', name: 'Century', description: 'Open 100 packs', icon: '💯' },
   { id: 'packs_420', name: 'Blazing', description: 'Open 420 packs', icon: '🔥' },
+  { id: 'packs_1000', name: 'No Life', description: 'Open 1000 packs', icon: '💀' },
 
   // Rarity discoveries
   { id: 'first_common', name: 'Common Ground', description: 'Find your first Common card', icon: '⚪' },
@@ -30,12 +31,30 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'five_of_kind', name: '5 of a Kind', description: 'Get 5 of the same card in one pack', icon: '🎰' },
   { id: 'full_house', name: 'Full House', description: 'Get 3+2 matching cards in one pack', icon: '🏠' },
   { id: 'all_same_rarity', name: 'Monochrome', description: 'Get 5 cards of the same rarity in one pack', icon: '🎨' },
+  { id: 'five_rarities', name: 'Rainbow Pack', description: 'Get 5 different rarities in one pack', icon: '🌈' },
+  { id: 'no_commons', name: 'Above Average', description: 'Open a pack with no Common cards', icon: '⬆️' },
+  { id: 'double_holo', name: 'Double Rainbow', description: 'Get 2 holo cards in one pack', icon: '🌟' },
+  { id: 'all_holos', name: 'Jackpot', description: 'Get 5 holo cards in one pack', icon: '💫' },
 
   // Collection milestones
   { id: 'collect_5', name: 'Starter Collection', description: 'Collect 5 unique cards', icon: '📚' },
   { id: 'collect_10', name: 'Growing Collection', description: 'Collect 10 unique cards', icon: '📚' },
   { id: 'complete_collection', name: 'Completionist', description: 'Find every unique card', icon: '🏆' },
+
+  // Holo collection
   { id: 'holo_collector', name: 'Holo Collector', description: 'Collect 5 different Holo cards', icon: '💎' },
+  { id: 'holo_10', name: 'Sparkle Enthusiast', description: 'Collect 10 different Holo cards', icon: '💎' },
+  { id: 'holo_legendary', name: 'Golden Shine', description: 'Find a holo Legendary card', icon: '🌟' },
+  { id: 'holo_brainrot', name: 'Maximum Drip', description: 'Find a holo Brainrot card', icon: '🧠' },
+  { id: 'holo_complete', name: 'Shiny Hunter', description: 'Collect a holo version of every card', icon: '👑' },
+
+  // Rarity completion
+  { id: 'all_commons', name: 'Common Ground Complete', description: 'Collect every Common card', icon: '⚪' },
+  { id: 'all_uncommons', name: 'Uncommon Collector', description: 'Collect every Uncommon card', icon: '🟢' },
+  { id: 'all_rares', name: 'Rare Completionist', description: 'Collect every Rare card', icon: '🔵' },
+  { id: 'all_epics', name: 'Epic Journey Complete', description: 'Collect every Epic card', icon: '🟣' },
+  { id: 'all_legendaries', name: 'Legendary Status', description: 'Collect every Legendary card', icon: '🟠' },
+  { id: 'all_brainrots', name: 'Full Brainrot', description: 'Collect every Brainrot card', icon: '🧠' },
 
   // Special
   { id: 'lucky_day', name: 'Lucky Day', description: 'Get 2+ Legendary or Brainrot cards in one pack', icon: '🍀' },

@@ -472,40 +472,44 @@
 }
 
 /* Summary card holo effect */
+.summary-card.holo {
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4),
+                0 0 20px rgba(255, 255, 255, 0.3),
+                0 0 40px rgba(255, 255, 255, 0.2);
+}
+
+.summary-card.holo:hover {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5),
+                0 0 30px rgba(255, 255, 255, 0.4),
+                0 0 50px rgba(255, 255, 255, 0.3);
+}
+
+/* Shine sweep for holo summary cards */
 .summary-card.holo::after {
     content: '';
     position: absolute;
     top: 0;
-    left: 0;
-    width: 100%;
+    left: -100%;
+    width: 50%;
     height: 100%;
-    background: linear-gradient(45deg,
-            rgba(255, 0, 0, 0.15) 0%,
-            rgba(255, 127, 0, 0.15) 14%,
-            rgba(255, 255, 0, 0.15) 28%,
-            rgba(0, 255, 0, 0.15) 42%,
-            rgba(0, 0, 255, 0.15) 56%,
-            rgba(75, 0, 130, 0.15) 70%,
-            rgba(148, 0, 211, 0.15) 84%,
-            rgba(255, 0, 0, 0.15) 100%);
-    background-size: 400% 400%;
-    animation: holoShimmer 3s ease infinite;
+    background: linear-gradient(
+        120deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0) 30%,
+        rgba(255, 255, 255, 0.6) 50%,
+        rgba(255, 255, 255, 0) 70%,
+        transparent 100%
+    );
+    transform: skewX(-20deg);
+    animation: summaryHoloShine 3s ease-in-out infinite;
     pointer-events: none;
-    border-radius: 5px;
+    z-index: 2;
 }
 
-@keyframes holoShimmer {
-    0% {
-        background-position: 0% 50%;
-    }
-
-    50% {
-        background-position: 100% 50%;
-    }
-
-    100% {
-        background-position: 0% 50%;
-    }
+@keyframes summaryHoloShine {
+    0% { left: -100%; }
+    40% { left: 150%; }
+    100% { left: 150%; }
 }
 
 .summary-close-btn {

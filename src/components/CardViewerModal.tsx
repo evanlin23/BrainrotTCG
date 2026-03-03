@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Card } from '../data/cards';
 
-interface CollectionCardViewerProps {
+interface CardViewerModalProps {
   card: Card;
-  hasHolo: boolean;
+  isHolo: boolean;
+  onClose: () => void;
 }
 
-const CollectionCardViewer = ({ card, hasHolo }: CollectionCardViewerProps) => {
+const CardViewerModal = ({ card, isHolo, onClose }: CardViewerModalProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [tilt, setTilt] = useState({ rotateX: 0, rotateY: 0 });
 
@@ -31,7 +32,6 @@ const CollectionCardViewer = ({ card, hasHolo }: CollectionCardViewerProps) => {
       });
     };
 
-    // For touch devices, use touch events
     const handleTouchMove = (e: TouchEvent) => {
       if (!cardRef.current || e.touches.length === 0) return;
 
@@ -64,22 +64,27 @@ const CollectionCardViewer = ({ card, hasHolo }: CollectionCardViewerProps) => {
   const classes = [
     'card-viewer-card',
     card.rarity.toLowerCase(),
-    hasHolo ? 'holo' : ''
+    isHolo ? 'holo' : ''
   ].filter(Boolean).join(' ');
 
   return (
-    <div
-      ref={cardRef}
-      className={classes}
-      style={{
-        transform: `perspective(1000px) rotateX(${tilt.rotateX}deg) rotateY(${tilt.rotateY}deg)`,
-        transition: 'transform 0.1s ease-out',
-        transformStyle: 'preserve-3d'
-      }}
-    >
-      <img src={card.image} alt={card.name} draggable="false" />
+    <div className="card-viewer-overlay" onClick={onClose}>
+      <div className="card-viewer-content" onClick={(e) => e.stopPropagation()}>
+        <div
+          ref={cardRef}
+          className={classes}
+          style={{
+            transform: `perspective(1000px) rotateX(${tilt.rotateX}deg) rotateY(${tilt.rotateY}deg)`,
+            transition: 'transform 0.1s ease-out',
+            transformStyle: 'preserve-3d'
+          }}
+        >
+          <img src={card.image} alt={card.name} draggable="false" />
+        </div>
+        <button className="card-viewer-close" onClick={onClose}>&times;</button>
+      </div>
     </div>
   );
 };
 
-export default CollectionCardViewer;
+export default CardViewerModal;
