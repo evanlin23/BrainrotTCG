@@ -102,6 +102,9 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
     const sparkTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
     const lastSparkAtRef = useRef(0);
     const fairyDustRef = useRef<HTMLAudioElement | null>(null);
+    const spaceHeldRef = useRef(false);
+    const spaceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const handleInteractionRef = useRef<() => void>(() => {});
 
     const clearSparks = useCallback(() => {
         sparkTimeoutsRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -442,6 +445,9 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
         }
     }, [isOpening, openedCards, currentIndex, handleFlip, nextCard]);
 
+    // Keep ref updated for use in intervals (avoids stale closure)
+    handleInteractionRef.current = handleInteraction;
+
     // Auto mode effect - continuously open packs
     useEffect(() => {
         if (autoMode && !disabled) {
@@ -492,18 +498,49 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
             if (e.code === 'Space') {
                 e.preventDefault();
 
-                if (showSummary) {
-                    // Close summary and move to next pack
+                if (showSummary && !e.repeat) {
+                    // Close summary and move to next pack (only on fresh press)
                     closeSummary();
-                } else if (isOpening) {
-                    // Handle card flipping during opening
-                    handleInteraction();
+                } else if (isOpening && !showSummary && !e.repeat && !spaceHeldRef.current) {
+                    // Start holding space - begin interval to advance cards
+                    spaceHeldRef.current = true;
+                    handleInteractionRef.current(); // Immediate first action
+                    spaceIntervalRef.current = setInterval(() => {
+                        handleInteractionRef.current();
+                    }, 150); // Advance every 150ms while held
                 }
             }
         };
+
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.code === 'Space') {
+                spaceHeldRef.current = false;
+                if (spaceIntervalRef.current) {
+                    clearInterval(spaceIntervalRef.current);
+                    spaceIntervalRef.current = null;
+                }
+            }
+        };
+
         window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpening, showSummary, handleInteraction, closeSummary, disabled]);
+        window.addEventListener('keyup', handleKeyUp);
+
+        // Stop space interval when summary appears
+        if (showSummary && spaceIntervalRef.current) {
+            clearInterval(spaceIntervalRef.current);
+            spaceIntervalRef.current = null;
+            spaceHeldRef.current = false;
+        }
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            if (spaceIntervalRef.current) {
+                clearInterval(spaceIntervalRef.current);
+                spaceIntervalRef.current = null;
+            }
+        };
+    }, [isOpening, showSummary, closeSummary, disabled]);
 
     useEffect(() => {
         const handlePointerDown = (event: PointerEvent) => {
