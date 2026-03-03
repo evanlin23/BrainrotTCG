@@ -1,16 +1,17 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import Card from './Card';
+import Card, { CardWithMeta } from './Card';
 import pack1 from '../assets/packs/pack1.png';
 import pack2 from '../assets/packs/pack2.png';
+import type { Card as CardType } from '../data/cards';
 
 const PACK_DESIGNS = [pack1, pack2];
 import whatBrainrotOriginal from '../assets/voices/what-brainrot.mp3';
 import cardFlipSrc from '../assets/audio/Card-flip-sound-effect.mp3';
 
 // Auto-scan for ElevenLabs voice files
-const elevenLabsVoices = import.meta.glob('../assets/voices/ElevenLabs_*.mp3', { eager: true });
+const elevenLabsVoices = import.meta.glob('../assets/voices/ElevenLabs_*.mp3', { eager: true }) as Record<string, { default: string }>;
 const BRAINROT_VOICES = [
     whatBrainrotOriginal,
     ...Object.values(elevenLabsVoices).map(m => m.default)
@@ -35,33 +36,65 @@ const SPARK_LIFETIME_MS = 620;
 const DRAWN_CUT_OFFSET_RATIO = 0.000;
 const Motion = motion;
 
-const EMPTY_CUT_SPAN = {
+interface CutPoint {
+    x: number;
+    y: number;
+}
+
+interface Spark {
+    id: number;
+    x: number;
+    y: number;
+    dx: number;
+    dy: number;
+    size: number;
+    hue: number;
+}
+
+interface CutSpan {
+    minX: number;
+    maxX: number;
+}
+
+interface PreloadedAssets {
+    brainrotVoices: HTMLAudioElement[];
+    cardFlip: HTMLAudioElement;
+    effects: HTMLAudioElement[];
+}
+
+const EMPTY_CUT_SPAN: CutSpan = {
     minX: Number.POSITIVE_INFINITY,
     maxX: Number.NEGATIVE_INFINITY,
 };
 
-const PackOpener = ({ onOpen, cards, disabled = false }) => {
+interface PackOpenerProps {
+    onOpen: (cards: CardWithMeta[]) => void;
+    cards: CardType[];
+    disabled?: boolean;
+}
+
+const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
     const [isOpening, setIsOpening] = useState(false);
-    const [openedCards, setOpenedCards] = useState([]);
+    const [openedCards, setOpenedCards] = useState<CardWithMeta[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isPackCut, setIsPackCut] = useState(false);
     const [isCutting, setIsCutting] = useState(false);
-    const [cutPoints, setCutPoints] = useState([]);
-    const [sparks, setSparks] = useState([]);
-    const [preloadedAssets, setPreloadedAssets] = useState(null);
+    const [cutPoints, setCutPoints] = useState<CutPoint[]>([]);
+    const [sparks, setSparks] = useState<Spark[]>([]);
+    const [preloadedAssets, setPreloadedAssets] = useState<PreloadedAssets | null>(null);
     const [showSummary, setShowSummary] = useState(false);
     const [packDesign, setPackDesign] = useState(() => PACK_DESIGNS[Math.floor(Math.random() * PACK_DESIGNS.length)]);
     const [hasMovedMouse, setHasMovedMouse] = useState(false);
 
-    const packRef = useRef(null);
-    const cutSpanRef = useRef({ ...EMPTY_CUT_SPAN });
+    const packRef = useRef<HTMLDivElement>(null);
+    const cutSpanRef = useRef<CutSpan>({ ...EMPTY_CUT_SPAN });
     const cutCompletedRef = useRef(false);
-    const openTimeoutRef = useRef(null);
+    const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isPointerDownRef = useRef(false);
     const sparkIdRef = useRef(0);
-    const sparkTimeoutsRef = useRef([]);
+    const sparkTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
     const lastSparkAtRef = useRef(0);
-    const fairyDustRef = useRef(null);
+    const fairyDustRef = useRef<HTMLAudioElement | null>(null);
 
     const clearSparks = useCallback(() => {
         sparkTimeoutsRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -69,13 +102,13 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         setSparks([]);
     }, []);
 
-    const emitSpark = useCallback((clientX, clientY) => {
+    const emitSpark = useCallback((clientX: number, clientY: number) => {
         const now = Date.now();
         if (now - lastSparkAtRef.current < 9) return;
         lastSparkAtRef.current = now;
 
         const burstCount = 3;
-        const newSparks = Array.from({ length: burstCount }, () => {
+        const newSparks: Spark[] = Array.from({ length: burstCount }, () => {
             const id = sparkIdRef.current++;
             return {
                 id,
@@ -112,9 +145,9 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
 
     const startOpening = useCallback(() => {
         // Generate 5 random cards for the pack with new 6-tier rarity system
-        const pack = Array.from({ length: PACK_SIZE }, () => {
+        const pack: CardWithMeta[] = Array.from({ length: PACK_SIZE }, () => {
             const random = Math.random() * 100;
-            let filtered;
+            let filtered: CardType[];
             // Rarity thresholds: BRAINROT 0.5%, LEGENDARY 2.5%, EPIC 7%, RARE 15%, UNCOMMON 25%, COMMON 50%
             if (random < 0.5) filtered = cards.filter(c => c.rarity === 'BRAINROT');
             else if (random < 3) filtered = cards.filter(c => c.rarity === 'LEGENDARY');
@@ -189,8 +222,8 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
     }, [finishPack]);
 
     // Helper to play and cleanup audio
-    const playAndCleanup = useCallback((audio) => {
-        const clone = audio.cloneNode();
+    const playAndCleanup = useCallback((audio: HTMLAudioElement) => {
+        const clone = audio.cloneNode() as HTMLAudioElement;
         clone.onended = () => { clone.src = ''; };
         clone.play().catch(() => {});
         return clone;
@@ -245,7 +278,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         }
     }, [openedCards, currentIndex, preloadedAssets, playAndCleanup]);
 
-    const getLocalPoint = useCallback((clientX, clientY) => {
+    const getLocalPoint = useCallback((clientX: number, clientY: number) => {
         const rect = packRef.current?.getBoundingClientRect();
         if (!rect) return null;
         return {
@@ -282,7 +315,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         }, 460);
     }, [startOpening, clearSparks]);
 
-    const beginOrContinueCut = useCallback((clientX, clientY) => {
+    const beginOrContinueCut = useCallback((clientX: number, clientY: number) => {
         if (cutCompletedRef.current || isOpening || isPackCut) return;
 
         const point = getLocalPoint(clientX, clientY);
@@ -364,7 +397,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
     }, [isOpening, openedCards, currentIndex, handleFlip, nextCard]);
 
     useEffect(() => {
-        const handleKeyDown = (e) => {
+        const handleKeyDown = (e: KeyboardEvent) => {
             // Ignore if disabled, showing summary, not opening, or key is held down
             if (disabled || showSummary || !isOpening || e.repeat) return;
 
@@ -378,13 +411,13 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
     }, [isOpening, handleInteraction, disabled, showSummary]);
 
     useEffect(() => {
-        const handlePointerDown = (event) => {
+        const handlePointerDown = (event: PointerEvent) => {
             if (event.button !== 0) return;
             isPointerDownRef.current = true;
             beginOrContinueCut(event.clientX, event.clientY);
         };
 
-        const handlePointerMove = (event) => {
+        const handlePointerMove = (event: PointerEvent) => {
             if (cutCompletedRef.current || isOpening || isPackCut) return;
             const isPressed = isPointerDownRef.current || event.buttons === 1 || event.pressure > 0;
             if (!isPressed) return;
@@ -537,7 +570,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
                                             <div
                                                 key={card.uniqueId}
                                                 className={classes}
-                                                style={{ '--offset': offset }}
+                                                style={{ '--offset': offset } as React.CSSProperties}
                                             >
                                                 <img src={card.image} alt={card.name} />
                                             </div>
@@ -564,7 +597,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
                             '--dy': `${spark.dy}px`,
                             '--size': `${spark.size}px`,
                             '--hue': spark.hue,
-                        }}
+                        } as React.CSSProperties}
                     />
                 ))}
             </div>

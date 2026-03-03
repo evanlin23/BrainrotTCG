@@ -1,11 +1,18 @@
-import React from 'react';
 import '../styles/HallOfFame.css';
 
 // Import hall of fame images
 import adiImage from '../assets/images/hall_of_fame/image.png';
 import danielImage from '../assets/images/hall_of_fame/Screenshot_2026-03-01_at_10.00.18_AM.png';
 
-const HALL_OF_FAME_ENTRIES = [
+interface HallOfFameEntry {
+  id: number;
+  name: string;
+  description: string;
+  image: string;
+  date: string;
+}
+
+const HALL_OF_FAME_ENTRIES: HallOfFameEntry[] = [
   {
     id: 1,
     name: 'Adi/frail_banana',
@@ -22,7 +29,11 @@ const HALL_OF_FAME_ENTRIES = [
   }
 ];
 
-const HallOfFame = ({ onClose }) => {
+interface HallOfFameProps {
+  onClose: () => void;
+}
+
+const HallOfFame = ({ onClose }: HallOfFameProps) => {
   return (
     <div className="hall-of-fame-page">
       <div className="hall-of-fame-header">

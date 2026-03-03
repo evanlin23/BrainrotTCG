@@ -1,4 +1,11 @@
-export const ACHIEVEMENTS = [
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
+export const ACHIEVEMENTS: Achievement[] = [
   // Pack milestones
   { id: 'first_pack', name: 'Baby Steps', description: 'Open your first pack', icon: '📦' },
   { id: 'packs_10', name: 'Getting Started', description: 'Open 10 packs', icon: '📦' },
@@ -34,4 +41,4 @@ export const ACHIEVEMENTS = [
   { id: 'lucky_day', name: 'Lucky Day', description: 'Get 2+ Legendary or Brainrot cards in one pack', icon: '🍀' },
 ];
 
-export const getAchievementById = (id) => ACHIEVEMENTS.find(a => a.id === id);
+export const getAchievementById = (id: string): Achievement | undefined => ACHIEVEMENTS.find(a => a.id === id);

@@ -1,12 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/Achievements.css';
+import type { Achievement } from '../data/achievements';
 
-const AchievementNotification = ({ achievement, onDismiss, index = 0 }) => {
+interface AchievementNotificationProps {
+    achievement: Achievement;
+    onDismiss: () => void;
+    index?: number;
+}
+
+const AchievementNotification = ({ achievement, onDismiss, index = 0 }: AchievementNotificationProps) => {
     const [isVisible, setIsVisible] = useState(true);
 
     useEffect(() => {
-        let dismissTimer;
+        let dismissTimer: ReturnType<typeof setTimeout>;
         const timer = setTimeout(() => {
             setIsVisible(false);
             dismissTimer = setTimeout(onDismiss, 300); // Wait for exit animation

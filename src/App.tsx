@@ -1,11 +1,13 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import './styles/index.css';
 import PackOpener from './components/PackOpener';
 import AchievementNotification from './components/AchievementNotification';
 import AchievementsPage from './components/AchievementsPage';
 import HallOfFame from './components/HallOfFame';
-import { INITIAL_CARDS } from './data/cards';
-import { ACHIEVEMENTS, getAchievementById } from './data/achievements';
+import CollectionCardViewer from './components/CollectionCardViewer';
+import { INITIAL_CARDS, Card } from './data/cards';
+import { ACHIEVEMENTS, getAchievementById, Achievement } from './data/achievements';
+import { CardWithMeta } from './components/Card';
 import swedenSrc from './assets/audio/Sweden.mp3';
 
 const COLLECTION_STORAGE_KEY = 'brainrot-found-collection-v1';
@@ -13,29 +15,53 @@ const ACHIEVEMENTS_STORAGE_KEY = 'brainrot-achievements-v1';
 const STATS_STORAGE_KEY = 'brainrot-stats-v1';
 const HALL_OF_FAME_STORAGE_KEY = 'brainrot-hall-of-fame-v1';
 
-const getStoredData = (key, defaultValue = {}) => {
+interface CollectionItem {
+  card: Card;
+  normalCount: number;
+  holoCount: number;
+}
+
+interface Stats {
+  packsOpened: number;
+  holoCards: Record<string, boolean>;
+}
+
+interface HallOfFameData {
+  first4OfAKind?: {
+    achieved: boolean;
+    date: number;
+    cardId: string;
+  };
+  firstFullHouse?: {
+    achieved: boolean;
+    date: number;
+    cards: Record<string, number>;
+  };
+}
+
+const getStoredData = <T,>(key: string, defaultValue: T): T => {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return defaultValue;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return defaultValue;
-    return parsed;
+    return parsed as T;
   } catch {
     return defaultValue;
   }
 };
 
 function App() {
-  const [collection, setCollection] = useState(() => getStoredData(COLLECTION_STORAGE_KEY));
-  const [achievements, setAchievements] = useState(() => getStoredData(ACHIEVEMENTS_STORAGE_KEY));
-  const [stats, setStats] = useState(() => getStoredData(STATS_STORAGE_KEY, { packsOpened: 0, holoCards: {} }));
-  const [hallOfFame, setHallOfFame] = useState(() => getStoredData(HALL_OF_FAME_STORAGE_KEY));
+  const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => getStoredData(COLLECTION_STORAGE_KEY, {}));
+  const [achievements, setAchievements] = useState<Record<string, number>>(() => getStoredData(ACHIEVEMENTS_STORAGE_KEY, {}));
+  const [stats, setStats] = useState<Stats>(() => getStoredData(STATS_STORAGE_KEY, { packsOpened: 0, holoCards: {} }));
+  const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(HALL_OF_FAME_STORAGE_KEY, {}));
 
   const [isCollectionOpen, setIsCollectionOpen] = useState(false);
   const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
   const [isHallOfFameOpen, setIsHallOfFameOpen] = useState(false);
-  const [notificationQueue, setNotificationQueue] = useState([]);
-  const [selectedCard, setSelectedCard] = useState(null);
+  const [notificationQueue, setNotificationQueue] = useState<Achievement[]>([]);
+  const [selectedCard, setSelectedCard] = useState<{ card: Card; holoCount: number } | null>(null);
 
   // Play background music on page load
   useEffect(() => {
@@ -49,7 +75,7 @@ function App() {
     };
   }, []);
 
-  const unlockAchievement = useCallback((achievementId) => {
+  const unlockAchievement = useCallback((achievementId: string) => {
     if (achievements[achievementId]) return; // Already unlocked
 
     const achievement = getAchievementById(achievementId);
@@ -65,12 +91,12 @@ function App() {
     setNotificationQueue(prev => [...prev, achievement]);
   }, [achievements]);
 
-  const dismissNotification = useCallback((achievementId) => {
+  const dismissNotification = useCallback((achievementId: string) => {
     setNotificationQueue(prev => prev.filter(a => a.id !== achievementId));
   }, []);
 
-  const checkAchievements = useCallback((newCards, updatedCollection, updatedStats, updatedHallOfFame) => {
-    const newAchievements = [];
+  const checkAchievements = useCallback((newCards: CardWithMeta[], updatedCollection: Record<string, CollectionItem>, updatedStats: Stats, updatedHallOfFame: HallOfFameData) => {
+    const newAchievements: string[] = [];
 
     // Pack milestones
     const packsOpened = updatedStats.packsOpened;
@@ -94,7 +120,7 @@ function App() {
     if (newCards.some(c => c.isHolo) && !achievements.first_holo) newAchievements.push('first_holo');
 
     // Pack combos
-    const cardCounts = {};
+    const cardCounts: Record<string, number> = {};
     newCards.forEach(c => {
       cardCounts[c.id] = (cardCounts[c.id] || 0) + 1;
     });
@@ -136,9 +162,9 @@ function App() {
     newAchievements.forEach(id => unlockAchievement(id));
   }, [achievements, unlockAchievement]);
 
-  const handleCardsOpened = useCallback((newCards) => {
+  const handleCardsOpened = useCallback((newCards: CardWithMeta[]) => {
     // Update stats
-    const updatedStats = {
+    const updatedStats: Stats = {
       ...stats,
       packsOpened: (stats.packsOpened || 0) + 1,
       holoCards: { ...stats.holoCards }
@@ -154,28 +180,32 @@ function App() {
     setStats(updatedStats);
     localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(updatedStats));
 
-    // Update collection - combine cards but track if holo found
-    let updatedCollection;
+    // Update collection - track holo and normal counts separately
+    let updatedCollection: Record<string, CollectionItem> = {};
     setCollection((prev) => {
       const next = { ...prev };
 
-      // Count cards and track holo status
-      const packCounts = {};
-      const holoFound = {};
+      // Count normal and holo cards separately
+      const normalCounts: Record<string, number> = {};
+      const holoCounts: Record<string, number> = {};
       newCards.forEach((card) => {
-        packCounts[card.id] = (packCounts[card.id] || 0) + 1;
         if (card.isHolo) {
-          holoFound[card.id] = true;
+          holoCounts[card.id] = (holoCounts[card.id] || 0) + 1;
+        } else {
+          normalCounts[card.id] = (normalCounts[card.id] || 0) + 1;
         }
       });
 
-      Object.entries(packCounts).forEach(([cardId, packCount]) => {
+      // Get all unique card IDs from this pack
+      const cardIds = new Set(newCards.map(c => c.id));
+      cardIds.forEach((cardId) => {
         const card = newCards.find(c => c.id === cardId);
+        if (!card) return;
         const existing = next[cardId];
         next[cardId] = {
-          card,
-          count: (existing?.count || 0) + packCount,
-          hasHolo: existing?.hasHolo || holoFound[cardId] || false,
+          card: { id: card.id, name: card.name, rarity: card.rarity, image: card.image },
+          normalCount: (existing?.normalCount || 0) + (normalCounts[cardId] || 0),
+          holoCount: (existing?.holoCount || 0) + (holoCounts[cardId] || 0),
         };
       });
 
@@ -186,7 +216,7 @@ function App() {
 
     // Check Hall of Fame milestones
     let updatedHallOfFame = { ...hallOfFame };
-    const cardCounts = {};
+    const cardCounts: Record<string, number> = {};
     newCards.forEach(c => {
       cardCounts[c.id] = (cardCounts[c.id] || 0) + 1;
     });
@@ -195,11 +225,13 @@ function App() {
     // First 4 of a kind
     if (maxCount >= 4 && !hallOfFame.first4OfAKind) {
       const cardId = Object.entries(cardCounts).find(([, count]) => count >= 4)?.[0];
-      updatedHallOfFame.first4OfAKind = {
-        achieved: true,
-        date: Date.now(),
-        cardId
-      };
+      if (cardId) {
+        updatedHallOfFame.first4OfAKind = {
+          achieved: true,
+          date: Date.now(),
+          cardId
+        };
+      }
     }
 
     // First full house
@@ -228,13 +260,13 @@ function App() {
   const collectionItems = useMemo(
     () =>
       Object.values(collection).sort(
-        (a, b) => b.count - a.count || a.card.name.localeCompare(b.card.name)
+        (a, b) => (b.normalCount + b.holoCount) - (a.normalCount + a.holoCount) || a.card.name.localeCompare(b.card.name)
       ),
     [collection]
   );
 
   const totalFound = useMemo(
-    () => collectionItems.reduce((sum, item) => sum + item.count, 0),
+    () => collectionItems.reduce((sum, item) => sum + item.normalCount + item.holoCount, 0),
     [collectionItems]
   );
 
@@ -328,39 +360,41 @@ function App() {
             <p className="collection-empty">Open packs to start your collection.</p>
           ) : (
             <div className="collection-grid">
-              {collectionItems.map(({ card, count, hasHolo }) => {
+              {collectionItems.map(({ card, normalCount, holoCount }) => {
                 const classes = [
                   'collection-item',
                   card.rarity.toLowerCase(),
-                  hasHolo ? 'holo' : ''
+                  holoCount > 0 ? 'holo' : ''
                 ].filter(Boolean).join(' ');
                 return (
                   <article
                     key={card.id}
                     className={classes}
-                    onClick={() => setSelectedCard({ card, hasHolo })}
+                    onClick={() => setSelectedCard({ card, holoCount })}
                   >
                     <img src={card.image} alt={card.name} />
-                    <span className="collection-count">{hasHolo && '✨ '}x{count}</span>
+                    <span className="collection-count">
+                      {normalCount > 0 && `x${normalCount}`}
+                      {normalCount > 0 && holoCount > 0 && ' • '}
+                      {holoCount > 0 && `✨x${holoCount}`}
+                    </span>
                   </article>
                 );
               })}
             </div>
 
             )}
-
-          {/* Card Viewer Modal */}
-          {selectedCard && (
-            <div className="card-viewer-overlay" onClick={() => setSelectedCard(null)}>
-              <div className="card-viewer-content" onClick={(e) => e.stopPropagation()}>
-                <div className={`card-viewer-card ${selectedCard.card.rarity.toLowerCase()} ${selectedCard.hasHolo ? 'holo' : ''}`}>
-                  <img src={selectedCard.card.image} alt={selectedCard.card.name} />
-                </div>
-                <button className="card-viewer-close" onClick={() => setSelectedCard(null)}>&times;</button>
-              </div>
-            </div>
-          )}
         </section>
+      )}
+
+      {/* Card Viewer Modal - outside collection-browser for proper positioning */}
+      {selectedCard && (
+        <div className="card-viewer-overlay" onClick={() => setSelectedCard(null)}>
+          <div className="card-viewer-content" onClick={(e) => e.stopPropagation()}>
+            <CollectionCardViewer card={selectedCard.card} hasHolo={selectedCard.holoCount > 0} />
+            <button className="card-viewer-close" onClick={() => setSelectedCard(null)}>&times;</button>
+          </div>
+        </div>
       )}
     </div>
   );

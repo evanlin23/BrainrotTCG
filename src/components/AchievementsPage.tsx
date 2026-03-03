@@ -1,8 +1,12 @@
-import React from 'react';
 import { ACHIEVEMENTS } from '../data/achievements';
 import '../styles/Achievements.css';
 
-const AchievementsPage = ({ unlockedAchievements, onClose }) => {
+interface AchievementsPageProps {
+    unlockedAchievements: Record<string, number>;
+    onClose: () => void;
+}
+
+const AchievementsPage = ({ unlockedAchievements, onClose }: AchievementsPageProps) => {
     return (
         <div className="achievements-page">
             <div className="achievements-header">

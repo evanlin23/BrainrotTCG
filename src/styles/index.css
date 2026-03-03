@@ -288,6 +288,7 @@ main {
 /* Holo collection item shimmer */
 .collection-item.holo {
     position: relative;
+    overflow: hidden;
 }
 
 .collection-item.holo::after {
@@ -299,26 +300,62 @@ main {
     height: 100%;
     background: linear-gradient(
         45deg,
-        rgba(255, 0, 0, 0.12) 0%,
-        rgba(255, 127, 0, 0.12) 14%,
-        rgba(255, 255, 0, 0.12) 28%,
-        rgba(0, 255, 0, 0.12) 42%,
-        rgba(0, 0, 255, 0.12) 56%,
-        rgba(75, 0, 130, 0.12) 70%,
-        rgba(148, 0, 211, 0.12) 84%,
-        rgba(255, 0, 0, 0.12) 100%
+        rgba(255, 0, 0, 0.2) 0%,
+        rgba(255, 127, 0, 0.2) 14%,
+        rgba(255, 255, 0, 0.2) 28%,
+        rgba(0, 255, 0, 0.2) 42%,
+        rgba(0, 0, 255, 0.2) 56%,
+        rgba(75, 0, 130, 0.2) 70%,
+        rgba(148, 0, 211, 0.2) 84%,
+        rgba(255, 0, 0, 0.2) 100%
     );
     background-size: 400% 400%;
     animation: collectionHoloShimmer 3s ease infinite;
     pointer-events: none;
     border-radius: 10px;
     z-index: 1;
+    mix-blend-mode: overlay;
+}
+
+/* Shine sweep for holo items in grid */
+.collection-item.holo::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(
+        120deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0) 30%,
+        rgba(255, 255, 255, 0.5) 50%,
+        rgba(255, 255, 255, 0) 70%,
+        transparent 100%
+    );
+    transform: skewX(-20deg);
+    animation: collectionItemHoloShine 4s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 2;
+}
+
+@keyframes collectionItemHoloShine {
+    0% { left: -100%; }
+    30% { left: 150%; }
+    100% { left: 150%; }
 }
 
 @keyframes collectionHoloShimmer {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
     100% { background-position: 0% 50%; }
+}
+
+/* Extra glow for holo items */
+.collection-item.holo {
+    box-shadow: 6px 10px 16px rgba(0, 0, 0, 0.45),
+                0 0 15px rgba(255, 0, 255, 0.3),
+                0 0 30px rgba(0, 255, 255, 0.2);
 }
 
 .collection-item img {
@@ -435,8 +472,10 @@ main {
 /* Card viewer holo effect */
 .card-viewer-card.holo {
     position: relative;
+    overflow: hidden;
 }
 
+/* Rainbow shimmer overlay */
 .card-viewer-card.holo::after {
     content: '';
     position: absolute;
@@ -446,19 +485,56 @@ main {
     height: 100%;
     background: linear-gradient(
         45deg,
-        rgba(255, 0, 0, 0.15) 0%,
-        rgba(255, 127, 0, 0.15) 14%,
-        rgba(255, 255, 0, 0.15) 28%,
-        rgba(0, 255, 0, 0.15) 42%,
-        rgba(0, 0, 255, 0.15) 56%,
-        rgba(75, 0, 130, 0.15) 70%,
-        rgba(148, 0, 211, 0.15) 84%,
-        rgba(255, 0, 0, 0.15) 100%
+        rgba(255, 0, 0, 0.25) 0%,
+        rgba(255, 127, 0, 0.25) 14%,
+        rgba(255, 255, 0, 0.25) 28%,
+        rgba(0, 255, 0, 0.25) 42%,
+        rgba(0, 0, 255, 0.25) 56%,
+        rgba(75, 0, 130, 0.25) 70%,
+        rgba(148, 0, 211, 0.25) 84%,
+        rgba(255, 0, 0, 0.25) 100%
     );
     background-size: 400% 400%;
     animation: collectionHoloShimmer 3s ease infinite;
     pointer-events: none;
     border-radius: 10px;
+    mix-blend-mode: overlay;
+}
+
+/* Shine sweep overlay */
+.card-viewer-card.holo::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(
+        120deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0) 30%,
+        rgba(255, 255, 255, 0.6) 50%,
+        rgba(255, 255, 255, 0) 70%,
+        transparent 100%
+    );
+    transform: skewX(-20deg);
+    animation: cardViewerHoloShine 2.5s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 2;
+}
+
+@keyframes cardViewerHoloShine {
+    0% { left: -100%; }
+    50% { left: 150%; }
+    100% { left: 150%; }
+}
+
+/* Add sparkling border for holo cards */
+.card-viewer-card.holo {
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6),
+                0 0 30px rgba(255, 0, 255, 0.4),
+                0 0 60px rgba(0, 255, 255, 0.3),
+                0 0 90px rgba(255, 255, 0, 0.2);
 }
 
 .card-viewer-close {

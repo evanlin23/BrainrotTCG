@@ -1,15 +1,29 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import '../styles/Card.css';
 import cardBackImage from '../assets/images/card_back.png';
+import type { Card as CardType, RarityKey } from '../data/cards';
 
-const Card = ({ card, isFlipped, onFlip, slowFlip = false }) => {
-    const cardRef = useRef(null);
+export interface CardWithMeta extends CardType {
+    uniqueId: number;
+    isRevealed: boolean;
+    isHolo: boolean;
+}
+
+interface CardProps {
+    card: CardWithMeta;
+    isFlipped: boolean;
+    onFlip: () => void;
+    slowFlip?: boolean;
+}
+
+const Card = ({ card, isFlipped, onFlip, slowFlip = false }: CardProps) => {
+    const cardRef = useRef<HTMLDivElement>(null);
     const [tilt, setTilt] = useState({ rotateX: 0, rotateY: 0 });
     const [hasShined, setHasShined] = useState(false);
 
     useEffect(() => {
-        const handleMouseMove = (e) => {
+        const handleMouseMove = (e: MouseEvent) => {
             if (!cardRef.current) return;
 
             const rect = cardRef.current.getBoundingClientRect();
