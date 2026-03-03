@@ -392,31 +392,35 @@ function App() {
     const pokerHand = getPackMultiplier(newCards);
     const flexValue = packValue * pokerHand.multiplier;
 
-    // Update stats
-    const updatedStats: Stats = {
-      ...stats,
-      packsOpened: (stats.packsOpened || 0) + 1,
-      holoCards: { ...stats.holoCards }
-    };
+    // Update stats using functional update to avoid stale closure
+    let updatedStats: Stats = stats;
+    setStats(prev => {
+      const newStats: Stats = {
+        ...prev,
+        packsOpened: (prev.packsOpened || 0) + 1,
+        holoCards: { ...prev.holoCards }
+      };
 
-    // Update highest pack value
-    if (flexValue > (stats.highestPackFlexValue || stats.highestPackValue || 0)) {
-      updatedStats.highestPackFlexValue = flexValue;
-      updatedStats.highestPackBaseValue = packValue;
-      updatedStats.highestPackMultiplier = pokerHand.multiplier;
-      updatedStats.highestPackHandName = pokerHand.name;
-      updatedStats.highestPackCards = newCards;
-    }
-
-    // Track holo cards
-    newCards.forEach(card => {
-      if (card.isHolo) {
-        updatedStats.holoCards[card.id] = true;
+      // Update highest pack value - compare against previous state
+      if (flexValue > (prev.highestPackFlexValue || prev.highestPackValue || 0)) {
+        newStats.highestPackFlexValue = flexValue;
+        newStats.highestPackBaseValue = packValue;
+        newStats.highestPackMultiplier = pokerHand.multiplier;
+        newStats.highestPackHandName = pokerHand.name;
+        newStats.highestPackCards = newCards;
       }
-    });
 
-    setStats(updatedStats);
-    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(updatedStats));
+      // Track holo cards
+      newCards.forEach(card => {
+        if (card.isHolo) {
+          newStats.holoCards[card.id] = true;
+        }
+      });
+
+      localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(newStats));
+      updatedStats = newStats;
+      return newStats;
+    });
 
     // Update collection - track holo and normal counts separately
     let updatedCollection: Record<string, CollectionItem> = {};
@@ -512,7 +516,7 @@ function App() {
 
       checkAchievements(newCards, updatedCollection || collection, updatedStats);
     }, 100);
-  }, [stats, hallOfFame, collection, checkAchievements]);
+  }, [hallOfFame, collection, checkAchievements]);
 
   const collectionItems = useMemo(() => {
     const rarityOrder: Record<string, number> = {
