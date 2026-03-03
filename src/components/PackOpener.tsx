@@ -488,19 +488,22 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                 return;
             }
 
-            // Space - only for flipping/advancing cards during reveal
+            // Space - for flipping/advancing cards and moving to next pack
             if (e.code === 'Space') {
                 e.preventDefault();
 
-                // Only handle card flipping during opening
-                if (isOpening && !showSummary) {
+                if (showSummary) {
+                    // Close summary and move to next pack
+                    closeSummary();
+                } else if (isOpening) {
+                    // Handle card flipping during opening
                     handleInteraction();
                 }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpening, showSummary, handleInteraction, disabled]);
+    }, [isOpening, showSummary, handleInteraction, closeSummary, disabled]);
 
     useEffect(() => {
         const handlePointerDown = (event: PointerEvent) => {

@@ -610,6 +610,11 @@ function App() {
             </p>
             <p style={{ color: '#ffd700', fontWeight: 'bold', margin: '0.5rem 0' }}>
               Account Value: {accountValue.toLocaleString()} Buhcoins
+              {totalFound > 0 && (
+                <span style={{ color: '#aaa', fontWeight: 'normal', marginLeft: '0.75rem' }}>
+                  (Average: {(accountValue / totalFound).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/card)
+                </span>
+              )}
             </p>
             <button className="collection-close-btn" onClick={() => setIsCollectionOpen(false)}>&times;</button>
           </div>
