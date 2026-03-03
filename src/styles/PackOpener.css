@@ -343,10 +343,11 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 2rem;
+    justify-content: flex-start;
+    padding: 1rem 2rem 2rem;
     width: 100%;
     height: 100%;
+    position: relative;
 }
 
 .summary-title {
@@ -358,7 +359,20 @@
     background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    margin-bottom: 2rem;
+    margin-top: -3rem;
+    margin-bottom: 0.5rem;
+}
+
+.summary-value {
+    text-align: center;
+}
+
+.summary-value div {
+    font-size: 1.2rem;
+}
+
+.summary-value>span:last-child {
+    font-size: 2rem;
 }
 
 .summary-carousel {
@@ -368,7 +382,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 2rem;
+    margin-top: 1rem;
+    margin-bottom: 0;
 }
 
 .summary-card {
@@ -474,14 +489,14 @@
 /* Summary card holo effect */
 .summary-card.holo {
     box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4),
-                0 0 20px rgba(255, 255, 255, 0.3),
-                0 0 40px rgba(255, 255, 255, 0.2);
+        0 0 20px rgba(255, 255, 255, 0.3),
+        0 0 40px rgba(255, 255, 255, 0.2);
 }
 
 .summary-card.holo:hover {
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5),
-                0 0 30px rgba(255, 255, 255, 0.4),
-                0 0 50px rgba(255, 255, 255, 0.3);
+        0 0 30px rgba(255, 255, 255, 0.4),
+        0 0 50px rgba(255, 255, 255, 0.3);
 }
 
 /* Shine sweep for holo summary cards */
@@ -492,14 +507,12 @@
     left: -100%;
     width: 50%;
     height: 100%;
-    background: linear-gradient(
-        120deg,
-        transparent 0%,
-        rgba(255, 255, 255, 0) 30%,
-        rgba(255, 255, 255, 0.6) 50%,
-        rgba(255, 255, 255, 0) 70%,
-        transparent 100%
-    );
+    background: linear-gradient(120deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0) 30%,
+            rgba(255, 255, 255, 0.6) 50%,
+            rgba(255, 255, 255, 0) 70%,
+            transparent 100%);
     transform: skewX(-20deg);
     animation: summaryHoloShine 3s ease-in-out infinite;
     pointer-events: none;
@@ -507,27 +520,71 @@
 }
 
 @keyframes summaryHoloShine {
-    0% { left: -100%; }
-    40% { left: 150%; }
-    100% { left: 150%; }
+    0% {
+        left: -100%;
+    }
+
+    40% {
+        left: 150%;
+    }
+
+    100% {
+        left: 150%;
+    }
 }
 
 .summary-close-btn {
-    background: linear-gradient(45deg, var(--accent-primary), #8a2be2);
-    color: white;
-    border: none;
-    padding: 1rem 2rem;
-    font-size: 1.1rem;
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 40;
+    border: 1px solid rgba(188, 19, 254, 0.3);
+    background: rgba(138, 43, 226, 0.2);
+    color: var(--text-main);
+    border-radius: 999px;
+    padding: 0.75rem 1.25rem;
     font-weight: 700;
-    border-radius: 50px;
+    font-size: 0.9rem;
     cursor: pointer;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 15px rgba(188, 19, 254, 0.4);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
 
 .summary-close-btn:hover {
-    transform: translateY(-2px) scale(1.05);
-    box-shadow: 0 8px 25px rgba(188, 19, 254, 0.6);
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px rgba(188, 19, 254, 0.35);
+    background: rgba(188, 19, 254, 0.25);
+}
+
+@media (max-width: 768px) {
+    .summary-title {
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .pack-summary>div:nth-child(2) {
+        font-size: 1rem !important;
+        text-align: center;
+    }
+
+    .pack-summary>span {
+        font-size: 1.25rem !important;
+        text-align: center;
+        display: block;
+        margin-top: 0.5rem;
+    }
+
+    .summary-carousel {
+        height: 40vh;
+    }
+
+    .summary-card {
+        width: 25vw;
+        min-width: 100px;
+        transform: translateX(calc(var(--offset) * 12vw));
+    }
+
+    .summary-card:hover {
+        transform: translateX(calc(var(--offset) * 12vw)) scale(1.1);
+    }
 }

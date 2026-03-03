@@ -1,4 +1,5 @@
 import { CardWithMeta } from './Card';
+import BrainrotValuePanel from './BrainrotValuePanel';
 import '../styles/BestPackPage.css';
 import '../styles/PackOpener.css'; // For the fan-out summary carousel styles
 
@@ -34,13 +35,12 @@ const BestPackPage = ({ stats, onClose }: BestPackPageProps) => {
             <div className="best-pack-content">
                 {displayValue > 0 && stats.highestPackCards ? (
                     <>
-                        <div className="best-pack-value" style={{ marginBottom: '1rem', padding: '1rem' }}>
-                            <span className="value-label" style={{ fontSize: '0.8rem', opacity: 0.8 }}>calculation</span>
-                            <div style={{ fontSize: '1.2rem', marginBottom: '0.5rem', color: '#ffb347' }}>
-                                {displayBase.toLocaleString()} Buhcoins &times; {displayMulti}x multiplier ({displayHand})
-                            </div>
-                            <span className="value-number" style={{ fontSize: '2rem' }}>= {displayValue.toLocaleString()} Brainrot value!</span>
-                        </div>
+                        <BrainrotValuePanel
+                            baseValue={displayBase}
+                            multiplier={displayMulti}
+                            handName={displayHand}
+                            flexValue={displayValue}
+                        />
 
                         <div className="summary-carousel" style={{ marginTop: '2rem' }}>
                             {stats.highestPackCards.map((card, index) => {
