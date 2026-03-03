@@ -270,14 +270,33 @@ function App() {
       newAchievements.push('no_commons');
     }
 
+    // All commons in pack (rock bottom)
+    if (newCards.every(c => c.rarity === 'COMMON') && !achievements.all_commons_pack) {
+      newAchievements.push('all_commons_pack');
+    }
+
+    // Two pair (2 different pairs in one pack)
+    const pairCount = counts.filter(c => c >= 2).length;
+    if (pairCount >= 2 && !achievements.two_pair) newAchievements.push('two_pair');
+
     // Holo pack achievements
     const holosInPack = newCards.filter(c => c.isHolo).length;
     if (holosInPack >= 2 && !achievements.double_holo) newAchievements.push('double_holo');
+    if (holosInPack >= 3 && !achievements.triple_holo) newAchievements.push('triple_holo');
+    if (holosInPack >= 4 && !achievements.quad_holo) newAchievements.push('quad_holo');
     if (holosInPack >= 5 && !achievements.all_holos) newAchievements.push('all_holos');
 
     // Holo + rarity combos in this pack
+    const holoCommon = newCards.some(c => c.isHolo && c.rarity === 'COMMON');
+    const holoUncommon = newCards.some(c => c.isHolo && c.rarity === 'UNCOMMON');
+    const holoRare = newCards.some(c => c.isHolo && c.rarity === 'RARE');
+    const holoEpic = newCards.some(c => c.isHolo && c.rarity === 'EPIC');
     const holoLegendary = newCards.some(c => c.isHolo && c.rarity === 'LEGENDARY');
     const holoBrainrot = newCards.some(c => c.isHolo && c.rarity === 'BRAINROT');
+    if (holoCommon && !achievements.holo_common) newAchievements.push('holo_common');
+    if (holoUncommon && !achievements.holo_uncommon) newAchievements.push('holo_uncommon');
+    if (holoRare && !achievements.holo_rare) newAchievements.push('holo_rare');
+    if (holoEpic && !achievements.holo_epic) newAchievements.push('holo_epic');
     if (holoLegendary && !achievements.holo_legendary) newAchievements.push('holo_legendary');
     if (holoBrainrot && !achievements.holo_brainrot) newAchievements.push('holo_brainrot');
 
@@ -300,6 +319,27 @@ function App() {
     if (holoCount >= INITIAL_CARDS.length && !achievements.holo_complete) {
       newAchievements.push('holo_complete');
     }
+
+    // Total holos owned milestones
+    const totalHolosOwned = Object.values(updatedCollection).reduce((sum, item) => sum + item.holoCount, 0);
+    if (totalHolosOwned >= 25 && !achievements.total_holos_25) newAchievements.push('total_holos_25');
+    if (totalHolosOwned >= 100 && !achievements.total_holos_100) newAchievements.push('total_holos_100');
+
+    // Duplicate milestones (most copies of any single card)
+    const maxCopiesOfCard = Math.max(...Object.values(updatedCollection).map(item => item.count + item.holoCount));
+    if (maxCopiesOfCard >= 10 && !achievements.dupes_10) newAchievements.push('dupes_10');
+    if (maxCopiesOfCard >= 25 && !achievements.dupes_25) newAchievements.push('dupes_25');
+    if (maxCopiesOfCard >= 100 && !achievements.dupes_100) newAchievements.push('dupes_100');
+
+    // Account value milestones
+    const accountValue = Object.values(updatedCollection).reduce((sum, item) => {
+      const baseValue = getCardValue(item.card.rarity, false);
+      const holoValue = getCardValue(item.card.rarity, true);
+      return sum + (baseValue * item.count) + (holoValue * item.holoCount);
+    }, 0);
+    if (accountValue >= 10000 && !achievements.value_10k) newAchievements.push('value_10k');
+    if (accountValue >= 100000 && !achievements.value_100k) newAchievements.push('value_100k');
+    if (accountValue >= 1000000 && !achievements.value_1m) newAchievements.push('value_1m');
 
     // Rarity completion achievements
     const collectedByRarity = {
