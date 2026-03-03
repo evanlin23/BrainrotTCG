@@ -6,6 +6,8 @@ import CardViewerModal from './CardViewerModal';
 import pack1 from '../assets/packs/pack1.png';
 import pack2 from '../assets/packs/pack2.png';
 import type { Card as CardType } from '../data/cards';
+import { getCardValue } from '../data/cards';
+import { getPackMultiplier } from '../utils/poker';
 
 const PACK_DESIGNS = [pack1, pack2];
 import whatBrainrotOriginal from '../assets/voices/what-brainrot.mp3';
@@ -227,7 +229,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
     const playAndCleanup = useCallback((audio: HTMLAudioElement) => {
         const clone = audio.cloneNode() as HTMLAudioElement;
         clone.onended = () => { clone.src = ''; };
-        clone.play().catch(() => {});
+        clone.play().catch(() => { });
         return clone;
     }, []);
 
@@ -345,7 +347,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
         // Play woosh sound
         const woosh = new Audio(wooshSrc);
         woosh.onended = () => { woosh.src = ''; };
-        woosh.play().catch(() => {});
+        woosh.play().catch(() => { });
 
         if (openTimeoutRef.current) {
             window.clearTimeout(openTimeoutRef.current);
@@ -384,7 +386,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                 fairyDustRef.current.currentTime = 0;
             }
             fairyDustRef.current = new Audio(fairyDustSrc);
-            fairyDustRef.current.play().catch(() => {});
+            fairyDustRef.current.play().catch(() => { });
             return;
         }
 
@@ -598,6 +600,15 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                                 animate={{ opacity: 1, scale: 1 }}
                             >
                                 <h2 className="summary-title">Pack Summary</h2>
+                                <div className="summary-value" style={{ marginBottom: '1rem', padding: '1rem', background: 'rgba(255, 215, 0, 0.1)', border: '2px solid #ffd700', borderRadius: '1rem', textAlign: 'center' }}>
+                                    <span style={{ display: 'block', fontSize: '0.8rem', color: '#ffd700', textTransform: 'uppercase', marginBottom: '0.5rem', opacity: 0.8 }}>calculation</span>
+                                    <div style={{ fontSize: '1.2rem', marginBottom: '0.5rem', color: '#ffb347' }}>
+                                        {openedCards.reduce((sum, card) => sum + getCardValue(card.rarity, card.isHolo), 0).toLocaleString()} Buhcoins &times; {getPackMultiplier(openedCards).multiplier}x ({getPackMultiplier(openedCards).name})
+                                    </div>
+                                    <span style={{ fontFamily: '"Rubik Glitch", system-ui', fontSize: '2rem', color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                                        = {(openedCards.reduce((sum, card) => sum + getCardValue(card.rarity, card.isHolo), 0) * getPackMultiplier(openedCards).multiplier).toLocaleString()} Brainrot value!
+                                    </span>
+                                </div>
                                 <div className="summary-carousel">
                                     {openedCards.map((card, index) => {
                                         const totalCards = openedCards.length;
@@ -627,7 +638,9 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                                 {selectedSummaryCard && (
                                     <CardViewerModal
                                         card={selectedSummaryCard}
-                                        isHolo={selectedSummaryCard.isHolo}
+                                        hasNormal={!selectedSummaryCard.isHolo}
+                                        hasHolo={selectedSummaryCard.isHolo}
+                                        initialHolo={selectedSummaryCard.isHolo}
                                         onClose={() => setSelectedSummaryCard(null)}
                                     />
                                 )}

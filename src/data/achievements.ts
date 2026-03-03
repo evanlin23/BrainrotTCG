@@ -58,6 +58,23 @@ export const ACHIEVEMENTS: Achievement[] = [
 
   // Special
   { id: 'lucky_day', name: 'Lucky Day', description: 'Get 2+ Legendary or Brainrot cards in one pack', icon: '🍀' },
+
+  // Pack Value
+  { id: 'pack_value_5', name: 'Struck Nothing', description: 'Open a pack with exactly 5 Brainrot value', icon: '🗑️' },
+  { id: 'pack_value_50', name: 'Decent Pull', description: 'Open a pack with at least 50 Brainrot value', icon: '💰' },
+  { id: 'pack_value_100', name: 'Big Money', description: 'Open a pack with at least 100 Brainrot value', icon: '💎' },
+  { id: 'pack_value_500', name: 'Struck Gold', description: 'Open a pack with at least 500 Brainrot value', icon: '👑' },
+  { id: 'pack_value_1000', name: 'Thousandaire', description: 'Open a pack with at least 1,000 Brainrot value', icon: '🍷' },
+  { id: 'pack_value_2000', name: 'Two Grand', description: 'Open a pack with at least 2,000 Brainrot value', icon: '🍾' },
+  { id: 'pack_value_3000', name: 'Three Grand', description: 'Open a pack with at least 3,000 Brainrot value', icon: '🏦' },
+  { id: 'pack_value_4000', name: 'Four Grand', description: 'Open a pack with at least 4,000 Brainrot value', icon: '🏙️' },
+  { id: 'pack_value_5000', name: 'Five Grand', description: 'Open a pack with at least 5,000 Brainrot value', icon: '🚀' },
+  { id: 'pack_value_6000', name: 'Six Grand', description: 'Open a pack with at least 6,000 Brainrot value', icon: '🏎️' },
+  { id: 'pack_value_7000', name: 'Seven Grand', description: 'Open a pack with at least 7,000 Brainrot value', icon: '🚁' },
+  { id: 'pack_value_8000', name: 'Eight Grand', description: 'Open a pack with at least 8,000 Brainrot value', icon: '✈️' },
+  { id: 'pack_value_9000', name: 'Nine Grand', description: 'Open a pack with at least 9,000 Brainrot value', icon: '🏰' },
+  { id: 'pack_value_10000', name: 'Ten Grand', description: 'Open a pack with at least 10,000 Brainrot value', icon: '🌌' },
+  { id: 'pack_value_max', name: 'Literally Impossible', description: 'Open a pack with 10,000,000 Brainrot value', icon: '🤯' },
 ];
 
 export const getAchievementById = (id: string): Achievement | undefined => ACHIEVEMENTS.find(a => a.id === id);

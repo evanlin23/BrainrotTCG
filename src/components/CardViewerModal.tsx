@@ -1,13 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Card } from '../data/cards';
+import { getCardValue } from '../data/cards';
 
 interface CardViewerModalProps {
   card: Card;
-  isHolo: boolean;
+  hasNormal: boolean;
+  hasHolo: boolean;
+  initialHolo: boolean;
   onClose: () => void;
 }
 
-const CardViewerModal = ({ card, isHolo, onClose }: CardViewerModalProps) => {
+const CardViewerModal = ({ card, hasNormal, hasHolo, initialHolo, onClose }: CardViewerModalProps) => {
+  const [isHolo, setIsHolo] = useState(initialHolo);
   const cardRef = useRef<HTMLDivElement>(null);
   const [tilt, setTilt] = useState({ rotateX: 0, rotateY: 0 });
 
@@ -81,6 +85,32 @@ const CardViewerModal = ({ card, isHolo, onClose }: CardViewerModalProps) => {
         >
           <img src={card.image} alt={card.name} draggable="false" />
         </div>
+
+        <div className="card-viewer-info" style={{ textAlign: 'center', marginTop: '1rem', color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+          <p style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>
+            Value: {getCardValue(card.rarity, isHolo)} Buhcoin{getCardValue(card.rarity, isHolo) !== 1 ? 's' : ''}
+          </p>
+          {hasNormal && hasHolo && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsHolo(!isHolo); }}
+              style={{
+                marginTop: '0.5rem',
+                padding: '0.5rem 1rem',
+                background: isHolo ? 'linear-gradient(45deg, #ffd700, #ff8c00)' : 'rgba(255, 255, 255, 0.2)',
+                border: 'none',
+                borderRadius: '8px',
+                color: isHolo ? '#000' : '#fff',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: isHolo ? '0 0 10px rgba(255, 215, 0, 0.5)' : 'none'
+              }}
+            >
+              {isHolo ? 'Show Normal' : 'Show Shiny'}
+            </button>
+          )}
+        </div>
+
         <button className="card-viewer-close" onClick={onClose}>&times;</button>
       </div>
     </div>

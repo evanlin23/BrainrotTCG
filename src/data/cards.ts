@@ -57,3 +57,17 @@ export const INITIAL_CARDS: Card[] = [
 export const getCardsByRarity = (rarity: RarityKey): Card[] => {
   return INITIAL_CARDS.filter(card => card.rarity === rarity);
 };
+
+export const RARITY_VALUES: Record<RarityKey, number> = {
+  COMMON: 1,
+  UNCOMMON: 2,
+  RARE: 4,
+  EPIC: 7,
+  LEGENDARY: 20,
+  BRAINROT: 100,
+};
+
+export const getCardValue = (rarity: RarityKey, isHolo: boolean): number => {
+  const baseValue = RARITY_VALUES[rarity] || 0;
+  return isHolo ? baseValue * 20 : baseValue;
+};

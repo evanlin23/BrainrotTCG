@@ -2,12 +2,14 @@ import { useMemo, useState, useEffect, useCallback } from 'react';
 import './styles/index.css';
 import PackOpener from './components/PackOpener';
 import AchievementNotification from './components/AchievementNotification';
+import BestPackPage from './components/BestPackPage';
 import AchievementsPage from './components/AchievementsPage';
 import HallOfFame from './components/HallOfFame';
 import CardViewerModal from './components/CardViewerModal';
-import { INITIAL_CARDS, Card } from './data/cards';
+import { INITIAL_CARDS, Card, getCardValue } from './data/cards';
 import { ACHIEVEMENTS, getAchievementById, Achievement } from './data/achievements';
 import { CardWithMeta } from './components/Card';
+import { getPackMultiplier, PokerHandResult } from './utils/poker';
 import swedenSrc from './assets/audio/Sweden.mp3';
 
 const COLLECTION_STORAGE_KEY = 'brainrot-found-collection-v1';
@@ -24,6 +26,12 @@ interface CollectionItem {
 interface Stats {
   packsOpened: number;
   holoCards: Record<string, boolean>;
+  highestPackValue?: number; // legacy
+  highestPackFlexValue?: number;
+  highestPackBaseValue?: number;
+  highestPackMultiplier?: number;
+  highestPackHandName?: string;
+  highestPackCards?: CardWithMeta[];
 }
 
 interface HallOfFameData {
@@ -54,21 +62,22 @@ const getStoredData = <T,>(key: string, defaultValue: T): T => {
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => getStoredData(COLLECTION_STORAGE_KEY, {}));
   const [achievements, setAchievements] = useState<Record<string, number>>(() => getStoredData(ACHIEVEMENTS_STORAGE_KEY, {}));
-  const [stats, setStats] = useState<Stats>(() => getStoredData(STATS_STORAGE_KEY, { packsOpened: 0, holoCards: {} }));
+  const [stats, setStats] = useState<Stats>(() => getStoredData(STATS_STORAGE_KEY, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
   const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(HALL_OF_FAME_STORAGE_KEY, {}));
 
   const [isCollectionOpen, setIsCollectionOpen] = useState(false);
   const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
   const [isHallOfFameOpen, setIsHallOfFameOpen] = useState(false);
+  const [isBestPackOpen, setIsBestPackOpen] = useState(false);
   const [notificationQueue, setNotificationQueue] = useState<Achievement[]>([]);
-  const [selectedCard, setSelectedCard] = useState<{ card: Card; holoCount: number } | null>(null);
+  const [selectedCard, setSelectedCard] = useState<{ card: Card; normalCount: number; holoCount: number } | null>(null);
 
   // Play background music on page load
   useEffect(() => {
     const bgMusic = new Audio(swedenSrc);
     bgMusic.volume = 0.05;
     bgMusic.loop = true;
-    bgMusic.play().catch(() => {});
+    bgMusic.play().catch(() => { });
 
     return () => {
       bgMusic.pause();
@@ -182,7 +191,7 @@ function App() {
         return next;
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
 
   const unlockAchievement = useCallback((achievementId: string) => {
@@ -338,12 +347,26 @@ function App() {
   }, [achievements, unlockAchievement]);
 
   const handleCardsOpened = useCallback((newCards: CardWithMeta[]) => {
+    // Calculate pack value
+    const packValue = newCards.reduce((sum, card) => sum + getCardValue(card.rarity, card.isHolo), 0);
+    const pokerHand = getPackMultiplier(newCards);
+    const flexValue = packValue * pokerHand.multiplier;
+
     // Update stats
     const updatedStats: Stats = {
       ...stats,
       packsOpened: (stats.packsOpened || 0) + 1,
       holoCards: { ...stats.holoCards }
     };
+
+    // Update highest pack value
+    if (flexValue > (stats.highestPackFlexValue || stats.highestPackValue || 0)) {
+      updatedStats.highestPackFlexValue = flexValue;
+      updatedStats.highestPackBaseValue = packValue;
+      updatedStats.highestPackMultiplier = pokerHand.multiplier;
+      updatedStats.highestPackHandName = pokerHand.name;
+      updatedStats.highestPackCards = newCards;
+    }
 
     // Track holo cards
     newCards.forEach(card => {
@@ -428,6 +451,25 @@ function App() {
 
     // Check achievements after a short delay to ensure state updates
     setTimeout(() => {
+      // Create newAchievements array for pack value to add manually
+      const newAchievements: string[] = [];
+      if (flexValue === 5 && !achievements.pack_value_5) newAchievements.push('pack_value_5');
+      if (flexValue >= 50 && !achievements.pack_value_50) newAchievements.push('pack_value_50');
+      if (flexValue >= 100 && !achievements.pack_value_100) newAchievements.push('pack_value_100');
+      if (flexValue >= 500 && !achievements.pack_value_500) newAchievements.push('pack_value_500');
+      if (flexValue >= 1000 && !achievements.pack_value_1000) newAchievements.push('pack_value_1000');
+      if (flexValue >= 2000 && !achievements.pack_value_2000) newAchievements.push('pack_value_2000');
+      if (flexValue >= 3000 && !achievements.pack_value_3000) newAchievements.push('pack_value_3000');
+      if (flexValue >= 4000 && !achievements.pack_value_4000) newAchievements.push('pack_value_4000');
+      if (flexValue >= 5000 && !achievements.pack_value_5000) newAchievements.push('pack_value_5000');
+      if (flexValue >= 6000 && !achievements.pack_value_6000) newAchievements.push('pack_value_6000');
+      if (flexValue >= 7000 && !achievements.pack_value_7000) newAchievements.push('pack_value_7000');
+      if (flexValue >= 8000 && !achievements.pack_value_8000) newAchievements.push('pack_value_8000');
+      if (flexValue >= 9000 && !achievements.pack_value_9000) newAchievements.push('pack_value_9000');
+      if (flexValue >= 10000 && !achievements.pack_value_10000) newAchievements.push('pack_value_10000');
+      if (flexValue >= 10000000 && !achievements.pack_value_max) newAchievements.push('pack_value_max');
+      newAchievements.forEach(id => unlockAchievement(id));
+
       checkAchievements(newCards, updatedCollection || collection, updatedStats);
     }, 100);
   }, [stats, hallOfFame, collection, checkAchievements]);
@@ -441,12 +483,19 @@ function App() {
       UNCOMMON: 4,
       COMMON: 5,
     };
-    return Object.values(collection).sort(
-      (a, b) =>
-        rarityOrder[a.card.rarity] - rarityOrder[b.card.rarity] ||
-        (b.normalCount + b.holoCount) - (a.normalCount + a.holoCount) ||
-        a.card.name.localeCompare(b.card.name)
-    );
+    return Object.values(collection)
+      .map(item => ({
+        ...item,
+        normalCount: item.normalCount || 0,
+        holoCount: item.holoCount || 0,
+      }))
+      .filter(item => item && item.card && item.card.rarity)
+      .sort(
+        (a, b) =>
+          (rarityOrder[a.card.rarity] ?? 99) - (rarityOrder[b.card.rarity] ?? 99) ||
+          (b.normalCount + b.holoCount) - (a.normalCount + a.holoCount) ||
+          a.card.name.localeCompare(b.card.name)
+      );
   }, [collection]);
 
   const totalFound = useMemo(
@@ -454,7 +503,15 @@ function App() {
     [collectionItems]
   );
 
-  const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen;
+  const accountValue = useMemo(() => {
+    return collectionItems.reduce((sum, item) => {
+      const normalValue = item.normalCount * getCardValue(item.card.rarity, false);
+      const holoValue = item.holoCount * getCardValue(item.card.rarity, true);
+      return sum + normalValue + holoValue;
+    }, 0);
+  }, [collectionItems]);
+
+  const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isBestPackOpen;
 
   return (
     <div className="app-container">
@@ -491,6 +548,12 @@ function App() {
           </button>
           <button
             className="nav-btn"
+            onClick={() => setIsBestPackOpen(true)}
+          >
+            Best Pack
+          </button>
+          <button
+            className="nav-btn"
             onClick={() => setIsAchievementsOpen(true)}
           >
             Achievements
@@ -498,8 +561,8 @@ function App() {
           <button
             className="nav-btn"
             onClick={() => setIsCollectionOpen(true)}
-        >
-          Collection
+          >
+            Collection
           </button>
         </div>
       )}
@@ -529,6 +592,14 @@ function App() {
         />
       )}
 
+      {/* Best Pack Page */}
+      {isBestPackOpen && (
+        <BestPackPage
+          stats={stats}
+          onClose={() => setIsBestPackOpen(false)}
+        />
+      )}
+
       {/* Collection Browser */}
       {isCollectionOpen && (
         <section className="collection-browser">
@@ -536,6 +607,9 @@ function App() {
             <h2>Collection</h2>
             <p>
               {Object.keys(collection).length} / {INITIAL_CARDS.length} unique • {totalFound} total
+            </p>
+            <p style={{ color: '#ffd700', fontWeight: 'bold', margin: '0.5rem 0' }}>
+              Account Value: {accountValue.toLocaleString()} Buhcoins
             </p>
             <button className="collection-close-btn" onClick={() => setIsCollectionOpen(false)}>&times;</button>
           </div>
@@ -554,7 +628,7 @@ function App() {
                   <article
                     key={card.id}
                     className={classes}
-                    onClick={() => setSelectedCard({ card, holoCount })}
+                    onClick={() => setSelectedCard({ card, normalCount, holoCount })}
                   >
                     <img src={card.image} alt={card.name} />
                     <span className="collection-count">
@@ -567,7 +641,7 @@ function App() {
               })}
             </div>
 
-            )}
+          )}
         </section>
       )}
 
@@ -575,7 +649,9 @@ function App() {
       {selectedCard && (
         <CardViewerModal
           card={selectedCard.card}
-          isHolo={selectedCard.holoCount > 0}
+          hasNormal={selectedCard.normalCount > 0}
+          hasHolo={selectedCard.holoCount > 0}
+          initialHolo={selectedCard.holoCount > 0 && selectedCard.normalCount === 0}
           onClose={() => setSelectedCard(null)}
         />
       )}
