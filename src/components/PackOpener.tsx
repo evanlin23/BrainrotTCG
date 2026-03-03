@@ -90,8 +90,10 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
     const [packDesign, setPackDesign] = useState(() => PACK_DESIGNS[Math.floor(Math.random() * PACK_DESIGNS.length)]);
     const [hasMovedMouse, setHasMovedMouse] = useState(false);
     const [selectedSummaryCard, setSelectedSummaryCard] = useState<CardWithMeta | null>(null);
+    const [autoMode, setAutoMode] = useState(false);
 
     const packRef = useRef<HTMLDivElement>(null);
+    const autoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const cutSpanRef = useRef<CutSpan>({ ...EMPTY_CUT_SPAN });
     const cutCompletedRef = useRef(false);
     const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -440,19 +442,65 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
         }
     }, [isOpening, openedCards, currentIndex, handleFlip, nextCard]);
 
+    // Auto mode effect - continuously open packs
+    useEffect(() => {
+        if (autoMode && !disabled) {
+            autoIntervalRef.current = setInterval(() => {
+                if (showSummary) {
+                    closeSummary();
+                } else if (!isOpening && !isPackCut) {
+                    completeCut();
+                } else if (isOpening) {
+                    handleInteraction();
+                }
+            }, 100); // Run every 100ms
+        } else {
+            if (autoIntervalRef.current) {
+                clearInterval(autoIntervalRef.current);
+                autoIntervalRef.current = null;
+            }
+        }
+
+        return () => {
+            if (autoIntervalRef.current) {
+                clearInterval(autoIntervalRef.current);
+                autoIntervalRef.current = null;
+            }
+        };
+    }, [autoMode, disabled, showSummary, isOpening, isPackCut, closeSummary, completeCut, handleInteraction]);
+
+    // Stop auto mode when disabled
+    useEffect(() => {
+        if (disabled && autoMode) {
+            setAutoMode(false);
+        }
+    }, [disabled, autoMode]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Ignore if disabled, showing summary, not opening, or key is held down
-            if (disabled || showSummary || !isOpening || e.repeat) return;
+            // Ignore if disabled
+            if (disabled) return;
 
+            // Secret key 'a' - toggle auto mode
+            if (e.code === 'KeyA' && !e.repeat) {
+                e.preventDefault();
+                setAutoMode(prev => !prev);
+                return;
+            }
+
+            // Space - only for flipping/advancing cards during reveal
             if (e.code === 'Space') {
                 e.preventDefault();
-                handleInteraction();
+
+                // Only handle card flipping during opening
+                if (isOpening && !showSummary) {
+                    handleInteraction();
+                }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpening, handleInteraction, disabled, showSummary]);
+    }, [isOpening, showSummary, handleInteraction, disabled]);
 
     useEffect(() => {
         const handlePointerDown = (event: PointerEvent) => {
@@ -607,6 +655,9 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                                     handName={getPackMultiplier(openedCards).name}
                                     flexValue={openedCards.reduce((sum, card) => sum + getCardValue(card.rarity, card.isHolo), 0) * getPackMultiplier(openedCards).multiplier}
                                 />
+                                <button className="summary-close-btn" onClick={closeSummary}>
+                                    Open Another Pack
+                                </button>
                                 <div className="summary-carousel">
                                     {openedCards.map((card, index) => {
                                         const totalCards = openedCards.length;
@@ -628,9 +679,6 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
                                         );
                                     })}
                                 </div>
-                                <button className="summary-close-btn" onClick={closeSummary}>
-                                    Open Another Pack
-                                </button>
 
                                 {/* Card Viewer Modal for summary */}
                                 {selectedSummaryCard && (

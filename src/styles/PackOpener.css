@@ -489,14 +489,47 @@
 /* Summary card holo effect */
 .summary-card.holo {
     box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4),
-        0 0 20px rgba(255, 255, 255, 0.3),
-        0 0 40px rgba(255, 255, 255, 0.2);
+        0 0 20px rgba(255, 0, 255, 0.3),
+        0 0 40px rgba(0, 255, 255, 0.2);
 }
 
 .summary-card.holo:hover {
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5),
-        0 0 30px rgba(255, 255, 255, 0.4),
-        0 0 50px rgba(255, 255, 255, 0.3);
+        0 0 30px rgba(255, 0, 255, 0.4),
+        0 0 50px rgba(0, 255, 255, 0.3);
+}
+
+/* Rainbow shimmer for holo summary cards */
+.summary-card.holo::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        45deg,
+        rgba(255, 0, 0, 0.15) 0%,
+        rgba(255, 127, 0, 0.15) 14%,
+        rgba(255, 255, 0, 0.15) 28%,
+        rgba(0, 255, 0, 0.15) 42%,
+        rgba(0, 0, 255, 0.15) 56%,
+        rgba(75, 0, 130, 0.15) 70%,
+        rgba(148, 0, 211, 0.15) 84%,
+        rgba(255, 0, 0, 0.15) 100%
+    );
+    background-size: 400% 400%;
+    animation: summaryHoloRainbow 3s ease infinite;
+    pointer-events: none;
+    border-radius: 5px;
+    mix-blend-mode: overlay;
+    z-index: 1;
+}
+
+@keyframes summaryHoloRainbow {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
 }
 
 /* Shine sweep for holo summary cards */
@@ -534,24 +567,24 @@
 }
 
 .summary-close-btn {
-    position: fixed;
-    right: 1rem;
-    bottom: 1rem;
-    z-index: 40;
+    position: relative;
+    z-index: 20;
     border: 1px solid rgba(188, 19, 254, 0.3);
     background: rgba(138, 43, 226, 0.2);
     color: var(--text-main);
     border-radius: 999px;
-    padding: 0.75rem 1.25rem;
+    padding: 0.75rem 1.5rem;
     font-weight: 700;
     font-size: 0.9rem;
     cursor: pointer;
     transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    margin-top: 1rem;
+    margin-bottom: 4rem;
 }
 
 .summary-close-btn:hover {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
     box-shadow: 0 10px 22px rgba(188, 19, 254, 0.35);
     background: rgba(188, 19, 254, 0.25);
 }
