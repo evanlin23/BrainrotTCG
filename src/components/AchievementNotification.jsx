@@ -2,16 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/Achievements.css';
 
-const AchievementNotification = ({ achievement, onDismiss }) => {
+const AchievementNotification = ({ achievement, onDismiss, index = 0 }) => {
     const [isVisible, setIsVisible] = useState(true);
 
     useEffect(() => {
+        let dismissTimer;
         const timer = setTimeout(() => {
             setIsVisible(false);
-            setTimeout(onDismiss, 300); // Wait for exit animation
-        }, 3000);
+            dismissTimer = setTimeout(onDismiss, 300); // Wait for exit animation
+        }, 4000);
 
-        return () => clearTimeout(timer);
+        return () => {
+            clearTimeout(timer);
+            if (dismissTimer) clearTimeout(dismissTimer);
+        };
     }, [onDismiss]);
 
     return (
@@ -20,9 +24,10 @@ const AchievementNotification = ({ achievement, onDismiss }) => {
                 <motion.div
                     className="achievement-notification"
                     initial={{ x: 300, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
+                    animate={{ x: 0, opacity: 1, y: index * 110 }}
                     exit={{ x: 300, opacity: 0 }}
                     transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+                    style={{ top: `1rem` }}
                 >
                     <div className="achievement-notification-icon">{achievement.icon}</div>
                     <div className="achievement-notification-content">

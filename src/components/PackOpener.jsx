@@ -157,6 +157,13 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
     }, [cards]);
 
     const finishPack = useCallback(() => {
+        // Clean up preloaded audio assets
+        if (preloadedAssets) {
+            preloadedAssets.brainrotVoices.forEach(audio => { audio.src = ''; });
+            preloadedAssets.cardFlip.src = '';
+            preloadedAssets.effects.forEach(audio => { audio.src = ''; });
+        }
+        setPreloadedAssets(null);
         setIsOpening(false);
         setOpenedCards([]);
         setCurrentIndex(0);
@@ -165,7 +172,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         setHasMovedMouse(false);
         setPackDesign(PACK_DESIGNS[Math.floor(Math.random() * PACK_DESIGNS.length)]);
         resetCutState();
-    }, [resetCutState]);
+    }, [resetCutState, preloadedAssets]);
 
     const nextCard = useCallback(() => {
         if (currentIndex < openedCards.length - 1) {
@@ -181,16 +188,24 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         finishPack();
     }, [finishPack]);
 
+    // Helper to play and cleanup audio
+    const playAndCleanup = useCallback((audio) => {
+        const clone = audio.cloneNode();
+        clone.onended = () => { clone.src = ''; };
+        clone.play().catch(() => {});
+        return clone;
+    }, []);
+
     // Play "what kind of brainrot" when a new card appears (after card animation finishes)
     useEffect(() => {
         if (isOpening && preloadedAssets && openedCards[currentIndex] && !openedCards[currentIndex].isRevealed) {
             const timer = setTimeout(() => {
-                const randomVoice = preloadedAssets.brainrotVoices[Math.floor(Math.random() * preloadedAssets.brainrotVoices.length)].cloneNode();
-                randomVoice.play().catch(() => {});
+                const randomVoice = preloadedAssets.brainrotVoices[Math.floor(Math.random() * preloadedAssets.brainrotVoices.length)];
+                playAndCleanup(randomVoice);
             }, 700);
             return () => clearTimeout(timer);
         }
-    }, [isOpening, currentIndex, preloadedAssets, openedCards]);
+    }, [isOpening, currentIndex, preloadedAssets, openedCards, playAndCleanup]);
 
     // Hide mouse hint after user moves mouse
     useEffect(() => {
@@ -205,14 +220,11 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
         if (!currentCard || !preloadedAssets) return;
 
         // Play card flip sound
-        const cardFlip = preloadedAssets.cardFlip.cloneNode();
-        cardFlip.play().catch(() => {});
+        playAndCleanup(preloadedAssets.cardFlip);
 
-        // Pick a random effect sound
-        const randomEffect = preloadedAssets.effects[Math.floor(Math.random() * preloadedAssets.effects.length)].cloneNode();
-
-        // Play effect sound on reveal
-        randomEffect.play().catch(() => {});
+        // Pick a random effect sound and play
+        const randomEffect = preloadedAssets.effects[Math.floor(Math.random() * preloadedAssets.effects.length)];
+        playAndCleanup(randomEffect);
 
         const newCards = [...openedCards];
         newCards[currentIndex].isRevealed = true;
@@ -231,7 +243,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
                 colors
             });
         }
-    }, [openedCards, currentIndex, preloadedAssets]);
+    }, [openedCards, currentIndex, preloadedAssets, playAndCleanup]);
 
     const getLocalPoint = useCallback((clientX, clientY) => {
         const rect = packRef.current?.getBoundingClientRect();
@@ -258,6 +270,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
 
         // Play woosh sound
         const woosh = new Audio(wooshSrc);
+        woosh.onended = () => { woosh.src = ''; };
         woosh.play().catch(() => {});
 
         if (openTimeoutRef.current) {
@@ -405,6 +418,11 @@ const PackOpener = ({ onOpen, cards, disabled = false }) => {
     useEffect(() => () => {
         if (openTimeoutRef.current) {
             window.clearTimeout(openTimeoutRef.current);
+        }
+        if (fairyDustRef.current) {
+            fairyDustRef.current.pause();
+            fairyDustRef.current.src = '';
+            fairyDustRef.current = null;
         }
         clearSparks();
     }, [clearSparks]);

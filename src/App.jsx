@@ -65,8 +65,8 @@ function App() {
     setNotificationQueue(prev => [...prev, achievement]);
   }, [achievements]);
 
-  const dismissNotification = useCallback(() => {
-    setNotificationQueue(prev => prev.slice(1));
+  const dismissNotification = useCallback((achievementId) => {
+    setNotificationQueue(prev => prev.filter(a => a.id !== achievementId));
   }, []);
 
   const checkAchievements = useCallback((newCards, updatedCollection, updatedStats, updatedHallOfFame) => {
@@ -289,12 +289,14 @@ function App() {
       )}
 
       {/* Achievement Notifications */}
-      {notificationQueue.length > 0 && (
+      {notificationQueue.map((achievement, index) => (
         <AchievementNotification
-          achievement={notificationQueue[0]}
-          onDismiss={dismissNotification}
+          key={achievement.id}
+          achievement={achievement}
+          index={index}
+          onDismiss={() => dismissNotification(achievement.id)}
         />
-      )}
+      ))}
 
       {/* Achievements Page */}
       {isAchievementsOpen && (
