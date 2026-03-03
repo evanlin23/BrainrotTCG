@@ -1,76 +1,38 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import './styles/index.css';
-import PackOpener from './components/PackOpener';
-import AchievementNotification from './components/AchievementNotification';
-import BestPackPage from './components/BestPackPage';
-import AchievementsPage from './components/AchievementsPage';
-import HallOfFame from './components/HallOfFame';
-import CardViewerModal from './components/CardViewerModal';
-import { INITIAL_CARDS, Card, getCardValue } from './data/cards';
-import { ACHIEVEMENTS, getAchievementById, Achievement } from './data/achievements';
-import { CardWithMeta } from './components/Card';
-import { getPackMultiplier, PokerHandResult } from './utils/poker';
+import PackOpener from './components/pack/PackOpener';
+import AchievementNotification from './components/achievements/AchievementNotification';
+import BestPackPage from './components/pages/BestPackPage';
+import AchievementsPage from './components/achievements/AchievementsPage';
+import HallOfFamePage from './components/pages/HallOfFamePage';
+import CollectionBrowser from './components/collection/CollectionBrowser';
+import { INITIAL_CARDS, getCardValue } from './data/cards';
+import { getAchievementById, Achievement } from './data/achievements';
+import { CardWithMeta } from './components/cards/Card';
+import { getPackMultiplier } from './utils/poker';
+import { getStoredData } from './utils/storage';
+import { STORAGE_KEYS } from './constants';
+import {
+  checkPackMilestones,
+  checkCollectionAchievements,
+  checkPackAchievements,
+  getAccountValue,
+  getMaxCopiesOfCard,
+} from './utils/achievementChecks';
+import type { CollectionItem, Stats, HallOfFameData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
 
-const COLLECTION_STORAGE_KEY = 'brainrot-found-collection-v1';
-const ACHIEVEMENTS_STORAGE_KEY = 'brainrot-achievements-v1';
-const STATS_STORAGE_KEY = 'brainrot-stats-v1';
-const HALL_OF_FAME_STORAGE_KEY = 'brainrot-hall-of-fame-v1';
-
-interface CollectionItem {
-  card: Card;
-  normalCount: number;
-  holoCount: number;
-}
-
-interface Stats {
-  packsOpened: number;
-  holoCards: Record<string, boolean>;
-  highestPackValue?: number; // legacy
-  highestPackFlexValue?: number;
-  highestPackBaseValue?: number;
-  highestPackMultiplier?: number;
-  highestPackHandName?: string;
-  highestPackCards?: CardWithMeta[];
-}
-
-interface HallOfFameData {
-  first4OfAKind?: {
-    achieved: boolean;
-    date: number;
-    cardId: string;
-  };
-  firstFullHouse?: {
-    achieved: boolean;
-    date: number;
-    cards: Record<string, number>;
-  };
-}
-
-const getStoredData = <T,>(key: string, defaultValue: T): T => {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return defaultValue;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return defaultValue;
-    return parsed as T;
-  } catch {
-    return defaultValue;
-  }
-};
-
 function App() {
-  const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => getStoredData(COLLECTION_STORAGE_KEY, {}));
-  const [achievements, setAchievements] = useState<Record<string, number>>(() => getStoredData(ACHIEVEMENTS_STORAGE_KEY, {}));
-  const [stats, setStats] = useState<Stats>(() => getStoredData(STATS_STORAGE_KEY, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
-  const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(HALL_OF_FAME_STORAGE_KEY, {}));
+  const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => getStoredData(STORAGE_KEYS.COLLECTION, {}));
+  const [achievements, setAchievements] = useState<Record<string, number>>(() => getStoredData(STORAGE_KEYS.ACHIEVEMENTS, {}));
+  const [stats, setStats] = useState<Stats>(() => getStoredData(STORAGE_KEYS.STATS, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
+  const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(STORAGE_KEYS.HALL_OF_FAME, {}));
 
   const [isCollectionOpen, setIsCollectionOpen] = useState(false);
   const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
   const [isHallOfFameOpen, setIsHallOfFameOpen] = useState(false);
   const [isBestPackOpen, setIsBestPackOpen] = useState(false);
   const [notificationQueue, setNotificationQueue] = useState<Achievement[]>([]);
-  const [selectedCard, setSelectedCard] = useState<{ card: Card; normalCount: number; holoCount: number } | null>(null);
 
   // Play background music on page load
   useEffect(() => {
@@ -86,98 +48,11 @@ function App() {
 
   // Check retroactive achievements on mount
   useEffect(() => {
-    const retroactiveAchievements: string[] = [];
+    // Use shared achievement checking functions
+    const packAchievements = checkPackMilestones(stats.packsOpened || 0, achievements);
+    const collectionAchievements = checkCollectionAchievements(collection, stats, achievements);
 
-    // Pack milestones (retroactive)
-    const packsOpened = stats.packsOpened || 0;
-    if (packsOpened >= 1 && !achievements.first_pack) retroactiveAchievements.push('first_pack');
-    if (packsOpened >= 10 && !achievements.packs_10) retroactiveAchievements.push('packs_10');
-    if (packsOpened >= 41 && !achievements.packs_41) retroactiveAchievements.push('packs_41');
-    if (packsOpened >= 67 && !achievements.packs_67) retroactiveAchievements.push('packs_67');
-    if (packsOpened >= 100 && !achievements.packs_100) retroactiveAchievements.push('packs_100');
-    if (packsOpened >= 420 && !achievements.packs_420) retroactiveAchievements.push('packs_420');
-    if (packsOpened >= 1000 && !achievements.packs_1000) retroactiveAchievements.push('packs_1000');
-
-    // Collection milestones (retroactive)
-    const uniqueCards = Object.keys(collection).length;
-    if (uniqueCards >= 5 && !achievements.collect_5) retroactiveAchievements.push('collect_5');
-    if (uniqueCards >= 10 && !achievements.collect_10) retroactiveAchievements.push('collect_10');
-    if (uniqueCards >= INITIAL_CARDS.length && !achievements.complete_collection) {
-      retroactiveAchievements.push('complete_collection');
-    }
-
-    // Holo collection (retroactive)
-    const holoCount = Object.keys(stats.holoCards || {}).length;
-    if (holoCount >= 5 && !achievements.holo_collector) retroactiveAchievements.push('holo_collector');
-    if (holoCount >= 10 && !achievements.holo_10) retroactiveAchievements.push('holo_10');
-    if (holoCount >= INITIAL_CARDS.length && !achievements.holo_complete) {
-      retroactiveAchievements.push('holo_complete');
-    }
-
-    // Check for holo legendary/brainrot in stats
-    const holoCards = stats.holoCards || {};
-    Object.keys(holoCards).forEach(cardId => {
-      const card = INITIAL_CARDS.find(c => c.id === cardId);
-      if (card?.rarity === 'LEGENDARY' && !achievements.holo_legendary) {
-        retroactiveAchievements.push('holo_legendary');
-      }
-      if (card?.rarity === 'BRAINROT' && !achievements.holo_brainrot) {
-        retroactiveAchievements.push('holo_brainrot');
-      }
-    });
-
-    // Rarity discoveries (retroactive based on collection)
-    const collectedRarities = new Set(Object.values(collection).map(item => item.card.rarity));
-    if (collectedRarities.has('COMMON') && !achievements.first_common) retroactiveAchievements.push('first_common');
-    if (collectedRarities.has('UNCOMMON') && !achievements.first_uncommon) retroactiveAchievements.push('first_uncommon');
-    if (collectedRarities.has('RARE') && !achievements.first_rare) retroactiveAchievements.push('first_rare');
-    if (collectedRarities.has('EPIC') && !achievements.first_epic) retroactiveAchievements.push('first_epic');
-    if (collectedRarities.has('LEGENDARY') && !achievements.first_legendary) retroactiveAchievements.push('first_legendary');
-    if (collectedRarities.has('BRAINROT') && !achievements.first_brainrot) retroactiveAchievements.push('first_brainrot');
-
-    // First holo (retroactive)
-    if (holoCount > 0 && !achievements.first_holo) retroactiveAchievements.push('first_holo');
-
-    // Rarity completion (retroactive)
-    const collectedByRarity = {
-      COMMON: [] as string[],
-      UNCOMMON: [] as string[],
-      RARE: [] as string[],
-      EPIC: [] as string[],
-      LEGENDARY: [] as string[],
-      BRAINROT: [] as string[],
-    };
-    Object.values(collection).forEach(item => {
-      collectedByRarity[item.card.rarity].push(item.card.id);
-    });
-
-    const cardsByRarity = {
-      COMMON: INITIAL_CARDS.filter(c => c.rarity === 'COMMON').length,
-      UNCOMMON: INITIAL_CARDS.filter(c => c.rarity === 'UNCOMMON').length,
-      RARE: INITIAL_CARDS.filter(c => c.rarity === 'RARE').length,
-      EPIC: INITIAL_CARDS.filter(c => c.rarity === 'EPIC').length,
-      LEGENDARY: INITIAL_CARDS.filter(c => c.rarity === 'LEGENDARY').length,
-      BRAINROT: INITIAL_CARDS.filter(c => c.rarity === 'BRAINROT').length,
-    };
-
-    if (collectedByRarity.COMMON.length >= cardsByRarity.COMMON && cardsByRarity.COMMON > 0 && !achievements.all_commons) {
-      retroactiveAchievements.push('all_commons');
-    }
-    if (collectedByRarity.UNCOMMON.length >= cardsByRarity.UNCOMMON && cardsByRarity.UNCOMMON > 0 && !achievements.all_uncommons) {
-      retroactiveAchievements.push('all_uncommons');
-    }
-    if (collectedByRarity.RARE.length >= cardsByRarity.RARE && cardsByRarity.RARE > 0 && !achievements.all_rares) {
-      retroactiveAchievements.push('all_rares');
-    }
-    if (collectedByRarity.EPIC.length >= cardsByRarity.EPIC && cardsByRarity.EPIC > 0 && !achievements.all_epics) {
-      retroactiveAchievements.push('all_epics');
-    }
-    if (collectedByRarity.LEGENDARY.length >= cardsByRarity.LEGENDARY && cardsByRarity.LEGENDARY > 0 && !achievements.all_legendaries) {
-      retroactiveAchievements.push('all_legendaries');
-    }
-    if (collectedByRarity.BRAINROT.length >= cardsByRarity.BRAINROT && cardsByRarity.BRAINROT > 0 && !achievements.all_brainrots) {
-      retroactiveAchievements.push('all_brainrots');
-    }
+    const retroactiveAchievements = [...packAchievements, ...collectionAchievements];
 
     // Apply retroactive achievements (without notifications to avoid spam on load)
     if (retroactiveAchievements.length > 0) {
@@ -187,7 +62,7 @@ function App() {
         retroactiveAchievements.forEach(id => {
           if (!next[id]) next[id] = timestamp;
         });
-        localStorage.setItem(ACHIEVEMENTS_STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
         return next;
       });
     }
@@ -203,7 +78,7 @@ function App() {
     const timestamp = Date.now();
     setAchievements(prev => {
       const next = { ...prev, [achievementId]: timestamp };
-      localStorage.setItem(ACHIEVEMENTS_STORAGE_KEY, JSON.stringify(next));
+      localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
       return next;
     });
 
@@ -214,176 +89,15 @@ function App() {
     setNotificationQueue(prev => prev.filter(a => a.id !== achievementId));
   }, []);
 
-  const checkAchievements = useCallback((newCards: CardWithMeta[], updatedCollection: Record<string, CollectionItem>, updatedStats: Stats) => {
-    const newAchievements: string[] = [];
+  const checkAllAchievements = useCallback((newCards: CardWithMeta[], updatedCollection: Record<string, CollectionItem>, updatedStats: Stats) => {
+    // Use shared achievement checking functions
+    const packMilestones = checkPackMilestones(updatedStats.packsOpened, achievements);
+    const collectionAchievements = checkCollectionAchievements(updatedCollection, updatedStats, achievements);
+    const packAchievements = checkPackAchievements(newCards, achievements);
 
-    // Pack milestones
-    const packsOpened = updatedStats.packsOpened;
-    if (packsOpened >= 1 && !achievements.first_pack) newAchievements.push('first_pack');
-    if (packsOpened >= 10 && !achievements.packs_10) newAchievements.push('packs_10');
-    if (packsOpened >= 41 && !achievements.packs_41) newAchievements.push('packs_41');
-    if (packsOpened >= 67 && !achievements.packs_67) newAchievements.push('packs_67');
-    if (packsOpened >= 100 && !achievements.packs_100) newAchievements.push('packs_100');
-    if (packsOpened >= 420 && !achievements.packs_420) newAchievements.push('packs_420');
-    if (packsOpened >= 1000 && !achievements.packs_1000) newAchievements.push('packs_1000');
-
-    // Rarity discoveries (check new cards in this pack)
-    const rarities = new Set(newCards.map(c => c.rarity));
-    if (rarities.has('COMMON') && !achievements.first_common) newAchievements.push('first_common');
-    if (rarities.has('UNCOMMON') && !achievements.first_uncommon) newAchievements.push('first_uncommon');
-    if (rarities.has('RARE') && !achievements.first_rare) newAchievements.push('first_rare');
-    if (rarities.has('EPIC') && !achievements.first_epic) newAchievements.push('first_epic');
-    if (rarities.has('LEGENDARY') && !achievements.first_legendary) newAchievements.push('first_legendary');
-    if (rarities.has('BRAINROT') && !achievements.first_brainrot) newAchievements.push('first_brainrot');
-
-    // First holo
-    if (newCards.some(c => c.isHolo) && !achievements.first_holo) newAchievements.push('first_holo');
-
-    // Pack combos
-    const cardCounts: Record<string, number> = {};
-    newCards.forEach(c => {
-      cardCounts[c.id] = (cardCounts[c.id] || 0) + 1;
-    });
-    const maxCount = Math.max(...Object.values(cardCounts));
-
-    if (maxCount >= 2 && !achievements.two_of_kind) newAchievements.push('two_of_kind');
-    if (maxCount >= 3 && !achievements.three_of_kind) newAchievements.push('three_of_kind');
-    if (maxCount >= 4 && !achievements.four_of_kind) newAchievements.push('four_of_kind');
-    if (maxCount >= 5 && !achievements.five_of_kind) newAchievements.push('five_of_kind');
-
-    // Full house (3 + 2)
-    const counts = Object.values(cardCounts);
-    const hasThree = counts.some(c => c >= 3);
-    const hasTwo = counts.filter(c => c >= 2).length >= 2 || counts.some(c => c >= 5);
-    if (hasThree && hasTwo && !achievements.full_house) newAchievements.push('full_house');
-
-    // All same rarity
-    if (new Set(newCards.map(c => c.rarity)).size === 1 && !achievements.all_same_rarity) {
-      newAchievements.push('all_same_rarity');
-    }
-
-    // 5 different rarities in one pack
-    if (rarities.size >= 5 && !achievements.five_rarities) newAchievements.push('five_rarities');
-
-    // No commons in pack
-    if (!rarities.has('COMMON') && newCards.length === 5 && !achievements.no_commons) {
-      newAchievements.push('no_commons');
-    }
-
-    // All commons in pack (rock bottom)
-    if (newCards.every(c => c.rarity === 'COMMON') && !achievements.all_commons_pack) {
-      newAchievements.push('all_commons_pack');
-    }
-
-    // Two pair (2 different pairs in one pack)
-    const pairCount = counts.filter(c => c >= 2).length;
-    if (pairCount >= 2 && !achievements.two_pair) newAchievements.push('two_pair');
-
-    // Holo pack achievements
-    const holosInPack = newCards.filter(c => c.isHolo).length;
-    if (holosInPack >= 2 && !achievements.double_holo) newAchievements.push('double_holo');
-    if (holosInPack >= 3 && !achievements.triple_holo) newAchievements.push('triple_holo');
-    if (holosInPack >= 4 && !achievements.quad_holo) newAchievements.push('quad_holo');
-    if (holosInPack >= 5 && !achievements.all_holos) newAchievements.push('all_holos');
-
-    // Holo + rarity combos in this pack
-    const holoCommon = newCards.some(c => c.isHolo && c.rarity === 'COMMON');
-    const holoUncommon = newCards.some(c => c.isHolo && c.rarity === 'UNCOMMON');
-    const holoRare = newCards.some(c => c.isHolo && c.rarity === 'RARE');
-    const holoEpic = newCards.some(c => c.isHolo && c.rarity === 'EPIC');
-    const holoLegendary = newCards.some(c => c.isHolo && c.rarity === 'LEGENDARY');
-    const holoBrainrot = newCards.some(c => c.isHolo && c.rarity === 'BRAINROT');
-    if (holoCommon && !achievements.holo_common) newAchievements.push('holo_common');
-    if (holoUncommon && !achievements.holo_uncommon) newAchievements.push('holo_uncommon');
-    if (holoRare && !achievements.holo_rare) newAchievements.push('holo_rare');
-    if (holoEpic && !achievements.holo_epic) newAchievements.push('holo_epic');
-    if (holoLegendary && !achievements.holo_legendary) newAchievements.push('holo_legendary');
-    if (holoBrainrot && !achievements.holo_brainrot) newAchievements.push('holo_brainrot');
-
-    // Lucky day (2+ legendary or brainrot)
-    const luckyCount = newCards.filter(c => c.rarity === 'LEGENDARY' || c.rarity === 'BRAINROT').length;
-    if (luckyCount >= 2 && !achievements.lucky_day) newAchievements.push('lucky_day');
-
-    // Collection milestones
-    const uniqueCards = Object.keys(updatedCollection).length;
-    if (uniqueCards >= 5 && !achievements.collect_5) newAchievements.push('collect_5');
-    if (uniqueCards >= 10 && !achievements.collect_10) newAchievements.push('collect_10');
-    if (uniqueCards >= INITIAL_CARDS.length && !achievements.complete_collection) {
-      newAchievements.push('complete_collection');
-    }
-
-    // Holo collection milestones
-    const holoCount = Object.keys(updatedStats.holoCards || {}).length;
-    if (holoCount >= 5 && !achievements.holo_collector) newAchievements.push('holo_collector');
-    if (holoCount >= 10 && !achievements.holo_10) newAchievements.push('holo_10');
-    if (holoCount >= INITIAL_CARDS.length && !achievements.holo_complete) {
-      newAchievements.push('holo_complete');
-    }
-
-    // Total holos owned milestones
-    const totalHolosOwned = Object.values(updatedCollection).reduce((sum, item) => sum + item.holoCount, 0);
-    if (totalHolosOwned >= 25 && !achievements.total_holos_25) newAchievements.push('total_holos_25');
-    if (totalHolosOwned >= 100 && !achievements.total_holos_100) newAchievements.push('total_holos_100');
-
-    // Duplicate milestones (most copies of any single card)
-    const maxCopiesOfCard = Math.max(...Object.values(updatedCollection).map(item => item.count + item.holoCount));
-    if (maxCopiesOfCard >= 10 && !achievements.dupes_10) newAchievements.push('dupes_10');
-    if (maxCopiesOfCard >= 25 && !achievements.dupes_25) newAchievements.push('dupes_25');
-    if (maxCopiesOfCard >= 100 && !achievements.dupes_100) newAchievements.push('dupes_100');
-
-    // Account value milestones
-    const accountValue = Object.values(updatedCollection).reduce((sum, item) => {
-      const baseValue = getCardValue(item.card.rarity, false);
-      const holoValue = getCardValue(item.card.rarity, true);
-      return sum + (baseValue * item.count) + (holoValue * item.holoCount);
-    }, 0);
-    if (accountValue >= 10000 && !achievements.value_10k) newAchievements.push('value_10k');
-    if (accountValue >= 100000 && !achievements.value_100k) newAchievements.push('value_100k');
-    if (accountValue >= 1000000 && !achievements.value_1m) newAchievements.push('value_1m');
-
-    // Rarity completion achievements
-    const collectedByRarity = {
-      COMMON: [] as string[],
-      UNCOMMON: [] as string[],
-      RARE: [] as string[],
-      EPIC: [] as string[],
-      LEGENDARY: [] as string[],
-      BRAINROT: [] as string[],
-    };
-    Object.values(updatedCollection).forEach(item => {
-      collectedByRarity[item.card.rarity].push(item.card.id);
-    });
-
-    const cardsByRarity = {
-      COMMON: INITIAL_CARDS.filter(c => c.rarity === 'COMMON').length,
-      UNCOMMON: INITIAL_CARDS.filter(c => c.rarity === 'UNCOMMON').length,
-      RARE: INITIAL_CARDS.filter(c => c.rarity === 'RARE').length,
-      EPIC: INITIAL_CARDS.filter(c => c.rarity === 'EPIC').length,
-      LEGENDARY: INITIAL_CARDS.filter(c => c.rarity === 'LEGENDARY').length,
-      BRAINROT: INITIAL_CARDS.filter(c => c.rarity === 'BRAINROT').length,
-    };
-
-    if (collectedByRarity.COMMON.length >= cardsByRarity.COMMON && cardsByRarity.COMMON > 0 && !achievements.all_commons) {
-      newAchievements.push('all_commons');
-    }
-    if (collectedByRarity.UNCOMMON.length >= cardsByRarity.UNCOMMON && cardsByRarity.UNCOMMON > 0 && !achievements.all_uncommons) {
-      newAchievements.push('all_uncommons');
-    }
-    if (collectedByRarity.RARE.length >= cardsByRarity.RARE && cardsByRarity.RARE > 0 && !achievements.all_rares) {
-      newAchievements.push('all_rares');
-    }
-    if (collectedByRarity.EPIC.length >= cardsByRarity.EPIC && cardsByRarity.EPIC > 0 && !achievements.all_epics) {
-      newAchievements.push('all_epics');
-    }
-    if (collectedByRarity.LEGENDARY.length >= cardsByRarity.LEGENDARY && cardsByRarity.LEGENDARY > 0 && !achievements.all_legendaries) {
-      newAchievements.push('all_legendaries');
-    }
-    if (collectedByRarity.BRAINROT.length >= cardsByRarity.BRAINROT && cardsByRarity.BRAINROT > 0 && !achievements.all_brainrots) {
-      newAchievements.push('all_brainrots');
-    }
-
-    // Unlock all new achievements
-    newAchievements.forEach(id => unlockAchievement(id));
+    // Combine all achievements and unlock them
+    const allNewAchievements = [...packMilestones, ...collectionAchievements, ...packAchievements];
+    allNewAchievements.forEach(id => unlockAchievement(id));
   }, [achievements, unlockAchievement]);
 
   const handleCardsOpened = useCallback((newCards: CardWithMeta[]) => {
@@ -417,7 +131,7 @@ function App() {
         }
       });
 
-      localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(newStats));
+      localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(newStats));
       updatedStats = newStats;
       return newStats;
     });
@@ -451,7 +165,7 @@ function App() {
         };
       });
 
-      localStorage.setItem(COLLECTION_STORAGE_KEY, JSON.stringify(next));
+      localStorage.setItem(STORAGE_KEYS.COLLECTION, JSON.stringify(next));
       updatedCollection = next;
       return next;
     });
@@ -490,7 +204,7 @@ function App() {
 
     if (updatedHallOfFame !== hallOfFame) {
       setHallOfFame(updatedHallOfFame);
-      localStorage.setItem(HALL_OF_FAME_STORAGE_KEY, JSON.stringify(updatedHallOfFame));
+      localStorage.setItem(STORAGE_KEYS.HALL_OF_FAME, JSON.stringify(updatedHallOfFame));
     }
 
     // Check achievements after a short delay to ensure state updates
@@ -514,46 +228,9 @@ function App() {
       if (flexValue >= 10000000 && !achievements.pack_value_max) newAchievements.push('pack_value_max');
       newAchievements.forEach(id => unlockAchievement(id));
 
-      checkAchievements(newCards, updatedCollection || collection, updatedStats);
+      checkAllAchievements(newCards, updatedCollection || collection, updatedStats);
     }, 100);
-  }, [hallOfFame, collection, checkAchievements]);
-
-  const collectionItems = useMemo(() => {
-    const rarityOrder: Record<string, number> = {
-      BRAINROT: 0,
-      LEGENDARY: 1,
-      EPIC: 2,
-      RARE: 3,
-      UNCOMMON: 4,
-      COMMON: 5,
-    };
-    return Object.values(collection)
-      .map(item => ({
-        ...item,
-        normalCount: item.normalCount || 0,
-        holoCount: item.holoCount || 0,
-      }))
-      .filter(item => item && item.card && item.card.rarity)
-      .sort(
-        (a, b) =>
-          (rarityOrder[a.card.rarity] ?? 99) - (rarityOrder[b.card.rarity] ?? 99) ||
-          (b.normalCount + b.holoCount) - (a.normalCount + a.holoCount) ||
-          a.card.name.localeCompare(b.card.name)
-      );
-  }, [collection]);
-
-  const totalFound = useMemo(
-    () => collectionItems.reduce((sum, item) => sum + item.normalCount + item.holoCount, 0),
-    [collectionItems]
-  );
-
-  const accountValue = useMemo(() => {
-    return collectionItems.reduce((sum, item) => {
-      const normalValue = item.normalCount * getCardValue(item.card.rarity, false);
-      const holoValue = item.holoCount * getCardValue(item.card.rarity, true);
-      return sum + normalValue + holoValue;
-    }, 0);
-  }, [collectionItems]);
+  }, [hallOfFame, collection, checkAllAchievements]);
 
   const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isBestPackOpen;
 
@@ -631,7 +308,7 @@ function App() {
 
       {/* Hall of Fame Page */}
       {isHallOfFameOpen && (
-        <HallOfFame
+        <HallOfFamePage
           onClose={() => setIsHallOfFameOpen(false)}
         />
       )}
@@ -646,62 +323,9 @@ function App() {
 
       {/* Collection Browser */}
       {isCollectionOpen && (
-        <section className="collection-browser">
-          <div className="collection-header">
-            <h2>Collection</h2>
-            <p>
-              {Object.keys(collection).length} / {INITIAL_CARDS.length} unique • {totalFound} total
-            </p>
-            <p style={{ color: '#ffd700', fontWeight: 'bold', margin: '0.5rem 0' }}>
-              Account Value: {accountValue.toLocaleString()} Buhcoins
-              {totalFound > 0 && (
-                <span style={{ color: '#aaa', fontWeight: 'normal', marginLeft: '0.75rem' }}>
-                  (Average: {(accountValue / totalFound).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/card)
-                </span>
-              )}
-            </p>
-            <button className="collection-close-btn" onClick={() => setIsCollectionOpen(false)}>&times;</button>
-          </div>
-
-          {collectionItems.length === 0 ? (
-            <p className="collection-empty">Open packs to start your collection.</p>
-          ) : (
-            <div className="collection-grid">
-              {collectionItems.map(({ card, normalCount, holoCount }) => {
-                const classes = [
-                  'collection-item',
-                  card.rarity.toLowerCase(),
-                  holoCount > 0 ? 'holo' : ''
-                ].filter(Boolean).join(' ');
-                return (
-                  <article
-                    key={card.id}
-                    className={classes}
-                    onClick={() => setSelectedCard({ card, normalCount, holoCount })}
-                  >
-                    <img src={card.image} alt={card.name} />
-                    <span className="collection-count">
-                      {normalCount > 0 && `x${normalCount}`}
-                      {normalCount > 0 && holoCount > 0 && ' • '}
-                      {holoCount > 0 && `✨x${holoCount}`}
-                    </span>
-                  </article>
-                );
-              })}
-            </div>
-
-          )}
-        </section>
-      )}
-
-      {/* Card Viewer Modal - outside collection-browser for proper positioning */}
-      {selectedCard && (
-        <CardViewerModal
-          card={selectedCard.card}
-          hasNormal={selectedCard.normalCount > 0}
-          hasHolo={selectedCard.holoCount > 0}
-          initialHolo={selectedCard.holoCount > 0 && selectedCard.normalCount === 0}
-          onClose={() => setSelectedCard(null)}
+        <CollectionBrowser
+          collection={collection}
+          onClose={() => setIsCollectionOpen(false)}
         />
       )}
     </div>

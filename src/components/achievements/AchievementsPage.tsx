@@ -1,5 +1,5 @@
-import { ACHIEVEMENTS } from '../data/achievements';
-import '../styles/Achievements.css';
+import { ACHIEVEMENTS } from '../../data/achievements';
+import '../../styles/Achievements.css';
 
 interface AchievementsPageProps {
     unlockedAchievements: Record<string, number>;

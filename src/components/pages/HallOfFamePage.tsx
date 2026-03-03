@@ -1,8 +1,8 @@
-import '../styles/HallOfFame.css';
+import '../../styles/HallOfFame.css';
 
 // Import hall of fame images
-import adiImage from '../assets/images/hall_of_fame/image.png';
-import danielImage from '../assets/images/hall_of_fame/Screenshot_2026-03-01_at_10.00.18_AM.png';
+import adiImage from '../../assets/images/hall_of_fame/image.png';
+import danielImage from '../../assets/images/hall_of_fame/Screenshot_2026-03-01_at_10.00.18_AM.png';
 
 interface HallOfFameEntry {
   id: number;
@@ -29,11 +29,11 @@ const HALL_OF_FAME_ENTRIES: HallOfFameEntry[] = [
   }
 ];
 
-interface HallOfFameProps {
+interface HallOfFamePageProps {
   onClose: () => void;
 }
 
-const HallOfFame = ({ onClose }: HallOfFameProps) => {
+const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   return (
     <div className="hall-of-fame-page">
       <div className="hall-of-fame-header">
@@ -60,4 +60,4 @@ const HallOfFame = ({ onClose }: HallOfFameProps) => {
   );
 };
 
-export default HallOfFame;
+export default HallOfFamePage;

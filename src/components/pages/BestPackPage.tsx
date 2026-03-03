@@ -1,7 +1,7 @@
-import { CardWithMeta } from './Card';
-import BrainrotValuePanel from './BrainrotValuePanel';
-import '../styles/BestPackPage.css';
-import '../styles/PackOpener.css'; // For the fan-out summary carousel styles
+import { CardWithMeta } from '../cards/Card';
+import BrainrotValuePanel from '../ui/BrainrotValuePanel';
+import '../../styles/BestPackPage.css';
+import '../../styles/PackOpener.css'; // For the fan-out summary carousel styles
 
 interface Stats {
     highestPackValue?: number;

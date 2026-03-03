@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import '../styles/Card.css';
-import cardBackImage from '../assets/images/card_back.png';
-import type { Card as CardType, RarityKey } from '../data/cards';
+import '../../styles/Card.css';
+import cardBackImage from '../../assets/images/card_back.png';
+import type { Card as CardType } from '../../data/cards';
 
 export interface CardWithMeta extends CardType {
     uniqueId: number;

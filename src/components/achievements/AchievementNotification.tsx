@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import '../styles/Achievements.css';
-import type { Achievement } from '../data/achievements';
+import '../../styles/Achievements.css';
+import type { Achievement } from '../../data/achievements';
 
 interface AchievementNotificationProps {
     achievement: Achievement;

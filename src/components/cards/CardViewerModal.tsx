@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import type { Card } from '../data/cards';
-import { getCardValue } from '../data/cards';
+import type { Card } from '../../data/cards';
+import { getCardValue } from '../../data/cards';
 
 interface CardViewerModalProps {
   card: Card;
