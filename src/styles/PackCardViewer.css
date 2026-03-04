@@ -1,0 +1,269 @@
+/* Pack Card Viewer - Reusable component for displaying pack cards */
+
+.pack-card-viewer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Carousel Layout (fan-out) */
+.pack-viewer-carousel {
+    position: relative;
+    width: 100%;
+    height: 50vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1rem;
+}
+
+.pack-viewer-card-carousel {
+    position: absolute;
+    width: 20vw;
+    min-width: 140px;
+    max-width: 250px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.05);
+    border: 3px solid #333;
+    transform: translateX(calc(var(--offset) * 15vw));
+    transition: transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+        box-shadow 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+        z-index 0s 0.25s;
+    cursor: pointer;
+}
+
+.pack-viewer-card-carousel:hover {
+    transform: translateX(calc(var(--offset) * 15vw)) scale(1.15);
+    z-index: 10;
+    transition: transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+        box-shadow 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+        z-index 0s;
+}
+
+/* Grid Layout */
+.pack-viewer-grid {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+}
+
+.pack-viewer-card-grid {
+    width: 100px;
+    aspect-ratio: 5 / 7;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.2s;
+    border: 2px solid var(--glass-border);
+}
+
+.pack-viewer-card-grid:hover {
+    transform: scale(1.05);
+}
+
+/* Shared card styles */
+.pack-viewer-card-carousel img,
+.pack-viewer-card-grid img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 5px;
+    display: block;
+}
+
+/* Rarity styles - Carousel */
+.pack-viewer-card-carousel.common {
+    border-color: var(--rarity-common);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(170, 170, 170, 0.3);
+}
+
+.pack-viewer-card-carousel.common:hover {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 25px rgba(170, 170, 170, 0.5);
+}
+
+.pack-viewer-card-carousel.uncommon {
+    border-color: var(--rarity-uncommon);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(30, 255, 0, 0.4);
+}
+
+.pack-viewer-card-carousel.uncommon:hover {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 28px rgba(30, 255, 0, 0.55);
+}
+
+.pack-viewer-card-carousel.rare {
+    border-color: var(--rarity-rare);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(0, 112, 221, 0.4);
+}
+
+.pack-viewer-card-carousel.rare:hover {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(0, 112, 221, 0.6);
+}
+
+.pack-viewer-card-carousel.epic {
+    border-color: var(--rarity-epic);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(163, 53, 238, 0.5);
+}
+
+.pack-viewer-card-carousel.epic:hover {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 35px rgba(163, 53, 238, 0.7);
+}
+
+.pack-viewer-card-carousel.legendary {
+    border-color: var(--rarity-legendary);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4), 0 0 20px rgba(255, 128, 0, 0.6);
+}
+
+.pack-viewer-card-carousel.legendary:hover {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 40px rgba(255, 128, 0, 0.8);
+}
+
+.pack-viewer-card-carousel.brainrot {
+    border: 2px solid transparent;
+    background: linear-gradient(rgba(26, 26, 30, 1), rgba(26, 26, 30, 1)) padding-box,
+        linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3, #ff0000) border-box;
+    background-size: 100% 100%, 200% 100%;
+    animation: packViewerRainbowBorder 3s linear infinite;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4), 0 0 25px rgba(255, 0, 255, 0.5), 0 0 40px rgba(0, 255, 255, 0.3);
+}
+
+.pack-viewer-card-carousel.brainrot:hover {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 40px rgba(255, 0, 255, 0.7), 0 0 60px rgba(0, 255, 255, 0.5);
+}
+
+/* Rarity styles - Grid */
+.pack-viewer-card-grid.common {
+    border-color: var(--rarity-common);
+}
+
+.pack-viewer-card-grid.uncommon {
+    border-color: var(--rarity-uncommon);
+}
+
+.pack-viewer-card-grid.rare {
+    border-color: var(--rarity-rare);
+}
+
+.pack-viewer-card-grid.epic {
+    border-color: var(--rarity-epic);
+}
+
+.pack-viewer-card-grid.legendary {
+    border-color: var(--rarity-legendary);
+}
+
+.pack-viewer-card-grid.brainrot {
+    border: 2px solid transparent;
+    background: linear-gradient(var(--card-bg), var(--card-bg)) padding-box,
+        linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3, #ff0000) border-box;
+    background-size: 100% 100%, 200% 100%;
+    animation: packViewerRainbowBorder 3s linear infinite;
+}
+
+@keyframes packViewerRainbowBorder {
+    0% { background-position: 0 0, 0% 0; }
+    100% { background-position: 0 0, 200% 0; }
+}
+
+/* Holo effects - Carousel */
+.pack-viewer-card-carousel.holo {
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.4),
+        0 0 20px rgba(255, 0, 255, 0.3),
+        0 0 40px rgba(0, 255, 255, 0.2);
+}
+
+.pack-viewer-card-carousel.holo:hover {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5),
+        0 0 30px rgba(255, 0, 255, 0.4),
+        0 0 50px rgba(0, 255, 255, 0.3);
+}
+
+/* Rainbow shimmer for holo cards */
+.pack-viewer-card-carousel.holo::before,
+.pack-viewer-card-grid.holo::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        45deg,
+        rgba(255, 0, 0, 0.15) 0%,
+        rgba(255, 127, 0, 0.15) 14%,
+        rgba(255, 255, 0, 0.15) 28%,
+        rgba(0, 255, 0, 0.15) 42%,
+        rgba(0, 0, 255, 0.15) 56%,
+        rgba(75, 0, 130, 0.15) 70%,
+        rgba(148, 0, 211, 0.15) 84%,
+        rgba(255, 0, 0, 0.15) 100%
+    );
+    background-size: 400% 400%;
+    animation: packViewerHoloRainbow 3s ease infinite;
+    pointer-events: none;
+    border-radius: 5px;
+    mix-blend-mode: overlay;
+    z-index: 1;
+}
+
+@keyframes packViewerHoloRainbow {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Shine sweep for holo cards */
+.pack-viewer-card-carousel.holo::after,
+.pack-viewer-card-grid.holo::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(120deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0) 30%,
+        rgba(255, 255, 255, 0.6) 50%,
+        rgba(255, 255, 255, 0) 70%,
+        transparent 100%);
+    transform: skewX(-20deg);
+    animation: packViewerHoloShine 3s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 2;
+}
+
+@keyframes packViewerHoloShine {
+    0% { left: -100%; }
+    40% { left: 150%; }
+    100% { left: 150%; }
+}
+
+/* Holo effects - Grid */
+.pack-viewer-card-grid.holo {
+    position: relative;
+    box-shadow: 0 0 10px rgba(255, 0, 255, 0.3),
+        0 0 20px rgba(0, 255, 255, 0.2);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .pack-viewer-carousel {
+        height: 40vh;
+    }
+
+    .pack-viewer-card-carousel {
+        min-width: 100px;
+        max-width: 160px;
+    }
+
+    .pack-viewer-card-carousel:hover {
+        transform: translateX(calc(var(--offset) * 15vw)) scale(1.05);
+    }
+
+    .pack-viewer-card-grid {
+        width: 80px;
+    }
+}

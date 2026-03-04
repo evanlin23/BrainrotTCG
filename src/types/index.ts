@@ -1,5 +1,10 @@
 import type { Card } from '../data/cards';
-import type { CardWithMeta } from '../components/Card';
+import type { CardWithMeta } from '../components/cards/Card';
+
+export interface AchievementData {
+  unlockedAt: number;
+  pack?: CardWithMeta[];
+}
 
 export interface CollectionItem {
   card: Card;

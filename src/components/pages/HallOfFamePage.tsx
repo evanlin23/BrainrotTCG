@@ -3,6 +3,7 @@ import '../../styles/HallOfFame.css';
 // Import hall of fame images
 import adiImage from '../../assets/images/hall_of_fame/image.png';
 import danielImage from '../../assets/images/hall_of_fame/Screenshot_2026-03-01_at_10.00.18_AM.png';
+import squidImage from '../../assets/images/hall_of_fame/image copy.png';
 
 interface HallOfFameEntry {
   id: number;
@@ -10,6 +11,7 @@ interface HallOfFameEntry {
   description: string;
   image: string;
   date: string;
+  portrait?: boolean;
 }
 
 const HALL_OF_FAME_ENTRIES: HallOfFameEntry[] = [
@@ -26,6 +28,14 @@ const HALL_OF_FAME_ENTRIES: HallOfFameEntry[] = [
     description: 'Full House',
     image: danielImage,
     date: 'March 1st, 2026'
+  },
+  {
+    id: 3,
+    name: 'TehSquid',
+    description: 'Full House',
+    image: squidImage,
+    date: 'March 4th, 2026',
+    portrait: true
   }
 ];
 
@@ -45,7 +55,7 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
       <div className="hall-of-fame-grid">
         {HALL_OF_FAME_ENTRIES.map(entry => (
           <div key={entry.id} className="hall-of-fame-card">
-            <div className="hall-of-fame-image">
+            <div className={`hall-of-fame-image ${entry.portrait ? 'portrait' : ''}`}>
               <img src={entry.image} alt={`${entry.name}'s achievement`} />
             </div>
             <div className="hall-of-fame-info">

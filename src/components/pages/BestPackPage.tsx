@@ -1,7 +1,7 @@
 import { CardWithMeta } from '../cards/Card';
+import PackCardViewer from '../ui/PackCardViewer';
 import BrainrotValuePanel from '../ui/BrainrotValuePanel';
 import '../../styles/BestPackPage.css';
-import '../../styles/PackOpener.css'; // For the fan-out summary carousel styles
 
 interface Stats {
     highestPackValue?: number;
@@ -23,6 +23,7 @@ const BestPackPage = ({ stats, onClose }: BestPackPageProps) => {
     const displayBase = stats.highestPackBaseValue || stats.highestPackValue || 0;
     const displayMulti = stats.highestPackMultiplier || 1;
     const displayHand = stats.highestPackHandName || "No Matches";
+    const hasLegacyStats = !stats.highestPackFlexValue && stats.highestPackValue;
 
     return (
         <div className="best-pack-page">
@@ -34,32 +35,27 @@ const BestPackPage = ({ stats, onClose }: BestPackPageProps) => {
 
             <div className="best-pack-content">
                 {displayValue > 0 && stats.highestPackCards ? (
-                    <>
-                        <BrainrotValuePanel
-                            baseValue={displayBase}
-                            multiplier={displayMulti}
-                            handName={displayHand}
-                            flexValue={displayValue}
+                    hasLegacyStats ? (
+                        // Legacy stats - show custom panel since we don't have accurate multiplier info
+                        <>
+                            <BrainrotValuePanel
+                                baseValue={displayBase}
+                                multiplier={displayMulti}
+                                handName={displayHand}
+                                flexValue={displayValue}
+                            />
+                            <PackCardViewer
+                                cards={stats.highestPackCards}
+                                displayMode="carousel"
+                                showValue={false}
+                            />
+                        </>
+                    ) : (
+                        <PackCardViewer
+                            cards={stats.highestPackCards}
+                            displayMode="carousel"
                         />
-
-                        <div className="summary-carousel" style={{ marginTop: '2rem' }}>
-                            {stats.highestPackCards.map((card, index) => {
-                                const totalCards = stats.highestPackCards!.length;
-                                const offset = (index - (totalCards - 1) / 2);
-                                const classes = [
-                                    'summary-card',
-                                    card.rarity.toLowerCase(),
-                                    card.isHolo ? 'holo' : ''
-                                ].filter(Boolean).join(' ');
-
-                                return (
-                                    <div key={index} className={classes} style={{ '--offset': offset } as React.CSSProperties}>
-                                        <img src={card.image} alt={card.name} />
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </>
+                    )
                 ) : (
                     <div className="best-pack-empty">
                         <p>You haven't opened any packs yet!</p>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
 import AchievementNotification from './components/achievements/AchievementNotification';
@@ -18,7 +19,7 @@ import {
   checkCollectionAchievements,
   checkPackAchievements,
 } from './utils/achievementChecks';
-import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
+import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
 
 const DEFAULT_SETTINGS: Settings = {
@@ -28,7 +29,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => getStoredData(STORAGE_KEYS.COLLECTION, {}));
-  const [achievements, setAchievements] = useState<Record<string, number>>(() => getStoredData(STORAGE_KEYS.ACHIEVEMENTS, {}));
+  const [achievements, setAchievements] = useState<Record<string, AchievementData | number>>(() => getStoredData(STORAGE_KEYS.ACHIEVEMENTS, {}));
   const [stats, setStats] = useState<Stats>(() => getStoredData(STORAGE_KEYS.STATS, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
   const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(STORAGE_KEYS.HALL_OF_FAME, {}));
 
@@ -40,6 +41,7 @@ function App() {
   const [isBestPackOpen, setIsBestPackOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [notificationQueue, setNotificationQueue] = useState<Achievement[]>([]);
+  const [currentPack, setCurrentPack] = useState<CardWithMeta[] | null>(null);
 
   const bgMusicRef = useRef<HTMLAudioElement | null>(null);
 
@@ -94,21 +96,37 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
 
-  const unlockAchievement = useCallback((achievementId: string) => {
-    if (achievements[achievementId]) return; // Already unlocked
-
+  const unlockAchievement = useCallback((achievementId: string, pack?: CardWithMeta[]) => {
     const achievement = getAchievementById(achievementId);
     if (!achievement) return;
 
-    const timestamp = Date.now();
+    let wasUnlocked = false;
     setAchievements(prev => {
-      const next = { ...prev, [achievementId]: timestamp };
+      // Check inside functional update to avoid stale closure
+      if (prev[achievementId]) return prev;
+
+      wasUnlocked = true;
+      const achievementData: AchievementData = {
+        unlockedAt: Date.now(),
+        pack: pack,
+      };
+      const next = { ...prev, [achievementId]: achievementData };
       localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
       return next;
     });
 
-    setNotificationQueue(prev => [...prev, achievement]);
-  }, [achievements]);
+    // Only add to notification queue if we actually unlocked it
+    // Use setTimeout to ensure state has updated
+    setTimeout(() => {
+      if (wasUnlocked) {
+        setNotificationQueue(prev => {
+          // Prevent duplicates in queue
+          if (prev.some(a => a.id === achievementId)) return prev;
+          return [...prev, achievement];
+        });
+      }
+    }, 0);
+  }, []);
 
   const dismissNotification = useCallback((achievementId: string) => {
     setNotificationQueue(prev => prev.filter(a => a.id !== achievementId));
@@ -162,16 +180,16 @@ function App() {
     }
   }, []);
 
-  const checkAllAchievements = useCallback((newCards: CardWithMeta[], updatedCollection: Record<string, CollectionItem>, updatedStats: Stats) => {
-    // Use shared achievement checking functions
-    const packMilestones = checkPackMilestones(updatedStats.packsOpened, achievements);
-    const collectionAchievements = checkCollectionAchievements(updatedCollection, updatedStats, achievements);
-    const packAchievements = checkPackAchievements(newCards, achievements);
+  const checkAllAchievements = useCallback((newCards: CardWithMeta[], updatedCollection: Record<string, CollectionItem>, updatedStats: Stats, currentAchievements: Record<string, AchievementData | number>) => {
+    // Use shared achievement checking functions - pass current achievements to avoid stale state
+    const packMilestones = checkPackMilestones(updatedStats.packsOpened, currentAchievements);
+    const collectionAchievements = checkCollectionAchievements(updatedCollection, updatedStats, currentAchievements);
+    const packAchievements = checkPackAchievements(newCards, currentAchievements);
 
-    // Combine all achievements and unlock them
+    // Combine all achievements and unlock them with the pack data
     const allNewAchievements = [...packMilestones, ...collectionAchievements, ...packAchievements];
-    allNewAchievements.forEach(id => unlockAchievement(id));
-  }, [achievements, unlockAchievement]);
+    allNewAchievements.forEach(id => unlockAchievement(id, newCards));
+  }, [unlockAchievement]);
 
   const handleCardsOpened = useCallback((newCards: CardWithMeta[]) => {
     // Calculate pack value
@@ -280,30 +298,34 @@ function App() {
       localStorage.setItem(STORAGE_KEYS.HALL_OF_FAME, JSON.stringify(updatedHallOfFame));
     }
 
-    // Check achievements after a short delay to ensure state updates
-    setTimeout(() => {
-      // Create newAchievements array for pack value to add manually
-      const newAchievements: string[] = [];
-      if (flexValue === 5 && !achievements.pack_value_5) newAchievements.push('pack_value_5');
-      if (flexValue >= 50 && !achievements.pack_value_50) newAchievements.push('pack_value_50');
-      if (flexValue >= 100 && !achievements.pack_value_100) newAchievements.push('pack_value_100');
-      if (flexValue >= 500 && !achievements.pack_value_500) newAchievements.push('pack_value_500');
-      if (flexValue >= 1000 && !achievements.pack_value_1000) newAchievements.push('pack_value_1000');
-      if (flexValue >= 2000 && !achievements.pack_value_2000) newAchievements.push('pack_value_2000');
-      if (flexValue >= 3000 && !achievements.pack_value_3000) newAchievements.push('pack_value_3000');
-      if (flexValue >= 4000 && !achievements.pack_value_4000) newAchievements.push('pack_value_4000');
-      if (flexValue >= 5000 && !achievements.pack_value_5000) newAchievements.push('pack_value_5000');
-      if (flexValue >= 6000 && !achievements.pack_value_6000) newAchievements.push('pack_value_6000');
-      if (flexValue >= 7000 && !achievements.pack_value_7000) newAchievements.push('pack_value_7000');
-      if (flexValue >= 8000 && !achievements.pack_value_8000) newAchievements.push('pack_value_8000');
-      if (flexValue >= 9000 && !achievements.pack_value_9000) newAchievements.push('pack_value_9000');
-      if (flexValue >= 10000 && !achievements.pack_value_10000) newAchievements.push('pack_value_10000');
-      if (flexValue >= 10000000 && !achievements.pack_value_max) newAchievements.push('pack_value_max');
-      newAchievements.forEach(id => unlockAchievement(id));
+    // Store current pack for achievement viewing
+    setCurrentPack(newCards);
 
-      checkAllAchievements(newCards, updatedCollection || collection, updatedStats);
-    }, 100);
-  }, [hallOfFame, collection, checkAllAchievements]);
+    // Check pack value achievements - unlockAchievement handles duplicates internally
+    const packValueAchievements: string[] = [];
+    if (flexValue === 5) packValueAchievements.push('pack_value_5');
+    if (flexValue >= 50) packValueAchievements.push('pack_value_50');
+    if (flexValue >= 100) packValueAchievements.push('pack_value_100');
+    if (flexValue >= 500) packValueAchievements.push('pack_value_500');
+    if (flexValue >= 1000) packValueAchievements.push('pack_value_1000');
+    if (flexValue >= 2000) packValueAchievements.push('pack_value_2000');
+    if (flexValue >= 3000) packValueAchievements.push('pack_value_3000');
+    if (flexValue >= 4000) packValueAchievements.push('pack_value_4000');
+    if (flexValue >= 5000) packValueAchievements.push('pack_value_5000');
+    if (flexValue >= 6000) packValueAchievements.push('pack_value_6000');
+    if (flexValue >= 7000) packValueAchievements.push('pack_value_7000');
+    if (flexValue >= 8000) packValueAchievements.push('pack_value_8000');
+    if (flexValue >= 9000) packValueAchievements.push('pack_value_9000');
+    if (flexValue >= 10000) packValueAchievements.push('pack_value_10000');
+    if (flexValue >= 10000000) packValueAchievements.push('pack_value_max');
+    packValueAchievements.forEach(id => unlockAchievement(id, newCards));
+
+    // Check other achievements - get current state to avoid stale closure
+    setAchievements(currentAchievements => {
+      checkAllAchievements(newCards, updatedCollection || collection, updatedStats, currentAchievements);
+      return currentAchievements;
+    });
+  }, [hallOfFame, collection, checkAllAchievements, unlockAchievement]);
 
   const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isBestPackOpen || isSettingsOpen;
 
@@ -368,14 +390,16 @@ function App() {
       )}
 
       {/* Achievement Notifications */}
-      {notificationQueue.map((achievement, index) => (
-        <AchievementNotification
-          key={achievement.id}
-          achievement={achievement}
-          index={index}
-          onDismiss={() => dismissNotification(achievement.id)}
-        />
-      ))}
+      <AnimatePresence>
+        {notificationQueue.map((achievement, index) => (
+          <AchievementNotification
+            key={achievement.id}
+            achievement={achievement}
+            index={index}
+            onDismiss={() => dismissNotification(achievement.id)}
+          />
+        ))}
+      </AnimatePresence>
 
       {/* Achievements Page */}
       {isAchievementsOpen && (

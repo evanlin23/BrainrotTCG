@@ -60,6 +60,7 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 1rem;
+    align-items: start;
 }
 
 .hall-of-fame-card {
@@ -85,6 +86,11 @@
     aspect-ratio: 16 / 9;
     overflow: hidden;
     background: rgba(0, 0, 0, 0.3);
+}
+
+.hall-of-fame-image.portrait {
+    aspect-ratio: 9 / 16;
+    max-height: 550px;
 }
 
 .hall-of-fame-image img {
