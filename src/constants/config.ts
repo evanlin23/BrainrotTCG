@@ -4,6 +4,7 @@ export const STORAGE_KEYS = {
   ACHIEVEMENTS: 'brainrot-achievements-v1',
   STATS: 'brainrot-stats-v1',
   HALL_OF_FAME: 'brainrot-hall-of-fame-v1',
+  SETTINGS: 'brainrot-settings-v1',
 } as const;
 
 // Pack configuration

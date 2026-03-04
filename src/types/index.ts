@@ -51,3 +51,8 @@ export interface CardsByRarity {
   LEGENDARY: number;
   BRAINROT: number;
 }
+
+export interface Settings {
+  soundEnabled: boolean;
+  particlesEnabled: boolean;
+}

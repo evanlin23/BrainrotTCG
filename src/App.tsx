@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
 import AchievementNotification from './components/achievements/AchievementNotification';
 import BestPackPage from './components/pages/BestPackPage';
 import AchievementsPage from './components/achievements/AchievementsPage';
 import HallOfFamePage from './components/pages/HallOfFamePage';
+import SettingsPage from './components/pages/SettingsPage';
 import CollectionBrowser from './components/collection/CollectionBrowser';
 import { INITIAL_CARDS, getCardValue } from './data/cards';
 import { getAchievementById, Achievement } from './data/achievements';
@@ -16,11 +17,14 @@ import {
   checkPackMilestones,
   checkCollectionAchievements,
   checkPackAchievements,
-  getAccountValue,
-  getMaxCopiesOfCard,
 } from './utils/achievementChecks';
-import type { CollectionItem, Stats, HallOfFameData } from './types';
+import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
+
+const DEFAULT_SETTINGS: Settings = {
+  soundEnabled: true,
+  particlesEnabled: true,
+};
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => getStoredData(STORAGE_KEYS.COLLECTION, {}));
@@ -28,23 +32,44 @@ function App() {
   const [stats, setStats] = useState<Stats>(() => getStoredData(STORAGE_KEYS.STATS, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
   const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(STORAGE_KEYS.HALL_OF_FAME, {}));
 
+  const [settings, setSettings] = useState<Settings>(() => getStoredData(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS));
+
   const [isCollectionOpen, setIsCollectionOpen] = useState(false);
   const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
   const [isHallOfFameOpen, setIsHallOfFameOpen] = useState(false);
   const [isBestPackOpen, setIsBestPackOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [notificationQueue, setNotificationQueue] = useState<Achievement[]>([]);
+
+  const bgMusicRef = useRef<HTMLAudioElement | null>(null);
 
   // Play background music on page load
   useEffect(() => {
     const bgMusic = new Audio(swedenSrc);
     bgMusic.volume = 0.05;
     bgMusic.loop = true;
-    bgMusic.play().catch(() => { });
+    bgMusicRef.current = bgMusic;
+
+    if (settings.soundEnabled) {
+      bgMusic.play().catch(() => { });
+    }
 
     return () => {
       bgMusic.pause();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Handle sound toggle for background music
+  useEffect(() => {
+    if (bgMusicRef.current) {
+      if (settings.soundEnabled) {
+        bgMusicRef.current.play().catch(() => { });
+      } else {
+        bgMusicRef.current.pause();
+      }
+    }
+  }, [settings.soundEnabled]);
 
   // Check retroactive achievements on mount
   useEffect(() => {
@@ -87,6 +112,54 @@ function App() {
 
   const dismissNotification = useCallback((achievementId: string) => {
     setNotificationQueue(prev => prev.filter(a => a.id !== achievementId));
+  }, []);
+
+  const handleSettingsChange = useCallback((newSettings: Settings) => {
+    setSettings(newSettings);
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
+  }, []);
+
+  const handleImportSave = useCallback((data: string) => {
+    try {
+      const saveData = JSON.parse(data);
+
+      // Validate save data structure
+      if (!saveData.version || !saveData.exportedAt) {
+        alert('Invalid save file format');
+        return;
+      }
+
+      // Import each piece of data
+      if (saveData.collection) {
+        const collectionData = JSON.parse(saveData.collection);
+        localStorage.setItem(STORAGE_KEYS.COLLECTION, saveData.collection);
+        setCollection(collectionData);
+      }
+      if (saveData.achievements) {
+        const achievementsData = JSON.parse(saveData.achievements);
+        localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, saveData.achievements);
+        setAchievements(achievementsData);
+      }
+      if (saveData.stats) {
+        const statsData = JSON.parse(saveData.stats);
+        localStorage.setItem(STORAGE_KEYS.STATS, saveData.stats);
+        setStats(statsData);
+      }
+      if (saveData.hallOfFame) {
+        const hallOfFameData = JSON.parse(saveData.hallOfFame);
+        localStorage.setItem(STORAGE_KEYS.HALL_OF_FAME, saveData.hallOfFame);
+        setHallOfFame(hallOfFameData);
+      }
+      if (saveData.settings) {
+        const settingsData = JSON.parse(saveData.settings);
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, saveData.settings);
+        setSettings(settingsData);
+      }
+
+      alert('Save imported successfully!');
+    } catch {
+      alert('Failed to import save file. Please check the file format.');
+    }
   }, []);
 
   const checkAllAchievements = useCallback((newCards: CardWithMeta[], updatedCollection: Record<string, CollectionItem>, updatedStats: Stats) => {
@@ -232,7 +305,7 @@ function App() {
     }, 100);
   }, [hallOfFame, collection, checkAllAchievements]);
 
-  const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isBestPackOpen;
+  const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isBestPackOpen || isSettingsOpen;
 
   return (
     <div className="app-container">
@@ -255,7 +328,7 @@ function App() {
       </header>
 
       <main>
-        <PackOpener onOpen={handleCardsOpened} cards={INITIAL_CARDS} disabled={isAnyModalOpen} />
+        <PackOpener onOpen={handleCardsOpened} cards={INITIAL_CARDS} disabled={isAnyModalOpen} settings={settings} />
       </main>
 
       {/* Navigation buttons - hidden when any modal is open */}
@@ -284,6 +357,12 @@ function App() {
             onClick={() => setIsCollectionOpen(true)}
           >
             Collection
+          </button>
+          <button
+            className="nav-btn"
+            onClick={() => setIsSettingsOpen(true)}
+          >
+            Settings
           </button>
         </div>
       )}
@@ -326,6 +405,16 @@ function App() {
         <CollectionBrowser
           collection={collection}
           onClose={() => setIsCollectionOpen(false)}
+        />
+      )}
+
+      {/* Settings Page */}
+      {isSettingsOpen && (
+        <SettingsPage
+          settings={settings}
+          onSettingsChange={handleSettingsChange}
+          onClose={() => setIsSettingsOpen(false)}
+          onImportSave={handleImportSave}
         />
       )}
     </div>

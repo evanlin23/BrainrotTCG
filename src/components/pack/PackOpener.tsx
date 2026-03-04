@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Card as CardType } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
+import type { Settings } from '../../types';
 import { generatePack } from '../../utils/packGenerator';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
 import { usePackCutter } from '../../hooks/usePackCutter';
@@ -28,9 +29,10 @@ interface PackOpenerProps {
   onOpen: (cards: CardWithMeta[]) => void;
   cards: CardType[];
   disabled?: boolean;
+  settings: Settings;
 }
 
-const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, cards, disabled = false, settings }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedCards, setOpenedCards] = useState<CardWithMeta[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -85,6 +87,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
     onCutComplete: handleCutComplete,
     isOpening,
     isPackCut,
+    soundEnabled: settings.soundEnabled,
   });
 
   const finishPack = useCallback(() => {
@@ -121,18 +124,22 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
     const currentCard = openedCards[currentIndex];
     if (!currentCard || !preloadedAssets) return;
 
-    playAndCleanup(preloadedAssets.cardFlip);
-    playRandom(preloadedAssets.effects);
+    if (settings.soundEnabled) {
+      playAndCleanup(preloadedAssets.cardFlip);
+      playRandom(preloadedAssets.effects);
+    }
 
     const newCards = [...openedCards];
     newCards[currentIndex].isRevealed = true;
     setOpenedCards(newCards);
 
-    triggerRarityConfetti(currentCard.rarity);
-    if (currentCard.isHolo) {
-      triggerHoloSparkles();
+    if (settings.particlesEnabled) {
+      triggerRarityConfetti(currentCard.rarity);
+      if (currentCard.isHolo) {
+        triggerHoloSparkles();
+      }
     }
-  }, [openedCards, currentIndex, preloadedAssets, playAndCleanup, playRandom]);
+  }, [openedCards, currentIndex, preloadedAssets, playAndCleanup, playRandom, settings]);
 
   const handleInteraction = useCallback(() => {
     if (!isOpening) return;
@@ -160,13 +167,13 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
 
   // Play "what kind of brainrot" when a new card appears
   useEffect(() => {
-    if (isOpening && preloadedAssets && openedCards[currentIndex] && !openedCards[currentIndex].isRevealed) {
+    if (isOpening && preloadedAssets && openedCards[currentIndex] && !openedCards[currentIndex].isRevealed && settings.soundEnabled) {
       const timer = setTimeout(() => {
         playRandom(preloadedAssets.brainrotVoices);
       }, 700);
       return () => clearTimeout(timer);
     }
-  }, [isOpening, currentIndex, preloadedAssets, openedCards, playRandom]);
+  }, [isOpening, currentIndex, preloadedAssets, openedCards, playRandom, settings.soundEnabled]);
 
   // Hide mouse hint after user moves mouse
   useEffect(() => {
@@ -260,7 +267,7 @@ const PackOpener = ({ onOpen, cards, disabled = false }: PackOpenerProps) => {
               isCutting={isCutting}
               isPackCut={isPackCut}
               cutPoints={cutPoints}
-              sparks={sparks}
+              sparks={settings.particlesEnabled ? sparks : []}
             />
           </Motion.div>
         ) : (

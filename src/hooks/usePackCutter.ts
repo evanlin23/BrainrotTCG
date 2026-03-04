@@ -27,9 +27,10 @@ interface UsePackCutterOptions {
   onCutComplete: () => void;
   isOpening: boolean;
   isPackCut: boolean;
+  soundEnabled?: boolean;
 }
 
-export const usePackCutter = ({ onCutComplete, isOpening, isPackCut }: UsePackCutterOptions) => {
+export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, soundEnabled = true }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
   const [cutPoints, setCutPoints] = useState<CutPoint[]>([]);
 
@@ -72,12 +73,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut }: UsePackCu
     clearSparks();
 
     // Play woosh sound
-    const woosh = new Audio(WOOSH_SRC);
-    woosh.onended = () => { woosh.src = ''; };
-    woosh.play().catch(() => { });
+    if (soundEnabled) {
+      const woosh = new Audio(WOOSH_SRC);
+      woosh.onended = () => { woosh.src = ''; };
+      woosh.play().catch(() => { });
+    }
 
     onCutComplete();
-  }, [onCutComplete, clearSparks]);
+  }, [onCutComplete, clearSparks, soundEnabled]);
 
   const beginOrContinueCut = useCallback((clientX: number, clientY: number) => {
     if (cutCompletedRef.current || isOpening || isPackCut) return;
@@ -102,12 +105,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut }: UsePackCu
       emitSpark(clientX, sparkY);
 
       // Play fairy dust sound when cutting starts
-      if (fairyDustRef.current) {
-        fairyDustRef.current.pause();
-        fairyDustRef.current.currentTime = 0;
+      if (soundEnabled) {
+        if (fairyDustRef.current) {
+          fairyDustRef.current.pause();
+          fairyDustRef.current.currentTime = 0;
+        }
+        fairyDustRef.current = new Audio(FAIRY_DUST_SRC);
+        fairyDustRef.current.play().catch(() => { });
       }
-      fairyDustRef.current = new Audio(FAIRY_DUST_SRC);
-      fairyDustRef.current.play().catch(() => { });
       return;
     }
 
