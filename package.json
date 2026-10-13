@@ -12,6 +12,7 @@
     "test": "vitest run",
     "cards": "tsx scripts/cards/build.ts",
     "cards:finish-thumbs": "tsx scripts/cards/build-finish-thumbs.ts",
+    "check:card-assets": "tsx scripts/check-card-assets.ts",
     "check:sets": "tsx scripts/check-sets.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run check:sets",
     "prompts": "tsx scripts/cards/prompts.ts",
