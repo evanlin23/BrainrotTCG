@@ -96,6 +96,33 @@ Artifacts (sanitized screenshots, trace, report):
 
 Artifacts must belong to this run and avoid private keys, credentials and personal data. Keep them small with defined retention; don't commit generated test output or add a second permanent QA notebook. PR validation records the evidence, issues own unresolved gaps, and this doc owns the reusable workflow.
 
+## 8. Independent subagent usability audits
+
+For meaningful onboarding/navigation/reveal/share changes and release-readiness reviews, add an independent agent audit after the affected automated checks. The user has authorized subagents for this work. This is browser-assisted usability review, not a unit-test replacement or evidence about real people. If browser tools or subagent slots are unavailable, report that stage unrun rather than invent a session.
+
+The coordinator prepares one known built-app revision and isolated contexts with fresh storage, safe test identities and blocked external writes. Keep the server/readiness and browser fixture setup shared; give each agent a separate context/output location. Agents review only: no concurrent app edits, shared-storage resets or issue creation. Use two same-origin pages inside one context only for the explicit multi-tab concurrency scenario.
+
+Start reviewers without inherited conversation/product history where supported. Give only the local app URL, viewport/browser setup, safe-network rules and the assigned task. Do not reveal expected menu names, hidden shortcuts or the correct route. This reduces coaching but does not make model behavior equivalent to human unfamiliarity. A technical reviewer may inspect source separately; a task reviewer must not inspect source/docs or receive navigation hints during the session. Label coached reruns separately.
+
+Suggested task assignments (combine when agent capacity is limited):
+
+| Reviewer | Task and environment |
+| --- | --- |
+| First opening | Fresh touch/mobile-sized context: open a pack, explain the result, open another. Identify which controls were discoverable without coaching. |
+| Card understanding and sharing | Explain rarity/modifiers from visible help, open a card detail and attempt card/pack sharing. Use fake clipboard/share boundaries; report that native OS sharing was not validated. |
+| Finding personal/global results | Find your best pull and explain Today’s submissions versus All-time submissions. Use deterministic saved fixtures only after the fresh-visit task, clearly labeling the fixture. |
+| Accessibility and recovery | Keyboard/reduced motion, nested dialogs, text-entry shortcuts, short-screen resize, background return, failed image/slow-network recovery. Report actual checks, not a blanket accessibility pass. |
+
+Use Chromium/Firefox/WebKit where the harness supports them. Include a narrow/short viewport and touch emulation. Record engine, viewport, touch setting, network/CPU throttle and cache state; user-agent strings alone do not establish device emulation. CPU throttling is an approximation and WebKit testing is not a physical iPhone/Safari test. Browser automation infrastructure remains proposed under #73 until installed.
+
+Each agent records task outcome (completed/blocked/ambiguous), actual action sequence and unnecessary detours, visible labels that caused confusion, errors and sanitized screenshots/trace. Record elapsed time as an agent observation, not a human usability metric. Separate reproducible defects from preference/hypothesis. Do not demand that agents deliberately miss a control to produce findings or count multiple agents as independent human participants.
+
+The coordinator checks reports against the same revision, reproduces suspected bugs, merges overlapping findings and searches existing issues. Update canonical owners (#73 automation, #211 comprehension/newcomer review, #183 navigation, #226 images and relevant save/ranking tickets); create a new issue only for a distinct validated gap. Attach reproduction/acceptance criteria, not an unfiltered transcript. Human review still decides product preferences; agents cannot approve merging around the Claude hold.
+
+Rerun affected task audits after fixes, using fresh contexts and no hints, with a reviewer who did not implement the fix where feasible. Compare concrete task steps and failures rather than claim population-level improvement. Publish the combined evidence in the PR: automated suites, agent audit results, remaining real-device/player checks and blockers. Do not close #211's real-player acceptance criteria based solely on subagent sessions.
+
+The full flow is: scope/contracts -> focused unit/component checks -> cross-module integration/compatibility -> built-app browser/failure matrix -> independent agent task audit -> coordinator reproduction/issue hygiene -> affected retest -> review/readiness decision. These stages scale to change scope; trivial copy/docs changes do not need an entire browser/agent exercise. Actual publication or deployment remains a separately authorized action.
+
 ## Issue ownership and implementation status
 
 - #233 owns the shared cross-module integration/component harness and deterministic fault injection.

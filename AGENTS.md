@@ -21,7 +21,7 @@ These instructions apply throughout this repository. Read [docs/CODE_QUALITY.md]
 
 ## Validation and handoff
 
-Follow [docs/TESTING.md](docs/TESTING.md): select unit, component, integration, browser, compatibility and workflow checks from the changed contracts, then report actual results and unrun checks. Proposed test infrastructure is not an available command until implemented.
+Follow [docs/TESTING.md](docs/TESTING.md): select unit, component, integration, browser, compatibility and workflow checks from the changed contracts, then report actual results and unrun checks. For meaningful user-flow changes, include the independent subagent task-audit stage described there when tools are available; use isolated contexts, no source coaching, coordinator triage, and explicit real-player/device limits. Proposed test infrastructure is not an available command until implemented.
 
 - For application changes run `npm run check`; run `npm run build` for changed bundling/assets/export/preview generation. Also run relevant browser checks for affected UI states and the independent-verifier CI-equivalent for proof/generator changes. Consult `.github/workflows/ci.yml` for exact commands.
 - Add regression tests for meaningful behavior changes and reproduced bugs; do not add tests that merely restate implementation or test trivial copy edits. Docs-only changes need link/consistency review and `git diff --check`, not an unnecessary full build.

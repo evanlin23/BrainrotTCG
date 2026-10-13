@@ -38,3 +38,5 @@ Capacity tests use deterministic fixtures and fake relay/GitHub adapters, includ
 No account service, cloud save recovery, spending/trading ledger, opening-time attestation, or GPU fairness guarantee is added. Social publication still needs accounts/provider authorization and supported APIs. Real-phone/accessibility/newcomer evidence requires people and devices even though it requires no server. Implementation, device verification and deployment remain distinct from this planning work.
 
 Implementation owners: #235 release/rollback, #236 local diagnostics, #237 asset integrity. Existing #87/#181/#225/#234/#211/#8/#12 retain the related scopes above.
+
+Independent subagent task audits and phone/browser emulation are part of TESTING.md’s repeatable verification flow. They provide task/error evidence and issue triage without a server; they do not complete human-participant or physical-device acceptance criteria.
