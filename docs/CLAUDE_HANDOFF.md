@@ -46,7 +46,7 @@ PR #238 checks, owned by #87/#181/#229/#233/#73/#235:
 
 Source finding #241: severe history quota truncation can discard original ticket-set mappings, after which profile recovery guesses sets for missing tickets. Reproduce mixed-set loss, preserve provenance or explicit loss status; don't silently replace lost packs. #87/#233 also need denied-storage startup, malformed collection JSON and pending-removal-before-record failure fixtures.
 
-Canonical issue bodies #8/#80/#183/#186/#211/#213 were updated to remove stale sizes/trailer requirements/draft-as-shipped claims and allow candidate testing before deployment. Finite tasks have phase milestones; #1 is the live index, #227 UX tracker, #23–#34 cross-phase epics, #83 ongoing notebook. Close only full shipped/validated scope.
+Canonical issue bodies #8/#80/#183/#186/#211/#213 were updated to remove stale sizes/trailer requirements/draft-as-shipped claims and allow candidate testing before deployment. Finite tasks have phase milestones; #1 is the live index, #227 UX tracker, #23–#34 cross-phase epics, #83 ongoing notebook. Close only full shipped/validated scope. Backlog scope labels distinguish bounded work from multi-delivery trackers; delivery plans are in issue bodies, not another document. #228 is the recommended isolated Jules loader/test task; its retry UI is separate #251, dependent on the loader fix.
 
 ## Finish this review
 
