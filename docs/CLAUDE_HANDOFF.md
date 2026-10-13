@@ -50,4 +50,6 @@ Canonical issue bodies #8/#80/#183/#186/#211/#213 were updated to remove stale s
 
 ## Finish this review
 
+The owner authorizes Claude to resolve approved current-phase defects and reconcile the PR queue independently or with subagents. Give each worker one bounded task and clear file ownership; coordinate shared files centrally and independently review significant changes. Work through the phase gates, not every future hypothesis at once. Verify the final combined revision, keep narrow PRs, and preserve existing merge/deployment/posting authorization boundaries. Jules PRs #259/#268/#269/#270 have completed the current scoped review cycle; inspect their current heads again before integration.
+
 Refresh main/PR status, work earliest blockers in small branches, reproduce/deduplicate, and validate the reconciled candidate—not only individual branches. Record remaining real-device/user/API/authorization limits. After review mark this packet completed/superseded with PR/issue links, move enduring decisions to canonical docs and remove its temporary README entry. Do not turn it into a continuously updated second operating guide.
