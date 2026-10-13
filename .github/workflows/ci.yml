@@ -38,3 +38,18 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install cryptography==50.0.1
       - run: python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json
+
+  workflow-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify actionlint
+        run: |
+          VERSION="1.7.12"
+          TARBALL="actionlint_${VERSION}_linux_amd64.tar.gz"
+          CHECKSUMS="actionlint_${VERSION}_checksums.txt"
+          curl -sSL -O "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${TARBALL}"
+          curl -sSL -O "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${CHECKSUMS}"
+          grep " ${TARBALL}\$" "${CHECKSUMS}" | sha256sum -c -
+          tar -xzf "${TARBALL}" actionlint
+          ./actionlint
