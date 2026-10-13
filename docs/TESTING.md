@@ -96,6 +96,22 @@ Artifacts (sanitized screenshots, trace, report):
 
 Artifacts must belong to this run and avoid private keys, credentials and personal data. Keep them small with defined retention; don't commit generated test output or add a second permanent QA notebook. PR validation records the evidence, issues own unresolved gaps, and this doc owns the reusable workflow.
 
+## Execution locations and merge evidence
+
+| Check | Local iteration | GitHub Actions / review gate |
+| --- | --- | --- |
+| Lint/typecheck/unit/set-lock | Existing commands | Existing check job |
+| Cross-module integration/component interaction | Proposed #233 harness | Add to deterministic CI gate once implemented |
+| Build/static assets/workflow fixtures | Existing build plus proposed #234/#237 checks | Build already required; add fixture/asset jobs |
+| Independent Python verification | Isolated CI-compatible environment | Existing independent-verifier job |
+| Browser E2E/visual/accessibility smoke | Proposed #73 browser commands | Proposed pinned-browser CI jobs, no live external writes |
+| Agent task audit | Local Claude or another supported agent CLI | Attach report to PR; not a hosted model/privileged CI job |
+| Physical phone/screen reader/human sessions | Explicit manual sessions | Attach separate release evidence; cannot substitute emulation |
+
+Actions may run deterministic automated tests for every PR, with broader browser/performance checks scheduled or selected by affected contracts. Interactive local agent audits do not require model credentials in Actions. Document the supported CLI/setup only after testing it; no imaginary invocation commands. Normal CI tests must remain runnable without an agent subscription.
+
+For each change, choose named checks from the contract matrix and record any applicable check not run. Before a readiness decision reconcile evidence against the current head commit; changes after an audit require relevant retests. A docs update does not mean the proposed new CI jobs exist. Keep required checks enforceable through reviewed repository settings/workflows, avoid granting test jobs deployment permission, and link unresolved failures to canonical issues. Local audit orchestration has its own issue; #234 owns the deterministic workflow split and #73 the browser matrix.
+
 ## 8. Independent subagent usability audits
 
 For meaningful onboarding/navigation/reveal/share changes and release-readiness reviews, add an independent agent audit after the affected automated checks. The user has authorized subagents for this work. This is browser-assisted usability review, not a unit-test replacement or evidence about real people. If browser tools or subagent slots are unavailable, report that stage unrun rather than invent a session.
@@ -131,3 +147,5 @@ The full flow is: scope/contracts -> focused unit/component checks -> cross-modu
 - #8/#12/#211 retain measured phone performance, accessibility and newcomer validation; emulated tests cannot close those alone.
 
 The existing Vitest/check/build/independent-verifier commands are available. Additional harnesses, browser scripts and workflow validators above are proposals, not installed tools or passing suites.
+
+#239 owns the local Claude/agent audit runner, prompt templates, resource limits and sanitized evidence reports. It is proposed infrastructure, separate from Actions test jobs.
