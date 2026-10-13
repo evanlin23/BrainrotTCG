@@ -4,10 +4,20 @@ import { encodeProof, generateKeypair, pullId, signProof } from '../engine';
 vi.mock('./pulls', () => ({ checkPull: vi.fn() }));
 vi.mock('./share', () => ({ wasSubmitted: vi.fn() }));
 
+const mockResponse = (data: unknown, ok = true, status = 200) =>
+  ({
+    ok,
+    status,
+    json: async () => data,
+  }) as unknown as Response;
+
+const mockSuccessResponse = (entries: unknown = [{ id: 'entry-1', proof: 'proof1' }]) => mockResponse(entries);
+
 describe('loadHallOfFame', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('retries after HTTP failure (e.g. 500 status code)', async () => {
@@ -18,17 +28,9 @@ describe('loadHallOfFame', () => {
       vi.fn(async () => {
         callCount++;
         if (callCount === 1) {
-          return {
-            ok: false,
-            status: 500,
-            json: async () => ({ error: 'Internal Server Error' }),
-          } as unknown as Response;
+          return mockResponse({ error: 'Internal Server Error' }, false, 500);
         }
-        return {
-          ok: true,
-          status: 200,
-          json: async () => [{ id: 'entry-1', proof: 'proof1' }],
-        } as unknown as Response;
+        return mockSuccessResponse();
       }),
     );
 
@@ -50,11 +52,7 @@ describe('loadHallOfFame', () => {
         if (callCount === 1) {
           throw new TypeError('Failed to fetch');
         }
-        return {
-          ok: true,
-          status: 200,
-          json: async () => [{ id: 'entry-1', proof: 'proof1' }],
-        } as unknown as Response;
+        return mockSuccessResponse();
       }),
     );
 
@@ -82,11 +80,7 @@ describe('loadHallOfFame', () => {
             },
           } as unknown as Response;
         }
-        return {
-          ok: true,
-          status: 200,
-          json: async () => [{ id: 'entry-1', proof: 'proof1' }],
-        } as unknown as Response;
+        return mockSuccessResponse();
       }),
     );
 
@@ -106,17 +100,9 @@ describe('loadHallOfFame', () => {
       vi.fn(async () => {
         callCount++;
         if (callCount === 1) {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ message: 'Maintenance mode' }),
-          } as unknown as Response;
+          return mockResponse({ message: 'Maintenance mode' });
         }
-        return {
-          ok: true,
-          status: 200,
-          json: async () => [{ id: 'entry-1', proof: 'proof1' }],
-        } as unknown as Response;
+        return mockSuccessResponse();
       }),
     );
 
@@ -144,11 +130,7 @@ describe('loadHallOfFame', () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    resolveFetch!({
-      ok: true,
-      status: 200,
-      json: async () => [{ id: 'shared-1', proof: 'proof-shared' }],
-    } as unknown as Response);
+    resolveFetch!(mockSuccessResponse([{ id: 'shared-1', proof: 'proof-shared' }]));
 
     const [res1, res2, res3] = await Promise.all([caller1, caller2, caller3]);
     expect(res1).toEqual([{ id: 'shared-1', proof: 'proof-shared' }]);
@@ -159,11 +141,7 @@ describe('loadHallOfFame', () => {
 
   it('caches successful results and empty arrays across subsequent calls', async () => {
     const { loadHallOfFame } = await import('./hallOfFameList');
-    const mockFetch = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => [{ id: 'entry-cached', proof: 'proof-cached' }],
-    } as unknown as Response));
+    const mockFetch = vi.fn(async () => mockSuccessResponse([{ id: 'entry-cached', proof: 'proof-cached' }]));
     vi.stubGlobal('fetch', mockFetch);
 
     const first = await loadHallOfFame();
@@ -176,11 +154,7 @@ describe('loadHallOfFame', () => {
 
   it('caches empty array results across subsequent calls', async () => {
     const { loadHallOfFame } = await import('./hallOfFameList');
-    const mockFetch = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => [],
-    } as unknown as Response));
+    const mockFetch = vi.fn(async () => mockSuccessResponse([]));
     vi.stubGlobal('fetch', mockFetch);
 
     const first = await loadHallOfFame();
@@ -204,11 +178,7 @@ describe('loadHallOfFame', () => {
       { proof: 'invalid-proof-text' },
     ];
 
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => mockData,
-    } as unknown as Response)));
+    vi.stubGlobal('fetch', vi.fn(async () => mockSuccessResponse(mockData)));
 
     const result = await loadHallOfFame();
     expect(result).toEqual([
