@@ -12,6 +12,7 @@ describe('check-card-assets', () => {
   let missingPath: string;
   let emptyPath: string;
   let corruptPath: string;
+  let corruptPayloadPath: string;
 
   beforeAll(async () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'card-assets-test-'));
@@ -36,6 +37,12 @@ describe('check-card-assets', () => {
 
     corruptPath = path.join(tmpDir, 'corrupt.webp');
     writeFileSync(corruptPath, Buffer.from('RIFF1234WEBPVP8 corrupt_payload_data'));
+
+    corruptPayloadPath = path.join(tmpDir, 'corrupt-payload.webp');
+    const validBuf = Buffer.from(validWebpBuffer);
+    // Mutate pixel payload byte after header so metadata succeeds but full decode fails
+    validBuf[33] ^= 255;
+    writeFileSync(corruptPayloadPath, validBuf);
   });
 
   afterAll(() => {
@@ -65,7 +72,7 @@ describe('check-card-assets', () => {
     }
   });
 
-  it('detects corrupt WebP files during decoding', async () => {
+  it('detects corrupt WebP files with malformed headers during decoding', async () => {
     const res = await validateCardAsset(corruptPath);
     expect(res.valid).toBe(false);
     if (!res.valid) {
@@ -74,7 +81,22 @@ describe('check-card-assets', () => {
     }
   });
 
-  it('deduplicates paths across sets and versions and bounds concurrency', async () => {
+  it('detects WebP files with valid metadata headers but corrupt pixel payload', async () => {
+    // Assert sharp metadata succeeds first (header is valid)
+    const meta = await sharp(corruptPayloadPath).metadata();
+    expect(meta.width).toBe(100);
+    expect(meta.height).toBe(100);
+
+    // Assert full decoder validation fails due to pixel payload corruption
+    const res = await validateCardAsset(corruptPayloadPath);
+    expect(res.valid).toBe(false);
+    if (!res.valid) {
+      expect(res.error).toBeDefined();
+      expect(typeof res.error).toBe('string');
+    }
+  });
+
+  it('deduplicates paths across sets and versions and processes all set cards', async () => {
     const mockSetDir = path.join(tmpDir, 'src', 'content', 'sets', 'test-set', 'cards');
     mkdirSync(mockSetDir, { recursive: true });
 
