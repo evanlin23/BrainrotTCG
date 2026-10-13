@@ -30,8 +30,9 @@ between other things, so every rule below starts from a 390 px wide screen.
 9. **Accessible by default.** Text meets WCAG AA contrast; every control is reachable by keyboard with a
    visible focus ring; touch targets are at least 44 px; panels trap focus and close with Escape;
    motion is reduced when the OS asks for it.
-10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading; animations are
-    120–320 ms and only animate transform and opacity.
+10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading; standard UI transitions
+    are 120–320 ms (rare pull celebrations and card shimmers run longer, and specific card/reveal effects animate
+    properties like box-shadow or clip-path).
 
 ## Looks like a card game, not like an AI demo
 
@@ -39,8 +40,8 @@ The look comes from collecting real cards: binder pages, sleeves, set checklists
 ("SOS 007/012"), set codes printed in the set's colour, rarity marks, and graded-card labels for
 anything verified. Generic app chrome gives a page away as generated. Don't use:
 
-- gradients on buttons, text, borders or backgrounds (foil on holo cards is the one exception);
-- glows, glassy blur, or tinted "neon" shadows;
+- gradients on app chrome (buttons, text, borders or backgrounds); card foil, rarity borders, and special card finishes are the exceptions;
+- glows, glassy blur, or tinted "neon" shadows on app chrome (rare card reveals and finish tells use targeted edge glows);
 - emoji as bullets or markers (🧠 before every score, ✨ for holo); emoji stay where they're content,
   like an achievement's icon or a share post;
 - small letter-spaced uppercase headings over every section; headings are plain sentence case;
