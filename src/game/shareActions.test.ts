@@ -270,14 +270,18 @@ describe('shareActions', () => {
       });
 
       expect(result).toBe('shared');
-      expect(canShareMock).toHaveBeenCalled();
-      expect(shareMock).toHaveBeenCalledWith({
-        files: [expect.any(File)],
-        text: 'https://example.com/card',
-      });
-      const sharedFile = shareMock.mock.calls[0][0].files[0];
+      expect(canShareMock).toHaveBeenCalledTimes(1);
+      const canShareArg = canShareMock.mock.calls[0][0];
+
+      expect(shareMock).toHaveBeenCalledTimes(1);
+      const shareArg = shareMock.mock.calls[0][0];
+
+      const sharedFile = shareArg.files[0];
+      expect(canShareArg).toEqual({ files: [sharedFile] });
       expect(sharedFile.name).toBe('card.png');
       expect(sharedFile.type).toBe('image/png');
+      expect(await sharedFile.text()).toBe('image payload');
+      expect(shareArg.text).toBe('https://example.com/card');
     });
 
     it('falls back to text when share.url is missing during file share', async () => {
