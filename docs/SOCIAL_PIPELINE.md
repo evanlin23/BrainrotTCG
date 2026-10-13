@@ -35,7 +35,13 @@ Pick three viral formats initially and one lightweight technical format; do not 
 - Reddit: a community-specific discussion, image or clip, with a person participating in replies. Review community rules; do not automatically spray the same promotional post across subreddits.
 - LinkedIn: occasional project/build/community milestones in an understandable voice, rather than a copy of every meme post.
 
-See [SHORT_FORM_CREATIVE.md](SHORT_FORM_CREATIVE.md) for the beat structure, cinematic/live-play split and experiment variables.
+## Creative brief for short-form clips
+
+Use an immediate recognizable hook (initial hypothesis: first 1–2 seconds), short anticipation and a complete visible payoff. Start single-card clips around 6–15 seconds and test 15–30-second hunts separately; these are experiments, not platform rules or neurological claims. Don't withhold a result just to inflate watch time.
+
+Make finishes visually distinctive, synchronize sound/captions, keep one readable focal point and verify destination overlays/safe areas. Ordinary memes can be funny without a rare score. Live play remains fast/manual, with free gesture alternatives/reduced motion; cinematic export can be flashier without imposing its ceremony on everyone. Preserve actual outcomes and distinguish presentation order from derivation; staged demonstrations are labeled.
+
+Start around 80% viral / 20% technical content as a hypothesis. Viral hooks target recognizable memes, hunts and creator reactions; technical posts explain one demonstrated verification/design choice. Compare one major creative variable at a time where feasible and record platform-specific denominators/context. Pilot watch/rewatch/share and game-entry signals guide repeat/change/stop decisions, not a promise of virality. Verify current official destination specs/discovery guidance before execution; blocked source pages were not reviewed as algorithm evidence.
 
 ## Queue states
 

@@ -9,70 +9,50 @@ Three loops guide the product: open a recognizable and entertaining pack; collec
 - **Viral entertainment first:** dramatic rare-card reveals, rare-pack hunts, surprising modifier combinations, funny ordinary pulls and creator reactions. Optimize the game and export experience for TikTok, Instagram Reels and YouTube Shorts. Start with an 80% viral / 20% technical publishing mix as a hypothesis, not a fixed rule.
 - **Technical credibility:** explain how pulls verify, versioning, the serverless architecture and design tradeoffs. Use developer-focused Shorts plus deeper YouTube, LinkedIn and build posts when appropriate. Do not make a verification tutorial the default opening of a viral clip.
 
-Use [SHORT_FORM_CREATIVE.md](SHORT_FORM_CREATIVE.md) for the reveal/clip brief. A satisfying payoff, visible upgrade goal and easy sharing should connect spectacle to repeat play.
+Use [SOCIAL_PIPELINE.md](SOCIAL_PIPELINE.md) for the reveal/clip brief. A satisfying payoff, visible upgrade goal and easy sharing should connect spectacle to repeat play.
 
 ## Current baseline
 
 Main already has deterministic versioned pulls, independent verification, era sets, a collection, share images/links, a global Hall of Fame, and verified XP/levels with cosmetics. These are foundations, not future promises. The usability/navigation work is still proposed in [PR #188](https://github.com/evanlin23/BrainrotTCG/pull/188); additional versioned finishes are proposed in [PR #203](https://github.com/evanlin23/BrainrotTCG/pull/203). Neither is assumed merged or deployed by this roadmap. Existing save/focus reports remain tracked in #87, #181 and #186.
 
-The roadmap is an experiment sequence, not a promise of virality or fixed launch dates. The phases below are relative to starting the pilot; move forward when the evidence supports it.
+The roadmap is an evidence-gated sequence, not a promise of virality or dates. The current October 13, 2026 review has a dated [handoff packet](CLAUDE_HANDOFF.md); it is temporary context, not the entry point for future work. Use this roadmap and the live issue milestones for ongoing sequencing. The following phases supersede the earlier mixed readiness/distribution milestones.
 
-## Phase 1: ready first minute and four-week distribution experiment
+## Phase 1: game quality and verification
 
-Goal: a stranger opens a pack, enjoys a recognizable reveal, understands the result and can share a watchable clip without coaching.
+Make saves dependable, opening/sharing accessible and the first minute understandable before promotion. Prioritize #181/#87 storage, #226/#228/#229 failure recovery, #8/#12 phones/accessibility, #183/#222 navigation/onboarding and #182/#184/#185/#186 controls/guide/sharing. #73/#233/#234/#239 add layered automation/local agent audits; #211 retains actual newcomer validation. #235–#237 own readiness/rollback, diagnostics and assets; #230–#232 own dependency/CI/docs hygiene.
 
-| Work | Owner issue | Evidence of completion |
-| --- | --- | --- |
-| New-player sessions, mobile/keyboard/short-screen checks | #211 | Task-success counts, reproducible blockers, retest and readiness decision |
-| Address save/storage and focus problems | #181, #87, #186 | Required fixes validated; unconfirmed reports stay explicitly unconfirmed |
-| Accessible discovery and mobile performance | #12, #8 | Gesture alternatives are visible; representative device/network measurements |
-| Three recurring content formats and review queue | #213 | Twelve draft briefs/assets reviewed for humor, legibility and provenance |
-| Clip-ready rare reveals and reusable rendering | #68, #38 | A funny, readable vertical export with hook, anticipation and payoff from a verified pull; failure handling |
-| Launch experiment and weekly scorecard | #77 | Twelve approved posts over four weeks; weekly repeat/change/stop decisions |
-| Aggregate measurement | #74 | First-pack/share funnel counts and documented privacy/measurement limits |
-| Brand/creator assets and canonical link | #78, #67 | Small usable kit and links that work on target platforms |
-| Public-content rules, moderation and takedown path | #21, #22, #75, #76 | Policy decisions and responsibilities are explicit before broad promotion |
+Exit when release-blocking save/proof/blank-screen/accessibility defects are resolved and relevant checks/audits pass on the actual candidate. Physical-device/human evidence remains separate. Optional top-10/per-card rankings (#223/#224) and new finishes (#187/#203) must not delay basic recovery. Auto-submission (#225) waits for measured capacity.
 
-Begin posting manually after the release-readiness decision and account/content authorization. Parallel draft production is useful while product blockers are being addressed. Do not make an elaborate landing trailer (#80) a gate for learning whether a simple gameplay clip works.
+## Phase 2: social creation and publishing
 
-Candidate formats: rare-card/rare-pack hunts, "common card, legendary behavior," and "your internet era in five cards." Every post needs a recognizable hook and a payoff; a score alone is not the joke.
+Build verified-source briefs and bounded auto-drafting (#213), reusable clips (#38/#68), creator assets (#78), exact-revision review, then a small manual four-week pilot (#77). #74 measures comparable format/player signals. Drafts can be prepared during Phase 1; public promotion waits for readiness.
 
-## Phase 2: predictable collecting and repeatable production
+After the pilot, #214 implements one supported official publishing destination with durable jobs, authorized accounts, dry-run/test evidence, safe retries, unknown-response reconciliation and a pause switch. Account/API eligibility and production-post authorization are explicit prerequisites. Reddit/community participation and LinkedIn technical posts are distinct treatments, not automatic copies of every short.
 
-Goal: returning players can explain what they are working toward, and editors can repeat winning formats.
+Exit with a complete reviewed production flow, a successful authorized pilot and a repeat/change/stop decision. Use [SOCIAL_PIPELINE.md](SOCIAL_PIPELINE.md); creating a generator is not authorization to upload.
 
-- #212 exposes the next existing cosmetic/collection goal on the pack screen. Reuse verified progression rather than introduce a spending economy immediately.
-- #14 completes binder rewards/showcases; #52 handles remaining achievement work. Completed XP/titles issue #50 remains closed.
-- #16 produces reviewed monthly set drafts using the current real-image/credits policy; #58 explains releases in the app. Do not claim a recurring job is operational without run evidence.
-- #214 adds approved scheduling/publishing for one verified destination after #213/#38 and the #77 experiment. Automate drafts and rendering first.
-- #15 collects community proposals with credit and review; #79 chooses an actual community home and moderation owner.
+## Phase 3: sustainable growth and scaling
 
-Advance when users understand the goal, some voluntarily return, and at least one post format repeatedly brings engaged players. Define numerical targets after the baseline; small playtests do not establish population-level retention.
+Measure static/media/build/Actions/provider capacity and intake backlog, retention and costs. Enable broader auto-submission (#225) only after bounded load/outage evidence. Reuse #214 for publisher operating controls. Improve predictable collecting (#212/#14/#52), reviewed release cadence (#16/#58), community contributions (#15/#79), and one regional collaboration (#42/#11) based on observed player/content signals.
 
-## Phase 3: a community release and regional creator pilot
+Exit when the cadence and growth fit recorded operating budgets and recovery/retention policies. Expand destinations or regions one at a time. Accounts, a spending economy and a continuously running server are not required for these loops.
 
-Goal: release one set that participants helped shape and one collaboration that feels native to a local meme scene.
+## Phase 4: future systems and optional backend
 
-Use #15/#16/#42 for proposals, reviewed content and a regional pilot, #11 for localization and #78/#79 for creator/community support. Select one scene with a willing collaborator before expanding to many countries. Credit contributors, pay attention to cultural context and permissions, and let native speakers review the jokes. Announce a release as an event people helped create.
+Use a separate backend decision RFC for account recovery, canonical ownership/spending or trusted ranking eligibility only after a measured limitation justifies it. Preserve static guest play and historical proof compatibility. Compare narrow Cloudflare services with real quota/cost/verification constraints; avoid assuming a server fixes GPU or multiple-account advantage.
 
-## Later: only after the core loops work
+Keep trading (#19), battles (#18), prestige/economy (#48/#51), custom game modes and broader platform integrations (#63–#65/#85) as explicit hypotheses. They do not block game quality or the initial social pilot. Editable local spending histories can fork; exclusive ownership/trading needs canonical authority. Keep accessibility free and prefer existing cosmetic goals before a shop economy. Private exported backups can recover identity; public proof links cannot. Clearing site data still loses a local save without a backup.
 
-Keep trading/gifting (#19), battles (#18), an advanced economy (#48/#51), seasons (#56), live feeds (#54), embeds (#40), additional platform integrations (#63–#65) and a global profile leaderboard (#85) as separate hypotheses. They are not launch prerequisites. Broad social publishing is not the same deliverable as Hall of Fame notifications (#62).
+## Success measures and discipline
 
-## Success measures
+Track observed first-pack/share task success with counts/context, available post watch/engagement signals, tagged aggregate game visits, editing effort, voluntary return feedback and operating capacity. A share click does not establish an external post; views do not establish product growth; local saves do not identify unique people or reliable D1/D7 retention. Set numerical targets from baseline rather than invent them.
 
-| Question | Measure | Limit |
-| --- | --- | --- |
-| Can strangers play? | Observed first-pack task completion and time/friction | Report participant counts and context |
-| Do they share? | Aggregate share-action events / comparable gameplay events; qualitative recipient feedback | A share click does not prove an external post |
-| Does content bring players? | Campaign-tagged aggregate visits and first-pack events, plus post reach/watch/completion where available | Avoid assuming cross-platform attribution or unique people |
-| Do they return? | Voluntary feedback and documented aggregate repeat-visit signals | Person-level D1/D7 retention needs an explicitly designed, consented measurement method |
-| Is production worth repeating? | Reviewed usable assets, editing time, and engaged visits by format | Views alone are not product growth |
+Each phase records candidate commit, acceptance evidence, unresolved limits and reviewer decision. Use [DEVELOPMENT.md](DEVELOPMENT.md) for verification/backlog/doc hygiene and [RANKINGS.md](RANKINGS.md) for ranking contracts. Issue #1 is the live phase index. All current work remains draft pending Claude review.
 
-A weekly review records the sample, observation, decision and next experiment. Measure whether flashy reveals improve watch-through, shares and engaged game visits; do not optimize empty views at the expense of payoff. Use [SOCIAL_PIPELINE.md](SOCIAL_PIPELINE.md) for production, [PROGRESSION.md](PROGRESSION.md) for serverless constraints, and [ISSUE_HYGIENE.md](ISSUE_HYGIENE.md) for backlog rules. Issue #1 is the live index; the docs hold rationale and operating details.
+## Current simplification proposal
 
-## Pending simplification review
+One featured set/Open pack action for fresh visits; repeat openings remain allowed. Unlock other set choices after successful recorded first pack (including skip/exit), recognize legacy returning saves and keep settings/help/accessibility immediately available. Optional exploration bypass needs review. Reveal/summary actions and card/pack sharing stay visible above cards; no A-toggle/auto-open.
 
-See [SIMPLIFICATION.md](SIMPLIFICATION.md) for the navigation/first-pack audit and mobile reliability plan, and [RANKINGS.md](RANKINGS.md) for top-10 daily/all-time/per-card submissions and stale-cutoff auto-submission. These are draft proposals held for Claude review; PRs #188, #203 and #216 are drafts and must not be merged before that review. Accounts remain deferred.
+Proposed primary order: Open packs, My cards, Rankings. My cards owns Cards/Best pulls/history filters; Player utility owns display name, Goals & rewards and Save & restore; Sound & display is a utility. Today's submissions / All-time submissions show top 10 verified pack pulls; per-card boards live in card detail. Historical firsts/screenshots remain in an explained archive, not primary navigation. #183/#222/#223/#224 own details.
 
-[SERVERLESS_READINESS.md](SERVERLESS_READINESS.md) assigns the remaining release/recovery, local diagnostics, asset-integrity, storage-longevity and capacity gaps without a new application server. It remains draft; real-device and newcomer evidence is still required.
+These are hypotheses for review/testing, not current deployed labels. Do not rewrite the app to satisfy a pattern; use shared navigation/image/worker services where justified. #72 owns broader state boundaries; #226/#229 own bounded rendering/verification recovery. Generator odds/finishes require versioning; navigation disclosure does not.

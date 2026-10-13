@@ -100,9 +100,7 @@ by code. See [docs/ADDING_A_SET.md](docs/ADDING_A_SET.md) and [docs/ART_STYLE.md
 
 The full roadmap lives in [issue #1](https://github.com/evanlin23/BrainrotTCG/issues/1).
 
-See the [product and launch plan](docs/ROADMAP.md), [social content pipeline](docs/SOCIAL_PIPELINE.md),
-[short-form creative direction](docs/SHORT_FORM_CREATIVE.md), [serverless progression options](docs/PROGRESSION.md),
-and [issue hygiene rules](docs/ISSUE_HYGIENE.md).
+See the [phased roadmap](docs/ROADMAP.md) and [social content pipeline](docs/SOCIAL_PIPELINE.md).
 
 ## Tech Stack
 
@@ -117,4 +115,6 @@ and [issue hygiene rules](docs/ISSUE_HYGIENE.md).
 
 ## Contributing with coding agents
 
-Read [AGENTS.md](AGENTS.md) and [the code-quality guide](docs/CODE_QUALITY.md) before making changes. Claude reads the same instructions through CLAUDE.md. Keep product simplification proposals and implementation status distinct; current work remains draft pending Claude review.
+Read [AGENTS.md](AGENTS.md) and [development and verification guide](docs/DEVELOPMENT.md) before making changes. Claude reads the same instructions through CLAUDE.md. Keep product simplification proposals and implementation status distinct; current work remains draft pending Claude review.
+
+Current review packet (prepared October 13, 2026): [Claude handoff](docs/CLAUDE_HANDOFF.md). This dated snapshot applies only to this review; use [the roadmap](docs/ROADMAP.md) and [development guide](docs/DEVELOPMENT.md) for ongoing work. Remove this temporary entry after the review concludes.
