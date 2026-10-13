@@ -6,12 +6,16 @@ import App from './App'
 import { runMigrations } from './utils/migrations'
 import { migratePullLog } from './game/history'
 import { receiveSave } from './game/move'
+import { loadPackStore } from './game/packStore'
+import { resumeReopening } from './game/profiles'
 
 // A window the site's old address opened to hand over a save does only that (see game/move.ts).
-receiveSave().then((receiver) => {
+receiveSave().then(async (receiver) => {
   if (receiver) return
   runMigrations()
   migratePullLog()
+  // Packs re-opened on this device (IndexedDB) are read synchronously once the app runs.
+  await loadPackStore()
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
@@ -21,4 +25,5 @@ receiveSave().then((receiver) => {
       </MotionConfig>
     </StrictMode>,
   )
+  resumeReopening()
 })

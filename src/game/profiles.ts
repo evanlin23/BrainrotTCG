@@ -13,6 +13,7 @@ import {
   ProofError,
   profileStats,
   scorePulled,
+  setKey,
   signProfile,
   toHex,
   type CheckedProfile,
@@ -26,17 +27,16 @@ import {
 } from '../engine';
 import { DEFAULT_SET_ID, getLatestSet, getSet } from '../content/sets';
 import { getPlayer, peekNonce } from './player';
-import { addDerivedPacks, historyForKey, type HistoryEntry } from './history';
+import { historyForKey, type HistoryEntry } from './history';
 import { getReopened, putReopened } from './reopenCache';
-import { modifiersFor } from './cardCode';
-import { getTicket } from './ticketMiner';
+import { getStoredPack, putStoredPacks, type StoredPack } from './packStore';
+import { decodeCard, encodeCard, modifiersFor, type StoredCard } from './cardCode';
 import { createTicketPool } from './ticketPool';
 
 export const profileUrl = (profile: string): string => `${window.location.origin}${import.meta.env.BASE_URL}#/profile/${profile}`;
 
-const toPulled = (entry: HistoryEntry, set: SetDefinition): PulledCard[] | null => {
-  if (!entry.cards) return null;
-  const cards = entry.cards.map((c, slot) => {
+const toPulled = (stored: readonly StoredCard[], set: SetDefinition): PulledCard[] | null => {
+  const cards = stored.map((c, slot) => {
     // This exact version's rarity: a later version may change it (spec section 12).
     const rarity = set.cards.find((card) => card.id === c.id)?.rarity;
     return rarity ? { setId: set.id, cardId: c.id, rarity, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1), slot } : null;
@@ -71,15 +71,18 @@ const myTickets = (): Ticket[] => {
   for (let nonce = 0; nonce < total; nonce++) {
     const entry = known.get(nonce);
     const set = setOf(entry) ?? previous;
-    const cards = entry && setOf(entry) ? toPulled(entry, set) : null;
-    const score = cards && scorePulled(cards);
+    const fromHistory = entry?.cards && setOf(entry) ? toPulled(entry.cards, set) : null;
     // Packs re-opened by an older build were stored without their finishes and misprints; their
     // saved score gives them away. Treat them as unknown so they're re-opened properly.
-    const intact = score && !(set.modifiers === 1 && entry && score.score !== entry.score);
+    const intact = fromHistory && !(set.modifiers === 1 && scorePulled(fromHistory).score !== entry!.score);
+    // Else the cards this device re-opened (game/packStore.ts).
+    const reopened = intact ? null : getStoredPack(setKey(set), player.publicKeyHex, nonce);
+    const cards = intact ? fromHistory : reopened ? toPulled(reopened.split(',').map(decodeCard), set) : null;
+    const score = cards && scorePulled(cards);
     tickets.push({
       nonce,
       set,
-      pack: cards && score && intact ? { nonce, set, cards, score } : null,
+      pack: cards && score ? { nonce, set, cards, score } : null,
       filled: !setOf(entry),
       openedAt: entry?.openedAt ?? previousTime,
     });
@@ -115,32 +118,132 @@ export const myProfileInfo = (): MyProfile | null => {
 
 /**
  * Sign your profile. Its claims (XP, best packs) must be exact, so any ticket this device has no
- * cards for is re-opened first (and kept in the history for next time).
+ * cards for is re-opened first (reopenMyPacks).
  */
 export const myProfileProof = async (onProgress?: (done: number, total: number) => void): Promise<string | null> => {
-  const tickets = myTickets();
-  if (tickets.length === 0) return null;
-  const player = getPlayer();
-  const missing = tickets.filter((t) => !t.pack);
-  const derived: HistoryEntry[] = [];
-  for (const [i, t] of missing.entries()) {
-    onProgress?.(i, missing.length);
-    const cards = await derivePack(t.set, player.publicKey, t.nonce, getTicket);
-    t.pack = { nonce: t.nonce, set: t.set, cards, score: scorePulled(cards) };
-    derived.push({
-      setId: t.set.id,
-      setVersion: t.set.version,
-      nonce: t.nonce,
-      key: player.publicKeyHex.slice(0, 16),
-      cards: cards.map((c) => ({ id: c.cardId, holo: c.isHolo, ...(c.finish ? { finish: c.finish } : {}), ...(c.misprint ? { misprint: true } : {}) })),
-      hand: t.pack.score.hand.name,
-      score: t.pack.score.score,
-      openedAt: t.openedAt,
-    });
+  if (myTickets().length === 0) return null;
+  const stop = onProgress && onReopenProgress((s) => onProgress(s.done, s.total));
+  try {
+    await reopenMyPacks();
+  } finally {
+    stop?.();
   }
-  addDerivedPacks(derived);
-  const packs = tickets.map((t) => t.pack!);
+  const tickets = myTickets();
+  const packs = tickets.flatMap((t) => (t.pack ? [t.pack] : []));
+  if (packs.length !== tickets.length) throw new Error('Some packs could not be re-opened');
+  const player = getPlayer();
   return encodeProfile(signProfile({ publicKey: player.publicKey, name: player.name, runs: runsOf(tickets), ...claimsFor(packs) }, player.secretKey));
+};
+
+/*
+ * Re-opening your packs runs on its own, not in the page that started it: closing the profile
+ * doesn't stop it, and if the tab closes, the next visit carries on (resumeReopening). Packs are
+ * saved in small batches as they're re-opened, so little work is lost either way.
+ */
+const REOPEN_PENDING_KEY = 'brainrot-reopen-pending-v1';
+const SAVE_BATCH = 25;
+
+export interface ReopenStatus {
+  done: number;
+  total: number;
+  running: boolean;
+  error?: string;
+}
+
+let job: { promise: Promise<void>; status: ReopenStatus } | null = null;
+const listeners = new Set<(status: ReopenStatus) => void>();
+
+/** The current (or last) re-opening run on this page, if any. */
+export const reopenStatus = (): ReopenStatus | null => (job ? { ...job.status } : null);
+
+/** Follow re-opening progress. Returns the unsubscribe function. */
+export const onReopenProgress = (listener: (status: ReopenStatus) => void): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+const setPending = (publicKeyHex: string | null) => {
+  try {
+    if (publicKeyHex) localStorage.setItem(REOPEN_PENDING_KEY, publicKeyHex);
+    else localStorage.removeItem(REOPEN_PENDING_KEY);
+  } catch {
+    // Storage unavailable: it just won't resume on the next visit.
+  }
+};
+
+/**
+ * Re-open every ticket of yours this device has no cards for, on a pool of workers. Calling it while
+ * it runs joins the run already going.
+ */
+export const reopenMyPacks = (): Promise<void> => {
+  if (job?.status.running) return job.promise;
+  const player = getPlayer();
+  const missing = myTickets().filter((t) => !t.pack);
+  if (missing.length === 0) {
+    setPending(null);
+    return Promise.resolve();
+  }
+  setPending(player.publicKeyHex);
+  const status: ReopenStatus = { done: 0, total: missing.length, running: true };
+  let lastEmit = 0;
+  const emit = (force = false) => {
+    const now = performance.now();
+    if (!force && now - lastEmit < 150) return;
+    lastEmit = now;
+    for (const listener of listeners) listener({ ...status });
+  };
+
+  const promise = (async () => {
+    const pool = createTicketPool();
+    let batch: StoredPack[] = [];
+    let saving = Promise.resolve();
+    const save = () => {
+      const packs = batch;
+      batch = [];
+      saving = saving.then(() => putStoredPacks(packs));
+    };
+    let next = 0;
+    const work = async () => {
+      while (next < missing.length) {
+        const t = missing[next++];
+        const cards = await derivePack(t.set, player.publicKey, t.nonce, pool.ticket);
+        const code = cards.map((c) => encodeCard({ id: c.cardId, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(',');
+        batch.push({ setKey: setKey(t.set), publicKeyHex: player.publicKeyHex, nonce: t.nonce, cards: code });
+        if (batch.length >= SAVE_BATCH) save();
+        status.done++;
+        emit();
+      }
+    };
+    try {
+      // Twice as many loops as workers, so a worker never waits for the next ticket to be handed out.
+      await Promise.all(Array.from({ length: Math.min(missing.length, pool.size * 2) }, work));
+      setPending(null);
+    } catch (error) {
+      status.error = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      pool.close();
+      save();
+      await saving;
+      status.running = false;
+      emit(true);
+    }
+  })();
+  job = { promise, status };
+  return promise;
+};
+
+/** On load: carry on re-opening if a run was left unfinished (the tab was closed) for this player. */
+export const resumeReopening = () => {
+  let pending: string | null = null;
+  try {
+    pending = localStorage.getItem(REOPEN_PENDING_KEY);
+  } catch {
+    return;
+  }
+  if (!pending) return;
+  if (pending !== getPlayer().publicKeyHex) return setPending(null);
+  reopenMyPacks().catch((error) => console.error('Re-opening packs failed', error));
 };
 
 /** Your level and XP now, and how much the newest pack added (the pack summary shows it). */

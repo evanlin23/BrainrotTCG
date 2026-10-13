@@ -8,6 +8,7 @@
 import { STORAGE_KEYS } from '../constants';
 import { POKER_HANDS, qualifiesForHallOfFame, type Finish } from '../engine';
 import { decodeCard, encodeCard, type StoredCard } from './cardCode';
+import { getStoredPack } from './packStore';
 import type { OpenedPack } from './pulls';
 
 export interface HistoryEntry {
@@ -48,12 +49,18 @@ const encode = (e: HistoryEntry): Stored => ({
   t: e.openedAt,
 });
 
+/** Cards dropped to save space (or never kept) come back from the packs this device re-opened. */
+const cardsOf = (s: Stored): StoredCard[] | null => {
+  const code = s.c || getStoredPack(`${s.s}@${s.v}`, s.k, s.n);
+  return code ? code.split(',').map(decodeCard) : null;
+};
+
 const decode = (s: Stored): HistoryEntry => ({
   setId: s.s,
   setVersion: s.v,
   nonce: s.n,
   key: s.k,
-  cards: s.c ? s.c.split(',').map(decodeCard) : null,
+  cards: cardsOf(s),
   hand: s.h,
   score: s.x,
   openedAt: s.t,
@@ -120,17 +127,6 @@ export const recordPack = (pack: OpenedPack) => {
     openedAt: pack.openedAt,
   });
   write([entry, ...read().filter((e) => !sameTicket(e, entry))]);
-};
-
-/**
- * Add packs worked out after the fact (tickets this device had no cards for), keeping newest first.
- * Entries for tickets already in the history are replaced.
- */
-export const addDerivedPacks = (entries: HistoryEntry[]) => {
-  if (entries.length === 0) return;
-  const added = entries.map(encode);
-  const rest = read().filter((e) => !added.some((a) => sameTicket(a, e)));
-  write([...rest, ...added].sort((a, b) => b.t - a.t));
 };
 
 /** This key's packs in ticket order (what a profile is built from). */

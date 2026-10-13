@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { ChevronRight, IdCard, Link2, Trophy } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import CardImage from '../cards/CardImage';
@@ -18,7 +18,7 @@ import { DEFAULT_SET_ID, getLatestSet, setCode } from '../../content/sets';
 import { byBest, getHistory, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
 import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
 import { getPlayer } from '../../game/player';
-import { myProfileInfo, myProfileProof, myStats, profileUrl } from '../../game/profiles';
+import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
 import { copyText } from '../../game/shareActions';
 import '../../styles/Pulls.css';
 
@@ -66,8 +66,22 @@ const cardsOf = (entry: HistoryEntry): CardWithMeta[] | null =>
 const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull }: MyProfilePageProps) => {
   const player = getPlayer();
   const history = useMemo(() => getHistory(), []);
-  const summary = useMemo(() => myStats(), []);
-  const mine = useMemo(() => myProfileInfo(), []);
+  // Re-opening runs in the background (game/profiles.ts); recount when a run ends.
+  const [reopen, setReopen] = useState(reopenStatus);
+  const [reopenRuns, setReopenRuns] = useState(0);
+  useEffect(
+    () =>
+      onReopenProgress((status) => {
+        setReopen(status);
+        if (!status.running) setReopenRuns((n) => n + 1);
+      }),
+    [],
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const summary = useMemo(() => myStats(), [reopenRuns]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const mine = useMemo(() => myProfileInfo(), [reopenRuns]);
+  const unopened = mine ? mine.missing - mine.filled : 0;
   const [shown, setShown] = useState(PAGE);
   const [view, setView] = useState<PackView>('newest');
   const tabsId = useId();
@@ -175,13 +189,22 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
           </p>
         )}
 
-        {mine && mine.missing > mine.filled && (
-          <p className="pulls-note">
-            {(mine.missing - mine.filled).toLocaleString()} pack{mine.missing - mine.filled === 1 ? " in your history doesn't" : "s in your history don't"} have
-            {mine.missing - mine.filled === 1 ? ' its' : ' their'} cards on this device, so the numbers above leave{' '}
-            {mine.missing - mine.filled === 1 ? 'it' : 'them'} out for now. Copying your profile link re-opens{' '}
-            {mine.missing - mine.filled === 1 ? 'it' : 'them'}.
+        {reopen?.running ? (
+          <p className="pulls-note" role="status">
+            Re-opening your packs in the background: {reopen.done.toLocaleString()} of {reopen.total.toLocaleString()}. You can close
+            this and keep playing; if you close the tab, it carries on next time.
           </p>
+        ) : (
+          unopened > 0 && (
+            <p className="pulls-note">
+              {unopened.toLocaleString()} pack{unopened === 1 ? " in your history doesn't" : "s in your history don't"} have
+              {unopened === 1 ? ' its' : ' their'} cards on this device, so the numbers above leave {unopened === 1 ? 'it' : 'them'} out
+              for now.{reopen?.error ? " Re-opening stopped with an error." : ''}{' '}
+              <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
+                {reopen?.error ? 'Try again' : 'Re-open them'}
+              </button>
+            </p>
+          )
         )}
 
         {stats.highestPackLegacy && stats.highestPackCards?.length ? (
