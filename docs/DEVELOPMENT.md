@@ -18,7 +18,7 @@ Use this guide for changed code; read domain docs only when relevant. Scripts an
 | Lint/types/unit/set locks | npm run check, existing | Local and Actions |
 | Build/static previews | npm run build, existing | Local for packaging/assets; Actions |
 | Independent verification | Python vectors, existing | Local isolated environment and Actions |
-| Mounted component/cross-module integration | #233, proposed | Local and Actions |
+| Mounted component/cross-module integration | One pack lifecycle (#350); further #233 cases proposed | npm test, local and Actions |
 | Built-browser E2E/visual/a11y smoke | #73, proposed | Local and Actions |
 | Workflow/asset validation | #234/#237, proposed | Fake-provider local/Actions checks |
 | Independent agent task audit | #239, proposed runner | Local Claude/other supported CLI; attach report |
@@ -34,6 +34,8 @@ Choose meaningful regressions by changed contract, not a global coverage target:
 - Card/pack sharing works across entry points; exports decode/preserve modifiers and proof links reconstruct. Fake share/clipboard APIs don't validate native OS UI.
 - Intake verifies real proofs with fake relay/GitHub boundaries: duplicates, invalid signatures, limits, retries, partial filing, removal/rebuild; daily/stale/per-card contracts when implemented.
 - Async cases: HTTP failure then recovery, malformed snapshots, worker crash/no-worker/close, bounded fallback, late results and missing/failed images.
+
+Mounted integration: `npm test -- src/test/packLifecycle.integration.test.ts --maxWorkers=2` runs the pack lifecycle regression (also in `npm run check`). `src/test/mountedApp.ts` owns StrictMode mounting, module/storage reset, clock, real-ticket Worker transport, outbound I/O guards and cleanup. Serial cases own disposable identities/preferences and assertions: use `interact` for events, `until` for bounded observable completion, and `dispose` in `afterEach`. Bug PRs add their own regressions with their fixes using this fixture. jsdom 26 supports CI Node 22; DOM/localStorage, media and finish rasterization are simulated. Reload reconstructs App from retained storage and fresh modules; IndexedDB uses the production unavailable-storage fallback. Native navigation/persistence, image decoding, layout and multi-tab coverage remain with #304/#73.
 
 Built-app smoke: preview the build at its configured base URL; verify actual page/assets, not a PID. Use deterministic verified fixtures, isolated test identities/storage, pinned runner/browser versions and blocked outbound writes. Exercise fresh opening -> result -> card/share -> personal results -> reload, plus valid/invalid proof links. Relevant cases include touch/narrow/short layouts, keyboard/form exclusion/nested focus/Escape, reduced motion, resize/background return and slow/offline/failed assets. Assert behavior and unexpected errors, not screenshots alone. Stop only owned resources.
 
