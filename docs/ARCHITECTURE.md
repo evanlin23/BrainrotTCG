@@ -307,7 +307,7 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
    and the `independent-verifier` CI job).
 3. **Every registered card needs a built image.** `npm run cards` generates it, and `check:sets`
    checks its file exists (plus openable pack wrappers/thumbnails). This does not decode every
-   image or validate all finish assets; the additional asset checker in #270 is unmerged.
+   image or validate all finish assets; #237 tracks additional decoding and asset coverage.
 
 `npm run check` runs lint, types, unit tests and set locks; `npm run build` packages the site and
 static previews. CI runs both and also
