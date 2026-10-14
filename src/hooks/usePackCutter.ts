@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { useSparks } from './useSparks';
+import { cutPointInPixels } from './packCutCoordinates';
 import { FAIRY_DUST_SRC, WOOSH_SRC } from '../constants/audio';
 
 // Pack cutting constants
@@ -104,14 +105,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     const clampedX = Math.min(point.width, Math.max(0, point.x));
     const xPercent = (clampedX / point.width) * 100;
     const yPercent = (TEAR_LINE_RATIO + DRAWN_CUT_OFFSET_RATIO) * 100;
-    const sparkX = clampedX;
-    const sparkY = (point.height * yPercent) / 100;
+    // SVG percentages and sparks share the pack's layout size, not its transformed bounding box.
+    const sparkPoint = cutPointInPixels({ x: xPercent, y: yPercent }, packRef.current!);
 
     if (!isCutting) {
       setIsCutting(true);
       setCutPoints([{ x: xPercent, y: yPercent }]);
       cutSpanRef.current = { minX: clampedX, maxX: clampedX };
-      emitSpark(sparkX, sparkY);
+      emitSpark(sparkPoint.x, sparkPoint.y);
 
       // Play fairy dust sound when cutting starts
       if (volume > 0) {
@@ -130,7 +131,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       const next = [...prev, { x: xPercent, y: yPercent }];
       return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
     });
-    emitSpark(sparkX, sparkY);
+    emitSpark(sparkPoint.x, sparkPoint.y);
 
     const span = cutSpanRef.current;
     span.minX = Math.min(span.minX, clampedX);

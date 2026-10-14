@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import PackCuttingUI from '../components/pack/PackCuttingUI';
 import { SETS } from '../content/sets';
+import { cutPointInPixels } from './packCutCoordinates';
 
 describe('Pack cutting spark coordinate contract (#265)', () => {
   const dummySet = SETS[0];
 
-  it('renders spark layer inside pack-shell-wrap using local pack coordinates', () => {
+  it('renders spark pixels in the same pack as the percentage cut line', () => {
     const localSparkX = 120; // 120px from left of pack
     const localSparkY = 102.125; // 19% of a 537.5px height pack (exact tear line local position)
 
@@ -38,43 +39,28 @@ describe('Pack cutting spark coordinate contract (#265)', () => {
     expect(html).toContain('class="drag-spark"');
     expect(html).toContain(`--x:${localSparkX}px`);
     expect(html).toContain(`--y:${localSparkY}px`);
+    // Both layers are children of the pack, before the pack and wrapper close.
+    expect(html.endsWith('</span></div></div></div>')).toBe(true);
   });
 
-  it('calculates pack-local spark coordinates independent of transformed ancestor rect.top offset', () => {
-    // Simulate pack bounding rect on narrow/short mobile viewport with top offset (header / transform)
-    const rectTopOffsets = [0, 80, 150, 240];
-    const packWidth = 320;
-    const packHeight = 573.86; // 320 * (2752 / 1536)
-    const tearLineRatio = 0.19;
-    const expectedLocalTearY = packHeight * tearLineRatio; // 109.0334px local to pack
-
-    rectTopOffsets.forEach((rectTop) => {
-      // User touches at the tear line in viewport coordinates
-      const viewportTouchY = rectTop + expectedLocalTearY;
-      const viewportTouchX = 160;
-
-      // Local point calculation
-      const localX = viewportTouchX - 0; // rect.left = 0
-      const clampedX = Math.min(packWidth, Math.max(0, localX));
-
-      // Verify touch coordinates mapping
-      expect(viewportTouchY - rectTop).toBeCloseTo(expectedLocalTearY, 5);
-      expect(clampedX).toBe(160);
-
-      // Correct local spark coordinates (anchored to .pack-shell-wrap)
-      const correctLocalSparkY = packHeight * tearLineRatio;
-
-      // Old buggy viewport spark coordinates (would be offset down by rectTop if .spark-layer was inside transformed parent)
-      const buggyViewportSparkY = rectTop + packHeight * tearLineRatio;
-
-      // The spark's local Y must equal expectedLocalTearY, regardless of rectTop offset
-      expect(correctLocalSparkY).toBeCloseTo(109.0334, 3);
-
-      if (rectTop > 0) {
-        // Under the old implementation, sparkY was rectTop + localTearY, causing a downward shift equal to rectTop
-        expect(buggyViewportSparkY).toBeGreaterThan(correctLocalSparkY);
-        expect(buggyViewportSparkY - correctLocalSparkY).toBeCloseTo(rectTop, 5);
-      }
+  it.each([
+    { clientWidth: 320, clientHeight: 574 },
+    { clientWidth: 390, clientHeight: 699 },
+    { clientWidth: 800, clientHeight: 1433 },
+  ])('maps the SVG endpoint to layout pixels for $clientWidth px packs', (layout) => {
+    const endpoint = { x: 60, y: 19 };
+    expect(cutPointInPixels(endpoint, layout)).toEqual({
+      x: layout.clientWidth * 0.6,
+      y: layout.clientHeight * 0.19,
     });
+  });
+
+  it('uses layout dimensions even when a rotated ancestor enlarges the viewport bounds', () => {
+    const rotatedPack = {
+      clientWidth: 320,
+      clientHeight: 574,
+      getBoundingClientRect: () => ({ width: 414.8125, height: 620.671875, top: 87.6875 }),
+    };
+    expect(cutPointInPixels({ x: 60, y: 19 }, rotatedPack)).toEqual({ x: 192, y: 109.06 });
   });
 });
