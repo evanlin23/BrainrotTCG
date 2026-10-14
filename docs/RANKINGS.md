@@ -8,6 +8,8 @@ Primary Rankings has Today's submissions and All-time submissions: top 10 pack p
 
 Card detail offers “Best versions of this card”, initially all-time top 10. Daily per-card boards can follow if people use this. Group by stable set id + card id; show version/era explicitly. Cross-version comparisons are allowed only when identity and scoring are comparable; otherwise split by set version. Rank by the existing verified individual-card point value, not the enclosing pack's poker multiplier. Compute it from the reconstructed proof. Within one pack, two copies of a card are separate instances keyed by pull id + card index. Equal scores tie by trusted first receipt time, then stable instance id. Explain that finite finish combinations can create many tied cards. Do not introduce an artificial rarity multiplier to make the board look exciting.
 
+Overall global “Best cards” across card identities is a distinct all-time top-10 selector contract (#338), sharing those individual-point and proof rules. Local personal Best cards retention/placement is #337; a winning card must remain reconstructible even when its pack leaves retained best packs. Both proposals use the shared design #312, without another primary navigation destination. #339 decides how pack headlines explain a standout card while keeping the true combo/multiplier visible; pack rankings still measure total pack score. These contracts await review and separate implementation slices.
+
 Display exact card modifiers, score, proof link and verification status. Pending relay items appear separately as provisional; never decorate them as accepted daily winners. Keep first-submission/archive data and legacy URLs accessible outside the main tabs.
 
 ## Canonical ingestion and snapshots
