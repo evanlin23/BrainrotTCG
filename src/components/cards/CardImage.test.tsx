@@ -45,3 +45,25 @@ describe('collection finish thumbnails', () => {
     expect(custom).toContain('visibility:hidden');
   });
 });
+
+describe('nondraggable default', () => {
+  it('defaults draggable to false on standard, thumbnail, and finish image paths', () => {
+    const card = ALL_CARDS[0];
+
+    const standardHtml = renderToStaticMarkup(<CardImage src={card.image} alt={card.name} />);
+    expect(standardHtml).toContain('draggable="false"');
+
+    const thumbnailHtml = renderToStaticMarkup(<CardImage src={card.image} finish="GOLD" thumbnail alt={card.name} />);
+    expect(thumbnailHtml).toContain('draggable="false"');
+
+    const finishHtml = renderToStaticMarkup(<CardImage src={card.image} finish="GOLD" alt={card.name} />);
+    expect(finishHtml).toContain('draggable="false"');
+  });
+
+  it('allows callers to explicitly override draggable prop', () => {
+    const card = ALL_CARDS[0];
+
+    const overrideHtml = renderToStaticMarkup(<CardImage src={card.image} draggable alt={card.name} />);
+    expect(overrideHtml).toContain('draggable="true"');
+  });
+});
