@@ -21,6 +21,17 @@ The roadmap is an evidence-gated sequence, not a promise of virality or dates. T
 
 Make saves dependable, opening/sharing accessible and the first minute understandable before promotion. Prioritize #181/#87 storage, #226/#228/#229 failure recovery, #8/#12 phones/accessibility, #183/#222 navigation/onboarding and #182/#184/#185/#186 controls/guide/sharing. #73/#233/#234/#239 add layered automation/local agent audits; #211 retains actual newcomer validation. #235–#237 own readiness/rollback, diagnostics and assets; #230–#232 own dependency/CI/docs hygiene.
 
+Complete Phase 1 in this order; contributor readiness and game readiness are separate gates:
+
+| Gate | Work and evidence |
+| --- | --- |
+| Engineering foundation | #308: concise shared instructions/token-efficient sessions, enforced PR/check policy, least-privilege pinned workflows, unit/type/spec/asset/workflow/built-browser checks, reusable integration fixture #350 and performance measurement runner #351. #349 separates reviewed merges from production authorization. Commands/settings must actually work; local agents remain separate from Actions. |
+| Reliability reconciliation | Review and integrate bounded fixes with their regressions, preserve saves/old proofs, resolve conflicting or superseded drafts and validate the actual combined head. Retain explicit data-preservation holds; optional finishes/rankings do not gate a dependable game. |
+| Shared design system | #312: one accessible design artifact with semantic colors, typography, spacing, reusable components/states and responsive first/returning-player flows, mapped to code. Verify Figma authoring access or use the agreed editable prototype; implement approved slices with visual/accessibility checks. |
+| Release decision | #235: final unit/integration/UI/spec/asset checks, measured phone performance, newcomer/accessibility evidence, save-compatible rollback and explicit production authorization. Design changes require renewed candidate validation. |
+
+Establish a usable test foundation before broad fixes, then add meaningful feature regressions with those fixes. Do not turn readiness into an unlimited framework project or a requirement to clear every future backlog item.
+
 Exit when release-blocking save/proof/blank-screen/accessibility defects are resolved and relevant checks/audits pass on the actual candidate. Physical-device/human evidence remains separate. Optional top-10/per-card rankings (#223/#224) and new finishes (#187/#203) must not delay basic recovery. Auto-submission (#225) waits for measured capacity.
 
 ## Phase 2: social creation and publishing
