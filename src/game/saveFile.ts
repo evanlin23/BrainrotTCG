@@ -20,7 +20,7 @@ const card = (value: unknown): boolean => record(value) && text(value.id)
   && ['key', 'setId', 'name', 'image', 'caption', 'flavor'].every((key) => optional(value, key, text))
   && ['isHolo', 'isRevealed', 'misprint', 'isNew'].every((key) => optional(value, key, boolean))
   && (getCard(text(value.key) ? value.key : migrateCardKey(value.id)) !== undefined
-    || (text(value.name) && text(value.image) && text(value.rarity)))
+    || (text(value.setId) && text(value.name) && text(value.image) && text(value.rarity)))
   && optional(value, 'rarity', (v) => text(v) && RARITIES_RAREST_FIRST.includes(v as Rarity))
   && optional(value, 'uniqueId', number) && optional(value, 'finish', (v) => v === null || finish(v));
 const ref = (value: unknown) => record(value) && text(value.setId) && count(value.setVersion) && count(value.nonce)

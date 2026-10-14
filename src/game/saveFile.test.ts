@@ -68,6 +68,7 @@ describe('Settings backup preflight', () => {
     ['non-string encoded field', { stats: {} }],
     ['collection array', { collection: '[]' }],
     ['null collection item', { collection: '{"x":null}' }],
+    ['unknown historical card without set ID', { collection: JSON.stringify({ x: { card: { id: 'nonexistent', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' }, normalCount: 1 } }) }],
     ['unresolvable partial card', { collection: '{"x":{"card":{"id":"nonexistent"}}}' }],
     ['prototype finish name', { collection: JSON.stringify({ x: { card: { ...ALL_CARDS[0], finish: '__proto__' } } }) }],
     ['collection missing card', { collection: '{"x":{"normalCount":1}}' }],
@@ -123,6 +124,14 @@ describe('Settings backup preflight', () => {
     expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(save.collection);
     expect(store.get(STORAGE_KEYS.ACHIEVEMENTS)).toBe(save.achievements);
     expect(store.get(STORAGE_KEYS.PULLS)).toBe(save.pulls);
+  });
+
+  it('retains complete unknown historical cards through import and subsequent hydration', () => {
+    const card = { id: 'nonexistent', key: 'archived/nonexistent', setId: 'archived', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' };
+    const collection = { [card.key]: { card, normalCount: 1, holoCount: 0 } };
+    expect(importSaveFile(JSON.stringify({ ...fixture(), collection: JSON.stringify(collection) }))).toBeNull();
+    const hydrated = hydrateCollection(JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!) as Record<string, CollectionItem>);
+    expect(hydrated).toEqual(collection);
   });
 
   it('accepts pre-identity v1 exports and lets existing migrations upgrade legacy card IDs', () => {
