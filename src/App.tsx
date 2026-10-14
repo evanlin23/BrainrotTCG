@@ -24,7 +24,7 @@ import { backUpSave, hasProgress } from './game/move';
 import { getStoredData } from './utils/storage';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
-import { myStats } from './game/profiles';
+import { myStats, onReopenProgress } from './game/profiles';
 import { getHistory } from './game/history';
 import { CURRENT_DATA_VERSION, hydrateCollection, setDataVersion } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
@@ -33,6 +33,8 @@ import {
   checkCollectionAchievements,
   checkModifierAchievements,
   checkPackAchievements,
+  checkPackScoreAchievements,
+  checkHistoryAchievements,
 } from './utils/achievementChecks';
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
@@ -199,6 +201,37 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
+
+  // Packs in the history that never got their pack achievements (merged in from a save, or opened
+  // before the achievement existed). Unlocked quietly, dated and linked to the pack that earned them.
+  const unlockFromHistory = useCallback(() => {
+    const history = getHistory();
+    setAchievements(prev => {
+      const found = checkHistoryAchievements(history, prev);
+      if (found.length === 0) return prev;
+      const next = { ...prev };
+      for (const { id, entry, cards } of found) {
+        next[id] = {
+          unlockedAt: entry.openedAt,
+          ...(cards ? { pack: cards } : {}),
+          ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
+        };
+      }
+      localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    unlockFromHistory();
+    // Re-opened packs bring back the cards of packs the history only had a hand and score for.
+    const stop = onReopenProgress((status) => {
+      if (!status.running) unlockFromHistory();
+    });
+    return () => {
+      stop();
+    };
+  }, [unlockFromHistory]);
 
   const unlockAchievement = useCallback((achievementId: string, pack?: CardWithMeta[], ref?: PullRef) => {
     const achievement = getAchievementById(achievementId);
@@ -416,16 +449,7 @@ function App() {
     }
 
     // Check pack value achievements - unlockAchievement handles duplicates internally
-    const packValueAchievements: string[] = [];
-    // Thresholds are 10x the original Buhcoin-era ones (card points were scaled by 10).
-    if (score === 50) packValueAchievements.push('pack_value_5');
-    const PACK_SCORE_ACHIEVEMENTS: [number, string][] = [
-      [500, 'pack_value_50'], [1_000, 'pack_value_100'], [5_000, 'pack_value_500'], [10_000, 'pack_value_1000'],
-      [20_000, 'pack_value_2000'], [30_000, 'pack_value_3000'], [40_000, 'pack_value_4000'], [50_000, 'pack_value_5000'],
-      [60_000, 'pack_value_6000'], [70_000, 'pack_value_7000'], [80_000, 'pack_value_8000'], [90_000, 'pack_value_9000'],
-      [100_000, 'pack_value_10000'], [100_000_000, 'pack_value_max'],
-    ];
-    PACK_SCORE_ACHIEVEMENTS.forEach(([min, id]) => score >= min && packValueAchievements.push(id));
+    const packValueAchievements = checkPackScoreAchievements(score, {});
     packValueAchievements.forEach(id => unlockAchievement(id, newCards, pullRef));
 
     // Check other achievements - get current state to avoid stale closure
