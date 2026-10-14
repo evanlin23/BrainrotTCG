@@ -1,6 +1,6 @@
 # Repository agent guidelines
 
-These instructions apply throughout the repository. Use [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for code quality, compatibility, testing and issue/doc hygiene. Read only relevant domain guidance: ARCHITECTURE.md for existing boundaries, DESIGN.md for UI, ADDING_A_SET.md/spec for content or proofs. ROADMAP.md and RANKINGS.md contain proposals, not shipped requirements.
+These instructions apply throughout the repository. Use [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for code quality, compatibility, testing and issue/doc hygiene. Read only relevant domain guidance: [architecture](docs/ARCHITECTURE.md), [design](docs/DESIGN.md), [adding a set](docs/ADDING_A_SET.md), or the [proof spec](spec/PULL_SPEC.md). Planning documents contain proposals, not shipped requirements.
 
 - Solve the requested problem with the smallest coherent change; reuse existing code and preserve user changes. Avoid speculative abstractions and unrelated refactors.
 - Keep deterministic rules in src/engine, browser/persistence in src/game, rendering in src/components. Share rules with scripts rather than duplicate them.
