@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
 
 export interface Spark {
   id: number;
@@ -14,28 +14,48 @@ const MAX_SPARKS = 220;
 const SPARK_LIFETIME_MS = 620;
 const SPARK_THROTTLE_MS = 9;
 
-/**
- * Hook for managing spark particle effects
- */
-export const useSparks = () => {
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+const subscribeReducedMotion = (onChange: () => void) => {
+  const media = window.matchMedia(REDUCED_MOTION_QUERY);
+  media.addEventListener('change', onChange);
+  return () => media.removeEventListener('change', onChange);
+};
+
+/** Spark work follows the particle setting and the device's current motion preference. */
+export const useSparks = (enabled = true) => {
+  const reducedMotion = useSyncExternalStore(
+    subscribeReducedMotion,
+    () => window.matchMedia(REDUCED_MOTION_QUERY).matches,
+    () => false,
+  );
+  const active = enabled && !reducedMotion;
   const [sparks, setSparks] = useState<Spark[]>([]);
   const sparkIdRef = useRef(0);
   const sparkTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const lastSparkAtRef = useRef(0);
 
-  /**
-   * Clear all sparks and their timeouts
-   */
-  const clearSparks = useCallback(() => {
+  const cancelSparkTimers = useCallback(() => {
     sparkTimeoutsRef.current.forEach(timer => window.clearTimeout(timer));
     sparkTimeoutsRef.current = [];
-    setSparks([]);
+    lastSparkAtRef.current = 0;
   }, []);
+
+  // Changing the preference or unmounting owns timer cancellation, without updating unmounted state.
+  useEffect(() => cancelSparkTimers, [active, cancelSparkTimers]);
+
+  // Discard the old particles immediately so re-enabling never revives an expired burst.
+  if (!active && sparks.length > 0) setSparks([]);
+
+  const clearSparks = useCallback(() => {
+    cancelSparkTimers();
+    setSparks(prev => prev.length > 0 ? [] : prev);
+  }, [cancelSparkTimers]);
 
   /**
    * Emit spark particles at the given position
    */
   const emitSpark = useCallback((clientX: number, clientY: number) => {
+    if (!active) return;
     const now = Date.now();
     if (now - lastSparkAtRef.current < SPARK_THROTTLE_MS) return;
     lastSparkAtRef.current = now;
@@ -67,10 +87,10 @@ export const useSparks = () => {
       }, SPARK_LIFETIME_MS);
       sparkTimeoutsRef.current.push(timeout);
     });
-  }, []);
+  }, [active]);
 
   return {
-    sparks,
+    sparks: active ? sparks : [],
     emitSpark,
     clearSparks,
   };
