@@ -15,11 +15,13 @@ Use [SOCIAL_PIPELINE.md](SOCIAL_PIPELINE.md) for the reveal/clip brief. A satisf
 
 Main already has deterministic versioned pulls, independent verification, era sets, a collection, share images/links, a global Hall of Fame, and verified XP/levels with cosmetics. These are foundations, not future promises. The usability/navigation work is still proposed in [PR #188](https://github.com/evanlin23/BrainrotTCG/pull/188); additional versioned finishes are proposed in [PR #203](https://github.com/evanlin23/BrainrotTCG/pull/203). Neither is assumed merged or deployed by this roadmap. Existing save/focus reports remain tracked in #87, #181 and #186.
 
-The roadmap is an evidence-gated sequence, not a promise of virality or dates. The current October 13, 2026 review has a dated [handoff packet](CLAUDE_HANDOFF.md); it is temporary context, not the entry point for future work. Use this roadmap and the live issue milestones for ongoing sequencing. The following phases supersede the earlier mixed readiness/distribution milestones.
+The roadmap is an evidence-gated sequence, not a promise of virality or dates. The current October 14, 2026 review has a dated [handoff packet](CLAUDE_HANDOFF.md); it is temporary context, not the entry point for future work. Use this roadmap and the live issue milestones for ongoing sequencing. The following phases supersede the earlier mixed readiness/distribution milestones.
 
 ## Phase 1: game quality and verification
 
 Make saves dependable, opening/sharing accessible and the first minute understandable before promotion. Prioritize #181/#87 storage, #226/#228/#229 failure recovery, #8/#12 phones/accessibility, #183/#222 navigation/onboarding and #182/#184/#185/#186 controls/guide/sharing. #73/#233/#234/#239 add layered automation/local agent audits; #211 retains actual newcomer validation. #235–#237 own readiness/rollback, diagnostics and assets; #230–#232 own dependency/CI/docs hygiene.
+
+Owner preparation runs in parallel: #358 establishes a brand email, recovery and official Instagram/YouTube/TikTok/Facebook/Reddit identities, reusing the LinkedIn page if already created. Account reservation/profile setup belongs to Phase 1; content production and publishing remain Phase 2.
 
 Complete Phase 1 in this order; contributor readiness and game readiness are separate gates:
 

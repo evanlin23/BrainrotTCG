@@ -4,6 +4,8 @@ The pipeline turns real gameplay into funny, visually loud, platform-appropriate
 
 Start with an 80% viral / 20% technical mix, adjusting to observed results. Viral clips lead with a meme, a question, a reveal or a reaction. Technical clips lead with a concrete question such as "Can this pull be faked?" and explain one design choice.
 
+Phase 1 account readiness is tracked in #358: owner-controlled brand email/recovery and consistent official accounts for Instagram, YouTube, TikTok, Facebook and Reddit, plus LinkedIn if already created. The owner completes registration/verification and keeps credentials/recovery codes private. Record confirmed public handles/URLs in that issue and consolidate canonical links here after confirmation; none are assumed created. API eligibility, integrations and posting authorization remain #77/#214.
+
 ## Workflow and ownership
 
 Trend inputs (#83) and reviewed set data feed a content brief (#213). Reusable rendering (#38) produces assets. An editor approves an exact revision. A publisher (#214) schedules that revision through a supported integration, records the result and feeds aggregate results back to the weekly experiment review.
