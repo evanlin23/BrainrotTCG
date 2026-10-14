@@ -13,13 +13,14 @@ Fetched main `433499f619a52ff1493ece4cacaf10e8fec4848f`, including merged #238. 
 
 Dependencies were reused; no clean npm ci. Local Node 24.19/Python 3.12 versus CI 22/3.13: confirm candidate CI. No physical devices, human sessions or agent task-browser audits performed; subagents reviewed source/plans. Browser/mounted integration/local-agent infrastructure is still proposed (#73/#233/#234/#239). Prior audit: zero production dependency findings, 34 full-tree package findings (#230), not 34 demonstrated production exploits.
 
-Branch-protection API returned 403: settings are unverified. Deploy runs npm check but not Python verification; #235/#234 must ensure required protected-main checks/no bypass or explicit release compatibility gating.
+October 14 follow-up confirms main is unprotected and no repository rulesets are listed. Protection GET/authorized PUT both return HTTP 403 from this integration; owner configuration is blocked, not completed. #308 records exact owner settings and contributor-readiness criteria. Require PRs, latest-base `check`/`independent-verifier`, resolved conversations and no force push/deletion; decide eligible independent GitHub approval separately. Draft #316 gates both Cloudflare publishing inside build and the downstream Pages job on Python verification; no deployment was dispatched.
 
 ## PR reconciliation order
 
 | PR | Review requirement |
 | --- | --- |
-| #216 docs | Draft. Review consolidated guidance/roadmap first; proposals are not installed features. |
+| #315 contributor foundation | Draft on main. Review concise AGENTS/DEVELOPMENT, issue/PR intake and frozen setup before assigning arbitrary contributor tasks. Protection is separately blocked in #308. |
+| #216 docs | Draft, now stacked on #315. Contains roadmap/proposals and this temporary packet; basic contributor guidance no longer requires consuming the whole proposal. |
 | #188 usability | Draft, conflicts with main. Preserve main's protected reveals, configurable pauses, cosmetics and short-screen fixes while removing A/auto-open. Latest naming in #183/ROADMAP supersedes this earlier layout. |
 | #238 background recovery | Merged into current main, CI passed. Its storage/background follow-ups below remain; memory tests do not prove durability. |
 | #203 finishes | Draft based on #188. Restack after reconciliation; preserve historical files/locks/vectors and table-2 restoration/export behavior. Optional, not a prerequisite for reliability fixes. |
@@ -42,12 +43,25 @@ Additional October 14 drafts, independently reviewed with passing local checks a
 | #294 | Retryable 15-second image-load deadline; late callbacks ignored and timers/listeners cleared. Canvas encoding, cache budgets and physical-phone failures remain unverified. |
 | #295 / #297 | Pin CI/deployment actions to checked official release commits. Static actionlint passes; ShellCheck unavailable. No deployment dispatched; upload-pages-artifact still calls a mutable nested upload-artifact action. Preserve #275 permissions. |
 | #296 | New players start with music off; existing explicit/legacy preferences preserved. Built-browser request/play checks pass; physical audio accessibility remains #12. |
-| #298 | **Stack on #286:** failed identity persistence preserves old memory/storage identity. Earlier imported fields can still change until rollback follow-up; #181 remains open. |
+| #298 | **Stack on #286:** failed identity persistence preserves old memory/storage identity. Earlier imported fields can still change without stacked #300; #181 remains open. |
 | #299 | Old-origin transfer writes its backup before deletion; failed backup preserves the original save. Complete transfer rollback/validation remains #181. |
+| #300 | **Stack on #298:** required backup, identity-last commit and verified best-effort rollback after synchronous write failures. No crash/cross-tab journal or new omitted-field policy. |
+| #301 | Release orphaned/version-changing IndexedDB connections; native same-context two-page upgrade/delete regressions pass. Durable-write/resume guarantees remain pending. |
+| #302 | **Stack on #284:** rotated spark origins align within 0.08 px in the mounted fixture. Gesture policy unchanged; physical-phone/swipe performance unrun. |
+| #304 | **Stack on #290:** owned current-build browser gate, outbound HTTP/WS interception, image decoding and exact five-card/count/modifier/history reload equality. Lost-card/double-award mutations fail; two Chromium emulation projects pass. |
+| #305 | Legacy migration keeps source/current raw logs until all eligible ticket mappings persist; forbids migration truncation. New-pack quota retention policy remains #241. |
+| #306 | **Stack on #259:** failure differs from empty, accessible deduplicated Retry and retired relay cleanup; fixes reproduced StrictMode verification lifecycle. Active proof work is nonabortable. |
+| #310 | **Stack on #288:** one expiry timer/update per spark burst. Controlled mounted input reduces 300 timers to 100, with same density/cap; no FPS/phone claim. |
+| #313 | Foreground denied writes keep UI usable and latch one honest warning. Persistence follows committed state; interruption before persistence and pending-ticket durability remain #87/#241. |
+| #315 | Independent contributor foundation, schema/link/command checks only; GitHub form rendering and protection enforcement unverified. #216 now inherits this branch. |
+| #316 | **Stack on #297:** verification gates build itself, which publishes Cloudflare, plus Pages transitively. Static graph/vector checks pass; no live deploy test. |
+| #319 | Pin remaining inbox actions; normalized configuration/permissions unchanged, no live intake/dispatch. |
 
-Jules #284 and #290 stay draft with unresolved independent findings. #284's two tests pass with original production files; mounted Chromium at a -10° entrance rotation reproduces a 43.47 px spark/tear discrepancy (unrotated alignment passes). Its correction must use the actual SVG point and untransformed layout dimensions, preserving gesture thresholds. #290 needs explicit WebSocket blocking, required local-asset/decode failures, exact recorded-card/history persistence assertions and an owned current-build server. Its phone project uses mouse input: viewport emulation is not touch/device evidence. Focused stacked follow-ups are in progress; inspect live heads before integration.
+Jules #284 and #290 require their stacked corrections #302/#304, not isolated integration of the original green heads. Original #284 tests passed unchanged production code and mounted rotation drifted 43.47 px; original #290 omitted WS isolation, exact saved cards and owned-server enforcement. Corrective evidence is in the follow-up PRs. Phone viewport emulation still does not establish touch/device performance.
 
-A private local integration experiment combines the ten reviewed small Jules drafts with #283/#285–#289/#291–#298. It passes lint/types, 287 tests/29 files, 16 set locks, build and 127 card-asset checks. The only manual source reconciliation preserves both #282's draggable override/default and #289's image recovery. These checks do not make #292's preservation policy safe to merge. Dependencies installed with npm ci: full audit has 19 distinct advisory IDs (31 affected package records), production audit zero; remaining development findings stay #230. This candidate excludes #188/#203/#216/#284/#290/#299, has not been published, and has not completed the opening/reload journey. Final additions require new combined-head checks.
+A private, unpublished integration experiment at `811b8e1eb002d192fccfb6973bb85b824a9c23fc` combines the ten reviewed small Jules drafts, #284/#290 and all independent drafts #283–#319 listed above. It excludes #188/#203/#216. Frozen npm ci, lint/types, **344 tests/33 files**, 16 set locks, 127 decoded card-asset checks, all 163 independent Python vectors, actionlint (ShellCheck disabled), build and both maintained Chromium desktop/mobile-emulated opening/record/reload journeys pass. Local Node24/Python3.12 differs from hosted Node22/Python3.13; new individual PR checks are green. Warm build: 3,057 previews, 3,311 pages; existing chunk warning remains. Audit: 19 distinct development advisory IDs / 31 affected package records, production zero (#230).
+
+Manual reconciliation preserves #282+#289 draggable/error handling; #286+#291+#313 import/selection/persistence wiring; both #281/#313 storage test suites; and #304+#315 browser/contributor README sections. This experiment **does not lift #292's raw-data preservation merge hold** or prove save durability, real phones, human newcomers or local agent task-browser audits. Rebuild/recheck after final integration, especially #188/#203. Current heads and source limits belong in live PRs; this packet expires after review.
 
 Fix independent blockers without waiting for optional finishes. Old green checks do not validate the final combined head.
 
@@ -61,6 +75,8 @@ PR #238 checks, owned by #87/#181/#229/#233/#73/#235:
 - Use real browser IndexedDB/Workers for blocked/open/versionchange/quota/abort, key changes, interrupted batches and cross-tab behavior.
 - Export/origin transfer omits IndexedDB: cache is discardable only if original ticket/set/version provenance reconstructs it.
 - #203 supports modifier table 2; #238 retains `=== 1` checks. Preserve modifiers in restoration AND legacy-cache integrity detection.
+
+Repository readiness #308 is a Phase 1 prerequisite for contributor assignments, separate from game release readiness. Shared page/style design #312 is left for Claude: use one accessible Figma file (or one agreed prototype), linking current UX issues. No design artifact was created. Local-mining acceptance is a policy proposal recorded on #223; proofs do not witness browser play/opening time, and bulk-imported scores require proof verification before global acceptance.
 
 ## Work sequence and gates
 
