@@ -20,7 +20,7 @@ October 14 follow-up confirms main is unprotected and no repository rulesets are
 | PR | Review requirement |
 | --- | --- |
 | #315 contributor foundation | Draft on main. Review concise AGENTS/DEVELOPMENT, issue/PR intake and frozen setup before assigning arbitrary contributor tasks. Protection is separately blocked in #308. |
-| #347 token efficiency | Repaired at `2351ccc`, draft stacked on refreshed #315 (`ac99024`). Four files/17 added lines: shared efficient-session guidance, minimal CLAUDE bridge, automatic compaction and its ignore exception. No verified absolute token window; CLI behavior/token-savings measurement unrun. Preserve owned preview checks and test exit status. |
+| #347 token efficiency | Repaired at `96f1a8b`, draft stacked on refreshed #315 (`ac99024`); tree identical to checked `2351ccc` after reverting a concurrent Jules overwrite. Four files/17 added lines: shared efficient-session guidance, minimal CLAUDE bridge, automatic compaction and its ignore exception. Final-head check/independent-verifier pass. No verified absolute token window; CLI behavior/token-savings measurement unrun. Pause overlapping writers; preserve owned preview checks and test exit status. |
 | #216 docs | Draft, now stacked on #315. Contains roadmap/proposals and this temporary packet; basic contributor guidance no longer requires consuming the whole proposal. |
 | #188 usability | Draft, conflicts with main. Preserve main's protected reveals, configurable pauses, cosmetics and short-screen fixes while removing A/auto-open. Latest naming in #183/ROADMAP supersedes this earlier layout. |
 | #238 background recovery | Merged into current main, CI passed. Its storage/background follow-ups below remain; memory tests do not prove durability. |
