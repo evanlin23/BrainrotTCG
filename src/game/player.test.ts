@@ -120,11 +120,10 @@ describe('durable player imports', () => {
       version: 2, exportedAt: '2026-10-14T00:00:00Z',
       player: JSON.stringify(identity()), stats: '{"packsOpened":1,"holoCards":{}}',
     }));
-    expect(error).toBe("Couldn't import the player identity.");
+    expect(error).toBe('Import failed. Your previous save data was restored.');
     expect(store.get(PLAYER_KEY)).toBe(JSON.stringify(original));
     expect(player.getPlayer().publicKeyHex).toBe(before.publicKeyHex);
-    // Multi-key rollback is outside this change: the earlier stats write is still present.
-    expect(store.get(STORAGE_KEYS.STATS)).toBe('{"packsOpened":1,"holoCards":{}}');
+    expect(store.has(STORAGE_KEYS.STATS)).toBe(false);
     expect(store.has('brainrot-data-version')).toBe(false);
   });
 });

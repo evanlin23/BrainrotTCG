@@ -145,11 +145,14 @@ export const fetchOldSave = (): Promise<{ save: unknown } | 'none' | 'blocked' |
 };
 
 /** Keep this browser's save under `backupKey` before something replaces it (a move, an imported file). */
-export const backUpSave = (backupKey: string) => {
-  const backup = Object.fromEntries(brainrotKeys().filter((k) => !k.startsWith('brainrot-before-')).map((k) => [k, localStorage.getItem(k)]));
+export const backUpSave = (backupKey: string): boolean => {
   try {
+    const keys = brainrotKeys().filter((key) => !key.startsWith('brainrot-before-'));
+    if (keys.length === 0) return true;
+    const backup = Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)]));
     localStorage.setItem(backupKey, JSON.stringify(backup));
+    return true;
   } catch {
-    // Out of space: the import still asked first.
+    return false;
   }
 };
