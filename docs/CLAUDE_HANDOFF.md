@@ -32,12 +32,22 @@ Additional October 14 drafts, independently reviewed with passing local checks a
 | --- | --- |
 | #283 | Weekly dependency-update automation only; detailed advisory triage is in #230. Hosted bot execution awaits default-branch integration. |
 | #285 | One bounded ticket-pool fallback slot, worker-failure recovery and close rejection; 13 regressions. Nonabortable CPU work may finish after close. |
-| #286 | Validate Settings backup/identity before writes; 59 save regressions including legacy exports. Atomic replacement, quota rollback, omitted-field identity/provenance and old-origin import remain #181. |
+| #286 | Validate Settings backup/identity before writes; 61 save regressions including legacy exports. Atomic replacement, quota rollback, omitted-field identity/provenance and old-origin import remain #181. |
 | #287 | Vite 7.3.1 → 7.3.5 only; five Vite advisory IDs removed, 27 other distinct IDs remain. Preserve Jules #290's Playwright additions when combining lockfiles. |
 | #288 | Disabled/reduced-motion sparks do no emission work; timers cancel on transitions/unmount. Local mounted regression passes, maintained browser test and measured phone latency remain pending. Preserve particle-option wiring with #188/#284. |
 | #289 | Failed finish thumbnails use full-size finish rendering; mounted error/stale-result cases pass. Combine with #282's nondraggable default; maintained image-failure browser coverage remains pending. |
+| #291 | Guard selected-set preference reads/writes; denied storage keeps the app/selection usable. Other storage paths remain #87. |
+| #292 | **Merge hold:** filtered recovery view for malformed collection records. Load preserves raw storage, but the next pack write discards unreadable entries. Decide quarantine/backup/export policy before integration; this is not end-to-end data preservation. |
+| #293 | Patch only PostCSS/nanoid/source-map-js lock entries; eight advisory IDs removed. Reconcile with #287 and #290's dependency changes. |
+| #294 | Retryable 15-second image-load deadline; late callbacks ignored and timers/listeners cleared. Canvas encoding, cache budgets and physical-phone failures remain unverified. |
+| #295 / #297 | Pin CI/deployment actions to checked official release commits. Static actionlint passes; ShellCheck unavailable. No deployment dispatched; upload-pages-artifact still calls a mutable nested upload-artifact action. Preserve #275 permissions. |
+| #296 | New players start with music off; existing explicit/legacy preferences preserved. Built-browser request/play checks pass; physical audio accessibility remains #12. |
+| #298 | **Stack on #286:** failed identity persistence preserves old memory/storage identity. Earlier imported fields can still change until rollback follow-up; #181 remains open. |
+| #299 | Old-origin transfer writes its backup before deletion; failed backup preserves the original save. Complete transfer rollback/validation remains #181. |
 
-Jules #284 (spark alignment) and #290 (browser harness) are draft and under independent review. #284's two added tests still pass with original production files; replace duplicated arithmetic with a regression that exercises actual coordinates/DOM geometry. Check transformed entrance frames before treating alignment as resolved. #290 is the first maintained browser slice; green CI alone does not finish #73.
+Jules #284 and #290 stay draft with unresolved independent findings. #284's two tests pass with original production files; mounted Chromium at a -10° entrance rotation reproduces a 43.47 px spark/tear discrepancy (unrotated alignment passes). Its correction must use the actual SVG point and untransformed layout dimensions, preserving gesture thresholds. #290 needs explicit WebSocket blocking, required local-asset/decode failures, exact recorded-card/history persistence assertions and an owned current-build server. Its phone project uses mouse input: viewport emulation is not touch/device evidence. Focused stacked follow-ups are in progress; inspect live heads before integration.
+
+A private local integration experiment combines the ten reviewed small Jules drafts with #283/#285–#289/#291–#298. It passes lint/types, 287 tests/29 files, 16 set locks, build and 127 card-asset checks. The only manual source reconciliation preserves both #282's draggable override/default and #289's image recovery. These checks do not make #292's preservation policy safe to merge. Dependencies installed with npm ci: full audit has 19 distinct advisory IDs (31 affected package records), production audit zero; remaining development findings stay #230. This candidate excludes #188/#203/#216/#284/#290/#299, has not been published, and has not completed the opening/reload journey. Final additions require new combined-head checks.
 
 Fix independent blockers without waiting for optional finishes. Old green checks do not validate the final combined head.
 
