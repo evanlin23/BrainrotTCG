@@ -27,14 +27,23 @@ describe('storage helpers', () => {
   });
 
   describe('getStoredData', () => {
-    it('returns parsed objects and arrays for valid stored JSON', () => {
+    it('returns parsed objects and arrays for valid stored JSON and queries the exact key', () => {
+      const objectKey = 'test_object_key';
+      const arrayKey = 'test_array_key';
       const sampleObject = { id: 1, name: 'Brainrot' };
-      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(sampleObject));
-      expect(getStoredData(TEST_KEY, DEFAULT_VAL)).toEqual(sampleObject);
-
       const sampleArray = [1, 2, { a: 'b' }];
-      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(sampleArray));
-      expect(getStoredData(TEST_KEY, [])).toEqual(sampleArray);
+
+      mockLocalStorage.getItem.mockImplementation((key: string) => {
+        if (key === objectKey) return JSON.stringify(sampleObject);
+        if (key === arrayKey) return JSON.stringify(sampleArray);
+        return null;
+      });
+
+      expect(getStoredData(objectKey, DEFAULT_VAL)).toEqual(sampleObject);
+      expect(mockLocalStorage.getItem).toHaveBeenCalledWith(objectKey);
+
+      expect(getStoredData(arrayKey, [])).toEqual(sampleArray);
+      expect(mockLocalStorage.getItem).toHaveBeenCalledWith(arrayKey);
     });
 
     it.each([
@@ -47,16 +56,24 @@ describe('storage helpers', () => {
       ['boolean JSON primitive', 'true'],
       ['boolean false JSON primitive', 'false'],
     ])('returns fallback for %s', (_description, rawValue) => {
-      mockLocalStorage.getItem.mockReturnValue(rawValue);
+      mockLocalStorage.getItem.mockImplementation((key: string) => {
+        if (key === TEST_KEY) return rawValue;
+        return null;
+      });
       expect(getStoredData(TEST_KEY, DEFAULT_VAL)).toEqual(DEFAULT_VAL);
+      expect(mockLocalStorage.getItem).toHaveBeenCalledWith(TEST_KEY);
     });
 
     it('returns fallback when localStorage read is denied or throws an exception', () => {
-      mockLocalStorage.getItem.mockImplementation(() => {
-        throw new Error('SecurityError: Access denied');
+      mockLocalStorage.getItem.mockImplementation((key: string) => {
+        if (key === TEST_KEY) {
+          throw new Error('SecurityError: Access denied');
+        }
+        return null;
       });
 
       expect(getStoredData(TEST_KEY, DEFAULT_VAL)).toEqual(DEFAULT_VAL);
+      expect(mockLocalStorage.getItem).toHaveBeenCalledWith(TEST_KEY);
     });
   });
 
