@@ -19,14 +19,13 @@ import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { extractProfile, extractProof } from './engine';
 import { clearPendingPack, takePendingPack, type OpenedPack, type PullRef } from './game/pulls';
-import { importPlayer } from './game/player';
-import { backUpSave, hasProgress } from './game/move';
+import { importSaveFile } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { myStats } from './game/profiles';
 import { getHistory } from './game/history';
-import { CURRENT_DATA_VERSION, hydrateCollection, setDataVersion } from './utils/migrations';
+import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import {
   checkPackMilestones,
@@ -36,17 +35,6 @@ import {
 } from './utils/achievementChecks';
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
-
-/** Save-file fields and where they live in localStorage. */
-const SAVE_FIELDS = [
-  ['collection', STORAGE_KEYS.COLLECTION],
-  ['achievements', STORAGE_KEYS.ACHIEVEMENTS],
-  ['stats', STORAGE_KEYS.STATS],
-  ['hallOfFame', STORAGE_KEYS.HALL_OF_FAME],
-  ['pulls', STORAGE_KEYS.PULLS],
-  ['history', STORAGE_KEYS.HISTORY],
-  ['settings', STORAGE_KEYS.SETTINGS],
-] as const;
 
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
@@ -254,34 +242,9 @@ function App() {
 
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
   const handleImportSave = useCallback((data: string): string | null => {
-    try {
-      const saveData = JSON.parse(data);
-
-      // Validate save data structure
-      if (!saveData.version || !saveData.exportedAt) {
-        return "That file isn't a Brainrot TCG save.";
-      }
-
-      // Write everything, then reload: the loader runs any migrations an older save needs
-      // (saves from before timeline sets use old card ids and the old score scale).
-      for (const [field] of SAVE_FIELDS) {
-        if (typeof saveData[field] === 'string') JSON.parse(saveData[field]); // reject corrupt files before writing anything
-      }
-      // The save being replaced is kept, in case it was the wrong file.
-      if (hasProgress()) backUpSave('brainrot-before-import-v1');
-      for (const [field, key] of SAVE_FIELDS) {
-        if (typeof saveData[field] === 'string') localStorage.setItem(key, saveData[field]);
-      }
-      if (typeof saveData.player === 'string' && !importPlayer(saveData.player)) {
-        alert('The player key in this save is invalid; keeping your current one.');
-      }
-      setDataVersion(typeof saveData.dataVersion === 'number' ? saveData.dataVersion : saveData.version === 1 ? 1 : CURRENT_DATA_VERSION);
-
-      window.location.reload();
-      return null;
-    } catch {
-      return "Couldn't read that file. Is it a save exported from Settings?";
-    }
+    const error = importSaveFile(data);
+    if (!error) window.location.reload();
+    return error;
   }, []);
 
   const checkAllAchievements = useCallback((newCards: CardWithMeta[], pullRef: PullRef, updatedCollection: Record<string, CollectionItem>, updatedStats: Stats, currentAchievements: Record<string, AchievementData | number>) => {
