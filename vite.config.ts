@@ -13,4 +13,7 @@ const siteUrl = (): Plugin => ({
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
   plugins: [react(), siteUrl()],
+  test: {
+    exclude: ['tests/browser/**', 'node_modules/**', 'dist/**'],
+  },
 })

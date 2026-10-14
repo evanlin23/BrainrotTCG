@@ -85,6 +85,7 @@ npm run dev
 | Command | What it does |
 | --- | --- |
 | `npm run check` | lint, typecheck, tests and the set lock check (CI runs this) |
+| `npm run test:browser` | run Chromium browser smoke tests against the local build |
 | `npm run cards` | build card images into `src/content/sets/<set>/cards/` |
 | `npm run prompts` | write free Gemini-app prompt sheets for each set's art |
 | `npm run check:sets -- --update` | lock a new set version |
