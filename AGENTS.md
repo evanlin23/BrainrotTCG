@@ -1,11 +1,46 @@
-# Repository agent guidelines
+# AGENTS.md — Autonomous Agent Directives & Efficiency Protocol
 
-These instructions apply throughout the repository. Use [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for code quality, compatibility, testing and issue/doc hygiene. Read only relevant domain guidance: [architecture](docs/ARCHITECTURE.md), [design](docs/DESIGN.md), [adding a set](docs/ADDING_A_SET.md), or the [proof spec](spec/PULL_SPEC.md). Planning documents contain proposals, not shipped requirements.
+## 1. Operating Mode: Fully Agentic
+- Act as an autonomous software engineer. Do not pause to ask for confirmation on routine steps, standard refactors, or running diagnostics.
+- Work iteratively: Plan -> Inspect -> Execute -> Test/Verify -> Checkpoint.
+- Only yield execution back to the user when:
+  1. The assigned objective is fully verified and complete.
+  2. A critical architectural fork or missing credential blocks progress.
 
-- Solve the requested problem with the smallest coherent change; reuse existing code and preserve user changes. Avoid speculative abstractions and unrelated refactors.
-- Keep deterministic rules in src/engine, browser/persistence in src/game, rendering in src/components. Share rules with scripts rather than duplicate them.
-- Preserve released sets, old proofs and original save/ticket provenance. Validate external inputs; never weaken verification/tests or overwrite historical outputs to bless a change.
-- Use minimal authoritative state, handlers for events, effects for external synchronization, bounded async work and recoverable errors. Foreground opening and visible accessible controls come first.
-- Respect active user review/merge/deployment/posting restrictions. Work in feature branches and PRs; never push directly to main. For this owner's commits use `evanlin23 <113861384+evanlin23@users.noreply.github.com>` without changing global Git identity.
-- Run existing checks appropriate to changed contracts; DEVELOPMENT.md separates Actions automation, local agent audits and real-device/player evidence. Proposed runners aren't available commands until implemented. Report actual results and unrun checks, never assumed readiness.
-- Reuse canonical issues; close only full shipped/validated scope. Keep agent instructions short, one doc per topic, and dated handoffs temporary. Update/remove stale guidance with related changes.
+## 2. Token Conservation & Context Hygiene
+- **External Working Memory:** Conversational history is volatile. Maintain all ongoing progress, active tasks, and architecture decisions in `STATE.md` at the repo root. Overwrite this file upon completing any milestone.
+- **Diff-Driven Generation:** Never print or rewrite full files that already exist. Always apply surgical modifications, line-level replacements, or standard unified diffs.
+- **Log Suppression:** When running test suites, linters, or builds in the shell, truncate or pipe outputs (e.g., `npm test -- --bail`, `pytest -q`, or pipe through `tail -n 25`). Never let 1,000+ lines of raw console logs flood the context window.
+- **No Conversational Filler:** Omit conversational chatter, pleasantries, flattery, and recaps of the instructions. Prioritize dense, actionable technical reasoning.
+
+## 3. Subagent & Delegation Schema
+When breaking tasks into subagents or worker threads:
+- Pass only the specific file paths, signatures, and acceptance criteria needed for the subtask. Never forward the complete conversation log.
+- Enforce this strict return format from worker subagents:
+  STATUS: [DONE | FAILED | BLOCKED]
+  CHANGES: [Max 3 bullet points summarizing what was altered]
+  DIFF: [Unified diff of modified lines only]
+  ERRORS: [Failing assertion / stacktrace line only — omit passing logs]
+
+## 4. Verification Protocol
+- Never mark a task as DONE based on assumption. Run the relevant test or build command locally first.
+- If a test fails, read the specific failure trace, apply a surgical fix, and re-run.
+- Once tests pass and `STATE.md` is updated, stage your commit with a clean, conventional commit message.
+
+## 5. BrainrotTCG Project-Specific Directives
+
+- **Never Start Background Servers:** Do NOT run `npm run dev` or launch persistent Vite dev servers. They hang headless agents and flood context logs.
+- **Verification Workflow:**
+  - Fast typecheck: Run `npx tsc --noEmit` before running test suites.
+  - Full CI check: Run `npm run check` (runs ESLint, TypeScript, unit tests, and set lock check).
+- **Set Locking Protocol:**
+  - If you modify `src/content/sets/*/set.json` or card definitions, you MUST update the cryptographic set lock using:
+    `npm run check:sets -- --update`
+  - Otherwise, `npm run check` will fail the set integrity check.
+- **Adding New Sets:**
+  - Use the existing repository skill in `.claude/skills/new-set` and follow `docs/ADDING_A_SET.md` rather than scaffolding manually.
+- **Proof-of-Work / Card Pull Verification:**
+  - When altering card derivation or cryptographic logic, verify with both the TS test suite and the Python spec:
+    `python3 spec/verify_pull.py <pull_url>`
+- **Asset Restrictions:**
+  - Never attempt to inspect, diff, or cat binary media files (`.png`, `.webp`, `.mp3`) in `public/` or `src/content/sets/*/cards/`.

@@ -1,3 +1,3 @@
 # CLAUDE.md
 
-Follow [AGENTS.md](AGENTS.md). It links the shared contributor and efficient-agent guidance; use relevant domain docs as needed rather than loading the entire roadmap.
+Refer to and strictly follow all agent behavior, context management, and token efficiency rules defined in `AGENTS.md`.
