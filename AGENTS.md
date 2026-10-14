@@ -26,3 +26,21 @@ When breaking tasks into subagents or worker threads:
 - Never mark a task as DONE based on assumption. Run the relevant test or build command locally first.
 - If a test fails, read the specific failure trace, apply a surgical fix, and re-run.
 - Once tests pass and `STATE.md` is updated, stage your commit with a clean, conventional commit message.
+
+## 5. BrainrotTCG Project-Specific Directives
+
+- **Never Start Background Servers:** Do NOT run `npm run dev` or launch persistent Vite dev servers. They hang headless agents and flood context logs.
+- **Verification Workflow:**
+  - Fast typecheck: Run `npx tsc --noEmit` before running test suites.
+  - Full CI check: Run `npm run check` (runs ESLint, TypeScript, unit tests, and set lock check).
+- **Set Locking Protocol:**
+  - If you modify `src/content/sets/*/set.json` or card definitions, you MUST update the cryptographic set lock using:
+    `npm run check:sets -- --update`
+  - Otherwise, `npm run check` will fail the set integrity check.
+- **Adding New Sets:**
+  - Use the existing repository skill in `.claude/skills/new-set` rather than scaffolding sets or prompt files manually.
+- **Proof-of-Work / Card Pull Verification:**
+  - When altering card derivation or cryptographic logic, verify with both the TS test suite and the Python spec:
+    `python3 spec/verify_pull.py <pull_url>`
+- **Asset Restrictions:**
+  - Never attempt to inspect, diff, or read binary media files (`.png`, `.webp`, `.mp3`) in `public/` or `src/content/sets/*/cards/`.
