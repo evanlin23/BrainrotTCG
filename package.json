@@ -14,7 +14,7 @@
     "cards:finish-thumbs": "tsx scripts/cards/build-finish-thumbs.ts",
     "check:card-assets": "tsx scripts/check-card-assets.ts",
     "check:sets": "tsx scripts/check-sets.ts",
-    "check": "npm run lint && npm run typecheck && npm test && npm run check:sets",
+    "check": "npm run lint && npm run typecheck && npm test && npm run check:sets && npm run check:card-assets",
     "prompts": "tsx scripts/cards/prompts.ts",
     "og-image": "tsx scripts/og-image.ts"
   },
