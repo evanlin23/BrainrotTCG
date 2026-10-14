@@ -86,6 +86,7 @@ npm run dev
 | --- | --- |
 | `npm run check` | lint, typecheck, tests and the set lock check (CI runs this) |
 | `npm run test:browser` | build and run the owned Chromium browser smoke |
+| `npm run test:performance` | build and report a bounded Chromium performance baseline; functional errors fail |
 | `npm run cards` | build card images into `src/content/sets/<set>/cards/` |
 | `npm run prompts` | write free Gemini-app prompt sheets for each set's art |
 | `npm run check:sets -- --update` | lock a new set version |
@@ -102,12 +103,45 @@ npm run test:browser
 The runner builds the current checkout, then owns a strict-port preview server at
 `http://127.0.0.1:4173/BrainrotTCG/`; stop any existing server on that port first.
 Set `BASE_PATH=/` on `npm run test:browser` for a root-path build and preview.
-HTTP requests outside the preview origin and all WebSockets are intercepted before
+Page HTTP requests outside the preview origin and page WebSockets are intercepted before
 navigation, with disposable test contexts and a fixed test identity. Audio is muted.
 Desktop and Pixel 5 emulation exercise keyboard opening and mouse clicks; mobile
 viewport emulation does not establish physical phone, touch/swipe or GPU behavior.
 Failure screenshots, traces and videos remain in `test-results/` (uploaded by CI).
 This gate covers one opening/record/reload journey, not all browser workflows.
+
+`npm run test:performance` reuses that build/server, browser dependency, disposable identity,
+page HTTP/WebSocket guards and exact opening/award/reload assertions. This partial #351 runner
+has two **cold HTTP cache** scenarios, three repetitions each: fresh save, and 100 synthetic
+cached history records. Routing disables browser HTTP caching; warm-cache measurement remains
+unimplemented #351 scope. The history fixture repeats known card shapes at synthetic nonces:
+it is **not verified history, a valid profile or proof evidence**. Each measured opening mines
+a real ticket. Page HTTP/WebSocket and Worker HTTP probes check the supported boundary;
+Worker WebSocket interception is not proven. The audited production ticket worker computes
+only tickets; these guards are not a universal sandbox for arbitrary future workers.
+
+The single headless Chromium viewport is 393×727, with CDP CPU slowdown 4×, network 10 Mbps
+down/2 Mbps up and 40 ms latency, one test worker and no retries. Page CDP settings do not
+establish equivalent Worker throttling or emulate phone RAM/GPU/physical-device behavior.
+`test-results/performance/raw-runs.json` and `summary.json` record commit/dirty state,
+runner/browser/host/profile, fixture sizes/authenticity, raw runs and median/range/count.
+First-clickable means trial-click actionability after wrapper decoding; open-to-result includes
+remaining ticket work after navigation-time prefetch, Skip animations and summary image decoding,
+not total Argon2 duration. Transfer is page-target-observed CDP encoded bytes through result
+completion, with outstanding requests counted, not full Worker/process bandwidth. Long tasks and frame intervals describe
+the main thread; supported main-target JS heap excludes Worker/WASM/process/GPU memory.
+Unsupported observations carry a reason. Compare identical settings/browser/machine and exact
+recorded revisions, all repetitions/ranges and failure counts, not deployed-site performance.
+
+Timings have no pass/fail budget. Functional errors exit nonzero and never enter timing
+summaries. Tests cap at 60 seconds each; the full runner caps at 12 minutes including the
+owned build/server (five-minute startup limit). The manual-only read-only Actions job caps
+at 20 minutes and retains reports/failure traces for seven days. Tracing is consistently on;
+video is off. Check schema/aggregation with `npm test -- tests/performance/report.test.ts --maxWorkers=2`.
+Prove a broken award fails with
+`PERF_INJECT_FUNCTIONAL_FAILURE=1 npm run test:performance -- --grep 'first-cold / 1' --output=test-results/performance-failure --max-failures=1`.
+This deletes the disposable collection before validation, must exit nonzero and report zero
+successful timing samples, and never edits production source.
 
 ## Adding cards and sets
 
