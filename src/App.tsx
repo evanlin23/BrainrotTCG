@@ -221,21 +221,19 @@ function App() {
   // Packs in the history that never got their pack achievements (merged in from a save, or opened
   // before the achievement existed). Unlocked quietly, dated and linked to the pack that earned them.
   const unlockFromHistory = useCallback(() => {
-    const history = getHistory();
-    setAchievements(prev => {
-      const found = checkHistoryAchievements(history, prev);
-      if (found.length === 0) return prev;
-      const next = { ...prev };
-      for (const { id, entry, cards } of found) {
-        next[id] = {
-          unlockedAt: entry.openedAt,
-          ...(cards ? { pack: cards } : {}),
-          ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
-        };
-      }
-      localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
-      return next;
-    });
+    const found = checkHistoryAchievements(getHistory(), achievementsRef.current);
+    if (found.length === 0) return;
+    const next = { ...achievementsRef.current };
+    for (const { id, entry, cards } of found) {
+      next[id] = {
+        unlockedAt: entry.openedAt,
+        ...(cards ? { pack: cards } : {}),
+        ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
+      };
+    }
+    // Keep later live commands on the same snapshot; persistence follows the guarded effect.
+    achievementsRef.current = next;
+    setAchievements(next);
   }, []);
 
   useEffect(() => {
