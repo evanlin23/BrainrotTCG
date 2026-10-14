@@ -21,7 +21,7 @@ The roadmap is an evidence-gated sequence, not a promise of virality or dates. T
 
 Make saves dependable, opening/sharing accessible and the first minute understandable before promotion. Prioritize #181/#87 storage, #226/#228/#229 failure recovery, #8/#12 phones/accessibility, #183/#222 navigation/onboarding and #182/#184/#185/#186 controls/guide/sharing. #73/#233/#234/#239 add layered automation/local agent audits; #211 retains actual newcomer validation. #235–#237 own readiness/rollback, diagnostics and assets; #230–#232 own dependency/CI/docs hygiene.
 
-Owner preparation runs in parallel: #358 establishes a brand email, recovery and official Instagram/YouTube/TikTok/Facebook/Reddit identities, reusing the LinkedIn page if already created. Account reservation/profile setup belongs to Phase 1; content production and publishing remain Phase 2.
+Owner preparation runs in parallel: #358 establishes a brand email, recovery and official Instagram/YouTube/TikTok/Facebook/Reddit identities, reusing the owner-confirmed LinkedIn page and Linktree. Account reservation/profile setup belongs to Phase 1; content production and publishing remain Phase 2.
 
 Complete Phase 1 in this order; contributor readiness and game readiness are separate gates:
 

@@ -6,6 +6,8 @@ Start with an 80% viral / 20% technical mix, adjusting to observed results. Vira
 
 Phase 1 account readiness is tracked in #358: owner-controlled brand email/recovery and consistent official accounts for Instagram, YouTube, TikTok, Facebook and Reddit, plus LinkedIn if already created. The owner completes registration/verification and keeps credentials/recovery codes private. Record confirmed public handles/URLs in that issue and consolidate canonical links here after confirmation; none are assumed created. API eligibility, integrations and posting authorization remain #77/#214.
 
+Owner-confirmed public properties: [LinkedIn](https://www.linkedin.com/company/brainrottcg/) and [Linktree](https://linktr.ee/brainrottcg). The current handle research and unconfirmed candidates live in #358, referenced by Phase 2 #77; no other social account ownership is assumed.
+
 ## Workflow and ownership
 
 Trend inputs (#83) and reviewed set data feed a content brief (#213). Reusable rendering (#38) produces assets. An editor approves an exact revision. A publisher (#214) schedules that revision through a supported integration, records the result and feeds aggregate results back to the weekly experiment review.

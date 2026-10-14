@@ -1,12 +1,36 @@
 # Current Claude review packet
 
-October 14, 2026. Pending review; expires when this queue is triaged. This is a snapshot, not permanent agent guidance. Use ROADMAP.md/live milestones for sequencing and DEVELOPMENT.md for engineering/testing. Existing user review/merge/deploy/posting restrictions still apply.
+October 14, 2026. Pending review; expires when this queue is triaged. This is a snapshot, not permanent agent guidance. Use ROADMAP.md/live milestones for sequencing and DEVELOPMENT.md for engineering/testing. The owner now authorizes Claude to review, repair, validate and merge Phase 1 PRs through the normal PR workflow; see the execution gate below. This Codex pass still leaves drafts unmerged. Social posting is not authorized by that instruction.
 
 ## Verified baseline
 
 Main is `b3362bc8cca34ef43aa837590828bce8af710edd`, including merged #311 (retroactive history achievements). Updated #313 reconciles that change in the private candidate below. Drafts are review proposals, not shipped behavior. No physical-device, human newcomer or local agent task-browser audit evidence is available.
 
 Main protection currently requires GitHub Actions `check` and `independent-verifier`, enforced for non-admins. The owner intentionally retains administrator bypass and active automatic deployment. Add browser/workflow requirements after their draft jobs land. Full protection/Actions-policy administration remains API-inaccessible; fork-approval configuration is unverified. #308 records readiness; #316/#353 partially harden automatic deployment. No deployment was dispatched.
+
+## Phase 1 coverage and execution gate
+
+The [75-issue coverage audit](https://github.com/evanlin23/BrainrotTCG/issues/1#issuecomment-6180236583) found 23 bounded-draft slices, 26 partial/older deliveries, 17 without an implementation/deliverable PR, six owner/manual/policy lanes and three optional ranking issues. These are scope categories, not shipped completion. All 48 PRs remain drafts at this snapshot. Claude must implement missing required work/tests as well as review existing PRs; merging the queue alone does not finish Phase 1. Read live issues before assigning work; planning references are not implementations.
+
+Owner-authorized order: review every PR → repair/split/rebase or supersede unsafe/obsolete work → establish the test foundation → implement remaining required slices → validate the exact reconciled candidate → merge reviewed/tested Phase 1 changes in dependency order → verify the actual merged SHA and automatic release. Use independent reviewers/subagents with bounded ownership. Keep #292 out until its raw-data-loss contract is fixed; reconcile #188; keep optional #203 out of the release-critical path. Preserve administrator bypass and enabled deployment, but do not use bypass to skip review/checks or push directly to main.
+
+Executable baseline after the reviewed #304/#354 runners are present, using Node 22 and isolated Python 3.13/cryptography 50.0.1:
+
+```sh
+npm ci
+VITEST_MAX_WORKERS=2 npm run check
+python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json
+npx playwright install --with-deps chromium
+npm run test:browser
+```
+
+The owned browser command builds the candidate; avoid a duplicate identical local build. Run the pinned workflow-validation command/job from #268; do not invent an npm script. For hosting/base-path changes also exercise `BASE_PATH=/ npm run test:browser -- --project=desktop-chromium` and affected proof/preview/migration routes. `npm run test:performance` exists only with #357; rerun comparable cold baselines for affected UI/performance work, retaining raw/range/count evidence. It is report-only, not a warm-cache/phone/Worker-process performance guarantee.
+
+These commands are the foundation, not complete Phase 1 coverage. #73/#233 must add affected maintained journeys for real browser IndexedDB reload/failure/recovery, same-context two-page races, interrupted/pending pack recording, valid/legacy/malformed import rollback, card/pack sharing, valid/invalid historical proofs, visible image/chunk retry, worker failure, background/resize, keyboard/touch/reduced motion and relevant Firefox/WebKit/visual/accessibility checks. #234 owns fake-provider intake/hosting/permission contracts; #237 expands beyond base-card decoding. Add tests with owning fixes, not one all-tests framework PR. Existing mounted/packStore/Worker fixtures are simulated boundaries; they do not prove native quota/crash durability. Screenshots alone are not behavioral assertions.
+
+Before each merge require applicable final-head check/independent-verifier/browser/workflow evidence and no unresolved release-blocking findings. After merging, refresh actual main and rerun relevant checks plus the built-browser journey on that SHA: current CI/browser jobs exclude pushes to main, while deployment reruns check/build/vectors but not those browser/workflow suites. Match the automatic deployment/artifact to the merged revision and use read-only page/asset/proof checks. Keep save-compatible rollback/forward-fix evidence in #235. Save loss, invalid old proofs, persistent blank screens, inaccessible opening or broken assets stop affected integration until fixed.
+
+#239/#211 provide task-only local agent audits and actual newcomers; #8/#12 retain real-phone/screen-reader/native-share evidence. Unavailable tools, owner account/recovery steps, rights/moderation decisions and human checks remain explicit blockers or reviewed dispositions, never synthetic passes. No claim of comprehensive testing from 354 unit/integration tests and one browser journey twice. Record exact SHA/commands/counts/skips/context/fault results in PRs and #235. Retire this packet after the handoff, rather than make it a permanent second testing guide.
 
 ## PR reconciliation order
 
@@ -83,11 +107,11 @@ Latest card feedback is split into bounded deliveries: local Best cards retentio
 
 Weak-phone follow-up: #8 owns the measured baseline and prioritization; bounded children #340–#344 cover secondary-screen loading, startup cache hydration, foreground worker priority, local stats scans and collection mounting. Reuse #266 for swipe/particles and #226 for image recovery/cache lifetime; coordinate shared profiles.ts edits sequentially. No new phone traces were captured. Display-name policy/library evaluation is #348 under #21; existing 24-code-point checks are not profanity moderation. #222 now explicitly requests a minimal logo/featured-pack/one-action fresh landing, with quiet accessibility/guide/restore access; consolidate it in #312 rather than open another redesign tracker. These are unimplemented review proposals.
 
-Repository readiness #308 is a Phase 1 prerequisite for contributor assignments, separate from game release readiness. Shared page/style design #312 is left for Claude: use one accessible Figma file (or one agreed prototype), linking current UX issues. The owner supplied an intended Figma file in #312; contents, Claude connection and actual authoring capability remain unverified. No design edits were made here. Local-mining acceptance is a policy proposal recorded on #223; proofs do not witness browser play/opening time, and bulk-imported scores require proof verification before global acceptance.
+Repository readiness #308 is a Phase 1 prerequisite for contributor assignments, separate from game release readiness. Shared page/style design #312 is left for Claude: use one accessible Figma file (or one agreed prototype), linking current UX issues. The owner named the file BrainrotTCG Designs and specified Design System / Product Designs pages, with a new monochrome tile-mark logo. #312 owns the researched design direction and file link; contents/authoring capability remain unverified and no Figma edits were made here. Local-mining acceptance is a policy proposal recorded on #223; proofs do not witness browser play/opening time, and bulk-imported scores require proof verification before global acceptance.
 
 Latest infrastructure policy: retain owner-selected admin bypass and enabled automatic deployment. Agents using the owner identity must obey review restrictions despite the technical bypass. #349 now hardens allowed-main source/verified-artifact and production-credential boundaries while preserving automatic publishing; a pause/manual approval is not a current requirement. No live deployment tests were run. #350 is delivered by draft #354. #351 has partial draft #357 for a report-mode cold-cache runner reusing #304; warm-cache measurement and worker-network isolation remain explicit follow-ups. Neither is shipped. Review #315 → reconciled #347 and CI/protection gates first, then reliability fixes, #312’s design system and #235’s final game-readiness decision. Fix-specific regressions belong with fixes; Figma authoring capability/access must be demonstrated. Do not merge every draft regardless of scope/holds.
 
-Phase 1 owner preparation now includes #358: brand email/recovery and official Instagram/YouTube/TikTok/Facebook/Reddit identities, reusing the LinkedIn page if already created. Registration/verification requires the owner; agents can prepare bios/assets and record public links. Account reservation is Phase 1, content production/publishing stays Phase 2. No accounts or posts were created by this update.
+Early owner preparation is tracked in #358, linked from Phase 2 #77: brand Gmail creation plus LinkedIn and Linktree control are owner-confirmed. BrainrotTCG remains preferred; fallback handles are candidates, not confirmed available. Remaining registration/recovery requires the owner; agents prepare bios/assets and record public links. Account preparation can happen in Phase 1; content production/publishing stays Phase 2. No accounts or posts were created by this Codex pass.
 
 ## Work sequence and gates
 
@@ -104,6 +128,6 @@ Canonical issue bodies distinguish shipped foundations, pending drafts and remai
 
 ## Finish this review
 
-The owner authorizes Claude to resolve approved current-phase defects and reconcile the PR queue independently or with subagents. Give each worker one bounded task and clear file ownership; coordinate shared files centrally and independently review significant changes. Work through the phase gates, not every future hypothesis at once. Verify the final combined revision, keep narrow PRs, and preserve existing merge/deployment/posting authorization boundaries. Inspect current heads again before integration.
+The owner explicitly authorizes Claude to review all PRs, fix or create missing required Phase 1 deliveries, independently validate them and merge eligible reviewed Phase 1 changes through PRs. This does not authorize blindly merging unsafe/optional drafts or skipping test gates. Give each worker one bounded task and clear file ownership; coordinate shared files centrally and independently review significant changes. Work through the phase gates, not every future hypothesis at once. Verify the final combined revision, keep narrow PRs, and follow the owner-authorized execution gate above; preserve separate social-posting and later-phase boundaries. Inspect current heads again before integration.
 
 Refresh main/PR status, work earliest blockers in small branches, reproduce/deduplicate, and validate the reconciled candidate—not only individual branches. Record remaining real-device/user/API/authorization limits. After review mark this packet completed/superseded with PR/issue links, move enduring decisions to canonical docs and remove its temporary README entry. Do not turn it into a continuously updated second operating guide.
