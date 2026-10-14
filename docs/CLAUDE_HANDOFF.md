@@ -4,7 +4,7 @@ October 13, 2026. Pending review; expires when this queue is triaged. This is a 
 
 ## Verified baseline
 
-Final fetched main `433499f619a52ff1493ece4cacaf10e8fec4848f`, including newly merged #238. Source/docs/CI and the three draft PRs plus #238 audited independently; final checks used an isolated git archive of this main:
+Fetched main `433499f619a52ff1493ece4cacaf10e8fec4848f`, including merged #238. The initial source/docs/CI review covered #188/#203/#216 and #238; its checks used an isolated git archive of this main:
 
 - npm run check: lint, types, 128 tests/19 files, 16 released-set locks.
 - Independent Python verification: all categories in both vector files.
@@ -24,7 +24,11 @@ Branch-protection API returned 403: settings are unverified. Deploy runs npm che
 | #238 background recovery | Merged into current main, CI passed. Its storage/background follow-ups below remain; memory tests do not prove durability. |
 | #203 finishes | Draft based on #188. Restack after reconciliation; preserve historical files/locks/vectors and table-2 restoration/export behavior. Optional, not a prerequisite for reliability fixes. |
 
+The October 13 follow-up reviewed all 119 open issues and 13 open PRs. Ten small drafts (#259/#268/#269/#270/#274/#275/#276/#280/#281/#282) have no identified blocking functional finding at the reviewed heads; #259 retains minor test-global cleanup. This is scoped review, not combined integration or physical-device evidence. Use live PR reviews for exact heads/checks.
+
 Fix independent blockers without waiting for optional finishes. Old green checks do not validate the final combined head.
+
+#203 also needs main's shared `frameRecolor.ts` extended: its older inline renderer bypasses that newer boundary. A targeted check of the exact main helper with #203 types produces missing-finish type errors and runtime failures for Neon/Cosmic/Ember. Preserve thumbnail rendering, use actual image width and generate/decode supported thumbnails before activation (#187/#237); preserve historical finish ordering. This check is not a completed merged-app build.
 
 PR #238 checks, owned by #87/#181/#229/#233/#73/#235:
 
@@ -46,10 +50,10 @@ PR #238 checks, owned by #87/#181/#229/#233/#73/#235:
 
 Source finding #241: severe history quota truncation can discard original ticket-set mappings, after which profile recovery guesses sets for missing tickets. Reproduce mixed-set loss, preserve provenance or explicit loss status; don't silently replace lost packs. #87/#233 also need denied-storage startup, malformed collection JSON and pending-removal-before-record failure fixtures.
 
-Canonical issue bodies #8/#80/#183/#186/#211/#213 were updated to remove stale sizes/trailer requirements/draft-as-shipped claims and allow candidate testing before deployment. Finite tasks have phase milestones; #1 is the live index, #227 UX tracker, #23–#34 cross-phase epics, #83 ongoing notebook. Close only full shipped/validated scope. Backlog scope labels distinguish bounded work from multi-delivery trackers; delivery plans are in issue bodies, not another document. #228 is the recommended isolated Jules loader/test task; its retry UI is separate #251, dependent on the loader fix.
+Canonical issue bodies distinguish shipped foundations, pending drafts and remaining acceptance criteria. Finite tasks have phase milestones; #1 is the live index, #227 UX tracker, #23–#34 cross-phase epics, #83 ongoing notebook. Close only full shipped/validated scope. Backlog scope labels distinguish bounded work from multi-delivery trackers; delivery plans are in issue bodies, not another document. The #228 loader fix is now draft #259; its separate retry UI #251 depends on that fix.
 
 ## Finish this review
 
-The owner authorizes Claude to resolve approved current-phase defects and reconcile the PR queue independently or with subagents. Give each worker one bounded task and clear file ownership; coordinate shared files centrally and independently review significant changes. Work through the phase gates, not every future hypothesis at once. Verify the final combined revision, keep narrow PRs, and preserve existing merge/deployment/posting authorization boundaries. Jules PRs #259/#268/#269/#270 have completed the current scoped review cycle; inspect their current heads again before integration.
+The owner authorizes Claude to resolve approved current-phase defects and reconcile the PR queue independently or with subagents. Give each worker one bounded task and clear file ownership; coordinate shared files centrally and independently review significant changes. Work through the phase gates, not every future hypothesis at once. Verify the final combined revision, keep narrow PRs, and preserve existing merge/deployment/posting authorization boundaries. Inspect current heads again before integration.
 
 Refresh main/PR status, work earliest blockers in small branches, reproduce/deduplicate, and validate the reconciled candidate—not only individual branches. Record remaining real-device/user/API/authorization limits. After review mark this packet completed/superseded with PR/issue links, move enduring decisions to canonical docs and remove its temporary README entry. Do not turn it into a continuously updated second operating guide.
