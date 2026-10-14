@@ -1,0 +1,122 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getStoredData, removeStoredData, setStoredData } from './storage';
+
+describe('storage helpers', () => {
+  const TEST_KEY = 'test_storage_key';
+  const DEFAULT_VAL = { default: true };
+
+  let mockLocalStorage: {
+    getItem: ReturnType<typeof vi.fn>;
+    setItem: ReturnType<typeof vi.fn>;
+    removeItem: ReturnType<typeof vi.fn>;
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockLocalStorage = {
+      getItem: vi.fn(),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    vi.stubGlobal('localStorage', mockLocalStorage);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  describe('getStoredData', () => {
+    it('returns parsed objects and arrays for valid stored JSON', () => {
+      const sampleObject = { id: 1, name: 'Brainrot' };
+      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(sampleObject));
+      expect(getStoredData(TEST_KEY, DEFAULT_VAL)).toEqual(sampleObject);
+
+      const sampleArray = [1, 2, { a: 'b' }];
+      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(sampleArray));
+      expect(getStoredData(TEST_KEY, [])).toEqual(sampleArray);
+    });
+
+    it.each([
+      ['missing key (null)', null],
+      ['empty string', ''],
+      ['malformed JSON', '{ invalid json'],
+      ['null JSON', 'null'],
+      ['number JSON primitive', '123'],
+      ['string JSON primitive', '"just a string"'],
+      ['boolean JSON primitive', 'true'],
+      ['boolean false JSON primitive', 'false'],
+    ])('returns fallback for %s', (_description, rawValue) => {
+      mockLocalStorage.getItem.mockReturnValue(rawValue);
+      expect(getStoredData(TEST_KEY, DEFAULT_VAL)).toEqual(DEFAULT_VAL);
+    });
+
+    it('returns fallback when localStorage read is denied or throws an exception', () => {
+      mockLocalStorage.getItem.mockImplementation(() => {
+        throw new Error('SecurityError: Access denied');
+      });
+
+      expect(getStoredData(TEST_KEY, DEFAULT_VAL)).toEqual(DEFAULT_VAL);
+    });
+  });
+
+  describe('setStoredData', () => {
+    it('serializes and writes valid data to localStorage', () => {
+      const dataToSave = { foo: 'bar', numbers: [1, 2, 3] };
+
+      setStoredData(TEST_KEY, dataToSave);
+
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(TEST_KEY, JSON.stringify(dataToSave));
+    });
+
+    it('catches and logs error when localStorage setItem is denied or throws QuotaExceededError', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const storageError = new Error('QuotaExceededError');
+      mockLocalStorage.setItem.mockImplementation(() => {
+        throw storageError;
+      });
+
+      expect(() => setStoredData(TEST_KEY, { foo: 'bar' })).not.toThrow();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        `Failed to save to localStorage key "${TEST_KEY}":`,
+        storageError,
+      );
+    });
+
+    it('catches and logs error on JSON serialization failure without performing partial writes', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const circularObj: Record<string, unknown> = {};
+      circularObj.self = circularObj;
+
+      expect(() => setStoredData(TEST_KEY, circularObj)).not.toThrow();
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        `Failed to save to localStorage key "${TEST_KEY}":`,
+        expect.any(TypeError),
+      );
+    });
+  });
+
+  describe('removeStoredData', () => {
+    it('removes item for the intended key from localStorage', () => {
+      removeStoredData(TEST_KEY);
+
+      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith(TEST_KEY);
+    });
+
+    it('catches and logs error when removeItem is denied or throws', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const storageError = new Error('SecurityError: Access denied');
+      mockLocalStorage.removeItem.mockImplementation(() => {
+        throw storageError;
+      });
+
+      expect(() => removeStoredData(TEST_KEY)).not.toThrow();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        `Failed to remove localStorage key "${TEST_KEY}":`,
+        storageError,
+      );
+    });
+  });
+});
