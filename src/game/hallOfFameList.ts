@@ -55,8 +55,9 @@ const PENDING_LIMIT = 10;
  */
 export const loadPending = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal) => {
   const { fetchEvents, proofFromEvent, HOF_KIND, HOF_TAG } = await import('./nostrInbox');
+  if (signal.aborted) return;
   const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
-  const { events } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: 100 }, undefined, 5000);
+  const { events } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: 100 }, undefined, 5000, undefined, 1, signal);
   const listed = new Set(published.map((e) => e.id));
   const seen = new Set<string>();
   const candidates = events
