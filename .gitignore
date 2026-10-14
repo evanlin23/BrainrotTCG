@@ -25,6 +25,7 @@ dist-ssr
 # Local Claude Code settings stay private; shared skills are committed
 .claude/*
 !.claude/skills/
+!.claude/settings.json
 
 # Python
 __pycache__/
@@ -36,3 +37,6 @@ hof-comment.md
 
 # Wrangler (workers/)
 .wrangler
+
+# Agent state
+STATE.md
