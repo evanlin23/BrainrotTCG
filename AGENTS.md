@@ -38,9 +38,9 @@ When breaking tasks into subagents or worker threads:
     `npm run check:sets -- --update`
   - Otherwise, `npm run check` will fail the set integrity check.
 - **Adding New Sets:**
-  - Use the existing repository skill in `.claude/skills/new-set` rather than scaffolding sets or prompt files manually.
+  - Use the existing repository skill in `.claude/skills/new-set` and follow `docs/ADDING_A_SET.md` rather than scaffolding manually.
 - **Proof-of-Work / Card Pull Verification:**
   - When altering card derivation or cryptographic logic, verify with both the TS test suite and the Python spec:
     `python3 spec/verify_pull.py <pull_url>`
 - **Asset Restrictions:**
-  - Never attempt to inspect, diff, or read binary media files (`.png`, `.webp`, `.mp3`) in `public/` or `src/content/sets/*/cards/`.
+  - Never attempt to inspect, diff, or cat binary media files (`.png`, `.webp`, `.mp3`) in `public/` or `src/content/sets/*/cards/`.
