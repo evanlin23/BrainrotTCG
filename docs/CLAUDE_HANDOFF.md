@@ -1,6 +1,6 @@
 # Current Claude review packet
 
-October 13, 2026. Pending review; expires when this queue is triaged. This is a snapshot, not permanent agent guidance. Use ROADMAP.md/live milestones for sequencing and DEVELOPMENT.md for engineering/testing. Existing user review/merge/deploy/posting restrictions still apply.
+October 14, 2026. Pending review; expires when this queue is triaged. This is a snapshot, not permanent agent guidance. Use ROADMAP.md/live milestones for sequencing and DEVELOPMENT.md for engineering/testing. Existing user review/merge/deploy/posting restrictions still apply.
 
 ## Verified baseline
 
@@ -24,7 +24,20 @@ Branch-protection API returned 403: settings are unverified. Deploy runs npm che
 | #238 background recovery | Merged into current main, CI passed. Its storage/background follow-ups below remain; memory tests do not prove durability. |
 | #203 finishes | Draft based on #188. Restack after reconciliation; preserve historical files/locks/vectors and table-2 restoration/export behavior. Optional, not a prerequisite for reliability fixes. |
 
-The October 13 follow-up reviewed all 119 open issues and 13 open PRs. Ten small drafts (#259/#268/#269/#270/#274/#275/#276/#280/#281/#282) have no identified blocking functional finding at the reviewed heads; #259 retains minor test-global cleanup. This is scoped review, not combined integration or physical-device evidence. Use live PR reviews for exact heads/checks.
+The October 13 follow-up reviewed all 119 open issues and the then-open 13 PRs. Ten small drafts (#259/#268/#269/#270/#274/#275/#276/#280/#281/#282) had no identified blocking functional finding. #259 subsequently added the requested test-global cleanup; focused tests pass at `5648cec`. This is scoped review, not combined integration or physical-device evidence. Use live PR reviews for exact heads/checks.
+
+Additional October 14 drafts, independently reviewed with passing local checks and hosted CI:
+
+| PR | Scope and remaining boundary |
+| --- | --- |
+| #283 | Weekly dependency-update automation only; detailed advisory triage is in #230. Hosted bot execution awaits default-branch integration. |
+| #285 | One bounded ticket-pool fallback slot, worker-failure recovery and close rejection; 13 regressions. Nonabortable CPU work may finish after close. |
+| #286 | Validate Settings backup/identity before writes; 59 save regressions including legacy exports. Atomic replacement, quota rollback, omitted-field identity/provenance and old-origin import remain #181. |
+| #287 | Vite 7.3.1 → 7.3.5 only; five Vite advisory IDs removed, 27 other distinct IDs remain. Preserve Jules #290's Playwright additions when combining lockfiles. |
+| #288 | Disabled/reduced-motion sparks do no emission work; timers cancel on transitions/unmount. Local mounted regression passes, maintained browser test and measured phone latency remain pending. Preserve particle-option wiring with #188/#284. |
+| #289 | Failed finish thumbnails use full-size finish rendering; mounted error/stale-result cases pass. Combine with #282's nondraggable default; maintained image-failure browser coverage remains pending. |
+
+Jules #284 (spark alignment) and #290 (browser harness) are draft and under independent review. #284's two added tests still pass with original production files; replace duplicated arithmetic with a regression that exercises actual coordinates/DOM geometry. Check transformed entrance frames before treating alignment as resolved. #290 is the first maintained browser slice; green CI alone does not finish #73.
 
 Fix independent blockers without waiting for optional finishes. Old green checks do not validate the final combined head.
 
