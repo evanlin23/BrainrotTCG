@@ -24,7 +24,6 @@ jobs:
           path: .cache/previews
           key: previews-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp') }}
           restore-keys: previews-
-      - run: npm run build
       - run: npm run test:browser
       - uses: actions/upload-artifact@v4
         if: failure()

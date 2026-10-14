@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 4173;
 const BASE_PATH = process.env.BASE_PATH ?? '/BrainrotTCG/';
-const baseURL = `http://localhost:${PORT}${BASE_PATH}`;
+const baseURL = `http://127.0.0.1:${PORT}${BASE_PATH}`;
 
 export default defineConfig({
   testDir: './tests/browser',
@@ -17,26 +17,23 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    serviceWorkers: 'block',
   },
   projects: [
     {
       name: 'desktop-chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 1280, height: 800 },
-      },
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } },
     },
     {
       name: 'mobile-chromium',
-      use: {
-        ...devices['Pixel 5'],
-      },
+      use: { ...devices['Pixel 5'] },
     },
   ],
   webServer: {
-    command: `npx vite preview --port ${PORT}`,
+    // The runner owns a fresh build and server; an unrelated server on this port must fail.
+    command: `npm run build && npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 30000,
+    reuseExistingServer: false,
+    timeout: 300000,
   },
 });

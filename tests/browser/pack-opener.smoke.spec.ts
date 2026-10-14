@@ -1,208 +1,151 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
+import { STORAGE_KEYS } from '../../src/constants/config';
+import { cardPoints } from '../../src/engine/scoring';
+import { decodeCard } from '../../src/game/cardCode';
+import type { Finish, Rarity } from '../../src/engine/types';
 
-const STORAGE_KEYS = {
-  STATS: 'brainrot-stats-v1',
-  COLLECTION: 'brainrot-found-collection-v1',
-  HISTORY: 'brainrot-history-v1',
-};
+// On-disk boundary shapes: importing UI Stats pulls TSX/Vite assets into the Node test project.
+interface RecordedCard {
+  key: string; setId: string; id: string; name: string; rarity: Rarity; image: string;
+  isHolo: boolean; finish?: Finish | null; misprint?: boolean;
+}
+interface CollectionItem {
+  card: Pick<RecordedCard, 'key' | 'setId' | 'id' | 'name' | 'rarity' | 'image'>;
+  normalCount: number; holoCount: number;
+  finishes?: Partial<Record<Finish, number>>; misprints?: number; modifierPoints?: number;
+}
+interface Stats {
+  packsOpened: number; highestPackCards?: RecordedCard[];
+  highestPackRef?: { setId: string; setVersion: number; nonce: number; publicKeyHex?: string };
+  highestPackHandName?: string; highestPackFlexValue?: number;
+}
 
-/**
- * Configure page to capture unexpected JS errors and block external network requests.
- */
-async function setupPageSafetyAndMonitoring(page: Page) {
-  const uncaughtErrors: Error[] = [];
-  const consoleErrors: string[] = [];
-
-  page.on('pageerror', (err) => {
-    uncaughtErrors.push(err);
+async function monitor(page: Page, baseURL: string) {
+  const errors: string[] = [];
+  const origin = new URL(baseURL).origin;
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
   });
-
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') {
-      const text = msg.text();
-      // Filter out intentionally blocked external network failures or audio load issues if any
-      if (!text.includes('net::ERR_FAILED') && !text.includes('Failed to load resource')) {
-        consoleErrors.push(text);
-      }
+  page.on('response', (response) => {
+    if (new URL(response.url()).origin === origin && response.status() >= 400) {
+      errors.push(`${response.status()} ${response.url()}`);
     }
   });
-
-  // Prevent external network traffic (relays, GitHub API, social sites)
+  page.on('requestfailed', (request) => {
+    if (new URL(request.url()).origin === origin) {
+      errors.push(`${request.failure()?.errorText} ${request.url()}`);
+    }
+  });
+  // No server connection is established by this handler, including relay WebSocket writes.
+  await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/*', (route) => {
-    const url = route.request().url();
-    if (
-      url.startsWith('http://localhost:') ||
-      url.startsWith('http://127.0.0.1:') ||
-      url.startsWith('data:') ||
-      url.startsWith('blob:')
-    ) {
-      route.continue();
-    } else {
-      // Abort external request to prevent relay/GitHub/social writes
-      route.abort();
+    if (new URL(route.request().url()).origin === origin) return route.continue();
+    // Empty responses avoid disguising local load failures with broad console-error filters.
+    return route.fulfill({ status: 204 });
+  });
+  await page.addInitScript(() => {
+    // Only a disposable identity and muted audio preferences are seeded; generation is real.
+    if (!localStorage.getItem('brainrot-player-v1')) {
+      localStorage.setItem('brainrot-player-v1', JSON.stringify({
+        secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 0, createdAt: 1,
+      }));
+      localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
     }
   });
-
-  return { uncaughtErrors, consoleErrors };
+  return errors;
 }
 
-/**
- * Open a pack manually by tearing along the tear line using pointer drag or keyboard.
- */
-async function openPackManually(page: Page) {
-  const packShell = page.locator('.pack-shell');
-  await expect(packShell).toBeVisible({ timeout: 10000 });
-
-  const box = await packShell.boundingBox();
-  expect(box).not.toBeNull();
-
-  if (box) {
-    // Tear line is located at ~19% of pack height
-    const startX = box.x + box.width * 0.1;
-    const endX = box.x + box.width * 0.9;
-    const tearY = box.y + box.height * 0.19;
-
-    await page.mouse.move(startX, tearY);
-    await page.mouse.down();
-    const steps = 20;
-    for (let i = 1; i <= steps; i++) {
-      const currentX = startX + ((endX - startX) * i) / steps;
-      await page.mouse.move(currentX, tearY);
-    }
-    await page.mouse.up();
-  }
-
-  // If the tear didn't trigger via mouse drag, press Space on the pack shell
-  const isCut = await page.locator('.pack-shell.is-cut, .card-reveal-area').count();
-  if (isCut === 0) {
-    await packShell.focus();
-    await page.keyboard.press('Space');
+async function expectDecoded(images: Locator, count: number) {
+  await expect(images).toHaveCount(count);
+  for (const image of await images.all()) {
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
+      element.complete && element.naturalWidth > 0 && element.naturalHeight > 0,
+    )).toBe(true);
+    await image.evaluate((element: HTMLImageElement) => element.decode());
   }
 }
 
-/**
- * Reveal all cards until the pack summary is displayed.
- */
-async function finishReveal(page: Page) {
-  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 10000 });
-
-  const skipBtn = page.locator('button.reveal-skip');
-  const summary = page.locator('.pack-summary');
-
-  const startTime = Date.now();
-  const maxTimeout = 20000;
-
-  while (Date.now() - startTime < maxTimeout) {
-    if (await summary.isVisible()) {
-      break;
-    }
-
-    if (await skipBtn.isVisible() && await skipBtn.isEnabled()) {
-      await skipBtn.click();
-    } else {
-      const activeCard = page.locator('.reveal-card, .active-card-container');
-      if (await activeCard.isVisible()) {
-        await activeCard.click({ force: true });
-      } else {
-        await page.keyboard.press('Space');
-      }
-    }
-
-    await page.waitForTimeout(300);
-  }
-
-  await expect(summary).toBeVisible({ timeout: 10000 });
+async function snapshot(page: Page) {
+  return page.evaluate((keys) => ({
+    stats: JSON.parse(localStorage.getItem(keys.STATS) ?? 'null'),
+    collection: JSON.parse(localStorage.getItem(keys.COLLECTION) ?? 'null'),
+    history: JSON.parse(localStorage.getItem(keys.HISTORY) ?? 'null'),
+  }), STORAGE_KEYS) as Promise<{
+    stats: Stats;
+    collection: Record<string, CollectionItem>;
+    history: { s: string; v: number; n: number; k: string; c: string; h: string; x: number; t: number }[];
+  }>;
 }
 
-test.describe('Pack Opener Chromium Smoke Test', () => {
-  test('opens one pack manually, finishes reveal, and retains recorded result after reload', async ({ page }) => {
-    const { uncaughtErrors, consoleErrors } = await setupPageSafetyAndMonitoring(page);
+test('opens one real pack and preserves its exact cards, counts, modifiers and ticket after reload', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  await expect(packShell).toBeVisible();
+  await expectDecoded(packShell.locator('img'), 2);
+  // Keyboard activation exercises the accessible opening control in both viewport projects.
+  await packShell.focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  await page.locator('button.reveal-skip').click({ timeout: 15000 });
+  await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('.summary-title')).not.toBeEmpty();
+  await expectDecoded(page.locator('.summary-cards img'), 5);
 
-    // 1. Load application at configured base path
-    await page.goto('./');
-
-    // Verify main app logo
-    await expect(page.locator('.app-logo')).toBeVisible();
-
-    // 2. Open pack manually
-    await openPackManually(page);
-
-    // 3. Complete card reveal
-    await finishReveal(page);
-
-    // 4. Assert summary displays expected results
-    const summaryTitle = page.locator('.summary-title');
-    await expect(summaryTitle).toBeVisible();
-    const handText = await summaryTitle.textContent();
-    expect(handText && handText.trim().length > 0).toBeTruthy();
-
-    const cardItems = page.locator('.summary-cards li');
-    await expect(cardItems).toHaveCount(5);
-
-    // 5. Assert progress is recorded in localStorage (packsOpened === 1)
-    const statsBeforeReload = await page.evaluate((key) => {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : null;
-    }, STORAGE_KEYS.STATS);
-
-    expect(statsBeforeReload).not.toBeNull();
-    expect(statsBeforeReload.packsOpened).toBe(1);
-
-    const collectionBeforeReload = await page.evaluate((key) => {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : null;
-    }, STORAGE_KEYS.COLLECTION);
-
-    expect(collectionBeforeReload).not.toBeNull();
-    expect(Object.keys(collectionBeforeReload).length).toBeGreaterThan(0);
-
-    // 6. Reload page and assert persistence
-    await page.reload();
-    await expect(page.locator('.app-logo')).toBeVisible();
-
-    // Assert localStorage survived reload
-    const statsAfterReload = await page.evaluate((key) => {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : null;
-    }, STORAGE_KEYS.STATS);
-
-    expect(statsAfterReload).not.toBeNull();
-    expect(statsAfterReload.packsOpened).toBe(1);
-
-    // Assert UI reflects recorded progress (open Profile modal)
-    const profileBtn = page.locator('.app-nav-item:has-text("Profile")');
-    await expect(profileBtn).toBeVisible();
-    await profileBtn.click();
-
-    const profileSheet = page.locator('.sheet:has-text("Profile")');
-    await expect(profileSheet).toBeVisible();
-
-    // Inside profile sheet, history or summary section reflects 1 pack opened
-    await expect(profileSheet).toContainText('All packs · 1');
-
-    // Close Profile sheet
-    const closeBtn = profileSheet.locator('button[aria-label="Close"], button.sheet-close');
-    await closeBtn.click();
-    await expect(profileSheet).not.toBeVisible();
-
-    // Open Collection sheet and check found cards
-    const collectionBtn = page.locator('.app-nav-item:has-text("Collection")');
-    await expect(collectionBtn).toBeVisible();
-    await collectionBtn.click();
-
-    const collectionSheet = page.locator('.sheet:has-text("Collection")');
-    await expect(collectionSheet).toBeVisible();
-
-    // Verify collection sheet displays found cards
-    const collectionSet = collectionSheet.locator('.collection-set');
-    await expect(collectionSet.first()).toBeVisible();
-
-    // Close Collection sheet
-    const closeCollectionBtn = collectionSheet.locator('button[aria-label="Close"], button.sheet-close');
-    await closeCollectionBtn.click();
-
-    // 7. Verify no uncaught application errors occurred during the test
-    expect(uncaughtErrors).toEqual([]);
-    expect(consoleErrors).toEqual([]);
+  const before = await snapshot(page);
+  expect(before.stats.packsOpened).toBe(1);
+  expect(before.stats.highestPackCards).toHaveLength(5);
+  const cards = before.stats.highestPackCards!;
+  const expectedCollection: Record<string, CollectionItem> = {};
+  for (const card of cards) {
+    const entry = expectedCollection[card.key] ??= {
+      card: { key: card.key, setId: card.setId, id: card.id, name: card.name, rarity: card.rarity, image: card.image },
+      normalCount: 0, holoCount: 0,
+    };
+    if (card.isHolo) entry.holoCount++;
+    else entry.normalCount++;
+    if (card.finish) {
+      entry.finishes ??= {};
+      entry.finishes[card.finish] = (entry.finishes[card.finish] ?? 0) + 1;
+    }
+    if (card.misprint) entry.misprints = (entry.misprints ?? 0) + 1;
+    const extra = cardPoints(card.rarity, card.isHolo, card.finish, card.misprint) - cardPoints(card.rarity, card.isHolo);
+    if (extra) entry.modifierPoints = (entry.modifierPoints ?? 0) + extra;
+  }
+  expect(before.collection).toEqual(expectedCollection);
+  expect(Object.values(before.collection).reduce((total, entry) => total + entry.normalCount + entry.holoCount, 0)).toBe(5);
+  expect(before.history).toHaveLength(1);
+  const ref = before.stats.highestPackRef!;
+  expect(ref).toMatchObject({ nonce: 0 });
+  expect(ref.publicKeyHex).toBe('8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c');
+  const [history] = before.history;
+  expect(history).toMatchObject({
+    s: ref.setId, v: ref.setVersion, n: ref.nonce, k: ref.publicKeyHex!.slice(0, 16),
+    h: before.stats.highestPackHandName, x: before.stats.highestPackFlexValue,
   });
+  expect(history.t).toBeGreaterThan(0);
+  expect(history.c.split(',').map(decodeCard)).toEqual(cards.map((card) => ({
+    id: card.id, holo: card.isHolo,
+    ...(card.finish ? { finish: card.finish } : {}), ...(card.misprint ? { misprint: true } : {}),
+  })));
+  // Reveals sort by rarity; compare the displayed multiset without changing ticket card order.
+  const labels = await page.locator('.summary-card').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')));
+  expect(labels.map((label) => cards.find((card) => label?.startsWith(`${card.name},`))?.key).sort())
+    .toEqual(cards.map((card) => card.key).sort());
+
+  await page.reload();
+  await expect(page.locator('.app-logo')).toBeVisible();
+  await page.getByRole('button', { name: 'Profile', exact: true }).click();
+  const profile = page.locator('.sheet');
+  await expect(profile).toContainText('All packs · 1');
+  await profile.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Collection', exact: true }).click();
+  await expect(page.locator('.collection-set').first()).toBeVisible();
+  // Compare after UI hydration, not merely immediately after navigation.
+  expect(await snapshot(page)).toEqual(before);
+  await page.locator('.sheet').getByRole('button', { name: 'Close', exact: true }).click();
+  expect(errors).toEqual([]);
 });

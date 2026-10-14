@@ -78,18 +78,36 @@ CI runs both verifiers against the same test vectors, including forged and malfo
 ## Setup
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
 | Command | What it does |
 | --- | --- |
 | `npm run check` | lint, typecheck, tests and the set lock check (CI runs this) |
-| `npm run test:browser` | run Chromium browser smoke tests against the local build |
+| `npm run test:browser` | build and run the owned Chromium browser smoke |
 | `npm run cards` | build card images into `src/content/sets/<set>/cards/` |
 | `npm run prompts` | write free Gemini-app prompt sheets for each set's art |
 | `npm run check:sets -- --update` | lock a new set version |
 | `npm run og-image` | rebuild the link preview image from the newest sets |
+
+The browser smoke requires Node 22 and a Chromium installation:
+
+```bash
+npm ci
+npx playwright install --with-deps chromium
+npm run test:browser
+```
+
+The runner builds the current checkout, then owns a strict-port preview server at
+`http://127.0.0.1:4173/BrainrotTCG/`; stop any existing server on that port first.
+Set `BASE_PATH=/` on `npm run test:browser` for a root-path build and preview.
+HTTP requests outside the preview origin and all WebSockets are intercepted before
+navigation, with disposable test contexts and a fixed test identity. Audio is muted.
+Desktop and Pixel 5 emulation exercise keyboard opening and mouse clicks; mobile
+viewport emulation does not establish physical phone, touch/swipe or GPU behavior.
+Failure screenshots, traces and videos remain in `test-results/` (uploaded by CI).
+This gate covers one opening/record/reload journey, not all browser workflows.
 
 ## Adding cards and sets
 
