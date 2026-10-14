@@ -78,7 +78,7 @@ CI runs both verifiers against the same test vectors, including forged and malfo
 ## Setup
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -89,6 +89,8 @@ npm run dev
 | `npm run prompts` | write free Gemini-app prompt sheets for each set's art |
 | `npm run check:sets -- --update` | lock a new set version |
 | `npm run og-image` | rebuild the link preview image from the newest sets |
+
+Contributing? Start with [Development and verification](docs/DEVELOPMENT.md) before taking an issue.
 
 ## Adding cards and sets
 

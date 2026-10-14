@@ -1,4 +1,4 @@
 {
-  "autoCompactEnabled": true,
-  "autoCompactWindow": "80k"
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "autoCompactEnabled": true
 }
