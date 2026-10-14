@@ -4,7 +4,7 @@ October 14, 2026. Pending review; expires when this queue is triaged. This is a 
 
 ## Verified baseline
 
-Fetched main `433499f619a52ff1493ece4cacaf10e8fec4848f`, including merged #238. The initial source/docs/CI review covered #188/#203/#216 and #238; its checks used an isolated git archive of this main:
+The initial baseline was main `433499f619a52ff1493ece4cacaf10e8fec4848f`, including merged #238. Main later advanced to `b3362bc8cca34ef43aa837590828bce8af710edd` via merged #311 (retroactive history achievements); the final candidate described below reconciles it through updated #313. The initial source/docs/CI review covered #188/#203/#216 and #238; its checks used an isolated git archive of this main:
 
 - npm run check: lint, types, 128 tests/19 files, 16 released-set locks.
 - Independent Python verification: all categories in both vector files.
@@ -56,12 +56,14 @@ Additional October 14 drafts, independently reviewed with passing local checks a
 | #315 | Independent contributor foundation, schema/link/command checks only; GitHub form rendering and protection enforcement unverified. #216 now inherits this branch. |
 | #316 | **Stack on #297:** verification gates build itself, which publishes Cloudflare, plus Pages transitively. Static graph/vector checks pass; no live deploy test. |
 | #319 | Pin remaining inbox actions; normalized configuration/permissions unchanged, no live intake/dispatch. |
+| #321 | One-file architecture source reconciliation; distinguishes configured services, actual verification/storage limits and file existence from decoding. |
+| #322 | **Stack on #270:** decoder joins canonical check, which CI/deploy already run. Actual corrupt existing card fails after existence guard passes; restored bytes/full chain pass. |
 
 Jules #284 and #290 require their stacked corrections #302/#304, not isolated integration of the original green heads. Original #284 tests passed unchanged production code and mounted rotation drifted 43.47 px; original #290 omitted WS isolation, exact saved cards and owned-server enforcement. Corrective evidence is in the follow-up PRs. Phone viewport emulation still does not establish touch/device performance.
 
-A private, unpublished integration experiment at `811b8e1eb002d192fccfb6973bb85b824a9c23fc` combines the ten reviewed small Jules drafts, #284/#290 and all independent drafts #283–#319 listed above. It excludes #188/#203/#216. Frozen npm ci, lint/types, **344 tests/33 files**, 16 set locks, 127 decoded card-asset checks, all 163 independent Python vectors, actionlint (ShellCheck disabled), build and both maintained Chromium desktop/mobile-emulated opening/record/reload journeys pass. Local Node24/Python3.12 differs from hosted Node22/Python3.13; new individual PR checks are green. Warm build: 3,057 previews, 3,311 pages; existing chunk warning remains. Audit: 19 distinct development advisory IDs / 31 affected package records, production zero (#230).
+A private, unpublished integration experiment at `8b7fc5a62dd164b07209470d5ca8960cbd443882` combines the ten reviewed small Jules drafts, #284/#290, all independent drafts through #322 listed above, and current main’s #311. The 40 draft patches use their reviewed heads, including updated #313/#321. It excludes #188/#203/#216. Frozen npm ci, lint/types, **347 tests/33 files**, 16 set locks, 127 decoded card-asset checks, all 163 independent Python vectors, actionlint (ShellCheck disabled), build and both maintained Chromium desktop/mobile-emulated opening/record/reload journeys pass. Local Node24/Python3.12 differs from hosted Node22/Python3.13; new individual PR checks are green. Warm build: 3,057 previews, 3,311 pages; existing chunk warning remains. Audit: 19 distinct development advisory IDs / 31 affected package records, production zero (#230).
 
-Manual reconciliation preserves #282+#289 draggable/error handling; #286+#291+#313 import/selection/persistence wiring; both #281/#313 storage test suites; and #304+#315 browser/contributor README sections. This experiment **does not lift #292's raw-data preservation merge hold** or prove save durability, real phones, human newcomers or local agent task-browser audits. Rebuild/recheck after final integration, especially #188/#203. Current heads and source limits belong in live PRs; this packet expires after review.
+Manual reconciliation preserves #282+#289 draggable/error handling; #286+#291+#313 import/selection/persistence wiring; both #281/#313 storage test suites; and #304+#315 browser/contributor README sections. This experiment **does not lift #292's raw-data preservation merge hold** or prove save durability, real phones, human newcomers or local agent task-browser audits. Rebuild/recheck after final integration, especially #188/#203. The final actual canonical check includes #322’s decoder and passes 347 tests, 16 locks and 127 base-card decodes. Maintained desktop/mobile-emulated browser journeys, their owned build, and offline actionlint pass again after #311 reconciliation. Python/engine vectors and dependency results above are unchanged inputs from the preceding run; no new vector claim relies on an unexecuted command. Current heads and source limits belong in live PRs; this packet expires after review.
 
 Fix independent blockers without waiting for optional finishes. Old green checks do not validate the final combined head.
 
@@ -75,6 +77,10 @@ PR #238 checks, owned by #87/#181/#229/#233/#73/#235:
 - Use real browser IndexedDB/Workers for blocked/open/versionchange/quota/abort, key changes, interrupted batches and cross-tab behavior.
 - Export/origin transfer omits IndexedDB: cache is discardable only if original ticket/set/version provenance reconstructs it.
 - #203 supports modifier table 2; #238 retains `=== 1` checks. Preserve modifiers in restoration AND legacy-cache integrity detection.
+
+New #311 added a raw achievement write and updated achievement state independently of #313’s ref. A naive merge reproduced both a denied-write blank screen and loss of retroactive achievements after the next live opening. Updated #313 at `201d26b` preserves shared helpers, historical references/timestamps and the reconstruction subscription using guarded persistence. Independent review, 135 branch tests and 30 development/built browser cases pass. Inspect current heads before integration.
+
+Owner’s profile-storage question is tracked in #323 under #241: protect a minimal set/version/ticket ledger, reuse existing profile-v1 run encoding, discard detailed card caches separately, and label already-lost provenance rather than infer original history. IndexedDB has separate/larger origin quotas; it is not durable account recovery. Top-100/achievement refs alone cannot prove full totals; complete verification still regenerates the declared range.
 
 Repository readiness #308 is a Phase 1 prerequisite for contributor assignments, separate from game release readiness. Shared page/style design #312 is left for Claude: use one accessible Figma file (or one agreed prototype), linking current UX issues. No design artifact was created. Local-mining acceptance is a policy proposal recorded on #223; proofs do not witness browser play/opening time, and bulk-imported scores require proof verification before global acceptance.
 
