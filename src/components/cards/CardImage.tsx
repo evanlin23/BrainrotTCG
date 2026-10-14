@@ -11,10 +11,13 @@ interface CardImageProps extends ImgHTMLAttributes<HTMLImageElement> {
 }
 
 /** Keep the same img element and existing holo/misprint layers, changing only its printed frame. */
-const CardImage = ({ src, finish, thumbnail = false, style, ...props }: CardImageProps) => {
+const CardImage = ({ src, finish, thumbnail = false, style, onError, ...props }: CardImageProps) => {
   const key = `${finish ?? ''}:${src}`;
   const [rendered, setRendered] = useState<{ key: string; src: string }>();
-  const thumb = thumbnail ? cardFinishThumbUrl(src, finish) : undefined;
+  const [failedThumb, setFailedThumb] = useState<string>();
+  const availableThumb = thumbnail ? cardFinishThumbUrl(src, finish) : undefined;
+  // A failed thumbnail falls back to the existing full-size finish renderer.
+  const thumb = failedThumb === key ? undefined : availableThumb;
   const image = thumb ?? (rendered?.key === key ? rendered.src : undefined);
   useEffect(() => {
     if (!finish || thumb) return;
@@ -28,7 +31,10 @@ const CardImage = ({ src, finish, thumbnail = false, style, ...props }: CardImag
     return () => { cancelled = true; };
   }, [src, finish, key, thumb]);
   // Keep the image's dimensions while its inks are prepared, without flashing the plain version.
-  return <img {...props} src={image ?? src} style={{ ...style, ...(finish && !image ? { visibility: 'hidden' } : {}) }} />;
+  return <img {...props} src={image ?? src} onError={(event) => {
+    if (thumb && event.currentTarget.getAttribute('src') === thumb) setFailedThumb(key);
+    onError?.(event);
+  }} style={{ ...style, ...(finish && !image ? { visibility: 'hidden' } : {}) }} />;
 };
 
 export default CardImage;
