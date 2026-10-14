@@ -79,14 +79,14 @@ export const useSparks = (enabled = true) => {
       return next.length > MAX_SPARKS ? next.slice(next.length - MAX_SPARKS) : next;
     });
 
-    // Schedule removal of each spark
-    newSparks.forEach(spark => {
-      const timeout = window.setTimeout(() => {
-        setSparks(prev => prev.filter(item => item.id !== spark.id));
-        sparkTimeoutsRef.current = sparkTimeoutsRef.current.filter(item => item !== timeout);
-      }, SPARK_LIFETIME_MS);
-      sparkTimeoutsRef.current.push(timeout);
-    });
+    // A burst shares one lifetime, so expire its contiguous IDs in one update.
+    const firstId = newSparks[0].id;
+    const lastId = newSparks[newSparks.length - 1].id;
+    const timeout = window.setTimeout(() => {
+      setSparks(prev => prev.filter(item => item.id < firstId || item.id > lastId));
+      sparkTimeoutsRef.current = sparkTimeoutsRef.current.filter(item => item !== timeout);
+    }, SPARK_LIFETIME_MS);
+    sparkTimeoutsRef.current.push(timeout);
   }, [active]);
 
   return {
