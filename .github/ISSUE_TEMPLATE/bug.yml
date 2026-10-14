@@ -17,7 +17,7 @@ body:
     id: environment
     attributes:
       label: Environment and evidence
-      description: Browser/version, OS/device, viewport, game URL or revision, relevant errors or sanitized screenshots. Distinguish emulation from a real device.
+      description: Browser/version, OS/device, viewport, game route without URL query/hash or revision, relevant errors or sanitized screenshots. Distinguish emulation from a real device.
     validations:
       required: true
   - type: textarea

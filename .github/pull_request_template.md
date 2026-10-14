@@ -12,7 +12,7 @@
 
 ## Review
 
-<!-- Keep draft until review-ready. Respect the owner's Claude review hold; passing CI does not authorize merging/deploying or prove branch protection. -->
+<!-- Keep draft until review-ready. Respect active owner review, merge and deployment restrictions; passing CI does not authorize merging/deploying or prove branch protection. -->
 
 - [ ] The PR addresses one agreed outcome and preserves historical compatibility.
 - [ ] Evidence matches the final head; unrun checks and remaining work are explicit.
