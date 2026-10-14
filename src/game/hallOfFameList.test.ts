@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeProof, generateKeypair, pullId, signProof } from '../engine';
 
 vi.mock('./pulls', () => ({ checkPull: vi.fn() }));
@@ -17,6 +17,10 @@ describe('loadHallOfFame', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(() => {
     vi.unstubAllGlobals();
   });
 
