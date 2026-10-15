@@ -137,6 +137,18 @@ describe('recording the ticket mappings a full storage refused', () => {
     expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBeNull();
   });
 
+  it('keeps both mappings when a ticket was already recorded under another set, changing neither', () => {
+    installStorage();
+    recordPack(pack(1));
+    const [original] = getHistory();
+    expect(recordMissing([pack(1, { setId: 'other-set', openedAt: 2_000 })], KEY)).toBe(true);
+    const history = getHistory();
+    expect(history.map((e) => [e.setId, e.nonce])).toEqual([['other-set', 1], ['right-now', 1]]);
+    expect(history[1]).toEqual(original);
+    expect(recordMissing([pack(1, { setId: 'other-set', openedAt: 2_000 })], KEY)).toBe(true);
+    expect(getHistory()).toHaveLength(2);
+  });
+
   it('writes nothing when nothing is missing', () => {
     const data = installStorage();
     recordPack(pack(0));

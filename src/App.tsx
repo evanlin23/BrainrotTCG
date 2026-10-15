@@ -100,15 +100,23 @@ function App() {
         // older build's pack goes back into its own entry, while it is still there: see game/pulls.ts).
         // Marked as counted first, then the stats that count them are stored; if they can't be (or a
         // full shelf can't take one), the packs go back unmarked so that load counts them (and the stats
-        // wait for it).
+        // wait for it). If the marked copies fit but neither the stats nor the unmarked copies can be
+        // stored, the shelf keeps the marked ones: the next load adds those packs without counting them
+        // unless this tab stores them first.
         if (packs.length > 0) {
           const marked = packs.map((pack) => ({ ...pack, counted: true }));
           statsHandled = true;
-          if (savePendingPack(...marked) && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
+          const shelved = savePendingPack(...marked);
+          if (shelved && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
           // Packs taken off the shelf at load may not fit back on it: they stay owed by this tab, and the
-          // next collection change tries again.
+          // next collection change tries again. If the marked copies did fit but the stats didn't, those
+          // copies are what the shelf still holds.
           else if (!savePendingPack(...packs)) {
-            console.error(`${packs.length} pack(s) couldn't be put back on the pending shelf: only this tab has them until its collection is stored.`);
+            console.error(
+              shelved
+                ? `${packs.length} pack(s) are on the pending shelf marked as counted, but the stats counting them couldn't be stored: the next load would add them uncounted unless this tab stores them first.`
+                : `${packs.length} pack(s) couldn't be put back on the pending shelf: only this tab has them until its collection is stored.`,
+            );
           }
         }
       } else {
