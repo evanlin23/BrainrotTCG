@@ -120,6 +120,68 @@ describe('original ticket provenance admission', () => {
     expect(checked.tickets.map((set) => [set.id, set.version])).toEqual([['genesis', 1], ['right-now', 2]]);
     expect(myProfileInfo()?.filled).toBe(0);
   }, 30_000);
+
+  /** Ticket 1 recorded a second time with another set (two tabs spent it at once), stored before or after the first. */
+  const conflict = (where: 'before' | 'after', record: Record<string, unknown>) => {
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+    const other = { ...history[1], ...record };
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(where === 'before' ? [other, ...history] : [...history, other]));
+  };
+
+  it.each(['before', 'after'] as const)('admits the first-opened of two sets recorded on one ticket, stored %s it', async (where) => {
+    setUp(2);
+    conflict(where, { s: 'genesis', v: 1, t: 50 });
+    const checked = checkProfile((await myProfileProof())!, getSet);
+    expect(checked.tickets.map((set) => [set.id, set.version])).toEqual([['right-now', 2], ['right-now', 2]]);
+    expect(getHistory().filter((e) => e.nonce === 1)).toHaveLength(2);
+  }, 30_000);
+
+  it.each(['before', 'after'] as const)('breaks a tie in opening time by set, stored %s it', (where) => {
+    conflict(where, { s: 'a-unavailable-set' });
+    // 'a-unavailable-set' sorts before 'right-now', so it is admitted, and it can't be proved.
+    expect(myProfileInfo()).toMatchObject({ packs: 3, filled: 1 });
+  });
+});
+
+describe('profile links while other tabs write', () => {
+  beforeEach(() => setUp(3));
+  const storePlayer = (secretKey: string, nextNonce: number) =>
+    data.set('brainrot-player-v1', JSON.stringify({ secretKey, name: 'Tester', nextNonce, createdAt: 0 }));
+
+  it('proves the tickets used when it was asked for while another tab spends the next one', async () => {
+    let spent = false;
+    const proof = await myProfileProof(() => {
+      if (spent) return;
+      spent = true;
+      storePlayer(SECRET, 4); // Another tab allocated ticket 3 and is still mining it: nothing recorded yet.
+    });
+    expect(spent).toBe(true);
+    const checked = checkProfile(proof!, getSet);
+    expect(toHex(checked.profile.publicKey)).toBe(getPlayer().publicKeyHex);
+    expect(checked.tickets).toHaveLength(3);
+    expect(myProfileInfo()).toMatchObject({ packs: 4, filled: 1 });
+  }, 30_000);
+
+  it('re-opens tickets recorded after a run it joined had started', async () => {
+    const running = reopenMyPacks();
+    storePlayer(SECRET, 5);
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    const newer = [4, 3].map((n) => ({ s: SET.id, v: SET.version, n, k: key, h: 'No Matches', x: 0, t: 10 + n }));
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([...newer, ...JSON.parse(data.get(STORAGE_KEYS.HISTORY)!)]));
+    const checked = checkProfile((await myProfileProof())!, getSet);
+    expect(checked.tickets).toHaveLength(5);
+    await running;
+  }, 30_000);
+
+  it('refuses to sign when another player is in storage by the time the packs are ready', async () => {
+    let swapped = false;
+    await expect(myProfileProof(() => {
+      if (swapped) return;
+      swapped = true;
+      storePlayer('02'.repeat(32), 0); // Another tab imported a different player's save.
+    })).rejects.toThrow('Your save changed');
+    expect(swapped).toBe(true);
+  }, 30_000);
 });
 
 

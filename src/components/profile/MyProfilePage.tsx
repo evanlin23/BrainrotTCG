@@ -16,6 +16,7 @@ import { packImageUrl } from '../../content/art';
 import { DEFAULT_SET_ID, getLatestSet, setCode } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
 import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
+import { STORAGE_KEYS } from '../../constants';
 import { getPlayer } from '../../game/player';
 import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
 import { copyText } from '../../game/shareActions';
@@ -64,6 +65,14 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
       }),
     [],
   );
+  // Another tab recording a pack can complete (or change) what a profile link can prove: recount.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === STORAGE_KEYS.HISTORY) setReopenRuns((n) => n + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const summary = useMemo(() => myStats(), [reopenRuns]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,6 +90,8 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
   };
   const [copied, setCopied] = useState(false);
   const [preparing, setPreparing] = useState<string | null>(null);
+  /** Why the last profile link couldn't be made (e.g. another tab changed the save meanwhile). */
+  const [linkError, setLinkError] = useState<string | null>(null);
   /** A link that took a while to prepare; the tap that started it may no longer be allowed to copy. */
   const [readyUrl, setReadyUrl] = useState<string | null>(null);
 
@@ -96,11 +107,17 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
   const makeLink = async (): Promise<{ url: string; slow: boolean } | null> => {
     const slow = !!mine?.missing;
     setPreparing(slow ? 'Preparing…' : null);
+    setLinkError(null);
     let proof: string | null;
     try {
       proof = await myProfileProof((done, total) => setPreparing(`Preparing ${done}/${total}…`));
+    } catch (error) {
+      setLinkError(error instanceof Error ? error.message : String(error));
+      return null;
     } finally {
       setPreparing(null);
+      // What the link could prove may have changed while it was prepared.
+      setReopenRuns((n) => n + 1);
     }
     return proof ? { url: profileUrl(proof), slow } : null;
   };
@@ -141,7 +158,15 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
         {mine ? (
           <ProfileSummary
             stats={summary}
-            onOpenPack={(pack) => openEntry(history.find((e) => e.nonce === pack.nonce && player.publicKeyHex.startsWith(e.key)))}
+            onOpenPack={(pack) => openEntry(
+                history.find(
+                  (e) =>
+                    e.nonce === pack.nonce &&
+                    e.setId === pack.set.id &&
+                    e.setVersion === pack.set.version &&
+                    player.publicKeyHex.startsWith(e.key),
+                ),
+              )}
             actions={
               <>
                 <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>
@@ -167,6 +192,13 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
           <div className="pulls-rewards">
             <RewardsPanel level={summary.level} settings={settings} onSettingsChange={onSettingsChange} packImage={packImageUrl(DEFAULT_SET_ID)} />
           </div>
+        )}
+
+        {linkError && (
+          <p className="pulls-note" role="alert">
+            Couldn't make your profile link: {linkError} If a pack is still opening in this or another tab, try again once it
+            finishes.
+          </p>
         )}
 
         {mine && mine.filled > 0 && (
@@ -232,7 +264,7 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
                   const set = getLatestSet(entry.setId);
                   const [a = '#ff3df2', b = '#29f0ff'] = set?.palette ?? [];
                   return (
-                    <li key={`${entry.key}-${entry.nonce}`}>
+                    <li key={`${entry.key}-${entry.nonce}-${entry.setId}@${entry.setVersion}-${entry.openedAt}`}>
                       <button
                         type="button"
                         className="pull-row"

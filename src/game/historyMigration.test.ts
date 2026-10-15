@@ -129,6 +129,16 @@ describe('lossless legacy pull migration', () => {
     expect(data.get(STORAGE_KEYS.PULLS)).toBe(original.pulls);
   });
 
+  it('migrates a pull whose set matches one of two records history keeps for its ticket', () => {
+    const k = publicKeyHex.slice(0, 16);
+    const stored = (s: string, t: number) => ({ s, v: 1, n: 0, k, h: 'Pair', x: 100, t });
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([stored('right-now', 2000), stored('genesis', 1000)]));
+    data.set(STORAGE_KEYS.PULLS, JSON.stringify([legacy(0), legacy(1)]));
+    migratePullLog();
+    expect(getHistory().map(entry => [entry.nonce, entry.setId])).toEqual([[0, 'right-now'], [1, 'genesis'], [0, 'genesis']]);
+    expect(data.has(STORAGE_KEYS.PULLS)).toBe(false);
+  });
+
   it('preserves original mappings when even bare mixed-set history cannot fit', () => {
     const original = seed();
     const bareNewest = [{ s: 'genesis', v: 1, n: 1, k: publicKeyHex.slice(0, 16), h: 'Pair', x: 100, t: 1001 }];

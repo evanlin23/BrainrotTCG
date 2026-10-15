@@ -101,6 +101,7 @@ const write = (entries: Stored[]): boolean => {
 };
 
 const sameTicket = (a: Stored, b: Stored) => a.k === b.k && a.n === b.n;
+const sameAssignment = (a: Stored, b: Stored) => sameTicket(a, b) && a.s === b.s && a.v === b.v;
 
 /** Newest first. */
 export const getHistory = (): HistoryEntry[] => read().map(decode);
@@ -144,7 +145,13 @@ export const recordPack = (pack: OpenedPack): boolean => {
     score: pack.score.score,
     openedAt: pack.openedAt,
   });
-  return write([entry, ...current.filter((e) => !sameTicket(e, entry))]);
+  /*
+   * Re-recording a pack replaces its entry. Another set on the same ticket is a conflicting
+   * assignment (two tabs spent one ticket number at once, or an imported backup carried both).
+   * Neither record can be rebuilt from the other, so both are kept rather than the last one
+   * winning; a profile admits one of them by a fixed rule (game/profiles.ts, firstOpened).
+   */
+  return write([entry, ...current.filter((e) => !sameAssignment(e, entry))]);
 };
 
 /** This key's packs in ticket order (what a profile is built from). */
@@ -188,10 +195,12 @@ export const migratePullLog = () => {
     for (const pull of old) {
       if (!pull.publicKeyHex) continue; // Older anonymous pulls have no reproducible ticket identity.
       const entry = encode({ ...pull, key: pull.publicKeyHex.slice(0, KEY_PREFIX), cards: null });
-      const existing = merged.find((other) => sameTicket(other, entry));
+      const records = merged.filter((other) => sameTicket(other, entry));
+      // Already recorded with this set, alongside any conflicting record (see recordPack).
+      if (records.some((other) => sameAssignment(other, entry))) continue;
       // The same ticket cannot prove two sets; preserve conflicting raw logs for recovery.
-      if (existing && (existing.s !== entry.s || existing.v !== entry.v)) return;
-      if (!existing) merged.push(entry);
+      if (records.length > 0) return;
+      merged.push(entry);
     }
     if (write(merged.sort((a, b) => b.t - a.t))) localStorage.removeItem(STORAGE_KEYS.PULLS);
   } catch {
