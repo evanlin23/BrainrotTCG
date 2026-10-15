@@ -66,6 +66,16 @@ describe('pack history', () => {
     expect(getHistory()[0].openedAt).toBe(9_999);
   });
 
+  it('keeps both records when another set is recorded on the same ticket, rather than the last one winning', () => {
+    installStorage();
+    recordPack(pack(3));
+    recordPack(pack(3, { setId: 'genesis', openedAt: 2_000 }));
+    expect(getHistory().map((e) => [e.setId, e.nonce, e.openedAt])).toEqual([['genesis', 3, 2_000], ['right-now', 3, 1_003]]);
+    // Re-recording one of them still replaces only that one.
+    recordPack(pack(3, { openedAt: 9_999 }));
+    expect(getHistory().map((e) => [e.setId, e.openedAt])).toEqual([['right-now', 9_999], ['genesis', 2_000]]);
+  });
+
   it('lists one key in ticket order', () => {
     installStorage();
     recordPack(pack(2));

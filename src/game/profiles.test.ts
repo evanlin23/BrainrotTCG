@@ -4,9 +4,10 @@ import { getSet } from '../content/sets';
 import { checkProfile, computeTicket, derivePack, toHex } from '../engine';
 import { encodeCard } from './cardCode';
 import { getStoredPack, putStoredPacks, resetPackStore } from './packStore';
-import { getHistory } from './history';
+import { getHistory, recordPack } from './history';
+import type { OpenedPack } from './pulls';
 import { getPlayer } from './player';
-import { myProfileInfo, myProfileProof, onReopenProgress, reopenMyPacks, resumeReopening } from './profiles';
+import { myProfileInfo, myProfileProof, myStats, onReopenProgress, reopenMyPacks, resumeReopening } from './profiles';
 
 // No Worker or IndexedDB here: tickets are mined on this thread and the pack store stays in memory.
 const data = new Map<string, string>();
@@ -78,4 +79,134 @@ describe('re-opening your packs', () => {
     await reopenMyPacks(); // joins the resumed run
     expect(myProfileInfo()).toMatchObject({ missing: 0 });
   }, 30_000);
+});
+
+
+describe('original ticket provenance admission', () => {
+  beforeEach(() => setUp(3));
+
+  it.each(['missing', 'unknown set', 'unknown version', 'legacy no history'])('refuses to guess an original mapping: %s', async (kind) => {
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+    if (kind === 'missing') history.splice(1, 1);
+    if (kind === 'unknown set') history[1].s = 'unavailable-historical-set';
+    if (kind === 'unknown version') history[1].v = 999;
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(kind === 'legacy no history' ? [] : history));
+    const original = data.get(STORAGE_KEYS.HISTORY);
+    expect(myProfileInfo()?.filled).toBe(kind === 'legacy no history' ? 3 : 1);
+    await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
+    await expect(reopenMyPacks()).rejects.toThrow('original pack set/version mappings');
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(original);
+    expect(data.has(PENDING)).toBe(false);
+  });
+
+  it('does not count a cached guessed pack as recovered original provenance', async () => {
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+    history.splice(1, 1);
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    await putStoredPacks([{ setKey: 'right-now@2', publicKeyHex: getPlayer().publicKeyHex, nonce: 1, cards: await codeOf(1) }]);
+    expect(myProfileInfo()?.filled).toBe(1);
+    expect(myStats().packs).toBe(0);
+    await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
+  });
+
+  it('keeps exact mixed-set/version run provenance in a newly signed profile', async () => {
+    setUp(2);
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+    history[0].s = 'genesis';
+    history[0].v = 1;
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    const proof = await myProfileProof();
+    const checked = checkProfile(proof!, getSet);
+    expect(checked.tickets.map((set) => [set.id, set.version])).toEqual([['genesis', 1], ['right-now', 2]]);
+    expect(myProfileInfo()?.filled).toBe(0);
+  }, 30_000);
+
+  /** Ticket 1 recorded a second time with another set (two tabs spent it at once), stored before or after the first. */
+  const conflict = (where: 'before' | 'after', record: Record<string, unknown>) => {
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+    const other = { ...history[1], ...record };
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(where === 'before' ? [other, ...history] : [...history, other]));
+  };
+
+  it.each(['before', 'after'] as const)('admits the first-opened of two sets recorded on one ticket, stored %s it', async (where) => {
+    setUp(2);
+    conflict(where, { s: 'genesis', v: 1, t: 50 });
+    const checked = checkProfile((await myProfileProof())!, getSet);
+    expect(checked.tickets.map((set) => [set.id, set.version])).toEqual([['right-now', 2], ['right-now', 2]]);
+    expect(getHistory().filter((e) => e.nonce === 1)).toHaveLength(2);
+  }, 30_000);
+
+  it.each(['before', 'after'] as const)('breaks a tie in opening time by set, stored %s it', (where) => {
+    conflict(where, { s: 'a-unavailable-set' });
+    // 'a-unavailable-set' sorts before 'right-now', so it is admitted, and it can't be proved.
+    expect(myProfileInfo()).toMatchObject({ packs: 3, filled: 1 });
+  });
+});
+
+describe('profile links while other tabs write', () => {
+  beforeEach(() => setUp(3));
+  const storePlayer = (secretKey: string, nextNonce: number) =>
+    data.set('brainrot-player-v1', JSON.stringify({ secretKey, name: 'Tester', nextNonce, createdAt: 0 }));
+
+  it('proves the tickets used when it was asked for while another tab spends the next one', async () => {
+    let spent = false;
+    const proof = await myProfileProof(() => {
+      if (spent) return;
+      spent = true;
+      storePlayer(SECRET, 4); // Another tab allocated ticket 3 and is still mining it: nothing recorded yet.
+    });
+    expect(spent).toBe(true);
+    const checked = checkProfile(proof!, getSet);
+    expect(toHex(checked.profile.publicKey)).toBe(getPlayer().publicKeyHex);
+    expect(checked.tickets).toHaveLength(3);
+    expect(myProfileInfo()).toMatchObject({ packs: 4, filled: 1 });
+  }, 30_000);
+
+  it('re-opens tickets recorded after a run it joined had started', async () => {
+    const running = reopenMyPacks();
+    storePlayer(SECRET, 5);
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    const newer = [4, 3].map((n) => ({ s: SET.id, v: SET.version, n, k: key, h: 'No Matches', x: 0, t: 10 + n }));
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([...newer, ...JSON.parse(data.get(STORAGE_KEYS.HISTORY)!)]));
+    const checked = checkProfile((await myProfileProof())!, getSet);
+    expect(checked.tickets).toHaveLength(5);
+    await running;
+  }, 30_000);
+
+  it('refuses to sign when another player is in storage by the time the packs are ready', async () => {
+    let swapped = false;
+    await expect(myProfileProof(() => {
+      if (swapped) return;
+      swapped = true;
+      storePlayer('02'.repeat(32), 0); // Another tab imported a different player's save.
+    })).rejects.toThrow('Your save changed');
+    expect(swapped).toBe(true);
+  }, 30_000);
+});
+
+
+it('keeps mixed-set mappings and refuses whole-profile signing after severe quota rejects a new ticket', async () => {
+  setUp(3);
+  const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+  history[0].s = 'genesis';
+  history[0].v = 1;
+  const original = JSON.stringify(history);
+  data.set(STORAGE_KEYS.HISTORY, original);
+  data.set('brainrot-player-v1', JSON.stringify({ secretKey: SECRET, name: 'Tester', nextNonce: 4, createdAt: 0 }));
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, raw: string) => {
+      if (key === STORAGE_KEYS.HISTORY && raw.length > original.length) throw new DOMException('full', 'QuotaExceededError');
+      data.set(key, raw);
+    },
+    removeItem: (key: string) => data.delete(key),
+  });
+  const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  expect(recordPack({ setId: 'genesis', setVersion: 1, nonce: 3, publicKeyHex: getPlayer().publicKeyHex,
+    cards: [], score: { hand: { name: 'No Matches' }, score: 0 }, openedAt: 4 } as unknown as OpenedPack)).toBe(false);
+  expect(data.get(STORAGE_KEYS.HISTORY)).toBe(original);
+  expect(myProfileInfo()).toMatchObject({ packs: 4, filled: 1 });
+  await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
+  expect(data.get(STORAGE_KEYS.HISTORY)).toBe(original);
+  error.mockRestore();
 });

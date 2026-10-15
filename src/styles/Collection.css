@@ -235,7 +235,7 @@
   font-weight: 700;
 }
 
-/* A holo copy: a foil corner, the only place foil appears outside the cards themselves. */
+/* A holo copy: a foil corner. */
 .collection-item.holo::before {
   content: '';
   position: absolute;
