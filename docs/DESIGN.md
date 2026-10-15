@@ -94,6 +94,16 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
+- **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
+  button (never an automatic reload) and a collapsed, copyable bug report built from the same
+  allowlist as the Report a problem sheet. It shows no error text and touches no save data.
+- **Selection and drag**: controls (`button`, `[role="button"]`), the pack stage, the card reveal and
+  cards take no text selection, so rapid taps never highlight labels; game images set
+  `draggable="false"`. Inputs, textareas, links, the pack summary, error hints, report text and
+  player IDs stay selectable. Deliberate exceptions: the share preview image and the Hall of Fame
+  legend image stay draggable (they are content a player may save), and only cards suppress the
+  context menu. Never disable selection or context menus globally. `tests/browser/selection-drag.spec.ts`
+  guards this.
 
 ## Checking a change
 
