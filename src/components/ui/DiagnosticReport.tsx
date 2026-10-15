@@ -45,11 +45,12 @@ export default function DiagnosticReport({ onClose }: Props) {
         }}>Clear recorded steps</button>
       </div>
       <label htmlFor="diagnostic-report-text">Report details (editable)</label>
-      <textarea id="diagnostic-report-text" value={draft} maxLength={8192} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
+      {!enabled && <p id="diagnostic-capture-off">Event capture is off, so this report has no recent events.</p>}
+      <textarea id="diagnostic-report-text" aria-describedby={enabled ? undefined : 'diagnostic-capture-off'} value={draft} maxLength={8192} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
       <p role="status">{note}</p>
       <div className="diagnostic-actions">
         <button className="btn btn--primary" type="button" disabled={copying || !draft.trim()} onClick={() => void copy()}>Copy report</button>
-        <a className="btn btn--secondary" href={`https://github.com/${REPO}/issues/new/choose`} target="_blank" rel="noopener noreferrer">Open GitHub issues</a>
+        <a className="btn btn--secondary" href={`https://github.com/${REPO}/issues/new?template=bug.yml`} target="_blank" rel="noopener noreferrer">Open GitHub issues</a>
       </div>
       <p>Posting requires a GitHub account. Paste only the details you want to make public and describe what you were trying to do.</p>
     </Sheet>
