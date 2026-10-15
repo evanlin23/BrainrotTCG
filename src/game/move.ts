@@ -74,8 +74,13 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   if (hasProgress()) {
     if (!replace()) return 'kept';
     const backup = Object.fromEntries(brainrotKeys().filter((k) => k !== BACKUP_KEY).map((k) => [k, localStorage.getItem(k)]));
+    // A full or unavailable storage area must not cost the player the save being replaced.
+    try {
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
+    } catch {
+      return 'invalid';
+    }
     for (const k of brainrotKeys()) if (k !== BACKUP_KEY) localStorage.removeItem(k);
-    localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
   }
   for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
   return 'saved';
