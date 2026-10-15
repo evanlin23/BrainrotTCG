@@ -19,5 +19,5 @@ paths:
 - Before pushing, run `npx vitest run src/engine` and
   `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json`
   (CI uses Python 3.13 with cryptography 50.0.1).
-- The vector files are about 12k tokens each, and settings deny commands that name them. Query
-  them from `python3 -c`, or use a path-less `git diff --stat`.
+- The vector files are about 12k tokens each. Query them with `jq` or `python3 -c` instead of
+  reading them whole.
