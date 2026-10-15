@@ -24,19 +24,58 @@ export const createTicketPool = (size = poolSize()): TicketPool => {
   const queue: Job[] = [];
   const busy = new Map<Worker, Job>();
   const idle: Worker[] = [];
+  const workers: Worker[] = [];
+  let fallback: Job | null = null;
   let closed = false;
   let nextId = 0;
+
+  const retire = (worker: Worker) => {
+    const index = workers.indexOf(worker);
+    if (index === -1) return;
+    workers.splice(index, 1);
+    const idleIndex = idle.indexOf(worker);
+    if (idleIndex !== -1) idle.splice(idleIndex, 1);
+    worker.onmessage = null;
+    worker.onerror = null;
+    worker.terminate();
+    const job = busy.get(worker);
+    busy.delete(worker);
+    if (job) queue.unshift(job);
+  };
 
   const pump = () => {
     while (!closed && idle.length > 0 && queue.length > 0) {
       const worker = idle.pop()!;
       const job = queue.shift()!;
       busy.set(worker, job);
-      worker.postMessage(job.request);
+      try {
+        worker.postMessage(job.request);
+      } catch {
+        retire(worker);
+      }
     }
+    // Argon2 needs 32 MiB per job. Without workers, share one tracked slot rather than
+    // starting every queued verification on the main thread at once.
+    if (closed || workers.length > 0 || fallback || queue.length === 0) return;
+    const job = queue.shift()!;
+    fallback = job;
+    void (async () => {
+      try {
+        const ticket = await computeTicket(job.request.setKey, job.publicKey, job.request.nonce);
+        if (!closed) job.resolve(ticket);
+      } catch (error) {
+        if (!closed) job.reject(error instanceof Error ? error : new Error(String(error)));
+      } finally {
+        // close() cannot abort a running computation, but its late completion must not
+        // settle consumers or start another computation.
+        if (fallback === job) {
+          fallback = null;
+          pump();
+        }
+      }
+    })();
   };
 
-  const workers: Worker[] = [];
   for (let i = 0; i < size; i++) {
     let worker: Worker;
     try {
@@ -46,28 +85,19 @@ export const createTicketPool = (size = poolSize()): TicketPool => {
     }
     worker.onmessage = (event: MessageEvent<TicketResponse>) => {
       const job = busy.get(worker);
+      if (closed || !job || job.request.id !== event.data.id) return;
       busy.delete(worker);
       idle.push(worker);
-      if (job) {
-        if ('ticket' in event.data) job.resolve(event.data.ticket);
-        else job.reject(new Error(event.data.error));
-      }
+      if ('ticket' in event.data) job.resolve(event.data.ticket);
+      else job.reject(new Error(event.data.error));
       pump();
     };
-    // A worker that dies hands its job to the main thread and leaves the pool.
+    // A failed worker's job rejoins the queue; remaining workers or the fallback take it.
     worker.onerror = (event) => {
       event.preventDefault();
-      const job = busy.get(worker);
-      busy.delete(worker);
-      worker.terminate();
-      workers.splice(workers.indexOf(worker), 1);
-      // A worker that failed to load was never busy: take it off the idle list too, or pump() would
-      // hand it a job that never finishes.
-      if (idle.includes(worker)) idle.splice(idle.indexOf(worker), 1);
-      if (job) computeTicket(job.request.setKey, job.publicKey, job.request.nonce).then(job.resolve, job.reject);
-      if (workers.length === 0) {
-        for (const j of queue.splice(0)) computeTicket(j.request.setKey, j.publicKey, j.request.nonce).then(j.resolve, j.reject);
-      }
+      if (closed) return;
+      retire(worker);
+      pump();
     };
     workers.push(worker);
     idle.push(worker);
@@ -77,18 +107,25 @@ export const createTicketPool = (size = poolSize()): TicketPool => {
     size: Math.max(1, workers.length),
     ticket: (setKey, publicKey, nonce) => {
       if (closed) return Promise.reject(new Error('Ticket pool closed'));
-      if (workers.length === 0) return computeTicket(setKey, publicKey, nonce);
       return new Promise((resolve, reject) => {
         queue.push({ request: { id: nextId++, setKey, publicKeyHex: toHex(publicKey), nonce }, publicKey, resolve, reject });
         pump();
       });
     },
     close: () => {
+      if (closed) return;
       closed = true;
-      for (const worker of workers) worker.terminate();
+      for (const worker of workers) {
+        worker.onmessage = null;
+        worker.onerror = null;
+        worker.terminate();
+      }
       const stopped = new Error('Ticket pool closed');
       for (const job of [...queue.splice(0), ...busy.values()]) job.reject(stopped);
+      fallback?.reject(stopped);
+      fallback = null;
       busy.clear();
+      idle.length = 0;
     },
   };
 };

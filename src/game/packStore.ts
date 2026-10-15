@@ -15,19 +15,42 @@ const keyOf = (setKey: string, publicKeyHex: string, nonce: number) => `${setKey
 const memory = new Map<string, string>();
 let db: Promise<IDBDatabase | null> | null = null;
 
-const open = (): Promise<IDBDatabase | null> =>
-  (db ??= new Promise((resolve) => {
+const open = (): Promise<IDBDatabase | null> => {
+  if (db) return db;
+  let settled = false;
+  const pending = new Promise<IDBDatabase | null>((resolve) => {
+    const fallback = () => {
+      settled = true;
+      resolve(null);
+    };
     try {
       const request = indexedDB.open(DB_NAME, 1);
       request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const database = request.result;
+        // A blocked request can still succeed later; resetting also abandons this attempt.
+        if (settled || db !== pending) {
+          database.close();
+          resolve(null);
+          return;
+        }
+        database.onversionchange = () => {
+          database.close();
+          // An old connection's late event must not discard a newer cached attempt.
+          if (db === pending) db = null;
+        };
+        settled = true;
+        resolve(database);
+      };
       // Private windows and old browsers: memory only, so re-opened packs last until the page closes.
-      request.onerror = () => resolve(null);
-      request.onblocked = () => resolve(null);
+      request.onerror = fallback;
+      request.onblocked = fallback;
     } catch {
-      resolve(null);
+      fallback();
     }
-  }));
+  });
+  return db = pending;
+};
 
 /** Read every stored pack into memory. Never rejects: without IndexedDB the store is memory only. */
 export const loadPackStore = async (): Promise<void> => {
@@ -85,5 +108,7 @@ export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<void
 /** For tests. */
 export const resetPackStore = () => {
   memory.clear();
+  // Also release an already-open connection; an abandoned pending attempt closes on success.
+  void db?.then(database => database?.close());
   db = null;
 };

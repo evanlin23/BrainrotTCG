@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import { hydrateCollection } from '../utils/migrations';
-import { persistCollection } from './collectionRecovery';
+import { hasCollectionRecovery, persistCollection } from './collectionRecovery';
 
 const card = ALL_CARDS[0];
 const item = { card, normalCount: 1, holoCount: 0 };
@@ -18,7 +18,13 @@ const seed = (raw: string | null, fail?: (key: string) => boolean) => {
   });
   return data;
 };
-afterEach(() => vi.unstubAllGlobals());
+let errors: ReturnType<typeof vi.spyOn>;
+beforeEach(() => { errors = vi.spyOn(console, 'error').mockImplementation(() => {}); });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+const logged = () => errors.mock.calls.map((call: unknown[]) => String(call[0]));
 
 describe('collection recovery before a subsequent pack write', () => {
   it('preserves the exact original raw payload including a same-key unreadable card', () => {
@@ -29,6 +35,7 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(hydrated).not.toHaveProperty(card.key);
     expect(persistCollection(next)).toBe('recovered');
     expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(raw);
+    expect(hasCollectionRecovery()).toBe(true);
     expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual(next);
     expect(persistCollection({ ...next, added: item })).toBe('saved');
     expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(raw);
@@ -45,7 +52,9 @@ describe('collection recovery before a subsequent pack write', () => {
       const data = seed(raw);
       expect(persistCollection({ [card.key]: item })).toBe('saved');
       expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(false);
+      expect(hasCollectionRecovery()).toBe(false);
     }
+    expect(logged()).toEqual([]);
   });
 
   it('rejects the collection write when archiving fails; original raw bytes survive', () => {
@@ -54,6 +63,7 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(persistCollection({ [card.key]: item })).toBe('blocked');
     expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
     expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(false);
+    expect(logged()).toEqual([`Failed to save to localStorage key "${STORAGE_KEYS.COLLECTION_RECOVERY}":`]);
   });
 
   it('keeps both the original and archive when the final collection write fails, then retries safely', () => {
@@ -63,6 +73,7 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(persistCollection({ [card.key]: item })).toBe('blocked');
     expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
     expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(raw);
+    expect(logged()).toEqual([`Failed to save to localStorage key "${STORAGE_KEYS.COLLECTION}":`]);
     full = false;
     expect(persistCollection({ [card.key]: item })).toBe('recovered');
   });
@@ -75,6 +86,7 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(persistCollection({})).toBe('blocked');
     expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
     expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(originalArchive);
+    expect(logged()).toHaveLength(1);
   });
 
   it('does not write anything if the persisted collection cannot be read', () => {
@@ -82,6 +94,7 @@ describe('collection recovery before a subsequent pack write', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new DOMException('denied', 'SecurityError'); }, setItem });
     expect(persistCollection({})).toBe('blocked');
     expect(setItem).not.toHaveBeenCalled();
+    expect(hasCollectionRecovery()).toBe(false);
   });
 });
 

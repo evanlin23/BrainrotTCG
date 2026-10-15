@@ -7,10 +7,8 @@ on:
   issues:
     types: [opened, edited, reopened]
 
-permissions:
-  contents: read
-  issues: write
-  actions: write
+# Each job gets only what it uses.
+permissions: {}
 
 concurrency:
   group: hall-of-fame-${{ github.event.issue.number }}
@@ -20,9 +18,15 @@ jobs:
   verify:
     if: startsWith(github.event.issue.title, '[Hall of Fame]')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      verified: ${{ steps.check.outputs.verified }}
+      changed: ${{ steps.check.outputs.changed }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -52,8 +56,20 @@ jobs:
             gh issue edit "$ISSUE" --add-label hall-of-fame,not-verified
             gh issue edit "$ISSUE" --remove-label verified 2>/dev/null || true
           fi
-      - name: Redeploy so the entry goes live
-        if: steps.check.outputs.verified == 'true' && steps.check.outputs.changed == 'true'
-        env:
+
+  # The only job that can start a deploy, and all it can do. It runs only if verify succeeded.
+  redeploy:
+    name: Redeploy so the entry goes live
+    needs: verify
+    if: needs.verify.outputs.verified == 'true' && needs.verify.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run deploy.yml --ref "${{ github.event.repository.default_branch }}"
+          # No checkout here, so gh is told the repository.
+          GH_REPO: ${{ github.repository }}
+          REF: ${{ github.event.repository.default_branch }}
+        run: gh workflow run deploy.yml --ref "$REF"

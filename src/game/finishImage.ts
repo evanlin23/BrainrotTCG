@@ -4,10 +4,24 @@ import { recolorFrame } from './frameRecolor';
 
 export { recolorFrame } from './frameRecolor';
 
+// Allow slow mobile loads without leaving a finish hidden indefinitely after a stalled request.
+const IMAGE_LOAD_TIMEOUT_MS = 15_000;
+
 const loadImage = (src: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const img = new Image();
-  img.onload = () => resolve(img);
-  img.onerror = () => reject(new Error(`Could not load ${src}`));
+  let settled = false;
+  const settle = (error?: Error) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    img.onload = null;
+    img.onerror = null;
+    if (error) reject(error);
+    else resolve(img);
+  };
+  const timeout = setTimeout(() => settle(new Error(`Image load timed out: ${src}`)), IMAGE_LOAD_TIMEOUT_MS);
+  img.onload = () => settle();
+  img.onerror = () => settle(new Error(`Could not load ${src}`));
   img.src = src;
 });
 
