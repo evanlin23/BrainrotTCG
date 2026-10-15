@@ -20,7 +20,8 @@ import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRecovery, persistCollection } from './game/collectionRecovery';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
-import { myStats, onReopenProgress } from './game/profiles';
+import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
+import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory, recordMissing } from './game/history';
 import { getPlayer } from './game/player';
 import { hydrateCollection } from './utils/migrations';
@@ -75,6 +76,11 @@ function App() {
     setRecoveryNoteHidden(true);
   }, []);
   const achievementsRef = useRef(achievements);
+  // The player this tab loaded. Another tab can import a save or switch player while this one stays
+  // open: from then on these achievements are the old player's, so nothing here unlocks them from
+  // the new player's history or stores them over the new save (a reload picks that save up).
+  const [mountedPlayer] = useState(() => getPlayer().publicKeyHex);
+  const samePlayer = useCallback(() => getPlayer().publicKeyHex === mountedPlayer, [mountedPlayer]);
   const previousProgress = useRef<Map<string, unknown> | null>(null);
   // Packs given to the collection that it hasn't stored yet: each stays on the pending shelf till then.
   const unsavedPacks = useRef<OpenedPack[]>([]);
@@ -133,9 +139,12 @@ function App() {
     }
     for (const [key, value] of fields) {
       if (key === STORAGE_KEYS.STATS && statsHandled) continue;
-      if (previous.get(key) !== value && !setStoredData(key, value)) setSaveFailed(true);
+      if (previous.get(key) === value) continue;
+      // Never the old player's achievements over another player's save (see samePlayer).
+      if (key === STORAGE_KEYS.ACHIEVEMENTS && !samePlayer()) setSaveFailed(true);
+      else if (!setStoredData(key, value)) setSaveFailed(true);
     }
-  }, [collection, achievements, stats, hallOfFame, settings]);
+  }, [collection, achievements, stats, hallOfFame, settings, samePlayer]);
 
   const [isCollectionOpen, setIsCollectionOpen] = useState(false);
   const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
@@ -207,16 +216,33 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Saved packs (IndexedDB) are read a page at a time while the app runs, aborted on unmount.
+  useEffect(() => watchMyPacks(), []);
+  const packCache = usePackCacheVersion();
   // Level rewards in use (game/progression.ts), checked against the level this save has reached.
-  // Re-read after every pack (myStats reads the pack history, which each pack adds to).
+  // Re-read after every pack (myStats reads the pack history, which each pack adds to), and when
+  // saved packs are read. Null until they are (or when they couldn't be): meanwhile only the rewards
+  // that need no level apply, and the saved choice stays as it is for when the level is known.
+  // After another tab switches player (see samePlayer) this tab keeps the level of the player it
+  // loaded, as last read: the new player's packs are no level-up here, and unlock no rewards.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const level = useMemo(() => myStats().level, [stats.packsOpened]);
+  const ownLevel = useMemo(() => (samePlayer() ? myStats()?.level ?? null : undefined), [stats.packsOpened, packCache, samePlayer]);
+  const [mountedLevel, setMountedLevel] = useState(ownLevel ?? null);
+  if (ownLevel !== undefined && ownLevel !== mountedLevel) setMountedLevel(ownLevel);
+  const level = ownLevel === undefined ? mountedLevel : ownLevel;
+  const rewardLevel = level ?? 1;
+  // Every pack in the history is readable (saved packs read in, yours and then other players'), or
+  // only other players' failed to: until then, achievements found in the history couldn't name the
+  // right pack and date.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const historyReady = useMemo(() => historyAchievementsReady(), [stats.packsOpened, packCache]);
   // A level-up says so, with what it unlocked (otherwise it only shows if you open the profile).
+  // Reading saved packs isn't a level-up: no toast until a known level rises.
   const shownLevel = useRef(level);
   useEffect(() => {
     const from = shownLevel.current;
     shownLevel.current = level;
-    if (level <= from) return;
+    if (level === null || from === null || level <= from) return;
     const unlocked = [
       ...TITLES.filter((r) => r.level > from && r.level <= level).map((r) => `the title ${r.name}`),
       ...CARD_BACKS.filter((r) => r.level > from && r.level <= level).map((r) => `the ${r.name} card back`),
@@ -236,9 +262,9 @@ function App() {
   }, [level]);
 
   useEffect(() => {
-    document.documentElement.dataset.cardBack = usable(CARD_BACKS, settings.cardBack, level);
-    document.documentElement.dataset.packFoil = usable(PACK_FOILS, settings.packFoil, level);
-  }, [settings.cardBack, settings.packFoil, level]);
+    document.documentElement.dataset.cardBack = usable(CARD_BACKS, settings.cardBack, rewardLevel);
+    document.documentElement.dataset.packFoil = usable(PACK_FOILS, settings.packFoil, rewardLevel);
+  }, [settings.cardBack, settings.packFoil, rewardLevel]);
 
   // Follow the music slider (0 is off)
   useEffect(() => {
@@ -249,38 +275,47 @@ function App() {
     else if (bgMusic.paused) bgMusic.play().catch(() => { });
   }, [settings.musicVolume]);
 
+  // Apply retroactive achievements (without notifications to avoid spam on load)
+  const applyRetroactive = useCallback((ids: readonly string[]) => {
+    if (ids.length === 0) return;
+    const timestamp = Date.now();
+    const next = { ...achievementsRef.current };
+    ids.forEach(id => {
+      if (!next[id]) next[id] = timestamp;
+    });
+    achievementsRef.current = next;
+    setAchievements(next);
+  }, []);
+
   // Check retroactive achievements on mount
   useEffect(() => {
     // Use shared achievement checking functions
     const packAchievements = checkPackMilestones(stats.packsOpened || 0, achievements);
     const collectionAchievements = checkCollectionAchievements(collection, stats, achievements);
-    // Finishes and misprints pulled before their achievements existed: from the pack history, and
-    // from the collection's tallies for packs the history has no cards for.
+    applyRetroactive([...packAchievements, ...collectionAchievements]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
+
+  // Finishes and misprints pulled before their achievements existed: from the pack history, and
+  // from the collection's tallies for packs the history has no cards for. As soon as the history can
+  // be (holos only show in the cards), and once more if other players' packs are read in later.
+  const modifiersChecked = useRef(false);
+  useEffect(() => {
+    if (!historyReady || modifiersChecked.current || !samePlayer()) return;
+    modifiersChecked.current = historyPacksState() === 'ready';
     const pulled = getHistory().flatMap((e) => (e.cards ?? []).map((c) => ({ isHolo: c.holo, finish: c.finish, misprint: c.misprint })));
     const tallied = Object.values(collection).flatMap((item) => [
       ...Object.entries(item?.finishes ?? {}).filter(([, n]) => (n ?? 0) > 0).map(([finish]) => ({ isHolo: false, finish })),
       ...((item?.misprints ?? 0) > 0 ? [{ isHolo: false, misprint: true }] : []),
     ]);
-    const modifierAchievements = checkModifierAchievements([...pulled, ...tallied], achievements);
-
-    const retroactiveAchievements = [...packAchievements, ...collectionAchievements, ...modifierAchievements];
-
-    // Apply retroactive achievements (without notifications to avoid spam on load)
-    if (retroactiveAchievements.length > 0) {
-      const timestamp = Date.now();
-      const next = { ...achievementsRef.current };
-      retroactiveAchievements.forEach(id => {
-        if (!next[id]) next[id] = timestamp;
-      });
-      achievementsRef.current = next;
-      setAchievements(next);
-    }
+    applyRetroactive(checkModifierAchievements([...pulled, ...tallied], achievementsRef.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run on mount
+  }, [historyReady, applyRetroactive]);
 
   // Packs in the history that never got their pack achievements (merged in from a save, or opened
   // before the achievement existed). Unlocked quietly, dated and linked to the pack that earned them.
   const unlockFromHistory = useCallback(() => {
+    if (!samePlayer()) return;
     const found = checkHistoryAchievements(getHistory(), achievementsRef.current);
     if (found.length === 0) return;
     const next = { ...achievementsRef.current };
@@ -294,18 +329,18 @@ function App() {
     // Keep later live commands on the same snapshot; persistence follows the guarded effect.
     achievementsRef.current = next;
     setAchievements(next);
-  }, []);
+  }, [samePlayer]);
 
+  // Only once the history is readable (other players' packs that failed to read count by hand): a
+  // pack whose saved cards weren't read yet would be skipped, or credited to a later pack, and never
+  // looked at again. Runs as soon as it is.
   useEffect(() => {
-    unlockFromHistory();
+    if (historyReady) unlockFromHistory();
     // Re-opened packs bring back the cards of packs the history only had a hand and score for.
-    const stop = onReopenProgress((status) => {
-      if (!status.running) unlockFromHistory();
+    return onReopenProgress((status) => {
+      if (!status.running && historyAchievementsReady()) unlockFromHistory();
     });
-    return () => {
-      stop();
-    };
-  }, [unlockFromHistory]);
+  }, [historyReady, unlockFromHistory]);
 
   const unlockAchievement = useCallback((achievementId: string, pack?: CardWithMeta[], ref?: PullRef) => {
     const achievement = getAchievementById(achievementId);
@@ -555,7 +590,7 @@ function App() {
           set={selectedSet}
           disabled={isAnyModalOpen}
           settings={settings}
-          cardBack={usable(CARD_BACKS, settings.cardBack, level)}
+          cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
         />
       </main>
@@ -598,7 +633,7 @@ function App() {
 
       {/* Collection Browser */}
       {isCollectionOpen && (
-        <DeferredSheet load={loadCollection} size="lg" title="My cards" screenProps={{ collection, navigation: personalNavigation, onClose: () => setIsCollectionOpen(false) }} />
+        <DeferredSheet load={loadCollection} size="lg" title="My cards" screenProps={{ collection, navigation: personalNavigation, recentSetId: selectedSet.id, onClose: () => setIsCollectionOpen(false) }} />
       )}
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}

@@ -423,39 +423,68 @@ export interface ProfileStats {
   best: ProfilePack[];
 }
 
-/** Stats for packs in ticket order (they can be a prefix while verification is still running). */
-export const profileStats = (packs: readonly ProfilePack[], bestCount = 5): ProfileStats => {
+/**
+ * Fold packs in ticket order without retaining the history. Only distinct card ids and the best
+ * requested packs remain resident here; whether the packs fed in stay in memory is up to the
+ * caller (the app's pack cache, game/packStore.ts, currently keeps every pack it has read).
+ * A snapshot owns its arrays/maps; later additions cannot change an earlier result.
+ */
+export const profileStatsTracker = (bestCount = 5) => {
+  if (!Number.isSafeInteger(bestCount) || bestCount < 0) throw new RangeError('Highlight count must be a nonnegative integer');
   const seen = new Set<string>();
   const seenHolo = new Set<string>();
   const uniqueBySet: Record<string, number> = {};
   const holoUniqueBySet: Record<string, number> = {};
   const hands: Partial<Record<HandKey, number>> = {};
+  const best: ProfilePack[] = [];
+  let packs = 0;
   let xp = 0;
   let holos = 0;
   let totalScore = 0;
   let points = 0;
-  for (const pack of packs) {
-    xp += XP_PER_PACK;
-    const hand = handKeyOf(pack.score);
-    xp += XP_PER_HAND[hand];
-    hands[hand] = (hands[hand] ?? 0) + 1;
-    totalScore += pack.score.score;
-    points += pack.score.points;
-    for (const card of pack.cards) {
-      const key = `${card.setId}/${card.cardId}`;
-      if (card.isHolo) {
-        holos++;
-        if (!seenHolo.has(key)) {
-          seenHolo.add(key);
-          holoUniqueBySet[card.setId] = (holoUniqueBySet[card.setId] ?? 0) + 1;
+  return {
+    add(pack: ProfilePack): void {
+      packs++;
+      xp += XP_PER_PACK;
+      const hand = handKeyOf(pack.score);
+      xp += XP_PER_HAND[hand];
+      hands[hand] = (hands[hand] ?? 0) + 1;
+      totalScore += pack.score.score;
+      points += pack.score.points;
+      for (const card of pack.cards) {
+        const key = `${card.setId}/${card.cardId}`;
+        if (card.isHolo) {
+          holos++;
+          if (!seenHolo.has(key)) {
+            seenHolo.add(key);
+            holoUniqueBySet[card.setId] = (holoUniqueBySet[card.setId] ?? 0) + 1;
+          }
         }
+        if (seen.has(key)) continue;
+        seen.add(key);
+        uniqueBySet[card.setId] = (uniqueBySet[card.setId] ?? 0) + 1;
+        xp += XP_PER_NEW_CARD;
       }
-      if (seen.has(key)) continue;
-      seen.add(key);
-      uniqueBySet[card.setId] = (uniqueBySet[card.setId] ?? 0) + 1;
-      xp += XP_PER_NEW_CARD;
-    }
-  }
-  const best = [...packs].sort((a, b) => b.score.score - a.score.score || a.nonce - b.nonce).slice(0, bestCount);
-  return { packs: packs.length, xp, level: levelForXp(xp), uniqueBySet, holoUniqueBySet, unique: seen.size, holos, totalScore, points, hands, best };
+      best.push(pack);
+      best.sort((a, b) => b.score.score - a.score.score || a.nonce - b.nonce);
+      best.splice(Math.max(0, bestCount));
+    },
+    snapshot(): ProfileStats {
+      return {
+        packs, xp, level: levelForXp(xp), uniqueBySet: { ...uniqueBySet },
+        holoUniqueBySet: { ...holoUniqueBySet }, unique: seen.size, holos, totalScore,
+        points, hands: { ...hands }, best: [...best],
+      };
+    },
+  };
+};
+
+/** Stats for packs in ticket order (they can be a prefix while verification is still running). */
+export const profileStats = (packs: readonly ProfilePack[], bestCount = 5): ProfileStats => {
+  // Preserve the original Array.slice end-argument behavior for existing array callers.
+  const end = Math.trunc(bestCount) || 0;
+  const count = end < 0 ? Math.max(0, packs.length + end) : Math.min(packs.length, end);
+  const tracker = profileStatsTracker(count);
+  for (const pack of packs) tracker.add(pack);
+  return tracker.snapshot();
 };

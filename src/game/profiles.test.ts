@@ -7,7 +7,7 @@ import { getStoredPack, putStoredPacks, resetPackStore } from './packStore';
 import { getHistory, recordPack } from './history';
 import type { OpenedPack } from './pulls';
 import { getPlayer } from './player';
-import { myProfileInfo, myProfileProof, myStats, onReopenProgress, reopenMyPacks, resumeReopening } from './profiles';
+import { hydrateMyPacks, myProfileInfo, myProfileProof, myStats, onReopenProgress, reopenMyPacks, resumeReopening } from './profiles';
 
 // No Worker or IndexedDB here: tickets are mined on this thread and the pack store stays in memory.
 const data = new Map<string, string>();
@@ -104,8 +104,8 @@ describe('original ticket provenance admission', () => {
     resumeReopening();
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
-    expect(myProfileInfo()).toEqual({ packs: 3, filled, missing: filled });
-    expect(myStats().packs).toBe(3 - filled);
+    expect(myProfileInfo()).toEqual({ packs: 3, filled, missing: filled, cache: 'ready' });
+    expect(myStats()?.packs).toBe(3 - filled);
     expect(data.get(STORAGE_KEYS.HISTORY)).toBe(original);
     expect(data.has(PENDING)).toBe(false);
     await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
@@ -117,7 +117,8 @@ describe('original ticket provenance admission', () => {
     data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
     await putStoredPacks([{ setKey: 'right-now@2', publicKeyHex: getPlayer().publicKeyHex, nonce: 1, cards: await codeOf(1) }]);
     expect(myProfileInfo()?.filled).toBe(1);
-    expect(myStats().packs).toBe(0);
+    expect(await hydrateMyPacks()).toBe('ready');
+    expect(myStats()?.packs).toBe(0);
     await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
   });
 

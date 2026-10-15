@@ -11,7 +11,7 @@ import {
   encodeProfile,
   openProfileTicket,
   ProofError,
-  profileStats,
+  profileStatsTracker,
   scorePulled,
   setKey,
   signProfile,
@@ -27,9 +27,9 @@ import {
 } from '../engine';
 import { getSet } from '../content/sets';
 import { getPlayer, getPlayerTickets } from './player';
-import { historyForKey, type HistoryEntry } from './history';
+import { getHistory, historyForKey, type HistoryEntry } from './history';
 import { getReopened, putReopened } from './reopenCache';
-import { getStoredPack, putStoredPacks, type StoredPack } from './packStore';
+import { getStoredPack, hydratePackStore, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
 import { decodeCard, encodeCard, modifiersFor, type StoredCard } from './cardCode';
 import { createTicketPool } from './ticketPool';
 
@@ -51,6 +51,8 @@ interface Ticket {
   pack: ProfilePack | null;
   /** True when the original set/version mapping is missing or unavailable. */
   filled: boolean;
+  /** True when the cards come from the re-opened pack store (game/packStore.ts), not the history. */
+  fromCache: boolean;
   openedAt: number;
 }
 
@@ -66,19 +68,18 @@ const firstOpened = (a: HistoryEntry, b: HistoryEntry): number =>
   a.openedAt - b.openedAt || (a.setId < b.setId ? -1 : a.setId > b.setId ? 1 : 0) || a.setVersion - b.setVersion;
 
 /** Every used ticket; absent original mappings stay unknown rather than guessing a different pack. */
-const myTickets = ({ player, nextNonce: total }: PlayerTickets = getPlayerTickets()): Ticket[] => {
+function* ticketsOf({ player, nextNonce: total }: PlayerTickets): Generator<Ticket> {
   const known = new Map<number, HistoryEntry>();
   for (const e of historyForKey(player.publicKeyHex)) {
     const other = known.get(e.nonce);
     if (!other || firstOpened(e, other) < 0) known.set(e.nonce, e);
   }
   const setOf = (e: HistoryEntry | undefined) => (e ? getSet(e.setId, e.setVersion) : undefined);
-  const tickets: Ticket[] = [];
   for (let nonce = 0; nonce < total; nonce++) {
     const entry = known.get(nonce);
     const set = setOf(entry) ?? null;
     if (!set) {
-      tickets.push({ nonce, set: null, pack: null, filled: true, openedAt: entry?.openedAt ?? 0 });
+      yield { nonce, set: null, pack: null, filled: true, fromCache: false, openedAt: entry?.openedAt ?? 0 };
       continue;
     }
     const fromHistory = entry?.cards && setOf(entry) ? toPulled(entry.cards, set) : null;
@@ -89,15 +90,195 @@ const myTickets = ({ player, nextNonce: total }: PlayerTickets = getPlayerTicket
     const reopened = intact ? null : getStoredPack(setKey(set), player.publicKeyHex, nonce);
     const cards = intact ? fromHistory : reopened ? toPulled(reopened.split(',').map(decodeCard), set) : null;
     const score = cards && scorePulled(cards);
-    tickets.push({
+    yield {
       nonce,
       set,
       pack: cards && score ? { nonce, set, cards, score } : null,
       filled: false,
+      fromCache: !intact,
       openedAt: entry?.openedAt ?? 0,
-    });
+    };
   }
-  return tickets;
+}
+
+const myTickets = (snapshot: PlayerTickets = getPlayerTickets()): Ticket[] => [...ticketsOf(snapshot)];
+
+/** A ticket whose cards are in the pack store but not read into memory yet (or never re-opened). */
+const awaitsCache = (t: Ticket): boolean => !!t.set && t.fromCache && !t.pack;
+
+/*
+ * Packs whose cards the history dropped live in IndexedDB (game/packStore.ts). Nothing loads the
+ * whole store: they're read on demand, a bounded page at a time, in two steps. Your own tickets come
+ * first (`state`): until they're in, anything that would count them isn't shown, so saved progress
+ * reads as loading (or as a failed read), never as zero. Then the rest of the history (`history`,
+ * other players' packs saved on this device), which only the history lists and achievements need:
+ * a failed read there never hides your own stats.
+ */
+export type PackCacheState = 'loading' | 'ready' | 'failed';
+
+const cache: {
+  owner: string | null;
+  state: PackCacheState;
+  history: PackCacheState;
+  gen: number;
+  run: Promise<PackCacheState> | null;
+  signal: AbortSignal | undefined;
+} = { owner: null, state: 'loading', history: 'loading', gen: 0, run: null, signal: undefined };
+const cacheListeners = new Set<() => void>();
+let cacheVersion = 0;
+let lastRun: Promise<unknown> = Promise.resolve();
+
+const setCacheState = (state: PackCacheState, history: PackCacheState = cache.history) => {
+  cache.state = state;
+  cache.history = history;
+  cacheVersion++;
+  for (const listener of cacheListeners) listener();
+};
+
+/** Follow the pack cache (loading, ready or failed). Returns the unsubscribe function. */
+export const onPackCacheChange = (listener: () => void): (() => void) => {
+  cacheListeners.add(listener);
+  return () => {
+    cacheListeners.delete(listener);
+  };
+};
+
+/** Changes whenever the pack cache's state does (for useSyncExternalStore). */
+export const packCacheVersion = (): number => cacheVersion;
+
+const stateFor = (snapshot: PlayerTickets): PackCacheState =>
+  cache.owner === snapshot.player.publicKeyHex ? cache.state : 'loading';
+
+/** Whether this player's saved packs are all readable now: 'ready' when no ticket waits on the store. */
+export const myPackCacheState = (): PackCacheState => {
+  const snapshot = getPlayerTickets();
+  for (const t of ticketsOf(snapshot)) if (awaitsCache(t)) return stateFor(snapshot);
+  return 'ready';
+};
+
+/**
+ * Whether every pack in the history (yours and other players' saved on this device) is readable:
+ * what history achievements need before they can name the right pack and date.
+ */
+export const historyPacksState = (): PackCacheState => {
+  const own = myPackCacheState();
+  if (own !== 'ready') return own;
+  if (getHistory().every(e => e.cards)) return 'ready';
+  return cache.owner === getPlayer().publicKeyHex ? cache.history : 'loading';
+};
+
+/**
+ * Whether achievements can be looked for in the history now: every pack in it is readable, or only
+ * other players' packs failed to read. Those count by their hand alone (as a pack without cards
+ * always has) rather than holding back achievements from your own packs until a reload.
+ */
+export const historyAchievementsReady = (): boolean => {
+  const state = historyPacksState();
+  if (state !== 'failed' || myPackCacheState() !== 'ready') return state === 'ready';
+  const { publicKeyHex } = getPlayer();
+  return getHistory().every(e => e.cards || !publicKeyHex.startsWith(e.key));
+};
+
+const refId = (key: string, publicKeyHex: string, nonce: number) => `${key}|${publicKeyHex.slice(0, 16)}|${nonce}`;
+
+/** Your tickets waiting on the store. */
+const myCacheRefs = (snapshot: PlayerTickets): Map<string, StoredPackRef> => {
+  const refs = new Map<string, StoredPackRef>();
+  const { publicKeyHex } = snapshot.player;
+  for (const t of ticketsOf(snapshot)) {
+    if (t.set && awaitsCache(t)) refs.set(refId(setKey(t.set), publicKeyHex, t.nonce), { setKey: setKey(t.set), publicKeyHex, nonce: t.nonce });
+  }
+  return refs;
+};
+
+/** The rest of the history whose cards were dropped (other players' packs from an earlier save on this device). */
+const historyCacheRefs = (skip: ReadonlyMap<string, StoredPackRef>): StoredPackRef[] => {
+  const refs = new Map<string, StoredPackRef>();
+  for (const e of getHistory()) {
+    if (e.cards) continue;
+    const key = `${e.setId}@${e.setVersion}`;
+    const id = refId(key, e.key, e.nonce);
+    if (!skip.has(id) && !refs.has(id)) refs.set(id, { setKey: key, publicKeyHex: e.key, nonce: e.nonce });
+  }
+  return [...refs.values()];
+};
+
+/**
+ * Read the current player's saved packs into memory, a page at a time, then the rest of the
+ * history's. Calling it while a run for the same player is going joins that run. Resolves your own
+ * packs' state: 'ready', 'failed', or 'loading' when the run was aborted or the player changed
+ * before it finished (what it hadn't read yet is dropped). Never rejects.
+ */
+export const hydrateMyPacks = (signal?: AbortSignal): Promise<PackCacheState> => {
+  const owner = getPlayer().publicKeyHex;
+  if (cache.run && cache.owner === owner && !cache.signal?.aborted) return cache.run;
+  const gen = ++cache.gen;
+  const ownerChanged = cache.owner !== owner;
+  cache.owner = owner;
+  cache.signal = signal;
+  if (ownerChanged || cache.state !== 'ready') setCacheState('loading', 'loading');
+  else if (cache.history !== 'loading') setCacheState('ready', 'loading');
+  const keep = () => cache.gen === gen && getPlayer().publicKeyHex === owner;
+  const previous = lastRun;
+  const run: Promise<PackCacheState> = (async () => {
+    let mine: Map<string, StoredPackRef>;
+    try {
+      // One run reads at a time (the store allows two reads in flight; a page is never re-asked).
+      await previous;
+      signal?.throwIfAborted();
+      if (!keep()) return 'loading';
+      const snapshot = getPlayerTickets();
+      if (snapshot.player.publicKeyHex !== owner) return 'loading';
+      mine = myCacheRefs(snapshot);
+      if ((mine.size > 0 && !(await hydratePackStore([...mine.values()], signal, keep))) || !keep()) return 'loading';
+      setCacheState('ready');
+    } catch (error) {
+      if (signal?.aborted || !keep()) return 'loading';
+      console.error('Reading saved packs failed', error);
+      // Packs already read stay readable; only a first read that failed leaves them unknown.
+      setCacheState(cache.state === 'ready' ? 'ready' : 'failed', 'failed');
+      return cache.state;
+    }
+    // Your own stats are settled: a failed read of other players' packs only holds back the history.
+    try {
+      const rest = historyCacheRefs(mine);
+      if ((rest.length > 0 && !(await hydratePackStore(rest, signal, keep))) || !keep()) return 'loading';
+      setCacheState('ready', 'ready');
+    } catch (error) {
+      if (signal?.aborted || !keep()) return 'loading';
+      console.error('Reading saved packs failed', error);
+      setCacheState('ready', 'failed');
+    }
+    return 'ready';
+  })().finally(() => {
+    if (cache.gen === gen) {
+      cache.run = null;
+      cache.signal = undefined;
+    }
+  });
+  cache.run = run;
+  lastRun = run;
+  return run;
+};
+
+/**
+ * Keep the current player's saved packs read in: start now, and start over when another tab
+ * switches player. Returns the stop function, which aborts a read still going (on unmount).
+ */
+export const watchMyPacks = (): (() => void) => {
+  let controller = new AbortController();
+  void hydrateMyPacks(controller.signal);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== null && getPlayer().publicKeyHex === cache.owner) return;
+    controller.abort();
+    controller = new AbortController();
+    void hydrateMyPacks(controller.signal);
+  };
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener('storage', onStorage);
+    controller.abort();
+  };
 };
 
 const requireOriginalMappings = (tickets: Ticket[]): (Ticket & { set: SetDefinition })[] => {
@@ -123,12 +304,24 @@ export interface MyProfile {
   filled: number;
   /** Tickets whose packs must be re-opened before a profile can be signed. */
   missing: number;
+  /** Whether `missing` is final: until the saved packs are read, some of them may just be loading. */
+  cache: PackCacheState;
 }
 
 export const myProfileInfo = (): MyProfile | null => {
-  const tickets = myTickets();
-  if (tickets.length === 0) return null;
-  return { packs: tickets.length, filled: tickets.filter((t) => t.filled).length, missing: tickets.filter((t) => !t.pack).length };
+  const snapshot = getPlayerTickets();
+  let packs = 0;
+  let filled = 0;
+  let missing = 0;
+  let waiting = false;
+  for (const t of ticketsOf(snapshot)) {
+    packs++;
+    if (t.filled) filled++;
+    if (!t.pack) missing++;
+    if (awaitsCache(t)) waiting = true;
+  }
+  if (packs === 0) return null;
+  return { packs, filled, missing, cache: waiting ? stateFor(snapshot) : 'ready' };
 };
 
 /**
@@ -203,9 +396,22 @@ const setPending = (publicKeyHex: string | null) => {
  */
 export const reopenMyPacks = (): Promise<void> => reopen(getPlayerTickets());
 
-const reopen = (snapshot: PlayerTickets): Promise<void> => {
+/**
+ * Saved packs are read first, so only packs the store doesn't have are re-opened. An automatic
+ * resume waits for a read that failed or didn't finish (it stays pending for the next visit);
+ * asking for it re-opens whatever couldn't be read.
+ */
+const reopen = async (snapshot: PlayerTickets, auto = false): Promise<void> => {
   if (job?.status.running) return job.promise;
   const { player } = snapshot;
+  let state = await hydrateMyPacks();
+  // The read joined was aborted (its page closed): read again for this run.
+  if (state === 'loading') state = await hydrateMyPacks();
+  if (getPlayer().publicKeyHex !== player.publicKeyHex) {
+    throw new Error('Your save changed while your packs were being read. Try again.');
+  }
+  if (auto && state !== 'ready') return;
+  if (job?.status.running) return job.promise;
   // A ticket without its original set/version can't be re-opened (that would guess a set). Only the
   // profile link refuses it (myProfileProof); every mapped ticket is still re-opened.
   const missing = myTickets(snapshot).filter((t): t is Ticket & { set: SetDefinition } => !!t.set && !t.pack);
@@ -273,19 +479,51 @@ export const resumeReopening = () => {
   }
   if (!pending) return;
   if (pending !== getPlayer().publicKeyHex) return setPending(null);
-  reopenMyPacks().catch((error) => console.error('Re-opening packs failed', error));
+  reopen(getPlayerTickets(), true).catch((error) => console.error('Re-opening packs failed', error));
 };
 
-/** Your level and XP now, and how much the newest pack added (the pack summary shows it). */
-export const myProgress = () => {
-  const packs = myTickets().flatMap((t) => (t.pack ? [t.pack] : []));
-  const now = profileStats(packs);
-  const before = profileStats(packs.slice(0, -1));
+/**
+ * Your packs in ticket order, one at a time (no array of every pack). False while saved packs are
+ * still being read, or couldn't be: stats then are null, since zero would read as lost progress.
+ */
+const eachMyPack = (onPack: (pack: ProfilePack) => void): boolean => {
+  const snapshot = getPlayerTickets();
+  let waiting = false;
+  for (const t of ticketsOf(snapshot)) {
+    if (awaitsCache(t)) waiting = true;
+    if (t.pack) onPack(t.pack);
+  }
+  return !waiting || stateFor(snapshot) === 'ready';
+};
+
+export interface MyProgress {
+  level: number;
+  xp: number;
+  gained: number;
+  levelXp: number;
+  nextXp: number;
+}
+
+/** Your level and XP now, and how much the newest pack added (the pack summary shows it). Null while loading. */
+export const myProgress = (): MyProgress | null => {
+  const tracker = profileStatsTracker();
+  const held: { pack: ProfilePack | null } = { pack: null };
+  const ready = eachMyPack((pack) => {
+    if (held.pack) tracker.add(held.pack);
+    held.pack = pack;
+  });
+  if (!ready) return null;
+  const before = tracker.snapshot();
+  if (held.pack) tracker.add(held.pack);
+  const now = tracker.snapshot();
   return { level: now.level, xp: now.xp, gained: now.xp - before.xp, levelXp: xpForLevel(now.level), nextXp: xpForLevel(now.level + 1) };
 };
 
-/** Your stats from this device's history (no mining): what viewers of your profile will see. */
-export const myStats = (): ProfileStats => profileStats(myTickets().flatMap((t) => (t.pack ? [t.pack] : [])));
+/** Your stats from this device's history (no mining): what viewers of your profile will see. Null while loading. */
+export const myStats = (): ProfileStats | null => {
+  const tracker = profileStatsTracker();
+  return eachMyPack((pack) => tracker.add(pack)) ? tracker.snapshot() : null;
+};
 
 export interface ProfileProgress {
   checked: CheckedProfile;

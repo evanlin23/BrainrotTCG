@@ -250,6 +250,45 @@ describe('shareActions', () => {
 
       expect(canShareTo()).toBe(false);
     });
+
+    /** A device whose primary pointer is fine (a trackpad or mouse) and that also has a touchscreen. */
+    const fineWithTouchscreen = (userAgent: string, maxTouchPoints: number) => {
+      vi.stubGlobal('navigator', { share: vi.fn(), userAgent, maxTouchPoints });
+      vi.stubGlobal('window', {
+        matchMedia: vi.fn((query: string) => ({ matches: query === '(any-pointer: coarse)' })),
+      });
+    };
+
+    it('offers the share sheet on an iPad with a trackpad, which reports itself as a Mac', () => {
+      fineWithTouchscreen('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15', 5);
+      expect(canShareTo()).toBe(true);
+    });
+
+    it('offers the share sheet on an Android tablet with a mouse', () => {
+      fineWithTouchscreen('Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 Chrome/125.0 Safari/537.36', 10);
+      expect(canShareTo()).toBe(true);
+    });
+
+    it('keeps a touchscreen laptop on copy only', () => {
+      fineWithTouchscreen('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0 Safari/537.36 Edg/125.0', 10);
+      expect(canShareTo()).toBe(false);
+    });
+
+    it('keeps a Mac on copy only', () => {
+      vi.stubGlobal('navigator', {
+        share: vi.fn(),
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15',
+        maxTouchPoints: 0,
+      });
+      vi.stubGlobal('window', { matchMedia: vi.fn().mockReturnValue({ matches: false }) });
+      expect(canShareTo()).toBe(false);
+    });
+
+    it('does not trust a phone user agent without a touchscreen', () => {
+      vi.stubGlobal('navigator', { share: vi.fn(), userAgent: 'Mozilla/5.0 (Linux; Android 14)', maxTouchPoints: 0 });
+      vi.stubGlobal('window', { matchMedia: vi.fn().mockReturnValue({ matches: false }) });
+      expect(canShareTo()).toBe(false);
+    });
   });
 
   describe('shareTo', () => {
