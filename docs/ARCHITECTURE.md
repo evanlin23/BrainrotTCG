@@ -351,3 +351,40 @@ Expected moderation outcomes require the approved policy; these are not library 
 input work; retain existing proof-decoder limits. Full boundary/removal fixtures stay in #348/#21;
 after approval split entry feedback, shared matcher and trusted publication/display implementation.
 No signed name bytes, released proof rules or generator versions change in this proposal.
+
+## Proposed scalable-profile decision (#323)
+
+**For review: defer production aggregate formats; proceed with one bounded feasibility prototype.**
+A minimal input ledger is interim provenance protection, not the owner's final history-free design.
+Current profile v1 signs assignments for tickets 0..N−1 as runs, XP and five best-pack claims.
+The bounds below come from `engine/profile.ts` (spec §11).
+
+| Route | State / verification | Decision boundary |
+| --- | --- | --- |
+| Minimal original-assignment ledger | O(N) worst-case assignments and cold regeneration; cards/images are caches | Near-term correctness/storage mitigation, not scalable aggregate verification |
+| Recursive aggregate proof / IVC | Updatable proof/prover state plus current aggregates; succinct verification can avoid historical replay | Candidate long-term route; Argon2id proving/browser feasibility unmeasured |
+| Trusted verified checkpoint | Bounded job replays a range and signs aggregate state | Optional trusted service (#243), even if built on Actions/Workers |
+
+Six bits per assignment at 64 set entries gives 75,000 raw bytes for 100,000 tickets, excluding
+identity/table/encoding/database overhead; runs compress long sessions. This arithmetic bound is
+not a measured save size. Public v1 remains run-based with worst-case long links. IndexedDB can
+exceed localStorage's common roughly 5MiB limit but still faces quota, denial, eviction and clearing.
+Migrate known assignments or valid same-key profile runs only; missing history stays
+incomplete, never guessed. Save-schema changes do not require changed generator odds; a new public
+proof format requires separate version/spec/vectors and an independent verifier.
+
+An IVC step must bind initial identity, monotonic nonce, original allowed rules and every aggregate
+update. Collection/variant state and prover parameters need not be constant-sized. Bootstrap from
+intact inputs; lost assignments cannot be retroactively certified. A compact verification proof may
+omit state needed to continue proving after restore. [Nova](https://github.com/microsoft/Nova)
+establishes IVC/compression primitives, not practical browser proving for 32MiB/two-iteration Argon2id;
+parameter/setup trust needs separate review. Checkpoints instead require named verifier key/rules,
+range commitment, budgets, availability, rollback/key-rotation and owner acceptance of service trust.
+
+Next prototype stays outside production builds/formats: one exact released derivation/aggregate
+step in one selected circuit/zkVM, engine fixture equality and altered-input rejection. Measure
+prover time/peak memory, parameters/download bytes, proof versus resumable-state bytes, verification,
+browser/WASM feasibility and export/restore/continue; all benchmarks are **unrun**. Compare bounded
+checkpoint replay budgets without deployment, then choose proceed/defer. Full acceptance stays in
+#323. Neither route witnesses human play, animation completion, wall-clock time or undeclared lifetime
+mining; self-signed totals/Merkle roots alone do not prove aggregate correctness.
