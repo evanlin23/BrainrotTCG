@@ -205,3 +205,16 @@ describe('bounded demand reads', () => {
     await Promise.all([first, second]);
   });
 });
+
+
+it('snapshots the bounded page and identities before waiting for a database', async () => {
+  const ref = { ...sample };
+  const refs = [ref];
+  const reading = readStoredPacks(refs);
+  ref.nonce = 999;
+  refs.push(...Array.from({ length: PACK_READ_PAGE + 1 }, () => ref));
+  succeed(requests[0], database([
+    ['set@1|0123456789abcdef|7', 'original'], ['set@1|0123456789abcdef|999', 'changed'],
+  ]));
+  expect(await reading).toEqual(['original']);
+});

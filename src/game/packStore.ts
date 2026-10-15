@@ -127,6 +127,7 @@ export const readStoredPacks = async (packs: readonly StoredPackRef[], signal?: 
   signal?.throwIfAborted();
   if (packs.length > PACK_READ_PAGE) throw new RangeError(`Read at most ${PACK_READ_PAGE} packs per page`);
   if (packs.length === 0) return [];
+  const keys = packs.map(pack => keyOf(pack.setKey, pack.publicKeyHex, pack.nonce));
   if (activeReads >= 2) throw new Error('Pack cache is busy; retry after the current page');
   activeReads++;
   let stopWaiting: (() => void) | undefined;
@@ -160,7 +161,7 @@ export const readStoredPacks = async (packs: readonly StoredPackRef[], signal?: 
           cleanup();
           reject(signal?.aborted ? signal.reason : new Error('Saved pack cache read failed; retry before restoring profile totals'));
         };
-        const requests = packs.map(pack => tx.objectStore(STORE).get(keyOf(pack.setKey, pack.publicKeyHex, pack.nonce)) as IDBRequest<unknown>);
+        const requests = keys.map(key => tx.objectStore(STORE).get(key) as IDBRequest<unknown>);
         tx.oncomplete = () => {
           cleanup();
           if (signal?.aborted) return reject(signal.reason);
