@@ -3,6 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine';
 import { getCard } from '../data/cards';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
+import { isStored } from './history';
 import { backUpSave } from './move';
 import { exportPlayer, importPlayer, isCurrentPlayer, parsePlayer } from './player';
 
@@ -44,9 +45,8 @@ const settings = (value: unknown) => record(value)
   // readSettings clamps any finite slider value into 0..1, so accept what it can read.
   && ['musicVolume', 'effectsVolume'].every((key) => optional(value, key, (v) => typeof v === 'number' && Number.isFinite(v)))
   && ['cardBack', 'packFoil'].every((key) => optional(value, key, text));
-const history = (value: unknown) => Array.isArray(value) && value.every((entry) => record(entry)
-  && text(entry.s) && count(entry.v) && count(entry.n) && text(entry.k)
-  && optional(entry, 'c', text) && text(entry.h) && number(entry.x) && number(entry.t));
+// Same rule as recordPack: an entry it would refuse must never be imported, or every later pack write fails.
+const history = (value: unknown) => Array.isArray(value) && value.every(isStored);
 const pulls = (value: unknown) => Array.isArray(value) && value.every((entry) => ref(entry)
   && record(entry) && number(entry.score) && text(entry.hand) && number(entry.openedAt));
 

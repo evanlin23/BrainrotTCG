@@ -6,6 +6,8 @@ import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils
 import { exportSaveFile, importSaveFile } from './saveFile';
 import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce } from './player';
+import { recordPack } from './history';
+import type { OpenedPack } from './pulls';
 
 const player = (secretKey = 'aa'.repeat(32), nextNonce = 7) => JSON.stringify({ secretKey, name: 'Combo Miner', nextNonce, createdAt: 1 });
 const fixture = () => ({
@@ -90,6 +92,9 @@ describe('Settings backup preflight', () => {
     ['history object', { history: '{}' }],
     ['invalid history entry', { history: '[null]' }],
     ['invalid history cache', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":[],"h":"No Match","x":1,"t":1}]' }],
+    // recordPack refuses these too, so importing one would block every later pack write.
+    ['history set version 0', { history: '[{"s":"genesis","v":0,"n":0,"k":"a","h":"No Match","x":1,"t":1}]' }],
+    ['history without a set id', { history: '[{"s":"","v":1,"n":0,"k":"a","h":"No Match","x":1,"t":1}]' }],
     ['pull log object', { pulls: '{}' }],
     ['invalid pull log reference', { pulls: '[{"setId":"genesis","nonce":-1}]' }],
     ['settings array', { settings: '[]' }],
@@ -112,6 +117,14 @@ describe('Settings backup preflight', () => {
     const backup = JSON.parse(store.get('brainrot-before-import-v1')!);
     expect(backup['brainrot-player-v1']).toBe(player('bb'.repeat(32), 12));
     expect(backup[STORAGE_KEYS.STATS]).toBe('{"packsOpened":12,"holoCards":{}}');
+  });
+
+  it('keeps recording packs after importing a valid history', () => {
+    expect(importSaveFile(JSON.stringify(fixture()))).toBeNull();
+    const next = { setId: ALL_CARDS[0].setId, setVersion: 1, nonce: 1, publicKeyHex: 'abc', openedAt: 2,
+      cards: [{ id: ALL_CARDS[0].id, isHolo: false }], score: { hand: { name: 'No Match' }, score: 5 } } as unknown as OpenedPack;
+    expect(recordPack(next)).toBe(true);
+    expect(JSON.parse(store.get(STORAGE_KEYS.HISTORY)!)).toHaveLength(2);
   });
 
   it('accepts populated current best pulls, modifier counts, achievement refs and the legacy pull log', () => {

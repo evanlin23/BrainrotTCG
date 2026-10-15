@@ -141,6 +141,27 @@ it.each(['QuotaExceededError', 'SecurityError'])(
   60_000,
 );
 
+it('warns when the ticket mapping of a new pack cannot be written to the history', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  expect(banner()).toBeNull();
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === STORAGE_KEYS.HISTORY) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+
+  await openPack(app);
+
+  expect(app.takeErrors(/^Could not save pack history/).length).toBeGreaterThan(0);
+  expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBeNull();
+  // The rest of the progress still saved; the warning says something didn't.
+  expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!).packsOpened).toBe(1);
+  expectAppShown();
+  expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
+  await drainToasts(app);
+}, 60_000);
+
 it('starts on the default set when reading the remembered set throws SecurityError', async () => {
   app = await mountedApp(SEED);
   const getItem = Storage.prototype.getItem;
