@@ -107,4 +107,6 @@ checks the report schema, and this must exit nonzero with zero timing samples:
 
 ## Dependency audit
 
-When the lockfile changes, run `npm audit` and `npm audit --omit=dev`. The findings, their exposure and dispositions are in [DEPENDENCY_ADVISORIES.md](DEPENDENCY_ADVISORIES.md); never use `npm audit fix --force`.
+When the lockfile changes, run `npm audit` and `npm audit --omit=dev`. The findings, their exposure
+and dispositions are in [DEPENDENCY_ADVISORIES.md](DEPENDENCY_ADVISORIES.md). Never use
+`npm audit fix --force`.
