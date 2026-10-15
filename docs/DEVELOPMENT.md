@@ -27,7 +27,7 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 | When | Run |
 | --- | --- |
 | While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
-| Before pushing | `npm run check` (lint, typecheck, all tests, set locks), once |
+| Before pushing | `npm run check` (lint, typecheck, all tests, set locks, card assets), once |
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build | also `npm run build` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
@@ -38,6 +38,12 @@ CI runs `npm run check`, `npm run build`, the Python verifier and the browser sm
 request and on pushes to branches other than main. The deploy workflow runs `npm run check` again before deploying main.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
+
+The card asset check (`npm run check:card-assets`) decodes every registered card WebP and checks
+generated geometry. It covers openable pack wrappers/thumbnails, retained pack art when present,
+finish thumbnails declared by the generator manifest (or present for registered cards), the
+shared alpha frame mask and card back. Missing undeclared finish variants retain the existing
+full-size fallback. Preview outputs and built hosting paths are outside this check.
 
 ## Browser smoke
 
