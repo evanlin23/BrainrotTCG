@@ -38,6 +38,8 @@ export interface OpenedPack extends PullRef {
   cards: CardWithMeta[];
   score: PackScore;
   openedAt: number;
+  /** Already counted in the stats and pack milestones: only its cards still need to be stored. */
+  counted?: boolean;
 }
 
 export const toCardsWithMeta = (pulled: { setId: string; cardId: string; isHolo: boolean; finish?: Finish | null; misprint?: boolean }[]): CardWithMeta[] =>
@@ -93,9 +95,12 @@ interface PendingPack {
   k?: string;
   c: string;
   t: number;
+  /** 1 once the pack has counted (it was put back after that); entries without it count when added. */
+  d?: 1;
 }
 
-const savePendingPack = (pack: OpenedPack) => {
+/** Puts a pack (back) on the shelf; App does this when the collection holding it couldn't be stored. */
+export const savePendingPack = (pack: OpenedPack) => {
   const pending: PendingPack = {
     s: pack.setId,
     v: pack.setVersion,
@@ -103,6 +108,7 @@ const savePendingPack = (pack: OpenedPack) => {
     k: pack.publicKeyHex,
     c: pack.cards.map((c) => encodeCard({ id: c.id, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(','),
     t: pack.openedAt,
+    ...(pack.counted ? { d: 1 as const } : {}),
   };
   try {
     localStorage.setItem(STORAGE_KEYS.PENDING_PACK, JSON.stringify(pending));
@@ -147,7 +153,8 @@ export const takePendingPack = (): OpenedPack | null => {
     const cards = toCardsWithMeta(
       pending.c.split(',').map(decodeCard).map((c) => ({ setId: set.id, cardId: c.id, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1) })),
     ).map((c) => ({ ...c, isRevealed: true }));
-    return { setId: set.id, setVersion: set.version, nonce: pending.n, publicKeyHex: pending.k, cards, score: scoreCards(cards), openedAt: pending.t };
+    const counted = pending.d === 1 ? { counted: true } : {};
+    return { setId: set.id, setVersion: set.version, nonce: pending.n, publicKeyHex: pending.k, cards, score: scoreCards(cards), openedAt: pending.t, ...counted };
   } catch {
     return null;
   }
