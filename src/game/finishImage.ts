@@ -6,6 +6,7 @@ export { recolorFrame } from './frameRecolor';
 
 // Allow slow mobile loads without leaving a finish hidden indefinitely after a stalled request.
 const IMAGE_LOAD_TIMEOUT_MS = 15_000;
+const IMAGE_ENCODE_TIMEOUT_MS = 15_000;
 
 const loadImage = (src: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const img = new Image();
@@ -55,9 +56,19 @@ export const finishedCardImage = (src: string, finish?: Finish | null): Promise<
     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
     recolorFrame(pixels.data, mask.data, finish);
     ctx.putImageData(pixels, 0, 0);
-    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
-      (png) => png ? resolve(png) : reject(new Error('Finish render failed')), 'image/png',
-    ));
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`Finish encoding timed out: ${src}`)), IMAGE_ENCODE_TIMEOUT_MS);
+      try {
+        canvas.toBlob((png) => {
+          clearTimeout(timeout);
+          if (png) resolve(png);
+          else reject(new Error('Finish render failed'));
+        }, 'image/png');
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
     return URL.createObjectURL(blob);
   }).catch((error) => {
     cache.delete(key);
