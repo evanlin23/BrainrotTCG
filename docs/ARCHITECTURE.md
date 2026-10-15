@@ -468,3 +468,40 @@ WebSockets, POSTs, service workers, clipboard, native share, downloads and expor
 submit controls, so sharing tasks may stop at that boundary. It writes a sanitized
 `test-results/agent-audit.json` and never posts, merges or deploys. Agent outcomes are not human
 evidence. No real agent task run has been recorded yet (unrun). Refs #239.
+
+## Proposed display-name/publication policy (#348)
+
+**Owner decisions pending; no matcher/enforcement installed.** Names are nonunique labels beside a
+key fingerprint. Retain released 24-code-point/fixed-character proof rules (spec §7.2); verify the
+original signed bytes, never a normalized substitute. Legacy empty names remain valid. Format,
+cryptographic validity and permitted publication are separate; React escaping is not moderation.
+Entry UI should preview normalization, explain rejected/truncated input and count code points;
+a grapheme or UTF-16 `maxLength` is not that count. Require nonblank new local choices only.
+
+| Owner decision | Recommendation for review |
+| --- | --- |
+| Languages/content | Explicit English scope; disallow targeted slurs/harassment, explicit sexual names, spam/links and false official affiliation |
+| Ordinary slang/swearing | Allow meme slang; owner sets swearing threshold before selecting a preset |
+| Disallowed name in valid existing proof | Keep verification; show “Name hidden” plus fingerprint, with separate policy explanation |
+| New public submission | Reject publication with actionable feedback; retain original signed evidence |
+| Appeals/overrides/removal | Owner chooses contact/process; versioned allowlist and review; rejected-issue removal/rebuild |
+
+Apply one policy version at editable UI and trusted issue/relay intake, including bypassed clients.
+Mask pending/direct pull/profile views, captions/posters and accessible text consistently; private
+backups preserve raw signed evidence. Old external images cannot be recalled. A matcher cannot
+reliably identify impersonation or establish human identity; retain key fingerprints without that claim.
+
+Official READMEs reviewed October 15, 2026: [Obscenity](https://github.com/jo3-l/obscenity) offers an
+English preset, configurable transformations/boundaries and whitelist (MIT); [@2toad/profanity](https://github.com/2Toad/Profanity)
+offers multiple languages, whole-word and Unicode-boundary options (default boundaries are ASCII-
+oriented). Both need explicit false-positive exceptions. A small audited matcher avoids a package
+but makes evasions/boundaries our maintenance responsibility. Evaluate Obscenity first for an
+English policy, without adopting its preset wholesale. Before selection, inspect pinned dependency/
+license data and measure compressed client bytes and short-name cost; benchmarks remain **unrun**.
+
+Planned fixtures include 24/25 code points, astral emoji, combining sequences, empty/space/control/
+bidi input, links, mixed-script/leet evasions, and legitimate substrings such as Scunthorpe/Arsenic.
+Expected moderation outcomes require the approved policy; these are not library pass claims. Bound
+input work; retain existing proof-decoder limits. Full boundary/removal fixtures stay in #348/#21;
+after approval split entry feedback, shared matcher and trusted publication/display implementation.
+No signed name bytes, released proof rules or generator versions change in this proposal.
