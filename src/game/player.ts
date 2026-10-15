@@ -87,6 +87,12 @@ export const getPlayer = (): Player => toPlayer(current());
 /** The ticket number the next pack will use (without consuming it). */
 export const peekNonce = (): number => current().nextNonce;
 
+/** The player and how many tickets it has used, read from one record so neither belongs to another key. */
+export const getPlayerTickets = (): { player: Player; nextNonce: number } => {
+  const record = current();
+  return { player: toPlayer(record), nextNonce: record.nextNonce };
+};
+
 /**
  * Consume the next ticket number. Every opened pack uses a new one. Returns the player it belongs
  * to as well, read from the same record, so a pack never pairs one key with another key's nonce.
