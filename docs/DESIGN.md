@@ -90,6 +90,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **App nav** (`ui/AppNav.tsx`): Open packs, My cards, Rankings, each an icon plus a label. My cards
   switches between Cards and Best pulls with its own small nav. The header keeps the player utilities:
   Player (display name, rewards, Goals & rewards, Save & restore) and a Sound & display gear.
+  Closing Player (Escape, Close or backdrop) saves a changed name; if that fails it stays open once.
 - **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
@@ -98,7 +99,8 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 
 Run the app, then capture every screen at 390×844 and 1440×900 (a Playwright script that opens a
 pack and every sheet is the quickest way). Look for overlap, cut-off text and anything that needs a
-mouse. Keyboard through it: Tab reaches everything, Escape closes the top panel.
+mouse. Keyboard through it: Tab reaches everything, Escape closes the top panel (except Player's
+one refused close above).
 
 ## Proposed local Best cards contract (#337)
 

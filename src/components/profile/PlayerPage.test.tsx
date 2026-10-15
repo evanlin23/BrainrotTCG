@@ -47,6 +47,14 @@ const type = (value: string) => act(() => {
 const clickSave = () => act(() => {
   [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent === 'Save name')!.click();
 });
+const failWrites = () => setItem.mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
+const SAVE_FAILED = "Couldn't save your name in this browser. Try again.";
+/** A pointer close: mousedown moves focus off the field (saving it) before the click lands. */
+const closeBy = (target: 'Close' | 'the backdrop') => {
+  const el = document.querySelector<HTMLElement>(target === 'Close' ? 'button[aria-label="Close"]' : '.sheet-backdrop')!;
+  act(() => { if (target === 'Close') el.focus(); else input().blur(); });
+  act(() => el.click());
+};
 const pressEscape = () => act(() => {
   (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 });
@@ -118,6 +126,17 @@ describe('the status line', () => {
     expect(status()).toBe('Display name saved.');
     expect(playerWrites()).toHaveLength(1);
   });
+
+  it('announces a repeated save failure again', () => {
+    failWrites();
+    type('New Name');
+    clickSave();
+    const shown = document.querySelector('.settings-group [role="status"]')!.firstChild;
+    clickSave();
+    expect(status()).toBe(SAVE_FAILED);
+    // Same text, new node inside the live region, so screen readers hear the second failure too.
+    expect(document.querySelector('.settings-group [role="status"]')!.firstChild).not.toBe(shown);
+  });
 });
 
 describe('closing with an unsaved draft', () => {
@@ -146,5 +165,29 @@ describe('closing with an unsaved draft', () => {
     pressEscape();
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(storedName()).toBe('Original Player');
+  });
+
+  it.each(['Close', 'the backdrop'] as const)('stays open once when that save fails and %s blurred the field first', (target) => {
+    failWrites();
+    type('Unsaved Name');
+    closeBy(target);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(status()).toBe(SAVE_FAILED);
+    expect(input().value).toBe('Unsaved Name');
+    closeBy(target);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(storedName()).toBe('Original Player');
+  });
+
+  it('stays open once more after the name is edited again', () => {
+    failWrites();
+    type('Unsaved Name');
+    pressEscape();
+    type('Edited Again');
+    pressEscape();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(input().value).toBe('Edited Again');
+    pressEscape();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
