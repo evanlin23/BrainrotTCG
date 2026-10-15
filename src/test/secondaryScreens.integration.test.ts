@@ -89,7 +89,7 @@ it('keeps actual App secondary navigation working without changing the selected 
   });
   await app.mount();
   const pack = document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label');
-  for (const [target, content] of [['Collection', '.collection'], ['Profile', '.pulls-page'], ['Achievements', '.achievements'], ['Settings', '.settings-group']]) {
+  for (const [target, content] of [['My cards', '.collection'], ['Player', '.settings-group'], ['Sound & display', '.settings-group']]) {
     await app.interact(() => { button(target).focus(); button(target).click(); });
     await app.until(`${target} loads its production controls`, () => {
       expect(document.querySelector(`[role="dialog"]${content}, [role="dialog"] ${content}`)).not.toBeNull();
