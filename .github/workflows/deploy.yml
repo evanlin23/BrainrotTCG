@@ -7,48 +7,107 @@ on:
 
 permissions:
   contents: read
-  issues: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
 
 jobs:
-  independent-verifier:
+  source:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    steps:
+      # No checkout, secrets or production token before this exact, case-sensitive guard.
+      - name: Require an authorized main source
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_EVENT: ${{ github.event_name }}
+        run: |
+          test "$SOURCE_REPOSITORY" = evanlin23/BrainrotTCG
+          test "$SOURCE_REF" = refs/heads/main
+          case "$SOURCE_EVENT" in push|workflow_dispatch) ;; *) exit 1 ;; esac
+
+  independent-verifier:
+    needs: source
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.13'
       - run: python -m pip install cryptography==50.0.1
       - run: python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json
 
-  build:
-    # This job can create/publish Cloudflare Pages, so verification must gate it too.
-    needs: independent-verifier
+  site:
+    needs: [source, independent-verifier]
     runs-on: ubuntu-latest
+    # Owner-side main-only environment restrictions also apply to credential discovery.
+    environment: github-pages
+    outputs:
+      host: ${{ steps.site.outputs.host }}
+      url: ${{ steps.site.outputs.url }}
+      base: ${{ steps.site.outputs.base }}
     steps:
-      - name: Require the main source ref
+      # Read-only provider lookup: no checkout/npm or project creation in this job.
+      - id: site
         env:
-          SOURCE_REF: ${{ github.ref }}
-        # Shell comparison is case-sensitive; Actions expression equality is not.
-        run: test "$SOURCE_REF" = refs/heads/main
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PROJECT: ${{ vars.CLOUDFLARE_PROJECT || 'brainrottcg' }}
+          CUSTOM_URL: ${{ vars.SITE_URL }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from urllib.error import HTTPError, URLError
+          from urllib.parse import urlsplit
+          from urllib.request import Request, urlopen
+          token, account, project = (os.environ[key] for key in ('CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'PROJECT'))
+          host, url, base = 'github', 'https://evanlin23.github.io/BrainrotTCG/', '/BrainrotTCG/'
+          if token and account:
+              if not re.fullmatch(r'[a-f0-9]{32}', account) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,57}', project):
+                  raise SystemExit('Invalid Cloudflare account/project configuration')
+              request = Request(f'https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/{project}', headers={'Authorization': f'Bearer {token}'})
+              try:
+                  with urlopen(request, timeout=30) as response:
+                      result = json.load(response)
+                  subdomain = result.get('result', {}).get('subdomain', '') if result.get('success') else ''
+                  if re.fullmatch(r'[a-z0-9-]+\.pages\.dev', subdomain):
+                      host, url, base = 'cloudflare', os.environ['CUSTOM_URL'] or f'https://{subdomain}/', '/'
+                  else:
+                      print('::warning::Cloudflare project is unavailable; preserving GitHub Pages fallback. See docs/HOSTING.md for first-project setup.')
+              except (HTTPError, URLError, TimeoutError, ValueError):
+                  print('::warning::Cloudflare lookup failed; preserving GitHub Pages fallback.')
+          parsed = urlsplit(url)
+          if any(char.isspace() for char in url) or parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.port is not None or parsed.query or parsed.fragment or (host == 'cloudflare' and parsed.path != '/'):
+              raise SystemExit('SITE_URL must be a root HTTPS address without credentials, port, query or fragment')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'host={host}\nurl={url}\nbase={base}\n')
+          PY
 
+  build:
+    needs: [source, independent-verifier, site]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      manifest_sha256: ${{ steps.seal.outputs.manifest_sha256 }}
+    env:
+      SITE_HOST: ${{ needs.site.outputs.host }}
+      SITE_URL: ${{ needs.site.outputs.url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
-
+      - run: python3 scripts/deploy_contract.py source
+      - run: python3 -m unittest discover -s scripts -p 'deploy_contract_test.py'
       - run: npm ci
       - run: npm run check
-      # Verify Hall of Fame issues and bake the list into the site. Results for issues unchanged
-      # since the last deploy are cached; the key covers everything that decides a result.
       - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: hof-build-cache.json
@@ -61,85 +120,111 @@ jobs:
         with:
           path: hof-build-cache.json
           key: hof-build-${{ hashFiles('src/engine/**', 'src/content/sets/**/*.json', 'src/content/sets/index.ts', 'scripts/hall-of-fame.ts') }}-${{ github.run_id }}
-      # Where the site lives: Cloudflare Pages once its two secrets are set (docs/HOSTING.md),
-      # otherwise GitHub Pages as before. Secrets only reach this step through its environment.
-      - id: site
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PROJECT: ${{ vars.CLOUDFLARE_PROJECT || 'brainrottcg' }}
-          CUSTOM_URL: ${{ vars.SITE_URL }}
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.event.repository.name }}
-        run: |
-          github() { { echo "host=github"; echo "url=https://$OWNER.github.io/$REPO/"; echo "base=/$REPO/"; } >> "$GITHUB_OUTPUT"; }
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then github; exit 0; fi
-          # The project's address, creating the project on the first run. If Cloudflare isn't ready
-          # (a wrong ID or token, or a new account, which can't create projects for 48 hours), say
-          # why and keep deploying to GitHub Pages, so the site never stops updating.
-          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects"
-          res=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$api/$PROJECT" || true)
-          if [ "$(echo "$res" | jq -r '.success' 2>/dev/null)" != true ]; then
-            res=$(curl -sS -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' \
-              -d "{\"name\":\"$PROJECT\",\"production_branch\":\"main\"}" "$api" || true)
-          fi
-          sub=$(echo "$res" | jq -r '.result.subdomain // empty' 2>/dev/null || true)
-          if [ -z "$sub" ]; then
-            echo "::warning::Cloudflare Pages isn't ready, so this deploy stays on GitHub Pages. Cloudflare said: $(echo "$res" | jq -c '.errors // .' 2>/dev/null || echo "$res")"
-            github; exit 0
-          fi
-          echo "Cloudflare Pages project $PROJECT: https://$sub/"
-          { echo "host=cloudflare"; echo "url=${CUSTOM_URL:-https://$sub/}"; echo "base=/"; } >> "$GITHUB_OUTPUT"
-      # Link-preview pictures (scripts/preview-pages.ts) take minutes to draw from scratch; keep them.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .cache/previews
           key: previews-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp') }}
           restore-keys: previews-
-      # After a move, the build knows the old address, so it can take saves handed over from it
-      # (src/game/move.ts); a build that hasn't moved has no old address and takes nothing.
       - run: npm run build
         env:
-          BASE_PATH: ${{ steps.site.outputs.base }}
-          SITE_URL: ${{ steps.site.outputs.url }}
-          VITE_OLD_ORIGIN: ${{ steps.site.outputs.host == 'cloudflare' && format('https://{0}.github.io', github.repository_owner) || '' }}
-          VITE_OLD_SITE_URL: ${{ steps.site.outputs.host == 'cloudflare' && format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) || '' }}
-      - name: Deploy to Cloudflare Pages
-        if: steps.site.outputs.host == 'cloudflare'
+          BASE_PATH: ${{ needs.site.outputs.base }}
+          VITE_OLD_ORIGIN: ${{ needs.site.outputs.host == 'cloudflare' && 'https://evanlin23.github.io' || '' }}
+          VITE_OLD_SITE_URL: ${{ needs.site.outputs.host == 'cloudflare' && 'https://evanlin23.github.io/BrainrotTCG/' || '' }}
+      - name: Prebuild save-compatible old-origin forwarding
+        if: needs.site.outputs.host == 'cloudflare'
+        env:
+          OLD_BASE_PATH: /BrainrotTCG/
+        run: |
+          npx tsx scripts/redirect-site.ts "$SITE_URL" pages
+          OUT_DIR=pages PAGES_ONLY=1 BASE_PATH="$OLD_BASE_PATH" npx tsx scripts/preview-pages.ts
+      - name: Seal the exact deployment files
+        id: seal
+        run: |
+          mkdir release
+          mv dist release/dist
+          if [ "$SITE_HOST" = cloudflare ]; then mv pages release/pages; fi
+          python3 scripts/deploy_contract.py seal release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: verified-site-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+
+  publish:
+    needs: [source, independent-verifier, site, build]
+    # No always(): failed, skipped, missing or cancelled prerequisites cannot publish.
+    if: needs.build.result == 'success' && needs.independent-verifier.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ needs.site.outputs.url }}
+    # Only successfully built main jobs reach this group. Wrong-ref dispatch cannot cancel main.
+    concurrency:
+      group: production-pages
+      cancel-in-progress: false
+    env:
+      SITE_HOST: ${{ needs.site.outputs.host }}
+      SITE_URL: ${{ needs.site.outputs.url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: release
+          merge-multiple: true
+      - name: Reject stale or mismatched deployment files
+        env:
+          MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/deploy_contract.py verify release
+          python3 scripts/deploy_contract.py current-main
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: needs.site.outputs.host == 'cloudflare'
+        with:
+          node-version: 22
+      - name: Install the pinned publisher without production credentials
+        if: needs.site.outputs.host == 'cloudflare'
+        run: npm install --prefix "$RUNNER_TEMP/deploy-cli" --ignore-scripts --no-audit --no-fund wrangler@4.141.0
+      - name: Recheck source immediately before Cloudflare publication
+        if: needs.site.outputs.host == 'cloudflare'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/deploy_contract.py current-main
+      - name: Deploy the verified Cloudflare files
+        if: needs.site.outputs.host == 'cloudflare'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT: ${{ vars.CLOUDFLARE_PROJECT || 'brainrottcg' }}
-        run: npx --yes wrangler@4.141.0 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
-      # The old address only starts forwarding once the new one is serving this exact build.
-      - name: Check the new address serves this build
-        if: steps.site.outputs.host == 'cloudflare'
-        env:
-          URL: ${{ steps.site.outputs.url }}
+        # No npm ci, build or repository package hooks in the credential-bearing step.
+        run: '"$RUNNER_TEMP/deploy-cli/node_modules/.bin/wrangler" pages deploy release/dist --project-name="$PROJECT" --branch=main --commit-hash="$GITHUB_SHA" --commit-dirty=true'
+      - name: Verify the new address before forwarding old saves
+        if: needs.site.outputs.host == 'cloudflare'
         run: |
-          asset=$(grep -o 'assets/index-[A-Za-z0-9_-]*\.js' dist/index.html | head -1)
-          for i in $(seq 1 30); do curl -fsS "$URL" | grep -q "$asset" && exit 0; sleep 10; done
-          echo "::error::$URL isn't serving this build"; exit 1
-      - name: The old address forwards to the new one, bringing saves along
-        if: steps.site.outputs.host == 'cloudflare'
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 15 "${SITE_URL}deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" | cmp -s release/dist/deployment-id.json -; then exit 0; fi
+            sleep 10
+          done
+          echo '::error::The new address is not serving this verified build'; exit 1
+      - name: Recheck source before changing the old address
         env:
-          URL: ${{ steps.site.outputs.url }}
-          OLD_BASE_PATH: /${{ github.event.repository.name }}/
-        run: |
-          npx tsx scripts/redirect-site.ts "$URL" pages
-          # Old shared links keep their card preview, and forward through the page above.
-          OUT_DIR=pages PAGES_ONLY=1 BASE_PATH="$OLD_BASE_PATH" SITE_URL="$URL" npx tsx scripts/preview-pages.ts
-
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/deploy_contract.py current-main
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
-          path: ${{ steps.site.outputs.host == 'cloudflare' && 'pages' || 'dist' }}
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
+          name: pages-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ needs.site.outputs.host == 'cloudflare' && 'release/pages' || 'release/dist' }}
       - uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
-        id: deployment
+        with:
+          artifact_name: pages-${{ github.run_id }}-${{ github.run_attempt }}

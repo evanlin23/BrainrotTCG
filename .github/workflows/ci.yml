@@ -19,6 +19,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: python3 -m unittest discover -s scripts -p 'deploy_contract_test.py'
       # Link-preview pictures (scripts/preview-pages.ts) take minutes to draw from scratch; keep them.
       - uses: actions/cache@v4
         with:
