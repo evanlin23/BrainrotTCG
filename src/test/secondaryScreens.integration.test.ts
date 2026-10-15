@@ -3,6 +3,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ComponentType, ReactNode } from 'react';
 import { mountedApp } from './mountedApp';
+import { STORAGE_KEYS } from '../constants/config';
+import { getSetCards } from '../data/cards';
+import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
 afterEach(async () => {
@@ -104,6 +107,25 @@ it('keeps actual App secondary navigation working without changing the selected 
     expect(document.activeElement).toBe(button(target));
     expect(document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label')).toBe(pack);
   }
+});
+
+it('opens the era of the selected pack first in My cards', async () => {
+  // One card each of Web Ancients (the selected pack) and the two newest eras. Without the selected
+  // era, the collection would open the two newest and leave Web Ancients collapsed.
+  const cards = ['web-ancients', 'spring-breakdown', 'right-now'].map((id) => getSetCards(id)[0]);
+  app = await mountedApp({
+    'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Selected era fixture', nextNonce: 0, createdAt: 1 }),
+    'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+    [STORAGE_KEYS.SELECTED_SET]: 'web-ancients',
+    [STORAGE_KEYS.COLLECTION]: JSON.stringify(Object.fromEntries(cards.map((card) => [card.key, { card, normalCount: 1, holoCount: 0 }]))),
+    [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
+  });
+  await app.mount();
+  const headers = () => [...document.querySelectorAll('[role="dialog"].collection .collection-set-toggle')];
+  await app.interact(() => button('My cards').click());
+  await app.until('the real collection loads under My cards', () => expect(headers()).toHaveLength(3));
+  const open = headers().filter((h) => h.getAttribute('aria-expanded') === 'true').map((h) => h.querySelector('.collection-set-name')?.textContent);
+  expect(open).toEqual(['Web Ancients', 'Summer of Slop']);
 });
 
 // The App's own Rankings, Best pulls (titled "My cards", like the collection) and Share sheets, through
