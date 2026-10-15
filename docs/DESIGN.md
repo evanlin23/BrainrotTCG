@@ -20,7 +20,8 @@ between other things, so every rule below starts from a 390 px wide screen.
    One; everything else is Archivo, whose condensed widths set labels like a grading slab. Numbers are tabular.
 6. **Colour carries meaning.** Surfaces are a binder-black ramp with card-stock white text. There is
    one accent, price-sticker yellow, and it only marks the thing to do next (primary buttons,
-   progress, the "New" set). Foil only ever appears on holo cards. Rarity colours are identical
+   progress, the "New" set). Foil (`--foil`) only marks holo: holo cards, holo copies and the Master
+   badge; the pack wrapper's foil is a separate level reward. Rarity colours are identical
    everywhere and always come with their symbol (● ◆ ★ ★★ ★★★ ✦), so colour is never the only cue.
 7. **Celebrate in proportion.** A common card gets a flip; a Brainrot pull gets the confetti.
    Achievement toasts arrive one at a time, small and out of the way; a burst of unlocks becomes one
@@ -40,7 +41,10 @@ The look comes from collecting real cards: binder pages, sleeves, set checklists
 ("SOS 007/012"), set codes printed in the set's colour, rarity marks, and graded-card labels for
 anything verified. Generic app chrome gives a page away as generated. Don't use:
 
-- gradients on app chrome (buttons, text, borders or backgrounds); card foil, rarity borders, and special card finishes are the exceptions;
+- new gradients on app chrome (buttons, text, borders or backgrounds); cards and their finishes,
+  rarity colours (the Brainrot pill), holo foil and the pack foil use them. A few older chrome
+  gradients remain (the current set's colour stripe, the special-reveal rays and banner); don't
+  copy them;
 - glows, glassy blur, or tinted "neon" shadows on app chrome (rare card reveals and finish tells use targeted edge glows);
 - emoji as bullets or markers (🧠 before every score, ✨ for holo); emoji stay where they're content,
   like an achievement's icon or a share post;
@@ -55,7 +59,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | --- | --- | --- |
 | Surfaces | `--bg`, `--bg-elevated`, `--surface`, `--surface-2`, `--surface-3` | lighter = closer |
 | Text | `--text`, `--text-muted`, `--text-subtle` | all AA on `--bg-elevated` |
-| Accent | `--brand` (sticker yellow), `--brand-strong`, `--brand-ink` (text on yellow), `--foil` | foil is for holo cards only; `--brand-gradient` is kept as an alias of the flat accent |
+| Accent | `--brand` (sticker yellow), `--brand-strong`, `--brand-ink` (text on yellow), `--foil` | `--foil` marks holo only (the pack's reward foil is `--pack-foil`); `--brand-gradient` is kept as an alias of the flat accent |
 | Rarity | `--rarity-common` … `--rarity-brainrot` | never redefine locally |
 | Type | `--font-body`, `--font-display`, `--font-logo`, `--text-xs` … `--text-3xl` | |
 | Space | `--space-1` (4 px) … `--space-7` (48 px), `--gutter` | 4 px grid |
@@ -72,8 +76,9 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Sheet** (`ui/Sheet.tsx`): every panel. A bottom sheet on phones, a centred dialog from 720px.
   Title, optional subtitle and sticky footer, close button, Escape, focus trap, scroll lock, focus
   returns to the opener. Sheets stack (a card opened from the collection sits on top of it). Sizes:
-  `sm` (settings, share), `md` (one pull), `lg` (collection, history, achievements, Hall of Fame),
-  `full` (supported full-viewport variant); `bare` for a single big card.
+  `sm` (settings, share), `md` (one pull), `lg` (collection, profile with its pull history,
+  achievements, pack shelf, Hall of Fame), `full` (supported full-viewport variant); `bare` for a
+  single big card.
 - **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one sheet holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.
