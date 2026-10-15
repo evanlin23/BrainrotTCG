@@ -23,6 +23,17 @@ export interface InboxContext {
   log?: (line: string) => void;
 }
 
+/**
+ * An error's text made safe for one Actions log line. It can carry proof or relay content, so line
+ * breaks and other control characters (which could start a line with a `::workflow-command`) become
+ * spaces, and it is cut to a readable length.
+ */
+const logSafeError = (error: unknown, max = 200): string => {
+  const text = (error instanceof Error ? error.message : String(error)).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, ' ');
+  const chars = [...text];
+  return chars.length > max ? `${chars.slice(0, max).join('')}…` : text;
+};
+
 /** Oldest first; each pull is filed at most once, and only if it verifies and qualifies. */
 export const processInbox = async (events: readonly NostrEvent[], ctx: InboxContext): Promise<{ added: number; deferred: number }> => {
   let added = 0;
@@ -48,7 +59,7 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
     try {
       pull = await verifyProof(proof, ctx.lookup, ctx.ticketFn);
     } catch (error) {
-      ctx.log?.(`${event.id}: didn't verify (${error instanceof Error ? error.message : String(error)})`);
+      ctx.log?.(`${event.id}: didn't verify (${logSafeError(error)})`);
       continue;
     }
     if (!(ctx.accepts ? ctx.accepts(pull) : qualifiesForHallOfFame(pull.score))) {
@@ -60,7 +71,7 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
     } catch (error) {
       // GitHub hiccup: leave this event unhandled so the next run tries again, and stop for now.
       ctx.seen.delete(event.id);
-      ctx.log?.(`${event.id}: couldn't file it (${error instanceof Error ? error.message : String(error)}); will retry`);
+      ctx.log?.(`${event.id}: couldn't file it (${logSafeError(error)}); will retry`);
       return { added, deferred: ordered.length - i };
     }
     ctx.filed.add(id);

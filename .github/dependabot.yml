@@ -9,6 +9,16 @@ updates:
       timezone: America/Chicago
     open-pull-requests-limit: 3
 
+  # Wrangler for the Cloudflare Pages deploy, locked apart from the app (tools/wrangler).
+  - package-ecosystem: npm
+    directory: /tools/wrangler
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 1
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

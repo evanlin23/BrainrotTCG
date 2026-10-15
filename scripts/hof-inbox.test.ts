@@ -88,4 +88,24 @@ describe('Hall of Fame inbox', () => {
     fail = false;
     expect((await processInbox(events, ctx)).added).toBe(1);
   });
+
+  it('logs untrusted error text on one capped line, so it cannot start a workflow command', async () => {
+    const hostile = `bad\n::error::x\r\n::add-mask::y\u2028::warning::z\0${'a'.repeat(1000)}`;
+    const lines: string[] = [];
+    const log = (line: string) => void lines.push(line);
+    const events = [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind))];
+    // A proof that doesn't verify (an unknown set's name comes from the proof itself), then a filing error.
+    const lookup = () => {
+      throw new Error(hostile);
+    };
+    await processInbox(events, context({ log, lookup }).ctx);
+    await processInbox(events, context({ log, file: async () => lookup() }).ctx);
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line).not.toMatch(/[\p{Cc}\u2028\u2029]/u);
+      expect(line).not.toMatch(/^\s*::/);
+      expect(line).toContain('bad ::error::x ::add-mask::y ::warning::z a');
+      expect(line.length).toBeLessThan(400);
+    }
+  });
 });
