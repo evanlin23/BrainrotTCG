@@ -75,6 +75,7 @@ it('keeps unreadable collection entries through pack writes and offers them in t
   expect(warnings()).toEqual([expect.stringMatching(/Unreadable collection data was kept aside/)]);
   expect(warnings()[0]).not.toMatch(/couldn't be saved/);
   await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
   expect(document.querySelector('.settings p[role="alert"].save-warning')?.textContent).toMatch(/kept aside/);
   expect(warnings()).toHaveLength(1);
   await app.interact(() => button('Close').click());
@@ -135,6 +136,7 @@ it('lets the player hide the kept-aside note until something new is kept aside; 
   await app.interact(() => button('Hide note').click());
   expect(warnings()).toEqual([]);
   await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
   expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
   await app.interact(() => button('Close').click());
 

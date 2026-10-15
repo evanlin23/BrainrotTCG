@@ -3,16 +3,10 @@ import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
 import AchievementToasts, { type ToastItem } from './components/achievements/AchievementToasts';
 import AppNav, { type NavTarget } from './components/ui/AppNav';
-import MyProfilePage from './components/profile/MyProfilePage';
-import ProfileViewerPage from './components/profile/ProfileViewerPage';
-import AchievementsPage from './components/achievements/AchievementsPage';
-import HallOfFamePage from './components/pages/HallOfFamePage';
-import SettingsPage from './components/pages/SettingsPage';
-import CollectionBrowser from './components/collection/CollectionBrowser';
+import DeferredSheet from './components/ui/DeferredSheet';
 import SetPicker from './components/sets/SetPicker';
-import ShareSheet, { type ShareTarget } from './components/share/ShareSheet';
+import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
-import PullViewerPage from './components/share/PullViewerPage';
 import { cardPoints, scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
@@ -39,6 +33,16 @@ import {
 } from './utils/achievementChecks';
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
+
+// Keep loaders stable, and request a secondary screen only when its existing state opens it.
+const loadProfile = () => import('./components/profile/MyProfilePage');
+const loadPublicProfile = () => import('./components/profile/ProfileViewerPage');
+const loadAchievements = () => import('./components/achievements/AchievementsPage');
+const loadHallOfFame = () => import('./components/pages/HallOfFamePage');
+const loadSettings = () => import('./components/pages/SettingsPage');
+const loadCollection = () => import('./components/collection/CollectionBrowser');
+const loadShare = () => import('./components/share/ShareSheet');
+const loadPull = () => import('./components/share/PullViewerPage');
 
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
@@ -513,50 +517,44 @@ function App() {
 
       {/* Achievements Page */}
       {isAchievementsOpen && (
-        <AchievementsPage
-          unlockedAchievements={achievements}
-          onClose={() => setIsAchievementsOpen(false)}
-          progress={achievementProgress}
-          onSharePull={(ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) })}
-        />
+        <DeferredSheet load={loadAchievements} title="Achievements" screenProps={{
+          unlockedAchievements: achievements,
+          onClose: () => setIsAchievementsOpen(false),
+          progress: achievementProgress,
+          onSharePull: (ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) }),
+        }} />
       )}
 
       {/* Hall of Fame Page */}
       {isHallOfFameOpen && (
-        <HallOfFamePage
-          onClose={() => setIsHallOfFameOpen(false)}
-        />
+        <DeferredSheet load={loadHallOfFame} title="Hall of Fame" screenProps={{ onClose: () => setIsHallOfFameOpen(false) }} />
       )}
 
       {isProfileOpen && (
-        <MyProfilePage
-          stats={stats}
-          settings={settings}
-          onSettingsChange={handleSettingsChange}
-          onClose={() => setIsProfileOpen(false)}
-          onSharePull={(entry, cards) =>
+        <DeferredSheet load={loadProfile} title="Profile" screenProps={{
+          stats,
+          settings,
+          onSettingsChange: handleSettingsChange,
+          onClose: () => setIsProfileOpen(false),
+          onSharePull: (entry, cards) =>
             setShareTarget({
               ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
               cards,
               score: scoreCards(cards),
-            })
-          }
-        />
+            }),
+        }} />
       )}
 
       {/* Collection Browser */}
       {isCollectionOpen && (
-        <CollectionBrowser
-          collection={collection}
-          onClose={() => setIsCollectionOpen(false)}
-        />
+        <DeferredSheet load={loadCollection} title="Collection" screenProps={{ collection, onClose: () => setIsCollectionOpen(false) }} />
       )}
 
-      {shareTarget && <ShareSheet target={shareTarget} onClose={() => setShareTarget(null)} />}
+      {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
 
-      {viewProof && <PullViewerPage proof={viewProof} onClose={closePullViewer} />}
+      {viewProof && <DeferredSheet load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closePullViewer }} />}
 
-      {viewProfile && <ProfileViewerPage proof={viewProfile} onClose={closePullViewer} />}
+      {viewProfile && <DeferredSheet load={loadPublicProfile} title="Shared profile" screenProps={{ proof: viewProfile, onClose: closePullViewer }} />}
 
       {brokenLink && (
         <Sheet title="This link doesn't work" onClose={closePullViewer} size="sm">
@@ -568,13 +566,13 @@ function App() {
 
       {/* Settings Page */}
       {isSettingsOpen && (
-        <SettingsPage
-          settings={settings}
-          onSettingsChange={handleSettingsChange}
-          onClose={() => setIsSettingsOpen(false)}
-          onImportSave={handleImportSave}
-          saveWarning={saveWarning}
-        />
+        <DeferredSheet load={loadSettings} title="Settings" screenProps={{
+          settings,
+          onSettingsChange: handleSettingsChange,
+          onClose: () => setIsSettingsOpen(false),
+          onImportSave: handleImportSave,
+          saveWarning,
+        }} />
       )}
     </div>
   );
