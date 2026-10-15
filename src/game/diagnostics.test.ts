@@ -72,4 +72,22 @@ describe('allowlisted optional diagnostics', () => {
     expect(diagnosticSnapshot({}).events).toEqual([{ step: 1, event: 'unhandled-error' }, { step: 2, event: 'route-change' }]);
     expect(JSON.stringify(diagnosticSnapshot({}))).not.toContain('PRIVATE_SAVE');
   });
+
+  it('records unhandled rejections without their reason, and stops on teardown', () => {
+    const target = new EventTarget() as Window;
+    setDiagnosticCapture(true);
+    const stop = observeDiagnosticEvents(target);
+    const rejection = Object.assign(new Event('unhandledrejection'), { reason: new Error('PRIVATE_SAVE') });
+    target.dispatchEvent(rejection);
+    stop();
+    target.dispatchEvent(rejection);
+    expect(diagnosticSnapshot({}).events).toEqual([{ step: 1, event: 'unhandled-error' }]);
+    expect(JSON.stringify(diagnosticSnapshot({}))).not.toContain('PRIVATE_SAVE');
+  });
+
+  it.each([
+    ['slow-2g', 'slow'], ['2g', 'slow'], ['3g', 'medium'], ['4g', 'fast'], ['5g', 'unknown'], [undefined, 'unknown'],
+  ])('reduces connection type %s to %s', (effectiveType, connection) => {
+    expect(diagnosticSnapshot({ effectiveType }).connection).toBe(connection);
+  });
 });
