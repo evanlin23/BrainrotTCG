@@ -12,6 +12,6 @@ if [ -f "$state" ]; then
   echo "--- $state ---"
   head -80 "$state"
 else
-  echo "No $state yet. Run /work to start or resume the queue."
+  echo "No $state here. /work rebuilds it from the \"Claude work ledger\" issue; merge nothing until it does."
 fi
 exit 0

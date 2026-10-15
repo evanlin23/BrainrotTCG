@@ -19,8 +19,8 @@ automatically.
 
 - While iterating: `npx vitest run <path>` for what you touched, `npx tsc --noEmit -p .` for types.
 - Before pushing: `npm run check` (lint, types, all tests, set locks), once.
-- CI runs `npm run build` and the independent Python verifier on every push. Leave those to CI unless
-  you changed `src/engine`, `spec/` or the build.
+- CI runs `npm run build` and the independent Python verifier on every PR and feature-branch push.
+  Leave those to CI unless you changed `src/engine`, `spec/` or the build.
 
 ## Docs (read only the section you need)
 
@@ -32,13 +32,19 @@ docs/HOSTING.md (deploys).
 
 The owner wants hands-off engineering from one Claude window, within a weekly usage limit.
 
-- `/work` runs the queue. The main thread coordinates and stays small: it holds the ledger in
-  `.claude/state/NOW.md`, briefs, and short reports. Each task runs in a fresh `implementer`
-  subagent and gets an independent `reviewer`. A SessionStart hook re-injects the ledger after
-  compaction or /clear.
+- `/work` runs the queue. The main thread coordinates and stays small: it holds the ledger, briefs
+  and short reports. Each task runs in a fresh `implementer` subagent and gets an independent
+  `reviewer`. The ledger is `.claude/state/NOW.md` (a SessionStart hook re-injects it after
+  compaction or /clear), mirrored in the body of the open "Claude work ledger" issue so it survives
+  a lost container.
 - The owner allows Claude to close duplicate, superseded or obsolete PRs (with a one-line reason)
-  and to merge PRs. Merge only when CI is green on the final head, a reviewer approved it, it is up
-  to date with main and it isn't on hold in the ledger. Then check main's CI and deploy.
+  and to merge a PR when all of these hold:
+  - its base is main and CI is green on its head commit;
+  - a reviewer approved that head commit (a later conflict-free merge from main needs no new review);
+  - it isn't a draft (undraft only after that approval) and isn't on hold in the ledger;
+  - it doesn't add a card set or remove a set's `draft` flag. The owner approves tone, rights and art.
+  If the ledger's holds can't be loaded, merge nothing. After merging, check that main's deploy run
+  succeeds.
 - Ask the owner only for external access or decisions that are genuinely theirs. Add them under
   `needs owner` in the ledger and keep working on other items.
 
@@ -46,8 +52,10 @@ The owner wants hands-off engineering from one Claude window, within a weekly us
 
 - Locate, then read: Grep or Glob first, then Read with offset/limit. Don't open package-lock.json,
   spec/vectors*.json, CREDITS.md files or images unless the task is about them.
-- GitHub: pass `fields` and `perPage` of 10 or fewer on list and search calls. To review PR code,
-  `git fetch origin <branch>`, then `git diff --stat` and per-file diffs, not whole-PR dumps.
+- GitHub: pass `fields` on list and search calls, and keep `perPage` at 10 unless you only asked for
+  short fields such as numbers, titles and branches. List calls don't return PR sizes or merge state.
+  For sizes and code, `git fetch origin <branch>`, then `git diff --stat` and per-file diffs; fetch
+  one PR only when you need its merge state.
 - Command output: summarize it. On failure quote only the failing test or lines.
 - Don't re-run checks that passed on unchanged code, or re-read files already in context.
 - Subagents: `implementer` and `reviewer` for tasks; `scout` (cheap search), `researcher` (web) and

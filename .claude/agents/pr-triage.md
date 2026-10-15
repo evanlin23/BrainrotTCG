@@ -11,9 +11,9 @@ push, merge or close anything; you report.
 
 For each PR you're given:
 
-1. Metadata with GitHub tools, always passing `fields` (title, draft, mergeable_state, additions,
-   deletions, changed_files, updated_at, head, base) and the head commit's check runs.
-2. `git fetch origin <head-branch>`, then `git diff --stat origin/main...origin/<head-branch>`.
+1. Metadata: the PR's title, draft state, base and head, its merge state (fetch the single PR) and
+   its head commit's check runs.
+2. Size: `git fetch origin <head-branch>`, then `git diff --stat origin/main...origin/<head-branch>`.
    Read per-file diffs only for files in `src/engine`, `spec/`, `src/game` storage code or
    `.github/workflows`, and only as far as needed for a verdict.
 3. Compare against the other PRs you were given: same issue, same files, or one superseding another.
