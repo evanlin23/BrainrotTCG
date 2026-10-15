@@ -88,7 +88,13 @@ npm run dev
 | `npm run cards` | build card images into `src/content/sets/<set>/cards/` |
 | `npm run prompts` | write free Gemini-app prompt sheets for each set's art |
 | `npm run check:sets -- --update` | lock a new set version |
+| `npm run check:card-assets` | decode registered card/shared WebPs and check generated geometry (also in `check`) |
 | `npm run og-image` | rebuild the link preview image from the newest sets |
+
+The asset check includes openable pack wrappers/thumbnails, retained pack art when present,
+finish thumbnails declared by the generator manifest (or present for registered cards), the
+shared alpha frame mask and card back. Missing undeclared finish variants retain the existing
+full-size fallback. Preview outputs and built hosting paths are outside this check.
 
 ## Adding cards and sets
 
