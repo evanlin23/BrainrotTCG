@@ -78,7 +78,18 @@ describe('pending pack when storage refuses to remove it', () => {
     refuseWrite = (k) => k === LEGACY;
     clearPendingPack(4);
     expect(data.get(LEGACY)).toBe(PENDING);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining('may add a stored pack again'));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('the next load may add it again, though the collection has it'));
+    error.mockRestore();
+  });
+
+  it("stays quiet about an entry with nothing to add that it can't remove: no load adds anything from it", () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    data.set(LEGACY, JSON.stringify(entry(4, { k: 'ab'.repeat(32) })));
+    refuseRemove = (k) => k === LEGACY;
+    refuseWrite = (k) => k === LEGACY;
+    expect(takePendingPacks()).toEqual([]);
+    expect(takePendingPacks()).toEqual([]);
+    expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
 

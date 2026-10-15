@@ -64,7 +64,12 @@ export function browserDiagnostics() {
   });
 }
 
-/** Only installed after explicit opt-in. Payloads are deliberately discarded, even in errors. */
+/**
+ * Listens on `target` from the moment it is called; it does not check opt-in itself. Only
+ * setBrowserDiagnosticCapture(true), behind the report's checkbox, installs it, and recordDiagnostic
+ * drops events while capture is off. Handlers record a fixed category and never read the event, so
+ * error text, stacks and URLs are never kept.
+ */
 export function observeDiagnosticEvents(target: Window) {
   const error = () => recordDiagnostic('unhandled-error');
   const route = () => recordDiagnostic('route-change');

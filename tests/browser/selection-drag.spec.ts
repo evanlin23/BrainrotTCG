@@ -95,7 +95,8 @@ test('inputs, copyable text and links keep selection and activation', async ({ p
   expect(await name.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd]))
     .toEqual([0, 'Browser smoke fixture'.length]);
 
-  const playerId = player.getByRole('status');
+  // The ID is plain text; the status region beside it only carries save results.
+  const playerId = player.getByRole('paragraph').filter({ hasText: /^Player ID #/ });
   await expect(playerId).toContainText('Player ID #');
   await playerId.click({ clickCount: 3 });
   expect(await selectedText(page)).toContain((await playerId.textContent())!);
@@ -104,7 +105,8 @@ test('inputs, copyable text and links keep selection and activation', async ({ p
 
   await page.getByRole('button', { name: 'Sound & display', exact: true }).click();
   await dialog('Sound & display').getByRole('button', { name: 'Report a problem', exact: true }).click();
-  const report = page.locator('#diagnostic-report-text');
+  // By its label: the textarea's id comes from useId, so it isn't a stable selector.
+  const report = dialog('Report a problem').getByRole('textbox', { name: 'Report details (editable)', exact: true });
   await expect(report).toBeVisible();
   await report.focus();
   await page.keyboard.press('ControlOrMeta+A');

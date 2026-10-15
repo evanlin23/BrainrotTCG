@@ -128,23 +128,29 @@ export const isHallOfFameWorthy = (entry: Pick<HistoryEntry, 'hand' | 'score'>):
 /** Highest score first; the newest first among equal scores. */
 export const byBest = (a: HistoryEntry, b: HistoryEntry): number => b.score - a.score || b.openedAt - a.openedAt;
 
-export const recordPack = (pack: OpenedPack): boolean => {
-  let current: Stored[];
+/** The stored history, or null when an entry breaks the rule (a write would drop it) or it can't be read. */
+const readValid = (): Stored[] | null => {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
-    if (!Array.isArray(parsed) || !parsed.every(isStored)) return false;
-    current = parsed;
-  } catch { return false; }
-  const entry = encode({
-    setId: pack.setId,
-    setVersion: pack.setVersion,
-    nonce: pack.nonce,
-    key: (pack.publicKeyHex ?? '').slice(0, KEY_PREFIX),
-    cards: pack.cards.map((c) => ({ id: c.id, holo: c.isHolo, finish: c.finish, misprint: c.misprint })),
-    hand: pack.score.hand.name,
-    score: pack.score.score,
-    openedAt: pack.openedAt,
-  });
+    return Array.isArray(parsed) && parsed.every(isStored) ? parsed : null;
+  } catch { return null; }
+};
+
+const toStored = (pack: OpenedPack): Stored => encode({
+  setId: pack.setId,
+  setVersion: pack.setVersion,
+  nonce: pack.nonce,
+  key: (pack.publicKeyHex ?? '').slice(0, KEY_PREFIX),
+  cards: pack.cards.map((c) => ({ id: c.id, holo: c.isHolo, finish: c.finish, misprint: c.misprint })),
+  hand: pack.score.hand.name,
+  score: pack.score.score,
+  openedAt: pack.openedAt,
+});
+
+export const recordPack = (pack: OpenedPack): boolean => {
+  const current = readValid();
+  if (!current) return false;
+  const entry = toStored(pack);
   /*
    * Re-recording a pack replaces its entry. Another set on the same ticket is a conflicting
    * assignment (two tabs spent one ticket number at once, or an imported backup carried both).
@@ -152,6 +158,30 @@ export const recordPack = (pack: OpenedPack): boolean => {
    * winning; a profile admits one of them by a fixed rule (game/profiles.ts, firstOpened).
    */
   return write([entry, ...current.filter((e) => !sameAssignment(e, entry))]);
+};
+
+/**
+ * Records the packs opened with this key whose ticket mapping the history lacks (its write failed when
+ * the pack opened, e.g. with storage full), in opening order; recorded ones stay as they are. App calls
+ * this once a save goes through, so a lost mapping comes back. Another key's packs (or a pack without
+ * one) are left out, so no player's tickets enter another's history. False when the history can't be
+ * read or written.
+ */
+export const recordMissing = (packs: readonly OpenedPack[], publicKeyHex: string): boolean => {
+  const mine = packs.filter((pack) => pack.publicKeyHex === publicKeyHex);
+  if (mine.length === 0) return true;
+  const current = readValid();
+  if (!current) return false;
+  let added = false;
+  for (const pack of mine) {
+    const entry = toStored(pack);
+    if (current.some((e) => sameAssignment(e, entry))) continue;
+    // Newest first, as recordPack keeps it.
+    const at = current.findIndex((e) => e.t < entry.t);
+    current.splice(at < 0 ? current.length : at, 0, entry);
+    added = true;
+  }
+  return !added || write(current);
 };
 
 /** This key's packs in ticket order (what a profile is built from). */
@@ -162,7 +192,8 @@ export const historyForKey = (publicKeyHex: string): HistoryEntry[] =>
 
 type LegacyPull = Pick<OpenedPack, 'setId' | 'setVersion' | 'nonce' | 'publicKeyHex' | 'openedAt'> & { score: number; hand: string };
 
-const isLegacyPull = (value: unknown): value is LegacyPull => {
+/** An entry of the old notable-pulls log that migratePullLog can carry over (save imports use it too). */
+export const isLegacyPull = (value: unknown): value is LegacyPull => {
   if (!value || typeof value !== 'object') return false;
   const entry = value as Partial<LegacyPull>;
   return typeof entry.setId === 'string' && entry.setId.length > 0

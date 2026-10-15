@@ -3,11 +3,11 @@
 .share-fp {
   white-space: nowrap;
   color: var(--text-subtle);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
 }
 
-/* Preview on the left (top on phones), actions beside it. */
+/* Share sheet body: the actions, then the preview and extras (see .share-layout--actions-first). */
 .share-layout {
   display: grid;
   gap: var(--space-4);

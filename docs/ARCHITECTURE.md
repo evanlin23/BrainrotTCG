@@ -238,9 +238,10 @@ stay only in that backup. It writes the identity last and, on failure, removes w
 restores the previous values. That is structural validation and best-effort rollback, not a
 transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
-A render error after React mounts shows `AppErrorBoundary`, which writes nothing and records only the
-opt-in `render-error` diagnostic. Startup steps before React mounts (`receiveSave`, `runMigrations`,
-`migratePullLog` in `main.tsx`) are outside it and need their own handling.
+A render error after React mounts shows `AppErrorBoundary`, which writes nothing except the opt-in
+diagnostics: `render-error`, and `copy-failed` if copying its report to the clipboard fails. Startup
+steps before React mounts (`receiveSave`, `runMigrations`, `migratePullLog` in `main.tsx`) are
+outside it and need their own handling.
 
 ## Hosting
 
@@ -273,10 +274,14 @@ memory or main-thread-fallback contention. Latency varies with the device and nu
 tickets; `reopenCache.ts` keeps up to 5,000 viewed-profile packs in localStorage, subject to eviction,
 quota and local cache integrity.
 
-Opening attempts to record ticket metadata immediately in `history.ts`; quota recovery first strips
-cached cards and can then drop older records. Profile construction uses retained history for the
-current key's nonce range. Missing set assignments are inferred from neighboring history or a
-default, so reconstruction does not recover original mixed-set provenance that was discarded (#87).
+Opening attempts to record ticket metadata immediately in `history.ts`; quota recovery strips cached
+cards from older records but keeps every record, and a mapping it still refuses is retried once its
+pack is stored (`recordMissing`, below). Profile construction uses retained history for the current
+key's nonce range. A ticket without a recorded set assignment stays unknown rather than guessed, and
+a profile link or player card needs every one, so a key with such a ticket can share neither. That
+covers tickets opened before this device kept a history, unless the old notable-pulls log (carried
+over once) held them, and any whose mapping was never recorded. The profile page says so and its
+totals count only the known packs; only a backup holding the records brings the link back (#87).
 If cards are missing, signing waits for reconstruction rather than completing instantly.
 
 Own-pack reconstruction runs independently of the profile screen, batches up to 25 results into
@@ -294,12 +299,19 @@ Collection, stats and achievements normally receive a pack when its reveal finis
 opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
 on the next load, but writes can fail. It is always a list (up to 50), so an owed pack is never
 replaced by a newer one; past the cap (or if storage refuses the write), the new pack shows the save
-warning and stays only in the history. Load takes every listed pack off the shelf before adding any
-(if the shelf can't be emptied, it adds none, so none is added twice) and holds them until a
-collection holding them is stored; if that collection write is blocked, they go back on the shelf
-for the next load. A tab closed before that write leaves them only in the history. A pack is marked as
-counted (`d: 1`) before the stats counting it are written, and unmarked again if they can't be, so
-the next load counts it once (entries without the mark count once).
+warning and isn't kept for the next load: it still reaches the collection when its reveal finishes in
+this tab, but a tab closed first leaves it only in the history (if that write went through). Load
+takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
+so none is added twice) and holds them until a collection holding them is stored. If that collection
+write is blocked, they stay owed by this tab and go into its next collection write; a copy also goes
+back on the shelf for the next load, if the shelf takes it. A tab closed before that write leaves the
+shelf copy for the next load or, if the shelf refused it, the pack only in the history. After each
+collection write for owed packs, any ticket mapping the history couldn't take when they opened is
+recorded (`recordMissing`; the save warning shows if it still can't be). A pack is marked as counted
+(`d: 1`) before the stats counting it are written, and unmarked again if they can't be, so the next
+load counts it once (entries without the mark count once). If the marked copy fits but the stats and
+then the unmarked copy are both refused, the shelf keeps the marked copy, and the next load adds that
+pack without counting it unless this tab stores it first.
 `brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never puts a list or
 a new or listed pack there, so an older build (another tab or a rollback) never finds a list to
 discard, and never sees or clears listed packs. It adds the pack in that entry on load but leaves the

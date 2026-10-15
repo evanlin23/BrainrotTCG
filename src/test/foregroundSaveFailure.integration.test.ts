@@ -5,6 +5,9 @@ import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import { getAchievementById } from '../data/achievements';
 import type { AchievementData, CollectionItem, Stats } from '../types';
+import { getSet } from '../content/sets';
+import { encodeCard } from '../game/cardCode';
+import { fromHex, publicKeyFromSecret, toHex } from '../engine';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
 afterEach(async () => { await app?.dispose(); app = undefined; });
@@ -157,6 +160,57 @@ it('warns when the ticket mapping of a new pack cannot be written to the history
   expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBeNull();
   // The rest of the progress still saved; the warning says something didn't.
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!).packsOpened).toBe(1);
+  expectAppShown();
+  expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
+  await drainToasts(app);
+}, 60_000);
+
+it('records a ticket mapping the history refused once the collection holding its pack is saved', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  // The history refuses writes until the collection is next written (space freed in between).
+  let collectionTried = false;
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === STORAGE_KEYS.COLLECTION) collectionTried = true;
+    if (key === STORAGE_KEYS.HISTORY && !collectionTried) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+
+  await openPack(app);
+
+  expect(app.takeErrors(/^Could not save pack history/).length).toBeGreaterThan(0);
+  expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION)!)).not.toEqual({});
+  const history = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY)!);
+  expect(history).toMatchObject([{ s: 'right-now', n: 0 }]);
+  expect(history[0].c.split(',')).toHaveLength(5);
+  // It did fail when the pack opened, so the warning still says so.
+  expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
+  await drainToasts(app);
+}, 60_000);
+
+it('warns when a ticket mapping missing from the history still cannot be recorded once its pack is stored', async () => {
+  // A pack waiting on the shelf from an earlier visit, whose ticket mapping never reached the history.
+  const set = getSet('right-now', 2)!;
+  const cards = set.cards.slice(0, 5).map((c) => encodeCard({ id: c.id, holo: false })).join(',');
+  const key = toHex(publicKeyFromSecret(fromHex('01'.repeat(32))));
+  app = await mountedApp({
+    ...SEED,
+    [STORAGE_KEYS.PENDING_PACKS]: JSON.stringify([{ s: set.id, v: set.version, n: 4, k: key, c: cards, t: 1 }]),
+  });
+  // Only the history refuses, so recording the missing mapping is the only write that fails.
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === STORAGE_KEYS.HISTORY) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  await app.mount();
+
+  await app.until('the waiting pack reaches the stored collection', () =>
+    expect(Object.keys(JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION) ?? '{}'))).not.toHaveLength(0));
+  expect(app.takeErrors(/^Could not save pack history/).length).toBeGreaterThan(0);
+  expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBeNull();
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).toBeNull();
   expectAppShown();
   expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
   await drainToasts(app);

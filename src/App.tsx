@@ -22,7 +22,8 @@ import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { myPackCacheState, myStats, onPackCacheChange, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
-import { getHistory } from './game/history';
+import { getHistory, recordMissing } from './game/history';
+import { getPlayer } from './game/player';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import {
@@ -100,17 +101,31 @@ function App() {
         // older build's pack goes back into its own entry, while it is still there: see game/pulls.ts).
         // Marked as counted first, then the stats that count them are stored; if they can't be (or a
         // full shelf can't take one), the packs go back unmarked so that load counts them (and the stats
-        // wait for it).
+        // wait for it). If the marked copies fit but neither the stats nor the unmarked copies can be
+        // stored, the shelf keeps the marked ones: the next load adds those packs without counting them
+        // unless this tab stores them first.
         if (packs.length > 0) {
           const marked = packs.map((pack) => ({ ...pack, counted: true }));
           statsHandled = true;
-          if (savePendingPack(...marked) && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
-          else savePendingPack(...packs);
+          const shelved = savePendingPack(...marked);
+          if (shelved && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
+          // Packs taken off the shelf at load may not fit back on it: they stay owed by this tab, and the
+          // next collection change tries again. If the marked copies did fit but the stats didn't, those
+          // copies are what the shelf still holds.
+          else if (!savePendingPack(...packs)) {
+            console.error(
+              shelved
+                ? `${packs.length} pack(s) are on the pending shelf marked as counted, but the stats counting them couldn't be stored: the next load would add them uncounted unless this tab stores them first.`
+                : `${packs.length} pack(s) couldn't be put back on the pending shelf: only this tab has them until its collection is stored.`,
+            );
+          }
         }
       } else {
         unsavedPacks.current = [];
         if (packs.length > 0) clearPendingPack(...packs.map((pack) => pack.nonce));
       }
+      // A ticket mapping the history couldn't take when its pack opened goes in once this save is done.
+      if (packs.length > 0 && !recordMissing(packs, getPlayer().publicKeyHex)) setSaveFailed(true);
       // The archive can be written even when the collection then can't be.
       if (result !== 'saved' && hasCollectionRecovery()) {
         setCollectionArchived(true);
@@ -505,6 +520,10 @@ function App() {
   }, [stats.packsOpened, collection]);
 
   const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isProfileOpen || isSettingsOpen || isPlayerOpen || !!shareTarget || !!viewProof || !!viewProfile;
+  // A sheet that is none of the tabs (even one on top of My cards, like Share from Best pulls or a
+  // shared link) leaves no tab current.
+  const isNonTabSheetOpen = isAchievementsOpen || isSettingsOpen || isPlayerOpen || !!shareTarget || !!viewProof || !!viewProfile || brokenLink;
+  const activeTab = isNonTabSheetOpen ? null : isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : 'open';
 
   const personalNavigation = <nav className="personal-nav" aria-label="My cards">
     <button type="button" className="btn btn--secondary" aria-current={isCollectionOpen ? 'page' : undefined} onClick={() => openNav('collection')}>Cards</button>
@@ -531,7 +550,7 @@ function App() {
             ),
           )}
         </h1>
-        <AppNav onOpen={openNav} active={isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : 'open'} />
+        <AppNav onOpen={openNav} active={activeTab} />
         <div className="app-utilities">
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('player')} disabled={packBusy}>Player</button>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('settings')} disabled={packBusy} aria-label="Sound & display" title="Sound & display"><Settings2 aria-hidden="true" size={20} /></button>
@@ -562,7 +581,7 @@ function App() {
 
       {/* Achievements Page */}
       {isAchievementsOpen && (
-        <DeferredSheet load={loadAchievements} size="lg" title="Achievements" screenProps={{
+        <DeferredSheet load={loadAchievements} size="lg" title="Goals & rewards" screenProps={{
           unlockedAchievements: achievements,
           onClose: () => setIsAchievementsOpen(false),
           progress: achievementProgress,
