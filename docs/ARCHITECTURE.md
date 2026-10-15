@@ -221,8 +221,11 @@ picks the preview; the pull is still re-derived from the proof when it's opened.
 
 ## Saves
 
-Storage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainrot-player-v1`,
-`brainrot-reopen-pending-v1` and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups.
+localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainrot-player-v1`
+(identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1` and
+`brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions)
+and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups. IndexedDB holds one database,
+`brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
 replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1`; if
 that can't be kept, the stored collection is left alone. Export includes that archive. Import

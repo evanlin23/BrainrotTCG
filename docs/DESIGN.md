@@ -41,8 +41,10 @@ The look comes from collecting real cards: binder pages, sleeves, set checklists
 ("SOS 007/012"), set codes printed in the set's colour, rarity marks, and graded-card labels for
 anything verified. Generic app chrome gives a page away as generated. Don't use:
 
-- gradients on app chrome (buttons, text, borders or backgrounds); only cards and their finishes,
-  rarity borders, holo foil and the chosen pack foil use them;
+- new gradients on app chrome (buttons, text, borders or backgrounds); cards and their finishes,
+  rarity colours (the Brainrot pill), holo foil and the pack foil use them. A few older chrome
+  gradients remain (the current set's colour stripe, the special-reveal rays and banner); don't
+  copy them;
 - glows, glassy blur, or tinted "neon" shadows on app chrome (rare card reveals and finish tells use targeted edge glows);
 - emoji as bullets or markers (🧠 before every score, ✨ for holo); emoji stay where they're content,
   like an achievement's icon or a share post;

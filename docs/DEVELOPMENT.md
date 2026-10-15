@@ -65,12 +65,13 @@ submits. Use it for a regression that needs the whole app across interactions or
 opening, collection recovery, save warnings). Keep plain unit tests for single functions, and the
 browser smoke for real rendering, images, IndexedDB and Workers, which jsdom can't show.
 
-A bug PR adds its regression as `src/test/<topic>.integration.test.ts`, with the same two
-`@vitest-environment` header lines as the existing files. Each test owns its fixture: it seeds only
-a disposable player and the settings it needs (never a real save), drives the UI with `interact()`,
-waits for one observable outcome with `until(description, assertion)`, and claims expected console
-errors with `takeErrors()`. `dispose()` in `afterEach` fails on any other error, warning or I/O and
-restores storage, timers, globals and modules. Run one with
+A bug PR adds its regression as `src/test/<topic>.integration.test.ts`, with the same
+`@vitest-environment` and `@vitest-environment-options` header lines as the existing files. Each
+test owns its fixture: it seeds only a disposable player and the settings it needs (never a real
+save), drives the UI with `interact()`, waits for one observable outcome with
+`until(description, assertion)`, and claims expected console errors with `takeErrors()`.
+`dispose()` in `afterEach` fails on any other error, warning or I/O and restores storage, timers,
+globals and modules. Run one with
 `npx vitest run src/test/packLifecycle.integration.test.ts`; `npm test` runs them all.
 
 ## Performance baseline

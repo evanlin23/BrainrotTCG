@@ -48,7 +48,7 @@
   /* Kept for old references: the accent is flat now. */
   --brand-gradient: var(--brand);
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--brand);
-  /* Holo foil: only ever on holo cards. */
+  /* Holo foil: holo cards, holo copies and the Master badge. */
   --foil: linear-gradient(115deg, #ff7ac8, #ffd23f 30%, #6ff2c6 55%, #7ab8ff 80%, #d38bff);
 
   /* Feedback */
