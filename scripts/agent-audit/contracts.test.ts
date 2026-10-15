@@ -1,10 +1,13 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { describe, expect, it } from 'vitest';
-import { browserCommand, stepBudget } from './browser';
+import { bridgeHandler, browserCommand, stepBudget } from './browser';
 import { agentEnvironment, clean, isBasePath, parseOptions, parseOutcome, uncommittedBuildInputs } from './contracts';
 
 describe('local audit evidence contracts', () => {
@@ -136,4 +139,53 @@ describe('restricted browser adapter', () => {
     expect(clicked).toEqual(['Open pack']);
     expect(steps).toEqual(['click: Open pack']);
   });
+
+  it('does not count a step as evidence when the page cannot be read back', async () => {
+    const { page } = fakePage();
+    Object.assign(page, { locator: () => ({ ariaSnapshot: async () => { throw Error('Target closed'); } }) });
+    const steps: string[] = [];
+    await expect(browserCommand(page, { name: 'snapshot' }, steps)).rejects.toThrow('Target closed');
+    expect(steps).toEqual(['not completed: snapshot: visible accessibility tree']);
+  });
+
+  // The real stdio MCP script against the real bridge handler, as the agent CLI would run them.
+  async function callTools(endpoint: string, calls: unknown[]) {
+    const script = fileURLToPath(new URL('./browser-mcp.mjs', import.meta.url));
+    const child = spawn(process.execPath, [script], { env: { BRAINROT_AUDIT_ENDPOINT: endpoint }, stdio: ['pipe', 'pipe', 'ignore'] });
+    const replies: { id: number; result?: { content: { text: string }[]; isError?: boolean }; error?: { message: string } }[] = [];
+    createInterface({ input: child.stdout }).on('line', (line) => replies.push(JSON.parse(line)));
+    const closed = new Promise((resolve) => child.once('close', resolve));
+    calls.forEach((params, id) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params }) + '\n'));
+    child.stdin.end();
+    await closed;
+    return replies;
+  }
+
+  it('passes adapter refusals to the agent as tool errors and keeps other failures generic', async () => {
+    const { page } = fakePage(3);
+    const token = 'ab'.repeat(24);
+    const steps: string[] = [];
+    const server = createServer(bridgeHandler(token, (command) => {
+      if ((command as { name?: unknown }).name === 'wait') throw Error('PRIVATE_SAVE in a raw failure');
+      return browserCommand(page, command, steps);
+    }));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const { port } = server.address() as { port: number };
+      const replies = await callTools(`http://127.0.0.1:${port}/${token}`, [
+        { name: 'click', arguments: { role: 'button', name: 'Open pack' } },
+        { name: 'wait', arguments: {} },
+        { name: 'snapshot', arguments: {} },
+      ]);
+      expect(replies.map((reply) => reply.id)).toEqual([0, 1, 2]);
+      expect(replies[0].result).toEqual({ content: [{ type: 'text', text: expect.stringMatching(/^3 visible buttons share that exact name/) }], isError: true });
+      expect(replies[1].result).toEqual({ content: [{ type: 'text', text: 'Browser action blocked or unavailable' }], isError: true });
+      expect(replies[2].result).toEqual({ content: [{ type: 'text', text: '- main' }] });
+      expect(JSON.stringify(replies)).not.toContain('PRIVATE_SAVE');
+      // Anything but the adapter's own 400 is an MCP protocol error with no detail.
+      const [unknownBridge] = await callTools(`http://127.0.0.1:${port}/${'cd'.repeat(24)}`, [{ name: 'snapshot', arguments: {} }]);
+      expect(unknownBridge).toMatchObject({ id: 0, error: { message: 'Audit browser operation unavailable' } });
+      expect(unknownBridge.result).toBeUndefined();
+    } finally { await new Promise((resolve) => server.close(resolve)); }
+  }, 20000);
 });

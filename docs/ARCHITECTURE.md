@@ -353,15 +353,18 @@ coverage.
 
 `npm run audit:agent -- --task=opening --seconds=90` (tasks: `opening`, `sharing`, `results`,
 `recovery`; 30 to 180 seconds each, at most four, run one after another) lets a local Codex CLI
-0.159.2 agent try a newcomer task. It needs Unix, Node 22, that CLI already signed in, and
-Playwright's Chromium; any other CLI version fails closed. It is not part of `npm run check` or
-Actions, which need no agent account; `tests/browser/agent-audit.spec.ts` checks only the browser
-boundary, with no agent.
+0.159.2 agent try a newcomer task. It needs Unix, Node 22, a git checkout, that CLI signed in or
+given its API key, and Playwright's Chromium; any other CLI version fails closed. It is not part of
+`npm run check` or Actions, which need no agent account; `tests/browser/agent-audit.spec.ts` checks
+only the browser boundary, with no agent.
 
 The runner refuses uncommitted tracked changes and untracked files under `src/` or `public/` (Vite
 would bundle them, such as a draft set's art), builds that revision and owns a strict-port preview
-at 127.0.0.1:4197. The CLI gets an allowlisted environment (path, home, locale, proxy and its own
-OpenAI or Codex key variables), so CI, GitHub and other tokens never reach it. Each task gets a
+at 127.0.0.1:4197. The build keeps the full environment, but the CLI gets only an allowlist
+(`agentEnvironment` in `contracts.ts`): path, home, user, shell, terminal, temp directory, time zone
+and locale; proxy and CA-certificate settings; and its own Codex home and key and OpenAI key, base
+URL, organization and project variables. CI, GitHub and other tokens never reach it, and the browser
+endpoint reaches the MCP adapter through the CLI's config, not its environment. Each task gets a
 fresh disposable identity and a restricted MCP adapter (`scripts/agent-audit/`): accessibility
 snapshots, clicks on the one button or link with an exact, non-empty accessible name (no match or
 several matches is refused, not guessed) and navigation keys, at most 40 calls even when they

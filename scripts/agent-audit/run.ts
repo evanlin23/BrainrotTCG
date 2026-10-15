@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 import { preview as startPreview } from 'vite';
-import { BrowserRefusal, browserCommand, isolate } from './browser';
+import { bridgeHandler, browserCommand, isolate } from './browser';
 import { agentEnvironment, clean, coordinatorPrompt, isBasePath, parseOptions, parseOutcome, tasks, uncommittedBuildInputs } from './contracts';
 
 const root = process.cwd();
@@ -93,17 +93,7 @@ try {
     page.on('console', (message) => { if (message.type() === 'error') noteError('Browser console error; reproduce locally for details'); });
     page.on('requestfailed', () => noteError('Browser request failed; reproduce locally for details'));
     const token = randomBytes(24).toString('hex');
-    const bridge = createServer(async (request, response) => {
-      if (request.url !== `/${token}` || request.method !== 'POST') { response.writeHead(404).end(); return; }
-      let body = '';
-      try {
-        for await (const chunk of request) {
-          body += String(chunk);
-          if (body.length > 4096) throw Error('Oversized command');
-        }
-        response.end(await browserCommand(page, JSON.parse(body), steps));
-      } catch (error) { response.writeHead(400).end(error instanceof BrowserRefusal ? error.message : 'Browser action blocked or unavailable'); }
-    });
+    const bridge = createServer(bridgeHandler(token, (command) => browserCommand(page, command, steps)));
     const taskReport: Record<string, unknown> = { task, prompt: tasks[task], outcome: 'unrun', steps, errors, blockedNetwork: blocked };
     (report.tasks as unknown[]).push(taskReport);
     try {
