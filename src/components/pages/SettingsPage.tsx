@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Download, History, Upload } from 'lucide-react';
 import { STORAGE_KEYS } from '../../constants';
 import { MAX_NAME_LENGTH } from '../../engine';
-import { exportPlayer, getPlayer, renamePlayer } from '../../game/player';
+import { getPlayer, renamePlayer } from '../../game/player';
 import { canBringOldSave, fetchOldSave, hasProgress, importSave, type MoveResult } from '../../game/move';
 import { CARD_FLIP_SRC } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
@@ -11,7 +11,7 @@ import type { Settings } from '../../types';
 import Sheet from '../ui/Sheet';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import '../../styles/Settings.css';
-import { CURRENT_DATA_VERSION } from '../../utils/migrations';
+import { exportSaveFile } from '../../game/saveFile';
 
 interface SettingsPageProps {
     settings: Settings;
@@ -19,9 +19,10 @@ interface SettingsPageProps {
     onClose: () => void;
     /** Returns an error to show, or null (the page then reloads with the imported save). */
     onImportSave: (data: string) => string | null;
+    saveWarning?: string;
 }
 
-const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveWarning }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [player, setPlayer] = useState(getPlayer);
@@ -34,22 +35,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: Set
     };
 
     const handleExportSave = () => {
-        const saveData = {
-            collection: localStorage.getItem(STORAGE_KEYS.COLLECTION),
-            achievements: localStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS),
-            stats: localStorage.getItem(STORAGE_KEYS.STATS),
-            hallOfFame: localStorage.getItem(STORAGE_KEYS.HALL_OF_FAME),
-            settings: localStorage.getItem(STORAGE_KEYS.SETTINGS),
-            history: localStorage.getItem(STORAGE_KEYS.HISTORY),
-            // Your secret player key: it's what makes your pulls yours. Don't share this file.
-            player: exportPlayer(),
-            exportedAt: new Date().toISOString(),
-            version: 2,
-            // Shape of the stored data, so importing an older save runs the migrations it needs.
-            dataVersion: CURRENT_DATA_VERSION,
-        };
-
-        const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: 'text/plain' });
+        const blob = new Blob([exportSaveFile()], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -75,7 +61,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: Set
         setOldSaveNote(
             result === 'same' ? 'Your save from the old address is already here.'
             : result === 'kept' ? 'Kept the save you have here.'
-            : "That didn't look like a save, so nothing changed.",
+            : "Couldn't bring that save over, so nothing changed.",
         );
     };
     const handleBringOldSave = async () => {
@@ -154,6 +140,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: Set
 
     return (
         <Sheet title="Settings" onClose={onClose} size="sm" className="settings">
+            {saveWarning && <p role="alert" className="save-warning">{saveWarning}</p>}
             <section className="settings-group">
                 <h3 className="section-title" id="settings-player">Player</h3>
                 <div className="settings-panel">

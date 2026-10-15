@@ -87,23 +87,21 @@ const save = (entries: Stored[]) => {
 };
 
 /**
- * Out of space: first drop the cached cards of the oldest packs (the ticket is enough to re-derive
- * them), halving how many keep cards until it fits; only then drop the oldest packs themselves.
+ * Out of space: drop only reconstructible cached cards. Original ticket-to-set mappings
+ * are irreplaceable; if even their bare representation cannot fit, keep the previous raw log.
  */
-const write = (entries: Stored[]) => {
-  if (save(entries)) return;
+const write = (entries: Stored[]): boolean => {
+  if (save(entries)) return true;
   for (let withCards = Math.floor(entries.length / 2); ; withCards = Math.floor(withCards / 2)) {
-    if (save(entries.map((e, i) => (i < withCards ? e : { ...e, c: undefined })))) return;
+    if (save(entries.map((e, i) => (i < withCards ? e : { ...e, c: undefined })))) return true;
     if (withCards === 0) break;
   }
-  const bare = entries.map((e) => ({ ...e, c: undefined }));
-  for (let keep = Math.floor(bare.length / 2); keep > 0; keep = Math.floor(keep / 2)) {
-    if (save(bare.slice(0, keep))) return;
-  }
   console.error('Could not save pack history');
+  return false;
 };
 
 const sameTicket = (a: Stored, b: Stored) => a.k === b.k && a.n === b.n;
+const sameAssignment = (a: Stored, b: Stored) => sameTicket(a, b) && a.s === b.s && a.v === b.v;
 
 /** Newest first. */
 export const getHistory = (): HistoryEntry[] => read().map(decode);
@@ -130,7 +128,13 @@ export const isHallOfFameWorthy = (entry: Pick<HistoryEntry, 'hand' | 'score'>):
 /** Highest score first; the newest first among equal scores. */
 export const byBest = (a: HistoryEntry, b: HistoryEntry): number => b.score - a.score || b.openedAt - a.openedAt;
 
-export const recordPack = (pack: OpenedPack) => {
+export const recordPack = (pack: OpenedPack): boolean => {
+  let current: Stored[];
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
+    if (!Array.isArray(parsed) || !parsed.every(isStored)) return false;
+    current = parsed;
+  } catch { return false; }
   const entry = encode({
     setId: pack.setId,
     setVersion: pack.setVersion,
@@ -141,7 +145,13 @@ export const recordPack = (pack: OpenedPack) => {
     score: pack.score.score,
     openedAt: pack.openedAt,
   });
-  write([entry, ...read().filter((e) => !sameTicket(e, entry))]);
+  /*
+   * Re-recording a pack replaces its entry. Another set on the same ticket is a conflicting
+   * assignment (two tabs spent one ticket number at once, or an imported backup carried both).
+   * Neither record can be rebuilt from the other, so both are kept rather than the last one
+   * winning; a profile admits one of them by a fixed rule (game/profiles.ts, firstOpened).
+   */
+  return write([entry, ...current.filter((e) => !sameAssignment(e, entry))]);
 };
 
 /** This key's packs in ticket order (what a profile is built from). */
@@ -150,23 +160,51 @@ export const historyForKey = (publicKeyHex: string): HistoryEntry[] =>
     .filter((e) => e.key === publicKeyHex.slice(0, KEY_PREFIX))
     .sort((a, b) => a.nonce - b.nonce);
 
-/** One-time: bring entries from the old notable-pulls log (no cards) into the history. */
+type LegacyPull = Pick<OpenedPack, 'setId' | 'setVersion' | 'nonce' | 'publicKeyHex' | 'openedAt'> & { score: number; hand: string };
+
+const isLegacyPull = (value: unknown): value is LegacyPull => {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<LegacyPull>;
+  return typeof entry.setId === 'string' && entry.setId.length > 0
+    && Number.isSafeInteger(entry.setVersion) && entry.setVersion! > 0
+    && Number.isSafeInteger(entry.nonce) && entry.nonce! >= 0
+    && (entry.publicKeyHex === undefined || typeof entry.publicKeyHex === 'string')
+    && typeof entry.hand === 'string' && Number.isFinite(entry.score) && Number.isFinite(entry.openedAt);
+};
+
+const isStored = (value: unknown): value is Stored => {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<Stored>;
+  return typeof entry.s === 'string' && entry.s.length > 0
+    && Number.isSafeInteger(entry.v) && entry.v! > 0
+    && Number.isSafeInteger(entry.n) && entry.n! >= 0
+    && typeof entry.k === 'string' && (entry.c === undefined || typeof entry.c === 'string')
+    && typeof entry.h === 'string' && Number.isFinite(entry.x) && Number.isFinite(entry.t);
+};
+
+/** One-time: remove the old log only after every ticket mapping is stored without truncation. */
 export const migratePullLog = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.PULLS);
     if (!raw) return;
-    const old = JSON.parse(raw) as { setId: string; setVersion: number; nonce: number; publicKeyHex?: string; score: number; hand: string; openedAt: number }[];
-    const current = read();
-    const carried = (Array.isArray(old) ? old : [])
-      .filter((p) => p.publicKeyHex)
-      .map((p) =>
-        encode({ setId: p.setId, setVersion: p.setVersion, nonce: p.nonce, key: p.publicKeyHex!.slice(0, KEY_PREFIX), cards: null, hand: p.hand, score: p.score, openedAt: p.openedAt }),
-      )
-      .filter((e) => !current.some((c) => sameTicket(c, e)));
-    write([...current, ...carried].sort((a, b) => b.t - a.t));
-    localStorage.removeItem(STORAGE_KEYS.PULLS);
+    const old: unknown = JSON.parse(raw);
+    const current: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
+    // Keep malformed source data intact rather than replacing it with a partial migration.
+    if (!Array.isArray(old) || !old.every(isLegacyPull) || !Array.isArray(current) || !current.every(isStored)) return;
+    const merged = [...current];
+    for (const pull of old) {
+      if (!pull.publicKeyHex) continue; // Older anonymous pulls have no reproducible ticket identity.
+      const entry = encode({ ...pull, key: pull.publicKeyHex.slice(0, KEY_PREFIX), cards: null });
+      const records = merged.filter((other) => sameTicket(other, entry));
+      // Already recorded with this set, alongside any conflicting record (see recordPack).
+      if (records.some((other) => sameAssignment(other, entry))) continue;
+      // The same ticket cannot prove two sets; preserve conflicting raw logs for recovery.
+      if (records.length > 0) return;
+      merged.push(entry);
+    }
+    if (write(merged.sort((a, b) => b.t - a.t))) localStorage.removeItem(STORAGE_KEYS.PULLS);
   } catch {
-    // Unreadable old log: nothing to carry over.
+    // Unreadable or unwritable storage: leave the original log available for recovery or retry.
   }
 };
 

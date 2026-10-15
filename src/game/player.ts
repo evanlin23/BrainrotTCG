@@ -44,8 +44,10 @@ const read = (): StoredPlayer | null => {
 const write = (stored: StoredPlayer) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    return true;
   } catch (error) {
     console.error('Could not save player identity', error);
+    return false;
   }
 };
 
@@ -85,6 +87,12 @@ export const getPlayer = (): Player => toPlayer(current());
 /** The ticket number the next pack will use (without consuming it). */
 export const peekNonce = (): number => current().nextNonce;
 
+/** The player and how many tickets it has used, read from one record so neither belongs to another key. */
+export const getPlayerTickets = (): { player: Player; nextNonce: number } => {
+  const record = current();
+  return { player: toPlayer(record), nextNonce: record.nextNonce };
+};
+
 /**
  * Consume the next ticket number. Every opened pack uses a new one. Returns the player it belongs
  * to as well, read from the same record, so a pack never pairs one key with another key's nonce.
@@ -107,16 +115,36 @@ export const renamePlayer = (name: string): Player => {
 /** For save export/import. The secret key is what makes pulls yours, so treat the export as private. */
 export const exportPlayer = (): string => JSON.stringify(current());
 
-export const importPlayer = (raw: string): boolean => {
+/** Parse an imported identity without creating or changing this browser's player. */
+export const parsePlayer = (raw: string): StoredPlayer | null => {
   try {
-    const incoming = JSON.parse(raw) as StoredPlayer;
-    if (!/^[0-9a-f]{64}$/.test(incoming.secretKey) || !Number.isSafeInteger(incoming.nextNonce)) return false;
-    update((existing) => ({
+    const incoming: unknown = JSON.parse(raw);
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return null;
+    const value = incoming as Record<string, unknown>;
+    if (typeof value.secretKey !== 'string' || !/^[0-9a-f]{64}$/.test(value.secretKey)
+      || typeof value.name !== 'string'
+      || typeof value.nextNonce !== 'number' || !Number.isSafeInteger(value.nextNonce) || value.nextNonce < 0
+      || typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt) || value.createdAt < 0) return null;
+    return { secretKey: value.secretKey, name: value.name, nextNonce: value.nextNonce, createdAt: value.createdAt };
+  } catch {
+    return null;
+  }
+};
+
+export const importPlayer = (raw: string): boolean => {
+  const incoming = parsePlayer(raw);
+  if (!incoming) return false;
+  try {
+    // Import must not create a guest or replace the memory fallback until the key is durable.
+    const existing = read() ?? memory;
+    const next = {
       ...incoming,
       name: normalizeName(incoming.name) || randomName(),
       // Never move the ticket counter backwards for the same key (that would replay old packs).
-      nextNonce: existing.secretKey === incoming.secretKey ? Math.max(existing.nextNonce, incoming.nextNonce) : incoming.nextNonce,
-    }));
+      nextNonce: existing?.secretKey === incoming.secretKey ? Math.max(existing.nextNonce, incoming.nextNonce) : incoming.nextNonce,
+    };
+    if (!write(next)) return false;
+    memory = next;
     return true;
   } catch {
     return false;

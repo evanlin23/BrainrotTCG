@@ -152,6 +152,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     isOpening,
     isPackCut,
     volume: effectsVolume,
+    particlesEnabled: settings.particlesEnabled,
     disabled,
     onMiss: nudge,
   });
@@ -422,7 +423,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
               waiting={slowOpen && isPackCut && !isOpening}
               nudging={nudging}
               cutPoints={cutPoints}
-              sparks={settings.particlesEnabled ? sparks : []}
+              sparks={sparks}
             />
           </Motion.div>
         ) : (

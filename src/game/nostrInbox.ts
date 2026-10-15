@@ -191,7 +191,7 @@ export interface Filter {
  * send the newest `limit` events per request; with `maxPages` > 1 it keeps asking for older ones
  * (`until` the oldest so far), so a burst of new events can't push older ones out of reach.
  */
-export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs = 10000, open: SocketFactory = defaultSocket, maxPages = 1) => {
+export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs = 10000, open: SocketFactory = defaultSocket, maxPages = 1, signal?: AbortSignal) => {
   const byId = new Map<string, NostrEvent>();
   const perRelay = await Promise.all(
     relays.map(
@@ -209,13 +209,14 @@ export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs
             if (done) return;
             done = true;
             clearTimeout(timer);
+            signal?.removeEventListener('abort', onAbort);
             try {
               // Only an open connection can take the goodbye (sending on a closed one logs an error).
               if (socket && (socket.readyState === undefined || socket.readyState === 1)) socket.send(JSON.stringify(['CLOSE', sub]));
-              socket?.close();
             } catch {
               // already closed
             }
+            try { socket?.close(); } catch { /* Already closed. */ }
             resolve({ relay, count, error });
           };
           const request = (until?: number) => {
@@ -225,14 +226,21 @@ export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs
             socket!.send(JSON.stringify(['REQ', sub, until === undefined ? filter : { ...filter, until }]));
           };
           const timer = setTimeout(() => finish('timed out'), timeoutMs);
+          const onAbort = () => finish('aborted');
+          if (signal?.aborted) {
+            finish('aborted');
+            return;
+          }
+          signal?.addEventListener('abort', onAbort, { once: true });
           try {
             socket = open(relay);
           } catch (error) {
             finish(String(error));
             return;
           }
-          socket.onopen = () => request();
+          socket.onopen = () => { if (!done) request(); };
           socket.onmessage = (msg) => {
+            if (done) return;
             try {
               const data = JSON.parse(String(msg.data)) as unknown[];
               if (data[0] === 'EVENT' && data[1] === sub) {
