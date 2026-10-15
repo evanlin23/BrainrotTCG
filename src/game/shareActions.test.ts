@@ -275,13 +275,18 @@ describe('shareActions', () => {
     });
 
     it('keeps a Mac on copy only', () => {
-      vi.stubGlobal('navigator', {
-        share: vi.fn(),
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15',
-        maxTouchPoints: 0,
-      });
+      const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15';
+      vi.stubGlobal('navigator', { share: vi.fn(), userAgent: mac, maxTouchPoints: 0 });
       vi.stubGlobal('window', { matchMedia: vi.fn().mockReturnValue({ matches: false }) });
       expect(canShareTo()).toBe(false);
+      // Only the touch-point count tells an iPad from a Mac: with a coarse secondary pointer (a drawing
+      // tablet, say), a Mac reporting no touch points, or just one, still stays on copy only.
+      fineWithTouchscreen(mac, 0);
+      expect(canShareTo()).toBe(false);
+      fineWithTouchscreen(mac, 1);
+      expect(canShareTo()).toBe(false);
+      fineWithTouchscreen(mac, 2);
+      expect(canShareTo()).toBe(true);
     });
 
     it('does not trust a phone user agent without a touchscreen', () => {
