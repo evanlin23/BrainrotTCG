@@ -17,7 +17,7 @@ interface PackCuttingUIProps {
   /** A press just missed the tear line: show where to swipe. */
   nudging?: boolean;
   cutPoints: CutPoint[];
-  sparks: Spark[];
+  sparks: readonly Spark[];
 }
 
 const PackCuttingUI = ({
@@ -78,6 +78,22 @@ const PackCuttingUI = ({
               />
             </svg>
           )}
+          <div className="spark-layer" aria-hidden="true">
+            {sparks.map((spark) => (
+              <span
+                key={spark.id}
+                className="drag-spark"
+                style={{
+                  '--x': `${spark.x}px`,
+                  '--y': `${spark.y}px`,
+                  '--dx': `${spark.dx}px`,
+                  '--dy': `${spark.dy}px`,
+                  '--size': `${spark.size}px`,
+                  '--hue': spark.hue,
+                } as React.CSSProperties}
+              />
+            ))}
+          </div>
         </div>
         {error && (
           <p className="pack-hint is-error" role="alert">
@@ -89,22 +105,6 @@ const PackCuttingUI = ({
             Opening…
           </p>
         )}
-      </div>
-      <div className="spark-layer" aria-hidden="true">
-        {sparks.map((spark) => (
-          <span
-            key={spark.id}
-            className="drag-spark"
-            style={{
-              '--x': `${spark.x}px`,
-              '--y': `${spark.y}px`,
-              '--dx': `${spark.dx}px`,
-              '--dy': `${spark.dy}px`,
-              '--size': `${spark.size}px`,
-              '--hue': spark.hue,
-            } as React.CSSProperties}
-          />
-        ))}
       </div>
     </>
   );

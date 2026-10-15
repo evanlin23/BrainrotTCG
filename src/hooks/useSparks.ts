@@ -13,6 +13,8 @@ export interface Spark {
 const MAX_SPARKS = 220;
 const SPARK_LIFETIME_MS = 620;
 const SPARK_THROTTLE_MS = 9;
+/** The one empty state, so a disabled or idle pack keeps the same array between renders. */
+const EMPTY_SPARKS: readonly Spark[] = [];
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const subscribeReducedMotion = (onChange: () => void) => {
@@ -21,7 +23,11 @@ const subscribeReducedMotion = (onChange: () => void) => {
   return () => media.removeEventListener('change', onChange);
 };
 
-/** Spark work follows the particle setting and the device's current motion preference. */
+/**
+ * Spark work follows the particle setting and the device's current motion preference: with
+ * particles off or `prefers-reduced-motion: reduce` (watched live), emitSpark does nothing, pending
+ * removal timers are cancelled and the hook returns EMPTY_SPARKS.
+ */
 export const useSparks = (enabled = true) => {
   const reducedMotion = useSyncExternalStore(
     subscribeReducedMotion,
@@ -29,7 +35,7 @@ export const useSparks = (enabled = true) => {
     () => false,
   );
   const active = enabled && !reducedMotion;
-  const [sparks, setSparks] = useState<Spark[]>([]);
+  const [sparks, setSparks] = useState<readonly Spark[]>(EMPTY_SPARKS);
   const sparkIdRef = useRef(0);
   const sparkTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const lastSparkAtRef = useRef(0);
@@ -44,11 +50,11 @@ export const useSparks = (enabled = true) => {
   useEffect(() => cancelSparkTimers, [active, cancelSparkTimers]);
 
   // Discard the old particles immediately so re-enabling never revives an expired burst.
-  if (!active && sparks.length > 0) setSparks([]);
+  if (!active && sparks.length > 0) setSparks(EMPTY_SPARKS);
 
   const clearSparks = useCallback(() => {
     cancelSparkTimers();
-    setSparks(prev => prev.length > 0 ? [] : prev);
+    setSparks(prev => prev.length > 0 ? EMPTY_SPARKS : prev);
   }, [cancelSparkTimers]);
 
   /**
@@ -79,18 +85,21 @@ export const useSparks = (enabled = true) => {
       return next.length > MAX_SPARKS ? next.slice(next.length - MAX_SPARKS) : next;
     });
 
-    // A burst shares one lifetime, so expire its contiguous IDs in one update.
+    // A burst shares one lifetime, so expire its contiguous IDs with one timer and one update.
     const firstId = newSparks[0].id;
     const lastId = newSparks[newSparks.length - 1].id;
     const timeout = window.setTimeout(() => {
-      setSparks(prev => prev.filter(item => item.id < firstId || item.id > lastId));
+      setSparks(prev => {
+        const next = prev.filter(item => item.id < firstId || item.id > lastId);
+        return next.length > 0 ? next : EMPTY_SPARKS;
+      });
       sparkTimeoutsRef.current = sparkTimeoutsRef.current.filter(item => item !== timeout);
     }, SPARK_LIFETIME_MS);
     sparkTimeoutsRef.current.push(timeout);
   }, [active]);
 
   return {
-    sparks: active ? sparks : [],
+    sparks: active ? sparks : EMPTY_SPARKS,
     emitSpark,
     clearSparks,
   };
