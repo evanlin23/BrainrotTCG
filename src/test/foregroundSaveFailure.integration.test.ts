@@ -162,6 +162,30 @@ it('warns when the ticket mapping of a new pack cannot be written to the history
   await drainToasts(app);
 }, 60_000);
 
+it('records a ticket mapping the history refused once the collection holding its pack is saved', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  // The history refuses writes until the collection is next written (space freed in between).
+  let collectionTried = false;
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === STORAGE_KEYS.COLLECTION) collectionTried = true;
+    if (key === STORAGE_KEYS.HISTORY && !collectionTried) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+
+  await openPack(app);
+
+  expect(app.takeErrors(/^Could not save pack history/).length).toBeGreaterThan(0);
+  expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION)!)).not.toEqual({});
+  const history = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY)!);
+  expect(history).toMatchObject([{ s: 'right-now', n: 0 }]);
+  expect(history[0].c.split(',')).toHaveLength(5);
+  // It did fail when the pack opened, so the warning still says so.
+  expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
+  await drainToasts(app);
+}, 60_000);
+
 it('starts on the default set when reading the remembered set throws SecurityError', async () => {
   app = await mountedApp(SEED);
   const getItem = Storage.prototype.getItem;

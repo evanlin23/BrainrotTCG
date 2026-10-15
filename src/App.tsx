@@ -21,7 +21,8 @@ import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRe
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { myStats, onReopenProgress } from './game/profiles';
-import { getHistory } from './game/history';
+import { getHistory, recordMissing } from './game/history';
+import { getPlayer } from './game/player';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import {
@@ -104,12 +105,18 @@ function App() {
           const marked = packs.map((pack) => ({ ...pack, counted: true }));
           statsHandled = true;
           if (savePendingPack(...marked) && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
-          else savePendingPack(...packs);
+          // Packs taken off the shelf at load may not fit back on it: they stay owed by this tab, and the
+          // next collection change tries again.
+          else if (!savePendingPack(...packs)) {
+            console.error(`${packs.length} pack(s) couldn't be put back on the pending shelf: only this tab has them until its collection is stored.`);
+          }
         }
       } else {
         unsavedPacks.current = [];
         if (packs.length > 0) clearPendingPack(...packs.map((pack) => pack.nonce));
       }
+      // A ticket mapping the history couldn't take when its pack opened goes in once this save is done.
+      if (packs.length > 0 && !recordMissing(packs, getPlayer().publicKeyHex)) setSaveFailed(true);
       // The archive can be written even when the collection then can't be.
       if (result !== 'saved' && hasCollectionRecovery()) {
         setCollectionArchived(true);

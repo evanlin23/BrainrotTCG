@@ -290,12 +290,17 @@ Collection, stats and achievements normally receive a pack when its reveal finis
 opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
 on the next load, but writes can fail. It is always a list (up to 50), so an owed pack is never
 replaced by a newer one; past the cap (or if storage refuses the write), the new pack shows the save
-warning and stays only in the history. Load takes every listed pack off the shelf before adding any
-(if the shelf can't be emptied, it adds none, so none is added twice) and holds them until a
-collection holding them is stored; if that collection write is blocked, they go back on the shelf
-for the next load. A tab closed before that write leaves them only in the history. A pack is marked as
-counted (`d: 1`) before the stats counting it are written, and unmarked again if they can't be, so
-the next load counts it once (entries without the mark count once).
+warning and isn't kept for the next load: it still reaches the collection when its reveal finishes in
+this tab, but a tab closed first leaves it only in the history (if that write went through). Load
+takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
+so none is added twice) and holds them until a collection holding them is stored; if that collection
+write is blocked, they go back on the shelf for the next load, or, if the shelf refuses them too,
+stay owed by this tab and go into its next collection write. A tab closed before that write leaves
+them only in the history. After each collection write for owed packs, any ticket mapping the history
+couldn't take when they opened is recorded (`recordMissing`; the save warning shows if it still
+can't be). A pack is marked as counted (`d: 1`) before the stats counting it are written, and
+unmarked again if they can't be, so the next load counts it once (entries without the mark count
+once).
 `brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never puts a list or
 a new or listed pack there, so an older build (another tab or a rollback) never finds a list to
 discard, and never sees or clears listed packs. It adds the pack in that entry on load but leaves the
