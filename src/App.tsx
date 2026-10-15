@@ -19,35 +19,25 @@ import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { extractProfile, extractProof } from './engine';
 import { clearPendingPack, takePendingPack, type OpenedPack, type PullRef } from './game/pulls';
-import { importPlayer } from './game/player';
-import { backUpSave, hasProgress } from './game/move';
+import { importSaveFile } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
-import { myStats } from './game/profiles';
+import { myStats, onReopenProgress } from './game/profiles';
 import { getHistory } from './game/history';
-import { CURRENT_DATA_VERSION, hydrateCollection, setDataVersion } from './utils/migrations';
+import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import {
   checkPackMilestones,
   checkCollectionAchievements,
   checkModifierAchievements,
   checkPackAchievements,
+  checkPackScoreAchievements,
+  checkHistoryAchievements,
 } from './utils/achievementChecks';
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
-
-/** Save-file fields and where they live in localStorage. */
-const SAVE_FIELDS = [
-  ['collection', STORAGE_KEYS.COLLECTION],
-  ['achievements', STORAGE_KEYS.ACHIEVEMENTS],
-  ['stats', STORAGE_KEYS.STATS],
-  ['hallOfFame', STORAGE_KEYS.HALL_OF_FAME],
-  ['pulls', STORAGE_KEYS.PULLS],
-  ['history', STORAGE_KEYS.HISTORY],
-  ['settings', STORAGE_KEYS.SETTINGS],
-] as const;
 
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
@@ -201,6 +191,37 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
 
+  // Packs in the history that never got their pack achievements (merged in from a save, or opened
+  // before the achievement existed). Unlocked quietly, dated and linked to the pack that earned them.
+  const unlockFromHistory = useCallback(() => {
+    const history = getHistory();
+    setAchievements(prev => {
+      const found = checkHistoryAchievements(history, prev);
+      if (found.length === 0) return prev;
+      const next = { ...prev };
+      for (const { id, entry, cards } of found) {
+        next[id] = {
+          unlockedAt: entry.openedAt,
+          ...(cards ? { pack: cards } : {}),
+          ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
+        };
+      }
+      localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    unlockFromHistory();
+    // Re-opened packs bring back the cards of packs the history only had a hand and score for.
+    const stop = onReopenProgress((status) => {
+      if (!status.running) unlockFromHistory();
+    });
+    return () => {
+      stop();
+    };
+  }, [unlockFromHistory]);
+
   const unlockAchievement = useCallback((achievementId: string, pack?: CardWithMeta[], ref?: PullRef) => {
     const achievement = getAchievementById(achievementId);
     if (!achievement) return;
@@ -255,34 +276,9 @@ function App() {
 
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
   const handleImportSave = useCallback((data: string): string | null => {
-    try {
-      const saveData = JSON.parse(data);
-
-      // Validate save data structure
-      if (!saveData.version || !saveData.exportedAt) {
-        return "That file isn't a Brainrot TCG save.";
-      }
-
-      // Write everything, then reload: the loader runs any migrations an older save needs
-      // (saves from before timeline sets use old card ids and the old score scale).
-      for (const [field] of SAVE_FIELDS) {
-        if (typeof saveData[field] === 'string') JSON.parse(saveData[field]); // reject corrupt files before writing anything
-      }
-      // The save being replaced is kept, in case it was the wrong file.
-      if (hasProgress()) backUpSave('brainrot-before-import-v1');
-      for (const [field, key] of SAVE_FIELDS) {
-        if (typeof saveData[field] === 'string') localStorage.setItem(key, saveData[field]);
-      }
-      if (typeof saveData.player === 'string' && !importPlayer(saveData.player)) {
-        alert('The player key in this save is invalid; keeping your current one.');
-      }
-      setDataVersion(typeof saveData.dataVersion === 'number' ? saveData.dataVersion : saveData.version === 1 ? 1 : CURRENT_DATA_VERSION);
-
-      window.location.reload();
-      return null;
-    } catch {
-      return "Couldn't read that file. Is it a save exported from Settings?";
-    }
+    const error = importSaveFile(data);
+    if (!error) window.location.reload();
+    return error;
   }, []);
 
   const checkAllAchievements = useCallback((newCards: CardWithMeta[], pullRef: PullRef, updatedCollection: Record<string, CollectionItem>, updatedStats: Stats, currentAchievements: Record<string, AchievementData | number>) => {
@@ -417,16 +413,7 @@ function App() {
     }
 
     // Check pack value achievements - unlockAchievement handles duplicates internally
-    const packValueAchievements: string[] = [];
-    // Thresholds are 10x the original Buhcoin-era ones (card points were scaled by 10).
-    if (score === 50) packValueAchievements.push('pack_value_5');
-    const PACK_SCORE_ACHIEVEMENTS: [number, string][] = [
-      [500, 'pack_value_50'], [1_000, 'pack_value_100'], [5_000, 'pack_value_500'], [10_000, 'pack_value_1000'],
-      [20_000, 'pack_value_2000'], [30_000, 'pack_value_3000'], [40_000, 'pack_value_4000'], [50_000, 'pack_value_5000'],
-      [60_000, 'pack_value_6000'], [70_000, 'pack_value_7000'], [80_000, 'pack_value_8000'], [90_000, 'pack_value_9000'],
-      [100_000, 'pack_value_10000'], [100_000_000, 'pack_value_max'],
-    ];
-    PACK_SCORE_ACHIEVEMENTS.forEach(([min, id]) => score >= min && packValueAchievements.push(id));
+    const packValueAchievements = checkPackScoreAchievements(score, {});
     packValueAchievements.forEach(id => unlockAchievement(id, newCards, pullRef));
 
     // Check other achievements - get current state to avoid stale closure
