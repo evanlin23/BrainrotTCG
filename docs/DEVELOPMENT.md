@@ -107,26 +107,6 @@ checks the report schema, and this must exit nonzero with zero timing samples:
 
 ## Dependency audit
 
-Triage from 2026-10-15 (#230), against the lockfile on main at 3600c81. `npm audit --omit=dev`
-reports nothing: no shipped dependency has an advisory. `npm audit` reports 8 findings, all in
-build and lint tooling that runs only on our own files in CI or a developer checkout. None is
-bundled into the site, and none takes untrusted input.
-
-| Package (via) | Severity | Reachable? | Disposition |
-| --- | --- | --- | --- |
-| brace-expansion 1.1.12 (minimatch, ESLint) | high | No. Only our own glob patterns are expanded | Lockfile refresh, in range |
-| browserslist 4.28.1 (Babel) | high | No. Fixed queries and no custom stats file | Lockfile refresh, in range |
-| flatted 3.3.3 (ESLint's flat-cache) | high | No. It parses only ESLint's own local cache | Lockfile refresh, in range |
-| js-yaml 4.1.1 (@eslint/eslintrc) | high | No. Config is `eslint.config.js`, with no YAML | Lockfile refresh, in range |
-| @humanfs/node 0.16.7 (ESLint) | moderate | No. ESLint doesn't use the recursive copy | Lockfile refresh, in range |
-| baseline-browser-mapping 2.10.0 (browserslist) | moderate | No. Same fixed inputs as browserslist | Lockfile refresh, in range |
-| @babel/core 7.29.0 (@vitejs/plugin-react, eslint-plugin-react-hooks) | low | No. It reads source maps only from our own source | Lockfile refresh, in range |
-| esbuild 0.27.3 (Vite 7.3.5) | low | No. The advisory covers esbuild's dev server on Windows, which Vite doesn't use | Accepted, upstream-blocked: Vite 7 needs esbuild `^0.27.0`, and every 0.27.x is affected |
-
-The "in range" fixes don't need a breaking update. In a scratch copy,
-`npm audit fix --package-lock-only` bumps 28 dev-only lockfile entries (Babel 7.29.x, browserslist
-4.29, caniuse-lite and others) and clears 7 of the 8 findings. That bump isn't in this record's PR.
-It should land on its own, so a frozen install and CI test it alone. Dependabot's weekly version
-updates (`.github/dependabot.yml`) bump only direct dependencies, so these transitive fixes need
-that refresh or Dependabot security updates. Never use `npm audit fix --force`, which upgrades
-across major versions. Re-run both audits when the lockfile changes, and update this table.
+When the lockfile changes, run `npm audit` and `npm audit --omit=dev`. The findings, their exposure
+and dispositions are in [DEPENDENCY_ADVISORIES.md](DEPENDENCY_ADVISORIES.md). Never use
+`npm audit fix --force`.
