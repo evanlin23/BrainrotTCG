@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import { encodeCard } from './cardCode';
-import { clearPendingPack, takePendingPack } from './pulls';
+import { clearPendingPack, savePendingPack, takePendingPack } from './pulls';
 
 // A storage whose removeItem can be refused, as a browser that blocks storage (SecurityError) does.
 const data = new Map<string, string>();
@@ -44,5 +44,32 @@ describe('pending pack when storage refuses to remove it', () => {
     expect(() => clearPendingPack(4)).not.toThrow();
     data.set(STORAGE_KEYS.PENDING_PACK, '{not json');
     expect(() => clearPendingPack(4)).not.toThrow();
+  });
+});
+
+describe('a pack put back on the shelf', () => {
+  beforeEach(() => {
+    data.clear();
+    refuseRemove = false;
+  });
+
+  it('counts an entry saved before the flag existed, once', () => {
+    data.set(STORAGE_KEYS.PENDING_PACK, PENDING);
+    expect(takePendingPack()?.counted).toBeUndefined();
+  });
+
+  it('remembers that it has counted, and only a well-formed flag says so', () => {
+    data.set(STORAGE_KEYS.PENDING_PACK, PENDING);
+    const pack = takePendingPack()!;
+    savePendingPack(pack);
+    expect(JSON.parse(data.get(STORAGE_KEYS.PENDING_PACK)!)).not.toHaveProperty('d');
+    savePendingPack({ ...pack, counted: true });
+    expect(JSON.parse(data.get(STORAGE_KEYS.PENDING_PACK)!).d).toBe(1);
+    expect(takePendingPack()).toMatchObject({ nonce: 4, counted: true, cards: pack.cards.map(({ key }) => expect.objectContaining({ key })) });
+
+    for (const d of [0, true, '1', null]) {
+      data.set(STORAGE_KEYS.PENDING_PACK, JSON.stringify({ ...JSON.parse(PENDING), d }));
+      expect(takePendingPack()?.counted).toBeUndefined();
+    }
   });
 });

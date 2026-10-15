@@ -88,13 +88,17 @@ const write = (key: string, value: unknown) => {
 type AnyRecord = Record<string, unknown>;
 
 const migrateV2 = () => {
-  const collection = read(STORAGE_KEYS.COLLECTION) as Record<string, AnyRecord> | undefined;
+  const collection = read(STORAGE_KEYS.COLLECTION) as Record<string, unknown> | undefined;
   if (collection && typeof collection === 'object') {
-    const next: Record<string, AnyRecord> = {};
+    const next: Record<string, unknown> = {};
+    const unreadable: [string, unknown][] = [];
     for (const [oldKey, item] of Object.entries(collection)) {
-      if (!item || typeof item !== 'object') continue;
+      if (!isRecord(item)) {
+        unreadable.push([oldKey, item]);
+        continue;
+      }
       const key = migrateCardKey(oldKey);
-      const prev = next[key];
+      const prev = next[key] as AnyRecord | undefined;
       const normal = Number(item.normalCount ?? item.count ?? 0);
       const holo = Number(item.holoCount ?? 0);
       next[key] = {
@@ -102,6 +106,14 @@ const migrateV2 = () => {
         normalCount: Number(prev?.normalCount ?? 0) + normal,
         holoCount: Number(prev?.holoCount ?? 0) + holo,
       };
+    }
+    // Not card records, but still the player's data: keep each value as it was (under a free key if a
+    // migrated card took its own), so hydration hides it and the next collection write archives it
+    // for the private export (game/collectionRecovery.ts) instead of it vanishing here.
+    for (const [oldKey, item] of unreadable) {
+      let key = oldKey;
+      while (key in next) key = `${key}#unreadable`;
+      next[key] = item;
     }
     write(STORAGE_KEYS.COLLECTION, next);
   }

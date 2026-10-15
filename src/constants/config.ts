@@ -6,6 +6,8 @@ export const STORAGE_KEYS = {
   COLLECTION: 'brainrot-found-collection-v1',
   /** Exact unreadable collection payload kept before a filtered collection replaces it. */
   COLLECTION_RECOVERY: 'brainrot-collection-recovery-v1',
+  /** Fingerprint of the archive whose kept-aside note this viewer hid (not part of a save). */
+  COLLECTION_RECOVERY_SEEN: 'brainrot-collection-recovery-seen-v1',
   ACHIEVEMENTS: 'brainrot-achievements-v1',
   STATS: 'brainrot-stats-v1',
   HALL_OF_FAME: 'brainrot-hall-of-fame-v1',

@@ -131,6 +131,9 @@ export const parsePlayer = (raw: string): StoredPlayer | null => {
   }
 };
 
+/** Whether `secretKey` is this browser's player, without creating one. */
+export const isCurrentPlayer = (secretKey: string): boolean => (read() ?? memory)?.secretKey === secretKey;
+
 export const importPlayer = (raw: string): boolean => {
   const incoming = parsePlayer(raw);
   if (!incoming) return false;
