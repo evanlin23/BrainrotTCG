@@ -69,9 +69,10 @@ it('leaves a spent reveal by its button or empty space exactly once, but not aft
     await app.interact(() => press($('.card-wrapper')!, area, area));
     await app.interact(() => press(area, $('.card-wrapper')!, area));
     await app.settle(400);
-    expect(sealed()).toBeNull();
-    expect(button('Back to packs')).toBeDefined();
-    expect(stats()?.packsOpened ?? 0).toBe(index);
+    const round = `round ${index + 1} (${exit})`;
+    expect(sealed(), `a fling between the card and empty space left the reveal in ${round}`).toBeNull();
+    expect(button('Back to packs'), `the reveal lost its Back to packs button after a fling in ${round}`).toBeDefined();
+    expect(stats()?.packsOpened ?? 0, `a fling between the card and empty space recorded the pack in ${round}`).toBe(index);
 
     await app.interact(() => {
       if (exit === 'Back to packs') button('Back to packs').click();
@@ -92,6 +93,28 @@ it('leaves a spent reveal by its button or empty space exactly once, but not aft
     expect($('.reveal-progress')).toBeNull();
     expect(stats()?.packsOpened).toBe(index + 1);
   }
+}, 30_000);
+
+it('does not leave or record a reveal from behind an open sheet', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  await reveal();
+  await app.interact(() => $('.card-wrapper')!.click());
+  const area = $('.card-reveal-area')!;
+  expect(area.classList).toContain('can-leave');
+  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent === 'My cards')!.click());
+  await app.until('a sheet opens over the reveal', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
+  expect(area.classList, 'the area still offers leaving while a sheet covers it').not.toContain('can-leave');
+  await app.interact(() => button('Back to packs').click());
+  await app.interact(() => area.click());
+  await app.settle(400);
+  expect(sealed(), 'a press behind the sheet left the reveal').toBeNull();
+  expect(stats()?.packsOpened ?? 0, 'a press behind the sheet recorded the pack').toBe(0);
+  await app.interact(() => button('Close').click());
+  await app.until('the sheet closes', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  await app.interact(() => button('Back to packs').click());
+  await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
+  expect(stats()?.packsOpened).toBe(1);
 }, 30_000);
 
 it('shares from the summary, which puts its actions above the cards', async () => {

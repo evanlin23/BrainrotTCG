@@ -5,6 +5,11 @@ import { mountedApp } from './mountedApp';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
 afterEach(async () => { await app?.dispose(); app = undefined; });
+const currentTab = () => document.querySelector('.app-nav [aria-current="page"]')?.textContent ?? null;
+const dialogName = () => {
+  const dialog = document.querySelector('[role="dialog"]');
+  return dialog && document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent;
+};
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].reverse()
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label)!;
 
@@ -15,9 +20,11 @@ it('keeps three primary destinations and gives identity, goals, sound and recove
   });
   await app.mount();
   expect([...document.querySelectorAll('.app-nav-label')].map((el) => el.textContent)).toEqual(['Open packs', 'My cards', 'Rankings']);
+  expect(currentTab()).toBe('Open packs');
   await app.interact(() => button('My cards').click());
   await app.until('cards destination loads', () => expect(document.querySelector('.collection')).not.toBeNull());
   expect(document.querySelector('.personal-nav [aria-current="page"]')?.textContent).toBe('Cards');
+  expect(currentTab()).toBe('My cards');
   await app.interact(() => button('Best pulls').click());
   await app.until('best pulls destination loads', () => expect(document.querySelector('.pulls-page')).not.toBeNull());
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
@@ -27,6 +34,8 @@ it('keeps three primary destinations and gives identity, goals, sound and recove
   await app.interact(() => button('Player').click());
   await app.until('identity editor loads', () => expect(document.querySelector('input[autocomplete="nickname"]')).not.toBeNull());
   expect(document.body.textContent).toContain('saved in this browser');
+  // A sheet that is none of the tabs leaves no tab current, rather than the page tab behind it.
+  expect(currentTab()).toBeNull();
   await app.interact(() => {
     const input = document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]')!;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Changed name');
@@ -50,7 +59,36 @@ it('keeps three primary destinations and gives identity, goals, sound and recove
   await app.interact(() => button('Player').click());
   await app.until('player reopens with saved name', () => expect(document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]')?.value).toBe('Changed name'));
   await app.interact(() => button('Goals & rewards').click());
+  // The sheet keeps the button's name while its chunk loads and once it has loaded.
+  expect(dialogName()).toBe('Goals & rewards');
   await app.until('goals load', () => expect(document.querySelector('.achievements')).not.toBeNull());
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  expect(dialogName()).toBe('Goals & rewards');
+  expect(currentTab()).toBeNull();
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).nextNonce).toBe(0);
+}, 30_000);
+
+it('leaves no tab current while a sheet that is not a tab sits on top of My cards', async () => {
+  app = await mountedApp({
+    'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Navigation fixture', nextNonce: 0, createdAt: 1 }),
+    'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+  });
+  await app.mount();
+  await app.interact(() => button('My cards').click());
+  await app.until('cards destination loads', () => expect(document.querySelector('.collection')).not.toBeNull());
+  expect(currentTab()).toBe('My cards');
+  // A shared link opened while My cards is up: its sheet goes on top without closing the tab's sheet.
+  await app.interact(() => {
+    history.replaceState(null, '', '#/pull/cut-off');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  });
+  await app.until('broken link sheet opens', () => expect(
+    [...document.querySelectorAll('[role="dialog"]')].map((dialog) => document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent),
+  ).toContain("This link doesn't work"));
+  expect(document.querySelector('.collection')).not.toBeNull();
+  expect(currentTab()).toBeNull();
+  await app.interact(() => button('Close').click());
+  await app.until('broken link sheet closes', () => expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1));
+  expect(window.location.hash).toBe('');
+  expect(currentTab()).toBe('My cards');
 }, 30_000);

@@ -218,10 +218,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
   }, [disabled, pauseBigPulls, openedCards, recordPack]);
 
   const leaveReveal = useCallback(() => {
-    if (pauseBigPulls && performance.now() < revealLockedUntilRef.current) return;
+    // Like skipAll: an open sheet disables the opener, so a stray press behind it records nothing.
+    if (disabled || (pauseBigPulls && performance.now() < revealLockedUntilRef.current)) return;
     recordPack();
     finishPack();
-  }, [pauseBigPulls, recordPack, finishPack]);
+  }, [disabled, pauseBigPulls, recordPack, finishPack]);
 
   // A press on the empty space around the card leaves the reveal. A fling that starts on the card and
   // is released off it clicks their shared ancestor, so the press must start and end on empty space.
@@ -414,7 +415,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2 }}
-            className={`card-reveal-area ${!showSummary && !(revealLocked && pauseBigPulls) ? 'can-leave' : ''}`}
+            className={`card-reveal-area ${!showSummary && !disabled && !(revealLocked && pauseBigPulls) ? 'can-leave' : ''}`}
             onPointerDownCapture={(event) => { blankPressRef.current = onBlank(event); }}
             onPointerUpCapture={(event) => { blankPressRef.current = blankPressRef.current === true && onBlank(event); }}
             onClick={(event) => {

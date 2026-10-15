@@ -13,6 +13,13 @@ afterEach(async () => {
   await app?.dispose();
   app = undefined;
 });
+/** The text of every element the textarea's aria-describedby names, which must all exist. */
+const description = (element: Element) => (element.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
+  .map((id) => {
+    const target = document.getElementById(id);
+    expect(target, `aria-describedby target ${id}`).not.toBeNull();
+    return target!.textContent;
+  }).join(' ');
 const button = (text: string) => {
   const node = [...document.querySelectorAll<HTMLButtonElement>('button')]
     .find((element) => (element.getAttribute('aria-label') ?? element.textContent) === text);
@@ -31,6 +38,9 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   const text = document.querySelector('textarea')!;
   expect(JSON.parse(text.value).captureEnabled).toBe(false);
   expect(document.body.textContent).toContain('Event capture is off');
+  expect([...document.querySelectorAll('label')].find((label) => label.htmlFor === text.id)?.textContent).toBe('Report details (editable)');
+  expect(description(text)).toContain('Event capture is off');
+  expect(description(text)).toContain('rough guesses');
   localStorage.setItem('brainrot-player-v1', 'PRIVATE_KEY_NEVER_SHARE');
   history.replaceState(null, '', '#/pull/PRIVATE_PROOF_NEVER_SHARE');
   await app.interact(() => button('Refresh details').click());
@@ -38,6 +48,8 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
   await app.interact(() => checkbox.click());
   expect(document.body.textContent).not.toContain('Event capture is off');
+  expect(description(text)).not.toContain('Event capture is off');
+  expect(description(text)).toContain('rough guesses');
   window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
   await app.interact(() => button('Refresh details').click());
   expect(JSON.parse(text.value).events).toEqual([{ step: 1, event: 'unhandled-error' }]);
@@ -56,7 +68,8 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   const link = document.querySelector<HTMLAnchorElement>('a')!;
   expect(link.href).toBe('https://github.com/evanlin23/BrainrotTCG/issues/new?template=bug.yml');
   expect(link.target).toBe('_blank');
-  expect(link.rel).toContain('noopener');
+  expect(link.relList.contains('noopener')).toBe(true);
+  expect(link.relList.contains('noreferrer')).toBe(true);
   await app.interact(() => button('Clear recorded steps').click());
   expect(diagnostics.diagnosticSnapshot({}).events).toEqual([]);
   await app.interact(() => checkbox.click());

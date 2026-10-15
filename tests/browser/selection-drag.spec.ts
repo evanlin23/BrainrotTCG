@@ -105,7 +105,8 @@ test('inputs, copyable text and links keep selection and activation', async ({ p
 
   await page.getByRole('button', { name: 'Sound & display', exact: true }).click();
   await dialog('Sound & display').getByRole('button', { name: 'Report a problem', exact: true }).click();
-  const report = page.locator('#diagnostic-report-text');
+  // By its label: the textarea's id comes from useId, so it isn't a stable selector.
+  const report = dialog('Report a problem').getByRole('textbox', { name: 'Report details (editable)', exact: true });
   await expect(report).toBeVisible();
   await report.focus();
   await page.keyboard.press('ControlOrMeta+A');
