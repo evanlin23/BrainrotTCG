@@ -78,17 +78,24 @@ CI runs both verifiers against the same test vectors, including forged and malfo
 ## Setup
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
 | Command | What it does |
 | --- | --- |
 | `npm run check` | lint, typecheck, tests and the set lock check (CI runs this) |
+| `npm run test:browser` | build and run the owned Chromium browser smoke |
+| `npm run test:performance` | report-only Chromium performance baseline, no timing gate ([details](docs/DEVELOPMENT.md#performance-baseline)) |
 | `npm run cards` | build card images into `src/content/sets/<set>/cards/` |
 | `npm run prompts` | write free Gemini-app prompt sheets for each set's art |
 | `npm run check:sets -- --update` | lock a new set version |
 | `npm run og-image` | rebuild the link preview image from the newest sets |
+
+The browser smoke needs Chromium once (`npx playwright install --with-deps chromium`); what it
+covers is in [Development and verification](docs/DEVELOPMENT.md#browser-smoke).
+
+Contributing? Start with [Development and verification](docs/DEVELOPMENT.md) before taking an issue.
 
 ## Adding cards and sets
 
