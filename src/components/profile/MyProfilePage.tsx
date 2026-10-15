@@ -10,7 +10,6 @@ import ProfileSummary from './ProfileSummary';
 import SharePreviewSheet from '../share/SharePreviewSheet';
 import { modifierClasses } from '../../game/modifiers';
 import { renderPlayerCard } from '../../game/playerCard';
-import type { Settings } from '../../types';
 import { getLatestSet, setCode } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
 import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
@@ -27,8 +26,6 @@ interface LegacyBest {
 
 interface MyProfilePageProps {
   stats: LegacyBest;
-  settings: Settings;
-  onSettingsChange: (settings: Settings) => void;
   onClose: () => void;
   navigation?: ReactNode;
   onSharePull: (entry: HistoryEntry, cards: CardWithMeta[]) => void;
@@ -200,7 +197,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
           <p className="pulls-note">
             Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
             These local totals are partial. A complete profile link or player card cannot be created from this save. Keep a private export
-            from Settings; if you have an older complete backup, it may contain the missing records.
+            (open Player, then Save & restore); if you have an older complete backup, it may contain the missing records.
           </p>
         )}
 

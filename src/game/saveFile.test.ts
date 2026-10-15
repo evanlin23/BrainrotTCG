@@ -49,6 +49,10 @@ const expectRejectedWithoutWrites = (raw: string) => {
 describe('Settings backup preflight', () => {
   it.each(['{', 'null', '[]', '"save"'])('rejects malformed/top-level JSON %s without writes', expectRejectedWithoutWrites);
 
+  it('points an unreadable file back to where saves are exported', () => {
+    expect(importSaveFile('{')).toBe("Couldn't read or store that file. Is it a save exported from Save & restore?");
+  });
+
   it.each([
     ['future file version', { version: 3 }],
     ['string file version', { version: '2' }],

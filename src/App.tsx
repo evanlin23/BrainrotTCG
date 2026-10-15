@@ -49,7 +49,7 @@ const loadPull = () => import('./components/share/PullViewerPage');
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
-const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. Export a backup from Settings to recover it.';
+const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. To recover it, open Player, then Save & restore, and export a backup.';
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
@@ -551,8 +551,6 @@ function App() {
         <DeferredSheet load={loadProfile} size="lg" title="My cards" screenProps={{
           stats,
           navigation: personalNavigation,
-          settings,
-          onSettingsChange: handleSettingsChange,
           onClose: () => setIsProfileOpen(false),
           onSharePull: (entry, cards) =>
             setShareTarget({

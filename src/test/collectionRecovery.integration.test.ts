@@ -73,6 +73,9 @@ it('keeps unreadable collection entries through pack writes and offers them in t
 
   // One warning, in the banner and then in Save & restore while the banner steps aside.
   expect(warnings()).toEqual([expect.stringMatching(/Unreadable collection data was kept aside/)]);
+  // It points at where the export really lives.
+  expect(warnings()[0]).toMatch(/open Player, then Save & restore, and export a backup\./);
+  expect(warnings()[0]).not.toMatch(/Settings/);
   expect(warnings()[0]).not.toMatch(/couldn't be saved/);
   await app.interact(() => button('Player').click());
   await app.until('Player loads', () => expect(button('Save & restore')).toBeDefined());

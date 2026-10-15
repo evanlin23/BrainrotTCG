@@ -202,7 +202,7 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   );
 
   return (
-    <Sheet title="Hall of Fame" subtitle={`The top ${HALL_OF_FAME_TOP} pulls, and the first of every hand in each set`} onClose={onClose} size="lg" className="hall-of-fame">
+    <Sheet title="Rankings" subtitle={`The top ${HALL_OF_FAME_TOP} pulls, and the first of every hand in each set`} onClose={onClose} size="lg" className="hall-of-fame">
       <Tabs
         idBase={tabsId}
         label="Hall of Fame lists"

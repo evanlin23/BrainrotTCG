@@ -166,9 +166,11 @@ async function walkDestinations(page: Page) {
   await expect(myCards).toHaveClass(/\bcollection\b/);
   await expect(personal.getByRole('button', { name: 'Cards', exact: true })).toHaveAttribute('aria-current', 'page');
   await close(myCards);
+  // Switching between Cards and Best pulls swaps sheets; focus still returns to what opened My cards.
+  await expect(navItem('My cards')).toBeFocused();
 
   await navItem('Rankings').click();
-  const rankings = dialog('Hall of Fame');
+  const rankings = dialog('Rankings');
   await expect(rankings).toBeVisible();
   await expect(rankings).toHaveClass(/\bhall-of-fame\b/);
   await expect(navItem('Rankings')).toHaveAttribute('aria-current', 'page');
@@ -186,6 +188,7 @@ async function walkDestinations(page: Page) {
   await expect(goals).toBeVisible();
   await expect(player).toHaveCount(0);
   await close(goals);
+  await expect(playerButton).toBeFocused();
 
   await playerButton.click();
   player = dialog('Player');
@@ -195,6 +198,7 @@ async function walkDestinations(page: Page) {
   await expect(save.getByRole('heading', { name: 'Experience', exact: true })).toHaveCount(0);
   await expect(player).toHaveCount(0);
   await close(save);
+  await expect(playerButton).toBeFocused();
 
   const gear = page.getByRole('button', { name: 'Sound & display', exact: true });
   await gear.click();
