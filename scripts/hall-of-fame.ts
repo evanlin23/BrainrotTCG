@@ -53,7 +53,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { logSafeError, probeLine, processInbox, relayReadLine } from './hof-inbox.ts';
+import { buildSkipLine, probeLine, processInbox, relayReadLine } from './hof-inbox.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const OUTPUT = `${ROOT}public/hall-of-fame.json`;
@@ -279,7 +279,7 @@ const build = async () => {
     const result = await checkIssue(issue);
     if (!result.ok) {
       next[issue.number] = { updatedAt: issue.updated_at, entry: null, reason: result.reason };
-      console.log(`#${issue.number}: skipped (${logSafeError(result.reason)})`);
+      console.log(buildSkipLine(issue.number, result.reason));
       continue;
     }
     const verifiedAt = await firstVerifiedAt(issue.number, result.entry.id, token);
