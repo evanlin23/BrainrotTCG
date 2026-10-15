@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
 import Sheet from '../ui/Sheet';
@@ -13,6 +13,7 @@ import '../../styles/Collection.css';
 interface CollectionBrowserProps {
   collection: Record<string, CollectionItem>;
   onClose: () => void;
+  navigation?: ReactNode;
 }
 
 type Owned = { normalCount: number; holoCount: number; finishes?: Partial<Record<Finish, number>>; misprints?: number };
@@ -21,7 +22,7 @@ type Owned = { normalCount: number; holoCount: number; finishes?: Partial<Record
  * Eras you've started, in timeline order, with every card (the missing ones as empty slots);
  * then the eras you haven't started, one line each.
  */
-const CollectionBrowser = ({ collection, onClose }: CollectionBrowserProps) => {
+const CollectionBrowser = ({ collection, onClose, navigation }: CollectionBrowserProps) => {
   const [selected, setSelected] = useState<{ card: Card } & Owned | null>(null);
 
   const owned = useMemo(() => {
@@ -64,7 +65,7 @@ const CollectionBrowser = ({ collection, onClose }: CollectionBrowserProps) => {
   return (
     <>
       <Sheet
-        title="Collection"
+        title="My cards"
         subtitle={
           <span className="tabular">
             {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} Brainrot Score
@@ -74,6 +75,7 @@ const CollectionBrowser = ({ collection, onClose }: CollectionBrowserProps) => {
         size="lg"
         className="collection"
       >
+        {navigation}
         {started.map(({ set, cards, have }) => {
           const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
           return (

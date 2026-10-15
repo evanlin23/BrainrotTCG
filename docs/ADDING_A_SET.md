@@ -47,7 +47,7 @@ Rules (see "Real images only" in `docs/ART_STYLE.md`):
 - `"modifiers": 1` gives every card a chance at a finish (Silver, Gold, Platinum, Diamond) and a
   misprint, on top of holo (spec section 5.4). New sets should have it. It's part of the set's
   version: adding it to a released set means a new version, like any change to odds.
-- `draft: true` hides the set unless a player turns on **Settings → Preview upcoming sets**.
+- `draft: true` hides the set unless a player turns on **Sound & display → Preview upcoming sets**.
   Remove it when the art is final.
 
 ## 3. Get the real images

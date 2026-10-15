@@ -106,10 +106,26 @@ export const allocateNonce = (): { nonce: number; player: Player } => {
   return { nonce, player: toPlayer(record) };
 };
 
-export const renamePlayer = (name: string): Player => {
+/**
+ * What a rename did, with the player as it is now stored: `saved`; `blank` or `unchanged` (nothing
+ * written); or `failed` (this browser refused the write, so the old name stays).
+ */
+export interface RenameResult {
+  status: 'saved' | 'blank' | 'unchanged' | 'failed';
+  player: Player;
+}
+
+/** Change only the name, on the record read from storage now, so another tab's key and ticket counter stay intact. */
+export const renamePlayer = (name: string): RenameResult => {
   const clean = normalizeName(name);
-  if (!clean) return getPlayer();
-  return toPlayer(update((s) => ({ ...s, name: clean })));
+  const record = current();
+  if (!clean) return { status: 'blank', player: toPlayer(record) };
+  if (clean === record.name) return { status: 'unchanged', player: toPlayer(record) };
+  const next = { ...record, name: clean };
+  // Adopt the name only once it is stored, so the page never shows a name the next read would undo.
+  if (!write(next)) return { status: 'failed', player: toPlayer(record) };
+  memory = next;
+  return { status: 'saved', player: toPlayer(next) };
 };
 
 /** For save export/import. The secret key is what makes pulls yours, so treat the export as private. */

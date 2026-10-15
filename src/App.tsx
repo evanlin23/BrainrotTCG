@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Settings2 } from 'lucide-react';
 import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
 import AchievementToasts, { type ToastItem } from './components/achievements/AchievementToasts';
@@ -35,6 +36,7 @@ import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData }
 import swedenSrc from './assets/audio/Sweden.mp3';
 
 // Keep loaders stable, and request a secondary screen only when its existing state opens it.
+const loadPlayer = () => import('./components/profile/PlayerPage');
 const loadProfile = () => import('./components/profile/MyProfilePage');
 const loadPublicProfile = () => import('./components/profile/ProfileViewerPage');
 const loadAchievements = () => import('./components/achievements/AchievementsPage');
@@ -47,7 +49,7 @@ const loadPull = () => import('./components/share/PullViewerPage');
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
-const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. Export a backup from Settings to recover it.';
+const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. To recover it, open Player, then Save & restore, and export a backup.';
 /** What adding a pack changes, so several packs can be added before React renders. */
 type PackProgress = { stats: Stats; collection: Record<string, CollectionItem>; hallOfFame: HallOfFameData };
 
@@ -124,6 +126,8 @@ function App() {
   const [isHallOfFameOpen, setIsHallOfFameOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<'sound' | 'save'>('sound');
+  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [notificationQueue, setNotificationQueue] = useState<ToastItem[]>([]);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [packBusy, setPackBusy] = useState(false);
@@ -209,7 +213,7 @@ function App() {
         id: `level-${level}`,
         kicker: 'Level up',
         name: `Level ${level}`,
-        description: unlocked.length ? `Unlocked ${unlocked.join(', ')}. Pick it in your profile.` : next ? `Next: ${next.name} at level ${next.level}.` : 'Keep opening.',
+        description: unlocked.length ? `Unlocked ${unlocked.join(', ')}. Pick it on your Player page.` : next ? `Next: ${next.name} at level ${next.level}.` : 'Keep opening.',
         opens: 'profile',
       },
     ]);
@@ -305,13 +309,13 @@ function App() {
   }, []);
 
   const openNav = useCallback((target: NavTarget) => {
-    ({
-      collection: setIsCollectionOpen,
-      achievements: setIsAchievementsOpen,
-      hallOfFame: setIsHallOfFameOpen,
-      profile: setIsProfileOpen,
-      settings: setIsSettingsOpen,
-    })[target](true);
+    setIsCollectionOpen(target === 'collection');
+    setIsProfileOpen(target === 'profile');
+    setIsAchievementsOpen(target === 'achievements');
+    setIsHallOfFameOpen(target === 'hallOfFame');
+    setIsPlayerOpen(target === 'player');
+    setIsSettingsOpen(target === 'settings' || target === 'save');
+    if (target === 'settings' || target === 'save') setSettingsSection(target === 'save' ? 'save' : 'sound');
   }, []);
 
   const handleSettingsChange = useCallback((newSettings: Settings) => {
@@ -483,7 +487,12 @@ function App() {
     return out;
   }, [stats.packsOpened, collection]);
 
-  const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isProfileOpen || isSettingsOpen || !!shareTarget || !!viewProof || !!viewProfile;
+  const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isProfileOpen || isSettingsOpen || isPlayerOpen || !!shareTarget || !!viewProof || !!viewProfile;
+
+  const personalNavigation = <nav className="personal-nav" aria-label="My cards">
+    <button type="button" className="btn btn--secondary" aria-current={isCollectionOpen ? 'page' : undefined} onClick={() => openNav('collection')}>Cards</button>
+    <button type="button" className="btn btn--secondary" aria-current={isProfileOpen ? 'page' : undefined} onClick={() => openNav('profile')}>Best pulls</button>
+  </nav>;
 
   return (
     <div className={`app ${packBusy ? 'is-focus' : ''}`}>
@@ -505,7 +514,11 @@ function App() {
             ),
           )}
         </h1>
-        <AppNav onOpen={openNav} />
+        <AppNav onOpen={openNav} active={isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : 'open'} />
+        <div className="app-utilities">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('player')} disabled={packBusy}>Player</button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('settings')} disabled={packBusy} aria-label="Sound & display" title="Sound & display"><Settings2 aria-hidden="true" size={20} /></button>
+        </div>
       </header>
 
       <main className="app-main">
@@ -526,7 +539,7 @@ function App() {
       <AchievementToasts
         queue={notificationQueue}
         onDismiss={dismissNotifications}
-        onOpen={(target) => (target === 'profile' ? setIsProfileOpen(true) : setIsAchievementsOpen(true))}
+        onOpen={(target) => openNav(target === 'profile' ? 'player' : 'achievements')}
         paused={isAnyModalOpen}
       />
 
@@ -542,14 +555,13 @@ function App() {
 
       {/* Hall of Fame Page */}
       {isHallOfFameOpen && (
-        <DeferredSheet load={loadHallOfFame} size="lg" title="Hall of Fame" screenProps={{ onClose: () => setIsHallOfFameOpen(false) }} />
+        <DeferredSheet load={loadHallOfFame} size="lg" title="Rankings" screenProps={{ onClose: () => setIsHallOfFameOpen(false) }} />
       )}
 
       {isProfileOpen && (
-        <DeferredSheet load={loadProfile} size="lg" title="Profile" screenProps={{
+        <DeferredSheet load={loadProfile} size="lg" title="My cards" screenProps={{
           stats,
-          settings,
-          onSettingsChange: handleSettingsChange,
+          navigation: personalNavigation,
           onClose: () => setIsProfileOpen(false),
           onSharePull: (entry, cards) =>
             setShareTarget({
@@ -562,7 +574,7 @@ function App() {
 
       {/* Collection Browser */}
       {isCollectionOpen && (
-        <DeferredSheet load={loadCollection} size="lg" title="Collection" screenProps={{ collection, onClose: () => setIsCollectionOpen(false) }} />
+        <DeferredSheet load={loadCollection} size="lg" title="My cards" screenProps={{ collection, navigation: personalNavigation, onClose: () => setIsCollectionOpen(false) }} />
       )}
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
@@ -579,9 +591,15 @@ function App() {
         </Sheet>
       )}
 
+      {isPlayerOpen && <DeferredSheet load={loadPlayer} size="sm" title="Player" screenProps={{
+        level, settings, onSettingsChange: handleSettingsChange, onClose: () => setIsPlayerOpen(false),
+        onOpenGoals: () => openNav('achievements'), onOpenSave: () => openNav('save'),
+      }} />}
+
       {/* Settings Page */}
       {isSettingsOpen && (
-        <DeferredSheet load={loadSettings} size="sm" title="Settings" screenProps={{
+        <DeferredSheet load={loadSettings} size="sm" title={settingsSection === 'save' ? 'Save & restore' : 'Sound & display'} screenProps={{
+          section: settingsSection,
           settings,
           onSettingsChange: handleSettingsChange,
           onClose: () => setIsSettingsOpen(false),

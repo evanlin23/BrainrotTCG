@@ -64,14 +64,14 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   diagnostics.setBrowserDiagnosticCapture(false);
 });
 
-it('opens from the real Settings screen as a labelled dialog that never touches the network', async () => {
+it('opens from the real Sound & display screen as a labelled dialog that never touches the network', async () => {
   app = await mountedApp({
     'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Diagnostics fixture', nextNonce: 0, createdAt: 1 }),
     'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
   });
   await app.mount();
-  await app.interact(() => { button('Settings').focus(); button('Settings').click(); });
-  await app.until('Settings loads', () => expect(document.querySelector('[role="dialog"] .settings-group')).not.toBeNull());
+  await app.interact(() => { button('Sound & display').focus(); button('Sound & display').click(); });
+  await app.until('Sound & display loads', () => expect(document.querySelector('[role="dialog"] .settings-group')).not.toBeNull());
 
   const fetchSpy = vi.fn();
   vi.stubGlobal('fetch', fetchSpy);
