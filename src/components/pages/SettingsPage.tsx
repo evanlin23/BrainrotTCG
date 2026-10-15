@@ -18,9 +18,10 @@ interface SettingsPageProps {
     onClose: () => void;
     /** Returns an error to show, or null (the page then reloads with the imported save). */
     onImportSave: (data: string) => string | null;
+    saveWarning?: string;
 }
 
-const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveWarning }: SettingsPageProps) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [player, setPlayer] = useState(getPlayer);
     const [nameDraft, setNameDraft] = useState(player.name);
@@ -73,7 +74,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: Set
         setOldSaveNote(
             result === 'same' ? 'Your save from the old address is already here.'
             : result === 'kept' ? 'Kept the save you have here.'
-            : "That didn't look like a save, so nothing changed.",
+            : "Couldn't bring that save over, so nothing changed.",
         );
     };
     const handleBringOldSave = async () => {
@@ -152,6 +153,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: Set
 
     return (
         <Sheet title="Settings" onClose={onClose} size="sm" className="settings">
+            {saveWarning && <p role="alert" className="save-warning">{saveWarning}</p>}
             <section className="settings-group">
                 <h3 className="section-title" id="settings-player">Player</h3>
                 <div className="settings-panel">
