@@ -42,7 +42,10 @@ export interface OpenedPack extends PullRef {
   counted?: boolean;
   /** Taken from an older build's one-pack entry, which keeps it until a stored collection holds it. */
   legacy?: boolean;
-  /** Its ticket mapping couldn't be written to the history (storage full or blocked): warn that saving failed. */
+  /**
+   * Its ticket mapping couldn't be written to the history, or it couldn't be put on the pending shelf
+   * (storage full or blocked, or the shelf full): warn that saving failed.
+   */
   unrecorded?: boolean;
 }
 
@@ -83,7 +86,8 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
   };
   // Recorded now, not after the reveal: the ticket is spent either way, and a profile needs every one.
   if (!recordPack(pack)) pack.unrecorded = true;
-  savePendingPack(pack);
+  // Not kept for the next load (storage refused, or the shelf is full): warn as well.
+  if (!savePendingPack(pack)) pack.unrecorded = true;
   return pack;
 };
 
@@ -142,10 +146,21 @@ const writeShelf = (shelf: PendingPack[]): boolean => {
   }
 };
 
+/**
+ * Load adds whatever pack this entry holds, without checking the collection, so a pack left here
+ * after a collection holding it was stored would be added again. If storage won't remove the entry,
+ * it is blanked instead: `null` reads as no pack, here and in older builds.
+ */
 const removeLegacy = () => {
   try {
     localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
-  } catch { /* It stays for a later load, which adds it only if no stored collection has cleared it. */ }
+  } catch {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PENDING_PACK, 'null');
+    } catch {
+      console.error("The older builds' pending pack couldn't be cleared: the next load may add a stored pack again.");
+    }
+  }
 };
 
 const toPending = (pack: OpenedPack): PendingPack => ({
