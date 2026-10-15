@@ -95,7 +95,8 @@ test('inputs, copyable text and links keep selection and activation', async ({ p
   expect(await name.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd]))
     .toEqual([0, 'Browser smoke fixture'.length]);
 
-  const playerId = player.getByRole('status');
+  // The ID is plain text; the status region beside it only carries save results.
+  const playerId = player.getByRole('paragraph').filter({ hasText: /^Player ID #/ });
   await expect(playerId).toContainText('Player ID #');
   await playerId.click({ clickCount: 3 });
   expect(await selectedText(page)).toContain((await playerId.textContent())!);
