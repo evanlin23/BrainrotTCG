@@ -91,6 +91,10 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   switches between Cards and Best pulls with its own small nav. The header keeps the player utilities:
   Player (display name, rewards, Goals & rewards, Save & restore) and a Sound & display gear.
   Closing Player (Escape, Close or backdrop) saves a changed name; if that fails it stays open once.
+- **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
+  inside its heading (name, era, owned count, chevron) that shows or hides its grid. The sheet opens
+  the started eras in timeline order while they fit 24 pockets (the first always opens) and collapses
+  the rest. A collapsed grid is unmounted, not hidden, so a big collection stays cheap to open (#344).
 - **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
