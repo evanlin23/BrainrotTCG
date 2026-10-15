@@ -78,6 +78,12 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
     setLoadState('loading');
     setAttempt((prev) => prev + 1);
   };
+  // A failure or a finished retry moves focus to the status (the Retry button is disabled or gone),
+  // so screen readers announce the outcome.
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (loadState === 'failed' || (loadState === 'loaded' && attempt > 0)) statusRef.current?.focus({ preventScroll: true });
+  }, [loadState, attempt]);
   const all = useMemo(() => (entries ? [...entries, ...pending] : null), [entries, pending]);
 
   // The same rules the deploy used to pick these entries (src/engine/hallOfFame.ts): one entry per
@@ -204,11 +210,14 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
 
       {tab !== 'legends' && (
         <div className={loadState === 'loaded' ? 'sr-only' : 'hof-load-state'}>
-          {loadState === 'failed' && <p role="alert">Couldn't load the leaderboard. Try again.</p>}
-          <p role="status">
-            {loadState === 'loading' ? 'Loading leaderboard…' : loadState === 'loaded' ? 'Leaderboard loaded.' : ''}
+          <p role="status" tabIndex={-1} ref={statusRef}>
+            {loadState === 'loading' ? 'Loading leaderboard…' : loadState === 'loaded' ? 'Leaderboard loaded.' : "Couldn't load the leaderboard. Try again."}
           </p>
-          {loadState !== 'loaded' && <button type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'}>Retry</button>}
+          {loadState !== 'loaded' && (
+            <button type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading leaderboard">
+              Retry
+            </button>
+          )}
         </div>
       )}
 

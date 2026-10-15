@@ -3,6 +3,8 @@ import { encodeProof, generateKeypair, pullId, signProof } from '../engine';
 
 vi.mock('./pulls', () => ({ checkPull: vi.fn() }));
 vi.mock('./share', () => ({ wasSubmitted: vi.fn() }));
+const fetchEvents = vi.hoisted(() => vi.fn());
+vi.mock('./nostrInbox', () => ({ fetchEvents, proofFromEvent: vi.fn(), HOF_KIND: 30_078, HOF_TAG: 'hof' }));
 
 const mockResponse = (data: unknown, ok = true, status = 200) =>
   ({
@@ -190,5 +192,30 @@ describe('loadHallOfFame', () => {
       { proof: validProofStr, id: expectedPullId },
       { proof: 'invalid-proof-text', id: 'invalid-proof-text' },
     ]);
+  });
+});
+
+describe('loadPending', () => {
+  beforeEach(() => {
+    fetchEvents.mockReset();
+    fetchEvents.mockResolvedValue({ events: [], perRelay: [] });
+  });
+
+  it('hands its abort signal to the relay read', async () => {
+    const { loadPending } = await import('./hallOfFameList');
+    const controller = new AbortController();
+    await loadPending([], vi.fn(), controller.signal);
+    expect(fetchEvents).toHaveBeenCalledTimes(1);
+    expect(fetchEvents.mock.calls[0][5]).toBe(controller.signal);
+  });
+
+  it('reads no relays once already aborted', async () => {
+    const { loadPending } = await import('./hallOfFameList');
+    const controller = new AbortController();
+    controller.abort();
+    const onEntry = vi.fn();
+    await loadPending([], onEntry, controller.signal);
+    expect(fetchEvents).not.toHaveBeenCalled();
+    expect(onEntry).not.toHaveBeenCalled();
   });
 });
