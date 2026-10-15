@@ -100,7 +100,9 @@ function App() {
         // older build's pack goes back into its own entry, while it is still there: see game/pulls.ts).
         // Marked as counted first, then the stats that count them are stored; if they can't be (or a
         // full shelf can't take one), the packs go back unmarked so that load counts them (and the stats
-        // wait for it).
+        // wait for it). If the marked copies fit but neither the stats nor the unmarked copies can be
+        // stored, the shelf keeps the marked ones: the next load adds those packs without counting them
+        // unless this tab stores them first.
         if (packs.length > 0) {
           const marked = packs.map((pack) => ({ ...pack, counted: true }));
           statsHandled = true;

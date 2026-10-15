@@ -305,7 +305,9 @@ shelf copy for the next load or, if the shelf refused it, the pack only in the h
 collection write for owed packs, any ticket mapping the history couldn't take when they opened is
 recorded (`recordMissing`; the save warning shows if it still can't be). A pack is marked as counted
 (`d: 1`) before the stats counting it are written, and unmarked again if they can't be, so the next
-load counts it once (entries without the mark count once).
+load counts it once (entries without the mark count once). If the marked copy fits but the stats and
+then the unmarked copy are both refused, the shelf keeps the marked copy, and the next load adds that
+pack without counting it unless this tab stores it first.
 `brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never puts a list or
 a new or listed pack there, so an older build (another tab or a rollback) never finds a list to
 discard, and never sees or clears listed packs. It adds the pack in that entry on load but leaves the

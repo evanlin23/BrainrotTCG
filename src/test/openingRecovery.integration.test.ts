@@ -149,7 +149,7 @@ it('never retries a failed ticket by itself: each press asks once more, and a se
     await app.until('the app is free again', () => expect(button('Player')!.disabled).toBe(false));
     expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('Simulated ticket failure')]);
     expect(app.ticketRequests).toHaveLength(asked + 1);
-    await app.settle(3000);
+    await app.settle(10_000);
     expect(app.ticketRequests).toHaveLength(asked + 1); // nothing asks again until the next press
   }
   // Each press spent its own ticket number, and neither recorded anything.

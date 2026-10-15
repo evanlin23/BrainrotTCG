@@ -121,7 +121,7 @@ bundled into the site, and none takes untrusted input.
 | @humanfs/node 0.16.7 (ESLint) | moderate | No. ESLint doesn't use the recursive copy | Lockfile refresh, in range |
 | baseline-browser-mapping 2.10.0 (browserslist) | moderate | No. Same fixed inputs as browserslist | Lockfile refresh, in range |
 | @babel/core 7.29.0 (@vitejs/plugin-react, eslint-plugin-react-hooks) | low | No. It reads source maps only from our own source | Lockfile refresh, in range |
-| esbuild 0.27.3 (Vite 7.3.5) | low | No. The advisory covers esbuild's dev server on Windows, which Vite doesn't use | Accepted: the advisory covers esbuild `>=0.27.3 <0.28.1`. Vite 7 needs `^0.27.0`, so the only in-range way out is holding esbuild back at 0.27.2 |
+| esbuild 0.27.3 (Vite 7.3.5) | low | No. The advisory covers esbuild's dev server on Windows, which Vite doesn't use | Accepted, upstream-blocked: Vite 7 needs esbuild `^0.27.0`, and every 0.27.x is affected |
 
 The "in range" fixes don't need a breaking update. In a scratch copy,
 `npm audit fix --package-lock-only` bumps 28 dev-only lockfile entries (Babel 7.29.x, browserslist
