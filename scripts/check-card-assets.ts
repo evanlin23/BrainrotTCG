@@ -12,6 +12,7 @@ import { ALL_SET_VERSIONS, isOpenable } from '../src/content/sets/index.ts';
 import type { SetDefinition } from '../src/engine/index.ts';
 import { FINISHES_RAREST_FIRST } from '../src/engine/types.ts';
 import frameLayout from './cards/templates/genesis-frame.json';
+import { isMainModule } from './main-module.ts';
 
 export const ROOT = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 
@@ -172,9 +173,7 @@ export const checkCardAssets = (sets: SetDefinition[] = ALL_SET_VERSIONS, concur
 export const checkRegisteredAssets = async (sets: SetDefinition[] = ALL_SET_VERSIONS, concurrency = 8, rootDir = ROOT): Promise<CheckAssetsResult> =>
   checkAssets(getRegisteredAssetChecks(sets, rootDir), concurrency, rootDir);
 
-const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-if (isMainModule) {
+if (isMainModule(import.meta.url)) {
   checkRegisteredAssets(ALL_SET_VERSIONS)
     .then(({ total, errors }) => {
       if (errors.length > 0) {
