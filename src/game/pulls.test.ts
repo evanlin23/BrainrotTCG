@@ -3,7 +3,10 @@ import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import { encodeCard } from './cardCode';
 import { getPlayer } from './player';
-import { clearPendingPack, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
+import { clearPendingPack, openPack, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
+
+// Any ticket will do: these tests are about where an opened pack is kept.
+vi.mock('./ticketMiner', () => ({ getTicket: async () => new Uint8Array(32), prefetchTicket: () => undefined }));
 
 // A storage whose writes can be refused, as a browser that blocks storage (SecurityError) does.
 const data = new Map<string, string>();
@@ -57,6 +60,26 @@ describe('pending pack when storage refuses to remove it', () => {
       expect(takePendingPacks()).toEqual([]);
       expect(data.has(LEGACY)).toBe(false);
     }
+  });
+
+  it("blanks an older build's entry it can't remove once the collection holds its pack, so no load adds it again", () => {
+    data.set(LEGACY, PENDING);
+    refuseRemove = (k) => k === LEGACY;
+    clearPendingPack(4);
+    // What both this and older builds read as no pack.
+    expect(data.get(LEGACY)).toBe('null');
+    expect(takePendingPacks()).toEqual([]);
+  });
+
+  it('says so when the entry can be neither removed nor blanked', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    data.set(LEGACY, PENDING);
+    refuseRemove = () => true;
+    refuseWrite = (k) => k === LEGACY;
+    clearPendingPack(4);
+    expect(data.get(LEGACY)).toBe(PENDING);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('may add a stored pack again'));
+    error.mockRestore();
   });
 
   it('clearing it does not throw, whether the entry is readable or not', () => {
@@ -274,5 +297,26 @@ describe("an older tab's pack", () => {
     refuseWrite = (k) => k === LEGACY;
     expect(savePendingPack({ ...four, counted: true })).toBe(false);
     expect(data.get(LEGACY)).toBe(PENDING);
+  });
+});
+
+describe('opening a pack', () => {
+  beforeEach(reset);
+
+  it('warns that saving failed when the pack could not be kept for the next load', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const first = await openPack(SET);
+    expect(first.unrecorded).toBeUndefined();
+    expect(shelved()).toEqual([expect.objectContaining({ n: first.nonce })]);
+    // A full shelf keeps its owed packs, so the new one isn't kept.
+    const full = Array.from({ length: 50 }, (_, i) => entry(i + 1000));
+    data.set(LIST, JSON.stringify(full));
+    expect((await openPack(SET)).unrecorded).toBe(true);
+    expect(shelved()).toEqual(full);
+    // Nor when storage refuses the shelf.
+    data.delete(LIST);
+    refuseWrite = (k) => k === LIST;
+    expect((await openPack(SET)).unrecorded).toBe(true);
+    error.mockRestore();
   });
 });
