@@ -18,7 +18,8 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run check:sets && npm run check:card-assets",
     "prompts": "tsx scripts/cards/prompts.ts",
     "og-image": "tsx scripts/og-image.ts",
-    "test:performance": "playwright test --config=playwright.performance.config.ts"
+    "test:performance": "playwright test --config=playwright.performance.config.ts",
+    "audit:agent": "tsx scripts/agent-audit/run.ts"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",
