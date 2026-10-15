@@ -37,7 +37,7 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
     shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
   });
   await app.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
-  await app.interact(() => button('Skip').click());
+  await app.interact(() => button('Skip opening animation').click());
   await app.until('Skip completes the production summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 
   const stats = read<Stats>(STORAGE_KEYS.STATS);
@@ -124,7 +124,7 @@ it('keeps an opened pack on the pending shelf until a collection holding it is s
     shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
   });
   await app.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
-  await app.interact(() => button('Skip').click());
+  await app.interact(() => button('Skip opening animation').click());
   await app.until('Skip completes the production summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 
   // The collection couldn't take the pack, so the pack still waits for the next load.

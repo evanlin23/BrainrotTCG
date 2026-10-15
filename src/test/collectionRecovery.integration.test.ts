@@ -49,7 +49,7 @@ async function openPack(current: NonNullable<typeof app>) {
     shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
   });
   await current.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
-  await current.interact(() => button('Skip').click());
+  await current.interact(() => button('Skip opening animation').click());
   await current.until('Skip completes the summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 }
 
