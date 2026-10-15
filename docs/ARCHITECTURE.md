@@ -1,13 +1,16 @@
 # Architecture
 
-Brainrot TCG is a static site (Vite + React on GitHub Pages) with **no backend**. Every pull is
-still verifiable by anyone, because packs are derived from proofs rather than stored anywhere.
+Brainrot TCG is a static Vite + React site, deployable to GitHub Pages or Cloudflare Pages, with
+**no authoritative game backend**. Player state lives in browser storage; public pull proofs let
+others independently derive the same cards. GitHub workflows and a configured Cloudflare cron
+Worker handle submissions and publication, not pack generation.
 
 ## Verification at a glance
 
-No server decides what anyone pulled. Your device does a fixed amount of work per pack and signs the
-result; anyone's device redoes the same work from the link and gets the same pack. Opening and
-verifying are the same function, `derivePack(set, key, ticket#)`.
+No server decides what anyone pulled. A ticket uses fixed Argon2id parameters for a set version,
+public key and nonce; elapsed time depends on hardware. A signed pull link binds those inputs and
+its name, and a verifier derives the same pack with `derivePack(set, key, ticket#)`. A valid proof
+establishes that result and the signing key, not browser-only play, a human action or an opening time.
 
 ```mermaid
 flowchart LR
@@ -16,7 +19,7 @@ flowchart LR
     N["Ticket counter #0, #1, ..."]
     T["Ticket: Argon2id(set@v, key, #n), 32 MiB"]
     P["Pack: SHA-256 -> sfc32 -> 5 cards"]
-    H["Pack history (every ticket)"]
+    H["Local pack history (best effort)"]
     S["Sign"]
     K --> T
     N --> T --> P --> H --> S
@@ -34,11 +37,12 @@ flowchart LR
   V -->|no| BAD["Rejected, naming the rule"]
 ```
 
-GitHub only hosts the site and keeps the Hall of Fame list; public Nostr relays carry submissions from
-players without a GitHub account. Either could drop a submission, but every visitor re-checks the
-entries, so neither can add a fake one. `spec/verify_pull.py`
-re-implements all of this from the spec with different libraries, and CI checks both implementations
-against both sets of test vectors.
+GitHub keeps verified submission issues used to build the Hall of Fame list; public Nostr relays
+carry submissions from players without a GitHub account. Either can omit or delay submissions. The build verifies issues
+(or reuses cached verification), while the Hall of Fame UI re-checks entries in the current top 30
+one at a time; it does not re-verify the whole published list. Opening a pull link verifies its proof.
+`spec/verify_pull.py` independently implements the proof spec with different libraries, and CI
+checks both implementations against both sets of test vectors.
 
 ## Layers
 
@@ -48,11 +52,12 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   ticket.ts          Argon2id proof-of-work: the cost of one pack
   identity.ts        Ed25519 player keys, fingerprints, name rules
   proof.ts           pull proofs: encode / decode / sign / verify
+  profile.ts         profile proofs: encode / decode / verify, XP and levels
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
 
-src/content/       Data. Adding content never needs code changes.
+src/content/       Set data, art and registry; existing schemas use the existing engine.
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
   sets/<set>/art/      source art (real images, full cards, or SVG placeholders)
   sets/<set>/cards/    built card images (npm run cards); committed
@@ -63,15 +68,24 @@ src/content/       Data. Adding content never needs code changes.
 
 src/game/          Browser glue around the engine.
   player.ts          the local player key, name and ticket counter (localStorage)
-  ticketMiner.ts     mines tickets in workers/ticket.worker.ts, pre-mining the next pack
+  ticketMiner.ts     serial opening-ticket queue, worker/main-thread fallback, next-pack prefetch
+  ticketPool.ts      separate verification/reconstruction pool, up to 8 workers (32 MiB each)
+  history.ts         compact localStorage ticket metadata/cards; quota can discard old records
+  profiles.ts        signed profile construction, verification and background own-pack reconstruction
+  packStore.ts       reconstructed own-pack card codes in memory and IndexedDB
+  reopenCache.ts     localStorage cache for packs derived while viewing public profiles
   pulls.ts           openPack(), proofFor(), pullUrl(), checkPull()
   share.ts, bragImage.ts   brag text, Hall of Fame submit, 9:16 pull poster and player card with QR
   progression.ts     titles, card backs, pack foils, collection milestones, set completion
-  shareActions.ts    copy the link or image (the system share sheet only on phones)
+  shareActions.ts    copy/download and API-supported coarse-pointer system sharing
   previewLinks.ts    link previews: shared links go through a static page per hand and its cards
-  hallOfFameList.ts  the published Hall of Fame list, loaded once per visit
+  hallOfFameList.ts  the published Hall of Fame list, kept for the visit once loaded (a failed or
+                     15-second load can be retried)
   nostrInbox.ts      Hall of Fame submissions over public Nostr relays (loaded only when used)
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
+  saveFile.ts        save export and import: validate, back up, write, roll back on failure
+  collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
+  selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
 
 src/components/    React UI (pack opening, collection, set picker, share sheet, pull viewer, pages)
 
@@ -91,39 +105,40 @@ scripts/           Node tools (run with tsx)
 
 ```
 player key (Ed25519)  ─┐
-set@version           ─┼─► Argon2id ticket (≈0.1–0.5 s of work) ─► SHA-256 ─► sfc32 PRNG ─► 5 cards + holos
+set@version           ─┼─► Argon2id ticket (32 MiB, 2 iterations) ─► SHA-256 ─► sfc32 PRNG ─► 5 cards + modifiers
 ticket number (nonce) ─┘
 ```
 
-- Opening a pack consumes the next ticket number. The ticket is mined in a Web Worker while the
-  previous pack is still on screen, so players never wait.
-- A **proof** is `(set, version, public key, nonce, name)` signed with the player's key: about 130
-  bytes, base64url-encoded into `#/pull/<proof>` links.
+- Opening allocates the next ticket number before deriving its cards. `ticketMiner.ts` queues work
+  serially and prefetches the next ticket while a pack is shown. Prefetch can reduce waits, but slow
+  devices, worker failures and competing work can still delay opening; fallback uses the main thread.
+- A **proof** is `(set, version, public key, nonce, name)` signed with the player's key and
+  base64url-encoded into `#/pull/<proof>` links; its size varies with those fields.
 - **Verifying** means recomputing the ticket and the pack from the proof. Nothing can be edited:
   changing any byte breaks the signature, and the cards are never part of the proof (they're re-derived).
 
 ### Why proof-of-work
 
 Without a server nobody can witness pack openings, so the game can't stop players choosing which
-pulls to show. It can make every pull **cost the same as opening a pack**: searching for a lucky
-pack is just opening packs. Argon2id is memory-hard, which keeps the advantage of GPUs and big
-machines small compared to plain hashing.
+pulls to show. Every tested ticket must use the same configured derivation function, whether it is
+opened in the UI or searched by a local miner. Argon2id is memory-hard, but this is not a rate limit:
+parallel implementations, GPUs and more capable machines can search faster. There is no measured
+hardware-fairness guarantee.
 
-Known limits: you can't prove how many packs someone opened in total, or that they weren't using a
-bot. A ticket takes about 0.1 s, so a script finds a Full House in seconds and a 5 of a Kind in
-minutes of CPU. "Verified" means *these cards really came from this player's ticket*, not that a
-person was lucky; the Hall of Fame ranks world firsts by when the GitHub bot verified them for that reason.
+Known limits: a proof cannot establish how many tickets someone searched, that they used the
+browser or that a human opened a pack. "Verified" means *these cards derive from the signed ticket
+inputs*. Hall of Fame "world firsts" use the bot's verification time, not a witnessed opening time.
 
-A security review (Oct 2026) found and fixed a forgery via small-order Ed25519 keys and malleable
-encodings; the rules that close them are in `spec/PULL_SPEC.md` section 7 and covered by the vectors.
+Strict key/signature validation and canonical encoding rules are specified in `spec/PULL_SPEC.md`
+section 7 and covered by the vectors, including small-order key and malleable-encoding cases.
 
 ## Hall of Fame (no server)
 
-There are two ways in. Most players don't have a GitHub account, so the default needs none.
+There are two submission paths; the default relay path needs no GitHub account.
 
 ```
 player ─► Share ─► "Submit"  ─► signed Nostr event ─► 5 public relays
-                                                          │  every 15 minutes (Cloudflare cron)
+                                                          │  configured 15-minute Cloudflare cron
                     .github/workflows/hall-of-fame-inbox.yml
                     scripts/hall-of-fame.ts inbox  ─► bot-filed issue + comment + labels (+ redeploy)
                                    │
@@ -135,42 +150,47 @@ player ─► Share ─► "on GitHub" ─► GitHub issue form (pull link; need
                     .github/workflows/deploy.yml
                     scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + firsts)
                                    │
-                    Hall of Fame page re-derives each entry again in the visitor's browser
+                    Hall of Fame page checks current top 30; pull links verify individually
 ```
 
 **Without an account** (`src/game/nostrInbox.ts`): the game wraps the pull proof in a Nostr event
-(NIP-78 application data, kind 30078, so it never shows up in anyone's feed), signs it with a
+(NIP-78 application data, kind 30078), signs it with a
 throwaway key made for that one submission, and sends it to five open relays. The throwaway key is
 only a transport: who pulled it comes from the proof's own signature. The inbox job reads the last
 week of events, checks each event's signature, verifies the pull with the same engine as everything
 else, and files the ones that qualify as issues in the same verified state the GitHub path ends in.
-Each run checks at most 300 pulls and files at most 20, skips pulls already verified in the list,
-and remembers events it has checked (in the Actions cache) so junk isn't re-checked every run;
-anything over the limits waits for the next run. It keeps paging each relay back to the start of the
-window, so a burst of junk can't push a real submission out of reach, and keeps only copies whose
-signature checks out, so one bad relay can't hide another's good copy. Only the exact proof text a
-link carries is accepted, so what's filed always reads back as the same pull. A filing that stops
-halfway (issue opened, not yet labelled `verified`) is finished on the next run.
-It costs nothing: the relays are free, and Actions minutes on a public repository are free.
-GitHub's own schedule for the inbox is best effort and has never fired for this repository, so a
-Cloudflare Worker with a cron trigger (`workers/hall-of-fame-cron/`, also free) starts the workflow
-every 15 minutes; the schedule stays as a backup, and runs never overlap. If neither runs, nothing is
-lost: submissions show in the Hall of Fame straight from the relays, and any run picks up the last
-week's.
+Each run re-derives at most 300 pulls and files at most 20. It remembers handled event IDs in an
+Actions cache (latest 20,000) and skips already verified pulls. Fetching requests up to 50 pages of
+100 events per relay within a 60-second connection deadline, over a seven-day window. These are
+client request limits, not guarantees that relays return or retain every event or obey the limits.
+Only valid event signatures are retained, and the exact proof text in the link is accepted. A filing
+that stops after opening an issue can reuse that issue on retry. Deferred submissions are eligible
+on a later run only while still available in the fetched window; cache eviction and service errors
+can cause repeat work or missed submissions.
+
+The inbox workflow has a best-effort GitHub schedule and a concurrency group that serializes inbox
+runs. `workers/hall-of-fame-cron/` defines a 15-minute dispatch trigger when deployed and configured;
+source configuration alone does not prove it is running. Public relays and eligible public-repository
+Actions can be used without a game server, subject to provider limits and availability. If intake
+stops, the UI may show pending relay pulls after checking up to ten candidates per visit (own
+submissions first), but this does not guarantee delivery or later inclusion in the published list.
 
 A relay can drop a submission (that's why there are five) or flood the inbox with junk (each run
-checks a bounded number, and junk is skipped), but it can't forge an entry: the deploy and every
-visitor re-derive each pull from its proof. A maintainer can drop an entry the same way as any other
-(the `rejected` label below).
+limits expensive pull derivations, and junk is skipped). It cannot forge a valid signature or alter
+what a valid ticket derives; server/build verification and the UI checks described above enforce
+those proof rules, rather than delivery or mining fairness. A maintainer can drop an entry using
+its issue's `rejected` label.
 
-**One list, any size.** The Hall of Fame is the top 100 pulls by Brainrot Score plus the first Full
-House, 4 of a Kind and 5 of a Kind in each set: about 120 entries however many people play. The rules
-live in `src/engine/hallOfFame.ts` and decide it everywhere: the share sheet only offers Submit for a
-pull that would join, the inbox and the issue verifier read the deployed list and file only pulls that
-would join, and the deploy writes only the list. Verified issues are closed (the deploy reads every
-state), so the issue list holds only what needs attention. Deploys keep each verified issue's result
-in the Actions cache, keyed on the engine, the sets and the script: an issue unchanged since the last
-deploy isn't verified or read again, so a deploy's work grows with new submissions, not all of them.
+**Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score plus the first Full
+House, 4 of a Kind and 5 of a Kind in each set. The output is bounded by 100 plus three firsts per set,
+with overlapping entries deduplicated; it grows with the number of sets. The rules
+live in `src/engine/hallOfFame.ts`. The share sheet and intake test whether a qualifying pull would
+join the available published snapshot; when it cannot be loaded, they fall back to qualification.
+The deploy writes the ranked list. Workflows attempt to close verified issues, and the build reads
+both open and closed states. Deploys keep each verified issue's result
+in the Actions cache, keyed on the engine, the sets and the script. Unchanged issues can reuse their
+verification result, but the build still lists verified issues across open and closed states; cache
+misses, changed inputs and API failures affect work and freshness.
 
 Issue text is untrusted: it's only parsed by the script, never put into a shell command, and only
 echoed back through a sanitiser. The submitter's GitHub username comes from GitHub. "World first"
@@ -181,9 +201,9 @@ the `rejected` label to its issue.
 
 ## Sharing and link previews
 
-Sharing copies: the link, or the poster image (the system share sheet appears only on phones). A pull
-link carries its whole proof, which is what makes it checkable anywhere without a server, and also
-why it's long; the proof is about 170 characters and can't get much shorter.
+Sharing copies the link or poster image; a system share sheet is offered on coarse-pointer devices
+when the browser supports it. A pull link carries its whole proof, making it independently checkable;
+its length depends on the signed fields.
 
 Chat apps build a link preview from the page address alone, and the proof is after the `#`, which
 they never see. So a copied link goes through a static page for the pack's hand and the cards that
@@ -193,48 +213,76 @@ face up as many times as the hand has them, the rest face down. A Full House is 
 Pair both pairs, 3 or 4 of a Kind or a Pair the matching card, and No Matches the best card. A card
 shared on its own gets a page with just that card (`sha256("set/card")`).
 
-Drawing the exact pack of every pull would need a server; drawing every hand each set can make is
-about 2,200 pictures (about 300 MB). `scripts/preview-pages.ts` writes them after the Vite build, with
-pages titled like "A Full House in Summer of Slop", and keeps the pictures in `.cache/previews/`
+The deployed preview pages are generated ahead of time for the supported hands and cards, rather
+than generated for each unique pull. Their count and size grow with the published content.
+`scripts/preview-pages.ts` writes them after the Vite build, with pages titled like "A Full House in Summer of Slop", and keeps the pictures in `.cache/previews/`
 (cached in CI too) so only new or changed ones are drawn. The pages forward to the pull. The path only
 picks the preview; the pull is still re-derived from the proof when it's opened.
 
+## Saves
+
+localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainrot-player-v1`
+(identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1` and
+`brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions)
+and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups. IndexedDB holds one database,
+`brainrot-packs` (`packStore.ts`).
+A failed foreground write shows a save warning and the game stays usable. Before the collection is
+replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1`; if
+that can't be kept, the stored collection is left alone. Export includes that archive. Import
+(`saveFile.ts`) validates every supplied field and the player first, backs up the current save (no
+backup, no import), writes the identity last and, on failure, removes what it wrote and restores
+the previous values. That is structural validation and best-effort rollback, not a transaction. The
+legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
+
 ## Hosting
 
-Static files on GitHub Pages, or on Cloudflare Pages once two secrets are set; both free with
-nothing to bill. See `docs/HOSTING.md`, including how old links and saves follow a move (saves go
-window to window with origin-checked postMessage, never in a URL).
+`.github/workflows/deploy.yml` selects Cloudflare Pages when its account/token configuration works,
+otherwise GitHub Pages; `BASE_PATH` and `SITE_URL` determine built paths and preview addresses. Both
+have free static-hosting options, with provider build, storage, traffic and service limits; custom
+domains or additional services can cost money. See `docs/HOSTING.md` for configuration and old-address
+redirects. Save transfer uses origin-checked window-to-window postMessage, not URL contents; storage
+failures and unsupported moves still need recovery and are not guaranteed lossless (#181).
 
 ## Profiles and levels (no server)
 
-A profile link (`#/profile/<proof>`, spec section 11) is the player's signed list of which set every
-ticket went to, from ticket #0 with no gaps, plus two claims: their XP and their five best tickets.
-It carries no cards; the viewer re-opens every pack (`src/game/profiles.ts`), so nothing in it can be
-edited, and bad packs can't be left out (a ticket's pack is fixed, and every ticket is listed).
+A profile link (`#/profile/<proof>`, spec section 11) signs a declared contiguous range of tickets
+from #0, the set version assigned to each, XP and up to five best tickets. The viewer derives that
+range and checks the claims. It cannot prove that the range includes all lifetime mining activity,
+that no other keys were used, or when packs were opened.
 
-Speed, for a profile of N packs (each pack is one ~0.1 s ticket):
+`src/game/profiles.ts` checks decoding/signature first, then derives highlights before the remaining
+tickets and validates XP/highlights. A displayed claim is not verified merely because the signature
+passes. Work uses `ticketPool.ts`, separate from foreground `ticketMiner.ts`, with a hardware-based
+pool size up to eight workers. Separation avoids sharing the opening queue but does not remove CPU,
+memory or main-thread-fallback contention. Latency varies with the device and number of uncached
+tickets; `reopenCache.ts` keeps up to 5,000 viewed-profile packs in localStorage, subject to eviction,
+quota and local cache integrity.
 
-- the signature and the claimed level: instant;
-- the best pulls: about a second (re-opened first);
-- everything: N tickets across a pool of workers (`src/game/ticketPool.ts`, up to 8). If the packs
-  don't match the claims, the profile is marked fake;
-- a second view, or the same profile with more packs: only the new packs (`src/game/reopenCache.ts`).
+Opening attempts to record ticket metadata immediately in `history.ts`; quota recovery first strips
+cached cards and can then drop older records. Profile construction uses retained history for the
+current key's nonce range. Missing set assignments are inferred from neighboring history or a
+default, so reconstruction does not recover original mixed-set provenance that was discarded (#87).
+If cards are missing, signing waits for reconstruction rather than completing instantly.
 
-The game records every pack the moment it's derived (`src/game/history.ts`), and signs profiles from
-that history, so sharing one is instant. Levels come from the packs alone (spec section 11.3), so a
-level is exactly as trustworthy as the packs.
+Own-pack reconstruction runs independently of the profile screen, batches up to 25 results into
+`packStore.ts`, and uses a localStorage pending flag to attempt resumption after a reload. Startup
+loads its IndexedDB card-code cache into memory before rendering (`src/main.tsx`). IndexedDB errors
+can leave only memory results; writes resolve without a durable-success signal, and the pending flag
+is cleared before the final save completes. Resumption and cache retention are best effort (#87).
+The cache stores reconstructed cards, not a server account or a backup of all history provenance.
 
-The collection, stats and achievements take a pack only once its reveal ends (so a toast can't spoil
-a card still face down). Until then the pack also waits in `brainrot-pending-pack-v1`
-(`src/game/pulls.ts`): a reload, a closed tab or the opener unmounting mid-reveal can't lose it, since
-the app adds a waiting pack on the next load. Screens pass a pulled card whole, with its holo, finish
-and misprint (`src/game/versions.ts`), rather than those as separate props, so none can drop one.
+Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
+opener unmounts. `brainrot-pending-pack-v1` supports unfinished-reveal recovery on the next load, but
+writes can fail and the pending entry is removed before the recovered pack is durably applied.
+Multi-key state updates are not a transaction, so this is not a guarantee against lost or duplicate
+awards (#233). Screens pass whole pulled-card objects with holo/finish/misprint data
+(`src/game/versions.ts`); preserving those fields still requires checks at rendering, persistence
+and sharing boundaries.
 
 ### Progression
 
-Nothing can change what a pack holds (any luck bonus would let a script skip ahead, since every
-ticket costs the same), so progression is everything else, worked out from the packs
-(`src/game/progression.ts`), which makes it as checkable on someone else's profile as their level:
+Current progression is derived from packs (`src/game/progression.ts`) and does not change the
+versioned generation rules. Its claims can be recomputed for the range in a verified profile:
 
 - **Levels** unlock a title (shown next to the level), card backs and pack foils (cosmetic, picked
   under Profile → Level rewards; applied as `data-card-back` / `data-pack-foil` on `<html>`).
@@ -251,10 +299,11 @@ Besides rarity and holo, cards in a set version with `"modifiers": 1` roll a **f
 Gold 2.5%, Platinum 0.5%, Diamond 0.1%) and a **misprint** (0.5%), and every one multiplies the card's
 points by about 1 / its chance (x10, x40, x200, x1000, x200), stacking with holo (spec section 5.4).
 They're derived from the ticket like everything else, so they're as checkable as the cards. Only set
-versions that opt in roll them, so no pull from before changed: version 1 of each set has no
-modifiers and keeps verifying exactly as it did; version 2 (the same cards) adds them, and new packs
-open from it. Finishes recolour the card's printed frame (silver gray, gold yellow, platinum blue,
-diamond blue/violet), with glow on platinum and diamond; misprints show off-register colours
+versions with `modifiers: 1` roll them, preserving earlier versions without that flag. Several
+older sets added modifiers in version 2; newer sets can already have them at version 1. The flag,
+not the set version number alone, selects the modifier table; new packs use the latest version of
+openable sets in the registry. Finishes recolour the card's printed frame (silver gray, gold yellow,
+platinum blue, diamond blue/violet), with glow on platinum and diamond; misprints show off-register colours
 (`src/game/modifiers.ts`), in the collection, history, Hall of Fame and the share poster, and they're
 stored compactly in the pack history (`src/game/cardCode.ts`: `sigma*G!` is a holo Gold misprint).
 
@@ -267,13 +316,23 @@ resizing. `npm run cards` rebuilds these thumbnails and the small lossless mask
 Input hashes include the source image, mask, recolouring code and output settings, so changed cards
 or finishes regenerate their thumbnails while unchanged assets are skipped.
 
-## Invariants (CI enforces these)
+## Compatibility rules and current checks
 
-1. **Released sets never change.** Card ids, order, rarities, odds or pack size of a released
-   `set@version` can't change; bump `version` and keep the old file (`npm run check:sets`).
-2. **Engine changes that alter packs need a new ticket or proof version.** The engine and the
-   independent Python verifier must both pass every vector in `spec/` (`src/engine/spec.test.ts` and
-   the `independent-verifier` CI job).
-3. **Every card has a built image** (`npm run cards`).
+1. **Released generation inputs never change.** Card ids, order, rarities, odds, modifiers or pack
+   size of a released `set@version` can't change; bump `version` and keep the old file
+   (`npm run check:sets`). Display names, captions and art are outside this generation lock.
+2. **Deterministic changes preserve historical results.** Version the affected set, modifier table,
+   ticket, proof or rules contract as specified in `spec/PULL_SPEC.md` section 12. The engine and
+   independent Python verifier must both pass every historical vector (`src/engine/spec.test.ts`
+   and the `independent-verifier` CI job).
+3. **Every registered card needs a built image.** `npm run cards` generates it, `check:sets`
+   checks its file exists, and `check:card-assets` decodes every registered card WebP and checks
+   pack wrappers, finish thumbnails, the frame mask and card back (docs/DEVELOPMENT.md). Preview
+   outputs and built hosting paths are outside it.
 
-Run everything with `npm run check`.
+`npm run check` runs lint, types, all tests, set locks and card assets; `npm run build` packages the
+site and static previews. On every pull request and non-main push, CI runs both, the independent
+verifier (`python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json`), the
+browser smoke and actionlint; deploys from main rerun the verifier and `npm run check`. These checks
+do not establish real-device performance, live service availability or complete UI/persistence
+coverage.
