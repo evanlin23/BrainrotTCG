@@ -130,3 +130,5 @@ It should land on its own, so a frozen install and CI test it alone. Dependabot'
 updates (`.github/dependabot.yml`) bump only direct dependencies, so these transitive fixes need
 that refresh or Dependabot security updates. Never use `npm audit fix --force`, which upgrades
 across major versions. Re-run both audits when the lockfile changes, and update this table.
+
+GHSA IDs, owners and revisit conditions are in [DEPENDENCY_ADVISORIES.md](DEPENDENCY_ADVISORIES.md), which also corrects the esbuild row above for Vite 7.3.6 and later.
