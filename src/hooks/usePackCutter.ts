@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { useSparks } from './useSparks';
+import { mapPackPointer } from './packCutCoordinates';
 import { FAIRY_DUST_SRC, WOOSH_SRC } from '../constants/audio';
 
 // Pack cutting constants
@@ -7,6 +8,7 @@ const TEAR_LINE_RATIO = 0.19;
 const REQUIRED_CUT_RATIO = 0.72;
 const MAX_CUT_POINTS = 64;
 const DRAWN_CUT_OFFSET_RATIO = 0.000;
+const CUT_LINE_RATIO = TEAR_LINE_RATIO + DRAWN_CUT_OFFSET_RATIO;
 
 export interface CutPoint {
   x: number;
@@ -29,17 +31,19 @@ interface UsePackCutterOptions {
   isPackCut: boolean;
   /** Sound effects volume, 0 (silent) to 1. */
   volume?: number;
+  /** Disable particle creation as well as rendering. */
+  particlesEnabled?: boolean;
   /** A sheet is open over the pack: drags belong to it, even after it closes mid-drag. */
   disabled?: boolean;
   /** A press on the pack away from the tear line (a tap, or a swipe across the art): time for a nudge. */
   onMiss?: () => void;
 }
 
-export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, disabled = false, onMiss }: UsePackCutterOptions) => {
+export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
   const [cutPoints, setCutPoints] = useState<CutPoint[]>([]);
 
-  const { sparks, emitSpark, clearSparks } = useSparks();
+  const { sparks, emitSpark, clearSparks } = useSparks(particlesEnabled);
 
   const packRef = useRef<HTMLDivElement>(null);
   const cutSpanRef = useRef<CutSpan>({ ...EMPTY_CUT_SPAN });
@@ -58,14 +62,11 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   }, [clearSparks]);
 
   const getLocalPoint = useCallback((clientX: number, clientY: number) => {
-    const rect = packRef.current?.getBoundingClientRect();
-    if (!rect) return null;
+    const pack = packRef.current;
+    if (!pack) return null;
+    const rect = pack.getBoundingClientRect();
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
-      top: rect.top,
-      width: rect.width,
-      height: rect.height,
+      ...mapPackPointer(clientX, clientY, rect, pack, CUT_LINE_RATIO),
       tearY: rect.height * TEAR_LINE_RATIO,
       tolerance: Math.min(52, Math.max(26, rect.height * 0.08)),
     };
@@ -101,16 +102,13 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       return;
     }
 
-    const clampedX = Math.min(point.width, Math.max(0, point.x));
-    const xPercent = (clampedX / point.width) * 100;
-    const yPercent = (TEAR_LINE_RATIO + DRAWN_CUT_OFFSET_RATIO) * 100;
-    const sparkY = point.top + (point.height * yPercent) / 100;
+    const { clampedX, cut, spark } = point;
 
     if (!isCutting) {
       setIsCutting(true);
-      setCutPoints([{ x: xPercent, y: yPercent }]);
+      setCutPoints([cut]);
       cutSpanRef.current = { minX: clampedX, maxX: clampedX };
-      emitSpark(clientX, sparkY);
+      emitSpark(spark.x, spark.y);
 
       // Play fairy dust sound when cutting starts
       if (volume > 0) {
@@ -126,10 +124,10 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     }
 
     setCutPoints((prev) => {
-      const next = [...prev, { x: xPercent, y: yPercent }];
+      const next = [...prev, cut];
       return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
     });
-    emitSpark(clientX, sparkY);
+    emitSpark(spark.x, spark.y);
 
     const span = cutSpanRef.current;
     span.minX = Math.min(span.minX, clampedX);
@@ -195,8 +193,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       fairyDustRef.current.src = '';
       fairyDustRef.current = null;
     }
-    clearSparks();
-  }, [clearSparks]);
+    // useSparks owns its unmount cleanup; don't update particle state from this teardown.
+  }, []);
 
   return {
     packRef,
