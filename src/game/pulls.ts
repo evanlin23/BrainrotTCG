@@ -95,7 +95,8 @@ interface PendingPack {
   t: number;
 }
 
-const savePendingPack = (pack: OpenedPack) => {
+/** Puts a pack (back) on the shelf; App does this when the collection holding it couldn't be stored. */
+export const savePendingPack = (pack: OpenedPack) => {
   const pending: PendingPack = {
     s: pack.setId,
     v: pack.setVersion,

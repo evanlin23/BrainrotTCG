@@ -227,7 +227,8 @@ level is exactly as trustworthy as the packs.
 The collection, stats and achievements take a pack only once its reveal ends (so a toast can't spoil
 a card still face down). Until then the pack also waits in `brainrot-pending-pack-v1`
 (`src/game/pulls.ts`): a reload, a closed tab or the opener unmounting mid-reveal can't lose it, since
-the app adds a waiting pack on the next load. Screens pass a pulled card whole, with its holo, finish
+the app adds a waiting pack on the next load. It leaves the shelf only once a collection holding it
+has been stored. Screens pass a pulled card whole, with its holo, finish
 and misprint (`src/game/versions.ts`), rather than those as separate props, so none can drop one.
 
 ### Progression

@@ -16,6 +16,35 @@ export const hasCollectionRecovery = (): boolean => {
   }
 };
 
+/** Short and stable: the archive can be a whole collection, too big to copy just to compare. */
+const fingerprint = (value: string): string => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 0x01000193);
+  return `${value.length}:${(hash >>> 0).toString(36)}`;
+};
+
+/** True when the player hid the kept-aside note for the archive as it is now; anything newly kept brings it back. */
+export const collectionRecoveryDismissed = (): boolean => {
+  try {
+    const archive = localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY);
+    return archive !== null && localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN) === fingerprint(archive);
+  } catch {
+    return false;
+  }
+};
+
+/** Hide the kept-aside note for the current archive. False when that can't be remembered past this visit. */
+export const dismissCollectionRecovery = (): boolean => {
+  try {
+    const archive = localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY);
+    if (archive === null) return false;
+    localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, fingerprint(archive));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 

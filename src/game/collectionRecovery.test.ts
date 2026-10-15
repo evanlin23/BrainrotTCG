@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import { hydrateCollection } from '../utils/migrations';
-import { hasCollectionRecovery, persistCollection } from './collectionRecovery';
+import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRecovery, persistCollection } from './collectionRecovery';
 
 const card = ALL_CARDS[0];
 const item = { card, normalCount: 1, holoCount: 0 };
@@ -126,4 +126,30 @@ it('keeps the original private identity snapshot when later ticket counters chan
   full = false;
   expect(persistCollection({})).toBe('recovered');
   expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!)).toEqual({ raw, player: originalPlayer });
+});
+
+describe('hiding the kept-aside note', () => {
+  it('stays hidden for the same archive and comes back when another payload is kept', () => {
+    const data = seed('{"second":null}');
+    expect(dismissCollectionRecovery()).toBe(false);
+    expect(collectionRecoveryDismissed()).toBe(false);
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify({ raw: '{"first":null}', player: null }));
+    expect(collectionRecoveryDismissed()).toBe(false);
+    expect(dismissCollectionRecovery()).toBe(true);
+    expect(collectionRecoveryDismissed()).toBe(true);
+    // Only a short fingerprint is stored, never a second copy of the archive.
+    expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)!.length).toBeLessThan(20);
+    expect(persistCollection({})).toBe('recovered');
+    expect(collectionRecoveryDismissed()).toBe(false);
+  });
+
+  it('shows the note when storage refuses to remember or read the choice', () => {
+    const data = seed(null, (key) => key === STORAGE_KEYS.COLLECTION_RECOVERY_SEEN);
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, '{"raw":"x","player":null}');
+    expect(dismissCollectionRecovery()).toBe(false);
+    expect(collectionRecoveryDismissed()).toBe(false);
+    vi.stubGlobal('localStorage', { getItem: () => { throw new DOMException('denied', 'SecurityError'); } });
+    expect(collectionRecoveryDismissed()).toBe(false);
+    expect(dismissCollectionRecovery()).toBe(false);
+  });
 });

@@ -18,11 +18,11 @@ import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { extractProfile, extractProof } from './engine';
-import { clearPendingPack, takePendingPack, type OpenedPack, type PullRef } from './game/pulls';
+import { clearPendingPack, savePendingPack, takePendingPack, type OpenedPack, type PullRef } from './game/pulls';
 import { importSaveFile } from './game/saveFile';
 import { getStoredData, setStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
-import { hasCollectionRecovery, persistCollection } from './game/collectionRecovery';
+import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRecovery, persistCollection } from './game/collectionRecovery';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { myStats, onReopenProgress } from './game/profiles';
@@ -54,10 +54,21 @@ function App() {
   const [settings, setSettings] = useState<Settings>(() => readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)));
   const [saveFailed, setSaveFailed] = useState(false);
   const [collectionArchived, setCollectionArchived] = useState(hasCollectionRecovery);
+  // The player can hide the kept-aside note from the banner until something new is kept aside;
+  // Settings keeps showing it.
+  const [recoveryNoteHidden, setRecoveryNoteHidden] = useState(collectionRecoveryDismissed);
+  const showRecoveryNote = collectionArchived && !recoveryNoteHidden;
   // One warning for every storage problem, in the banner and in Settings.
   const saveWarning = [saveFailed && SAVE_WARNING, collectionArchived && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
+  const bannerWarning = [saveFailed && SAVE_WARNING, showRecoveryNote && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
+  const hideRecoveryNote = useCallback(() => {
+    dismissCollectionRecovery();
+    setRecoveryNoteHidden(true);
+  }, []);
   const achievementsRef = useRef(achievements);
   const previousProgress = useRef<Map<string, unknown> | null>(null);
+  // Packs given to the collection that it hasn't stored yet: each stays on the pending shelf till then.
+  const unsavedPacks = useRef<OpenedPack[]>([]);
 
   // Persist committed state, never during a React updater (which can be replayed).
   // Skip the initial snapshot and do not retry automatically or imply a multi-field commit.
@@ -72,8 +83,20 @@ function App() {
     // The collection archives stored entries it couldn't read before replacing them (or keeps them).
     if (previous.get(STORAGE_KEYS.COLLECTION) !== collection) {
       const result = persistCollection(collection);
-      if (result === 'recovered') setCollectionArchived(true);
-      if (result === 'blocked') setSaveFailed(true);
+      const packs = unsavedPacks.current;
+      if (result === 'blocked') {
+        setSaveFailed(true);
+        // The shelf holds one pack; a pack taken off it on load goes back so the next load adds it.
+        if (packs.length > 0) savePendingPack(packs[packs.length - 1]);
+      } else {
+        unsavedPacks.current = [];
+        for (const pack of packs) clearPendingPack(pack.nonce);
+      }
+      // The archive can be written even when the collection then can't be.
+      if (result !== 'saved' && hasCollectionRecovery()) {
+        setCollectionArchived(true);
+        setRecoveryNoteHidden(collectionRecoveryDismissed());
+      }
     }
     for (const [key, value] of fields) {
       if (previous.get(key) !== value && !setStoredData(key, value)) setSaveFailed(true);
@@ -298,7 +321,7 @@ function App() {
   }, [unlockAchievement]);
 
   const handlePackOpened = useCallback((pack: OpenedPack) => {
-    clearPendingPack(pack.nonce);
+    unsavedPacks.current.push(pack);
     const newCards = pack.cards;
     const pullRef = { setId: pack.setId, setVersion: pack.setVersion, nonce: pack.nonce, publicKeyHex: pack.publicKeyHex };
     const { points: packValue, hand: pokerHand, score } = scoreCards(newCards);
@@ -445,7 +468,12 @@ function App() {
 
   return (
     <div className={`app ${packBusy ? 'is-focus' : ''}`}>
-      {saveWarning && !isSettingsOpen && <p role="alert" className="save-warning">{saveWarning}</p>}
+      {bannerWarning && !isSettingsOpen && (
+        <p role="alert" className="save-warning">
+          {bannerWarning}
+          {showRecoveryNote && <button type="button" className="link-btn save-warning-hide" onClick={hideRecoveryNote}>Hide note</button>}
+        </p>
+      )}
       <header className="app-header">
         <h1 className="app-logo" aria-label="Brainrot TCG">
           {'Brainrot TCG'.split('').map((char, i) =>

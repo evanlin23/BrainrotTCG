@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import type { CollectionItem, Stats } from '../types';
@@ -92,3 +92,39 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
   });
   expect(snapshot()).toEqual(before);
 }, 30_000);
+
+it('keeps an opened pack on the pending shelf until a collection holding it is stored', async () => {
+  app = await mountedApp({
+    'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Mounted fixture', nextNonce: 0, createdAt: 1 }),
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+    [STORAGE_KEYS.SELECTED_SET]: 'right-now',
+  });
+  await app.mount();
+  const setItem = Storage.prototype.setItem;
+  const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === STORAGE_KEYS.COLLECTION) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  await app.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app.interact(() => {
+    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+  });
+  await app.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
+  await app.interact(() => button('Skip').click());
+  await app.until('Skip completes the production summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+
+  // The collection couldn't take the pack, so the pack still waits for the next load.
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBeNull();
+  expect(read<{ n: number } | null>(STORAGE_KEYS.PENDING_PACK)?.n).toBe(0);
+  expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
+
+  full.mockRestore();
+  await app.reload();
+  await app.until('the waiting pack reaches the stored collection', () => expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).not.toBeNull());
+  const collection = read<Record<string, CollectionItem>>(STORAGE_KEYS.COLLECTION);
+  expect(Object.values(collection).reduce((sum, item) => sum + item.normalCount + item.holoCount, 0)).toBe(5);
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+}, 60_000);
