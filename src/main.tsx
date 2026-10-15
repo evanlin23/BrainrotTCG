@@ -7,19 +7,18 @@ import AppErrorBoundary from './components/ui/AppErrorBoundary'
 import { runMigrations } from './utils/migrations'
 import { migratePullLog } from './game/history'
 import { receiveSave } from './game/move'
-import { loadPackStore } from './game/packStore'
 import { resumeReopening } from './game/profiles'
 
 // A window the site's old address opened to hand over a save does only that (see game/move.ts).
-receiveSave().then(async (receiver) => {
+receiveSave().then((receiver) => {
   if (receiver) return
   runMigrations()
   migratePullLog()
-  // Packs re-opened on this device (IndexedDB) are read synchronously once the app runs.
-  await loadPackStore()
+  // Packs re-opened on this device (IndexedDB) aren't loaded here: the app reads the ones it needs
+  // a page at a time once it runs (watchMyPacks in game/profiles.ts).
 
   // AppErrorBoundary covers render errors once React has mounted. A failure in the startup steps
-  // above (save hand-over, migrations, pack store) happens before React and is not caught by it.
+  // above (save hand-over, migrations) happens before React and is not caught by it.
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <AppErrorBoundary>
