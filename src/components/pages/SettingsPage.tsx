@@ -9,6 +9,7 @@ import { effectsLevel } from '../../utils/settings';
 import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import type { Settings } from '../../types';
 import Sheet from '../ui/Sheet';
+import DiagnosticReport from '../ui/DiagnosticReport';
 import '../../styles/Settings.css';
 import { CURRENT_DATA_VERSION } from '../../utils/migrations';
 
@@ -21,6 +22,7 @@ interface SettingsPageProps {
 }
 
 const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: SettingsPageProps) => {
+    const [reporting, setReporting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [player, setPlayer] = useState(getPlayer);
     const [nameDraft, setNameDraft] = useState(player.name);
@@ -274,6 +276,11 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave }: Set
                     )}
                 </div>
             </section>
+            <section className="settings-group">
+                <h3 className="section-title">Help</h3>
+                <button type="button" className="btn btn--secondary" onClick={() => setReporting(true)}>Report a problem</button>
+            </section>
+            {reporting && <DiagnosticReport onClose={() => setReporting(false)} />}
         </Sheet>
     );
 };
