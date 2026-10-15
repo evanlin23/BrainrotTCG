@@ -9,6 +9,7 @@ import { packImageUrl } from '../../content/art';
 import { DEFAULT_SET_ID } from '../../content/sets';
 import '../../styles/Settings.css';
 import '../../styles/Pulls.css';
+import '../../styles/Profile.css';
 
 const SAVE_FAILED = "Couldn't save your name in this browser. Try again.";
 

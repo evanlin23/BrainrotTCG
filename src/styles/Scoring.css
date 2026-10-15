@@ -40,7 +40,7 @@
 
 .rarity-pill-gem {
   color: var(--r);
-  font-size: 0.85em;
+  font-size: max(var(--text-xs), 0.85em);
   letter-spacing: -0.05em;
 }
 
@@ -93,7 +93,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  min-height: 36px;
+  min-height: var(--touch-target);
   padding: 0 var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-sm);
