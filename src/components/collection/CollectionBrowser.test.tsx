@@ -24,17 +24,17 @@ const own = (cards: Card[], skip = (_index: number) => false): Record<string, Co
   } satisfies CollectionItem]]));
 
 /**
- * Future-growth fixture: 30 more 12-card eras after today's, registered in place for one test.
- * Their art has no ready-made finish thumbnails, so every finished tile that mounts asks for a
- * rendered finish: the worst case for offscreen work.
+ * Future-growth fixture: 30 more 12-card eras (or `count` eras of `size` cards) after today's,
+ * registered in place for one test. Their art has no ready-made finish thumbnails, so every finished
+ * tile that mounts asks for a rendered finish: the worst case for offscreen work.
  */
 const FUTURE_SETS = 30;
-const addFutureSets = () => {
+const addFutureSets = (count = FUTURE_SETS, size = 12) => {
   const template = SETS[SETS.length - 1];
-  const added: SetDefinition[] = Array.from({ length: FUTURE_SETS }, (_, n) => ({
+  const added: SetDefinition[] = Array.from({ length: count }, (_, n) => ({
     ...template, id: `future-${n + 1}`, name: `Future era ${n + 1}`, era: `${2027 + n}`, draft: undefined, archivedAt: undefined,
   }));
-  const cards: Card[] = added.flatMap((set) => Array.from({ length: 12 }, (_, k) => ({
+  const cards: Card[] = added.flatMap((set) => Array.from({ length: size }, (_, k) => ({
     key: `${set.id}/card-${k + 1}`, setId: set.id, id: `card-${k + 1}`, name: `${set.name} card ${k + 1}`,
     rarity: RARITIES[k % RARITIES.length], image: `/future/${set.id}/card-${k + 1}.webp`,
   })));
@@ -67,14 +67,23 @@ afterEach(() => {
   COLLECTIBLE_CARDS.length = registry.collectible;
 });
 
-const render = (collection: Record<string, CollectionItem>) =>
-  act(() => root.render(<CollectionBrowser collection={collection} onClose={() => {}} />));
+const render = (collection: Record<string, CollectionItem>, recentSetId?: string) =>
+  act(() => root.render(<CollectionBrowser collection={collection} onClose={() => {}} recentSetId={recentSetId} />));
 
 const sheet = () => document.querySelector<HTMLElement>('.sheet.collection')!;
 const headers = () => [...sheet().querySelectorAll<HTMLButtonElement>('.collection-set-toggle')];
 const mountedPockets = () => sheet().querySelectorAll('.collection-grid > li').length;
 const tiles = (root: ParentNode = sheet()) => [...root.querySelectorAll<HTMLButtonElement>('.collection-grid button.collection-item')];
-const gridOf = (header: HTMLButtonElement) => document.getElementById(header.getAttribute('aria-controls')!);
+const gridOf = (header: HTMLButtonElement) => {
+  const id = header.getAttribute('aria-controls');
+  return id ? document.getElementById(id) : null;
+};
+const nameOf = (header: HTMLButtonElement) => header.querySelector('.collection-set-name')!.textContent;
+const headerOf = (name: string) => headers().find((h) => nameOf(h) === name)!;
+/** Names of the eras whose grid is showing, in timeline order. */
+const openEras = () => headers().filter((h) => h.getAttribute('aria-expanded') === 'true').map(nameOf);
+const setNamed = (name: string) => SETS.find((set) => set.name === name)!;
+const finishedTiles = (root?: ParentNode) => tiles(root).filter((tile) => tile.classList.contains('has-finish')).length;
 /** What the grid mounted before #344: a pocket per card of every started openable set, the owned cards of the rest. */
 const unboundedPockets = (collection: Record<string, CollectionItem>) =>
   SETS.reduce((n, set) => {
@@ -86,15 +95,20 @@ const expandAll = () => {
 };
 
 describe('bounded collection grid (#344)', () => {
-  it("mounts only the first eras' pockets for today's full collection", () => {
+  it("mounts only the newest eras' pockets for today's full collection", () => {
     const collection = own(SETS.flatMap((set) => getSetCards(set.id)));
     render(collection);
-    // Genesis (19 owned, archived) fills the opening budget; the old grid mounted every era at once.
+    // The two newest 12-card eras fill the opening budget; the old grid mounted every era at once.
+    const [newest, previous] = [...SETS].reverse();
     expect(unboundedPockets(collection)).toBeGreaterThanOrEqual(127);
-    expect(mountedPockets()).toBe(19);
-    expect(sheet().querySelectorAll('.collection-grid img')).toHaveLength(19);
-    expect(headers().map((h) => h.getAttribute('aria-expanded'))).toEqual(['true', ...SETS.slice(1).map(() => 'false')]);
-    expect(headers().slice(1).every((h) => gridOf(h) === null)).toBe(true);
+    expect(openEras()).toEqual([previous.name, newest.name]);
+    expect(mountedPockets()).toBe(24);
+    expect(sheet().querySelectorAll('.collection-grid img')).toHaveLength(24);
+    // Only a showing grid is named by its header; a collapsed header controls nothing mounted.
+    for (const header of headers()) {
+      if (header.getAttribute('aria-expanded') === 'true') expect(gridOf(header)!.matches('ul.collection-grid')).toBe(true);
+      else expect(header.hasAttribute('aria-controls')).toBe(false);
+    }
   });
 
   it('keeps the bound for a future-growth collection of 40 eras, without finish work for collapsed ones', () => {
@@ -103,16 +117,20 @@ describe('bounded collection grid (#344)', () => {
     render(collection);
     expect(SETS).toHaveLength(registry.sets + FUTURE_SETS);
     expect(unboundedPockets(collection)).toBe(registry.all + future.length);
-    expect(mountedPockets()).toBe(19);
-    expect(finishedCardImage).not.toHaveBeenCalled();
+    expect(openEras()).toEqual([`Future era ${FUTURE_SETS - 1}`, `Future era ${FUTURE_SETS}`]);
+    expect(mountedPockets()).toBe(24);
+    // Only the two open eras rendered finishes (their art has no thumbnails); the 38 collapsed did none.
+    const opened = finishedTiles();
+    expect(opened).toBeGreaterThan(0);
+    expect(finishedCardImage).toHaveBeenCalledTimes(opened);
 
-    // Opening one future era renders its finishes (no thumbnails), and only its own.
-    const last = headers()[headers().length - 1];
-    act(() => last.click());
-    const finished = tiles(gridOf(last)!).filter((tile) => tile.classList.contains('has-finish'));
-    expect(finished.length).toBeGreaterThan(0);
-    expect(finishedCardImage).toHaveBeenCalledTimes(finished.length);
-    expect(mountedPockets()).toBe(19 + 12);
+    // Opening one more future era renders its own finishes, and only those.
+    const oldest = headerOf('Future era 1');
+    act(() => oldest.click());
+    const added = finishedTiles(gridOf(oldest)!);
+    expect(added).toBeGreaterThan(0);
+    expect(finishedCardImage).toHaveBeenCalledTimes(opened + added);
+    expect(mountedPockets()).toBe(24 + 12);
   });
 
   it('opens every era for a small collection, as before', () => {
@@ -123,11 +141,56 @@ describe('bounded collection grid (#344)', () => {
     expect(tiles()).toHaveLength(8);
   });
 
-  it('opens eras in timeline order until the budget is spent, then stops', () => {
+  it('opens eras newest first until the budget is spent, then stops', () => {
     const [first, second, third] = SETS.filter(isOpenable);
     render(own([getSetCards(first.id)[0], getSetCards(second.id)[0], getSetCards(third.id)[0]]));
-    expect(headers().map((h) => h.getAttribute('aria-expanded'))).toEqual(['true', 'true', 'false']);
+    expect(headers().map((h) => h.getAttribute('aria-expanded'))).toEqual(['false', 'true', 'true']);
     expect(mountedPockets()).toBe(24);
+  });
+
+  it('opens the era you just pulled from, even when an older era would fill the budget', () => {
+    // 19 Genesis cards, then a Summer of Slop pack, then My cards.
+    const genesis = setNamed('Genesis');
+    const slop = setNamed('Summer of Slop');
+    render(own([...getSetCards(genesis.id), ...getSetCards(slop.id).slice(0, 5)]), slop.id);
+    expect(getSetCards(genesis.id)).toHaveLength(19);
+    expect(openEras()).toEqual([slop.name]);
+    expect(gridOf(headerOf(genesis.name))).toBeNull();
+    expect(mountedPockets()).toBe(getSetCards(slop.id).length);
+    expect(tiles(gridOf(headerOf(slop.name))!)).toHaveLength(5);
+  });
+
+  it('opens the selected era before newer ones, then spends what is left newest first', () => {
+    const [oldest, , , middle] = SETS.filter(isOpenable);
+    const newest = SETS[SETS.length - 1];
+    render(own([oldest, middle, newest].map((set) => getSetCards(set.id)[0])), oldest.id);
+    expect(openEras()).toEqual([oldest.name, newest.name]);
+    expect(gridOf(headerOf(middle.name))).toBeNull();
+    expect(mountedPockets()).toBe(24);
+  });
+
+  it.each([
+    ['as the selected era', 'future-1'],
+    ['as the newest era, without a selected one', undefined],
+  ])('always opens an era bigger than the budget %s', (_, recentSetId) => {
+    addFutureSets(1, 30);
+    const big = setNamed('Future era 1');
+    const [older] = SETS.filter(isOpenable);
+    render(own([getSetCards(older.id)[0], ...getSetCards(big.id).slice(0, 3)]), recentSetId);
+    expect(openEras()).toEqual([big.name]);
+    expect(mountedPockets()).toBe(30);
+    expect(tiles()).toHaveLength(3);
+  });
+
+  it('shows an era started while the sheet is open with its grid open', () => {
+    const [first] = SETS.filter(isOpenable);
+    const rest = SETS.filter((set) => set.id !== first.id).flatMap((set) => getSetCards(set.id));
+    render(own(rest));
+    expect(mountedPockets()).toBe(24);
+    render(own([...rest, getSetCards(first.id)[0]]));
+    expect(headerOf(first.name).getAttribute('aria-expanded')).toBe('true');
+    expect(gridOf(headerOf(first.name))!.children).toHaveLength(getSetCards(first.id).length);
+    expect(mountedPockets()).toBe(24 + getSetCards(first.id).length);
   });
 });
 
@@ -150,8 +213,10 @@ describe('every owned card stays reachable', () => {
     for (const set of SETS) {
       const cards = getSetCards(set.id);
       const have = cards.filter((card) => collection[card.key]);
-      const header = headers().find((h) => h.querySelector('.collection-set-name')!.textContent === set.name)!;
-      expect(header.querySelector('.collection-set-count')!.textContent).toBe(`${have.length}/${cards.length}`);
+      const header = headerOf(set.name);
+      // The count reads "5/12 collected" to a screen reader; the word is visually hidden.
+      expect(header.querySelector('.collection-set-count')!.textContent).toBe(`${have.length}/${cards.length} collected`);
+      expect(header.querySelector('.collection-set-count .sr-only')!.textContent).toBe(' collected');
       const grid = gridOf(header)!;
       expect(grid.children).toHaveLength(isOpenable(set) ? cards.length : have.length);
       expect(grid.querySelectorAll('.collection-slot')).toHaveLength(isOpenable(set) ? cards.length - have.length : 0);

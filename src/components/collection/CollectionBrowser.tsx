@@ -15,22 +15,39 @@ interface CollectionBrowserProps {
   collection: Record<string, CollectionItem>;
   onClose: () => void;
   navigation?: ReactNode;
+  /** The set packs are opened from (App's selected set), so the cards you just pulled show open. */
+  recentSetId?: string;
 }
 
 type Owned = { normalCount: number; holoCount: number; finishes?: Partial<Record<Finish, number>>; misprints?: number };
 
 /**
- * Grid pockets the sheet opens with (#344). Started sets open in timeline order while they fit (the
- * first always opens); the rest start collapsed behind their header, so a big collection mounts a
- * bounded number of tiles, and no card art or finish work, instead of every card of every era.
+ * Grid pockets the sheet opens with (#344). The era you open packs from always opens (or the newest
+ * started one, without that); then the other started eras open newest first while they fit. The rest
+ * start collapsed behind their header, so a big collection mounts a bounded number of tiles, and no
+ * card art or finish work, instead of every card of every era.
  */
 const INITIAL_POCKETS = 24;
+
+/** Which started eras open with the sheet: the recent one, then newest first while the budget lasts. */
+const initiallyOpen = (started: { set: { id: string }; pockets: number }[], recentSetId?: string) => {
+  const newestFirst = [...started].reverse();
+  const recent = newestFirst.findIndex((s) => s.set.id === recentSetId);
+  if (recent > 0) newestFirst.unshift(...newestFirst.splice(recent, 1));
+  let pockets = 0;
+  let fits = true;
+  return Object.fromEntries(newestFirst.map((section, index) => {
+    pockets += section.pockets;
+    fits = fits && (index === 0 || pockets <= INITIAL_POCKETS);
+    return [section.set.id, fits];
+  }));
+};
 
 /**
  * Eras you've started, in timeline order, with every card (the missing ones as empty slots), each
  * header a button that shows or hides its grid; then the eras you haven't started, one line each.
  */
-const CollectionBrowser = ({ collection, onClose, navigation }: CollectionBrowserProps) => {
+const CollectionBrowser = ({ collection, onClose, navigation, recentSetId }: CollectionBrowserProps) => {
   const [selected, setSelected] = useState<{ card: Card } & Owned | null>(null);
 
   const owned = useMemo(() => {
@@ -71,15 +88,7 @@ const CollectionBrowser = ({ collection, onClose, navigation }: CollectionBrowse
 
   // Which started sets show their grid, decided when the sheet opens; a set started while it is
   // open shows open. Collapsing unmounts the grid, so hidden cards cost nothing.
-  const [open, setOpen] = useState<Record<string, boolean>>(() => {
-    let pockets = 0;
-    let fits = true;
-    return Object.fromEntries(started.map((section, index) => {
-      pockets += section.pockets;
-      fits = fits && (index === 0 || pockets <= INITIAL_POCKETS);
-      return [section.set.id, fits];
-    }));
-  });
+  const [open, setOpen] = useState<Record<string, boolean>>(() => initiallyOpen(started, recentSetId));
   const gridIds = useId();
 
   const uniqueOwned = COLLECTIBLE_CARDS.filter((c) => owned.has(c.key)).length;
@@ -110,7 +119,7 @@ const CollectionBrowser = ({ collection, onClose, navigation }: CollectionBrowse
                     type="button"
                     className="collection-set-toggle"
                     aria-expanded={expanded}
-                    aria-controls={gridId}
+                    aria-controls={expanded ? gridId : undefined}
                     onClick={() => setOpen((current) => ({ ...current, [set.id]: !expanded }))}
                   >
                     <span className="collection-set-name">{set.name}</span>
@@ -120,6 +129,7 @@ const CollectionBrowser = ({ collection, onClose, navigation }: CollectionBrowse
                     </span>
                     <span className="collection-set-count tabular">
                       {have}/{cards.length}
+                      <span className="sr-only"> collected</span>
                     </span>
                     <ChevronDown className="collection-set-chevron" aria-hidden="true" />
                   </button>
