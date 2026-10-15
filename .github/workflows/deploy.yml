@@ -101,13 +101,19 @@ jobs:
           SITE_URL: ${{ steps.site.outputs.url }}
           VITE_OLD_ORIGIN: ${{ steps.site.outputs.host == 'cloudflare' && format('https://{0}.github.io', github.repository_owner) || '' }}
           VITE_OLD_SITE_URL: ${{ steps.site.outputs.host == 'cloudflare' && format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) || '' }}
+      # Wrangler installs from its own lockfile (tools/wrangler), apart from the app's dependencies
+      # and without the secrets. Install scripts are skipped: esbuild and workerd ship their
+      # binaries as optional packages, and a static deploy doesn't use them.
+      - name: Install Wrangler
+        if: steps.site.outputs.host == 'cloudflare'
+        run: npm ci --prefix tools/wrangler --ignore-scripts
       - name: Deploy to Cloudflare Pages
         if: steps.site.outputs.host == 'cloudflare'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PROJECT: ${{ vars.CLOUDFLARE_PROJECT || 'brainrottcg' }}
-        run: npx --yes wrangler@4.141.0 pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
+        run: tools/wrangler/node_modules/.bin/wrangler pages deploy dist --project-name="$PROJECT" --branch=main --commit-dirty=true
       # The old address only starts forwarding once the new one is serving this exact build.
       - name: Check the new address serves this build
         if: steps.site.outputs.host == 'cloudflare'

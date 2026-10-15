@@ -47,9 +47,8 @@ jobs:
         run: |
           VERSION="1.7.12"
           TARBALL="actionlint_${VERSION}_linux_amd64.tar.gz"
-          CHECKSUMS="actionlint_${VERSION}_checksums.txt"
           curl -fsSL -O "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${TARBALL}"
-          curl -fsSL -O "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${CHECKSUMS}"
-          grep " ${TARBALL}\$" "${CHECKSUMS}" | sha256sum -c -
+          # Pinned here rather than read from the same release; a new VERSION needs its new hash.
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  ${TARBALL}" | sha256sum -c -
           tar -xzf "${TARBALL}" actionlint
           ./actionlint -shellcheck=''
