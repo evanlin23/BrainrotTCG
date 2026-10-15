@@ -98,6 +98,37 @@ it("never stores this tab's achievements over a save another tab imported or swi
   // player's history, so nothing is written over their save (or reported as unsaved).
   expect(achievements()).toEqual(imported);
   expect(document.body.textContent).not.toContain("Some changes couldn't be saved");
+  // Its level stays the loaded player's too: the new player's packs are no level-up here.
+  expect(document.body.textContent).not.toContain('Level up');
+});
+
+it("keeps achievements a pack unlocks in a tab another player's save replaced out of that save", async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  // Another tab switches to a different player, whose save has an achievement this tab's doesn't.
+  localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '0b'.repeat(32), name: 'Imported', nextNonce: 0, createdAt: 2 }));
+  localStorage.setItem(STORAGE_KEYS.HISTORY, '[]');
+  const imported = { all_commons_pack: { unlockedAt: 1234 } };
+  localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(imported));
+  await app.interact(() => window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' })));
+  await app.settle(100);
+
+  // This tab opens a pack: its first, so it unlocks achievements here, which aren't stored over the
+  // other player's; the tab says it couldn't save instead.
+  await app.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app.interact(() => {
+    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+  });
+  await app.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
+  await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
+  await app.until('the pack summary shows', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+  await app.settle(100);
+  expect(document.body.textContent).toMatch(/\d+ achievements unlocked/);
+  expect(achievements()).toEqual(imported);
+  expect(document.body.textContent).toContain("Some changes couldn't be saved");
 });
 
 it("unlocks achievements from your own packs when another player's saved pack can't be read", async () => {

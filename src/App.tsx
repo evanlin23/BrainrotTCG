@@ -223,8 +223,13 @@ function App() {
   // Re-read after every pack (myStats reads the pack history, which each pack adds to), and when
   // saved packs are read. Null until they are (or when they couldn't be): meanwhile only the rewards
   // that need no level apply, and the saved choice stays as it is for when the level is known.
+  // After another tab switches player (see samePlayer) this tab keeps the level of the player it
+  // loaded, as last read: the new player's packs are no level-up here, and unlock no rewards.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const level = useMemo(() => myStats()?.level ?? null, [stats.packsOpened, packCache]);
+  const ownLevel = useMemo(() => (samePlayer() ? myStats()?.level ?? null : undefined), [stats.packsOpened, packCache, samePlayer]);
+  const [mountedLevel, setMountedLevel] = useState(ownLevel ?? null);
+  if (ownLevel !== undefined && ownLevel !== mountedLevel) setMountedLevel(ownLevel);
+  const level = ownLevel === undefined ? mountedLevel : ownLevel;
   const rewardLevel = level ?? 1;
   // Every pack in the history is readable (saved packs read in, yours and then other players'), or
   // only other players' failed to: until then, achievements found in the history couldn't name the
