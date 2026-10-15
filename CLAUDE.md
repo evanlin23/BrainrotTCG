@@ -14,6 +14,10 @@ automatically.
   new ticket or proof version. Never regenerate vectors or locks to make a failing check pass.
 - Saves: validate before writing, never mix player identities, recover from storage quota errors.
 - Never push to main, use the admin bypass, or deploy or submit real data as a test.
+- Credit the owner on every commit, from the main thread or a subagent:
+  `git -c user.name=evanlin23 -c user.email=113861384+evanlin23@users.noreply.github.com commit ...`
+  Keep any Co-Authored-By trailer and leave the global git identity alone. PRs, issues and comments
+  go through evanlin23's GitHub account.
 
 ## Checks
 
