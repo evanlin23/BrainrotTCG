@@ -6,12 +6,13 @@ import { clean } from './contracts';
 export async function isolate(context: BrowserContext, baseURL: string) {
   const base = new URL(baseURL);
   const blocked: string[] = [];
-  await context.routeWebSocket('**/*', (socket) => { blocked.push('websocket'); socket.close(); });
+  const noteBlocked = (reason: string) => { if (blocked.length < 40) blocked.push(reason); };
+  await context.routeWebSocket('**/*', (socket) => { noteBlocked('websocket'); socket.close(); });
   await context.route('**/*', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname) || request.method() !== 'GET') {
-      blocked.push('network request');
+      noteBlocked('network request');
       return route.fulfill({ status: 204 });
     }
     const response = await route.fetch({ maxRedirects: 0 });

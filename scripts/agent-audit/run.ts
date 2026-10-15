@@ -86,7 +86,10 @@ try {
     const errors: string[] = [];
     const blocked = await isolate(context, baseURL);
     const page = await context.newPage();
-    page.on('pageerror', () => errors.push('Browser page error; reproduce locally for details'));
+    const noteError = (kind: string) => { if (errors.length < 40) errors.push(kind); };
+    page.on('pageerror', () => noteError('Browser page error; reproduce locally for details'));
+    page.on('console', (message) => { if (message.type() === 'error') noteError('Browser console error; reproduce locally for details'); });
+    page.on('requestfailed', () => noteError('Browser request failed; reproduce locally for details'));
     const token = randomBytes(24).toString('hex');
     const bridge = createServer(async (request, response) => {
       if (request.url !== `/${token}` || request.method !== 'POST') { response.writeHead(404).end(); return; }
