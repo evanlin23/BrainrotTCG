@@ -53,7 +53,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { processInbox } from './hof-inbox.ts';
+import { logSafeError, probeLine, processInbox, relayReadLine } from './hof-inbox.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const OUTPUT = `${ROOT}public/hall-of-fame.json`;
@@ -279,7 +279,7 @@ const build = async () => {
     const result = await checkIssue(issue);
     if (!result.ok) {
       next[issue.number] = { updatedAt: issue.updated_at, entry: null, reason: result.reason };
-      console.log(`#${issue.number}: skipped (${result.reason})`);
+      console.log(`#${issue.number}: skipped (${logSafeError(result.reason)})`);
       continue;
     }
     const verifiedAt = await firstVerifiedAt(issue.number, result.entry.id, token);
@@ -325,7 +325,7 @@ const inbox = async () => {
 
   const since = Math.floor(Date.now() / 1000) - INBOX_WINDOW_S;
   const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES);
-  for (const r of perRelay) console.log(`${r.relay}: ${r.count} events${r.error ? ` (${r.error})` : ''}`);
+  for (const r of perRelay) console.log(relayReadLine(r));
 
   // Pulls already in the Hall of Fame: only verified issues count, so an issue that never verified
   // (wrong title, a failed run, or a copy someone opened to block it) can't keep a pull out.
@@ -408,10 +408,7 @@ const probe = async (relays: string[]) => {
   const event = probeEvent();
   const sent = await publishEvent(event, relays, 10000);
   const read = await fetchEvents({ ids: [event.id], kinds: [HOF_KIND] }, relays, 10000);
-  for (const [i, relay] of relays.entries()) {
-    const back = read.perRelay[i];
-    console.log(`${relay}: write ${sent[i].ok ? 'ok' : `failed (${sent[i].message})`}, read ${back.count > 0 ? 'ok' : `failed (${back.error ?? 'not found'})`}`);
-  }
+  for (const [i, relay] of relays.entries()) console.log(probeLine(relay, sent[i], read.perRelay[i]));
 };
 
 const mode = process.argv[2];

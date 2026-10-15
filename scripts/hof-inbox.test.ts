@@ -3,7 +3,7 @@ import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { decodeProof, pullId } from '../src/engine/index.ts';
 import { hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { processInbox, type InboxContext } from './hof-inbox.ts';
+import { probeLine, processInbox, relayReadLine, type InboxContext } from './hof-inbox.ts';
 
 const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.proof;
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
@@ -107,5 +107,30 @@ describe('Hall of Fame inbox', () => {
       expect(line).toContain('bad ::error::x ::add-mask::y ::warning::z a');
       expect(line.length).toBeLessThan(400);
     }
+  });
+});
+
+describe('Hall of Fame relay log lines (hall-of-fame.ts inbox and probe)', () => {
+  const hostile = `blocked\n::error::x\r\n::add-mask::y\u2028\u001b[31m::warning::z\u200b${'a'.repeat(1000)}`;
+  const relay = 'wss://relay.example';
+  const clean = (line: string) => {
+    expect(line).not.toMatch(/[\p{Cc}\p{Cf}\u2028\u2029]/u);
+    expect(line).toContain('blocked ::error::x ::add-mask::y [31m::warning::z a');
+    expect(line.length).toBeLessThan(600);
+  };
+
+  it("keeps a relay's CLOSED reason on one capped line", () => {
+    expect(relayReadLine({ relay, count: 3 })).toBe(`${relay}: 3 events`);
+    const line = relayReadLine({ relay, count: 0, error: hostile });
+    expect(line.startsWith(`${relay}: 0 events (blocked ::error::x`)).toBe(true);
+    clean(line);
+  });
+
+  it("keeps a relay's OK message and read error on one capped line", () => {
+    expect(probeLine(relay, { relay, ok: true, message: '' }, { count: 1 })).toBe(`${relay}: write ok, read ok`);
+    expect(probeLine(relay, { relay, ok: false, message: 'timed out' }, { count: 0 })).toBe(`${relay}: write failed (timed out), read failed (not found)`);
+    const line = probeLine(relay, { relay, ok: false, message: hostile }, { count: 0, error: hostile });
+    expect(line.split('failed (blocked ::error::x')).toHaveLength(3);
+    clean(line);
   });
 });

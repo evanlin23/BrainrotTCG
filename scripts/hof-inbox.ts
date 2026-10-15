@@ -1,9 +1,10 @@
 /**
  * The decision part of the Hall of Fame inbox (scripts/hall-of-fame.ts inbox), kept apart from
- * GitHub so it can be tested: which relay events become Hall of Fame entries.
+ * GitHub so it can be tested: which relay events become Hall of Fame entries, and the log lines
+ * that carry relay text.
  */
 import { decodeProof, pullId, qualifiesForHallOfFame, verifyProof, type SetLookup, type TicketFn, type VerifiedPull } from '../src/engine/index.ts';
-import { proofFromEvent, verifyEvent, type NostrEvent } from '../src/game/nostrInbox.ts';
+import { proofFromEvent, verifyEvent, type NostrEvent, type PublishResult } from '../src/game/nostrInbox.ts';
 
 export interface InboxContext {
   /** Event ids already handled; updated as events are handled. */
@@ -28,11 +29,19 @@ export interface InboxContext {
  * breaks and other control characters (which could start a line with a `::workflow-command`) become
  * spaces, and it is cut to a readable length.
  */
-const logSafeError = (error: unknown, max = 200): string => {
+export const logSafeError = (error: unknown, max = 200): string => {
   const text = (error instanceof Error ? error.message : String(error)).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, ' ');
   const chars = [...text];
   return chars.length > max ? `${chars.slice(0, max).join('')}…` : text;
 };
+
+/** The inbox's line for one relay; a relay's reason for closing the request is its own text. */
+export const relayReadLine = (r: { relay: string; count: number; error?: string }): string =>
+  `${r.relay}: ${r.count} events${r.error ? ` (${logSafeError(r.error)})` : ''}`;
+
+/** The probe's line for one relay; a relay's OK message and reason for closing are its own text. */
+export const probeLine = (relay: string, sent: PublishResult, read: { count: number; error?: string }): string =>
+  `${relay}: write ${sent.ok ? 'ok' : `failed (${logSafeError(sent.message)})`}, read ${read.count > 0 ? 'ok' : `failed (${logSafeError(read.error ?? 'not found')})`}`;
 
 /** Oldest first; each pull is filed at most once, and only if it verifies and qualifies. */
 export const processInbox = async (events: readonly NostrEvent[], ctx: InboxContext): Promise<{ added: number; deferred: number }> => {
