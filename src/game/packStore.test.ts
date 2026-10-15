@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getStoredPack, loadPackStore, putStoredPacks, resetPackStore } from './packStore';
+import { getStoredPack, loadPackStore, putStoredPacks, resetPackStore, readStoredPacks, PACK_READ_PAGE } from './packStore';
 
 // Control only the asynchronous request boundary: tests still exercise the exported cache API.
 function database(entries: [string, string][] = []) {
@@ -15,6 +15,7 @@ function database(entries: [string, string][] = []) {
         objectStore: () => ({
           getAllKeys: () => ({ result: [...records.keys()] }),
           getAll: () => ({ result: [...records.values()] }),
+          get: (key: string) => ({ result: records.get(key) }),
           put: (value: string, key: string) => records.set(key, value),
         }),
       };
@@ -155,5 +156,52 @@ describe('pack store connection ownership', () => {
     await loadPackStore();
     expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBe(sample.cards);
     expect(openDatabase).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('bounded demand reads', () => {
+  it('reads only the requested identity/set/ticket page and distinguishes missing entries', async () => {
+    const page = readStoredPacks([sample, { ...sample, nonce: 8 }]);
+    const value = succeed(requests[0], database([
+      ['set@1|0123456789abcdef|7', 'original'], ['set@1|another-identity|7', 'unrelated'],
+    ]));
+    expect(await page).toEqual(['original', undefined]);
+    expect(value.records.size).toBe(2);
+    expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBeUndefined();
+  });
+
+  it('rejects oversized pages before opening a database', async () => {
+    await expect(readStoredPacks(Array.from({ length: PACK_READ_PAGE + 1 }, () => sample))).rejects.toThrow(RangeError);
+    expect(openDatabase).not.toHaveBeenCalled();
+  });
+
+  it('keeps storage unavailability distinct from a missing cache record, and retries explicitly', async () => {
+    const first = readStoredPacks([sample]);
+    requests[0].onblocked?.();
+    await expect(first).rejects.toThrow('unavailable');
+    const retry = readStoredPacks([sample]);
+    succeed(requests[1], database([['set@1|0123456789abcdef|7', 'preserved']]));
+    expect(await retry).toEqual(['preserved']);
+    const late = succeed(requests[0]);
+    expect(late.close).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a pending open without starting reads or suppressing a later retry', async () => {
+    const controller = new AbortController();
+    const reading = readStoredPacks([sample], controller.signal);
+    controller.abort(new Error('retired identity'));
+    await expect(reading).rejects.toThrow('retired identity');
+    const value = succeed(requests[0], database([['set@1|0123456789abcdef|7', 'preserved']]));
+    expect(await readStoredPacks([sample])).toEqual(['preserved']);
+    expect(value.handle.transaction).toHaveBeenCalledOnce();
+  });
+
+  it('bounds concurrent pages while the database is pending', async () => {
+    const first = readStoredPacks([sample]);
+    const second = readStoredPacks([sample]);
+    await expect(readStoredPacks([sample])).rejects.toThrow('busy');
+    succeed(requests[0]);
+    await Promise.all([first, second]);
   });
 });

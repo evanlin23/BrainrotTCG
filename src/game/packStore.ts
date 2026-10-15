@@ -112,3 +112,68 @@ export const resetPackStore = () => {
   void db?.then(database => database?.close());
   db = null;
 };
+
+/** A page is small enough to release before requesting the next one. No unrelated keys are read. */
+export const PACK_READ_PAGE = 64;
+export type StoredPackRef = Omit<StoredPack, 'cards'>;
+let activeReads = 0;
+
+/**
+ * Demand-read a page without retaining it in the synchronous legacy cache. An absent entry is
+ * undefined; unavailable/failed storage rejects, so a caller must not mistake it for a cache miss
+ * and start re-mining. Legacy consumers still use loadPackStore until migrated together.
+ */
+export const readStoredPacks = async (packs: readonly StoredPackRef[], signal?: AbortSignal): Promise<(string | undefined)[]> => {
+  signal?.throwIfAborted();
+  if (packs.length > PACK_READ_PAGE) throw new RangeError(`Read at most ${PACK_READ_PAGE} packs per page`);
+  if (packs.length === 0) return [];
+  if (activeReads >= 2) throw new Error('Pack cache is busy; retry after the current page');
+  activeReads++;
+  let stopWaiting: (() => void) | undefined;
+  try {
+    const pending = open();
+    const database = await (signal ? Promise.race([
+      pending,
+      new Promise<never>((_resolve, reject) => {
+        const abort = () => reject(signal.reason);
+        signal.addEventListener('abort', abort, { once: true });
+        stopWaiting = () => signal.removeEventListener('abort', abort);
+      }),
+    ]) : pending);
+    stopWaiting?.();
+    signal?.throwIfAborted();
+    if (!database) {
+      // A new explicit read is a retry, including a blocked attempt whose late success must close.
+      if (db === pending) db = null;
+      throw new Error('Saved pack cache is unavailable; retry before restoring profile totals');
+    }
+    return await new Promise<(string | undefined)[]>((resolve, reject) => {
+      try {
+        const tx = database.transaction(STORE, 'readonly');
+        const abort = () => {
+          try { tx.abort(); } catch { /* A transaction that already completed needs no cancellation. */ }
+        };
+        signal?.addEventListener('abort', abort, { once: true });
+        const cleanup = () => signal?.removeEventListener('abort', abort);
+        tx.onerror = tx.onabort = () => {
+          cleanup();
+          reject(signal?.aborted ? signal.reason : new Error('Saved pack cache read failed; retry before restoring profile totals'));
+        };
+        const requests = packs.map(pack => tx.objectStore(STORE).get(keyOf(pack.setKey, pack.publicKeyHex, pack.nonce)) as IDBRequest<unknown>);
+        tx.oncomplete = () => {
+          cleanup();
+          if (signal?.aborted) return reject(signal.reason);
+          const values = requests.map(request => request.result);
+          if (values.some(value => value !== undefined && typeof value !== 'string')) {
+            reject(new Error('Saved pack cache contains an unreadable entry'));
+          } else resolve(values as (string | undefined)[]);
+        };
+      } catch (error) {
+        reject(error);
+      }
+    });
+  } finally {
+    stopWaiting?.();
+    activeReads--;
+  }
+};
