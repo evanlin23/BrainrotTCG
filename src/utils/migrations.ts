@@ -5,7 +5,7 @@
  * `${setId}/${cardId}`. Old saves used image file names as ids.
  */
 import legacyGenesisIds from '../content/sets/genesis/legacy-ids.json';
-import { getCard, scoreCards, type Card } from '../data/cards';
+import { CARD_RARITIES, getCard, scoreCards, type Card } from '../data/cards';
 import { STORAGE_KEYS } from '../constants';
 
 export const DATA_VERSION_KEY = 'brainrot-data-version';
@@ -36,9 +36,37 @@ export const hydrateCard = <T extends Partial<Card> & { id: string }>(stored: T)
   return current ? { ...stored, ...current } : ({ ...stored, key: stored.key ?? migrateCardKey(stored.id) } as T & Card);
 };
 
-/** Refresh every stored collection card from the registry (stored image URLs go stale between builds). */
-export const hydrateCollection = <T extends { card: Partial<Card> & { id: string } }>(collection: Record<string, T>): Record<string, T & { card: Card }> =>
-  Object.fromEntries(Object.entries(collection).map(([key, item]) => [key, { ...item, card: hydrateCard(item.card) }]));
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const isReadableCard = (value: unknown): value is Partial<Card> & { id: string } => {
+  if (!isRecord(value) || typeof value.id !== 'string' || (value.key !== undefined && typeof value.key !== 'string')) return false;
+  if (getCard(value.key ?? migrateCardKey(value.id))) return true;
+  // Keep complete historical cards absent from the registry, but partial unknown
+  // records cannot safely supply the display fields that registry hydration fills.
+  return typeof value.setId === 'string' && typeof value.name === 'string' && typeof value.image === 'string'
+    && typeof value.rarity === 'string' && Object.prototype.hasOwnProperty.call(CARD_RARITIES, value.rarity)
+    && (value.caption === undefined || typeof value.caption === 'string')
+    && (value.flavor === undefined || typeof value.flavor === 'string');
+};
+
+/** Refresh readable collection cards without rewriting the original saved payload. */
+export function hydrateCollection<T extends { card: Partial<Card> & { id: string } }>(collection: Record<string, T>): Record<string, T & { card: Card }>;
+export function hydrateCollection(collection: unknown): Record<string, { card: Card }>;
+export function hydrateCollection(collection: unknown): Record<string, { card: Card }> {
+  if (!isRecord(collection)) return {};
+  const entries: [string, { card: Card }][] = [];
+  for (const [key, item] of Object.entries(collection)) {
+    if (isRecord(item) && isReadableCard(item.card)) {
+      entries.push([key, { ...item, card: hydrateCard(item.card) }]);
+    }
+  }
+  return Object.fromEntries(entries);
+}
+
+/** True when displaying this payload would leave out any original collection record. */
+export const collectionNeedsRecovery = (value: unknown): boolean =>
+  !isRecord(value) || Object.keys(hydrateCollection(value)).length !== Object.keys(value).length;
 
 const read = (key: string): unknown => {
   try {

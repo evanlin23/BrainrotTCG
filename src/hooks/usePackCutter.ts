@@ -31,17 +31,19 @@ interface UsePackCutterOptions {
   isPackCut: boolean;
   /** Sound effects volume, 0 (silent) to 1. */
   volume?: number;
+  /** Disable particle creation as well as rendering. */
+  particlesEnabled?: boolean;
   /** A sheet is open over the pack: drags belong to it, even after it closes mid-drag. */
   disabled?: boolean;
   /** A press on the pack away from the tear line (a tap, or a swipe across the art): time for a nudge. */
   onMiss?: () => void;
 }
 
-export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, disabled = false, onMiss }: UsePackCutterOptions) => {
+export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
   const [cutPoints, setCutPoints] = useState<CutPoint[]>([]);
 
-  const { sparks, emitSpark, clearSparks } = useSparks();
+  const { sparks, emitSpark, clearSparks } = useSparks(particlesEnabled);
 
   const packRef = useRef<HTMLDivElement>(null);
   const cutSpanRef = useRef<CutSpan>({ ...EMPTY_CUT_SPAN });
@@ -191,8 +193,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       fairyDustRef.current.src = '';
       fairyDustRef.current = null;
     }
-    clearSparks();
-  }, [clearSparks]);
+    // useSparks owns its unmount cleanup; don't update particle state from this teardown.
+  }, []);
 
   return {
     packRef,
