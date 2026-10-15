@@ -52,6 +52,7 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   ticket.ts          Argon2id proof-of-work: the cost of one pack
   identity.ts        Ed25519 player keys, fingerprints, name rules
   proof.ts           pull proofs: encode / decode / sign / verify
+  profile.ts         profile proofs: encode / decode / verify, XP and levels
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
@@ -78,9 +79,13 @@ src/game/          Browser glue around the engine.
   progression.ts     titles, card backs, pack foils, collection milestones, set completion
   shareActions.ts    copy/download and API-supported coarse-pointer system sharing
   previewLinks.ts    link previews: shared links go through a static page per hand and its cards
-  hallOfFameList.ts  the published Hall of Fame list, loaded once per visit
+  hallOfFameList.ts  the published Hall of Fame list, kept for the visit once loaded (a failed or
+                     15-second load can be retried)
   nostrInbox.ts      Hall of Fame submissions over public Nostr relays (loaded only when used)
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
+  saveFile.ts        save export and import: validate, back up, write, roll back on failure
+  collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
+  selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
 
 src/components/    React UI (pack opening, collection, set picker, share sheet, pull viewer, pages)
 
@@ -214,6 +219,18 @@ than generated for each unique pull. Their count and size grow with the publishe
 (cached in CI too) so only new or changed ones are drawn. The pages forward to the pull. The path only
 picks the preview; the pull is still re-derived from the proof when it's opened.
 
+## Saves
+
+Storage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainrot-player-v1`,
+`brainrot-reopen-pending-v1` and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups.
+A failed foreground write shows a save warning and the game stays usable. Before the collection is
+replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1`; if
+that can't be kept, the stored collection is left alone. Export includes that archive. Import
+(`saveFile.ts`) validates every supplied field and the player first, backs up the current save (no
+backup, no import), writes the identity last and, on failure, removes what it wrote and restores
+the previous values. That is structural validation and best-effort rollback, not a transaction. The
+legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
+
 ## Hosting
 
 `.github/workflows/deploy.yml` selects Cloudflare Pages when its account/token configuration works,
@@ -305,12 +322,14 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
    ticket, proof or rules contract as specified in `spec/PULL_SPEC.md` section 12. The engine and
    independent Python verifier must both pass every historical vector (`src/engine/spec.test.ts`
    and the `independent-verifier` CI job).
-3. **Every registered card needs a built image.** `npm run cards` generates it, and `check:sets`
-   checks its file exists (plus openable pack wrappers/thumbnails). This does not decode every
-   image or validate all finish assets; #237 tracks additional decoding and asset coverage.
+3. **Every registered card needs a built image.** `npm run cards` generates it, `check:sets`
+   checks its file exists, and `check:card-assets` decodes every registered card WebP and checks
+   pack wrappers, finish thumbnails, the frame mask and card back (docs/DEVELOPMENT.md). Preview
+   outputs and built hosting paths are outside it.
 
-`npm run check` runs lint, types, unit tests and set locks; `npm run build` packages the site and
-static previews. CI runs both and also
-`python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` with its configured
-Python/cryptography versions. These checks do not establish real-device performance, live service
-availability or complete UI/persistence coverage.
+`npm run check` runs lint, types, all tests, set locks and card assets; `npm run build` packages the
+site and static previews. On every pull request and non-main push, CI runs both, the independent
+verifier (`python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json`), the
+browser smoke and actionlint; deploys from main rerun the verifier and `npm run check`. These checks
+do not establish real-device performance, live service availability or complete UI/persistence
+coverage.

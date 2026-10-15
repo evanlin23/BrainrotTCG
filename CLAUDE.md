@@ -22,9 +22,10 @@ automatically.
 ## Checks
 
 - While iterating: `npx vitest run <path>` for what you touched, `npx tsc --noEmit -p .` for types.
-- Before pushing: `npm run check` (lint, types, all tests, set locks), once.
-- CI runs `npm run build` and the independent Python verifier on every PR and feature-branch push.
-  Leave those to CI unless you changed `src/engine`, `spec/` or the build.
+- Before pushing: `npm run check` (lint, types, all tests, set locks, card assets), once.
+- CI runs `npm run check`, the build, the Python verifier, browser smoke and actionlint on every PR
+  and feature-branch push. Leave the build and verifier to CI unless you changed `src/engine`,
+  `spec/` or the build.
 
 ## Docs (read only the section you need)
 
