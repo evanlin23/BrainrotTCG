@@ -92,12 +92,24 @@ describe('original ticket provenance admission', () => {
     if (kind === 'unknown version') history[1].v = 999;
     data.set(STORAGE_KEYS.HISTORY, JSON.stringify(kind === 'legacy no history' ? [] : history));
     const original = data.get(STORAGE_KEYS.HISTORY);
-    expect(myProfileInfo()?.filled).toBe(kind === 'legacy no history' ? 3 : 1);
+    const filled = kind === 'legacy no history' ? 3 : 1;
+    expect(myProfileInfo()?.filled).toBe(filled);
     await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
-    await expect(reopenMyPacks()).rejects.toThrow('original pack set/version mappings');
+
+    // The mapped tickets still re-open (once, on the next load), and the unmapped one isn't guessed or logged.
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    data.set(PENDING, getPlayer().publicKeyHex);
+    resumeReopening();
+    await reopenMyPacks(); // joins the resumed run
+    resumeReopening();
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+    expect(myProfileInfo()).toEqual({ packs: 3, filled, missing: filled });
+    expect(myStats().packs).toBe(3 - filled);
     expect(data.get(STORAGE_KEYS.HISTORY)).toBe(original);
     expect(data.has(PENDING)).toBe(false);
-  });
+    await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
+  }, 30_000);
 
   it('does not count a cached guessed pack as recovered original provenance', async () => {
     const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);

@@ -327,6 +327,7 @@ function App() {
 
   const handlePackOpened = useCallback((pack: OpenedPack) => {
     unsavedPacks.current.push(pack);
+    if (pack.unrecorded) setSaveFailed(true);
     // A pack put back on the shelf counted when it opened (stats, pack milestones): it only adds its cards.
     const counted = pack.counted === true;
     const newCards = pack.cards;
