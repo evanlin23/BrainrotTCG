@@ -40,8 +40,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -56,8 +56,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -69,7 +69,7 @@ jobs:
           gh label create hall-of-fame --color FF3DF2 --description "Hall of Fame submission" 2>/dev/null || true
           gh label create verified --color 2BFF6A --description "Pull verified" 2>/dev/null || true
       # Event ids already handled, so junk isn't re-checked on every run.
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: hof-inbox-seen.json
           key: hof-inbox-seen-${{ github.run_id }}
@@ -78,7 +78,7 @@ jobs:
         run: npx tsx scripts/hall-of-fame.ts inbox
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         if: always()
         with:
           path: hof-inbox-seen.json

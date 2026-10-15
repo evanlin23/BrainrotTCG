@@ -1,60 +1,51 @@
 # Development and verification
 
-Use this guide for changed code; read domain docs only when relevant. Scripts and CI are the executable source of truth. Product proposals are not implemented requirements.
+Workflow and checks for contributors. Repo rules (layers, compatibility, saves) are in
+[CLAUDE.md](../CLAUDE.md); domain contracts are in [ARCHITECTURE.md](ARCHITECTURE.md),
+[PULL_SPEC.md](../spec/PULL_SPEC.md), [ADDING_A_SET.md](ADDING_A_SET.md) and [DESIGN.md](DESIGN.md).
+If this page disagrees with `package.json` or `.github/workflows/`, those win.
 
-## Engineering rules
+## Setup
 
-- Make the smallest coherent change; reuse stable helpers/components, remove obsolete paths and avoid speculative frameworks/dependencies or unrelated cleanup.
-- Keep deterministic rules in src/engine, browser/persistence in src/game, presentation in components and tooling in scripts. Share scoring/eligibility rather than duplicate it.
-- Name state precisely, validate external data, derive render values instead of synchronizing copies, use handlers for actions and effects for external synchronization. Comments explain constraints/reasons.
-- Record once independently of animations. Handle errors, duplicates, cancellation and stale completion; clean up owned resources and bound queues/caches/retries. Foreground opening and accessible visible controls take priority.
-- Preserve released sets, historical proofs and original ticket/set/version provenance. Deterministic changes need the applicable version/spec/vector/verifier updates; never bless changed old outputs. UI layout normally doesn't affect generation.
-- Validate replacement saves before writing; recover from quota/interruption without silently mixing identities. Card caches are discardable only if retained provenance can reconstruct them. Public proofs never contain private keys; exports are private.
+Use Node 22, as CI does. `npm ci` installs from the lockfile; only change `package-lock.json` in a
+dependency change. `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
-## Automated checks and where they run
+## Workflow
 
-| Coverage | Existing or proposed | Execution |
-| --- | --- | --- |
-| Lint/types/unit/set locks | npm run check, existing | Local and Actions |
-| Build/static previews | npm run build, existing | Local for packaging/assets; Actions |
-| Independent verification | Python vectors, existing | Local isolated environment and Actions |
-| Mounted component/cross-module integration | One pack lifecycle (#350); further #233 cases proposed | npm test, local and Actions |
-| Built-browser E2E/visual/a11y smoke | #73, proposed | Local and Actions |
-| Workflow/asset validation | #234/#237, proposed | Fake-provider local/Actions checks |
-| Independent agent task audit | #239, proposed runner | Local Claude/other supported CLI; attach report |
-| Actual phone/screen-reader/newcomer checks | #8/#12/#211 | Separate manual release evidence |
+1. Search open issues and PRs first and reuse the existing issue. New work starts from the
+   "Bounded task" form; an issue labelled `scope:needs-slicing` is split before anyone takes it.
+2. Branch from current main. Never push to main.
+3. Keep one observable outcome per PR, with its regression test in the same PR.
+4. Open the PR as a draft and link the issue: `Fixes #n` only when it delivers the whole issue,
+   `Refs #n` otherwise. Say what changed, what ran (pass or fail) and what didn't run.
+5. A merge needs a reviewer's approval of the head and green CI on a branch that is up to date with
+   main. Only the owner approves new card sets or removing a set's draft flag. Merges to main deploy
+   automatically. Never deploy, or submit real data such as Hall of Fame entries, as a test.
 
-Run npm ci when installation is needed; preserve the lockfile. Application changes finish with npm run check; CI also requires build. For generation/spec changes run `python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` through an isolated interpreter matching CI (currently Python 3.13/cryptography 50.0.1; Node 22). Inspect workflows for current versions. Docs-only: local-link/consistency review and git diff --check. Proposed commands aren't available until implemented. Zero-test/skipped/failed runs aren't passes.
+## Checks
 
-Choose meaningful regressions by changed contract, not a global coverage target:
+| When | Run |
+| --- | --- |
+| While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
+| Before pushing | `npm run check` (lint, typecheck, all tests, set locks), once |
+| Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
+| Changed the build | also `npm run build` |
+| Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
+| Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
+| Docs only | check local links and `git diff --check origin/main...HEAD` |
 
-- Open/record/reload/skip/exit exactly once; interrupted/save-failed openings recover without duplicate awards.
-- Valid/legacy export-import, malformed JSON shapes, wrong identity, denied storage, quota mid-write, pending recovery and severe mixed-set history truncation preserve provenance/state.
-- Same-origin pages in one context test shared-storage races; separate contexts don't. Real IndexedDB reload/quota/transaction/blocked cases cannot be proven by memory mocks.
-- Card/pack sharing works across entry points; exports decode/preserve modifiers and proof links reconstruct. Fake share/clipboard APIs don't validate native OS UI.
-- Intake verifies real proofs with fake relay/GitHub boundaries: duplicates, invalid signatures, limits, retries, partial filing, removal/rebuild; daily/stale/per-card contracts when implemented.
-- Async cases: HTTP failure then recovery, malformed snapshots, worker crash/no-worker/close, bounded fallback, late results and missing/failed images.
+CI runs `npm run check`, `npm run build`, the Python verifier and the browser smoke on every pull
+request and on pushes to branches other than main. The deploy workflow runs `npm run check` again before deploying main.
+A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
+make a failing check pass.
 
-Mounted integration: `npm test -- src/test/packLifecycle.integration.test.ts --maxWorkers=2` runs the pack lifecycle regression (also in `npm run check`). `src/test/mountedApp.ts` owns StrictMode mounting, module/storage reset, clock, real-ticket Worker transport, outbound I/O guards and cleanup. Serial cases own disposable identities/preferences and assertions: use `interact` for events, `until` for bounded observable completion, and `dispose` in `afterEach`. Bug PRs add their own regressions with their fixes using this fixture. jsdom 26 supports CI Node 22; DOM/localStorage, media and finish rasterization are simulated. Reload reconstructs App from retained storage and fresh modules; IndexedDB uses the production unavailable-storage fallback. Native navigation/persistence, image decoding, layout and multi-tab coverage remain with #304/#73.
+## Browser smoke
 
-Built-app smoke: preview the build at its configured base URL; verify actual page/assets, not a PID. Use deterministic verified fixtures, isolated test identities/storage, pinned runner/browser versions and blocked outbound writes. Exercise fresh opening -> result -> card/share -> personal results -> reload, plus valid/invalid proof links. Relevant cases include touch/narrow/short layouts, keyboard/form exclusion/nested focus/Escape, reduced motion, resize/background return and slow/offline/failed assets. Assert behavior and unexpected errors, not screenshots alone. Stop only owned resources.
-
-Chromium smoke can gate PRs; relevant Firefox/WebKit/visual/failure expansion can run in Actions or scheduled/manual jobs once #73 exists. Emulated touch/network/CPU/browser engines are not actual phone/GPU/native-share evidence. Workflow tests use fake adapters/disposable outputs, verify payload/permission/cache/budget/base-path/origin contracts and never deploy or publish to test. Cold cache rebuilds matter when generation/invalidation changes.
-
-## Local agent review and handoff evidence
-
-For meaningful user-flow changes, a coordinator supplies a known built revision and safe contexts. Independent reviewers get task-only prompts without inherited product history, source/docs, expected labels/routes or shortcut coaching. Assign opening, rarity/share, personal/global results and accessibility/recovery tasks; fresh contexts for newcomers and clearly labeled fixtures for returning flows. Reviewers are read-only; no real saves, external writes or merges. Bound agents/time/provider costs; tools unavailable means unrun.
-
-Report actual steps, completed/blocked/ambiguous outcomes, detours, labels, errors and sanitized artifacts with engine/viewport/touch/network/cache settings. Coordinator reproduces/deduplicates findings into existing issues, then retests affected tasks without coaching. Agent times/outcomes are not human statistics and don't replace real newcomers/devices. Normal CI needs no agent subscription or hosted model credentials.
-
-Each PR records tested commit, criteria, commands/results/counts/skips, browser/device/conditions, relevant fault/compatibility cases, sanitized artifacts, unresolved issues and checks not run. Reconcile evidence against final head. Keep tests independent/seeded, restore mocks/storage, close contexts/workers, use observable completion with bounded timeouts and retain failure evidence. Retries/quarantines need a cause/issue/exit condition; don't hide flakiness or weaken checks.
-
-## Issue and documentation hygiene
-
-Before taking an issue, search open issues and PRs and reuse the canonical issue. Agree on one observable outcome, acceptance criteria, dependencies, exclusions and executable verification; slice a tracker before assigning it. Coordinate ownership of files and base branches before overlapping contributors or agents; use isolated checkouts and preserve others' work.
-
-Work in a feature branch and open a PR linked to the bounded issue. Keep it draft until review-ready; report the exact tested head, commands/results and unrun checks. Respect active owner review, merge and deployment restrictions: passing CI is not permission to merge or deploy. Never push directly to main or publish/deploy as a test. These are contributor instructions, not a claim that repository protection is configured or enforced.
-
-Search/reuse canonical issues. `scope:bounded` means one coherent deliverable, still subject to dependencies/review; `scope:needs-slicing` needs a smaller assignment first. Tracking issues are not one-PR jobs. One PR should have one observable outcome and explicit exclusions; put its regression tests with the fix, not a separate all-bugs rewrite. Milestones sequence phases without promises/dates. Close only full shipped/validated scope; use Refs for partial/tracking work. Distinguish hypotheses from reproduced bugs. Current evidence belongs in PRs/issues, durable contracts in domain docs. Keep one owner per topic; edit existing guidance before adding a doc. Retire dated handoffs after review and remove their temporary links. Agent entry files stay short and must not direct every future task through old handoffs.
-
-Reviewed source principles: [Google code review](https://github.com/google/eng-practices/blob/master/review/reviewer/looking-for.md), [React effects](https://github.com/reactjs/react.dev/blob/main/src/content/learn/you-might-not-need-an-effect.md), and [Anthropic code simplifier](https://github.com/anthropics/claude-code/blob/main/plugins/pr-review-toolkit/agents/code-simplifier.md): preserve behavior, favor clarity over dense brevity, simplify changed code and avoid over-engineering. These are references, not plugin installation or adoption of every example style rule. Hosted Claude/Codex guide pages returned HTTP 403 and were not reviewed; accessible official GitHub material was used instead.
+`npm run test:browser` (Playwright, Chromium) builds the checkout and owns a strict-port preview at
+`http://127.0.0.1:4173/BrainrotTCG/`; stop any server on that port first, and set `BASE_PATH=/` for
+a root-path build. It blocks HTTP outside the preview origin and all WebSockets, seeds a disposable
+identity with muted audio, opens one real pack on desktop and Pixel 5 viewports, and checks that
+stats, collection and history survive a reload. Failure traces, screenshots and videos land in
+`test-results/` (uploaded by CI). It covers that one journey only: performance, agent-audit and
+physical-device checks don't exist yet, so do those by hand against the preview and describe them
+in the PR.

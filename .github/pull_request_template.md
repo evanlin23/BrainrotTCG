@@ -1,18 +1,11 @@
-## Issue and outcome
+## What changed
 
-<!-- Link the bounded issue; describe the concrete problem and resulting behavior. Use Refs for partial scope. -->
+<!-- One outcome. Link the issue: Fixes #n for the whole issue, Refs #n for part of it. -->
 
-## Scope and dependencies
+## What ran
 
-<!-- Name prerequisites/base PRs, exclusions and relevant compatibility risks. Coordinate overlapping files. -->
+<!-- Commands and results (pass or fail) on the final head. -->
 
-## Verification
+## What didn't run
 
-<!-- Exact tested commit; commands/results/counts and relevant evidence. List unrun checks and remaining limits. Proposed runners are not executed checks. -->
-
-## Review
-
-<!-- Keep draft until review-ready. Respect active owner review, merge and deployment restrictions; passing CI does not authorize merging/deploying or prove branch protection. -->
-
-- [ ] The PR addresses one agreed outcome and preserves historical compatibility.
-- [ ] Evidence matches the final head; unrun checks and remaining work are explicit.
+<!-- Checks you skipped or couldn't run, and any open risks. Keep the PR a draft until it's ready for review. -->
