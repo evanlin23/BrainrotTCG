@@ -110,3 +110,10 @@ checks the report schema, and this must exit nonzero with zero timing samples:
 When the lockfile changes, run `npm audit` and `npm audit --omit=dev`. The findings, their exposure
 and dispositions are in [DEPENDENCY_ADVISORIES.md](DEPENDENCY_ADVISORIES.md). Never use
 `npm audit fix --force`.
+
+Dependabot (`.github/dependabot.yml`) is the only update bot. Root npm minor and patch updates
+arrive as two grouped PRs, `dev-tooling` (devDependencies) and `prod` (dependencies), and GitHub
+Actions minor and patch updates as one `github-actions` PR. `hash-wasm` and `@noble/*` are left out
+of `prod` and arrive as separate PRs, because they can change pack and proof derivation. Majors and
+`tools/wrangler` updates stay one PR per package. By policy (not enforced by the config), each
+update PR gets a review and green CI before it merges.
