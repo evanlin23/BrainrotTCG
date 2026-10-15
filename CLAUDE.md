@@ -36,9 +36,9 @@ The owner wants hands-off engineering from one Claude window, within a weekly us
   `.claude/state/NOW.md`, briefs, and short reports. Each task runs in a fresh `implementer`
   subagent and gets an independent `reviewer`. A SessionStart hook re-injects the ledger after
   compaction or /clear.
-- Merge a PR only when the owner has authorized merging for that work (recorded under `authority`
-  in the ledger), CI is green on its final head, a reviewer approved it, it is up to date with main
-  and it isn't on hold. Then check main's CI and deploy.
+- The owner allows Claude to close duplicate, superseded or obsolete PRs (with a one-line reason)
+  and to merge PRs. Merge only when CI is green on the final head, a reviewer approved it, it is up
+  to date with main and it isn't on hold in the ledger. Then check main's CI and deploy.
 - Ask the owner only for external access or decisions that are genuinely theirs. Add them under
   `needs owner` in the ledger and keep working on other items.
 

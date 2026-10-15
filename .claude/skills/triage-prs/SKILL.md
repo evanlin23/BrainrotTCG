@@ -14,9 +14,8 @@ invalidated reviews of the rest. Triage first; deep-review only what merges next
    PR numbers and branch names, at most three agents at a time.
 3. Combine the verdicts into one table: close, then merge-ready, small-fix, rework. Keep stacked PRs
    (base isn't main) in stack order.
-4. Show the table and ask the owner to approve the closures and the merge order. Don't close, merge
-   or comment before that.
-5. After approval, close the approved PRs with one short comment each naming the reason or the
-   superseding PR. Then take merge-ready PRs one at a time: update from main, `npm run check`, and
-   merge only if the owner said to, before reviewing the next, so each review is against the real base.
-6. Record the outcome and the remaining order in `.claude/state/NOW.md`.
+4. Close duplicate, superseded or obsolete PRs (the owner allows it), each with a one-line comment
+   naming the reason or the superseding PR. Leave held PRs open.
+5. Put the rest into the ledger's `order`, merge-ready first, holds excluded. /work then takes them
+   one at a time (update from main, review, merge) so each review is against the real base.
+6. Post the table once on the tracking issue, then keep only the order in `.claude/state/NOW.md`.
