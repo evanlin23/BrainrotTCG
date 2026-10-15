@@ -110,3 +110,8 @@ checks the report schema, and this must exit nonzero with zero timing samples:
 When the lockfile changes, run `npm audit` and `npm audit --omit=dev`. The findings, their exposure
 and dispositions are in [DEPENDENCY_ADVISORIES.md](DEPENDENCY_ADVISORIES.md). Never use
 `npm audit fix --force`.
+
+Dependabot (`.github/dependabot.yml`) is the only update bot. Root npm minor and patch updates
+arrive as two grouped PRs, `dev-tooling` (devDependencies) and `prod` (dependencies), and GitHub
+Actions minor and patch updates as one `github-actions` PR. Majors stay one PR per package, and
+nothing merges without review and green CI.
