@@ -64,6 +64,10 @@ export function hydrateCollection(collection: unknown): Record<string, { card: C
   return Object.fromEntries(entries);
 }
 
+/** True when displaying this payload would leave out any original collection record. */
+export const collectionNeedsRecovery = (value: unknown): boolean =>
+  !isRecord(value) || Object.keys(hydrateCollection(value)).length !== Object.keys(value).length;
+
 const read = (key: string): unknown => {
   try {
     const raw = localStorage.getItem(key);

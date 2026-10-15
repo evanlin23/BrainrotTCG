@@ -4,7 +4,7 @@ import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine
 import { getCard } from '../data/cards';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
 import { backUpSave } from './move';
-import { importPlayer, parsePlayer } from './player';
+import { exportPlayer, importPlayer, parsePlayer } from './player';
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -51,6 +51,8 @@ const pulls = (value: unknown) => Array.isArray(value) && value.every((entry) =>
 
 const SAVE_FIELDS = [
   ['collection', STORAGE_KEYS.COLLECTION, collection],
+  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, (value: unknown) => record(value) && text(value.raw)
+    && (value.player === null || text(value.player))],
   ['achievements', STORAGE_KEYS.ACHIEVEMENTS, achievements],
   ['stats', STORAGE_KEYS.STATS, stats],
   ['hallOfFame', STORAGE_KEYS.HALL_OF_FAME, hallOfFame],
@@ -58,6 +60,15 @@ const SAVE_FIELDS = [
   ['history', STORAGE_KEYS.HISTORY, history],
   ['settings', STORAGE_KEYS.SETTINGS, settings],
 ] as const;
+
+/** Private backup: recovery payloads remain opaque, separate from the active identity/state. */
+export const exportSaveFile = (): string => JSON.stringify({
+  ...Object.fromEntries(SAVE_FIELDS.map(([field, key]) => [field, localStorage.getItem(key)])),
+  player: exportPlayer(),
+  exportedAt: new Date().toISOString(),
+  version: 2,
+  dataVersion: CURRENT_DATA_VERSION,
+}, null, 2);
 
 /** Remove imported values before restoring originals, so rollback does not need both copies' space. */
 const restoreFields = (changed: string[], previous: Map<string, string | null>): boolean => {

@@ -21,6 +21,7 @@ import { extractProfile, extractProof } from './engine';
 import { clearPendingPack, takePendingPack, type OpenedPack, type PullRef } from './game/pulls';
 import { importSaveFile } from './game/saveFile';
 import { getStoredData } from './utils/storage';
+import { persistCollection } from './game/collectionRecovery';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { myStats } from './game/profiles';
@@ -36,11 +37,18 @@ import {
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
 
+
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
 
+const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was preserved in your private save. Export it from Settings for recovery.';
+
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
+  const [collectionSaveNote, setCollectionSaveNote] = useState(() => {
+    try { return localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY) ? COLLECTION_RECOVERY_NOTE : ''; }
+    catch { return ''; }
+  });
   const [achievements, setAchievements] = useState<Record<string, AchievementData | number>>(() => getStoredData(STORAGE_KEYS.ACHIEVEMENTS, {}));
   const [stats, setStats] = useState<Stats>(() => getStoredData(STORAGE_KEYS.STATS, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
   const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(STORAGE_KEYS.HALL_OF_FAME, {}));
@@ -336,7 +344,10 @@ function App() {
         };
       });
 
-      localStorage.setItem(STORAGE_KEYS.COLLECTION, JSON.stringify(next));
+      const saved = persistCollection(next);
+      if (saved !== 'saved') setCollectionSaveNote(saved === 'recovered'
+        ? COLLECTION_RECOVERY_NOTE
+        : 'Your collection could not be saved. The previous data was kept. Export your private save from Settings before continuing.');
       updatedCollection = next;
       return next;
     });
@@ -445,6 +456,7 @@ function App() {
       </header>
 
       <main className="app-main">
+        {collectionSaveNote && <p role="status">{collectionSaveNote} <button type="button" onClick={() => setIsSettingsOpen(true)}>Open Settings</button></p>}
         <SetPicker sets={playableSets} selectedId={selectedSet.id} onSelect={selectSet} collection={collection} disabled={packBusy} />
         <PackOpener
           key={selectedSet.id}
