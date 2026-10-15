@@ -1,8 +1,5 @@
 version: 2
 updates:
-  # Minor and patch updates arrive as one PR per group, so each gets one review and one CI run.
-  # Majors stay one PR per package: they need their own review (Vite, TypeScript and ESLint majors
-  # are blocked upstream, see docs/DEPENDENCY_ADVISORIES.md).
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -11,15 +8,6 @@ updates:
       time: "08:00"
       timezone: America/Chicago
     open-pull-requests-limit: 3
-    groups:
-      dev-tooling:
-        dependency-type: development
-        patterns: ["*"]
-        update-types: [minor, patch]
-      prod:
-        dependency-type: production
-        patterns: ["*"]
-        update-types: [minor, patch]
 
   # Wrangler for the Cloudflare Pages deploy, locked apart from the app (tools/wrangler).
   - package-ecosystem: npm
@@ -39,7 +27,3 @@ updates:
       time: "08:30"
       timezone: America/Chicago
     open-pull-requests-limit: 2
-    groups:
-      github-actions:
-        patterns: ["*"]
-        update-types: [minor, patch]

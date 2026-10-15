@@ -51,13 +51,6 @@ job installs it with `npm ci --prefix tools/wrangler --ignore-scripts` and runs
 server, PR CI or the production bundle. `workers/hall-of-fame-cron/README.md` mentions
 `npx wrangler` only as an optional manual deploy path. Its lockfile reports 0 findings.
 
-## Update automation
-
-`.github/dependabot.yml` is the only update bot (no Renovate). Root npm minor and patch updates
-arrive as two grouped PRs, `dev-tooling` (devDependencies) and `prod` (dependencies), and
-GitHub Actions minor and patch updates as one `github-actions` PR. Majors stay one PR per package,
-and nothing merges without review and green CI.
-
 ## Not fixed here, and why
 
 - Vite 8, TypeScript 7 and ESLint 10 (#390, #392, #397) are majors blocked upstream. None is needed
