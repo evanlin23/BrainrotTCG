@@ -50,7 +50,67 @@ later. To use one, add it in Cloudflare (**Workers & Pages → brainrottcg → C
 repository **variable** (not a secret) `SITE_URL` to it, ending in `/` (for example
 `https://brainrottcg.net/`), and deploy.
 
-## Undoing it
+## Release evidence
 
-Delete the two secrets and deploy: GitHub Pages serves the game again. Saves made at the
-Cloudflare address would stay there, so do this before players settle in, or not at all.
+Deploys remain automatic on pushes to `main`; administrator bypass remains available. This checklist
+records release/recovery evidence, not a new approval workflow. In the release PR or incident, record:
+
+- Exact candidate/merged commit SHA, Actions run and actual production URL, host, Cloudflare project
+  (`CLOUDFLARE_PROJECT`, default `brainrottcg`) and deployment ID. Record public configuration, never tokens.
+- Results at that revision: `npm run check`, `npm run build`, independent Python verification and
+  relevant browser/storage/asset checks; name unrun checks and unresolved blockers. The current
+  [deploy workflow](../.github/workflows/deploy.yml) runs check/build, but not the separate
+  [CI independent verifier](../.github/workflows/ci.yml); do not assume it ran on a bypassed revision.
+- Reviewer/operator, decision and known-good rollback target. Save loss/corruption, broken historical
+  verification, persistent blank screens/assets or inaccessible opening controls block a normal release;
+  an emergency bypass must state what remains unverified.
+- For storage/proof/set changes, fixture evidence that the rollback target can read data written by
+  the candidate, including identity, ticket/set/version history, pending packs and IndexedDB. Keep
+  private backups offline; a public profile link cannot recover the secret key. Do not test with a
+  player's only save or claim an export includes data it does not serialize.
+
+## Recover on the same origin
+
+Do not delete hosting secrets or change the domain as a rollback: browser saves belong to their origin,
+so players can lose access to progress without a tested transfer. Keep the canonical URL, base path
+and migration origins consistent with the selected release.
+
+1. Record the failing SHA/run/deployment and current ranking snapshot; choose a known-good production
+   deployment whose storage readers, proof versions and released sets/assets remain compatible.
+   If the older app would erase/misread newer saves or omit a newly released set/version, use a small
+   forward fix instead. Do not ask players to clear site data to make an older build work.
+2. For Cloudflare, open **Workers & Pages → the recorded Pages project → Deployments → All deployments**.
+   Find the recorded successful production deployment, verify its commit/build identity, then use its
+   three-dot menu → **Rollback to this deployment** and confirm. Preview deployments are not targets;
+   see [Cloudflare's rollback instructions](https://developers.cloudflare.com/pages/configuration/rollbacks/).
+   This selects the previous deployed files on the same project; it does not revert Git, browser data
+   or the GitHub Pages redirect deployment.
+3. Keep all released set definitions, verifier rules and required card/preview assets available
+   ([set versioning](ADDING_A_SET.md#changing-a-released-set)). An incompatible old deployment is not a
+   safe target merely because it once worked. If no compatible deployment exists, prepare a feature
+   PR against current main that reverts the faulty behavior while retaining those contracts. Do not
+   reset or force-push main. Rebuilding a recorded commit is a new artifact, not a byte-identical rollback.
+4. Reconcile the source with a follow-up PR promptly: automatic deployments remain enabled, and a later
+   push or workflow run can replace the provider rollback. Avoid overlapping recovery and deploy runs;
+   the workflow's `pages` concurrency group does not serialize dashboard rollbacks.
+
+Cloudflare's deployment history is the artifact rollback source. On its Cloudflare path, the workflow
+uploads only the GitHub Pages **redirect** directory (`pages/`) as `github-pages`; it does not archive
+Cloudflare's `dist/`. Never upload that redirect artifact as the game. When GitHub Pages is the actual
+host, use the compatible feature-PR/forward-fix path above; there is no rollback command in this workflow.
+
+UI and ranking recovery are separate decisions. A provider rollback also restores its bundled
+`hall-of-fame.json`, which can omit newer winners or reintroduce moderated entries. Keep verified issue
+records/moderation intact, retain the current snapshot for comparison, and rebuild ranking data from
+current trusted evidence with compatible code. Do not undo submissions or rejected labels to match an
+old UI. The GitHub redirect's copy may differ until refreshed; record that explicitly.
+
+## Read-only checks after deployment or recovery
+
+At the recorded production URL, confirm the expected hashed entry script in `index.html` matches the
+selected build and loads, then check required card images and a `/p/` preview page. The deploy workflow
+checks the entry-script reference before updating the old-site redirect; that alone does not prove
+assets decode or the game works. In a disposable browser context, open a known valid historical pull,
+a current-version pull and a profile link, and check invalid-proof recovery, ranking freshness and the
+old URL's forwarding. Use public test proofs, avoid opening new packs/submitting/resetting/importing real
+saves, and record the tested deployment plus failures. These are follow-up checks, not a deployment.
