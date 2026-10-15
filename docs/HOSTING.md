@@ -59,24 +59,23 @@ or not at all. This is a host change, not a release rollback; for a bad release,
 
 ## Release evidence
 
-Deploys remain automatic on pushes to `main`; administrator bypass remains available. This checklist
-records evidence for the owner/operator's judgement, not an approval gate. In the release PR or
-incident, record:
+Deploys are automatic on pushes to `main`, and only the owner may use the administrator bypass. This
+checklist is evidence to record in the release PR or incident for the owner/operator's judgement, not
+an approval gate:
 
 - Exact candidate/merged commit SHA, Actions run, actual production URL and host, and on Cloudflare
   the Pages project (`CLOUDFLARE_PROJECT`, default `brainrottcg`) and deployment ID. Record public
   configuration, never tokens.
 - Results at that revision: `npm run check`, `npm run build`, independent Python verification and
-  relevant browser/storage/asset checks; name unrun checks and unresolved blockers. The
+  relevant browser/storage/asset checks, plus unrun checks and unresolved blockers. The
   [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
   builds (`npm run check`, `npm run build`) and deploys only if it passes.
   [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) skip
-  pushes to `main` (`branches-ignore`), so do not assume workflow lint (actionlint) or browser tests
-  ran on a bypassed revision.
-- Reviewer/operator, decision and known-good rollback target. Whether to ship is the owner/operator's
-  call: save loss/corruption, broken historical verification, persistent blank screens/assets or
-  inaccessible opening controls are strong reasons to hold a release, and a release that ships past
-  them should state what remains unverified.
+  pushes to `main` (`branches-ignore`), so on a bypassed revision workflow lint (actionlint) and
+  browser tests may not have run.
+- Reviewer/operator, decision and known-good rollback target, plus any observed save loss or
+  corruption, broken historical verification, persistent blank screens or missing assets, or
+  inaccessible opening controls.
 - For storage/proof/set changes, fixture evidence that the rollback target can read data written by
   the candidate, including identity, ticket/set/version history, pending packs and IndexedDB. Keep
   private backups offline; a public profile link cannot recover the secret key. Do not test with a
@@ -93,9 +92,8 @@ and migration origins consistent with the selected release.
    deployment whose storage readers, proof versions and released sets/assets remain compatible.
    If the older app would erase/misread newer saves or omit a newly released set/version, use a small
    forward fix instead. Do not ask players to clear site data to make an older build work.
-2. For Cloudflare, open **Workers & Pages → the recorded Pages project → Deployments → All deployments**.
-   Find the recorded successful production deployment, verify its commit/build identity, then use its
-   three-dot menu → **Rollback to this deployment** and confirm. Preview deployments are not targets;
+2. On Cloudflare, verify the recorded successful production deployment's commit/build identity, then
+   roll back to it in the recorded Pages project's dashboard. Preview deployments are not targets;
    see [Cloudflare's rollback instructions](https://developers.cloudflare.com/pages/configuration/rollbacks/).
    This selects the previous deployed files on the same project; it does not revert Git, browser data
    or the GitHub Pages redirect deployment.
@@ -107,7 +105,7 @@ and migration origins consistent with the selected release.
 4. Reconcile the source with a follow-up PR promptly: automatic deployments remain enabled, and a later
    push or workflow run can replace the provider rollback. The Hall of Fame workflows also run
    `gh workflow run deploy.yml`: [hall-of-fame.yml](../.github/workflows/hall-of-fame.yml) when a
-   submitted entry verifies, and [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
+   submitted pull verifies and wasn't already verified on that issue, and [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
    when a run (dispatched about every 15 minutes) files new entries. Land the forward-fix PR first, or
    pause those workflows, before they redeploy a bad `main`. Avoid overlapping recovery and deploy
    runs; the workflow's `pages` concurrency group does not serialize dashboard rollbacks.
@@ -125,10 +123,10 @@ old UI. The GitHub redirect's copy may differ until refreshed; record that expli
 
 ## Read-only checks after deployment or recovery
 
-At the recorded production URL, confirm the expected hashed entry script in `index.html` matches the
-selected build and loads, then check required card images and a `/p/` preview page. The deploy workflow
-checks the entry-script reference before updating the old-site redirect; that alone does not prove
-assets decode or the game works. In a disposable browser context, open a known valid historical pull,
-a current-version pull and a profile link, and check invalid-proof recovery, ranking freshness and the
-old URL's forwarding. Use public test proofs, avoid opening new packs/submitting/resetting/importing real
-saves, and record the tested deployment plus failures. These are follow-up checks, not a deployment.
+At the recorded production URL, confirm the hashed entry script in `index.html` matches the selected
+build and loads, then check required card images and a `/p/` preview page. The deploy workflow checks
+the entry-script reference before updating the old-site redirect, which doesn't prove assets decode or
+the game works. In a disposable browser context, open a known valid historical pull, a current-version
+pull and a profile link, and check invalid-proof recovery, ranking freshness and the old URL's
+forwarding. Use public test proofs, don't open new packs, submit, reset or import real saves, and
+record the tested deployment and any failures.
