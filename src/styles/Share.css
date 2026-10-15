@@ -242,3 +242,7 @@
   flex: 1 1 auto;
   width: auto;
 }
+
+/* Actions precede the full preview and card drill-down in both reading and visual order. */
+.share-layout--actions-first { grid-template-columns: minmax(0, 1fr); }
+.share-pack-cards { display: grid; gap: var(--space-3); }
