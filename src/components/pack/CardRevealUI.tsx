@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { motion, AnimatePresence, useReducedMotion, type PanInfo } from 'framer-motion';
-import { FastForward } from 'lucide-react';
+import { FastForward, X } from 'lucide-react';
 import Card from '../cards/Card';
 import type { CardWithMeta } from '../cards/Card';
 import cardBackImage from '../../assets/images/card_back.webp';
@@ -68,7 +68,12 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   return (
     <>
       <div className="reveal-top">
-        {onLeave && <button type="button" className="reveal-leave" onClick={onLeave} disabled={revealLocked}>Back to packs</button>}
+        {/* The one way out of a reveal (Escape does the same): closing records the pack, so its cards are kept. */}
+        {onLeave && (
+          <button type="button" className="icon-btn reveal-close" aria-label="Close pack" onClick={onLeave} disabled={revealLocked}>
+            <X aria-hidden="true" />
+          </button>
+        )}
         <div className="reveal-progress" role="progressbar" aria-label="Cards revealed" aria-valuemin={1} aria-valuemax={totalCards} aria-valuenow={currentIndex + 1} aria-valuetext={`Card ${currentIndex + 1} of ${totalCards}`}>
           {Array.from({ length: totalCards }, (_, i) => (
             <span key={i} className={i < currentIndex ? 'done' : i === currentIndex ? 'current' : ''} aria-hidden="true" />

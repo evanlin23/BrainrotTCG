@@ -66,7 +66,7 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
   color: var(--text-subtle);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -169,7 +169,7 @@
 .collection-label {
   color: var(--text-subtle);
   font-stretch: var(--stretch-label);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   text-align: center;
 }
@@ -241,7 +241,7 @@
   border-radius: 3px;
   background: rgba(18, 17, 20, 0.88);
   color: var(--finish, var(--text));
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.03em;
   line-height: 1.25;

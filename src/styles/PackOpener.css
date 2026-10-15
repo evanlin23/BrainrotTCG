@@ -559,8 +559,7 @@
     max-width: 36rem;
 }
 
-.reveal-skip,
-.reveal-leave {
+.reveal-skip {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
@@ -576,33 +575,41 @@
     height: 16px;
 }
 
-/* Narrow screens: the progress takes its own row so both buttons share the one below it. Skip takes
-   the rest of that row and wraps its own label, so at 320px it doesn't drop to a third row. */
+/* Close sits in the top corner, a whole row's width from Skip, as a plain X in a ring. */
+.reveal-close {
+    flex: none;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+/* Narrow screens: Close and Skip take the top corners and the progress gets its own row under them.
+   Skip wraps its own label rather than reaching toward Close, so at 320px it stays on one row. */
 @media (max-width: 640px) {
     .reveal-top {
         row-gap: 0;
     }
 
     .reveal-progress {
-        order: -1;
+        order: 1;
         flex-basis: 100%;
         justify-content: center;
     }
 
     .reveal-skip {
-        flex: 1 1 0;
+        flex: 0 1 auto;
+        margin-left: auto;
         justify-content: flex-end;
         text-align: end;
     }
 }
 
-.reveal-skip:hover,
-.reveal-leave:hover {
+.reveal-skip:hover {
     color: var(--text);
 }
 
 .reveal-skip:disabled,
-.reveal-leave:disabled {
+.reveal-close:disabled {
     opacity: 0.35;
     cursor: default;
 }
@@ -865,7 +872,7 @@
     right: -1px;
     padding: 1px 5px;
     border-radius: 0 var(--radius-sm) 0 3px;
-    font-size: 10px;
+    font-size: var(--text-xs);
 }
 
 .summary-card.holo:focus-visible {
