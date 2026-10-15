@@ -14,6 +14,7 @@ import {
   extractProfile,
   levelForXp,
   profileStats,
+  profileStatsTracker,
   signProfile,
   verifyProfile,
   type ProfileProof,
@@ -257,5 +258,40 @@ describe('levels', () => {
     expect(stats.points).toBe(9 * 10 + 10 * 20);
     expect(stats.holoUniqueBySet).toEqual({ 'set-a': 1 });
     expect(profileStats([...packs, pack(2, ['c1', 'c1', 'c1', 'c1', 'c1'], true)]).holoUniqueBySet).toEqual({ 'set-a': 1 }); // the same card again
+  });
+});
+
+
+describe('streaming profile stats', () => {
+  const pack = (nonce: number, set = A, holo = false): ProfilePack => {
+    const cards = ['c1', 'c2', 'u1', 'r1', 'e1'].map((cardId, slot) => ({
+      setId: set.id, cardId, rarity: 'COMMON' as const, isHolo: holo && slot === 0, slot,
+    }));
+    return { nonce, set, cards, score: scorePack(cards.map(card => ({ ...card, cardId: `${set.id}/${card.cardId}` }))) };
+  };
+
+  it('keeps exact mixed-set totals and earlier-ticket score ties across page boundaries', () => {
+    const tracker = profileStatsTracker(2);
+    for (let nonce = 0; nonce < 101; nonce++) tracker.add(pack(nonce, nonce < 50 ? A : B, nonce % 2 === 0));
+    const stats = tracker.snapshot();
+    expect(stats).toMatchObject({
+      packs: 101, unique: 10, holos: 51, points: 14740, totalScore: 14740,
+      uniqueBySet: { 'set-a': 5, 'set-b': 5 }, holoUniqueBySet: { 'set-a': 1, 'set-b': 1 },
+      hands: { NO_MATCH: 101 }, xp: 101 * XP_PER_PACK + 10 * XP_PER_NEW_CARD,
+    });
+    expect(stats.best.map(value => value.nonce)).toEqual([0, 2]);
+  });
+
+  it('does not mutate an earlier snapshot or keep packs when no highlights are requested', () => {
+    const tracker = profileStatsTracker(0);
+    tracker.add(pack(0));
+    const before = tracker.snapshot();
+    before.uniqueBySet['set-a'] = 900;
+    before.hands.NO_MATCH = 900;
+    tracker.add(pack(1, B, true));
+    const after = tracker.snapshot();
+    expect(before.packs).toBe(1);
+    expect(before.best).toEqual([]);
+    expect(after).toMatchObject({ packs: 2, uniqueBySet: { 'set-a': 5, 'set-b': 5 }, hands: { NO_MATCH: 2 }, best: [] });
   });
 });
