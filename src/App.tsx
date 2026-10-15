@@ -21,6 +21,7 @@ import { extractProfile, extractProof } from './engine';
 import { clearPendingPack, takePendingPack, type OpenedPack, type PullRef } from './game/pulls';
 import { importSaveFile } from './game/saveFile';
 import { getStoredData } from './utils/storage';
+import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { myStats, onReopenProgress } from './game/profiles';
@@ -62,11 +63,11 @@ function App() {
   const [brokenLink, setBrokenLink] = useState(() => isBrokenLink(window.location.hash));
 
   const playableSets = SETS.filter((s) => !s.archivedAt && (!s.draft || settings.showDraftSets));
-  const [selectedSetId, setSelectedSetId] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.SELECTED_SET) ?? DEFAULT_SET_ID);
+  const [selectedSetId, setSelectedSetId] = useState<string>(readSelectedSet);
   const selectedSet = playableSets.find((s) => s.id === selectedSetId) ?? playableSets.find((s) => s.id === DEFAULT_SET_ID) ?? playableSets[0];
   const selectSet = useCallback((setId: string) => {
     setSelectedSetId(setId);
-    localStorage.setItem(STORAGE_KEYS.SELECTED_SET, setId);
+    saveSelectedSet(setId);
   }, []);
 
   // Shared pull links: #/pull/<proof>
