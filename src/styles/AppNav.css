@@ -11,6 +11,8 @@
     transform var(--dur-slow) var(--ease-out),
     opacity var(--dur) var(--ease-out),
     visibility 0s;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .app-nav ul {

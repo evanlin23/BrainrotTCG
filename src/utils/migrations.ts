@@ -8,7 +8,7 @@ import legacyGenesisIds from '../content/sets/genesis/legacy-ids.json';
 import { getCard, scoreCards, type Card } from '../data/cards';
 import { STORAGE_KEYS } from '../constants';
 
-const DATA_VERSION_KEY = 'brainrot-data-version';
+export const DATA_VERSION_KEY = 'brainrot-data-version';
 export const CURRENT_DATA_VERSION = 3;
 const CURRENT_VERSION = CURRENT_DATA_VERSION;
 

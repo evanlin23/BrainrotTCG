@@ -16,11 +16,13 @@ export const getStoredData = <T>(key: string, defaultValue: T): T => {
 /**
  * Save data to localStorage
  */
-export const setStoredData = <T>(key: string, data: T): void => {
+export const setStoredData = <T>(key: string, data: T): boolean => {
   try {
     localStorage.setItem(key, JSON.stringify(data));
+    return true;
   } catch (error) {
     console.error(`Failed to save to localStorage key "${key}":`, error);
+    return false;
   }
 };
 
