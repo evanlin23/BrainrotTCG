@@ -214,6 +214,7 @@ jobs:
         run: |
           for i in $(seq 1 30); do
             if curl -fsS --max-time 15 "${SITE_URL}deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" | cmp -s release/dist/deployment-id.json -; then exit 0; fi
+            echo "Waiting for verified build (attempt $i/30)"
             sleep 10
           done
           echo '::error::The new address is not serving this verified build'; exit 1

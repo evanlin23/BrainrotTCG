@@ -41,12 +41,13 @@ def validate_graph(text):
     assert "if: needs.build.result == 'success' && needs.independent-verifier.result == 'success'" in publisher
     assert 'always()' not in publisher.replace('# No always():', '# No unconditional execution:')
     # Scope production permissions and both credential references to the only intended jobs.
+    assert not re.search(r': (?:write|write-all)\b', text.split('jobs:')[0])
     assert 'pages: write' not in text.split('jobs:')[0]
     assert 'id-token: write' not in text.split('jobs:')[0]
     assert 'concurrency:' not in text.split('jobs:')[0]
     for name in ('source', 'independent-verifier', 'build'):
         assert 'secrets.' not in graph[name]
-        assert 'pages: write' not in graph[name] and 'id-token: write' not in graph[name]
+        assert not re.search(r'^\s+[a-z-]+: write$', graph[name], re.M)
     assert 'actions/checkout' not in graph['site'] and 'npm' not in graph['site'].replace('# Read-only provider lookup: no checkout/npm or project creation in this job.', '')
     assert 'environment: github-pages' in graph['site']
     assert 'name: github-pages' in publisher
@@ -171,6 +172,8 @@ class WorkflowTests(unittest.TestCase):
             ('MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}', 'MANIFEST_SHA256: ignored'),
             ('      - run: npm ci', '      - run: npm ci\n        env:\n          LEAK: ${{ secrets.CLOUDFLARE_API_TOKEN }}'),
             ('      issues: read', '      issues: read\n      pages: write'),
+            ('      issues: read', '      issues: write'),
+            ('  contents: read', '  contents: write'),
             ('cancel-in-progress: false', 'cancel-in-progress: true'),
             ('deploy_contract.py verify release', 'echo skip verification'),
         ]

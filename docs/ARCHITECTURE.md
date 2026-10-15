@@ -201,7 +201,7 @@ picks the preview; the pull is still re-derived from the proof when it's opened.
 
 ## Hosting
 
-Static files on GitHub Pages, or on Cloudflare Pages once two secrets are set; both free with
+Static files on GitHub Pages, or on Cloudflare Pages with two secrets and an existing Pages project; both free with
 nothing to bill. See `docs/HOSTING.md`, including how old links and saves follow a move (saves go
 window to window with origin-checked postMessage, never in a URL).
 
