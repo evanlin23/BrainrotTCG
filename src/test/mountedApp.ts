@@ -9,11 +9,24 @@ import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
 let fakeFrame: typeof requestAnimationFrame;
 const onFakeFrame = (callback: FrameRequestCallback) => fakeFrame(callback);
 
+/**
+ * How the simulated worker answers one ticket request; undefined computes and delivers it at once.
+ * delayMs delivers the real ticket that long later on the fake clock; error replies as a failed
+ * computation does; crash fires the worker's error event, as a worker that fails to load does.
+ */
+export type TicketReply = { delayMs: number } | { error: string } | 'crash';
+
 /** jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. */
-export async function mountedApp(storage: Record<string, string>) {
+export async function mountedApp(storage: Record<string, string>,
+  options: { tickets?: (request: TicketRequest) => TicketReply | undefined } = {}) {
   const errors: string[] = [];
   const jobs = new Set<Promise<unknown>>();
+  const track = (job: Promise<unknown>) => {
+    jobs.add(job);
+    void job.finally(() => jobs.delete(job));
+  };
   const workers = new Set<TicketWorker>();
+  const ticketRequests: TicketRequest[] = [];
   let root: Root | undefined;
   let act: typeof reactAct;
   let container: HTMLDivElement;
@@ -63,19 +76,28 @@ export async function mountedApp(storage: Record<string, string>) {
   // terminating the simulated worker prevents delivery; teardown awaits outstanding computation.
   class TicketWorker {
     onmessage: ((event: { data: TicketResponse }) => void) | null = null;
-    onerror = null;
+    onerror: ((event: ErrorEvent) => void) | null = null;
     closed = false;
     constructor() { workers.add(this); }
     postMessage(request: TicketRequest) {
-      const job = import('../engine').then(async ({ computeTicket, fromHex }) => {
+      ticketRequests.push(request);
+      const reply = options.tickets?.(request);
+      const deliver = (data: TicketResponse) => { if (!this.closed) this.onmessage?.({ data }); };
+      if (reply === 'crash' || (reply && 'error' in reply)) {
+        track(Promise.resolve().then(() => {
+          if (reply !== 'crash') deliver({ id: request.id, error: reply.error });
+          else if (!this.closed) this.onerror?.(new ErrorEvent('error', { message: 'Simulated worker crash', cancelable: true }));
+        }));
+        return;
+      }
+      track(import('../engine').then(async ({ computeTicket, fromHex }) => {
         const ticket = await computeTicket(request.setKey, fromHex(request.publicKeyHex), request.nonce);
-        if (!this.closed) this.onmessage?.({ data: { id: request.id, ticket } });
+        if (reply) setTimeout(() => deliver({ id: request.id, ticket }), reply.delayMs);
+        else deliver({ id: request.id, ticket });
       }).catch((error: unknown) => {
         errors.push(`Ticket worker: ${String(error)}`);
-        if (!this.closed) this.onmessage?.({ data: { id: request.id, error: String(error) } });
-      });
-      jobs.add(job);
-      void job.finally(() => jobs.delete(job));
+        deliver({ id: request.id, error: String(error) });
+      }));
     }
     terminate() { this.closed = true; workers.delete(this); }
   }
@@ -106,6 +128,14 @@ export async function mountedApp(storage: Record<string, string>) {
     // The adapter cannot decode/rasterize images. Preserve src and finish props above this boundary.
     const images = await import('../game/finishImage');
     vi.spyOn(images, 'finishedCardImage').mockImplementation(async (src) => src);
+    // After a worker failure the miner computes on the main thread: await that real work too.
+    const engine = await import('../engine');
+    const compute = engine.computeTicket;
+    vi.spyOn(engine, 'computeTicket').mockImplementation((...args) => {
+      const job = compute(...args);
+      track(job.catch(() => undefined));
+      return job;
+    });
     const { runMigrations } = await import('../utils/migrations');
     const { migratePullLog } = await import('../game/history');
     const { loadPackStore } = await import('../game/packStore');
@@ -122,6 +152,8 @@ export async function mountedApp(storage: Record<string, string>) {
 
   return {
     mount,
+    /** Every request posted to a simulated ticket worker, prefetches included. */
+    ticketRequests,
     async reload() {
       await unmount();
       const saved = Object.fromEntries(Object.entries(localStorage));

@@ -155,6 +155,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     onMiss: nudge,
   });
 
+  // A pack that refused to open can be torn again, as its error asks.
+  useEffect(() => {
+    if (openError) resetCutState();
+  }, [openError, resetCutState]);
+
   const finishPack = useCallback(() => {
     skippingRef.current = false;
     setSkipping(false);
