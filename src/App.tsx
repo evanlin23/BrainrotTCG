@@ -91,7 +91,8 @@ function App() {
       if (result === 'blocked') {
         setSaveFailed(true);
         // The shelf holds one pack; a pack taken off it on load goes back so the next load adds it.
-        if (packs.length > 0) savePendingPack(packs[packs.length - 1]);
+        // It has counted already, so that load only adds its cards.
+        if (packs.length > 0) savePendingPack({ ...packs[packs.length - 1], counted: true });
       } else {
         unsavedPacks.current = [];
         for (const pack of packs) clearPendingPack(pack.nonce);
@@ -313,9 +314,9 @@ function App() {
     return error;
   }, []);
 
-  const checkAllAchievements = useCallback((newCards: CardWithMeta[], pullRef: PullRef, updatedCollection: Record<string, CollectionItem>, updatedStats: Stats, currentAchievements: Record<string, AchievementData | number>) => {
+  const checkAllAchievements = useCallback((newCards: CardWithMeta[], pullRef: PullRef, updatedCollection: Record<string, CollectionItem>, updatedStats: Stats, currentAchievements: Record<string, AchievementData | number>, newPack = true) => {
     // Use shared achievement checking functions - pass current achievements to avoid stale state
-    const packMilestones = checkPackMilestones(updatedStats.packsOpened, currentAchievements);
+    const packMilestones = newPack ? checkPackMilestones(updatedStats.packsOpened, currentAchievements) : [];
     const collectionAchievements = checkCollectionAchievements(updatedCollection, updatedStats, currentAchievements);
     const packAchievements = checkPackAchievements(newCards, currentAchievements);
 
@@ -326,6 +327,8 @@ function App() {
 
   const handlePackOpened = useCallback((pack: OpenedPack) => {
     unsavedPacks.current.push(pack);
+    // A pack put back on the shelf counted when it opened (stats, pack milestones): it only adds its cards.
+    const counted = pack.counted === true;
     const newCards = pack.cards;
     const pullRef = { setId: pack.setId, setVersion: pack.setVersion, nonce: pack.nonce, publicKeyHex: pack.publicKeyHex };
     const { points: packValue, hand: pokerHand, score } = scoreCards(newCards);
@@ -355,7 +358,7 @@ function App() {
       }
     });
 
-    setStats(updatedStats);
+    if (!counted) setStats(updatedStats);
 
     // Update collection - track holo and normal counts separately
     const updatedCollection = { ...collection };
@@ -438,7 +441,7 @@ function App() {
     packValueAchievements.forEach(id => unlockAchievement(id, newCards, pullRef));
 
     // Check other achievements - get current state to avoid stale closure
-    checkAllAchievements(newCards, pullRef, updatedCollection || collection, updatedStats, achievementsRef.current);
+    checkAllAchievements(newCards, pullRef, updatedCollection || collection, counted ? stats : updatedStats, achievementsRef.current, !counted);
   }, [stats, hallOfFame, collection, checkAllAchievements, unlockAchievement]);
 
   // A pack whose reveal never finished (a reload, a closed tab): its ticket is spent, so it still counts.

@@ -23,11 +23,16 @@ const fingerprint = (value: string): string => {
   return `${value.length}:${(hash >>> 0).toString(36)}`;
 };
 
+/** The archive hidden during this visit, in case storage can't remember it (full storage). */
+let hiddenThisVisit: string | null = null;
+
 /** True when the player hid the kept-aside note for the archive as it is now; anything newly kept brings it back. */
 export const collectionRecoveryDismissed = (): boolean => {
   try {
     const archive = localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY);
-    return archive !== null && localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN) === fingerprint(archive);
+    if (archive === null) return false;
+    const print = fingerprint(archive);
+    return print === hiddenThisVisit || localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN) === print;
   } catch {
     return false;
   }
@@ -38,7 +43,8 @@ export const dismissCollectionRecovery = (): boolean => {
   try {
     const archive = localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY);
     if (archive === null) return false;
-    localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, fingerprint(archive));
+    hiddenThisVisit = fingerprint(archive);
+    localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, hiddenThisVisit);
     return true;
   } catch {
     return false;

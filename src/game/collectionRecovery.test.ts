@@ -143,11 +143,20 @@ describe('hiding the kept-aside note', () => {
     expect(collectionRecoveryDismissed()).toBe(false);
   });
 
-  it('shows the note when storage refuses to remember or read the choice', () => {
+  it('keeps the note hidden for this visit only when storage refuses to remember the choice', async () => {
     const data = seed(null, (key) => key === STORAGE_KEYS.COLLECTION_RECOVERY_SEEN);
     data.set(STORAGE_KEYS.COLLECTION_RECOVERY, '{"raw":"x","player":null}');
     expect(dismissCollectionRecovery()).toBe(false);
+    expect(collectionRecoveryDismissed()).toBe(true);
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, '{"raw":"x","player":null,"later":[{"raw":"y","player":null}]}');
     expect(collectionRecoveryDismissed()).toBe(false);
+    // The next visit doesn't know about it.
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, '{"raw":"x","player":null}');
+    vi.resetModules();
+    expect((await import('./collectionRecovery')).collectionRecoveryDismissed()).toBe(false);
+  });
+
+  it('shows the note when storage refuses to read the choice', () => {
     vi.stubGlobal('localStorage', { getItem: () => { throw new DOMException('denied', 'SecurityError'); } });
     expect(collectionRecoveryDismissed()).toBe(false);
     expect(dismissCollectionRecovery()).toBe(false);

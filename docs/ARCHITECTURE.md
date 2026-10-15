@@ -274,7 +274,8 @@ The cache stores reconstructed cards, not a server account or a backup of all hi
 Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
 opener unmounts. `brainrot-pending-pack-v1` supports unfinished-reveal recovery on the next load, but
 writes can fail. A pack leaves that entry only once a collection holding it has been stored; if the
-collection write is blocked, the pack goes back on the one-pack shelf for the next load.
+collection write is blocked, the pack goes back on the one-pack shelf for the next load, marked as
+counted (`d: 1`) so that load only adds its cards (entries without the mark count once).
 Multi-key state updates are not a transaction, so this is not a guarantee against lost or duplicate
 awards (#233). Screens pass whole pulled-card objects with holo/finish/misprint data
 (`src/game/versions.ts`); preserving those fields still requires checks at rendering, persistence
