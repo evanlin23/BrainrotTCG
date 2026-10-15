@@ -38,8 +38,8 @@ interface PackOpenerProps {
   cardBack?: string;
   /** Whether the collection already had this card before the pack (for the NEW sticker). */
   isOwned?: (cardKey: string) => boolean;
-  /** The player closed a reveal with cards still face down; they're recorded anyway, so say so. */
-  onLeaveEarly?: () => void;
+  /** The player closed a reveal with cards still face down; they're recorded anyway, so say so (unless the save failed). */
+  onLeaveEarly?: (pack: OpenedPack) => void;
 }
 
 const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
@@ -223,10 +223,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     // Like skipAll: an open sheet disables the opener, so a stray press behind it records nothing.
     if (disabled || (pauseBigPulls && performance.now() < revealLockedUntilRef.current)) return;
     const leftEarly = openedCards.some((card) => !card.isRevealed);
+    const pack = dealtPack();
     recordPack();
     finishPack();
-    if (leftEarly) onLeaveEarly?.();
-  }, [disabled, pauseBigPulls, openedCards, recordPack, finishPack, onLeaveEarly]);
+    if (leftEarly && pack) onLeaveEarly?.(pack);
+  }, [disabled, pauseBigPulls, openedCards, dealtPack, recordPack, finishPack, onLeaveEarly]);
 
   // A press on the empty space around the card leaves the reveal. A fling that starts on the card and
   // is released off it clicks their shared ancestor, so the press must start and end on empty space.

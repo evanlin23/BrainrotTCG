@@ -147,6 +147,26 @@ it('closes a reveal with Escape as Close pack does, and says the face-down cards
   expect(stats()?.packsOpened).toBe(1);
 }, 30_000);
 
+it('does not say a pack was kept when its save failed', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  // The progress writes App makes after a pack lands are refused, as a full browser storage would.
+  const refused: string[] = [STORAGE_KEYS.COLLECTION, STORAGE_KEYS.ACHIEVEMENTS, STORAGE_KEYS.STATS, STORAGE_KEYS.HALL_OF_FAME];
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (refused.includes(key)) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  await reveal();
+  await app.interact(() => $('.card-wrapper')!.click());
+  await escape();
+  await app.until('Escape closes the reveal', () => expect(sealed()).not.toBeNull());
+  await app.until('the save warning shows', () => expect($('.app > p[role="alert"].save-warning')?.textContent).toMatch(/couldn't be saved/));
+  await app.settle(1000);
+  expect(toasts(), 'a pack whose save failed was said to be kept').not.toContain('Pack kept');
+  expect(app.takeErrors(/^Failed to save to localStorage key /).length).toBeGreaterThan(0);
+}, 30_000);
+
 it('lets Escape close a sheet over the reveal without closing the reveal', async () => {
   app = await mountedApp(preferences());
   await app.mount();

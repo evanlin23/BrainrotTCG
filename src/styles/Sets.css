@@ -274,7 +274,7 @@
   border: 1px solid currentColor;
   border-radius: 3px;
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.04em;
   line-height: 1.5;

@@ -12,6 +12,9 @@ interface UseKeyboardControlsOptions {
   onLeave?: () => void;
 }
 
+/** Fields that take typing keep their keys. Any contenteditable value but "false" makes one ("" is "true"). */
+const TEXT_FIELD = 'input, select, textarea, [contenteditable]:not([contenteditable="false"])';
+
 /**
  * Space or Enter does the next thing: open the pack, flip, next card, next pack. Holding Space runs
  * through the cards. Escape closes a reveal. The listeners are added once and read the latest state from a ref, so a
@@ -44,13 +47,13 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       // Escape belongs to whatever is on top: a sheet closes itself first, and a text field keeps it.
       if (e.key === 'Escape') {
         if (!isOpening || showSummary || !onLeave || e.defaultPrevented || e.repeat) return;
-        if (target?.closest('input, select, textarea, [contenteditable="true"]')) return;
+        if (target?.closest(TEXT_FIELD)) return;
         e.preventDefault();
         onLeave();
         return;
       }
       const isKey = e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter';
-      if (isKey && target?.closest('button, a, input, select, textarea, [contenteditable="true"]')) return;
+      if (isKey && target?.closest(`button, a, ${TEXT_FIELD}`)) return;
 
       if (!isKey) return;
       e.preventDefault();

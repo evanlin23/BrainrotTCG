@@ -85,9 +85,22 @@ describe('Escape during a reveal', () => {
       field.focus();
       escape(field);
     }
+    // contenteditable="" is an editable field too, as is any value but "false", down to the text inside it.
+    for (const value of ['', 'true', 'plaintext-only']) {
+      const field = add(document.createElement('div'));
+      field.setAttribute('contenteditable', value);
+      escape(field);
+      escape(field.appendChild(document.createElement('span')));
+    }
     const handled = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
     handled.preventDefault();
     act(() => { document.body.dispatchEvent(handled); });
     expect(onLeave).not.toHaveBeenCalled();
+
+    // contenteditable="false" is not a field: Escape there still closes the reveal.
+    const notEditable = add(document.createElement('div'));
+    notEditable.setAttribute('contenteditable', 'false');
+    escape(notEditable);
+    expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });

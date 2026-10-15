@@ -338,7 +338,7 @@
     color: #fff;
     box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
     font-family: var(--font-body);
-    font-size: clamp(10px, 3.2cqw, 15px);
+    font-size: clamp(var(--text-xs), 3.2cqw, 15px);
     font-weight: 800;
     letter-spacing: 0.06em;
     text-overflow: ellipsis;
