@@ -10,6 +10,9 @@
  * (CI caches it too), named by a hash of everything that decides them, and only new or changed ones
  * are drawn.
  *
+ * It also writes a page per released set at s/<set id>/ (with a picture of the set's rarest cards),
+ * so a link to a set unfurls as that set. Like the pull pages, it forwards to the app.
+ *
  * SITE_URL (the site's absolute address, for the image) and BASE_PATH (its path) default to the
  * GitHub Pages address, like vite.config.ts. After a move, the deploy also writes the pages (without
  * images, OUT_DIR=<dir> PAGES_ONLY=1) for the old address, where they forward through its redirect
@@ -17,17 +20,39 @@
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { ALL_SET_VERSIONS } from '../src/content/sets/index.ts';
-import { POKER_HANDS, type HandKey } from '../src/engine/index.ts';
+import { ALL_SET_VERSIONS, SETS } from '../src/content/sets/index.ts';
+import { POKER_HANDS, RARITIES_RAREST_FIRST, type HandKey, type SetDefinition } from '../src/engine/index.ts';
 import { cardPreviewPath, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
-const DIST = process.env.OUT_DIR ? `${process.env.OUT_DIR.replace(/\/$/, '')}/` : `${ROOT}dist/`;
-const PAGES_ONLY = process.env.PAGES_ONLY === '1';
-const BASE = process.env.BASE_PATH ?? '/BrainrotTCG/';
-const SITE = process.env.SITE_URL ?? `https://evanlin23.github.io${BASE}`;
+
+export interface PreviewOptions {
+  /** Where the built site is, ending in '/'. */
+  outDir: string;
+  /** Pages only, no pictures: for the old address after a move. */
+  pagesOnly: boolean;
+  /** The site's path, as vite.config.ts serves it. */
+  base: string;
+  /** The site's absolute address, for the pictures. */
+  site: string;
+  /** Every set version (old versions' pulls still verify and still get shared). */
+  versions?: readonly SetDefinition[];
+  /** The latest version of each set, for the set pages. */
+  sets?: readonly SetDefinition[];
+}
+
+export const optionsFromEnv = (env: NodeJS.ProcessEnv = process.env): PreviewOptions => {
+  const base = env.BASE_PATH ?? '/BrainrotTCG/';
+  return {
+    outDir: env.OUT_DIR ? `${env.OUT_DIR.replace(/\/$/, '')}/` : `${ROOT}dist/`,
+    pagesOnly: env.PAGES_ONLY === '1',
+    base,
+    site: env.SITE_URL ?? `https://evanlin23.github.io${base}`,
+  };
+};
 const W = 1200;
 const H = 630;
 const CARD_H = 500;
@@ -41,9 +66,19 @@ const SINGLE_H = 580;
 const SINGLE_W = Math.round((SINGLE_H * 687) / 1024);
 const RARITY_NAMES: Record<string, string> = { COMMON: 'Common', UNCOMMON: 'Uncommon', RARE: 'Rare', EPIC: 'Epic', LEGENDARY: 'Legendary', BRAINROT: 'Brainrot' };
 
-const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+export const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const page = (title: string, description: string, image: string) => `<!doctype html>
+export interface PageMeta {
+  title: string;
+  description: string;
+  /** The picture's absolute address. */
+  image: string;
+  /** The page's own absolute address, for pages a link can point at as they are (not the pull pages, whose links carry the pull). */
+  url?: string;
+}
+
+/** A tiny page with link-preview tags (as index.html has them) that forwards to the app at `base`, keeping a pull in its '#'. */
+export const page = ({ title, description, image, url }: PageMeta, base: string) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -54,30 +89,55 @@ const page = (title: string, description: string, image: string) => `<!doctype h
 <meta property="og:site_name" content="Brainrot TCG">
 <meta property="og:title" content="${escape(title)}">
 <meta property="og:description" content="${escape(description)}">
-<meta property="og:image" content="${escape(image)}">
+${url ? `<meta property="og:url" content="${escape(url)}">\n` : ''}<meta property="og:image" content="${escape(image)}">
 <meta property="og:image:width" content="${W}">
 <meta property="og:image:height" content="${H}">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escape(title)}">
+<meta name="twitter:description" content="${escape(description)}">
+<meta name="twitter:image" content="${escape(image)}">
 <meta name="theme-color" content="#121114">
 <meta name="robots" content="noindex">
-<script>location.replace(${JSON.stringify(BASE)} + (location.hash.indexOf('#/pull/') === 0 ? location.hash : ''));</script>
+<script>location.replace(${JSON.stringify(base)} + (location.hash.indexOf('#/pull/') === 0 ? location.hash : ''));</script>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#121114;color:#f2efe9;font:16px system-ui,sans-serif}a{color:#ffd23f}</style>
 </head>
-<body><a href="${escape(BASE)}">Open Brainrot TCG</a></body>
+<body><a href="${escape(base)}">Open Brainrot TCG</a></body>
 </html>
 `;
 
+export interface SetStub {
+  setId: string;
+  /** The page, relative to the site's root. */
+  path: string;
+  /** Its address, relative to the site's root. */
+  url: string;
+  /** Its picture, relative to the site's root. */
+  imagePath: string;
+  title: string;
+  description: string;
+  /** The cards in the picture: the set's rarest, at most a pack's worth. */
+  cardIds: string[];
+}
+
+/** A page for each released set (drafts have none): s/<set id>/, showing its rarest cards. */
+export const setStubs = (sets: readonly SetDefinition[] = SETS): SetStub[] =>
+  sets
+    .filter((set) => !set.draft)
+    .map((set) => ({
+      setId: set.id,
+      path: `s/${set.id}/index.html`,
+      url: `s/${set.id}/`,
+      imagePath: `s/${set.id}/preview.jpg`,
+      title: set.name,
+      description: `${set.tagline ?? set.name} (${set.era}, ${set.cards.length} cards). Every pull is verifiable.`,
+      cardIds: [...set.cards]
+        .sort((a, b) => RARITIES_RAREST_FIRST.indexOf(a.rarity) - RARITIES_RAREST_FIRST.indexOf(b.rarity))
+        .slice(0, PACK_SIZE)
+        .map((card) => card.id),
+    }));
+
 // Binder black, like the app (docs/DESIGN.md): the card brings the colour.
 const background = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="100%" height="100%" fill="#121114"/></svg>`);
-
-// Each set's cards, across its versions: old versions' pulls still verify and still get shared.
-const sets = new Map<string, { name: string; cards: Map<string, { name: string; rarity: string }> }>();
-for (const set of ALL_SET_VERSIONS) {
-  const entry = sets.get(set.id) ?? { name: set.name, cards: new Map() };
-  entry.name = set.name;
-  for (const card of set.cards) entry.cards.set(card.id, { name: card.name, rarity: card.rarity });
-  sets.set(set.id, entry);
-}
 
 /** Every hand a set's cards can make, by the cards that make it. */
 const handsOf = (setId: string, ids: readonly string[]): Preview[] =>
@@ -88,96 +148,119 @@ const handsOf = (setId: string, ids: readonly string[]): Preview[] =>
   });
 
 const art = (setId: string, cardId: string) => `${ROOT}src/content/sets/${setId}/cards/${cardId}.webp`;
-const faces = new Map<string, Promise<Buffer>>();
-const face = (file: string) => {
-  if (!faces.has(file)) faces.set(file, sharp(file).resize(CARD_W, CARD_H).png().toBuffer());
-  return faces.get(file)!;
-};
 const CARD_BACK = `${ROOT}src/assets/images/card_back.webp`;
-
 const CACHE = `${ROOT}.cache/previews/`;
 const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
-const SCRIPT = sha(readFileSync(fileURLToPath(import.meta.url)));
-const fileHashes = new Map<string, string>();
-const fileHash = (file: string) => {
-  if (!fileHashes.has(file)) fileHashes.set(file, sha(readFileSync(file)));
-  return fileHashes.get(file)!;
-};
-const cacheUsed = new Set<string>();
-let drawn = 0;
-
-const writeImage = async (path: string, layers: { file: string; left: number; top: number; size?: [number, number] }[]) => {
-  const name = `${sha([SCRIPT, ...layers.map((l) => `${fileHash(l.file)}@${l.left},${l.top},${l.size ?? ''}`)].join('|'))}.jpg`;
-  cacheUsed.add(name);
-  if (!existsSync(`${CACHE}${name}`)) {
-    const inputs = await Promise.all(layers.map(async (l) => ({ input: l.size ? await sharp(l.file).resize(...l.size).toBuffer() : await face(l.file), left: l.left, top: l.top })));
-    await sharp(background).composite(inputs).jpeg({ quality: 75, mozjpeg: true }).toFile(`${CACHE}${name}.tmp`);
-    renameSync(`${CACHE}${name}.tmp`, `${CACHE}${name}`);
-    drawn++;
-  }
-  mkdirSync(`${DIST}${path.replace(/[^/]+$/, '')}`, { recursive: true });
-  copyFileSync(`${CACHE}${name}`, `${DIST}${path}`);
-};
-
-/** The pack as five cards: each face-up card as many times as the hand has it, then card backs. */
-const packImage = (preview: Preview) => {
-  const files = preview.cardIds.flatMap((id, i) => Array<string>(PREVIEW_COPIES[preview.hand][i]).fill(art(preview.setId, id)));
-  while (files.length < PACK_SIZE) files.push(CARD_BACK);
-  return writeImage(
-    previewImagePath(preview),
-    files.map((file, i) => ({ file, left: MARGIN + i * STEP, top: Math.round((H - CARD_H) / 2) })),
-  );
-};
-
-const singleImage = (setId: string, cardId: string) =>
-  writeImage(singleCardImagePath(setId, cardId), [
-    { file: art(setId, cardId), left: Math.round((W - SINGLE_W) / 2), top: Math.round((H - SINGLE_H) / 2), size: [SINGLE_W, SINGLE_H] },
-  ]);
-
 const rarityName = (rarity: string) => RARITY_NAMES[rarity] ?? rarity;
 const SEE = 'Open the link to see the whole pack and re-check it on your own device.';
 
-const written = new Map<string, string>();
-const writePage = (path: string, what: string, title: string, description: string, imagePath: string) => {
-  if (written.has(path)) throw new Error(`Preview code collision: ${what} and ${written.get(path)} both map to ${path}`);
-  written.set(path, what);
-  mkdirSync(`${DIST}${path.replace(/[^/]+$/, '')}`, { recursive: true });
-  writeFileSync(`${DIST}${path}`, page(title, description, `${SITE}${imagePath}`));
+/** Writes the pages (and, unless pagesOnly, the pictures) into outDir. Returns each page's path, and what it shows. */
+export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions = ALL_SET_VERSIONS, sets: current = SETS }: PreviewOptions) => {
+  // Each set's cards, across its versions: old versions' pulls still verify and still get shared.
+  const sets = new Map<string, { name: string; cards: Map<string, { name: string; rarity: string }> }>();
+  for (const set of versions) {
+    const entry = sets.get(set.id) ?? { name: set.name, cards: new Map() };
+    entry.name = set.name;
+    for (const card of set.cards) entry.cards.set(card.id, { name: card.name, rarity: card.rarity });
+    sets.set(set.id, entry);
+  }
+
+  const faces = new Map<string, Promise<Buffer>>();
+  const face = (file: string) => {
+    if (!faces.has(file)) faces.set(file, sharp(file).resize(CARD_W, CARD_H).png().toBuffer());
+    return faces.get(file)!;
+  };
+  const SCRIPT = sha(readFileSync(fileURLToPath(import.meta.url)));
+  const fileHashes = new Map<string, string>();
+  const fileHash = (file: string) => {
+    if (!fileHashes.has(file)) fileHashes.set(file, sha(readFileSync(file)));
+    return fileHashes.get(file)!;
+  };
+  const cacheUsed = new Set<string>();
+  let drawn = 0;
+
+  const writeImage = async (path: string, layers: { file: string; left: number; top: number; size?: [number, number] }[]) => {
+    const name = `${sha([SCRIPT, ...layers.map((l) => `${fileHash(l.file)}@${l.left},${l.top},${l.size ?? ''}`)].join('|'))}.jpg`;
+    cacheUsed.add(name);
+    if (!existsSync(`${CACHE}${name}`)) {
+      const inputs = await Promise.all(layers.map(async (l) => ({ input: l.size ? await sharp(l.file).resize(...l.size).toBuffer() : await face(l.file), left: l.left, top: l.top })));
+      await sharp(background).composite(inputs).jpeg({ quality: 75, mozjpeg: true }).toFile(`${CACHE}${name}.tmp`);
+      renameSync(`${CACHE}${name}.tmp`, `${CACHE}${name}`);
+      drawn++;
+    }
+    mkdirSync(`${outDir}${path.replace(/[^/]+$/, '')}`, { recursive: true });
+    copyFileSync(`${CACHE}${name}`, `${outDir}${path}`);
+  };
+
+  /** Five cards in a row: these face up, then card backs. */
+  const rowImage = (path: string, faceUp: string[]) => {
+    const files = [...faceUp];
+    while (files.length < PACK_SIZE) files.push(CARD_BACK);
+    return writeImage(path, files.map((file, i) => ({ file, left: MARGIN + i * STEP, top: Math.round((H - CARD_H) / 2) })));
+  };
+
+  /** The pack as five cards: each face-up card as many times as the hand has it, then card backs. */
+  const packImage = (preview: Preview) =>
+    rowImage(previewImagePath(preview), preview.cardIds.flatMap((id, i) => Array<string>(PREVIEW_COPIES[preview.hand][i]).fill(art(preview.setId, id))));
+
+  const singleImage = (setId: string, cardId: string) =>
+    writeImage(singleCardImagePath(setId, cardId), [
+      { file: art(setId, cardId), left: Math.round((W - SINGLE_W) / 2), top: Math.round((H - SINGLE_H) / 2), size: [SINGLE_W, SINGLE_H] },
+    ]);
+
+  const written = new Map<string, string>();
+  const writePage = (path: string, what: string, meta: PageMeta) => {
+    if (written.has(path)) throw new Error(`Preview code collision: ${what} and ${written.get(path)} both map to ${path}`);
+    written.set(path, what);
+    mkdirSync(`${outDir}${path.replace(/[^/]+$/, '')}`, { recursive: true });
+    writeFileSync(`${outDir}${path}`, page(meta, base));
+  };
+
+  const images: (() => Promise<void>)[] = [];
+  for (const [setId, set] of sets) {
+    const ids = [...set.cards.keys()].sort();
+    for (const preview of handsOf(setId, ids)) {
+      const cards = preview.cardIds.map((id) => set.cards.get(id)!);
+      const description =
+        preview.hand === 'NO_MATCH'
+          ? `Best card: ${cards[0].name} (${rarityName(cards[0].rarity)}). ${SEE}`
+          : `${cards.map((c, i) => `${PREVIEW_COPIES[preview.hand][i]}× ${c.name}`).join(' and ')}. ${SEE}`;
+      writePage(previewPath(preview), `${setId}/${preview.cardIds.join('+')}/${preview.hand}`, { title: previewTitle(preview.hand, set.name), description, image: `${site}${previewImagePath(preview)}` });
+      images.push(() => packImage(preview));
+    }
+    for (const [cardId, card] of set.cards) {
+      const image = `${site}${singleCardImagePath(setId, cardId)}`;
+      // A card shared on its own.
+      writePage(cardPreviewPath(setId, cardId), `${setId}/${cardId}`, { title: `${card.name} from ${set.name}`, description: `${rarityName(card.rarity)}. Open the link to see the pack it came from and re-check it on your own device.`, image });
+      // The one-card pages earlier Full House and Two Pair links point to (other hands' one-card
+      // pages are the new ones, at the same address).
+      for (const hand of ['FULL_HOUSE', 'TWO_PAIR'] as const) {
+        writePage(previewPath({ setId, cardIds: [cardId], hand }), `${setId}/${cardId}/${hand}`, { title: previewTitle(hand, set.name), description: `${card.name} (${rarityName(card.rarity)}). ${SEE}`, image });
+      }
+      images.push(() => singleImage(setId, cardId));
+    }
+  }
+  // A link to a set.
+  for (const stub of setStubs(current)) {
+    writePage(stub.path, `set ${stub.setId}`, { title: stub.title, description: stub.description, image: `${site}${stub.imagePath}`, url: `${site}${stub.url}` });
+    images.push(() => rowImage(stub.imagePath, stub.cardIds.map((id) => art(stub.setId, id))));
+  }
+
+  if (!pagesOnly) {
+    mkdirSync(CACHE, { recursive: true });
+    // A few at a time: each is quick, and sharp spreads one over the cores already.
+    const queue = [...images];
+    await Promise.all(Array.from({ length: 4 }, async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) await next();
+    }));
+    // Drop pictures nothing uses any more, so the cache doesn't grow forever.
+    for (const name of readdirSync(CACHE)) if (!cacheUsed.has(name)) rmSync(`${CACHE}${name}`);
+  }
+  return { pages: written, images: pagesOnly ? 0 : images.length, drawn };
 };
 
-const images: (() => Promise<void>)[] = [];
-for (const [setId, set] of sets) {
-  const ids = [...set.cards.keys()].sort();
-  for (const preview of handsOf(setId, ids)) {
-    const cards = preview.cardIds.map((id) => set.cards.get(id)!);
-    const description =
-      preview.hand === 'NO_MATCH'
-        ? `Best card: ${cards[0].name} (${rarityName(cards[0].rarity)}). ${SEE}`
-        : `${cards.map((c, i) => `${PREVIEW_COPIES[preview.hand][i]}× ${c.name}`).join(' and ')}. ${SEE}`;
-    writePage(previewPath(preview), `${setId}/${preview.cardIds.join('+')}/${preview.hand}`, previewTitle(preview.hand, set.name), description, previewImagePath(preview));
-    images.push(() => packImage(preview));
-  }
-  for (const [cardId, card] of set.cards) {
-    const image = singleCardImagePath(setId, cardId);
-    // A card shared on its own.
-    writePage(cardPreviewPath(setId, cardId), `${setId}/${cardId}`, `${card.name} from ${set.name}`, `${rarityName(card.rarity)}. Open the link to see the pack it came from and re-check it on your own device.`, image);
-    // The one-card pages earlier Full House and Two Pair links point to (other hands' one-card
-    // pages are the new ones, at the same address).
-    for (const hand of ['FULL_HOUSE', 'TWO_PAIR'] as const) {
-      writePage(previewPath({ setId, cardIds: [cardId], hand }), `${setId}/${cardId}/${hand}`, previewTitle(hand, set.name), `${card.name} (${rarityName(card.rarity)}). ${SEE}`, image);
-    }
-    images.push(() => singleImage(setId, cardId));
-  }
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const options = optionsFromEnv();
+  const { pages, images, drawn } = await generatePreviews(options);
+  console.log(`${options.pagesOnly ? 0 : `${images} (${drawn} drawn, the rest cached)`} preview images and ${pages.size} preview pages in ${options.outDir}p/ and s/ (images at ${options.site}, forwarding to ${options.base})`);
 }
-
-if (!PAGES_ONLY) {
-  mkdirSync(CACHE, { recursive: true });
-  // A few at a time: each is quick, and sharp spreads one over the cores already.
-  const queue = [...images];
-  await Promise.all(Array.from({ length: 4 }, async () => {
-    for (let next = queue.shift(); next; next = queue.shift()) await next();
-  }));
-  // Drop pictures nothing uses any more, so the cache doesn't grow forever.
-  for (const name of readdirSync(CACHE)) if (!cacheUsed.has(name)) rmSync(`${CACHE}${name}`);
-}
-console.log(`${PAGES_ONLY ? 0 : `${images.length} (${drawn} drawn, the rest cached)`} preview images and ${written.size} preview pages in ${DIST}p/ (images at ${SITE}p/img/, forwarding to ${BASE})`);

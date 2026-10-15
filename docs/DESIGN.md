@@ -61,7 +61,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | Text | `--text`, `--text-muted`, `--text-subtle` | all AA on `--bg-elevated` |
 | Accent | `--brand` (sticker yellow), `--brand-strong`, `--brand-ink` (text on yellow), `--foil` | `--foil` marks holo only (the pack's reward foil is `--pack-foil`); `--brand-gradient` is kept as an alias of the flat accent |
 | Rarity | `--rarity-common` … `--rarity-brainrot` | never redefine locally |
-| Type | `--font-body`, `--font-display`, `--font-logo`, `--text-xs` … `--text-3xl` | |
+| Type | `--font-body`, `--font-display`, `--font-logo`, `--font-mono`, `--text-xs` … `--text-3xl` | `--font-mono` for IDs and fingerprints |
 | Space | `--space-1` (4 px) … `--space-7` (48 px), `--gutter` | 4 px grid |
 | Shape | `--radius-sm` … `--radius-xl`, `--radius-pill` | |
 | Depth | `--shadow-1` … `--shadow-3` | `--glow-brand` is `none` |
@@ -86,25 +86,37 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Verified label** (`.pull-viewer-badge`): a bordered, condensed caps strip with a cert number
   (player ID and ticket), like the label on a graded card.
 - **Rows**: lists are rows (thumbnail, two lines of text, a value on the right, a chevron when it
-  opens something), not cards in a grid. Settings use grouped rows with `.switch` toggles.
+  opens something), not cards in a grid. Sound & display uses grouped rows with `.switch` toggles.
 - **App nav** (`ui/AppNav.tsx`): Open packs, My cards, Rankings, each an icon plus a label. My cards
   switches between Cards and Best pulls with its own small nav. The header keeps the player utilities:
   Player (display name, rewards, Goals & rewards, Save & restore) and a Sound & display gear.
+  Closing Player (Escape, Close or backdrop) saves a changed name; if that fails it stays open once.
 - **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
+- **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
+  button (never an automatic reload) and a collapsed, copyable bug report built from the same
+  allowlist as the Report a problem sheet. It shows no error text and touches no save data.
+- **Selection and drag**: controls (`button`, `[role="button"]`), the pack stage, the card reveal and
+  cards take no text selection, so rapid taps never highlight labels; game images set
+  `draggable="false"`. Inputs, textareas, links, the pack summary, error hints, report text and
+  player IDs stay selectable. Deliberate exceptions: the share preview image and the Hall of Fame
+  legend image stay draggable (they are content a player may save), and only cards suppress the
+  context menu. Never disable selection or context menus globally. `tests/browser/selection-drag.spec.ts`
+  guards this.
 
 ## Checking a change
 
 Run the app, then capture every screen at 390×844 and 1440×900 (a Playwright script that opens a
 pack and every sheet is the quickest way). Look for overlap, cut-off text and anything that needs a
-mouse. Keyboard through it: Tab reaches everything, Escape closes the top panel.
+mouse. Keyboard through it: Tab reaches everything, Escape closes the top panel (except Player's
+one refused close above).
 
 ## Proposed local Best cards contract (#337)
 
 **Proposal for owner/Claude review, not shipped.** Keep a short list of individual card instances
-on Profile next to the shipped **All packs** list (its Newest / Best / Hall of Fame tabs) and
-**Best pulls**; no extra primary destination or global board. The heading "Best cards", its
+in My cards, on the **Best pulls** tab next to the shipped **All packs** list (its Newest / Best /
+Hall of Fame tabs); no extra primary destination or global board. The heading "Best cards", its
 placement and the cap of 10 are proposals for the owner to confirm. Rank by original-version
 individual `cardPoints` before the pack combo multiplier, preserving finish/holo/misprint together.
 Distinct slots may both qualify; repeated imports of one instance cannot duplicate it.

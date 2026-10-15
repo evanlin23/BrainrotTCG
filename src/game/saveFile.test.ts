@@ -46,7 +46,7 @@ const expectRejectedWithoutWrites = (raw: string) => {
   expect(store).toEqual(before);
 };
 
-describe('Settings backup preflight', () => {
+describe('Save & restore backup preflight', () => {
   it.each(['{', 'null', '[]', '"save"'])('rejects malformed/top-level JSON %s without writes', expectRejectedWithoutWrites);
 
   it('points an unreadable file back to where saves are exported', () => {
@@ -189,7 +189,7 @@ describe('Settings backup preflight', () => {
     expect(store.get('brainrot-player-v1')).toBe(player('bb'.repeat(32), 12));
   });
 
-  it('accepts out-of-range volumes that Settings clamps when it reads them', () => {
+  it('accepts out-of-range volumes that readSettings clamps', () => {
     const settings = '{"musicVolume":1.5,"effectsVolume":-0.25}';
     expect(importSaveFile(JSON.stringify({ ...fixture(), settings }))).toBeNull();
     expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
@@ -284,7 +284,7 @@ describe('private collection recovery archive portability', () => {
 });
 
 
-it('round-trips an opaque recovery archive through the serializer Settings actually downloads', () => {
+it('round-trips an opaque recovery archive through the serializer Save & restore actually downloads', () => {
   const raw = '{ definitely not collection JSON\n';
   const archive = JSON.stringify({ raw, player: player('cc'.repeat(32), 91) });
   store.set(STORAGE_KEYS.COLLECTION_RECOVERY, archive);

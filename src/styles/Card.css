@@ -5,6 +5,9 @@
     aspect-ratio: 5 / 7;
     cursor: pointer;
     position: relative;
+    /* A card is tapped to flip and tilted by drag; its printed text is art, not copyable text. */
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .card-inner {

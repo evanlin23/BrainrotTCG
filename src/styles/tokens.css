@@ -73,6 +73,8 @@
   --font-display: 'Lilita One', 'Archivo Variable', system-ui, sans-serif;
   --stretch-label: 82%;
   --font-logo: 'RubikGlitch', 'Lilita One', system-ui, sans-serif;
+  /* IDs and fingerprints, so similar characters stay distinct. */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
