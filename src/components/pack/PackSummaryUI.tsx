@@ -39,6 +39,17 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
+      <div className="summary-actions">
+        {onShare && (
+          <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
+            <Share2 aria-hidden="true" /> Share
+          </button>
+        )}
+        <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
+          <RotateCcw aria-hidden="true" /> Open another pack
+        </button>
+      </div>
+
       <div className="summary-content">
         <div className="summary-details">
           <h2 className="summary-title">{hand.name}</h2>
@@ -79,17 +90,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
             </p>
           )}
         </div>
-      </div>
-
-      <div className="summary-actions">
-        {onShare && (
-          <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
-            <Share2 aria-hidden="true" /> Share
-          </button>
-        )}
-        <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
-          <RotateCcw aria-hidden="true" /> Open another pack
-        </button>
       </div>
 
       {selected && (
