@@ -11,11 +11,11 @@ vi.mock('./ticketMiner', () => ({ getTicket: async () => new Uint8Array(32), pre
 // A storage whose writes can be refused, as a browser that blocks storage (SecurityError) does.
 const data = new Map<string, string>();
 let refuseRemove: (key: string) => boolean = () => false;
-let refuseWrite: (key: string) => boolean = () => false;
+let refuseWrite: (key: string, value: string) => boolean = () => false;
 vi.stubGlobal('localStorage', {
   getItem: (k: string) => data.get(k) ?? null,
   setItem: (k: string, v: string) => {
-    if (refuseWrite(k)) throw new DOMException('Full', 'QuotaExceededError');
+    if (refuseWrite(k, v)) throw new DOMException('Full', 'QuotaExceededError');
     data.set(k, v);
   },
   removeItem: (k: string) => {
@@ -125,6 +125,21 @@ describe('a pack put back on the shelf', () => {
       data.set(LIST, JSON.stringify([{ ...JSON.parse(PENDING), d }]));
       expect(takePendingPacks()[0].counted).toBeUndefined();
     }
+  });
+
+  it('leaves the shelf as it was when the counted flag tips storage over its quota, and the uncounted copies still fit', () => {
+    const owed = [entry(4), entry(5), entry(6)];
+    data.set(LIST, JSON.stringify(owed));
+    const [four, five] = takePendingPacks();
+    // Room for the shelf as it was, not for the few bytes the flag adds.
+    const room = JSON.stringify(owed).length;
+    data.set(LIST, JSON.stringify([entry(6)]));
+    refuseWrite = (k, v) => k === LIST && v.length > room;
+    expect(savePendingPack({ ...four, counted: true }, { ...five, counted: true })).toBe(false);
+    expect(shelved()).toEqual([entry(6)]);
+    expect(savePendingPack(four, five)).toBe(true);
+    expect(shelved()).toEqual([entry(6), entry(4), entry(5)]);
+    expect(takePendingPacks().map((p) => p.counted)).toEqual([undefined, undefined, undefined]);
   });
 });
 
