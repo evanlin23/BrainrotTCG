@@ -54,10 +54,33 @@ describe('useSparks', () => {
     const idle = latest.sparks;
     emit();
     expect(latest.sparks).toHaveLength(3);
-    expect(vi.getTimerCount()).toBe(3);
+    expect(vi.getTimerCount()).toBe(1);
 
     act(() => vi.advanceTimersByTime(LIFETIME_MS));
     expect(latest.sparks).toHaveLength(0);
+    expect(latest.sparks).toBe(idle);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('expires each burst with one timer, leaving a later overlapping burst in place', () => {
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+    render(true);
+    const idle = latest.sparks;
+    emit();
+    const firstIds = latest.sparks.map(spark => spark.id);
+    act(() => vi.advanceTimersByTime(100));
+    emit();
+    const secondIds = latest.sparks.slice(3).map(spark => spark.id);
+    expect(latest.sparks).toHaveLength(6);
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(2);
+
+    act(() => vi.advanceTimersByTime(LIFETIME_MS - 100));
+    expect(latest.sparks.map(spark => spark.id)).toEqual(secondIds);
+    expect(secondIds.some(id => firstIds.includes(id))).toBe(false);
+    expect(vi.getTimerCount()).toBe(1);
+
+    act(() => vi.advanceTimersByTime(100));
     expect(latest.sparks).toBe(idle);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -82,7 +105,7 @@ describe('useSparks', () => {
   it('clears pending timers on unmount', () => {
     render(true);
     emit();
-    expect(vi.getTimerCount()).toBe(3);
+    expect(vi.getTimerCount()).toBe(1);
     act(() => root?.unmount());
     root = null;
     expect(vi.getTimerCount()).toBe(0);
@@ -98,7 +121,7 @@ describe('useSparks', () => {
     expect(latest.sparks).toHaveLength(0);
 
     emit();
-    expect(vi.getTimerCount()).toBe(3);
+    expect(vi.getTimerCount()).toBe(1);
     setReducedMotion(true);
     expect(vi.getTimerCount()).toBe(0);
     setReducedMotion(false);
