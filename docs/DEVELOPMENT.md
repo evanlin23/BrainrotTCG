@@ -113,5 +113,7 @@ and dispositions are in [DEPENDENCY_ADVISORIES.md](DEPENDENCY_ADVISORIES.md). Ne
 
 Dependabot (`.github/dependabot.yml`) is the only update bot. Root npm minor and patch updates
 arrive as two grouped PRs, `dev-tooling` (devDependencies) and `prod` (dependencies), and GitHub
-Actions minor and patch updates as one `github-actions` PR. Majors stay one PR per package, and
-nothing merges without review and green CI.
+Actions minor and patch updates as one `github-actions` PR. `hash-wasm` and `@noble/*` are left out
+of `prod` and arrive as separate PRs, because they can change pack and proof derivation. Majors and
+`tools/wrangler` updates stay one PR per package. By policy (not enforced by the config), each
+update PR gets a review and green CI before it merges.

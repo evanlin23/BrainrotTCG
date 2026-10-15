@@ -16,9 +16,12 @@ updates:
         dependency-type: development
         patterns: ["*"]
         update-types: [minor, patch]
+      # hash-wasm (Argon2id tickets) and @noble/* (proof signatures) can change pack and proof
+      # derivation, so each of their updates stays a PR of its own.
       prod:
         dependency-type: production
         patterns: ["*"]
+        exclude-patterns: ["hash-wasm", "@noble/*"]
         update-types: [minor, patch]
 
   # Wrangler for the Cloudflare Pages deploy, locked apart from the app (tools/wrangler).
