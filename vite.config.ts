@@ -14,6 +14,7 @@ export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
   plugins: [react(), siteUrl()],
   test: {
-    exclude: ['tests/browser/**', 'node_modules/**', 'dist/**'],
+    // Vitest's defaults (any node_modules, .git) plus the Playwright suite and build output.
+    exclude: ['**/node_modules/**', '**/.git/**', 'tests/browser/**', 'dist/**'],
   },
 })
