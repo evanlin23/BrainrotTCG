@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+
 export const tasks = {
   opening: 'You found this game for the first time. Try to open a pack and find out what you received.',
   sharing: 'Try to understand how rare an item is and how you would show one item to a friend. Do not send, submit, copy, download or export anything.',
@@ -38,4 +40,31 @@ export const coordinatorPrompt = 'Review actual task reports without coaching th
 
 export function isBasePath(value: string) {
   return /^\/(?:[a-zA-Z0-9_-]+\/)*$/.test(value);
+}
+
+// The agent CLI gets only what it needs to start and reach its own provider: no CI, GitHub, npm
+// or cloud tokens, and nothing from the coordinator's own configuration. The browser endpoint
+// reaches the MCP adapter through its config, not this environment.
+const agentVariables = [
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'TMPDIR', 'TZ', 'LANG', 'LC_ALL', 'LC_CTYPE',
+  'CODEX_HOME', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORGANIZATION', 'OPENAI_PROJECT',
+  'CODEX_CA_CERTIFICATE', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'all_proxy', 'no_proxy',
+];
+export function agentEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(agentVariables.flatMap((name) => env[name] === undefined ? [] : [[name, env[name]]]));
+}
+
+// The registry imports sets explicitly, but Vite globs set art (src/content/sets/*/...) and copies
+// public/, so untracked files there, such as a draft set, would ship in a build labelled with this
+// revision. Ignored files and untracked files elsewhere never reach the build.
+export function uncommittedBuildInputs(cwd: string): string {
+  const status = (...args: string[]) => {
+    const result = spawnSync('git', ['status', '--porcelain', ...args], { cwd, encoding: 'utf8' });
+    if (result.status !== 0) throw Error('Git status unavailable');
+    return result.stdout.trim();
+  };
+  if (status('--untracked-files=no')) return 'Commit tracked changes before auditing a known revision';
+  if (status('--untracked-files=all', '--', 'src', 'public')) return 'Commit or remove untracked files under src/ or public/ (such as a draft set) before auditing a known revision';
+  return '';
 }
