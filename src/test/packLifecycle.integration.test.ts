@@ -118,7 +118,7 @@ const openOnePack = async () => {
     shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
   });
   await app!.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
-  await app!.interact(() => button('Skip').click());
+  await app!.interact(() => button('Skip opening animation').click());
   await app!.until('Skip completes the production summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 };
 const storedCards = () => Object.values(read<Record<string, CollectionItem>>(STORAGE_KEYS.COLLECTION) ?? {})
