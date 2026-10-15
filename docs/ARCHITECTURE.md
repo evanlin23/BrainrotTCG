@@ -243,7 +243,7 @@ domains or additional services can cost money. See `docs/HOSTING.md` for configu
 redirects. Save transfer (`move.ts`, `scripts/redirect-site.ts`) uses origin-checked
 window-to-window postMessage, not URL contents. The old address never deletes its save: it sets
 `brainrot-moved-v1` (a timestamp) once the new address reports `saved` or `same`, or once it sends
-its save to Settings (`#/send`), and from then on old links go straight through without offering
+its save to Save & restore (`#/send`), and from then on old links go straight through without offering
 the move. At the new address, replacing a different player's progress asks first and copies the
 current save into `brainrot-before-move-v1`; if that backup can't be stored, nothing is written
 and the result is `invalid`. A failed write removes what it wrote and restores the previous values

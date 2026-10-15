@@ -28,7 +28,7 @@ const button = (label: string) => {
 const banner = () => document.querySelector('.app > p[role="alert"].save-warning');
 const expectAppShown = () => {
   expect(document.querySelector('.app .app-header .app-logo')?.getAttribute('aria-label')).toBe('Brainrot TCG');
-  expect(document.querySelectorAll('.app-nav .app-nav-item')).toHaveLength(5);
+  expect(document.querySelectorAll('.app-nav .app-nav-item')).toHaveLength(3);
   expect(document.querySelector('.app-main')).not.toBeNull();
 };
 const ownedTotal = () => [...document.querySelectorAll('.collection [aria-label$=" owned"], .collection [aria-label*=" owned,"]')]
@@ -104,9 +104,9 @@ it.each(['QuotaExceededError', 'SecurityError'])(
     const toastsAfterFirst = await drainToasts(app);
     expect(toastsAfterFirst.join(' ')).toContain('Baby Steps');
 
-    // Settings shows the same warning; the banner steps aside while it is open.
-    await app.interact(() => button('Settings').click());
-    await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+    // Sound & display shows the same warning; the banner steps aside while it is open.
+    await app.interact(() => button('Sound & display').click());
+    await app.until('Sound & display loads', () => expect(document.querySelector('.settings')).not.toBeNull());
     expect(document.querySelector('.settings p[role="alert"].save-warning')?.textContent).toMatch(/couldn't be saved in this browser/);
     expect(banner()).toBeNull();
     await app.interact(() => button('Close').click());
@@ -130,7 +130,7 @@ it.each(['QuotaExceededError', 'SecurityError'])(
     }
 
     // The collection browser shows both packs from memory.
-    await app.interact(() => button('Collection').click());
+    await app.interact(() => button('My cards').click());
     await app.until('Collection loads', () => expect(document.querySelector('.collection')).not.toBeNull());
     expect(ownedTotal()).toBe(10);
     expect(document.querySelector('.collection-empty')).toBeNull();

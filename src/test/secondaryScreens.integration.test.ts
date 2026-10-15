@@ -94,7 +94,7 @@ it('keeps actual App secondary navigation working without changing the selected 
   });
   await app.mount();
   const pack = document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label');
-  for (const [target, content] of [['Collection', '.collection'], ['Profile', '.pulls-page'], ['Achievements', '.achievements'], ['Settings', '.settings-group']]) {
+  for (const [target, content] of [['My cards', '.collection'], ['Player', '.settings-group'], ['Sound & display', '.settings-group']]) {
     await app.interact(() => { button(target).focus(); button(target).click(); });
     await app.until(`${target} loads its production controls`, () => {
       expect(document.querySelector(`[role="dialog"]${content}, [role="dialog"] ${content}`)).not.toBeNull();
@@ -106,19 +106,20 @@ it('keeps actual App secondary navigation working without changing the selected 
   }
 });
 
-// The App's own Hall of Fame, Profile and Share sheets, through the real DeferredSheet. Each loader
-// stands in for a chunk a deploy removed while `stale` holds its title, then resolves a stub screen in
-// the real Sheet that records the props the App passed. (Mocking the screen modules themselves is
+// The App's own Rankings, Best pulls (titled "My cards", like the collection) and Share sheets, through
+// the real DeferredSheet. Each loader stands in for a chunk a deploy removed while `stale` holds its title,
+// then resolves a stub screen in the real Sheet that records the props the App passed. The collection
+// shares the "My cards" title but has no stats, so it loads for real. (Mocking the screen modules themselves is
 // unreliable here: vitest serves StrictMode's second concurrent import() the unmocked module.)
 type StubProps = Record<string, unknown> & { onClose: () => void };
 type Loader = () => Promise<{ default: ComponentType<StubProps> }>;
 type Wrapped = { title: string; size?: string; load: Loader; screenProps: StubProps };
-const lazyScreens = { 'Hall of Fame': '../components/pages/HallOfFamePage', Profile: '../components/profile/MyProfilePage', 'Share your pull': '../components/share/ShareSheet' };
+const lazyScreens = { Rankings: '../components/pages/HallOfFamePage', 'My cards': '../components/profile/MyProfilePage', 'Share your pull': '../components/share/ShareSheet' };
 type Title = keyof typeof lazyScreens;
 type Seen = { appLoad: Loader; load: Loader; calls: number; size?: string; props?: StubProps };
 afterEach(() => { vi.doUnmock('../components/ui/DeferredSheet'); });
 
-it('mounts the App Hall of Fame, Profile and Share sheets through DeferredSheet and recovers them from a stale chunk', async () => {
+it('mounts the App Rankings, Best pulls and Share sheets through DeferredSheet and recovers them from a stale chunk', async () => {
   const stale = new Set(Object.keys(lazyScreens));
   const seen: Partial<Record<Title, Seen>> = {};
   vi.doMock('../components/ui/DeferredSheet', async (importOriginal) => {
@@ -127,7 +128,7 @@ it('mounts the App Hall of Fame, Profile and Share sheets through DeferredSheet 
     const DeferredSheet = (await importOriginal<{ default: ComponentType<Wrapped> }>()).default;
     const stub = (title: Title) => (props: StubProps) => {
       seen[title]!.props = props;
-      const share = title === 'Profile' && createElement('button', {
+      const share = title === 'My cards' && createElement('button', {
         key: 'share',
         type: 'button',
         onClick: () => (props.onSharePull as (entry: object, cards: []) => void)({ setId: 'stub-set', setVersion: 1, nonce: 7, key: 'ab'.repeat(32) }, []),
@@ -135,7 +136,7 @@ it('mounts the App Hall of Fame, Profile and Share sheets through DeferredSheet 
       return createElement(Sheet, { title: `${title} screen`, onClose: props.onClose, children: [`${title} loaded`, share] as ReactNode });
     };
     const Wrapper = (props: Wrapped) => {
-      if (!(props.title in lazyScreens)) return createElement(DeferredSheet, props);
+      if (!(props.title in lazyScreens) || (props.title === 'My cards' && !('stats' in props.screenProps))) return createElement(DeferredSheet, props);
       const title = props.title as Title;
       const entry: Seen = seen[title] ??= {
         appLoad: props.load,
@@ -181,11 +182,13 @@ it('mounts the App Hall of Fame, Profile and Share sheets through DeferredSheet 
     expect((await seen[title]!.appLoad()).default).toBe(real.default);
   };
 
-  await recover('Hall of Fame', () => { button('Hall of Fame').focus(); button('Hall of Fame').click(); });
+  await recover('Rankings', () => { button('Rankings').focus(); button('Rankings').click(); });
   await app.interact(() => button('Close').click());
-  expect(document.activeElement).toBe(button('Hall of Fame'));
+  expect(document.activeElement).toBe(button('Rankings'));
 
-  await recover('Profile', () => { button('Profile').focus(); button('Profile').click(); });
+  await app.interact(() => button('My cards').click());
+  await app.until('the real collection loads under My cards', () => expect(document.querySelector('[role="dialog"].collection')).not.toBeNull());
+  await recover('My cards', () => button('Best pulls').click());
   await recover('Share your pull', () => button('Share stub pull').click());
   expect(seen['Share your pull']!.props?.target).toMatchObject({ ref: { setId: 'stub-set', setVersion: 1, nonce: 7, publicKeyHex: 'ab'.repeat(32) }, cards: [] });
 });

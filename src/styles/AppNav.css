@@ -17,7 +17,7 @@
 
 .app-nav ul {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   height: var(--nav-height);
   max-width: 36rem;
   margin: 0 auto;
@@ -39,6 +39,7 @@
   transition: color var(--dur) var(--ease-out);
 }
 
+.app-nav-item[aria-current="page"],
 .app-nav-item:hover,
 .app-nav-item:focus-visible {
   color: var(--text);
@@ -61,25 +62,9 @@
 }
 
 .app-nav-label {
-  /* Condensed so five labels fit a phone without touching. */
+  /* Keep the same destinations and labels at every width. */
   font-stretch: var(--stretch-label);
   white-space: nowrap;
-}
-
-.app-nav-badge {
-  position: absolute;
-  top: -6px;
-  right: -10px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: var(--radius-pill);
-  background: var(--danger);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 18px;
-  text-align: center;
 }
 
 /* Focus mode (a pack is being opened): get out of the way, for the keyboard too (hidden after the fade). */
@@ -129,4 +114,14 @@
   .app.is-focus .app-nav {
     transform: none;
   }
+}
+
+.app-utilities { display: flex; gap: var(--space-2); }
+.app-utilities .btn { min-height: 48px; }
+.personal-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
+.personal-nav [aria-current="page"] { border-color: var(--brand); color: var(--text); }
+
+@media (max-width: 899px) {
+  .app-header { flex-wrap: wrap; gap: var(--space-2); }
+  .app-header .app-logo { font-size: clamp(1.4rem, 5vw, 2.4rem); }
 }
