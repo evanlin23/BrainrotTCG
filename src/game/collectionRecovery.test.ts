@@ -78,10 +78,26 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(persistCollection({ [card.key]: item })).toBe('recovered');
   });
 
-  it('never replaces a different existing archive to admit another damaged payload', () => {
+  it('adds a different damaged payload beside the archived one instead of blocking saves', () => {
     const raw = '{"second":null}';
     const data = seed(raw);
-    const originalArchive = JSON.stringify({ raw: '{"first":null}' });
+    data.set('brainrot-player-v1', '{"secretKey":"now"}');
+    const first = { raw: '{"first":null}', player: '{"secretKey":"then"}' };
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify(first));
+    expect(persistCollection({ [card.key]: item })).toBe('recovered');
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual({ [card.key]: item });
+    const archive = JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!);
+    expect(archive).toEqual({ ...first, later: [{ raw, player: '{"secretKey":"now"}' }] });
+    // The same damaged bytes again (a retried write) aren't added twice.
+    data.set(STORAGE_KEYS.COLLECTION, raw);
+    expect(persistCollection({})).toBe('recovered');
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!)).toEqual(archive);
+    expect(logged()).toEqual([]);
+  });
+
+  it.each(['{broken', '[]', '{"raw":"x","later":"y"}'])('never overwrites an archive it cannot read: %s', (originalArchive) => {
+    const raw = '{"second":null}';
+    const data = seed(raw);
     data.set(STORAGE_KEYS.COLLECTION_RECOVERY, originalArchive);
     expect(persistCollection({})).toBe('blocked');
     expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);

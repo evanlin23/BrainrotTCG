@@ -50,10 +50,14 @@ const history = (value: unknown) => Array.isArray(value) && value.every((entry) 
 const pulls = (value: unknown) => Array.isArray(value) && value.every((entry) => ref(entry)
   && record(entry) && number(entry.score) && text(entry.hand) && number(entry.openedAt));
 
+/** One kept-aside collection: its exact bytes and the identity snapshot they belonged to. */
+const archived = (value: unknown): value is RecordValue => record(value) && text(value.raw)
+  && (value.player === null || text(value.player));
+
 const SAVE_FIELDS = [
   ['collection', STORAGE_KEYS.COLLECTION, collection],
-  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, (value: unknown) => record(value) && text(value.raw)
-    && (value.player === null || text(value.player))],
+  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, (value: unknown) => archived(value)
+    && optional(value, 'later', (later) => Array.isArray(later) && later.every(archived))],
   ['achievements', STORAGE_KEYS.ACHIEVEMENTS, achievements],
   ['stats', STORAGE_KEYS.STATS, stats],
   ['hallOfFame', STORAGE_KEYS.HALL_OF_FAME, hallOfFame],

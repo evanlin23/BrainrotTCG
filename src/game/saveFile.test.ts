@@ -71,6 +71,8 @@ describe('Settings backup preflight', () => {
     ['null collection item', { collection: '{"x":null}' }],
     ['invalid recovery envelope', { collectionRecovery: '{"raw":null,"player":null}' }],
     ['missing recovery identity snapshot', { collectionRecovery: '{"raw":"opaque"}' }],
+    ['non-list later recovery payloads', { collectionRecovery: '{"raw":"opaque","player":null,"later":{}}' }],
+    ['invalid later recovery payload', { collectionRecovery: '{"raw":"opaque","player":null,"later":[{"raw":1,"player":null}]}' }],
     ['unknown historical card without set ID', { collection: JSON.stringify({ x: { card: { id: 'nonexistent', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' }, normalCount: 1 } }) }],
     ['unresolvable partial card', { collection: '{"x":{"card":{"id":"nonexistent"}}}' }],
     ['prototype finish name', { collection: JSON.stringify({ x: { card: { ...ALL_CARDS[0], finish: '__proto__' } } }) }],
@@ -238,6 +240,12 @@ describe('private collection recovery archive portability', () => {
     expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(incoming.collection);
     expect(exportPlayer()).toBe(incoming.player);
     expect(JSON.parse(archive).player).not.toBe(incoming.player);
+  });
+
+  it('imports an archive that holds later damaged payloads', () => {
+    const archive = JSON.stringify({ raw: '{"first":null}', player: null, later: [{ raw: '{broken', player: player('cc'.repeat(32), 3) }] });
+    expect(importSaveFile(JSON.stringify({ ...fixture(), collectionRecovery: archive }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
   });
 
   it('backs up an existing archive before importing a different one', () => {
