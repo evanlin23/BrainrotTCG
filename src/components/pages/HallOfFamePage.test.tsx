@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+// @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,12 +26,13 @@ const ENTRY: HallOfFameEntry = {
   githubUser: 'alice',
 };
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
 let root: Root;
 let container: HTMLElement;
 
 beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // jsdom has no ResizeObserver; the page's Sheet only uses it to track overflow.
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   loadHallOfFame.mockReset();
   loadPending.mockReset().mockResolvedValue(undefined);
   container = document.body.appendChild(document.createElement('div'));
@@ -41,6 +42,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.unstubAllGlobals();
 });
 
 const status = () => document.querySelector<HTMLElement>('[role="status"]')!;
