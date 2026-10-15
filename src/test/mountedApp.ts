@@ -1,4 +1,4 @@
-import type { act as reactAct } from 'react';
+import type { act as reactAct, ComponentType } from 'react';
 import type { Root } from 'react-dom/client';
 import { expect, vi } from 'vitest';
 import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
@@ -11,6 +11,7 @@ export async function mountedApp(storage: Record<string, string>) {
   let root: Root | undefined;
   let act: typeof reactAct;
   let container: HTMLDivElement;
+  let loadRoot: () => Promise<{ default: ComponentType }> = () => import('../App');
 
   vi.resetModules();
   history.replaceState(null, '', '/BrainrotTCG/');
@@ -84,7 +85,8 @@ export async function mountedApp(storage: Record<string, string>) {
     document.documentElement.removeAttribute('data-pack-foil');
   }
 
-  async function mount() {
+  async function mount(load = loadRoot) {
+    loadRoot = load;
     // All React imports must belong to this fresh graph, including act and the renderer.
     const React = await import('react');
     act = React.act;
@@ -99,7 +101,7 @@ export async function mountedApp(storage: Record<string, string>) {
     runMigrations();
     migratePullLog();
     await loadPackStore(); // Actual production memory-only fallback, no fake IndexedDB.
-    const { default: App } = await import('../App');
+    const { default: App } = await loadRoot();
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -125,6 +127,7 @@ export async function mountedApp(storage: Record<string, string>) {
       for (let elapsed = 0; elapsed < 10_000; elapsed += 25) {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(25);
+          await vi.dynamicImportSettled();
           await Promise.all([...jobs]);
         });
         try { assertion(); return; } catch (error) { last = error; }
