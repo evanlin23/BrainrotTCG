@@ -80,19 +80,21 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
       url={link}
       text={bragText(target.cards, target.score, setName, link)}
       onClose={onClose}
+      actions={
+        listed ? (
+          <p className="share-note">
+            <Crown aria-hidden="true" /> This pull is in the Hall of Fame.
+          </p>
+        ) : (
+          joins && <HallOfFameSubmit proof={proof} id={id} githubUrl={hallOfFameSubmitUrl(url, `${target.score.hand.name} in ${setName}`)} />
+        )
+      }
     >
       <section className="share-pack-cards" aria-label="Cards in this pack">
         <h3 className="section-title">Cards in this pack</h3>
         <p className="share-note">Choose a card to view or share it. The controls above share the whole pack.</p>
         <PackCardViewer cards={target.cards} displayMode="grid" showValue={false} canShareCards />
       </section>
-      {listed ? (
-        <p className="share-note">
-          <Crown aria-hidden="true" /> This pull is in the Hall of Fame.
-        </p>
-      ) : (
-        joins && <HallOfFameSubmit proof={proof} id={id} githubUrl={hallOfFameSubmitUrl(url, `${target.score.hand.name} in ${setName}`)} />
-      )}
       <p className="share-note">
         <ShieldCheck aria-hidden="true" /> Anyone who opens the link or scans the code re-checks this exact pack on their own
         device.

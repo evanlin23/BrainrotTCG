@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { MAX_NAME_LENGTH } from '../../engine';
-import { getPlayer, renamePlayer } from '../../game/player';
+import { getPlayer, renamePlayer, type RenameResult } from '../../game/player';
 import type { Settings } from '../../types';
 import Sheet from '../ui/Sheet';
 import RewardsPanel from './RewardsPanel';
@@ -8,6 +8,8 @@ import { packImageUrl } from '../../content/art';
 import { DEFAULT_SET_ID } from '../../content/sets';
 import '../../styles/Settings.css';
 import '../../styles/Pulls.css';
+
+const SAVE_FAILED = "Couldn't save your name in this browser. Try again.";
 
 interface PlayerPageProps {
   level: number;
@@ -23,45 +25,70 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
   const [player, setPlayer] = useState(getPlayer);
   const [nameDraft, setNameDraft] = useState(player.name);
   const [nameStatus, setNameStatus] = useState('');
+  /** Counts failed saves; a repeat of the same failure remounts the status text so it is announced again. */
+  const [failures, setFailures] = useState(0);
+  /** Set once a close was refused because the save failed; editing the name clears it. */
+  const closeRefused = useRef(false);
   /**
    * Store the draft if it is a valid, changed name. Only a stored name is reported as saved; a
    * refused write keeps the draft so the player can retry. Leaving the field (`fromBlur`) saves too,
    * but a blank draft is left alone there so the player can keep typing.
    */
-  const saveName = (fromBlur = false) => {
+  const saveName = (fromBlur = false): RenameResult['status'] => {
     const result = renamePlayer(nameDraft);
     setPlayer(result.player);
     switch (result.status) {
       case 'saved':
         setNameDraft(result.player.name);
         setNameStatus('Display name saved.');
-        return;
+        break;
       case 'failed':
-        setNameStatus("Couldn't save your name in this browser. Try again.");
-        return;
+        setNameStatus(SAVE_FAILED);
+        setFailures((count) => count + 1);
+        break;
       case 'blank':
-        if (fromBlur) return;
+        if (fromBlur) break;
         setNameDraft(result.player.name);
         setNameStatus("A name can't be blank, so your current name stays.");
-        return;
+        break;
       case 'unchanged':
         // Nothing was written, so whatever the status line says stays true.
         setNameDraft(result.player.name);
     }
+    return result.status;
   };
-  return <Sheet title="Player" onClose={onClose} size="sm">
+  /**
+   * Escape, the backdrop and Close keep the draft the same way leaving the field does: save it.
+   * If that save fails, stay open once so the player sees the error with their draft still there.
+   * The refusal is tracked on its own: Close and the backdrop blur the field first, so the status
+   * line already shows the failure by the time the close runs.
+   */
+  const close = () => {
+    if (saveName(true) === 'failed' && !closeRefused.current) {
+      closeRefused.current = true;
+      return;
+    }
+    onClose();
+  };
+  return <Sheet title="Player" onClose={close} size="sm">
     <p className="share-note">Your player is saved in this browser. Back up your save to keep your player key.</p>
     <section className="settings-group">
       <h3 className="section-title">Display name</h3>
       <label className="settings-field">
         <span className="settings-label">Name shown on shared pulls</span>
         <input className="settings-input" value={nameDraft} autoComplete="nickname" spellCheck={false}
-          onChange={(event) => { setNameDraft(Array.from(event.target.value).slice(0, MAX_NAME_LENGTH).join('')); setNameStatus(''); }}
+          onChange={(event) => {
+            setNameDraft(Array.from(event.target.value).slice(0, MAX_NAME_LENGTH).join(''));
+            setNameStatus('');
+            closeRefused.current = false;
+          }}
           onBlur={() => saveName(true)}
           onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveName(); } }} />
       </label>
       <button type="button" className="btn btn--secondary" onClick={() => saveName()}>Save name</button>
-      <p role="status">{nameStatus || `Player ID #${player.fingerprint}`}</p>
+      <p>Player ID #{player.fingerprint}</p>
+      {/* Only save results go in the live region, so opening or editing announces nothing. */}
+      <p role="status"><span key={failures}>{nameStatus}</span></p>
     </section>
     <div className="personal-nav">
       <button type="button" className="btn btn--secondary" onClick={onOpenGoals}>Goals & rewards</button>

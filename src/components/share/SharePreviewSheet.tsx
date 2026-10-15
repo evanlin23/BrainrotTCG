@@ -15,12 +15,14 @@ interface SharePreviewSheetProps {
   /** Text that goes with a shared link or image. */
   text: string;
   onClose: () => void;
-  /** Extra content under the actions (Hall of Fame, notes). */
+  /** More actions that belong with the share buttons, ahead of the preview (Hall of Fame). */
+  actions?: ReactNode;
+  /** Extra content under the preview (cards in the pack, notes). */
   children?: ReactNode;
 }
 
 /** Keep sharing actions ahead of the image so a tall preview cannot hide them on phones. */
-const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, onClose, children }: SharePreviewSheetProps) => {
+const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, onClose, actions, children }: SharePreviewSheetProps) => {
   const [image, setImage] = useState<{ blob: Blob; src: string } | null>(null);
   const [failed, setFailed] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -74,7 +76,6 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
   return (
     <Sheet title={title} subtitle={subtitle} onClose={onClose} size="md" className="share-sheet">
       <div className="share-layout share-layout--actions-first">
-
         <div className="share-side">
           <div className="share-actions-main">
             {url && (
@@ -105,17 +106,17 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
           <p className="share-done" role="status">
             {done}
           </p>
+          {actions}
 
-        <figure className="share-preview">
-          {image ? (
-            <img src={image.src} alt="The image you'll share" />
-          ) : (
-            <span className="share-preview-wait" role="status">
-              {failed ? "Couldn't draw the image" : 'Drawing the image…'}
-            </span>
-          )}
-        </figure>
-
+          <figure className="share-preview">
+            {image ? (
+              <img src={image.src} alt="The image you'll share" />
+            ) : (
+              <span className="share-preview-wait" role="status">
+                {failed ? "Couldn't draw the image" : 'Drawing the image…'}
+              </span>
+            )}
+          </figure>
 
           {children}
         </div>
