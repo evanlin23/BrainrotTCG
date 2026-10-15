@@ -10,6 +10,7 @@ import { canShare, previewFor, proofFor, pullUrl, type PullRef } from '../../gam
 import { bragText, hallOfFameSubmitUrl, submitToHallOfFame, wasSubmitted } from '../../game/share';
 import { renderPoster } from '../../game/bragImage';
 import Sheet from '../ui/Sheet';
+import PackCardViewer from '../ui/PackCardViewer';
 import SharePreviewSheet from './SharePreviewSheet';
 import '../../styles/Share.css';
 
@@ -80,6 +81,11 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
       text={bragText(target.cards, target.score, setName, link)}
       onClose={onClose}
     >
+      <section className="share-pack-cards" aria-label="Cards in this pack">
+        <h3 className="section-title">Cards in this pack</h3>
+        <p className="share-note">Choose a card to view or share it. The controls above share the whole pack.</p>
+        <PackCardViewer cards={target.cards} displayMode="grid" showValue={false} canShareCards />
+      </section>
       {listed ? (
         <p className="share-note">
           <Crown aria-hidden="true" /> This pull is in the Hall of Fame.

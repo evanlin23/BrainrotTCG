@@ -106,6 +106,7 @@ it.each(['QuotaExceededError', 'SecurityError'])(
 
     // Settings shows the same warning; the banner steps aside while it is open.
     await app.interact(() => button('Settings').click());
+    await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
     expect(document.querySelector('.settings p[role="alert"].save-warning')?.textContent).toMatch(/couldn't be saved in this browser/);
     expect(banner()).toBeNull();
     await app.interact(() => button('Close').click());
@@ -130,6 +131,7 @@ it.each(['QuotaExceededError', 'SecurityError'])(
 
     // The collection browser shows both packs from memory.
     await app.interact(() => button('Collection').click());
+    await app.until('Collection loads', () => expect(document.querySelector('.collection')).not.toBeNull());
     expect(ownedTotal()).toBe(10);
     expect(document.querySelector('.collection-empty')).toBeNull();
 

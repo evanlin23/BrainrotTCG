@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Share2 } from 'lucide-react';
-import CardShareSheet from '../share/CardShareSheet';
+import DeferredSheet from '../ui/DeferredSheet';
 import type { Card } from '../../data/cards';
 import { cardPoints } from '../../data/cards';
 import { FINISH_INFO, modifierClasses, modifierLabel } from '../../game/modifiers';
@@ -20,6 +20,7 @@ interface CardViewerModalProps {
 }
 
 const MAX_TILT = 12;
+const loadCardShare = () => import('../share/CardShareSheet');
 
 const versionName = (v: CardVersion) => modifierLabel(v) || 'Plain';
 
@@ -89,7 +90,7 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false }: CardView
           )}
         </div>
       </div>
-      {sharing && <CardShareSheet card={card} version={shown} onClose={() => setSharing(false)} />}
+      {sharing && <DeferredSheet load={loadCardShare} title={`Share ${card.name}`} screenProps={{ card, version: shown, onClose: () => setSharing(false) }} />}
     </Sheet>
   );
 };
