@@ -127,3 +127,37 @@ describe('durable player imports', () => {
     expect(store.has('brainrot-data-version')).toBe(false);
   });
 });
+
+describe('renaming the player', () => {
+  beforeEach(() => store.set(PLAYER_KEY, JSON.stringify(original)));
+
+  it('stores a changed name on the current record, keeping its key and ticket counter', () => {
+    const result = player.renamePlayer('  New   Name ');
+    expect(result.status).toBe('saved');
+    expect(result.player.name).toBe('New Name');
+    expect(JSON.parse(store.get(PLAYER_KEY)!)).toEqual({ ...original, name: 'New Name' });
+    expect(player.getPlayer().name).toBe('New Name');
+  });
+
+  it.each([
+    ['quota', new DOMException('Quota exceeded', 'QuotaExceededError')],
+    ['security', new DOMException('Storage blocked', 'SecurityError')],
+  ])('reports a refused write (%s) and keeps the stored name', (_label, error) => {
+    setItem.mockImplementation(() => { throw error; });
+    const result = player.renamePlayer('New Name');
+    expect(result.status).toBe('failed');
+    expect(result.player.name).toBe('Original Player');
+    expect(store.get(PLAYER_KEY)).toBe(JSON.stringify(original));
+    expect(player.getPlayer().name).toBe('Original Player');
+    // Not even the in-memory fallback adopts the name when storage later becomes unreadable.
+    getItem.mockImplementation(() => { throw new Error('Storage read denied'); });
+    expect(player.getPlayer().name).toBe('Original Player');
+  });
+
+  it.each([['blank', '   '], ['unchanged', ' Original  Player ']])('writes nothing for a %s name', (status, name) => {
+    const result = player.renamePlayer(name);
+    expect(result.status).toBe(status);
+    expect(result.player.name).toBe('Original Player');
+    expect(setItem).not.toHaveBeenCalled();
+  });
+});

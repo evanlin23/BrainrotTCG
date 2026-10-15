@@ -60,6 +60,9 @@ describe('Hall of Fame loading', () => {
     loadHallOfFame.mockResolvedValueOnce(null).mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
 
     await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    // Named like its nav item and loading placeholder, so the dialog keeps one accessible name.
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(document.getElementById(dialog.getAttribute('aria-labelledby')!)?.textContent).toBe('Rankings');
     expect(status().textContent).toBe("Couldn't load the leaderboard. Try again.");
     expect(status().tabIndex).toBe(-1);
     expect(document.activeElement).toBe(status());

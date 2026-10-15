@@ -1,8 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Download, History, Upload } from 'lucide-react';
 import { STORAGE_KEYS } from '../../constants';
-import { MAX_NAME_LENGTH } from '../../engine';
-import { getPlayer, renamePlayer } from '../../game/player';
 import { canBringOldSave, fetchOldSave, hasProgress, importSave, type MoveResult } from '../../game/move';
 import { CARD_FLIP_SRC } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
@@ -14,6 +12,7 @@ import '../../styles/Settings.css';
 import { exportSaveFile } from '../../game/saveFile';
 
 interface SettingsPageProps {
+    section?: 'sound' | 'save';
     settings: Settings;
     onSettingsChange: (settings: Settings) => void;
     onClose: () => void;
@@ -22,18 +21,9 @@ interface SettingsPageProps {
     saveWarning?: string;
 }
 
-const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveWarning }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveWarning, section = 'sound' }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [player, setPlayer] = useState(getPlayer);
-    const [nameDraft, setNameDraft] = useState(player.name);
-
-    const saveName = () => {
-        const updated = renamePlayer(nameDraft);
-        setPlayer(updated);
-        setNameDraft(updated.name);
-    };
-
     const handleExportSave = () => {
         const blob = new Blob([exportSaveFile()], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
@@ -113,7 +103,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
             try {
                 incoming = JSON.parse(content);
             } catch {
-                return setImportNote("Couldn't read that file. Is it a save exported from Settings?");
+                return setImportNote("Couldn't read that file. Is it a save exported from Save & restore?");
             }
             // Replacing real progress with someone else's (or an older) save asks first, in the page.
             const here = localStorage.getItem('brainrot-player-v1');
@@ -139,30 +129,9 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
     };
 
     return (
-        <Sheet title="Settings" onClose={onClose} size="sm" className="settings">
+        <Sheet title={section === 'save' ? 'Save & restore' : 'Sound & display'} onClose={onClose} size="sm" className="settings">
             {saveWarning && <p role="alert" className="save-warning">{saveWarning}</p>}
-            <section className="settings-group">
-                <h3 className="section-title" id="settings-player">Player</h3>
-                <div className="settings-panel">
-                    <label className="settings-field">
-                        <span className="settings-label">Name</span>
-                        <input
-                            className="settings-input"
-                            value={nameDraft}
-                            onChange={(e) => setNameDraft(Array.from(e.target.value).slice(0, MAX_NAME_LENGTH).join(''))}
-                            onBlur={saveName}
-                            onKeyDown={(e) => e.key === 'Enter' && saveName()}
-                            autoComplete="nickname"
-                            spellCheck={false}
-                        />
-                        <span className="settings-desc">
-                            Shown on pulls you share, next to your ID <span className="share-fp">#{player.fingerprint}</span>.
-                        </span>
-                    </label>
-                </div>
-            </section>
-
-            <section className="settings-group">
+            {section === 'sound' && <section className="settings-group">
                 <h3 className="section-title">Experience</h3>
                 <div className="settings-panel">
                     <SliderRow
@@ -197,9 +166,9 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
                         onChange={() => onSettingsChange({ ...settings, showDraftSets: !settings.showDraftSets })}
                     />
                 </div>
-            </section>
+            </section>}
 
-            <section className="settings-group">
+            {section === 'save' && <section className="settings-group">
                 <h3 className="section-title">Save data</h3>
                 <div className="settings-panel">
                     <div className="settings-row">
@@ -262,7 +231,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
                         </div>
                     )}
                 </div>
-            </section>
+            </section>}
             <section className="settings-group">
                 <h3 className="section-title">Help</h3>
                 <button type="button" className="btn btn--secondary" onClick={() => setReporting(true)}>Report a problem</button>

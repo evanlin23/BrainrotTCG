@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { ChevronRight, IdCard, Link2, Trophy } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import CardImage from '../cards/CardImage';
@@ -7,13 +7,10 @@ import Sheet from '../ui/Sheet';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
 import ProfileSummary from './ProfileSummary';
-import RewardsPanel from './RewardsPanel';
 import SharePreviewSheet from '../share/SharePreviewSheet';
 import { modifierClasses } from '../../game/modifiers';
 import { renderPlayerCard } from '../../game/playerCard';
-import type { Settings } from '../../types';
-import { packImageUrl } from '../../content/art';
-import { DEFAULT_SET_ID, getLatestSet, setCode } from '../../content/sets';
+import { getLatestSet, setCode } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
 import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
 import { STORAGE_KEYS } from '../../constants';
@@ -29,9 +26,8 @@ interface LegacyBest {
 
 interface MyProfilePageProps {
   stats: LegacyBest;
-  settings: Settings;
-  onSettingsChange: (settings: Settings) => void;
   onClose: () => void;
+  navigation?: ReactNode;
   onSharePull: (entry: HistoryEntry, cards: CardWithMeta[]) => void;
 }
 
@@ -51,7 +47,7 @@ const timeAgo = (t: number) => {
 };
 
 /** Your level and stats, a link that proves them, and every pack you've opened (newest first). */
-const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull }: MyProfilePageProps) => {
+const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePageProps) => {
   const player = getPlayer();
   const history = useMemo(() => getHistory(), []);
   // Re-opening runs in the background (game/profiles.ts); recount when a run ends.
@@ -145,7 +141,7 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
   return (
     <>
       <Sheet
-        title="Profile"
+        title="My cards"
         subtitle={
           <>
             {player.name} <span className="share-fp">#{player.fingerprint}</span>
@@ -155,6 +151,7 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
         size="lg"
         className="pulls-page"
       >
+        {navigation}
         {mine ? (
           <ProfileSummary
             stats={summary}
@@ -188,11 +185,6 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
           </div>
         )}
 
-        {mine && (
-          <div className="pulls-rewards">
-            <RewardsPanel level={summary.level} settings={settings} onSettingsChange={onSettingsChange} packImage={packImageUrl(DEFAULT_SET_ID)} />
-          </div>
-        )}
 
         {linkError && (
           <p className="pulls-note" role="alert">
@@ -205,7 +197,7 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
           <p className="pulls-note">
             Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
             These local totals are partial. A complete profile link or player card cannot be created from this save. Keep a private export
-            from Settings; if you have an older complete backup, it may contain the missing records.
+            (open Player, then Save & restore); if you have an older complete backup, it may contain the missing records.
           </p>
         )}
 

@@ -87,8 +87,9 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   (player ID and ticket), like the label on a graded card.
 - **Rows**: lists are rows (thumbnail, two lines of text, a value on the right, a chevron when it
   opens something), not cards in a grid. Settings use grouped rows with `.switch` toggles.
-- **App nav** (`ui/AppNav.tsx`): Collection, Profile, Hall of Fame, Achievements, Settings, each an
-  icon plus a label.
+- **App nav** (`ui/AppNav.tsx`): Open packs, My cards, Rankings, each an icon plus a label. My cards
+  switches between Cards and Best pulls with its own small nav. The header keeps the player utilities:
+  Player (display name, rewards, Goals & rewards, Save & restore) and a Sound & display gear.
 - **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.

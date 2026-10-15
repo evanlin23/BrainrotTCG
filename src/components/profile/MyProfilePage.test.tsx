@@ -2,7 +2,6 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SETTINGS } from '../../utils/settings';
 import MyProfilePage from './MyProfilePage';
 
 const { myProfileInfo, myProfileProof } = vi.hoisted(() => ({ myProfileInfo: vi.fn(), myProfileProof: vi.fn() }));
@@ -35,7 +34,7 @@ afterEach(() => {
 const render = () =>
   act(() =>
     root.render(
-      <MyProfilePage stats={{}} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onClose={() => {}} onSharePull={() => {}} />,
+      <MyProfilePage stats={{}} onClose={() => {}} onSharePull={() => {}} />,
     ),
   );
 const button = (label: string) =>
@@ -73,6 +72,8 @@ describe('profile link failures', () => {
     expect(button('Copy profile link').disabled).toBe(true);
     expect(button('Player card').disabled).toBe(true);
     expect(document.body.textContent).toContain('A complete profile link or player card cannot be created from this save.');
+    expect(document.body.textContent).toContain('Keep a private export (open Player, then Save & restore)');
+    expect(document.body.textContent).not.toMatch(/from Settings/);
     expect(button('Re-open them').disabled).toBe(false);
   });
 });
