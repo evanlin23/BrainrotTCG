@@ -76,9 +76,10 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Sheet** (`ui/Sheet.tsx`): every panel. A bottom sheet on phones, a centred dialog from 720px.
   Title, optional subtitle and sticky footer, close button, Escape, focus trap, scroll lock, focus
   returns to the opener. Sheets stack (a card opened from the collection sits on top of it). Sizes:
-  `sm` (settings, share), `md` (one pull), `lg` (collection, profile with its pull history,
-  achievements, pack shelf, Hall of Fame), `full` (supported full-viewport variant); `bare` for a
-  single big card.
+  `sm` (settings, the scoring guide, short notices such as an invalid link), `md` (one pull, share
+  previews, the pack behind an achievement), `lg` (collection, profiles with their pull history,
+  achievements, pack shelf, Hall of Fame), `full` (full-viewport variant, unused for now); `bare`
+  for a single big card.
 - **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one sheet holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.
