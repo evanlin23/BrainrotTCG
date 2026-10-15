@@ -10,6 +10,8 @@ import { POKER_HANDS, qualifiesForHallOfFame, type Finish } from '../engine';
 import { decodeCard, encodeCard, type StoredCard } from './cardCode';
 import { getStoredPack } from './packStore';
 import type { OpenedPack } from './pulls';
+import type { CardWithMeta } from '../components/cards/Card';
+import { getCard } from '../data/cards';
 
 export interface HistoryEntry {
   setId: string;
@@ -105,6 +107,19 @@ const sameTicket = (a: Stored, b: Stored) => a.k === b.k && a.n === b.n;
 
 /** Newest first. */
 export const getHistory = (): HistoryEntry[] => read().map(decode);
+
+/** A pack's cards as the app shows them, or null if the history has none for it. */
+export const historyCards = (entry: HistoryEntry): CardWithMeta[] | null =>
+  entry.cards
+    ?.map((c, i): CardWithMeta | null => {
+      const card = getCard(`${entry.setId}/${c.id}`);
+      if (!card) return null;
+      const meta: CardWithMeta = { ...card, uniqueId: i, isRevealed: true, isHolo: c.holo };
+      if (c.finish) meta.finish = c.finish;
+      if (c.misprint) meta.misprint = true;
+      return meta;
+    })
+    .filter((c): c is CardWithMeta => c !== null) ?? null;
 
 /** Good enough for the Hall of Fame (the same rule as its Submit button). */
 export const isHallOfFameWorthy = (entry: Pick<HistoryEntry, 'hand' | 'score'>): boolean => {
