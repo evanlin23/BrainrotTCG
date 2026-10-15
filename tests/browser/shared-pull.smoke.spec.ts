@@ -182,9 +182,9 @@ async function walkDestinations(page: Page) {
   await playerButton.click();
   let player = dialog('Player');
   await expect(player.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true })).toHaveValue('Browser smoke fixture');
-  await expect(player.getByRole('status')).toContainText('Player ID #');
+  await expect(player.getByText(/^Player ID #/)).toBeVisible();
   await player.getByRole('button', { name: 'Goals & rewards', exact: true }).click();
-  const goals = dialog('Achievements');
+  const goals = dialog('Goals & rewards');
   await expect(goals).toBeVisible();
   await expect(player).toHaveCount(0);
   await close(goals);
