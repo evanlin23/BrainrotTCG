@@ -106,6 +106,6 @@ describe('saved packs still being read', () => {
     expect(document.querySelector('.profile-summary')).toBeNull();
     act(() => button('Try again').click());
     expect(hydrateMyPacks).toHaveBeenCalledTimes(1);
-    expect(button('Re-open them').disabled).toBe(false);
+    expect(button('Re-open the packs instead').disabled).toBe(false);
   });
 });

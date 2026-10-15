@@ -425,7 +425,8 @@ export interface ProfileStats {
 
 /**
  * Fold packs in ticket order without retaining the history. Only distinct card ids and the best
- * requested packs remain resident, so a local IndexedDB reader can release each completed page.
+ * requested packs remain resident here; whether the packs fed in stay in memory is up to the
+ * caller (the app's pack cache, game/packStore.ts, currently keeps every pack it has read).
  * A snapshot owns its arrays/maps; later additions cannot change an earlier result.
  */
 export const profileStatsTracker = (bestCount = 5) => {

@@ -272,3 +272,19 @@ describe('leaving for Goals or Save with an unsaved draft', () => {
     expect(playerWrites()).toHaveLength(1);
   });
 });
+
+describe('while the level is unknown', () => {
+  const rerender = (level: number | null) => act(() => root.render(
+    <PlayerPage level={level} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onClose={onClose} onOpenGoals={onOpenGoals} onOpenSave={onOpenSave} />,
+  ));
+
+  it('shows a loading note instead of the rewards, then the rewards once the level is known', () => {
+    rerender(null);
+    expect(document.querySelector('.rewards')).toBeNull();
+    expect(document.body.textContent).toContain('Reading your saved packs… Your level and rewards will show once they\'re in.');
+    expect(document.body.textContent).not.toMatch(/Level \d/);
+    rerender(1);
+    expect(document.querySelector('.rewards')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('Reading your saved packs');
+  });
+});

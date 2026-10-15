@@ -108,25 +108,29 @@ const awaitsCache = (t: Ticket): boolean => !!t.set && t.fromCache && !t.pack;
 
 /*
  * Packs whose cards the history dropped live in IndexedDB (game/packStore.ts). Nothing loads the
- * whole store: they're read on demand, a bounded page at a time, your own tickets first. Until
- * yours are in, anything that would count them isn't shown: saved progress reads as loading (or
- * as a failed read), never as zero.
+ * whole store: they're read on demand, a bounded page at a time, in two steps. Your own tickets come
+ * first (`state`): until they're in, anything that would count them isn't shown, so saved progress
+ * reads as loading (or as a failed read), never as zero. Then the rest of the history (`history`,
+ * other players' packs saved on this device), which only the history lists and achievements need:
+ * a failed read there never hides your own stats.
  */
 export type PackCacheState = 'loading' | 'ready' | 'failed';
 
 const cache: {
   owner: string | null;
   state: PackCacheState;
+  history: PackCacheState;
   gen: number;
   run: Promise<PackCacheState> | null;
   signal: AbortSignal | undefined;
-} = { owner: null, state: 'loading', gen: 0, run: null, signal: undefined };
+} = { owner: null, state: 'loading', history: 'loading', gen: 0, run: null, signal: undefined };
 const cacheListeners = new Set<() => void>();
 let cacheVersion = 0;
 let lastRun: Promise<unknown> = Promise.resolve();
 
-const setCacheState = (state: PackCacheState) => {
+const setCacheState = (state: PackCacheState, history: PackCacheState = cache.history) => {
   cache.state = state;
+  cache.history = history;
   cacheVersion++;
   for (const listener of cacheListeners) listener();
 };
@@ -152,23 +156,46 @@ export const myPackCacheState = (): PackCacheState => {
   return 'ready';
 };
 
-/** Your tickets waiting on the store, then the rest of the history whose cards were dropped. */
-const cacheRefs = (snapshot: PlayerTickets): StoredPackRef[] => {
+/**
+ * Whether every pack in the history (yours and other players' saved on this device) is readable:
+ * what history achievements need before they can name the right pack and date.
+ */
+export const historyPacksState = (): PackCacheState => {
+  const own = myPackCacheState();
+  if (own !== 'ready') return own;
+  if (getHistory().every(e => e.cards)) return 'ready';
+  return cache.owner === getPlayer().publicKeyHex ? cache.history : 'loading';
+};
+
+const refId = (key: string, publicKeyHex: string, nonce: number) => `${key}|${publicKeyHex.slice(0, 16)}|${nonce}`;
+
+/** Your tickets waiting on the store. */
+const myCacheRefs = (snapshot: PlayerTickets): Map<string, StoredPackRef> => {
   const refs = new Map<string, StoredPackRef>();
-  const add = (key: string, publicKeyHex: string, nonce: number) => {
-    const id = `${key}|${publicKeyHex.slice(0, 16)}|${nonce}`;
-    if (!refs.has(id)) refs.set(id, { setKey: key, publicKeyHex, nonce });
-  };
-  for (const t of ticketsOf(snapshot)) if (t.set && awaitsCache(t)) add(setKey(t.set), snapshot.player.publicKeyHex, t.nonce);
-  // Other players' packs too (an earlier save on this device): the history lists and achievements show them.
-  for (const e of getHistory()) if (!e.cards) add(`${e.setId}@${e.setVersion}`, e.key, e.nonce);
+  const { publicKeyHex } = snapshot.player;
+  for (const t of ticketsOf(snapshot)) {
+    if (t.set && awaitsCache(t)) refs.set(refId(setKey(t.set), publicKeyHex, t.nonce), { setKey: setKey(t.set), publicKeyHex, nonce: t.nonce });
+  }
+  return refs;
+};
+
+/** The rest of the history whose cards were dropped (other players' packs from an earlier save on this device). */
+const historyCacheRefs = (skip: ReadonlyMap<string, StoredPackRef>): StoredPackRef[] => {
+  const refs = new Map<string, StoredPackRef>();
+  for (const e of getHistory()) {
+    if (e.cards) continue;
+    const key = `${e.setId}@${e.setVersion}`;
+    const id = refId(key, e.key, e.nonce);
+    if (!skip.has(id) && !refs.has(id)) refs.set(id, { setKey: key, publicKeyHex: e.key, nonce: e.nonce });
+  }
   return [...refs.values()];
 };
 
 /**
- * Read the current player's saved packs into memory, a page at a time. Calling it while a run for
- * the same player is going joins that run. Resolves 'ready', 'failed', or 'loading' when the run
- * was aborted or the player changed meanwhile (its results are dropped). Never rejects.
+ * Read the current player's saved packs into memory, a page at a time, then the rest of the
+ * history's. Calling it while a run for the same player is going joins that run. Resolves your own
+ * packs' state: 'ready', 'failed', or 'loading' when the run was aborted or the player changed
+ * meanwhile (its results are dropped). Never rejects.
  */
 export const hydrateMyPacks = (signal?: AbortSignal): Promise<PackCacheState> => {
   const owner = getPlayer().publicKeyHex;
@@ -177,10 +204,12 @@ export const hydrateMyPacks = (signal?: AbortSignal): Promise<PackCacheState> =>
   const ownerChanged = cache.owner !== owner;
   cache.owner = owner;
   cache.signal = signal;
-  if (ownerChanged || cache.state !== 'ready') setCacheState('loading');
+  if (ownerChanged || cache.state !== 'ready') setCacheState('loading', 'loading');
+  else if (cache.history !== 'loading') setCacheState('ready', 'loading');
   const keep = () => cache.gen === gen && getPlayer().publicKeyHex === owner;
   const previous = lastRun;
   const run: Promise<PackCacheState> = (async () => {
+    let mine: Map<string, StoredPackRef>;
     try {
       // One run reads at a time (the store allows two reads in flight; a page is never re-asked).
       await previous;
@@ -188,22 +217,33 @@ export const hydrateMyPacks = (signal?: AbortSignal): Promise<PackCacheState> =>
       if (!keep()) return 'loading';
       const snapshot = getPlayerTickets();
       if (snapshot.player.publicKeyHex !== owner) return 'loading';
-      if (!(await hydratePackStore(cacheRefs(snapshot), signal, keep)) || !keep()) return 'loading';
+      mine = myCacheRefs(snapshot);
+      if ((mine.size > 0 && !(await hydratePackStore([...mine.values()], signal, keep))) || !keep()) return 'loading';
       setCacheState('ready');
-      return 'ready';
     } catch (error) {
       if (signal?.aborted || !keep()) return 'loading';
       console.error('Reading saved packs failed', error);
       // Packs already read stay readable; only a first read that failed leaves them unknown.
-      if (cache.state !== 'ready') setCacheState('failed');
+      setCacheState(cache.state === 'ready' ? 'ready' : 'failed', 'failed');
       return cache.state;
-    } finally {
-      if (cache.gen === gen) {
-        cache.run = null;
-        cache.signal = undefined;
-      }
     }
-  })();
+    // Your own stats are settled: a failed read of other players' packs only holds back the history.
+    try {
+      const rest = historyCacheRefs(mine);
+      if ((rest.length > 0 && !(await hydratePackStore(rest, signal, keep))) || !keep()) return 'ready';
+      setCacheState('ready', 'ready');
+    } catch (error) {
+      if (signal?.aborted || !keep()) return 'ready';
+      console.error('Reading saved packs failed', error);
+      setCacheState('ready', 'failed');
+    }
+    return 'ready';
+  })().finally(() => {
+    if (cache.gen === gen) {
+      cache.run = null;
+      cache.signal = undefined;
+    }
+  });
   cache.run = run;
   lastRun = run;
   return run;

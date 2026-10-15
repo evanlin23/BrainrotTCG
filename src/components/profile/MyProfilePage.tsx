@@ -163,7 +163,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
             what="your level and stats"
             onFailed={
               <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
-                Re-open them
+                Re-open the packs instead
               </button>
             }
           />
