@@ -20,8 +20,9 @@ import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { extractProfile, extractProof } from './engine';
 import { clearPendingPack, takePendingPack, type OpenedPack, type PullRef } from './game/pulls';
 import { importSaveFile } from './game/saveFile';
-import { getStoredData } from './utils/storage';
+import { getStoredData, setStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
+import { hasCollectionRecovery, persistCollection } from './game/collectionRecovery';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { myStats, onReopenProgress } from './game/profiles';
@@ -41,6 +42,8 @@ import swedenSrc from './assets/audio/Sweden.mp3';
 
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
+const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
+const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. Export a backup from Settings to recover it.';
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
@@ -49,6 +52,33 @@ function App() {
   const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(STORAGE_KEYS.HALL_OF_FAME, {}));
 
   const [settings, setSettings] = useState<Settings>(() => readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)));
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [collectionArchived, setCollectionArchived] = useState(hasCollectionRecovery);
+  // One warning for every storage problem, in the banner and in Settings.
+  const saveWarning = [saveFailed && SAVE_WARNING, collectionArchived && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
+  const achievementsRef = useRef(achievements);
+  const previousProgress = useRef<Map<string, unknown> | null>(null);
+
+  // Persist committed state, never during a React updater (which can be replayed).
+  // Skip the initial snapshot and do not retry automatically or imply a multi-field commit.
+  useEffect(() => {
+    const fields: [string, unknown][] = [
+      [STORAGE_KEYS.ACHIEVEMENTS, achievements], [STORAGE_KEYS.STATS, stats],
+      [STORAGE_KEYS.HALL_OF_FAME, hallOfFame], [STORAGE_KEYS.SETTINGS, settings],
+    ];
+    const previous = previousProgress.current;
+    previousProgress.current = new Map([[STORAGE_KEYS.COLLECTION, collection], ...fields]);
+    if (!previous) return;
+    // The collection archives stored entries it couldn't read before replacing them (or keeps them).
+    if (previous.get(STORAGE_KEYS.COLLECTION) !== collection) {
+      const result = persistCollection(collection);
+      if (result === 'recovered') setCollectionArchived(true);
+      if (result === 'blocked') setSaveFailed(true);
+    }
+    for (const [key, value] of fields) {
+      if (previous.get(key) !== value && !setStoredData(key, value)) setSaveFailed(true);
+    }
+  }, [collection, achievements, stats, hallOfFame, settings]);
 
   const [isCollectionOpen, setIsCollectionOpen] = useState(false);
   const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
@@ -179,14 +209,12 @@ function App() {
     // Apply retroactive achievements (without notifications to avoid spam on load)
     if (retroactiveAchievements.length > 0) {
       const timestamp = Date.now();
-      setAchievements(prev => {
-        const next = { ...prev };
-        retroactiveAchievements.forEach(id => {
-          if (!next[id]) next[id] = timestamp;
-        });
-        localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
-        return next;
+      const next = { ...achievementsRef.current };
+      retroactiveAchievements.forEach(id => {
+        if (!next[id]) next[id] = timestamp;
       });
+      achievementsRef.current = next;
+      setAchievements(next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
@@ -194,21 +222,19 @@ function App() {
   // Packs in the history that never got their pack achievements (merged in from a save, or opened
   // before the achievement existed). Unlocked quietly, dated and linked to the pack that earned them.
   const unlockFromHistory = useCallback(() => {
-    const history = getHistory();
-    setAchievements(prev => {
-      const found = checkHistoryAchievements(history, prev);
-      if (found.length === 0) return prev;
-      const next = { ...prev };
-      for (const { id, entry, cards } of found) {
-        next[id] = {
-          unlockedAt: entry.openedAt,
-          ...(cards ? { pack: cards } : {}),
-          ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
-        };
-      }
-      localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
-      return next;
-    });
+    const found = checkHistoryAchievements(getHistory(), achievementsRef.current);
+    if (found.length === 0) return;
+    const next = { ...achievementsRef.current };
+    for (const { id, entry, cards } of found) {
+      next[id] = {
+        unlockedAt: entry.openedAt,
+        ...(cards ? { pack: cards } : {}),
+        ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
+      };
+    }
+    // Keep later live commands on the same snapshot; persistence follows the guarded effect.
+    achievementsRef.current = next;
+    setAchievements(next);
   }, []);
 
   useEffect(() => {
@@ -226,33 +252,13 @@ function App() {
     const achievement = getAchievementById(achievementId);
     if (!achievement) return;
 
-    let wasUnlocked = false;
-    setAchievements(prev => {
-      // Check inside functional update to avoid stale closure
-      if (prev[achievementId]) return prev;
-
-      wasUnlocked = true;
-      const achievementData: AchievementData = {
-        unlockedAt: Date.now(),
-        pack: pack,
-        ...(ref ? { ref } : {}),
-      };
-      const next = { ...prev, [achievementId]: achievementData };
-      localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(next));
-      return next;
-    });
-
-    // Only add to notification queue if we actually unlocked it
-    // Use setTimeout to ensure state has updated
-    setTimeout(() => {
-      if (wasUnlocked) {
-        setNotificationQueue(prev => {
-          // Prevent duplicates in queue
-          if (prev.some(a => a.id === achievementId)) return prev;
-          return [...prev, achievement];
-        });
-      }
-    }, 0);
+    // Commands can unlock several achievements before React renders; deduplicate immediately.
+    if (achievementsRef.current[achievementId]) return;
+    const achievementData: AchievementData = { unlockedAt: Date.now(), pack, ...(ref ? { ref } : {}) };
+    const next = { ...achievementsRef.current, [achievementId]: achievementData };
+    achievementsRef.current = next;
+    setAchievements(next);
+    setNotificationQueue(prev => prev.some(a => a.id === achievementId) ? prev : [...prev, achievement]);
   }, []);
 
   const dismissNotifications = useCallback((ids: string[]) => {
@@ -271,7 +277,6 @@ function App() {
 
   const handleSettingsChange = useCallback((newSettings: Settings) => {
     setSettings(newSettings);
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
   }, []);
 
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
@@ -298,82 +303,72 @@ function App() {
     const pullRef = { setId: pack.setId, setVersion: pack.setVersion, nonce: pack.nonce, publicKeyHex: pack.publicKeyHex };
     const { points: packValue, hand: pokerHand, score } = scoreCards(newCards);
 
-    // Update stats using functional update to avoid stale closure
-    let updatedStats: Stats = stats;
-    setStats(prev => {
-      const newStats: Stats = {
-        ...prev,
-        packsOpened: (prev.packsOpened || 0) + 1,
-        holoCards: { ...prev.holoCards }
-      };
+    // Compute progress in the event handler; React state updaters stay free of side effects.
+    const updatedStats: Stats = {
+      ...stats,
+      packsOpened: (stats.packsOpened || 0) + 1,
+      holoCards: { ...stats.holoCards }
+    };
 
-      // Update highest pack value - compare against previous state
-      if (score > (prev.highestPackFlexValue || prev.highestPackValue || 0)) {
-        newStats.highestPackFlexValue = score;
-        newStats.highestPackBaseValue = packValue;
-        newStats.highestPackMultiplier = pokerHand.multiplier;
-        newStats.highestPackHandName = pokerHand.name;
-        newStats.highestPackCards = newCards;
-        newStats.highestPackRef = pullRef;
-        newStats.highestPackLegacy = false;
+    // Update highest pack value - compare against previous state
+    if (score > (stats.highestPackFlexValue || stats.highestPackValue || 0)) {
+      updatedStats.highestPackFlexValue = score;
+      updatedStats.highestPackBaseValue = packValue;
+      updatedStats.highestPackMultiplier = pokerHand.multiplier;
+      updatedStats.highestPackHandName = pokerHand.name;
+      updatedStats.highestPackCards = newCards;
+      updatedStats.highestPackRef = pullRef;
+      updatedStats.highestPackLegacy = false;
+    }
+
+    // Track holo cards
+    newCards.forEach(card => {
+      if (card.isHolo) {
+        updatedStats.holoCards[card.key] = true;
       }
-
-      // Track holo cards
-      newCards.forEach(card => {
-        if (card.isHolo) {
-          newStats.holoCards[card.key] = true;
-        }
-      });
-
-      localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(newStats));
-      updatedStats = newStats;
-      return newStats;
     });
+
+    setStats(updatedStats);
 
     // Update collection - track holo and normal counts separately
-    let updatedCollection: Record<string, CollectionItem> = {};
-    setCollection((prev) => {
-      const next = { ...prev };
+    const updatedCollection = { ...collection };
 
-      // Count normal and holo cards separately
-      const normalCounts: Record<string, number> = {};
-      const holoCounts: Record<string, number> = {};
-      newCards.forEach((card) => {
-        if (card.isHolo) {
-          holoCounts[card.key] = (holoCounts[card.key] || 0) + 1;
-        } else {
-          normalCounts[card.key] = (normalCounts[card.key] || 0) + 1;
-        }
-      });
-
-      // Get all unique card IDs from this pack
-      const cardIds = new Set(newCards.map(c => c.key));
-      cardIds.forEach((cardId) => {
-        const card = newCards.find(c => c.key === cardId);
-        if (!card) return;
-        const existing = next[cardId];
-        const finishes = { ...existing?.finishes };
-        let misprints = existing?.misprints ?? 0;
-        let modifierPoints = existing?.modifierPoints ?? 0;
-        for (const copy of newCards.filter((c) => c.key === cardId)) {
-          if (copy.finish) finishes[copy.finish] = (finishes[copy.finish] ?? 0) + 1;
-          if (copy.misprint) misprints++;
-          modifierPoints += cardPoints(copy.rarity, copy.isHolo, copy.finish, copy.misprint) - cardPoints(copy.rarity, copy.isHolo);
-        }
-        next[cardId] = {
-          card: { key: card.key, setId: card.setId, id: card.id, name: card.name, rarity: card.rarity, image: card.image },
-          normalCount: (existing?.normalCount || 0) + (normalCounts[cardId] || 0),
-          holoCount: (existing?.holoCount || 0) + (holoCounts[cardId] || 0),
-          ...(Object.keys(finishes).length ? { finishes } : {}),
-          ...(misprints ? { misprints } : {}),
-          ...(modifierPoints ? { modifierPoints } : {}),
-        };
-      });
-
-      localStorage.setItem(STORAGE_KEYS.COLLECTION, JSON.stringify(next));
-      updatedCollection = next;
-      return next;
+    // Count normal and holo cards separately
+    const normalCounts: Record<string, number> = {};
+    const holoCounts: Record<string, number> = {};
+    newCards.forEach((card) => {
+      if (card.isHolo) {
+        holoCounts[card.key] = (holoCounts[card.key] || 0) + 1;
+      } else {
+        normalCounts[card.key] = (normalCounts[card.key] || 0) + 1;
+      }
     });
+
+    // Get all unique card IDs from this pack
+    const cardIds = new Set(newCards.map(c => c.key));
+    cardIds.forEach((cardId) => {
+      const card = newCards.find(c => c.key === cardId);
+      if (!card) return;
+      const existing = updatedCollection[cardId];
+      const finishes = { ...existing?.finishes };
+      let misprints = existing?.misprints ?? 0;
+      let modifierPoints = existing?.modifierPoints ?? 0;
+      for (const copy of newCards.filter((c) => c.key === cardId)) {
+        if (copy.finish) finishes[copy.finish] = (finishes[copy.finish] ?? 0) + 1;
+        if (copy.misprint) misprints++;
+        modifierPoints += cardPoints(copy.rarity, copy.isHolo, copy.finish, copy.misprint) - cardPoints(copy.rarity, copy.isHolo);
+      }
+      updatedCollection[cardId] = {
+        card: { key: card.key, setId: card.setId, id: card.id, name: card.name, rarity: card.rarity, image: card.image },
+        normalCount: (existing?.normalCount || 0) + (normalCounts[cardId] || 0),
+        holoCount: (existing?.holoCount || 0) + (holoCounts[cardId] || 0),
+        ...(Object.keys(finishes).length ? { finishes } : {}),
+        ...(misprints ? { misprints } : {}),
+        ...(modifierPoints ? { modifierPoints } : {}),
+      };
+    });
+
+    setCollection(updatedCollection);
 
     // Check Hall of Fame milestones
     const updatedHallOfFame = { ...hallOfFame };
@@ -409,7 +404,6 @@ function App() {
 
     if (updatedHallOfFame !== hallOfFame) {
       setHallOfFame(updatedHallOfFame);
-      localStorage.setItem(STORAGE_KEYS.HALL_OF_FAME, JSON.stringify(updatedHallOfFame));
     }
 
     // Check pack value achievements - unlockAchievement handles duplicates internally
@@ -417,10 +411,7 @@ function App() {
     packValueAchievements.forEach(id => unlockAchievement(id, newCards, pullRef));
 
     // Check other achievements - get current state to avoid stale closure
-    setAchievements(currentAchievements => {
-      checkAllAchievements(newCards, pullRef, updatedCollection || collection, updatedStats, currentAchievements);
-      return currentAchievements;
-    });
+    checkAllAchievements(newCards, pullRef, updatedCollection || collection, updatedStats, achievementsRef.current);
   }, [stats, hallOfFame, collection, checkAllAchievements, unlockAchievement]);
 
   // A pack whose reveal never finished (a reload, a closed tab): its ticket is spent, so it still counts.
@@ -454,6 +445,7 @@ function App() {
 
   return (
     <div className={`app ${packBusy ? 'is-focus' : ''}`}>
+      {saveWarning && !isSettingsOpen && <p role="alert" className="save-warning">{saveWarning}</p>}
       <header className="app-header">
         <h1 className="app-logo" aria-label="Brainrot TCG">
           {'Brainrot TCG'.split('').map((char, i) =>
@@ -553,6 +545,7 @@ function App() {
           onSettingsChange={handleSettingsChange}
           onClose={() => setIsSettingsOpen(false)}
           onImportSave={handleImportSave}
+          saveWarning={saveWarning}
         />
       )}
     </div>

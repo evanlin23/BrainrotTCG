@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
-import { importSaveFile } from './saveFile';
+import { exportSaveFile, importSaveFile } from './saveFile';
 import { exportPlayer, importPlayer, peekNonce } from './player';
 
 const player = (secretKey = 'aa'.repeat(32), nextNonce = 7) => JSON.stringify({ secretKey, name: 'Combo Miner', nextNonce, createdAt: 1 });
@@ -68,6 +68,8 @@ describe('Settings backup preflight', () => {
     ['non-string encoded field', { stats: {} }],
     ['collection array', { collection: '[]' }],
     ['null collection item', { collection: '{"x":null}' }],
+    ['invalid recovery envelope', { collectionRecovery: '{"raw":null,"player":null}' }],
+    ['missing recovery identity snapshot', { collectionRecovery: '{"raw":"opaque"}' }],
     ['unknown historical card without set ID', { collection: JSON.stringify({ x: { card: { id: 'nonexistent', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' }, normalCount: 1 } }) }],
     ['unresolvable partial card', { collection: '{"x":{"card":{"id":"nonexistent"}}}' }],
     ['prototype finish name', { collection: JSON.stringify({ x: { card: { ...ALL_CARDS[0], finish: '__proto__' } } }) }],
@@ -188,4 +190,59 @@ describe('direct identity import uses the same preflight', () => {
     expect(write).not.toHaveBeenCalled();
     expect(store).toEqual(before);
   });
+});
+
+
+describe('private collection recovery archive portability', () => {
+  it('imports the exact damaged bytes and original identity separately from the active collection', () => {
+    const damaged = '{ damaged raw bytes (not valid JSON)';
+    const originalPlayer = player('cc'.repeat(32), 91);
+    const archive = JSON.stringify({ raw: damaged, player: originalPlayer });
+    const incoming = { ...fixture(), collectionRecovery: archive };
+    expect(importSaveFile(JSON.stringify(incoming))).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(incoming.collection);
+    expect(exportPlayer()).toBe(incoming.player);
+    expect(JSON.parse(archive).player).not.toBe(incoming.player);
+  });
+
+  it('backs up an existing archive before importing a different one', () => {
+    const previous = JSON.stringify({ raw: '{old}', player: player('bb'.repeat(32), 12) });
+    store.set(STORAGE_KEYS.COLLECTION_RECOVERY, previous);
+    const incoming = JSON.stringify({ raw: '{new}', player: null });
+    expect(importSaveFile(JSON.stringify({ ...fixture(), collectionRecovery: incoming }))).toBeNull();
+    expect(JSON.parse(store.get('brainrot-before-import-v1')!)[STORAGE_KEYS.COLLECTION_RECOVERY]).toBe(previous);
+    expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(incoming);
+  });
+});
+
+
+it('round-trips an opaque recovery archive through the serializer Settings actually downloads', () => {
+  const raw = '{ definitely not collection JSON\n';
+  const archive = JSON.stringify({ raw, player: player('cc'.repeat(32), 91) });
+  store.set(STORAGE_KEYS.COLLECTION_RECOVERY, archive);
+  const exported = exportSaveFile();
+  expect(JSON.parse(exported).collectionRecovery).toBe(archive);
+  const originalPlayer = JSON.parse(exported).player;
+  store.clear();
+  expect(importSaveFile(exported)).toBeNull();
+  expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
+  expect(JSON.parse(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(raw);
+  expect(exportPlayer()).toBe(originalPlayer);
+});
+
+
+it('restores the exact previous recovery archive if a later imported field fails', () => {
+  const previous = JSON.stringify({ raw: '{old raw bytes}', player: player('bb'.repeat(32), 12) });
+  store.set(STORAGE_KEYS.COLLECTION_RECOVERY, previous);
+  const incoming = JSON.stringify({ raw: '{new raw bytes}', player: null });
+  let failed = false;
+  write.mockImplementation((key, value) => {
+    if (key === STORAGE_KEYS.STATS && !failed) { failed = true; throw new Error('quota'); }
+    store.set(key, value);
+  });
+  expect(importSaveFile(JSON.stringify({ ...fixture(), collectionRecovery: incoming })))
+    .toBe('Import failed. Your previous save data was restored.');
+  expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(previous);
+  expect(JSON.parse(store.get('brainrot-before-import-v1')!)[STORAGE_KEYS.COLLECTION_RECOVERY]).toBe(previous);
 });
