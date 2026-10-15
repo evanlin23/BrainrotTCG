@@ -34,8 +34,9 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
 
-CI runs `npm run check`, `npm run build`, the Python verifier and the browser smoke on every pull
-request and on pushes to branches other than main. The deploy workflow runs `npm run check` again before deploying main.
+CI runs `npm run check`, `npm run build`, the Python verifier, the browser smoke and actionlint on
+every pull request and on pushes to branches other than main. The deploy workflow runs the verifier
+and `npm run check` again before deploying main.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
@@ -54,6 +55,24 @@ identity with muted audio, opens one real pack on desktop and Pixel 5 viewports,
 stats, collection and history survive a reload. Failure traces, screenshots and videos land in
 `test-results/` (uploaded by CI). It covers that one journey only: agent-audit and physical-device
 checks don't exist yet, so do those by hand against the preview and describe them in the PR.
+
+## Mounted integration tests
+
+`src/test/mountedApp.ts` mounts the real `App` in jsdom: StrictMode, migrations, the memory-only
+pack store, fake timers fixed at 2026-01-01, and a simulated ticket Worker that runs the real
+Argon2 computation. It blocks and records fetch, WebSocket, XHR, `window.open`, beacons and form
+submits. Use it for a regression that needs the whole app across interactions or a reload (a pack
+opening, collection recovery, save warnings). Keep plain unit tests for single functions, and the
+browser smoke for real rendering, images, IndexedDB and Workers, which jsdom can't show.
+
+A bug PR adds its regression as `src/test/<topic>.integration.test.ts`, with the same
+`@vitest-environment` and `@vitest-environment-options` header lines as the existing files. Each
+test owns its fixture: it seeds only a disposable player and the settings it needs (never a real
+save), drives the UI with `interact()`, waits for one observable outcome with
+`until(description, assertion)`, and claims expected console errors with `takeErrors()`.
+`dispose()` in `afterEach` fails on any other error, warning or I/O and restores storage, timers,
+globals and modules. Run one with
+`npx vitest run src/test/packLifecycle.integration.test.ts`; `npm test` runs them all.
 
 ## Performance baseline
 
