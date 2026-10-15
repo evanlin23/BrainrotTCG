@@ -23,6 +23,17 @@
   padding: var(--space-3) var(--gutter) var(--space-2);
 }
 
+.save-warning {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2) var(--gutter);
+  border-bottom: 1px solid var(--warning);
+  background: var(--bg-elevated);
+  color: var(--warning);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
 .app-logo {
   font-family: var(--font-logo);
   font-size: clamp(1.75rem, 1rem + 4vw, 3.25rem);
