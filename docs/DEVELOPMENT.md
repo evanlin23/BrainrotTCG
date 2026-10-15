@@ -18,8 +18,9 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 3. Keep one observable outcome per PR, with its regression test in the same PR.
 4. Open the PR as a draft and link the issue: `Fixes #n` only when it delivers the whole issue,
    `Refs #n` otherwise. Say what changed, what ran (pass or fail) and what didn't run.
-5. Passing CI is not approval to merge. The owner decides, and merges to main deploy automatically.
-   Never deploy, or submit real data such as Hall of Fame entries, as a test.
+5. A merge needs a reviewer's approval of the head and green CI on a branch that is up to date with
+   main. Only the owner approves new card sets or removing a set's draft flag. Merges to main deploy
+   automatically. Never deploy, or submit real data such as Hall of Fame entries, as a test.
 
 ## Checks
 
@@ -27,7 +28,7 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 | --- | --- |
 | While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
 | Before pushing | `npm run check` (lint, typecheck, all tests, set locks), once |
-| Changed `src/engine` or `spec/` | also `npx vitest run src/engine` and `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
+| Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build | also `npm run build` |
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
