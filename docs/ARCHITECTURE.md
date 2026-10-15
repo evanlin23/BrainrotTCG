@@ -278,14 +278,20 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
 
 Run everything with `npm run check`.
 
-## Local agent task audits
+## Local agent task audits (optional, local only)
 
-`npm run audit:agent -- --task=opening --seconds=90` runs a local disposable audit on Unix with Node 22, authenticated **Codex CLI 0.159.2**, `npm ci`, and the lockfile's Chromium (`npx playwright install chromium`). Other CLI versions fail closed pending capability review. This is separate from normal CI; `npm run check` and Actions need no agent account. Optional tasks are `--task=sharing`, `--task=results`, and `--task=recovery`. Start with one task: your provider may charge, and elapsed time is not a currency cap.
+`npm run audit:agent -- --task=opening --seconds=90` (tasks: `opening`, `sharing`, `results`,
+`recovery`; 30 to 180 seconds each, at most four, run one after another) lets a local Codex CLI
+0.159.2 agent try a newcomer task. It needs Unix, Node 22, that CLI already signed in, and
+Playwright's Chromium; any other CLI version fails closed. It is not part of `npm run check` or
+Actions, which need no agent account; `tests/browser/agent-audit.spec.ts` checks only the browser
+boundary, with no agent.
 
-The coordinator requires committed tracked files, rebuilds that exact revision and owns a strict-port Vite preview at 127.0.0.1:4197. Each task gets a fresh deterministic disposable identity/context and an empty agent working directory. Prompts contain the task only, without product history, source or expected labels/routes. These are fresh-user fixtures, not existing-profile coverage. The restricted MCP adapter offers visible accessibility snapshots, exact button/link clicks and navigation keys; no evaluation, arbitrary URL, files or saves. User config/rules, shell, extra browsers, apps/plugins and delegation tools are disabled. The CLI stays read-only; this is a constrained audit, not an OS sandbox for arbitrary hostile model output.
-
-The browser blocks external HTTP/WebSockets, POSTs, service workers, forms, popups, clipboard/native share, downloads and named export/import/submit controls. Local opening changes only disposable state. Sharing tasks may be blocked at this deliberate boundary; this does not establish that native sharing works. The coordinator never posts findings, merges or deploys.
-
-Tasks run sequentially: at most four, each 30–180 seconds and 40 browser calls; build limit 300 seconds. Ctrl-C cancels owned child process groups, contexts and server. `test-results/agent-audit.json` records the tested SHA, actual conditions/steps, agent outcome, generic errors, sanitized observations and explicit limitations. Invalid reports, missing tools/provider, timeout or cancellation exit nonzero as incomplete/unrun; completion needs recorded browser interaction. Raw provider output, screenshots, auth, private storage and exports are not retained. Review even sanitized prose before attaching it to a PR.
-
-The report includes a separate coordinator prompt for reproducing/deduplicating findings against existing issues and retesting affected tasks without coaching. Agent outcomes/timings are not human statistics and do not replace real phones, native share, screen readers or newcomers. Refs #239; canonical contributor guidance is being consolidated in #315/#216.
+The runner refuses uncommitted tracked changes, builds that revision and owns a strict-port preview
+at 127.0.0.1:4197. Each task gets a fresh disposable identity and a restricted MCP adapter
+(`scripts/agent-audit/`): accessibility snapshots, exact button or link clicks and navigation keys,
+at most 40 calls, with no evaluation, URLs, files or saves. The browser blocks external requests,
+WebSockets, POSTs, service workers, clipboard, native share, downloads and export, import, share and
+submit controls, so sharing tasks may stop at that boundary. It writes a sanitized
+`test-results/agent-audit.json` and never posts, merges or deploys. Agent outcomes are not human
+evidence. No real agent task run has been recorded yet (unrun). Refs #239.

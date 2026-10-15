@@ -100,7 +100,7 @@ for (const scenario of SCENARIOS) for (let repetition = 1; repetition <= REPETIT
         await page.evaluate((key) => localStorage.setItem(key, '{}'), STORAGE_KEYS.COLLECTION);
       }
       const before = await expectRecordedPack(page, historyCount, historyCount + 1);
-      // Verify the existing page HTTP/WebSocket guard and observed Worker HTTP interception. These
+      // Verify the existing context HTTP/WebSocket guard and observed Worker HTTP interception. These
       // reserved .invalid destinations cannot be public writes even if a guard regresses.
       expect(await page.evaluate(async () => (await fetch('https://baseline-egress.invalid/write', { method: 'POST', body: 'disposable-probe' })).status)).toBe(204);
       expect(await page.evaluate(() => new Promise<number>((resolve) => {

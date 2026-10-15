@@ -33,7 +33,7 @@ export default class PerformanceReporter implements Reporter {
         'open-to-result includes remaining ticket work after navigation-time prefetch, not total Argon2 duration',
         'Measured commit is this checkout, not deployed main or Cloudflare cache performance',
         'Both contexts are cold; Playwright routing disables HTTP cache. Warm-cache measurements remain #351 scope',
-        'Isolation matches #304 page HTTP/WebSocket routing; Worker HTTP interception is probed, Worker WebSockets are not proven guarded',
+        'Isolation matches the browser smoke context HTTP/WebSocket routing; Worker HTTP interception is probed, Worker WebSockets are not proven guarded',
         'Audited production ticket.worker.ts computes tickets only; no universal sandbox for arbitrary future workers',
         'CPU/network CDP settings target the page; equivalent throttling of worker execution is not established'],
     };

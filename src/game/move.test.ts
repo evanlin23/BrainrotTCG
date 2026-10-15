@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { importSave } from './move';
 
 /** Just enough of localStorage and window for importSave. */
@@ -26,6 +26,7 @@ describe('bringing a save over', () => {
     confirm.mockClear();
     confirm.mockReturnValue(true);
   });
+  afterEach(() => vi.restoreAllMocks());
 
   it('takes a save into an empty address without asking', () => {
     expect(importSave(OLD)).toBe('saved');
@@ -93,5 +94,64 @@ describe('bringing a save over', () => {
     expect(importSave(OLD, () => true)).toBe('saved');
     expect(store.get('brainrot-player-v1')).toBe(player('aa'));
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: 'quota exhausted, no previous backup', error: 'QuotaExceededError', previousBackup: false },
+    { name: 'quota exhausted, previous backup', error: 'QuotaExceededError', previousBackup: true },
+    { name: 'storage denied, no previous backup', error: 'SecurityError', previousBackup: false },
+    { name: 'storage denied, previous backup', error: 'SecurityError', previousBackup: true },
+  ])('keeps all current data when backing up fails: $name', ({ error, previousBackup }) => {
+    store.set('brainrot-player-v1', player('bb'));
+    store.set('brainrot-stats-v1', '{"packsOpened":4}');
+    store.set('brainrot-found-collection-v1', '{"original":{"normalCount":2}}');
+    store.set('unrelated-key', 'leave alone');
+    if (previousBackup) store.set('brainrot-before-move-v1', '{"previous":"backup"}');
+    const original = new Map(store);
+    const remove = vi.spyOn(localStorage, 'removeItem');
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'brainrot-before-move-v1') throw new DOMException('Injected backup failure', error);
+      store.set(key, value);
+    });
+
+    expect(importSave(OLD, () => true)).toBe('invalid');
+    expect(store).toEqual(original);
+    expect(remove).not.toHaveBeenCalled();
+    expect(write).toHaveBeenCalledExactlyOnceWith('brainrot-before-move-v1', JSON.stringify({
+      'brainrot-player-v1': original.get('brainrot-player-v1'),
+      'brainrot-stats-v1': original.get('brainrot-stats-v1'),
+      'brainrot-found-collection-v1': original.get('brainrot-found-collection-v1'),
+    }));
+  });
+
+  it('persists the complete replaced save before any key is removed', () => {
+    const original = {
+      'brainrot-player-v1': player('bb'),
+      'brainrot-stats-v1': '{"packsOpened":4}',
+      'brainrot-found-collection-v1': '{"original":{"normalCount":2}}',
+      'brainrot-custom-cache': 'retained in backup',
+    };
+    for (const [key, value] of Object.entries(original)) store.set(key, value);
+    store.set('brainrot-before-move-v1', '{"previous":"backup"}');
+    store.set('unrelated-key', 'leave alone');
+    const events: string[] = [];
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      events.push(key === 'brainrot-before-move-v1' ? 'backup' : 'incoming');
+      store.set(key, value);
+    });
+    const remove = vi.spyOn(localStorage, 'removeItem').mockImplementation((key) => {
+      expect(JSON.parse(store.get('brainrot-before-move-v1')!)).toEqual(original);
+      events.push('remove');
+      store.delete(key);
+    });
+
+    expect(importSave({ ...OLD, 'brainrot-before-move-v1': 'incoming must not replace backup' }, () => true)).toBe('saved');
+    expect(events).toEqual(['backup', ...Object.keys(original).map(() => 'remove'), ...Object.keys(OLD).map(() => 'incoming')]);
+    expect(remove).toHaveBeenCalledTimes(Object.keys(original).length);
+    expect(store.get('brainrot-before-move-v1')).toBe(JSON.stringify(original));
+    expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
+    expect(store.get('brainrot-found-collection-v1')).toBe(OLD['brainrot-found-collection-v1']);
+    expect(store.get('brainrot-stats-v1')).toBeUndefined();
+    expect(store.get('unrelated-key')).toBe('leave alone');
   });
 });
