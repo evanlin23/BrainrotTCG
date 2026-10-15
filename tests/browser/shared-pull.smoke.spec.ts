@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Request } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { verifyProof } from '../../src/engine/proof';
 import type { PulledCard, SetDefinition } from '../../src/engine/types';
@@ -27,20 +27,97 @@ const lookup = (setId: string, version: number) => {
 const asVector = ({ cardId, rarity, isHolo, finish, misprint }: PulledCard) =>
   finish === undefined ? { cardId, rarity, isHolo } : { cardId, rarity, isHolo, finish, misprint };
 
-// Routing disables Chromium's HTTP cache, so card art is refetched on every mount, and a load that is
-// superseded (a finish frame or misprint ghost replacing it, or the page being left) aborts. That is
-// not a missing asset: status >= 400 is still reported and every image shown must decode. Chromium
-// fetches the favicon after load, so reloading or leaving soon after can abort that one request too;
-// only that exact abort is forgiven, and a missing favicon still reports its status.
-const loadFailures = (errors: string[], baseURL: string) => errors.filter((error) =>
-  !/^net::ERR_ABORTED \S+\/assets\/[\w-]+\.webp$/.test(error) && error !== `net::ERR_ABORTED ${new URL('logo.png', baseURL).href}`);
+// Load failures that are not missing assets. Chromium fetches the favicon after load, so leaving or
+// reloading soon after can abort that request. Routing disables Chromium's HTTP cache, so a card shown
+// with a finish requests its plain art again each time it mounts, and that request is cancelled once
+// the cached finished frame replaces it. Only those exact aborts are forgiven: any other aborted
+// request, and every status >= 400 (a missing favicon or card art included), fails the journey.
+const ABORTED = 'net::ERR_ABORTED ';
+const loadFailures = (errors: string[], baseURL: string, finishedCardIds: readonly string[] = []) => {
+  const logo = new URL('logo.png', baseURL).href;
+  const assets = new URL('assets/', baseURL).href;
+  const forgiven = (url: string) => url === logo || (url.startsWith(assets)
+    && finishedCardIds.some((cardId) => new RegExp(`^${cardId}-[\\w-]{8}\\.webp$`).test(url.slice(assets.length))));
+  return errors.filter((error) => !(error.startsWith(ABORTED) && forgiven(error.slice(ABORTED.length))));
+};
 
 // Opening a shared pull verifies its Argon2id ticket in a worker, which is slow on a cold mobile run.
 // Rejections use the same budget so the two paths are held to one standard.
 const VIEWER_TIMEOUT = 20000;
 
-/** Leaving or reloading the app cancels the fonts it is still fetching, so wait until they finish. */
-const fontsSettled = (page: Page) => page.evaluate(async () => { await document.fonts.ready; });
+// Built-browser journeys verify Argon2id tickets and walk every card, so each gets the same budget.
+const JOURNEY_TIMEOUT = 60000;
+
+/**
+ * Shared journey setup: records load failures and returns `openRoute`, which enters the app at `route`
+ * as a cold load (or reloads it when no route is given) and waits until it is ready. Every entry leaves
+ * the current document first, so the app reads the route's fragment when it mounts rather than as a
+ * same-document hash change (which page.goto reports as null). Leaving cancels whatever is still
+ * loading, so before every exit fonts, background work and requests settle; fonts settle after every
+ * arrival too.
+ */
+async function startJourney(page: Page, baseURL: string) {
+  const errors = await monitor(page, baseURL);
+  // On every mount the app mines the next pack's ticket in a worker, then preloads that pack's art with
+  // new Image(). The page counts both (observing only: messages and images pass through unchanged), so
+  // a journey can wait until that work is idle instead of racing it.
+  await page.addInitScript(() => {
+    let jobs = 0;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      private outstanding = 0;
+      constructor(...args: ConstructorParameters<typeof Worker>) {
+        super(...args);
+        this.addEventListener('message', () => this.settle(1));
+        this.addEventListener('error', () => this.settle(this.outstanding));
+      }
+      private settle(count: number) {
+        const settled = Math.min(count, this.outstanding);
+        this.outstanding -= settled;
+        jobs -= settled;
+      }
+      override postMessage(message: unknown, options?: Transferable[] | StructuredSerializeOptions) {
+        this.outstanding++;
+        jobs++;
+        if (options === undefined) super.postMessage(message);
+        else super.postMessage(message, options as StructuredSerializeOptions);
+      }
+      override terminate() {
+        this.settle(this.outstanding);
+        super.terminate();
+      }
+    };
+    const images = new Set<WeakRef<HTMLImageElement>>();
+    const NativeImage = window.Image;
+    window.Image = Object.assign(function TrackedImage(width?: number, height?: number) {
+      const image = new NativeImage(width, height);
+      images.add(new WeakRef(image));
+      return image;
+    }, { prototype: NativeImage.prototype }) as unknown as typeof Image;
+    Object.defineProperty(window, '__journeyIdle', {
+      value: () => jobs === 0 && [...images].every((image) => image.deref()?.complete ?? true),
+    });
+  });
+  const origin = `${new URL(baseURL).origin}/`;
+  const inFlight = new Set<Request>();
+  page.on('request', (request) => { if (request.url().startsWith(origin)) inFlight.add(request); });
+  page.on('requestfinished', (request) => inFlight.delete(request));
+  page.on('requestfailed', (request) => inFlight.delete(request));
+  const fontsSettled = () => page.evaluate(async () => { await document.fonts.ready; });
+  async function openRoute(route?: string) {
+    if (page.url() !== 'about:blank') {
+      await fontsSettled();
+      await page.waitForFunction(() => (window as unknown as { __journeyIdle: () => boolean }).__journeyIdle(), undefined, { timeout: VIEWER_TIMEOUT });
+      await expect.poll(() => [...inFlight].map((request) => request.url())).toEqual([]);
+      if (route !== undefined) await page.goto('about:blank');
+    }
+    const response = route === undefined ? await page.reload() : await page.goto(route);
+    expect(response?.status()).toBe(200);
+    await expect(page.locator('.app-logo')).toBeVisible();
+    await fontsSettled();
+  }
+  return { errors, openRoute };
+}
 
 const proofState = async (page: Page) => ({
   recorded: await snapshot(page),
@@ -59,10 +136,9 @@ const cases = [
 
 for (const { vector, entry } of cases) {
   test(`verifies ${vector.note} from ${entry}, inspects exact cards and returns to opening`, async ({ page, baseURL }) => {
-    test.setTimeout(60000);
-    const errors = await monitor(page, baseURL!);
-    await page.goto('./');
-    await expect(page.locator('.app-logo')).toBeVisible();
+    test.setTimeout(JOURNEY_TIMEOUT);
+    const { errors, openRoute } = await startJourney(page, baseURL!);
+    await openRoute('./');
     const before = await proofState(page);
     const [setId, version] = vector.set.split('@');
     const set = setFor(vector.set);
@@ -81,14 +157,7 @@ for (const { vector, entry } of cases) {
       : entry === 'pack-preview'
         ? previewPath({ setId, cardIds: ['remember-november'], hand: 'PAIR' })
         : '';
-    // Every entry is a cold load, so the app reads the fragment when it mounts. Leaving the app first
-    // keeps a direct link from becoming a same-document hash change (which page.goto reports as null).
-    if (!path) {
-      await fontsSettled(page);
-      await page.goto('about:blank');
-    }
-    const response = await page.goto(`./${path}#/pull/${vector.proof}`);
-    expect(response?.status()).toBe(200);
+    await openRoute(`./${path}#/pull/${vector.proof}`);
     // Static preview pages forward the fragment intact to the real application.
     await expect(page).toHaveURL(`${baseURL}#/pull/${vector.proof}`);
     const pull = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
@@ -142,12 +211,11 @@ for (const { vector, entry } of cases) {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page).toHaveURL(baseURL!);
     await expect(page.getByRole('button', { name: /^Open a .* pack$/ })).toBeEnabled();
-    await fontsSettled(page);
-    await page.reload();
-    await expect(page.locator('.app-logo')).toBeVisible();
+    await openRoute();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await proofState(page)).toEqual(before);
-    expect(loadFailures(errors, baseURL!)).toEqual([]);
+    const finishedCardIds = vector.cards.flatMap((card) => 'finish' in card && card.finish ? [card.cardId] : []);
+    expect(loadFailures(errors, baseURL!, finishedCardIds)).toEqual([]);
   });
 }
 
@@ -166,18 +234,16 @@ const invalidCases = [
 
 for (const invalid of invalidCases) {
   test(`rejects shared pull: ${'note' in invalid ? invalid.note : invalid.proof} (${invalid.entry})`, async ({ page, baseURL }) => {
+    test.setTimeout(JOURNEY_TIMEOUT);
     if ('rule' in invalid) {
       // The engine rejects it for the vector's rule; the app must show that, not render a pull.
       await expect(verifyProof(invalid.proof, lookup)).rejects.toMatchObject({ rule: invalid.rule });
     }
-    const errors = await monitor(page, baseURL!);
-    await page.goto('./');
-    await expect(page.locator('.app-logo')).toBeVisible();
+    const { errors, openRoute } = await startJourney(page, baseURL!);
+    await openRoute('./');
     const before = await proofState(page);
     if (invalid.entry === 'cold load') {
-      await fontsSettled(page);
-      await page.goto('about:blank');
-      expect((await page.goto(`./#/pull/${invalid.proof}`))?.status()).toBe(200);
+      await openRoute(`./#/pull/${invalid.proof}`);
     } else {
       // Hash navigation also tests replacing a route in an already mounted app.
       await page.evaluate((proof) => { window.location.hash = `#/pull/${proof}`; }, invalid.proof);
@@ -191,9 +257,7 @@ for (const invalid of invalidCases) {
     await expect(page).toHaveURL(baseURL!);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Open a .* pack$/ })).toBeEnabled();
-    await fontsSettled(page);
-    await page.reload();
-    await expect(page.locator('.app-logo')).toBeVisible();
+    await openRoute();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await proofState(page)).toEqual(before);
     expect(loadFailures(errors, baseURL!)).toEqual([]);
