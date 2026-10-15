@@ -55,12 +55,15 @@ repository **variable** (not a secret) `SITE_URL` to it, ending in `/` (for exam
 Deploys remain automatic on pushes to `main`; administrator bypass remains available. This checklist
 records release/recovery evidence, not a new approval workflow. In the release PR or incident, record:
 
-- Exact candidate/merged commit SHA, Actions run and actual production URL, host, Cloudflare project
-  (`CLOUDFLARE_PROJECT`, default `brainrottcg`) and deployment ID. Record public configuration, never tokens.
+- Exact candidate/merged commit SHA, Actions run, actual production URL and host, and on Cloudflare
+  the Pages project (`CLOUDFLARE_PROJECT`, default `brainrottcg`) and deployment ID. Record public
+  configuration, never tokens.
 - Results at that revision: `npm run check`, `npm run build`, independent Python verification and
-  relevant browser/storage/asset checks; name unrun checks and unresolved blockers. The current
-  [deploy workflow](../.github/workflows/deploy.yml) runs check/build, but not the separate
-  [CI independent verifier](../.github/workflows/ci.yml); do not assume it ran on a bypassed revision.
+  relevant browser/storage/asset checks; name unrun checks and unresolved blockers. The
+  [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
+  builds (`npm run check`, `npm run build`) and deploys only if it passes.
+  [CI](../.github/workflows/ci.yml) skips pushes to `main`, so do not assume its workflow lint
+  (actionlint) ran on a bypassed revision.
 - Reviewer/operator, decision and known-good rollback target. Save loss/corruption, broken historical
   verification, persistent blank screens/assets or inaccessible opening controls block a normal release;
   an emergency bypass must state what remains unverified.
