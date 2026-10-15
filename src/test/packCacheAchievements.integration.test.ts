@@ -68,3 +68,51 @@ it("dates history achievements by the pack that earned them, even when its cards
   });
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS)!).cardBack).toBe('midnight');
 });
+
+// Another player's pack from an earlier save on this device, whose cards only IndexedDB has.
+const FOREIGN = { s: 'genesis', v: 1, k: 'ff'.repeat(8), h: POKER_HANDS.NO_MATCH.name, x: 0, n: 0, t: 500 };
+
+it("never stores this tab's achievements over a save another tab imported or switched to", async () => {
+  app = await mountedApp(SEED);
+  localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([FOREIGN]));
+  // Reading the other player's pack waits until it's aborted, so the history isn't ready yet.
+  const store = await import('../game/packStore');
+  vi.spyOn(store, 'hydratePackStore').mockImplementation(async (_refs, signal) => {
+    signal?.throwIfAborted();
+    return new Promise<boolean>((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason)));
+  });
+  await app.mount();
+  await app.settle(500);
+
+  // Another tab imports a save: a new player, with packs whose achievements its save already has.
+  localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '0b'.repeat(32), name: 'Imported', nextNonce: 2, createdAt: 2 }));
+  const { getPlayer } = await import('../game/player');
+  const entry = { s: 'genesis', v: 1, k: getPlayer().publicKeyHex.slice(0, 16), h: POKER_HANDS.PAIR.name, x: 0 };
+  localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([{ ...entry, n: 0, c: SAVED, t: 3000 }, { ...entry, n: 1, c: CARDS, t: 4000 }]));
+  const imported = { first_pack: { unlockedAt: 1234 } };
+  localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(imported));
+  await app.interact(() => window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' })));
+  await app.settle(500);
+
+  // This tab's achievements belong to the player it loaded: nothing is unlocked from the new
+  // player's history, so nothing is written over their save (or reported as unsaved).
+  expect(achievements()).toEqual(imported);
+  expect(document.body.textContent).not.toContain("Some changes couldn't be saved");
+});
+
+it("unlocks achievements from your own packs when another player's saved pack can't be read", async () => {
+  app = await mountedApp(SEED);
+  const { getPlayer } = await import('../game/player');
+  const entry = { s: 'genesis', v: 1, k: getPlayer().publicKeyHex.slice(0, 16), h: POKER_HANDS.PAIR.name, x: 0 };
+  localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([FOREIGN, { ...entry, n: 0, c: CARDS, t: 2000 }, { ...entry, n: 1, c: CARDS, t: 3000 }]));
+  const store = await import('../game/packStore');
+  vi.spyOn(store, 'hydratePackStore').mockRejectedValue(new Error('disk'));
+  await app.mount();
+
+  await app.until('your own packs credited despite the failed read', () => {
+    const unlocked = achievements().two_of_kind;
+    expect(unlocked).toMatchObject({ unlockedAt: 2000, ref: { nonce: 0 } });
+    expect(unlocked.pack).toHaveLength(5);
+  });
+  expect(app.takeErrors(/Reading saved packs failed/).length).toBeGreaterThan(0);
+});

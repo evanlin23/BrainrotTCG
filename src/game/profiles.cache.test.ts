@@ -6,7 +6,7 @@ import { encodeCard } from './cardCode';
 import { getStoredPack, hydratePackStore, putStoredPacks, resetPackStore, type StoredPack, type StoredPackRef } from './packStore';
 import { getPlayer } from './player';
 import {
-  historyPacksState, hydrateMyPacks, myPackCacheState, myProfileInfo, myProgress, myStats, reopenStatus, resumeReopening,
+  historyAchievementsReady, historyPacksState, hydrateMyPacks, myPackCacheState, myProfileInfo, myProgress, myStats, reopenStatus, resumeReopening,
   watchMyPacks,
 } from './profiles';
 
@@ -152,6 +152,9 @@ describe('saved packs read on demand', () => {
     expect(myPackCacheState()).toBe('ready');
     expect(myStats()?.packs).toBe(1);
     expect(myProfileInfo()).toMatchObject({ missing: 1, cache: 'ready' });
+    // Your own unread pack still holds back the history's achievements.
+    expect(historyPacksState()).toBe('failed');
+    expect(historyAchievementsReady()).toBe(false);
   }, 30_000);
 
   it("drops a read whose player changed mid-read, and reads the new player's packs instead", async () => {
@@ -210,6 +213,7 @@ describe('saved packs read on demand', () => {
     await reads[0].finish();
     await vi.waitFor(() => expect(reads).toHaveLength(2));
     expect(reads[1].refs).toEqual([{ setKey: 'right-now@2', publicKeyHex: before.publicKeyHex.slice(0, 16), nonce: 0 }]);
+    expect(historyAchievementsReady()).toBe(false);
     reads[1].fail(new Error('disk'));
     expect(await run).toBe('ready');
 
@@ -217,6 +221,8 @@ describe('saved packs read on demand', () => {
     expect(myStats()).toEqual(profileStats([mine]));
     expect(myProfileInfo()).toMatchObject({ packs: 1, missing: 0, cache: 'ready' });
     expect(historyPacksState()).toBe('failed');
+    // Achievements from your own packs aren't held back by another player's that can't be read.
+    expect(historyAchievementsReady()).toBe(true);
     expect(errors).toHaveBeenCalledTimes(1);
 
     // The next run reads the history again; your own packs are already in.
@@ -229,6 +235,32 @@ describe('saved packs read on demand', () => {
     expect(await retry).toBe('ready');
     expect(historyPacksState()).toBe('ready');
   }, 30_000);
+
+  it("resolves as loading when aborted while reading another player's packs, with your own still ready", async () => {
+    const before = setUp([RIGHT_NOW]);
+    await savePack(RIGHT_NOW, 0);
+    storePlayer('fd'.repeat(32), 1);
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+    history.push({ ...history[0], k: getPlayer().publicKeyHex.slice(0, 16), t: 9 });
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    await savePack(RIGHT_NOW, 0);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const controller = new AbortController();
+    const run = hydrateMyPacks(controller.signal);
+    await vi.waitFor(() => expect(reads).toHaveLength(1));
+    await reads[0].finish();
+    await vi.waitFor(() => expect(reads).toHaveLength(2));
+    expect(reads[1].refs).toEqual([{ setKey: 'right-now@2', publicKeyHex: before.publicKeyHex.slice(0, 16), nonce: 0 }]);
+    controller.abort();
+    reads[1].fail(controller.signal.reason);
+    expect(await run).toBe('loading');
+
+    expect(myPackCacheState()).toBe('ready');
+    expect(historyPacksState()).toBe('loading');
+    expect(historyAchievementsReady()).toBe(false);
+    expect(errors).not.toHaveBeenCalled();
+  });
 
   it('aborts the read when the page unmounts or another tab switches player, without reporting a failure', async () => {
     setUp([RIGHT_NOW]);

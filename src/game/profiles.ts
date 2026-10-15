@@ -167,6 +167,18 @@ export const historyPacksState = (): PackCacheState => {
   return cache.owner === getPlayer().publicKeyHex ? cache.history : 'loading';
 };
 
+/**
+ * Whether achievements can be looked for in the history now: every pack in it is readable, or only
+ * other players' packs failed to read. Those count by their hand alone (as a pack without cards
+ * always has) rather than holding back achievements from your own packs until a reload.
+ */
+export const historyAchievementsReady = (): boolean => {
+  const state = historyPacksState();
+  if (state !== 'failed' || myPackCacheState() !== 'ready') return state === 'ready';
+  const { publicKeyHex } = getPlayer();
+  return getHistory().every(e => e.cards || !publicKeyHex.startsWith(e.key));
+};
+
 const refId = (key: string, publicKeyHex: string, nonce: number) => `${key}|${publicKeyHex.slice(0, 16)}|${nonce}`;
 
 /** Your tickets waiting on the store. */
@@ -195,7 +207,7 @@ const historyCacheRefs = (skip: ReadonlyMap<string, StoredPackRef>): StoredPackR
  * Read the current player's saved packs into memory, a page at a time, then the rest of the
  * history's. Calling it while a run for the same player is going joins that run. Resolves your own
  * packs' state: 'ready', 'failed', or 'loading' when the run was aborted or the player changed
- * meanwhile (its results are dropped). Never rejects.
+ * before it finished (what it hadn't read yet is dropped). Never rejects.
  */
 export const hydrateMyPacks = (signal?: AbortSignal): Promise<PackCacheState> => {
   const owner = getPlayer().publicKeyHex;
@@ -230,10 +242,10 @@ export const hydrateMyPacks = (signal?: AbortSignal): Promise<PackCacheState> =>
     // Your own stats are settled: a failed read of other players' packs only holds back the history.
     try {
       const rest = historyCacheRefs(mine);
-      if ((rest.length > 0 && !(await hydratePackStore(rest, signal, keep))) || !keep()) return 'ready';
+      if ((rest.length > 0 && !(await hydratePackStore(rest, signal, keep))) || !keep()) return 'loading';
       setCacheState('ready', 'ready');
     } catch (error) {
-      if (signal?.aborted || !keep()) return 'ready';
+      if (signal?.aborted || !keep()) return 'loading';
       console.error('Reading saved packs failed', error);
       setCacheState('ready', 'failed');
     }

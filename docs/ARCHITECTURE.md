@@ -295,7 +295,9 @@ Until a read succeeds, level, stats and rewards show a loading or failed note, n
 locked card backs and foils fall back to the defaults without changing the saved choice; a later
 failed read keeps what was shown, and a resumed re-open waits for a successful read. Achievements
 earned from the history and from card modifiers are worked out only once every history pack's
-cards are in, so each is credited to the pack and date that earned it. IndexedDB
+cards are in, so each is credited to the pack and date that earned it; if only other players'
+packs fail to read, those count by hand and score alone rather than holding back your own. A tab
+whose player another tab switched or imported neither unlocks nor stores achievements. IndexedDB
 errors can leave only memory results; writes resolve without a durable-success signal, and the pending flag
 is cleared before the final save completes. Resumption and cache retention are best effort (#87).
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
