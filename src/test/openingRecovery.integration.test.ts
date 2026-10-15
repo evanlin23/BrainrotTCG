@@ -71,9 +71,9 @@ it('adds a pack left mid-reveal by a reload once, from the pending shelf', async
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(1);
   expect(await historyCodes()).toEqual(GOLDEN_CARDS);
   expectShelvesEmpty();
-  const settled = Object.entries(localStorage).filter(([key]) => key !== STORAGE_KEYS.SELECTED_SET);
+  const settled = Object.entries(localStorage);
   await app.reload();
-  expect(Object.entries(localStorage).filter(([key]) => key !== STORAGE_KEYS.SELECTED_SET)).toEqual(settled);
+  expect(Object.entries(localStorage)).toEqual(settled);
 }, 60_000);
 
 it('waits for a slow ticket with the app held on the pack, then records the late pack once', async () => {
@@ -135,6 +135,27 @@ it('shows a failed ticket as an alert, records nothing, and records exactly one 
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(1);
   expect(storedCards()).toBe(5);
   expectShelvesEmpty();
+}, 60_000);
+
+it('never retries a failed ticket by itself: each press asks once more, and a second failure is shown like the first', async () => {
+  app = await mountedApp(SEED, { tickets: () => ({ error: 'Simulated ticket failure' }) });
+  await app.mount();
+  for (const press of [1, 2]) {
+    const asked = app.ticketRequests.length;
+    await pressPack();
+    await app.until(`press ${press} asks for a ticket`, () => expect(app!.ticketRequests.length).toBeGreaterThan(asked));
+    await app.until(`failure ${press} is announced`, () => expect(document.querySelector('.pack-hint.is-error[role="alert"]')?.textContent)
+      .toBe('This pack refused to open. Try again!'));
+    await app.until('the app is free again', () => expect(button('Player')!.disabled).toBe(false));
+    expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('Simulated ticket failure')]);
+    expect(app.ticketRequests).toHaveLength(asked + 1);
+    await app.settle(10_000);
+    expect(app.ticketRequests).toHaveLength(asked + 1); // nothing asks again until the next press
+  }
+  // Each press spent its own ticket number, and neither recorded anything.
+  expect(app.ticketRequests.slice(-2).map((request) => request.nonce)).toEqual([0, 1]);
+  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(2);
+  await expectNothingRecorded();
 }, 60_000);
 
 it('finishes on the main thread when the ticket worker crashes, with the same pack', async () => {

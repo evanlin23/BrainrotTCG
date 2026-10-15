@@ -1,9 +1,12 @@
 // The Hall of Fame workflows' script (verify-issue, inbox, build) run against fixtures: GitHub's
 // API, the deployed list and the Nostr relays are all faked, and files go to a temporary folder.
 // Nothing here reaches the network or writes public/hall-of-fame.json.
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
@@ -343,4 +346,20 @@ describe('inbox (scheduled workflow)', () => {
     await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
     expect(gh.requests).toEqual([]);
   });
+});
+
+describe('running as a script', () => {
+  it('runs its command line when started through a symlink (no mode: usage, exit 2)', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hof-link-'));
+    try {
+      const link = path.join(dir, 'hall-of-fame.ts');
+      symlinkSync(fileURLToPath(new URL('./hall-of-fame.ts', import.meta.url)), link);
+      const tsx = createRequire(import.meta.url).resolve('tsx/cli');
+      const run = spawnSync(process.execPath, [tsx, link], { encoding: 'utf8', timeout: 60_000 });
+      expect(run.stderr).toContain('Usage: npx tsx scripts/hall-of-fame.ts');
+      expect(run.status).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
