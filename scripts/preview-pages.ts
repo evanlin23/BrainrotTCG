@@ -20,12 +20,12 @@
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { ALL_SET_VERSIONS, SETS } from '../src/content/sets/index.ts';
 import { POKER_HANDS, RARITIES_RAREST_FIRST, type HandKey, type SetDefinition } from '../src/engine/index.ts';
 import { cardPreviewPath, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
+import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 
@@ -259,7 +259,7 @@ export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions
   return { pages: written, images: pagesOnly ? 0 : images.length, drawn };
 };
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   const options = optionsFromEnv();
   const { pages, images, drawn } = await generatePreviews(options);
   console.log(`${options.pagesOnly ? 0 : `${images} (${drawn} drawn, the rest cached)`} preview images and ${pages.size} preview pages in ${options.outDir}p/ and s/ (images at ${options.site}, forwarding to ${options.base})`);
