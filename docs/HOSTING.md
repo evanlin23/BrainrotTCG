@@ -50,10 +50,18 @@ later. To use one, add it in Cloudflare (**Workers & Pages → brainrottcg → C
 repository **variable** (not a secret) `SITE_URL` to it, ending in `/` (for example
 `https://brainrottcg.net/`), and deploy.
 
+## Switching back to GitHub Pages
+
+Delete the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` secrets and deploy: GitHub Pages serves
+the game again. Saves made at the Cloudflare address stay there, so do this before players settle in,
+or not at all. This is a host change, not a release rollback; for a bad release, see
+[Recover on the same origin](#recover-on-the-same-origin).
+
 ## Release evidence
 
 Deploys remain automatic on pushes to `main`; administrator bypass remains available. This checklist
-records release/recovery evidence, not a new approval workflow. In the release PR or incident, record:
+records evidence for the owner/operator's judgement, not an approval gate. In the release PR or
+incident, record:
 
 - Exact candidate/merged commit SHA, Actions run, actual production URL and host, and on Cloudflare
   the Pages project (`CLOUDFLARE_PROJECT`, default `brainrottcg`) and deployment ID. Record public
@@ -62,11 +70,13 @@ records release/recovery evidence, not a new approval workflow. In the release P
   relevant browser/storage/asset checks; name unrun checks and unresolved blockers. The
   [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
   builds (`npm run check`, `npm run build`) and deploys only if it passes.
-  [CI](../.github/workflows/ci.yml) skips pushes to `main`, so do not assume its workflow lint
-  (actionlint) ran on a bypassed revision.
-- Reviewer/operator, decision and known-good rollback target. Save loss/corruption, broken historical
-  verification, persistent blank screens/assets or inaccessible opening controls block a normal release;
-  an emergency bypass must state what remains unverified.
+  [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) skip
+  pushes to `main` (`branches-ignore`), so do not assume workflow lint (actionlint) or browser tests
+  ran on a bypassed revision.
+- Reviewer/operator, decision and known-good rollback target. Whether to ship is the owner/operator's
+  call: save loss/corruption, broken historical verification, persistent blank screens/assets or
+  inaccessible opening controls are strong reasons to hold a release, and a release that ships past
+  them should state what remains unverified.
 - For storage/proof/set changes, fixture evidence that the rollback target can read data written by
   the candidate, including identity, ticket/set/version history, pending packs and IndexedDB. Keep
   private backups offline; a public profile link cannot recover the secret key. Do not test with a
@@ -74,8 +84,9 @@ records release/recovery evidence, not a new approval workflow. In the release P
 
 ## Recover on the same origin
 
-Do not delete hosting secrets or change the domain as a rollback: browser saves belong to their origin,
-so players can lose access to progress without a tested transfer. Keep the canonical URL, base path
+Do not delete hosting secrets or change the domain as a rollback
+([switching hosts](#switching-back-to-github-pages) is a separate decision): browser saves belong to
+their origin, so players can lose access to progress without a tested transfer. Keep the canonical URL, base path
 and migration origins consistent with the selected release.
 
 1. Record the failing SHA/run/deployment and current ranking snapshot; choose a known-good production
@@ -94,8 +105,12 @@ and migration origins consistent with the selected release.
    PR against current main that reverts the faulty behavior while retaining those contracts. Do not
    reset or force-push main. Rebuilding a recorded commit is a new artifact, not a byte-identical rollback.
 4. Reconcile the source with a follow-up PR promptly: automatic deployments remain enabled, and a later
-   push or workflow run can replace the provider rollback. Avoid overlapping recovery and deploy runs;
-   the workflow's `pages` concurrency group does not serialize dashboard rollbacks.
+   push or workflow run can replace the provider rollback. The Hall of Fame workflows also run
+   `gh workflow run deploy.yml`: [hall-of-fame.yml](../.github/workflows/hall-of-fame.yml) when a
+   submitted entry verifies, and [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
+   when a run (dispatched about every 15 minutes) files new entries. Land the forward-fix PR first, or
+   pause those workflows, before they redeploy a bad `main`. Avoid overlapping recovery and deploy
+   runs; the workflow's `pages` concurrency group does not serialize dashboard rollbacks.
 
 Cloudflare's deployment history is the artifact rollback source. On its Cloudflare path, the workflow
 uploads only the GitHub Pages **redirect** directory (`pages/`) as `github-pages`; it does not archive
