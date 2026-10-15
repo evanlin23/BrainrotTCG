@@ -126,3 +126,37 @@ Rows open shared card detail with Share card and View original pack; pack detail
 stronger undeclared pull. After approval, split selector/persistence/save coverage from UI wiring.
 The full quota, interruption, mixed-version and round-trip acceptance matrix remains in #337;
 those implementation tests are planned, not executed by this design-only change.
+
+## Proposed pull headline rule (#339)
+
+**Proposal, not implemented.** Choose a consistent pack headline over a dominance threshold:
+**Pack total: [score]**, then **[true combo] ×[multiplier]**, then **Standout card: [finish] [Holo]
+[Misprint] [name] · [card points]** (omit absent modifiers). Card surfaces lead with identity/modifiers
+and Card points. Individual points exclude the pack multiplier; neither title claims record rarity.
+Select maximum original-version `cardPoints`, then lower slot on ties; reuse scoring, not cached
+collection counters. No Matches stays visible because it explains the formula, not pull excitement.
+
+Arithmetic presentation fixtures below are not claimed mined proofs. Different letters are
+separate card ids; names and modifiers must come from actual reconstruction in implementation.
+
+| Fixture | Pack total / combo | Standout |
+| --- | --- | --- |
+| Common Diamond Holo Misprint A40M; B20 C35 D70 E200 | 40,000,325 / No Matches ×1 | A · 40,000,000 |
+| A40M A10 B20 B20 C35 | 400,000,850 / Two Pair ×10 | First A · 40,000,000, not 400M |
+| Five common A10 | 500,000 / 5 of a Kind ×10,000 | Slot 0 A · 10 |
+| A35 B35 C10 D20 E10 | 110 / No Matches ×1 | Slot 0 A wins the tie |
+| A10 B20 C35 D70 E200 | 335 / No Matches ×1 | E · 200 |
+| Historical version | Its reconstructed total/combo | No later rarity/modifier assumptions |
+
+One presentation helper returns structured total/combo/standout fields, without a second scorer.
+Results and owned/public pack detail show all fields above cards; personal/global pack rows show
+total, combo and concise standout, opening that detail. Card rows/detail show card identity/points
+and labeled original-pack context. Exact-pull captions/posters use the same fields and proof link.
+Static previews cannot read proof fragments: keep generic hand/card descriptions, stable paths and
+old images; do not imply they depict exact modifiers or regenerate history solely for new titles.
+
+At narrow/short widths, wrap the standout and keep actions reachable. Compact 40M formatting needs
+exact accessible points and full details; rankings use exact values. After approval, implement the
+helper plus consumer regressions across these surfaces. Scoring, generators, selectors, public proof
+URLs and animations do not change. Full surface/mobile/sharing acceptance stays in #339; checks are
+planned, not executed here. Figma authoring (#312) remains deferred.
