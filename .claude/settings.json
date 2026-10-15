@@ -3,13 +3,6 @@
   "autoCompactEnabled": true,
   "autoCompactWindow": 150000,
   "showClearContextOnPlanAccept": true,
-  "permissions": {
-    "deny": [
-      "Read(./package-lock.json)",
-      "Read(./spec/vectors.json)",
-      "Read(./spec/vectors-python.json)"
-    ]
-  },
   "hooks": {
     "SessionStart": [
       {
