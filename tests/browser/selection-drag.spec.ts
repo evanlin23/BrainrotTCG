@@ -85,20 +85,25 @@ test('inputs, copyable text and links keep selection and activation', async ({ p
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const dialog = (name: string) => page.getByRole('dialog', { name, exact: true });
+  await page.getByRole('button', { name: 'Player', exact: true }).click();
+  const player = dialog('Player');
 
-  const name = page.locator('.settings-input');
+  const name = player.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true });
   await expect(name).toHaveValue('Browser smoke fixture');
   await name.click({ clickCount: 3 });
   expect(await name.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd]))
     .toEqual([0, 'Browser smoke fixture'.length]);
 
-  const playerId = page.locator('.settings .share-fp');
+  const playerId = player.getByRole('status');
+  await expect(playerId).toContainText('Player ID #');
   await playerId.click({ clickCount: 3 });
   expect(await selectedText(page)).toContain((await playerId.textContent())!);
   await page.evaluate(() => document.getSelection()?.removeAllRanges());
+  await player.getByRole('button', { name: 'Close', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Report a problem', exact: true }).click();
+  await page.getByRole('button', { name: 'Sound & display', exact: true }).click();
+  await dialog('Sound & display').getByRole('button', { name: 'Report a problem', exact: true }).click();
   const report = page.locator('#diagnostic-report-text');
   await expect(report).toBeVisible();
   await report.focus();

@@ -95,7 +95,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
   button (never an automatic reload) and a collapsed, copyable bug report built from the same
-  allowlist as Settings > Report a problem. It shows no error text and touches no save data.
+  allowlist as the Report a problem sheet. It shows no error text and touches no save data.
 - **Selection and drag**: controls (`button`, `[role="button"]`), the pack stage, the card reveal and
   cards take no text selection, so rapid taps never highlight labels; game images set
   `draggable="false"`. Inputs, textareas, links, the pack summary, error hints, report text and

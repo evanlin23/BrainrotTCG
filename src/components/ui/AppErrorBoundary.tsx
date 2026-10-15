@@ -5,7 +5,7 @@ import '../../styles/AppErrorBoundary.css';
 
 const reloadPage = () => window.location.reload();
 
-/** The same allowlist-only details as Settings > Report a problem: never the error, save, name or key. */
+/** The same allowlist-only details as the Report a problem sheet: never the error, save, name or key. */
 function sanitizedReport() {
   try {
     return JSON.stringify(browserDiagnostics(), null, 2);
