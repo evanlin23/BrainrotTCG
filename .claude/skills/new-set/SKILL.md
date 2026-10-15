@@ -7,7 +7,7 @@ description: Research current meme trends and draft a new Brainrot TCG card set 
 
 Read `docs/ADDING_A_SET.md` and `docs/ART_STYLE.md` first; they are the source of truth.
 
-## 1. Research (use `researcher` subagents: web search on a cheaper model)
+## 1. Research (use subagents with web search)
 
 - Follow `docs/TREND_SCOUT.md`: which sources work (Know Your Meme RSS, Instagram Explore, trends24,
   Wikipedia pageviews, Google Trends RSS, trend blogs), what counts as a real trend (two independent

@@ -22,13 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-# Local Claude Code settings and task state stay private; shared config is committed
+# Local Claude Code settings stay private; shared skills are committed
 .claude/*
 !.claude/skills/
-!.claude/agents/
-!.claude/rules/
-!.claude/hooks/
-!.claude/settings.json
 
 # Python
 __pycache__/

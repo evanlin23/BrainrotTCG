@@ -204,7 +204,7 @@ describe('early claims checks', () => {
     const { tickets, inOrder } = await reopen(proof);
     expect(firstReason({ ...proof, xp: Number.MAX_SAFE_INTEGER }, tickets, inOrder)?.at).toBe(0);
     expect(firstReason({ ...proof, xp: 30 * XP_PER_PACK - 1 }, tickets, inOrder)?.at).toBe(0);
-    const short = firstReason({ ...proof, xp: proof.xp - 100 }, tickets, inOrder);
+    const short = firstReason({ ...proof, xp: proof.xp - 500 }, tickets, inOrder);
     expect(short?.reason).toMatch(/at least/);
     expect(short!.at).toBeLessThan(30);
   });

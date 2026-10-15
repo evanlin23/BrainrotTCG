@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
 import { useSparks } from './useSparks';
-import { mapPackPointer } from './packCutCoordinates';
 import { FAIRY_DUST_SRC, WOOSH_SRC } from '../constants/audio';
 
 // Pack cutting constants
@@ -8,7 +7,6 @@ const TEAR_LINE_RATIO = 0.19;
 const REQUIRED_CUT_RATIO = 0.72;
 const MAX_CUT_POINTS = 64;
 const DRAWN_CUT_OFFSET_RATIO = 0.000;
-const CUT_LINE_RATIO = TEAR_LINE_RATIO + DRAWN_CUT_OFFSET_RATIO;
 
 export interface CutPoint {
   x: number;
@@ -60,11 +58,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   }, [clearSparks]);
 
   const getLocalPoint = useCallback((clientX: number, clientY: number) => {
-    const pack = packRef.current;
-    if (!pack) return null;
-    const rect = pack.getBoundingClientRect();
+    const rect = packRef.current?.getBoundingClientRect();
+    if (!rect) return null;
     return {
-      ...mapPackPointer(clientX, clientY, rect, pack, CUT_LINE_RATIO),
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
       tearY: rect.height * TEAR_LINE_RATIO,
       tolerance: Math.min(52, Math.max(26, rect.height * 0.08)),
     };
@@ -100,13 +101,17 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       return;
     }
 
-    const { clampedX, cut, spark } = point;
+    const clampedX = Math.min(point.width, Math.max(0, point.x));
+    const xPercent = (clampedX / point.width) * 100;
+    const yPercent = (TEAR_LINE_RATIO + DRAWN_CUT_OFFSET_RATIO) * 100;
+    const sparkX = clampedX;
+    const sparkY = (point.height * yPercent) / 100;
 
     if (!isCutting) {
       setIsCutting(true);
-      setCutPoints([cut]);
+      setCutPoints([{ x: xPercent, y: yPercent }]);
       cutSpanRef.current = { minX: clampedX, maxX: clampedX };
-      emitSpark(spark.x, spark.y);
+      emitSpark(sparkX, sparkY);
 
       // Play fairy dust sound when cutting starts
       if (volume > 0) {
@@ -122,10 +127,10 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     }
 
     setCutPoints((prev) => {
-      const next = [...prev, cut];
+      const next = [...prev, { x: xPercent, y: yPercent }];
       return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
     });
-    emitSpark(spark.x, spark.y);
+    emitSpark(sparkX, sparkY);
 
     const span = cutSpanRef.current;
     span.minX = Math.min(span.minX, clampedX);
