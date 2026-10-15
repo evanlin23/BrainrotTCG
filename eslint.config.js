@@ -31,7 +31,7 @@ export default defineConfig([
   },
   {
     // Node scripts and test configs (CI verification, card compositor, browser tests)
-    files: ['scripts/**/*.{js,ts}', 'tests/**/*.{js,ts}', 'playwright.config.ts'],
+    files: ['scripts/**/*.{js,ts}', 'tests/**/*.{js,ts}', 'playwright*.config.ts'],
     languageOptions: { globals: globals.node },
   },
 ])

@@ -46,6 +46,28 @@ make a failing check pass.
 a root-path build. It blocks HTTP outside the preview origin and all WebSockets, seeds a disposable
 identity with muted audio, opens one real pack on desktop and Pixel 5 viewports, and checks that
 stats, collection and history survive a reload. Failure traces, screenshots and videos land in
-`test-results/` (uploaded by CI). It covers that one journey only: performance, agent-audit and
-physical-device checks don't exist yet, so do those by hand against the preview and describe them
-in the PR.
+`test-results/` (uploaded by CI). It covers that one journey only: agent-audit and physical-device
+checks don't exist yet, so do those by hand against the preview and describe them in the PR.
+
+## Performance baseline
+
+`npm run test:performance` is **report-only**: timings have no pass/fail budget, and neither
+`npm run check` nor PR CI runs it. Run it by hand, or from the manual "Performance Baseline (report
+only)" Actions job (read-only, 20-minute cap, reports kept seven days). It reuses the browser smoke's
+build and server, disposable identity, HTTP/WebSocket guards and opening/record/reload assertions,
+so functional errors still exit nonzero and never enter the timing summaries.
+
+It runs two cold-HTTP-cache scenarios, three times each, in one headless Chromium at 393×727 with
+CDP 4× CPU slowdown and a 10/2 Mbps, 40 ms network: a fresh save, and 100 synthetic cached history
+records. That history repeats known cards at synthetic nonces; it isn't verified history, a valid
+profile or proof evidence. Each measured opening mines a real ticket. Worker HTTP egress is probed;
+Worker WebSockets aren't proven blocked. Warm-cache runs are still open (#351).
+
+`test-results/performance/raw-runs.json` and `summary.json` record the commit and dirty state,
+runner, browser and host, every raw run, and median/min/max per scenario; each report lists its
+own metric limits. **It isn't real-phone evidence**: page-level CDP throttling doesn't throttle
+workers the same way or emulate phone RAM, GPU, touch or a physical device, and the heap figure
+covers the main JS target only. Compare runs only on the same machine, browser, settings and
+recorded revision, never against the deployed site. `npx vitest run tests/performance/report.test.ts`
+checks the report schema, and this must exit nonzero with zero timing samples:
+`PERF_INJECT_FUNCTIONAL_FAILURE=1 npm run test:performance -- --grep 'first-cold / 1' --output=test-results/performance-failure --max-failures=1`.
