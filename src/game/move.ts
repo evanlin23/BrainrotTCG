@@ -74,8 +74,13 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   if (hasProgress()) {
     if (!replace()) return 'kept';
     const backup = Object.fromEntries(brainrotKeys().filter((k) => k !== BACKUP_KEY).map((k) => [k, localStorage.getItem(k)]));
+    // A full or unavailable storage area must not cost the player the save being replaced.
+    try {
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
+    } catch {
+      return 'invalid';
+    }
     for (const k of brainrotKeys()) if (k !== BACKUP_KEY) localStorage.removeItem(k);
-    localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
   }
   for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
   return 'saved';
@@ -145,11 +150,14 @@ export const fetchOldSave = (): Promise<{ save: unknown } | 'none' | 'blocked' |
 };
 
 /** Keep this browser's save under `backupKey` before something replaces it (a move, an imported file). */
-export const backUpSave = (backupKey: string) => {
-  const backup = Object.fromEntries(brainrotKeys().filter((k) => !k.startsWith('brainrot-before-')).map((k) => [k, localStorage.getItem(k)]));
+export const backUpSave = (backupKey: string): boolean => {
   try {
+    const keys = brainrotKeys().filter((key) => !key.startsWith('brainrot-before-'));
+    if (keys.length === 0) return true;
+    const backup = Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)]));
     localStorage.setItem(backupKey, JSON.stringify(backup));
+    return true;
   } catch {
-    // Out of space: the import still asked first.
+    return false;
   }
 };
