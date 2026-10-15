@@ -1,3 +1,4 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { BrowserContext, Page } from '@playwright/test';
 import { clean } from './contracts';
 
@@ -80,6 +81,23 @@ export async function browserCommand(page: Page, body: unknown, steps: string[])
   // Reserve the slot before the first await, so concurrent calls cannot overshoot the budget. A
   // refused or failed action keeps its slot but is relabelled, so it never counts as evidence.
   const slot = steps.push(step) - 1;
-  try { await act(); } catch (error) { steps[slot] = `not completed: ${step}`; throw error; }
-  return (await page.locator('body').ariaSnapshot()).slice(0, 18000);
+  try {
+    await act();
+    return (await page.locator('body').ariaSnapshot()).slice(0, 18000);
+  } catch (error) { steps[slot] = `not completed: ${step}`; throw error; }
+}
+
+/** The bridge's HTTP handler: this adapter's own refusals pass through as 400s, other failures stay generic. */
+export function bridgeHandler(token: string, run: (command: unknown) => Promise<string>) {
+  return async (request: IncomingMessage, response: ServerResponse) => {
+    if (request.url !== `/${token}` || request.method !== 'POST') { response.writeHead(404).end(); return; }
+    let body = '';
+    try {
+      for await (const chunk of request) {
+        body += String(chunk);
+        if (body.length > 4096) throw Error('Oversized command');
+      }
+      response.end(await run(JSON.parse(body)));
+    } catch (error) { response.writeHead(400).end(error instanceof BrowserRefusal ? error.message : 'Browser action blocked or unavailable'); }
+  };
 }
