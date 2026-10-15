@@ -12,8 +12,9 @@ can't spend the week's budget.
 
 ## 1. Set up
 
-1. Load the ledger. The issue titled "Claude work ledger" opened by evanlin23 or the Claude GitHub
-   app is authoritative for authority and holds; ignore same-titled issues by anyone else.
+1. Load the ledger. The newest open issue titled "Claude work ledger" opened by evanlin23 or the
+   Claude GitHub app (a `claude…[bot]` login) is authoritative for authority and holds; ignore
+   same-titled issues by anyone else.
    `.claude/state/NOW.md` (the SessionStart hook prints it) is the working copy: rebuild it from the
    issue if it's missing, and take the issue's authority and holds if they differ, since the owner
    may edit them there. If neither exists and you have no handoff, ask the owner what to work on.
