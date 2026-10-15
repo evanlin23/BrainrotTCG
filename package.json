@@ -13,8 +13,9 @@
     "test:browser": "playwright test",
     "cards": "tsx scripts/cards/build.ts",
     "cards:finish-thumbs": "tsx scripts/cards/build-finish-thumbs.ts",
+    "check:card-assets": "tsx scripts/check-card-assets.ts",
     "check:sets": "tsx scripts/check-sets.ts",
-    "check": "npm run lint && npm run typecheck && npm test && npm run check:sets",
+    "check": "npm run lint && npm run typecheck && npm test && npm run check:sets && npm run check:card-assets",
     "prompts": "tsx scripts/cards/prompts.ts",
     "og-image": "tsx scripts/og-image.ts",
     "test:performance": "playwright test --config=playwright.performance.config.ts"
@@ -46,6 +47,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^16.5.0",
+    "jsdom": "26.1.0",
     "opentype.js": "^2.0.0",
     "sharp": "^0.35.5",
     "tsx": "^4.23.15",
