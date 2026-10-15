@@ -23,10 +23,8 @@ on:
         required: false
         default: ''
 
-permissions:
-  contents: read
-  issues: write
-  actions: write
+# Each job gets only what it uses.
+permissions: {}
 
 concurrency:
   group: hall-of-fame-inbox
@@ -55,6 +53,11 @@ jobs:
     if: ${{ !inputs.probe }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      added: ${{ steps.inbox.outputs.added }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -83,10 +86,22 @@ jobs:
         with:
           path: hof-inbox-seen.json
           key: hof-inbox-seen-${{ github.run_id }}
-      - name: Redeploy so new entries go live
-        if: steps.inbox.outputs.added != '' && steps.inbox.outputs.added != '0'
-        env:
+
+  # The only job that can start a deploy, and all it can do. It runs only if inbox succeeded.
+  redeploy:
+    name: Redeploy so new entries go live
+    needs: inbox
+    if: needs.inbox.outputs.added != '' && needs.inbox.outputs.added != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - env:
           GH_TOKEN: ${{ github.token }}
-        # Scheduled runs are on the default branch, and their event has no repository field.
-        run: gh workflow run deploy.yml --ref "${{ github.ref_name }}"
+          # No checkout here, so gh is told the repository.
+          GH_REPO: ${{ github.repository }}
+          # Scheduled runs are on the default branch, and their event has no repository field.
+          REF: ${{ github.ref_name }}
+        run: gh workflow run deploy.yml --ref "$REF"
         
