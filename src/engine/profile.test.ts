@@ -295,3 +295,12 @@ describe('streaming profile stats', () => {
     expect(after).toMatchObject({ packs: 2, uniqueBySet: { 'set-a': 5, 'set-b': 5 }, hands: { NO_MATCH: 2 }, best: [] });
   });
 });
+
+
+it('preserves array highlight slice limits while rejecting unbounded streaming limits', () => {
+  const packs = Array.from({ length: 3 }, (_, nonce) => ({ nonce, set: A, cards: [], score: scorePack([]) }));
+  expect(profileStats(packs, -1).best.map(pack => pack.nonce)).toEqual([0, 1]);
+  expect(profileStats(packs, Infinity).best).toHaveLength(3);
+  expect(profileStats(packs, NaN).best).toEqual([]);
+  for (const limit of [-1, 0.5, Infinity, NaN]) expect(() => profileStatsTracker(limit)).toThrow(RangeError);
+});

@@ -429,6 +429,7 @@ export interface ProfileStats {
  * A snapshot owns its arrays/maps; later additions cannot change an earlier result.
  */
 export const profileStatsTracker = (bestCount = 5) => {
+  if (!Number.isSafeInteger(bestCount) || bestCount < 0) throw new RangeError('Highlight count must be a nonnegative integer');
   const seen = new Set<string>();
   const seenHolo = new Set<string>();
   const uniqueBySet: Record<string, number> = {};
@@ -479,7 +480,10 @@ export const profileStatsTracker = (bestCount = 5) => {
 
 /** Stats for packs in ticket order (they can be a prefix while verification is still running). */
 export const profileStats = (packs: readonly ProfilePack[], bestCount = 5): ProfileStats => {
-  const tracker = profileStatsTracker(bestCount);
+  // Preserve the original Array.slice end-argument behavior for existing array callers.
+  const end = Math.trunc(bestCount) || 0;
+  const count = end < 0 ? Math.max(0, packs.length + end) : Math.min(packs.length, end);
+  const tracker = profileStatsTracker(count);
   for (const pack of packs) tracker.add(pack);
   return tracker.snapshot();
 };
