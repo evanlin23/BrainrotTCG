@@ -95,7 +95,8 @@ function App() {
       const packs = unsavedPacks.current;
       if (result === 'blocked') {
         setSaveFailed(true);
-        // Every pack the collection couldn't store goes (back) on the shelf for the next load to add.
+        // Every pack the collection couldn't store goes (back) on the shelf for the next load to add (an
+        // older build's pack goes back into its own entry, while it is still there: see game/pulls.ts).
         // Marked as counted first, then the stats that count them are stored; if they can't be (or a
         // full shelf can't take one), the packs go back unmarked so that load counts them (and the stats
         // wait for it).
@@ -462,7 +463,11 @@ function App() {
   }, [stats, hallOfFame, collection, checkAllAchievements, unlockAchievement]);
 
   // Packs whose reveal never finished (a reload, a closed tab): their tickets are spent, so they still count.
+  // Once per mount: an older build's pack stays in its entry until stored, so a second take would add it again.
+  const pendingTaken = useRef(false);
   useEffect(() => {
+    if (pendingTaken.current) return;
+    pendingTaken.current = true;
     takePendingPacks().reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

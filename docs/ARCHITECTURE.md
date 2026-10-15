@@ -287,11 +287,15 @@ the history. A pack leaves the shelf only once a collection holding it has been 
 collection write is blocked, the pack goes back on the shelf for the next load. A pack is marked as
 counted (`d: 1`) before the stats counting it are written, and unmarked again if they can't be, so
 the next load counts it once (entries without the mark count once).
-`brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never writes it, so an
-older build (another tab or a rollback) never finds a list there to discard, and never sees or clears
-listed packs. It reads that entry as one more owed pack, and removes it on load (only after the list
-is taken) or once a stored collection holds its pack, as older builds do. It is not copied into the
-list: an older tab can clear only the v1 entry, so a copy would be awarded twice.
+`brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never puts a list or
+a new or listed pack there, so an older build (another tab or a rollback) never finds a list to
+discard, and never sees or clears listed packs. It adds the pack in that entry on load but leaves the
+entry in place until a stored collection holds that pack, so an older tab that stores and clears it
+still reaches the only copy. If the collection write is blocked, the pack goes back into that entry
+(marked) only while the entry still holds it; otherwise the tab that took or stored it has it. It is
+never copied into the list, which an older tab's clear can't reach. A pack in both forms is added
+once, and counts as counted if either copy is marked. An entry with nothing to add (unreadable, or
+another player's) is removed on load, as older builds do.
 Multi-key state updates are not a transaction, so this is not a guarantee against lost or duplicate
 awards (#233). Screens pass whole pulled-card objects with holo/finish/misprint data
 (`src/game/versions.ts`); preserving those fields still requires checks at rendering, persistence

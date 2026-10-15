@@ -8,11 +8,11 @@ import { clearPendingPack, savePendingPack, takePendingPacks, type OpenedPack } 
 // A storage whose writes can be refused, as a browser that blocks storage (SecurityError) does.
 const data = new Map<string, string>();
 let refuseRemove: (key: string) => boolean = () => false;
-let refuseShelfWrite = false;
+let refuseWrite: (key: string) => boolean = () => false;
 vi.stubGlobal('localStorage', {
   getItem: (k: string) => data.get(k) ?? null,
   setItem: (k: string, v: string) => {
-    if (refuseShelfWrite && k === STORAGE_KEYS.PENDING_PACKS) throw new DOMException('Full', 'QuotaExceededError');
+    if (refuseWrite(k)) throw new DOMException('Full', 'QuotaExceededError');
     data.set(k, v);
   },
   removeItem: (k: string) => {
@@ -29,34 +29,34 @@ const PENDING = JSON.stringify({
 const LIST = STORAGE_KEYS.PENDING_PACKS;
 const LEGACY = STORAGE_KEYS.PENDING_PACK;
 const shelved = () => JSON.parse(data.get(LIST) ?? 'null');
+const entry = (n: number, extra: object = {}) => ({ ...JSON.parse(PENDING), n, ...extra });
 const reset = () => {
   data.clear();
   refuseRemove = () => false;
-  refuseShelfWrite = false;
+  refuseWrite = () => false;
 };
 
 describe('pending pack when storage refuses to remove it', () => {
   beforeEach(reset);
 
-  it('leaves the pack for a later load instead of adding it now and again then', () => {
+  it('leaves the packs for a later load instead of adding them now and again then', () => {
+    data.set(LIST, `[${PENDING}]`);
     data.set(LEGACY, PENDING);
     refuseRemove = () => true;
     expect(takePendingPacks()).toEqual([]);
-    expect(data.get(LEGACY)).toBe(PENDING);
+    expect(shelved()).toEqual([entry(4)]);
 
     refuseRemove = () => false;
     expect(takePendingPacks()).toMatchObject([{ setId: SET.id, nonce: 4, cards: expect.any(Array) }]);
-    expect(data.has(LEGACY)).toBe(false);
+    expect(data.has(LIST)).toBe(false);
   });
 
-  it("leaves an older build's pack it can't take off (and a listed copy) for a later load", () => {
-    const entry = (n: number) => ({ ...JSON.parse(PENDING), n });
-    data.set(LEGACY, PENDING);
-    data.set(LIST, JSON.stringify([entry(4), entry(5)]));
-    refuseRemove = (k) => k === LEGACY;
-    expect(takePendingPacks().map((p) => p.nonce)).toEqual([5]);
-    expect(data.get(LEGACY)).toBe(PENDING);
-    expect(data.has(LIST)).toBe(false);
+  it("drops an older build's entry it can't add on load, as older builds do", () => {
+    for (const stored of ['{not json', JSON.stringify(entry(4, { k: 'ab'.repeat(32) })), JSON.stringify(entry(4, { s: 'no-such-set' }))]) {
+      data.set(LEGACY, stored);
+      expect(takePendingPacks()).toEqual([]);
+      expect(data.has(LEGACY)).toBe(false);
+    }
   });
 
   it('clearing it does not throw, whether the entry is readable or not', () => {
@@ -79,7 +79,7 @@ describe('a pack put back on the shelf', () => {
   });
 
   it('remembers that it has counted, and only a well-formed flag says so', () => {
-    data.set(LEGACY, PENDING);
+    data.set(LIST, `[${PENDING}]`);
     const [pack] = takePendingPacks();
     savePendingPack(pack);
     expect(shelved()[0]).not.toHaveProperty('d');
@@ -94,12 +94,13 @@ describe('a pack put back on the shelf', () => {
   });
 });
 
+/** A pack this build opened, which it lists. */
+const pack = (n: number): OpenedPack => {
+  data.set(LIST, JSON.stringify([entry(n)]));
+  return takePendingPacks()[0];
+};
+
 describe('several packs owed at once', () => {
-  const entry = (n: number, extra: object = {}) => ({ ...JSON.parse(PENDING), n, ...extra });
-  const pack = (n: number): OpenedPack => {
-    data.set(LEGACY, JSON.stringify(entry(n)));
-    return takePendingPacks()[0];
-  };
   beforeEach(reset);
 
   it("never replaces an owed pack with a new one, and adds each once, an older build's entry too", () => {
@@ -113,13 +114,16 @@ describe('several packs owed at once', () => {
     expect(shelved()).toEqual([expect.objectContaining({ n: 5, d: 1 })]);
     expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(4, { d: 1 }));
 
-    expect(takePendingPacks()).toMatchObject([{ nonce: 4, counted: true }, { nonce: 5, counted: true }]);
+    expect(takePendingPacks()).toMatchObject([{ nonce: 4, counted: true, legacy: true }, { nonce: 5, counted: true }]);
     expect(data.has(LIST)).toBe(false);
+    // The older build's entry stays until a stored collection holds its pack.
+    expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(4, { d: 1 }));
+    clearPendingPack(4, 5);
     expect(data.has(LEGACY)).toBe(false);
     expect(takePendingPacks()).toEqual([]);
   });
 
-  it('never writes where an older build looks, so it can neither drop nor re-add a listed pack', () => {
+  it('never puts a listed pack where an older build looks, so it can neither drop nor re-add one', () => {
     const [five, six] = [pack(5), pack(6)];
     savePendingPack(five, six);
     clearPendingPack(5);
@@ -158,16 +162,26 @@ describe('several packs owed at once', () => {
     expect(data.has(LIST)).toBe(false);
   });
 
-  it("takes every pack off rather than leave a stored one to be added again", () => {
+  it('keeps the other owed packs when the shorter shelf fits only once the old one is gone', () => {
     data.set(LIST, JSON.stringify([entry(4), entry(5), entry(6)]));
-    refuseShelfWrite = true;
+    refuseWrite = (k) => k === LIST && data.has(LIST);
     clearPendingPack(5);
-    expect(data.has(LIST)).toBe(false);
+    expect(shelved()).toEqual([entry(4), entry(6)]);
   });
 
-  it('adds each nonce once, even if the shelf lists it twice', () => {
+  it('takes every pack off rather than leave a stored one to be added again, and says what it dropped', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    data.set(LIST, JSON.stringify([entry(4), entry(5), entry(6)]));
+    refuseWrite = (k) => k === LIST;
+    clearPendingPack(5);
+    expect(data.has(LIST)).toBe(false);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('2 owed pack(s) dropped'));
+    error.mockRestore();
+  });
+
+  it('adds each nonce once, even if the shelf lists it twice, and counts it once if any copy has', () => {
     data.set(LIST, JSON.stringify([entry(4), entry(4, { d: 1 }), 'junk', null, entry(5)]));
-    expect(takePendingPacks().map((p) => p.nonce)).toEqual([4, 5]);
+    expect(takePendingPacks()).toMatchObject([{ nonce: 4, counted: true }, { nonce: 5 }]);
   });
 
   it('keeps every owed pack when the shelf is full, and reports the new one as not saved', () => {
@@ -197,7 +211,68 @@ describe('several packs owed at once', () => {
 
   it('reports a shelf it could not write', () => {
     const next = pack(5);
-    refuseShelfWrite = true;
+    refuseWrite = (k) => k === LIST;
     expect(savePendingPack(next)).toBe(false);
+  });
+});
+
+describe("an older tab's pack", () => {
+  /** What an older build does once a collection it stored holds the pack. */
+  const olderClear = (nonce: number) => {
+    if (JSON.parse(data.get(LEGACY) ?? 'null')?.n === nonce) data.delete(LEGACY);
+  };
+  beforeEach(reset);
+
+  it("stays where that tab's clear reaches it when this tab can't store it, so no load adds it again", () => {
+    // An older tab opened pack 4. This tab loads and adds it, but its collection can't be stored.
+    data.set(LEGACY, PENDING);
+    const [four] = takePendingPacks();
+    expect(four).toMatchObject({ nonce: 4, legacy: true });
+    expect(data.get(LEGACY)).toBe(PENDING);
+    expect(savePendingPack({ ...four, counted: true })).toBe(true);
+    expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(4, { d: 1 }));
+    expect(data.has(LIST)).toBe(false);
+    // The older tab stores a collection holding it and clears its entry: nothing is left to add again.
+    olderClear(4);
+    expect(takePendingPacks()).toEqual([]);
+  });
+
+  it('is left to the tab that has it once the entry no longer holds it', () => {
+    data.set(LEGACY, PENDING);
+    const [four] = takePendingPacks();
+    olderClear(4);
+    expect(savePendingPack({ ...four, counted: true })).toBe(true);
+    expect(savePendingPack(four)).toBe(true);
+    expect(data.has(LEGACY)).toBe(false);
+    expect(data.has(LIST)).toBe(false);
+    // Nor does it replace that tab's next pack.
+    data.set(LEGACY, JSON.stringify(entry(5)));
+    expect(savePendingPack({ ...four, counted: true })).toBe(true);
+    expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(5));
+    expect(takePendingPacks().map((p) => p.nonce)).toEqual([5]);
+  });
+
+  it('is added once with a listed copy, counted once if either copy has, and cleared from both', () => {
+    data.set(LEGACY, PENDING);
+    data.set(LIST, JSON.stringify([entry(4, { d: 1 }), entry(5)]));
+    const packs = takePendingPacks();
+    expect(packs).toMatchObject([{ nonce: 4, counted: true, legacy: true }, { nonce: 5 }]);
+    expect(packs[1].legacy).toBeUndefined();
+    expect(data.has(LIST)).toBe(false);
+    // Put back, it goes to the older build's entry only.
+    expect(savePendingPack(...packs)).toBe(true);
+    expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(4, { d: 1 }));
+    expect(shelved()).toEqual([expect.objectContaining({ n: 5 })]);
+    clearPendingPack(4, 5);
+    expect(data.has(LEGACY)).toBe(false);
+    expect(data.has(LIST)).toBe(false);
+  });
+
+  it('reports an entry it could not put back, which stays as it was', () => {
+    data.set(LEGACY, PENDING);
+    const [four] = takePendingPacks();
+    refuseWrite = (k) => k === LEGACY;
+    expect(savePendingPack({ ...four, counted: true })).toBe(false);
+    expect(data.get(LEGACY)).toBe(PENDING);
   });
 });

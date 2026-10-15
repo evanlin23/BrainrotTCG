@@ -18,7 +18,7 @@ export const STORAGE_KEYS = {
   HISTORY: 'brainrot-history-v1',
   /** Packs whose tickets are spent but which haven't reached the collection yet, as a list (see game/pulls.ts). */
   PENDING_PACKS: 'brainrot-pending-packs-v2',
-  /** The one-pack entry older builds keep instead; read and cleared here, never written (see game/pulls.ts). */
+  /** The one-pack entry older builds keep instead; read here, and written only to put back the pack it held (see game/pulls.ts). */
   PENDING_PACK: 'brainrot-pending-pack-v1',
 } as const;
 

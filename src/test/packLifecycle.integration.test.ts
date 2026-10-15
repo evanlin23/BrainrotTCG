@@ -14,6 +14,8 @@ const read = <T,>(key: string): T => JSON.parse(localStorage.getItem(key) ?? 'nu
 type Shelved = { n: number; d?: number }[] | null;
 /** Packs on the pending shelf (the list key; older builds' one-pack key is checked separately). */
 const shelf = () => read<Shelved>(STORAGE_KEYS.PENDING_PACKS);
+/** The pack in older builds' one-pack entry. */
+const legacyEntry = () => read<{ n: number; d?: number } | null>(STORAGE_KEYS.PENDING_PACK);
 const expectShelvesEmpty = () => {
   expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).toBeNull();
   expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
@@ -190,9 +192,9 @@ it('counts a pack left on the shelf in the old format once, however many loads i
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toHaveLength(3);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
   expect(read<Record<string, unknown>>(STORAGE_KEYS.ACHIEVEMENTS)).toHaveProperty('packs_10');
-  // The older build's entry was taken on the first load; the pack now waits on the list, marked counted.
-  expect(shelf()).toEqual([expect.objectContaining({ n: 4, d: 1 })]);
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  // The pack still waits in the older build's entry (where an older tab's clear reaches it), marked counted.
+  expect(legacyEntry()).toEqual(expect.objectContaining({ n: 4, d: 1 }));
+  expect(shelf()).toBeNull();
 
   full.mockRestore();
   await app.reload();
@@ -214,11 +216,9 @@ it('keeps a pack still owed when another opens, and adds each once', async () =>
   await app.mount();
   await openOnePack();
 
-  // The owed pack and the new one both wait, each counted once.
-  expect(shelf()).toEqual([
-    expect.objectContaining({ n: 4, d: 1 }), expect.objectContaining({ n: 0, d: 1 }),
-  ]);
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  // The owed pack and the new one both wait, each counted once: the older build's in its own entry.
+  expect(legacyEntry()).toEqual(expect.objectContaining({ n: 4, d: 1 }));
+  expect(shelf()).toEqual([expect.objectContaining({ n: 0, d: 1 })]);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toHaveLength(2);
 
@@ -276,5 +276,61 @@ it('adds every unmarked pack waiting at load, from both shelf forms, counting ea
 
   await app.reload();
   expect(storedCards()).toBe(15);
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+}, 60_000);
+
+it("adds an older tab's pack once when that tab stores it while this tab's collection is blocked", async () => {
+  const set = getSet('right-now', 2)!;
+  const cards = set.cards.slice(0, 5).map((c) => encodeCard({ id: c.id, holo: false })).join(',');
+  // An older tab opened pack 4 and is still revealing it.
+  app = await mountedApp({
+    ...SEED,
+    [STORAGE_KEYS.STATS]: packsOpened(9),
+    [STORAGE_KEYS.PENDING_PACK]: JSON.stringify({ s: set.id, v: set.version, n: 4, c: cards, t: 1 }),
+  });
+  // This tab loads and adds it, but can't store the collection holding it.
+  const setItem = Storage.prototype.setItem;
+  let attempted: string | undefined;
+  const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key !== STORAGE_KEYS.COLLECTION) return setItem.call(this, key, value);
+    attempted = value;
+    throw new DOMException('Full', 'QuotaExceededError');
+  });
+  await app.mount();
+  await app.until('the blocked collection puts the pack back', () => expect(legacyEntry()).toEqual(expect.objectContaining({ n: 4, d: 1 })));
+  expect(shelf()).toBeNull();
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+  expect(app.takeErrors(/^Failed to save to localStorage key /)).toHaveLength(1);
+
+  // The older tab stores a collection holding the pack, then clears its entry as older builds do.
+  full.mockRestore();
+  localStorage.setItem(STORAGE_KEYS.COLLECTION, attempted!);
+  if (legacyEntry()?.n === 4) localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+  expect(storedCards()).toBe(5);
+
+  await app.reload();
+  await app.reload();
+  expect(storedCards()).toBe(5);
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+  expectShelvesEmpty();
+}, 60_000);
+
+it("adds a pack in both shelf forms once, in one load", async () => {
+  const set = getSet('right-now', 2)!;
+  const cards = set.cards.slice(0, 5).map((c) => encodeCard({ id: c.id, holo: false })).join(',');
+  const pack = { s: set.id, v: set.version, n: 4, c: cards, t: 1 };
+  app = await mountedApp({
+    ...SEED,
+    [STORAGE_KEYS.STATS]: packsOpened(9),
+    [STORAGE_KEYS.PENDING_PACK]: JSON.stringify(pack),
+    [STORAGE_KEYS.PENDING_PACKS]: JSON.stringify([pack]),
+  });
+  await app.mount();
+  await app.until('the waiting pack reaches the stored collection', () => expect(storedCards()).toBe(5));
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+  expectShelvesEmpty();
+
+  await app.reload();
+  expect(storedCards()).toBe(5);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
 }, 60_000);
