@@ -4,6 +4,8 @@ import type { CardWithMeta } from '../components/cards/Card';
 import type { AchievementData } from '../types';
 import { isOpenable, SETS } from '../content/sets';
 import { setCompleteId, setMasterId } from '../data/achievements';
+import { POKER_HANDS } from '../engine';
+import { historyCards, type HistoryEntry } from '../game/history';
 
 type AchievementMap = Record<string, AchievementData | number>;
 
@@ -296,4 +298,66 @@ export const checkPackAchievements = (
   if (luckyCount >= 2) addIfNew(newAchievements, 'lucky_day', achievements);
 
   return newAchievements;
+};
+
+/** Pack Brainrot Score thresholds: 10x the original Buhcoin-era ones (card points were scaled by 10). */
+const PACK_SCORE_ACHIEVEMENTS: [number, string][] = [
+  [500, 'pack_value_50'], [1_000, 'pack_value_100'], [5_000, 'pack_value_500'], [10_000, 'pack_value_1000'],
+  [20_000, 'pack_value_2000'], [30_000, 'pack_value_3000'], [40_000, 'pack_value_4000'], [50_000, 'pack_value_5000'],
+  [60_000, 'pack_value_6000'], [70_000, 'pack_value_7000'], [80_000, 'pack_value_8000'], [90_000, 'pack_value_9000'],
+  [100_000, 'pack_value_10000'], [100_000_000, 'pack_value_max'],
+];
+
+/**
+ * Check a pack's Brainrot Score achievements
+ */
+export const checkPackScoreAchievements = (score: number, achievements: AchievementMap): string[] => {
+  const newAchievements: string[] = [];
+  if (score === 50) addIfNew(newAchievements, 'pack_value_5', achievements);
+  PACK_SCORE_ACHIEVEMENTS.forEach(([min, id]) => score >= min && addIfNew(newAchievements, id, achievements));
+  return newAchievements;
+};
+
+/** What a pack's hand alone unlocks (the same as checkPackAchievements), for packs the history has no cards for. */
+const HAND_ACHIEVEMENTS: Record<string, string[]> = {
+  [POKER_HANDS.PAIR.name]: ['two_of_kind'],
+  [POKER_HANDS.TWO_PAIR.name]: ['two_of_kind', 'two_pair'],
+  [POKER_HANDS.THREE_OF_A_KIND.name]: ['two_of_kind', 'three_of_kind'],
+  [POKER_HANDS.FULL_HOUSE.name]: ['two_of_kind', 'three_of_kind', 'full_house', 'two_pair'],
+  [POKER_HANDS.FOUR_OF_A_KIND.name]: ['two_of_kind', 'three_of_kind', 'four_of_kind'],
+  [POKER_HANDS.FIVE_OF_A_KIND.name]: ['two_of_kind', 'three_of_kind', 'four_of_kind', 'five_of_kind', 'full_house'],
+};
+
+export interface HistoryUnlock {
+  id: string;
+  /** The first pack (by ticket order of opening) that earned it. */
+  entry: HistoryEntry;
+  /** Its cards, if the history (or this device's re-opened packs) has them. */
+  cards: CardWithMeta[] | null;
+}
+
+/**
+ * Pack achievements earned by packs in the history that never unlocked them: packs merged in from
+ * a save, or opened before an achievement existed. A pack without cards still counts its hand and
+ * score; its card-level achievements (holos, rarities) wait until the pack is re-opened.
+ */
+export const checkHistoryAchievements = (history: readonly HistoryEntry[], achievements: AchievementMap): HistoryUnlock[] => {
+  const seen: AchievementMap = { ...achievements };
+  const found: HistoryUnlock[] = [];
+  const oldestFirst = [...history].sort((a, b) => a.openedAt - b.openedAt || a.nonce - b.nonce);
+  for (const entry of oldestFirst) {
+    const cards = historyCards(entry);
+    // Cards this build doesn't know would make the pack look smaller than it was.
+    const complete = cards && entry.cards && cards.length === entry.cards.length && cards.length > 0 ? cards : null;
+    const ids = [
+      ...(complete ? checkPackAchievements(complete, seen) : (HAND_ACHIEVEMENTS[entry.hand] ?? []).filter((id) => !seen[id])),
+      ...checkPackScoreAchievements(entry.score, seen),
+    ];
+    for (const id of ids) {
+      if (seen[id]) continue;
+      seen[id] = entry.openedAt;
+      found.push({ id, entry, cards: complete });
+    }
+  }
+  return found;
 };
