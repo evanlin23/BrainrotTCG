@@ -44,6 +44,8 @@
   color: var(--text);
   /* A hard misprint offset, like a cheap sticker, instead of a glow. */
   text-shadow: 0.06em 0.06em 0 var(--brand-ink), 0.09em 0.09em 0 var(--brand);
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .app-logo .title-char {

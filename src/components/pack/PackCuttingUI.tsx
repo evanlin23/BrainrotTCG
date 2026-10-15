@@ -17,7 +17,7 @@ interface PackCuttingUIProps {
   /** A press just missed the tear line: show where to swipe. */
   nudging?: boolean;
   cutPoints: CutPoint[];
-  sparks: Spark[];
+  sparks: readonly Spark[];
 }
 
 const PackCuttingUI = ({

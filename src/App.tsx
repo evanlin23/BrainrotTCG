@@ -22,6 +22,7 @@ import { clearPendingPack, takePendingPack, type OpenedPack, type PullRef } from
 import { importSaveFile } from './game/saveFile';
 import { getStoredData, setStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
+import { hasCollectionRecovery, persistCollection } from './game/collectionRecovery';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { myStats, onReopenProgress } from './game/profiles';
@@ -42,6 +43,7 @@ import swedenSrc from './assets/audio/Sweden.mp3';
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
+const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. Export a backup from Settings to recover it.';
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
@@ -51,6 +53,9 @@ function App() {
 
   const [settings, setSettings] = useState<Settings>(() => readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)));
   const [saveFailed, setSaveFailed] = useState(false);
+  const [collectionArchived, setCollectionArchived] = useState(hasCollectionRecovery);
+  // One warning for every storage problem, in the banner and in Settings.
+  const saveWarning = [saveFailed && SAVE_WARNING, collectionArchived && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
   const achievementsRef = useRef(achievements);
   const previousProgress = useRef<Map<string, unknown> | null>(null);
 
@@ -58,13 +63,20 @@ function App() {
   // Skip the initial snapshot and do not retry automatically or imply a multi-field commit.
   useEffect(() => {
     const fields: [string, unknown][] = [
-      [STORAGE_KEYS.COLLECTION, collection], [STORAGE_KEYS.ACHIEVEMENTS, achievements],
-      [STORAGE_KEYS.STATS, stats], [STORAGE_KEYS.HALL_OF_FAME, hallOfFame], [STORAGE_KEYS.SETTINGS, settings],
+      [STORAGE_KEYS.ACHIEVEMENTS, achievements], [STORAGE_KEYS.STATS, stats],
+      [STORAGE_KEYS.HALL_OF_FAME, hallOfFame], [STORAGE_KEYS.SETTINGS, settings],
     ];
     const previous = previousProgress.current;
-    previousProgress.current = new Map(fields);
+    previousProgress.current = new Map([[STORAGE_KEYS.COLLECTION, collection], ...fields]);
+    if (!previous) return;
+    // The collection archives stored entries it couldn't read before replacing them (or keeps them).
+    if (previous.get(STORAGE_KEYS.COLLECTION) !== collection) {
+      const result = persistCollection(collection);
+      if (result === 'recovered') setCollectionArchived(true);
+      if (result === 'blocked') setSaveFailed(true);
+    }
     for (const [key, value] of fields) {
-      if (previous && previous.get(key) !== value && !setStoredData(key, value)) setSaveFailed(true);
+      if (previous.get(key) !== value && !setStoredData(key, value)) setSaveFailed(true);
     }
   }, [collection, achievements, stats, hallOfFame, settings]);
 
@@ -433,7 +445,7 @@ function App() {
 
   return (
     <div className={`app ${packBusy ? 'is-focus' : ''}`}>
-      {saveFailed && !isSettingsOpen && <p role="alert" className="save-warning">{SAVE_WARNING}</p>}
+      {saveWarning && !isSettingsOpen && <p role="alert" className="save-warning">{saveWarning}</p>}
       <header className="app-header">
         <h1 className="app-logo" aria-label="Brainrot TCG">
           {'Brainrot TCG'.split('').map((char, i) =>
@@ -533,7 +545,7 @@ function App() {
           onSettingsChange={handleSettingsChange}
           onClose={() => setIsSettingsOpen(false)}
           onImportSave={handleImportSave}
-          saveWarning={saveFailed ? SAVE_WARNING : undefined}
+          saveWarning={saveWarning}
         />
       )}
     </div>
