@@ -34,6 +34,7 @@
  * never interpolated into a shell command, and echoed only through safe().
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getSet } from '../src/content/sets/index.ts';
 import {
@@ -205,7 +206,7 @@ const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[]): string
   return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP} and the first of each hand in each set. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}${first}.`;
 };
 
-const verifyIssue = async () => {
+export const verifyIssue = async () => {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { issue: Issue };
   let result = await checkIssue(event.issue);
   const token = process.env.GITHUB_TOKEN;
@@ -245,10 +246,10 @@ const listVerifiedIssues = async (token: string): Promise<Issue[]> => {
 const BUILD_CACHE = 'hof-build-cache.json';
 type BuildCache = Record<string, { updatedAt: string; entry: HallOfFameEntry | null; reason?: string }>;
 
-const build = async () => {
+export const build = async (output = OUTPUT) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
-    if (!existsSync(OUTPUT)) writeFileSync(OUTPUT, '[]\n');
+    if (!existsSync(output)) writeFileSync(output, '[]\n');
     console.log('No GITHUB_TOKEN; keeping the existing hall-of-fame.json');
     return;
   }
@@ -257,7 +258,7 @@ const build = async () => {
     issues = (await listVerifiedIssues(token)).filter((i) => !labelNames(i).includes('rejected'));
   } catch (error) {
     // Don't block a deploy on the Issues API: the committed file is still a verified snapshot.
-    if (!existsSync(OUTPUT)) writeFileSync(OUTPUT, '[]\n');
+    if (!existsSync(output)) writeFileSync(output, '[]\n');
     console.warn(`Could not list Hall of Fame issues; keeping the existing hall-of-fame.json. ${error}`);
     return;
   }
@@ -296,7 +297,7 @@ const build = async () => {
   // The top pulls and each set's firsts; the first verification of a pull keeps the credit.
   const entries = hallOfFameList(verified);
   for (const e of entries) console.log(`#${e.issue}: ${e.hand} (${e.score}), verified ${e.submittedAt}`);
-  writeFileSync(OUTPUT, JSON.stringify(entries, null, 1) + '\n');
+  writeFileSync(output, JSON.stringify(entries, null, 1) + '\n');
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);
 };
 
@@ -318,7 +319,7 @@ const INBOX_PAGES = 50;
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
 const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
 
-const inbox = async () => {
+export const inbox = async () => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('inbox needs GITHUB_TOKEN to file issues');
   const seen = new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
@@ -411,12 +412,15 @@ const probe = async (relays: string[]) => {
   for (const [i, relay] of relays.entries()) console.log(probeLine(relay, sent[i], read.perRelay[i]));
 };
 
-const mode = process.argv[2];
-if (mode === 'verify-issue') await verifyIssue();
-else if (mode === 'inbox') await inbox();
-else if (mode === 'probe') await probe(process.argv.length > 3 ? process.argv.slice(3) : HOF_RELAYS);
-else if (mode === 'build') await build();
-else {
-  console.error('Usage: npx tsx scripts/hall-of-fame.ts <verify-issue|inbox|build|probe [relays...]>');
-  process.exit(2);
+// Run as a script; tests import the modes and run them against fixtures (scripts/hall-of-fame.test.ts).
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const mode = process.argv[2];
+  if (mode === 'verify-issue') await verifyIssue();
+  else if (mode === 'inbox') await inbox();
+  else if (mode === 'probe') await probe(process.argv.length > 3 ? process.argv.slice(3) : HOF_RELAYS);
+  else if (mode === 'build') await build();
+  else {
+    console.error('Usage: npx tsx scripts/hall-of-fame.ts <verify-issue|inbox|build|probe [relays...]>');
+    process.exit(2);
+  }
 }
