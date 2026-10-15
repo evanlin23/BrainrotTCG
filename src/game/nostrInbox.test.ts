@@ -1,10 +1,62 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { toHex } from '../engine/bytes';
 import { fetchEvents, hallOfFameEvent, HOF_KIND, HOF_TAG, proofFromEvent, publishEvent, signEvent, verifyEvent, type Filter, type NostrEvent, type SocketFactory } from './nostrInbox';
 
 /** Shaped like a pull link's proof (base64url, 100–400 characters); these tests don't decode it. */
 const PROOF = `AQ${'abcXYZ09_-'.repeat(13)}`;
+
+describe('cancelled relay reads', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('opens no connection when already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const open = vi.fn<SocketFactory>();
+    const result = await fetchEvents({ kinds: [HOF_KIND] }, ['wss://a'], 5000, open, 1, controller.signal);
+    expect(open).not.toHaveBeenCalled();
+    expect(result).toEqual({ events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'aborted' }] });
+  });
+
+  it.each([0, 1])('closes readyState %s connections immediately and ignores retired callbacks', async (readyState) => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    const sockets: ReturnType<SocketFactory>[] = [];
+    const open: SocketFactory = () => {
+      const socket = { readyState, send: vi.fn(), close: vi.fn(), onopen: null, onmessage: null, onerror: null, onclose: null };
+      sockets.push(socket);
+      return socket;
+    };
+    const result = fetchEvents({ kinds: [HOF_KIND] }, ['wss://a', 'wss://b'], 5000, open, 1, controller.signal);
+    if (readyState === 1) for (const socket of sockets) socket.onopen?.({});
+    controller.abort();
+    const closed = await result;
+    expect(closed.events).toEqual([]);
+    expect(closed.perRelay.map((relay) => relay.error)).toEqual(['aborted', 'aborted']);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(remove).toHaveBeenCalledTimes(2);
+    for (const socket of sockets) {
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      const calls = vi.mocked(socket.send).mock.calls.length;
+      socket.onopen?.({});
+      socket.onmessage?.({ data: JSON.stringify(['EVENT', 'old', hallOfFameEvent(PROOF, 'late')]) });
+      socket.onclose?.({});
+      expect(socket.send).toHaveBeenCalledTimes(calls);
+      expect(socket.close).toHaveBeenCalledTimes(1);
+      if (readyState === 0) expect(socket.send).not.toHaveBeenCalled();
+    }
+  });
+
+  it('still closes a connection when sending its goodbye throws', async () => {
+    const controller = new AbortController();
+    const socket = { readyState: 1, send: vi.fn(() => { throw new Error('Send denied'); }), close: vi.fn(), onopen: null, onmessage: null, onerror: null, onclose: null };
+    const result = fetchEvents({ kinds: [HOF_KIND] }, ['wss://a'], 5000, () => socket, 1, controller.signal);
+    controller.abort();
+    expect((await result).perRelay[0].error).toBe('aborted');
+    expect(socket.close).toHaveBeenCalledTimes(1);
+  });
+});
 
 type Behaviour = 'accept' | 'refuse' | 'silent' | 'fail';
 
