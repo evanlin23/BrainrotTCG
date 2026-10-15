@@ -1,0 +1,66 @@
+/* The crash fallback (components/ui/AppErrorBoundary.tsx): plain, scrollable, no motion. */
+.app-crash {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 36rem;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: calc(var(--safe-top) + var(--space-6)) var(--gutter) calc(var(--safe-bottom) + var(--space-6));
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-crash h1 {
+  font-size: var(--text-2xl);
+}
+
+.app-crash h1:focus {
+  outline: none;
+}
+
+.app-crash p {
+  color: var(--text-muted);
+}
+
+.app-crash-report {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+
+.app-crash-report summary {
+  min-height: var(--touch-target);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.app-crash-report p,
+.app-crash-report label {
+  display: block;
+  margin-block: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.app-crash-report textarea {
+  width: 100%;
+  min-height: 12rem;
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: var(--text-xs) / 1.5 monospace;
+  resize: vertical;
+}
+
+.app-crash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

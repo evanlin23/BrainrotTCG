@@ -66,6 +66,14 @@ button {
   border: none;
 }
 
+/* Controls never take a text selection from rapid presses (#264). Inputs, textareas, links and
+   copyable text keep the browser default. */
+button,
+[role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 h1,
 h2,
 h3,
