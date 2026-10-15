@@ -1,7 +1,12 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { execFileSync } from 'node:child_process'
 
 const GITHUB_PAGES_URL = 'https://evanlin23.github.io/BrainrotTCG/'
+const buildRevision = () => {
+  try { return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() }
+  catch { return 'unknown' }
+}
 
 /** The page's own address in its link-preview tags: SITE_URL when the site is hosted elsewhere. */
 const siteUrl = (): Plugin => ({
@@ -12,5 +17,6 @@ const siteUrl = (): Plugin => ({
 // The site's path: GitHub Pages serves it under /BrainrotTCG/; another host can set BASE_PATH=/.
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
+  define: { __BUILD_REVISION__: JSON.stringify(buildRevision()) },
   plugins: [react(), siteUrl()],
 })
