@@ -94,8 +94,9 @@ function App() {
       if (result === 'blocked') {
         setSaveFailed(true);
         // Every pack the collection couldn't store goes (back) on the shelf for the next load to add.
-        // Marked as counted first, then the stats that count them are stored; if they can't be, the
-        // packs go back unmarked so that load counts them (and the stats wait for it).
+        // Marked as counted first, then the stats that count them are stored; if they can't be (or a
+        // full shelf can't take one), the packs go back unmarked so that load counts them (and the stats
+        // wait for it).
         if (packs.length > 0) {
           const marked = packs.map((pack) => ({ ...pack, counted: true }));
           statsHandled = true;
@@ -104,7 +105,7 @@ function App() {
         }
       } else {
         unsavedPacks.current = [];
-        clearPendingPack(...packs.map((pack) => pack.nonce));
+        if (packs.length > 0) clearPendingPack(...packs.map((pack) => pack.nonce));
       }
       // The archive can be written even when the collection then can't be.
       if (result !== 'saved' && hasCollectionRecovery()) {

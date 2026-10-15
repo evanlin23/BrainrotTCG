@@ -11,6 +11,13 @@ let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
 afterEach(async () => { await app?.dispose(); app = undefined; });
 
 const read = <T,>(key: string): T => JSON.parse(localStorage.getItem(key) ?? 'null');
+type Shelved = { n: number; d?: number }[] | null;
+/** Packs on the pending shelf (the list key; older builds' one-pack key is checked separately). */
+const shelf = () => read<Shelved>(STORAGE_KEYS.PENDING_PACKS);
+const expectShelvesEmpty = () => {
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).toBeNull();
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+};
 const button = (label: string) => {
   const element = [...document.querySelectorAll<HTMLElement>('button, [role="button"]')]
     .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label);
@@ -18,7 +25,7 @@ const button = (label: string) => {
   return element!;
 };
 const snapshot = () => Object.fromEntries([STORAGE_KEYS.COLLECTION, STORAGE_KEYS.STATS, STORAGE_KEYS.HISTORY,
-  STORAGE_KEYS.PENDING_PACK, 'brainrot-player-v1'].map((key) => [key, localStorage.getItem(key)]));
+  STORAGE_KEYS.PENDING_PACKS, STORAGE_KEYS.PENDING_PACK, 'brainrot-player-v1'].map((key) => [key, localStorage.getItem(key)]));
 
 it('records and awards one real pack, preserving exact cards/modifiers and keeping the save byte-identical after reconstructed reload', async () => {
   app = await mountedApp({
@@ -52,7 +59,7 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
   const codes = stats.highestPackCards!.map((c) => encodeCard({ id: c.id, holo: c.isHolo, finish: c.finish, misprint: c.misprint }));
   expect(codes).toEqual(['bukangi', 'niu-laiG', 'bukangi', 'la-peace', 'verity']);
   expect(read<{ nextNonce: number }>('brainrot-player-v1').nextNonce).toBe(1);
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  expectShelvesEmpty();
   const { getHistory } = await import('../game/history');
   expect(getHistory()).toHaveLength(1);
   expect(getHistory()[0]).toMatchObject({ setId: 'right-now', setVersion: 2, nonce: 0,
@@ -141,14 +148,15 @@ it('keeps an opened pack on the pending shelf until a collection holding it is s
 
   // The collection couldn't take the pack, so the pack still waits for the next load.
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBeNull();
-  expect(read<{ n: number } | null>(STORAGE_KEYS.PENDING_PACK)?.n).toBe(0);
+  expect(shelf()?.map((p) => p.n)).toEqual([0]);
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(9);
 
   // Each load while the collection still can't be stored hands the pack back without counting it again.
   for (let load = 0; load < 3; load++) {
     await app.reload();
-    expect(read<{ n: number } | null>(STORAGE_KEYS.PENDING_PACK)?.n).toBe(0);
+    expect(shelf()?.map((p) => p.n)).toEqual([0]);
   }
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toHaveLength(3);
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBeNull();
@@ -159,7 +167,7 @@ it('keeps an opened pack on the pending shelf until a collection holding it is s
   await app.reload();
   await app.until('the waiting pack reaches the stored collection', () => expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).not.toBeNull());
   expect(storedCards()).toBe(5);
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  expectShelvesEmpty();
   await app.reload();
   expect(storedCards()).toBe(5);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(9);
@@ -180,13 +188,15 @@ it('counts a pack left on the shelf in the old format once, however many loads i
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toHaveLength(3);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
   expect(read<Record<string, unknown>>(STORAGE_KEYS.ACHIEVEMENTS)).toHaveProperty('packs_10');
-  expect(read<{ n: number; d?: number }>(STORAGE_KEYS.PENDING_PACK)).toMatchObject({ n: 4, d: 1 });
+  // The older build's entry was taken on the first load; the pack now waits on the list, marked counted.
+  expect(shelf()).toEqual([expect.objectContaining({ n: 4, d: 1 })]);
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
 
   full.mockRestore();
   await app.reload();
   await app.reload();
   expect(storedCards()).toBe(5);
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  expectShelvesEmpty();
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
 }, 60_000);
 
@@ -203,16 +213,17 @@ it('keeps a pack still owed when another opens, and adds each once', async () =>
   await openOnePack();
 
   // The owed pack and the new one both wait, each counted once.
-  expect(read<{ n: number; d?: number }[]>(STORAGE_KEYS.PENDING_PACK)).toEqual([
+  expect(shelf()).toEqual([
     expect.objectContaining({ n: 4, d: 1 }), expect.objectContaining({ n: 0, d: 1 }),
   ]);
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toHaveLength(2);
 
   full.mockRestore();
   await app.reload();
   await app.until('both waiting packs reach the stored collection', () => expect(storedCards()).toBe(10));
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  expectShelvesEmpty();
   await app.reload();
   expect(storedCards()).toBe(10);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
@@ -225,8 +236,9 @@ it('counts a pack on the next load when the stats counting it could not be store
   await openOnePack();
 
   // Neither its cards nor its count are stored, so the shelf says it still has to count.
-  expect(read<{ n: number; d?: number }>(STORAGE_KEYS.PENDING_PACK)).toEqual(expect.objectContaining({ n: 0 }));
-  expect(read<{ d?: number }>(STORAGE_KEYS.PENDING_PACK)).not.toHaveProperty('d');
+  expect(shelf()).toEqual([expect.objectContaining({ n: 0 })]);
+  expect(shelf()![0]).not.toHaveProperty('d');
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(8);
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([
     expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`), expect.stringContaining(`"${STORAGE_KEYS.STATS}"`),
@@ -236,7 +248,31 @@ it('counts a pack on the next load when the stats counting it could not be store
   await app.reload();
   await app.until('the waiting pack reaches the stored collection', () => expect(storedCards()).toBe(5));
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(9);
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  expectShelvesEmpty();
   await app.reload();
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(9);
+}, 60_000);
+
+it('adds every unmarked pack waiting at load, from both shelf forms, counting each once', async () => {
+  const set = getSet('right-now', 2)!;
+  const cards = set.cards.slice(0, 5).map((c) => encodeCard({ id: c.id, holo: false })).join(',');
+  const pack = (n: number) => ({ s: set.id, v: set.version, n, c: cards, t: 1 });
+  app = await mountedApp({
+    ...SEED,
+    [STORAGE_KEYS.STATS]: packsOpened(7),
+    // An older build's one-pack entry beside this build's list: none of the three counted yet.
+    [STORAGE_KEYS.PENDING_PACK]: JSON.stringify(pack(3)),
+    [STORAGE_KEYS.PENDING_PACKS]: JSON.stringify([pack(4), pack(5)]),
+  });
+  await app.mount();
+  await app.until('all three waiting packs reach the stored collection', () => expect(storedCards()).toBe(15));
+
+  // Each pack's count builds on the last one's, so the third crosses the 10-pack achievement.
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+  expect(read<Record<string, unknown>>(STORAGE_KEYS.ACHIEVEMENTS)).toHaveProperty('packs_10');
+  expectShelvesEmpty();
+
+  await app.reload();
+  expect(storedCards()).toBe(15);
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
 }, 60_000);

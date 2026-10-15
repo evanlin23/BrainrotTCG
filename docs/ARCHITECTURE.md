@@ -280,12 +280,18 @@ is cleared before the final save completes. Resumption and cache retention are b
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
 
 Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
-opener unmounts. `brainrot-pending-pack-v1` supports unfinished-reveal recovery on the next load, but
-writes can fail. A pack leaves that entry only once a collection holding it has been stored; if the
-collection write is blocked, the pack goes back on the shelf for the next load. One pack is stored
-as one entry, more as a list (up to 50), so an owed pack is never replaced by a newer one. A pack is
-marked as counted (`d: 1`) before the stats counting it are written, and unmarked again if they
-can't be, so the next load counts it once (entries without the mark count once).
+opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
+on the next load, but writes can fail. It is always a list (up to 50), so an owed pack is never
+replaced by a newer one; past the cap, saving a new pack reports failure and that pack stays only in
+the history. A pack leaves the shelf only once a collection holding it has been stored; if the
+collection write is blocked, the pack goes back on the shelf for the next load. A pack is marked as
+counted (`d: 1`) before the stats counting it are written, and unmarked again if they can't be, so
+the next load counts it once (entries without the mark count once).
+`brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never writes it, so an
+older build (another tab or a rollback) never finds a list there to discard, and never sees or clears
+listed packs. It reads that entry as one more owed pack, and removes it on load (only after the list
+is taken) or once a stored collection holds its pack, as older builds do. It is not copied into the
+list: an older tab can clear only the v1 entry, so a copy would be awarded twice.
 Multi-key state updates are not a transaction, so this is not a guarantee against lost or duplicate
 awards (#233). Screens pass whole pulled-card objects with holo/finish/misprint data
 (`src/game/versions.ts`); preserving those fields still requires checks at rendering, persistence

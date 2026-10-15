@@ -122,7 +122,7 @@ it('shows the kept-aside note at once, and keeps the pack waiting, when only the
 
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBe(RAW);
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(RAW);
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).not.toBeNull();
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).not.toBeNull();
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
   expect(warnings()).toEqual([expect.stringMatching(/couldn't be saved in this browser[\s\S]*kept aside/)]);
 }, 60_000);
