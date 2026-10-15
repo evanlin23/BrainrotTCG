@@ -297,7 +297,10 @@ failed read keeps what was shown, and a resumed re-open waits for a successful r
 earned from the history and from card modifiers are worked out only once every history pack's
 cards are in, so each is credited to the pack and date that earned it; if only other players'
 packs fail to read, those count by hand and score alone rather than holding back your own. A tab
-whose player another tab switched or imported neither unlocks nor stores achievements. IndexedDB
+whose player another tab switched or imported neither unlocks achievements nor stores any progress
+(collection, stats, Hall of Fame, achievements, settings): every write compares the stored player
+with the one the tab loaded, and the banner asks for a reload; packs opened meanwhile wait on the
+pending shelf under the player they opened as. IndexedDB
 errors can leave only memory results; writes resolve without a durable-success signal, and the pending flag
 is cleared before the final save completes. Resumption and cache retention are best effort (#87).
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.

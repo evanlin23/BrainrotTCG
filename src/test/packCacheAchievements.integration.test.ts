@@ -129,12 +129,12 @@ it("keeps achievements a pack unlocks in a tab another player's save replaced ou
   await app.settle(100);
 
   // This tab opens a pack: its first, so it unlocks achievements here, which aren't stored over the
-  // other player's; the tab says it couldn't save instead.
+  // other player's; the tab says its save changed elsewhere instead.
   await openAPack();
   await app.settle(100);
   expect(document.body.textContent).toMatch(/\d+ achievements unlocked/);
   expect(achievements()).toEqual(imported);
-  expect(document.body.textContent).toContain("Some changes couldn't be saved");
+  expect(document.body.textContent).toContain('This save changed in another tab');
 });
 
 it("unlocks achievements from your own packs when another player's saved pack can't be read", async () => {
