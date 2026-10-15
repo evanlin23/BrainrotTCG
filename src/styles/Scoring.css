@@ -93,7 +93,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  min-height: 36px;
+  min-height: var(--touch-target);
   padding: 0 var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-sm);

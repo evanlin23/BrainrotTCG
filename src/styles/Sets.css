@@ -212,7 +212,7 @@
   border-radius: 3px;
   background: var(--brand);
   color: var(--brand-ink);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -298,7 +298,7 @@
   border-radius: 3px;
   background: var(--brand);
   color: var(--brand-ink);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;

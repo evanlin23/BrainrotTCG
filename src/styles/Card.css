@@ -201,7 +201,7 @@
     color: var(--brand-ink);
     box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
     font-family: var(--font-body);
-    font-size: clamp(11px, 3.4cqw, 16px);
+    font-size: clamp(var(--text-xs), 3.4cqw, 16px);
     font-weight: 800;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -292,6 +292,8 @@
 @media (max-width: 640px) {
     .card-wrapper {
         height: calc(100vh - 12rem);
+        /* The visible height: 100vh is taller than the screen while a phone's toolbar shows. */
+        height: calc(100dvh - 12rem);
         max-height: 450px;
     }
 }

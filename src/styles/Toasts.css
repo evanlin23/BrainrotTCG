@@ -1,7 +1,7 @@
 .toast-region {
   position: fixed;
-  /* In the header strip: it's chrome, so it never covers the game (a pack's result especially). */
-  top: calc(var(--safe-top) + 6px);
+  /* Just under the header (one 68px row on phones), so the logo and Player and settings buttons stay visible. */
+  top: calc(var(--safe-top) + 4.5rem);
   left: 50%;
   z-index: var(--z-toast);
   width: min(92vw, 24rem);

@@ -39,6 +39,11 @@ async function reveal() {
 }
 
 const pressA = () => app!.interact(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', key: 'a', bubbles: true })));
+// From whatever has focus, as a real key press is: a sheet's own Escape handler sees it first.
+const escape = () => app!.interact(() => (document.activeElement ?? document.body)
+  .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
+const toasts = () => [...document.querySelectorAll('.toast')].map((el) => el.textContent ?? '').join(' | ');
+const openMyCards = () => app!.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent === 'My cards')!.click());
 
 it('ignores the old auto-open key on the sealed pack and during a reveal', async () => {
   app = await mountedApp(preferences());
@@ -60,7 +65,7 @@ it('ignores the old auto-open key on the sealed pack and during a reveal', async
 it('leaves a spent reveal by its button or empty space exactly once, but not after a fling off the card', async () => {
   app = await mountedApp(preferences());
   await app.mount();
-  for (const [index, exit] of ['Back to packs', 'click on empty space', 'press on empty space'].entries()) {
+  for (const [index, exit] of ['Close pack', 'click on empty space', 'press on empty space'].entries()) {
     await reveal();
     await app.interact(() => $('.card-wrapper')!.click());
     const area = $('.card-reveal-area')!;
@@ -71,11 +76,11 @@ it('leaves a spent reveal by its button or empty space exactly once, but not aft
     await app.settle(400);
     const round = `round ${index + 1} (${exit})`;
     expect(sealed(), `a fling between the card and empty space left the reveal in ${round}`).toBeNull();
-    expect(button('Back to packs'), `the reveal lost its Back to packs button after a fling in ${round}`).toBeDefined();
+    expect(button('Close pack'), `the reveal lost its Close pack button after a fling in ${round}`).toBeDefined();
     expect(stats()?.packsOpened ?? 0, `a fling between the card and empty space recorded the pack in ${round}`).toBe(index);
 
     await app.interact(() => {
-      if (exit === 'Back to packs') button('Back to packs').click();
+      if (exit === 'Close pack') button('Close pack').click();
       // A click with no pointer press, as from assistive tech.
       else if (exit === 'click on empty space') area.click();
       else press($('.active-card-container')!, area, area);
@@ -105,15 +110,58 @@ it('does not leave or record a reveal from behind an open sheet', async () => {
   await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent === 'My cards')!.click());
   await app.until('a sheet opens over the reveal', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
   expect(area.classList, 'the area still offers leaving while a sheet covers it').not.toContain('can-leave');
-  await app.interact(() => button('Back to packs').click());
+  await app.interact(() => button('Close pack').click());
   await app.interact(() => area.click());
   await app.settle(400);
   expect(sealed(), 'a press behind the sheet left the reveal').toBeNull();
   expect(stats()?.packsOpened ?? 0, 'a press behind the sheet recorded the pack').toBe(0);
   await app.interact(() => button('Close').click());
   await app.until('the sheet closes', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
-  await app.interact(() => button('Back to packs').click());
+  await app.interact(() => button('Close pack').click());
   await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
+  expect(stats()?.packsOpened).toBe(1);
+}, 30_000);
+
+it('closes a reveal with Escape as Close pack does, and says the face-down cards were kept', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  await reveal();
+  await app.interact(() => $('.card-wrapper')!.click());
+  expect(toasts()).not.toContain('Pack kept');
+  await escape();
+  await app.until('Escape closes the reveal', () => expect(sealed()).not.toBeNull());
+  expect(stats()?.packsOpened).toBe(1);
+  expect(stats()?.highestPackCards).toHaveLength(5);
+  await app.until('a notice says the pack was kept', () => expect(toasts()).toContain('Pack kept'));
+  expect(toasts()).toContain('Its cards are in My cards');
+  // Tapping the notice opens the cards it names.
+  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast')].find((el) => el.textContent?.includes('Pack kept'))!.click());
+  await app.until('My cards opens from the notice', () => expect(document.querySelector('[role="dialog"]')?.textContent).toContain('My cards'));
+
+  // With no reveal open, Escape only closes the sheet and opens or records nothing.
+  await escape();
+  await app.until('Escape closes the sheet', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  await escape();
+  await app.settle(1000);
+  expect($('.reveal-progress')).toBeNull();
+  expect(stats()?.packsOpened).toBe(1);
+}, 30_000);
+
+it('lets Escape close a sheet over the reveal without closing the reveal', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  await reveal();
+  await openMyCards();
+  await app.until('a sheet opens over the reveal', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
+  await escape();
+  await app.until('Escape closes the sheet', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  await app.settle(400);
+  expect(progress(), 'Escape under a sheet also closed the reveal').toBe('1');
+  expect(sealed()).toBeNull();
+  expect(stats()?.packsOpened ?? 0, 'Escape under a sheet recorded the pack').toBe(0);
+  expect(toasts()).not.toContain('Pack kept');
+  await escape();
+  await app.until('the next Escape closes the reveal', () => expect(sealed()).not.toBeNull());
   expect(stats()?.packsOpened).toBe(1);
 }, 30_000);
 
@@ -136,6 +184,7 @@ it('shares from the summary, which puts its actions above the cards', async () =
   expect(actions.compareDocumentPosition($('.summary-cards')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(button('Open another pack')).toBeDefined();
   expect(stats()?.packsOpened).toBe(1);
+  expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
 
   await app.interact(() => button('Share').click());
   await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
@@ -150,14 +199,15 @@ it('blocks every way out while a big pull holds the reveal', async () => {
   await app.interact(() => button('Skip opening animation').click());
   await app.until('skip stops on the big pull', () => expect($('.active-card-container')?.getAttribute('aria-busy')).toBe('true'));
   const area = $('.card-reveal-area')!;
-  expect(button('Back to packs').disabled).toBe(true);
+  expect(button('Close pack').disabled).toBe(true);
   expect(area.classList).not.toContain('can-leave');
   await app.interact(() => {
-    button('Back to packs').click();
+    button('Close pack').click();
     area.click();
     press(area, area, area);
     press($('.active-card-container')!, area, area);
   });
+  await escape();
   expect($('.active-card-container')?.getAttribute('aria-busy')).toBe('true');
   expect(sealed()).toBeNull();
   expect(stats()?.packsOpened ?? 0).toBe(0);

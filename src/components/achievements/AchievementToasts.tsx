@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Award, ChevronsUp } from 'lucide-react';
+import { Award, ChevronsUp, Layers } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
 import '../../styles/Toasts.css';
 
@@ -9,15 +9,17 @@ export type ToastItem = Pick<Achievement, 'id' | 'name' | 'description'> & {
   /** Replaces "Achievement unlocked"; such toasts are never grouped. */
   kicker?: string;
   /** What tapping it opens. */
-  opens?: 'achievements' | 'profile';
+  opens?: ToastTarget;
 };
+
+export type ToastTarget = 'achievements' | 'profile' | 'collection';
 
 interface AchievementToastsProps {
   queue: ToastItem[];
   /** Remove these ids from the queue. */
   onDismiss: (ids: string[]) => void;
-  /** Tapping a toast opens the achievements list, or the profile for a level-up. */
-  onOpen: (target: 'achievements' | 'profile') => void;
+  /** Tapping a toast opens the achievements list, the profile for a level-up, or My cards for a kept pack. */
+  onOpen: (target: ToastTarget) => void;
   /** A sheet is open: hold the toasts until it closes, so they never cover its title or close button. */
   paused?: boolean;
 }
@@ -60,7 +62,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false }: Achieve
             transition={{ duration: 0.18, ease: 'easeOut' }}
           >
             <span className="toast-icon" aria-hidden="true">
-              {!grouped && shown[0].kicker ? <ChevronsUp strokeWidth={2.4} /> : <Award strokeWidth={2.4} />}
+              {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}
             </span>
             <span className="toast-text">
               <span className="toast-kicker">{grouped ? `${shown.length} achievements unlocked` : (shown[0].kicker ?? 'Achievement unlocked')}</span>

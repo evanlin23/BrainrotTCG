@@ -135,19 +135,16 @@
   font-weight: 700;
 }
 
+/* Both lines wrap rather than clip: a long name must not hide the fingerprint that tells players
+   apart, and the set and date are part of the record. */
 .hof-who,
 .hof-meta {
-  overflow: hidden;
   font-size: var(--text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .hof-who {
   color: var(--text-muted);
-  /* A long name wraps rather than hiding the fingerprint that tells players apart. */
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 .hof-who .share-fp {

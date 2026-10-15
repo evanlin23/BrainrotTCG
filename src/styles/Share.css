@@ -68,7 +68,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  min-height: 36px;
+  min-height: var(--touch-target);
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
