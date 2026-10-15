@@ -40,6 +40,8 @@ export interface OpenedPack extends PullRef {
   openedAt: number;
   /** Already counted in the stats and pack milestones: only its cards still need to be stored. */
   counted?: boolean;
+  /** Taken from an older build's one-pack entry, which keeps it until a stored collection holds it. */
+  legacy?: boolean;
   /** Its ticket mapping couldn't be written to the history (storage full or blocked): warn that saving failed. */
   unrecorded?: boolean;
 }
@@ -89,6 +91,16 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
  * The collection only takes a pack once its reveal is done (so achievements don't spoil it), but the
  * ticket is spent the moment it opens. Until the collection has it, the pack waits here, so a reload,
  * a closed tab or a dead phone mid-reveal can't lose it: the app adds it on the next load.
+ *
+ * The shelf is a list under PENDING_PACKS, so no owed pack replaces another. Older builds keep one
+ * pack under PENDING_PACK instead, and would delete a list found there (or fail to clear it), so this
+ * build never puts a list or a new pack there. An older tab or a rollback never sees the list, so it
+ * can't drop or re-add a listed pack; the next load of this build still adds them.
+ * A pack an older build left under PENDING_PACK is added on load but stays there until a stored
+ * collection holds it, so an older tab that stores and clears that pack still reaches the only copy.
+ * If the collection can't be stored, it is put back there (marked), only while that entry still holds
+ * it: otherwise the tab that took or stored it has it. It never moves to the list, where an older tab's
+ * clear can't reach it and the next load would add it again.
  */
 interface PendingPack {
   s: string;
@@ -101,65 +113,125 @@ interface PendingPack {
   d?: 1;
 }
 
-/** Puts a pack (back) on the shelf; App does this when the collection holding it couldn't be stored. */
-export const savePendingPack = (pack: OpenedPack) => {
-  const pending: PendingPack = {
-    s: pack.setId,
-    v: pack.setVersion,
-    n: pack.nonce,
-    k: pack.publicKeyHex,
-    c: pack.cards.map((c) => encodeCard({ id: c.id, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(','),
-    t: pack.openedAt,
-    ...(pack.counted ? { d: 1 as const } : {}),
-  };
+/** Enough for every pack a blocked collection can owe in one visit; past it, the history still has them. */
+const SHELF_LIMIT = 50;
+
+/** This player's packs under a key, a list or one entry (empty when it can't be read). */
+const readPacks = (key: string): PendingPack[] => {
   try {
-    localStorage.setItem(STORAGE_KEYS.PENDING_PACK, JSON.stringify(pending));
+    const stored: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
+    return (Array.isArray(stored) ? stored : [stored]).filter((p: Partial<PendingPack> | null): p is PendingPack =>
+      typeof p?.n === 'number' && (!p.k || p.k === getPlayer().publicKeyHex));
   } catch {
-    // Out of space: the history still has it.
+    return [];
   }
 };
 
-/** Takes the pending pack off the shelf. False when storage refuses (a SecurityError), so it stays. */
-const removePendingPack = (): boolean => {
+const readShelf = () => readPacks(STORAGE_KEYS.PENDING_PACKS);
+/** The pack an older build left in its one-pack entry, if any. */
+const readLegacy = () => readPacks(STORAGE_KEYS.PENDING_PACK);
+
+/** False when storage refuses (out of space, or a SecurityError), so the shelf is as it was. */
+const writeShelf = (shelf: PendingPack[]): boolean => {
   try {
-    localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+    if (shelf.length === 0) localStorage.removeItem(STORAGE_KEYS.PENDING_PACKS);
+    else localStorage.setItem(STORAGE_KEYS.PENDING_PACKS, JSON.stringify(shelf));
     return true;
   } catch {
     return false;
   }
 };
 
-/** The collection has this pack now. */
-export const clearPendingPack = (nonce: number) => {
+const removeLegacy = () => {
   try {
-    const pending = JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACK) ?? 'null') as PendingPack | null;
-    if (pending?.n === nonce) removePendingPack();
-  } catch {
-    removePendingPack();
-  }
+    localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+  } catch { /* It stays for a later load, which adds it only if no stored collection has cleared it. */ }
 };
 
-/** A pack opened but never added to the collection (this player's only), taken off the shelf. */
-export const takePendingPack = (): OpenedPack | null => {
-  let pending: PendingPack | null;
-  try {
-    pending = JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACK) ?? 'null');
-  } catch {
-    pending = null;
+const toPending = (pack: OpenedPack): PendingPack => ({
+  s: pack.setId,
+  v: pack.setVersion,
+  n: pack.nonce,
+  k: pack.publicKeyHex,
+  c: pack.cards.map((c) => encodeCard({ id: c.id, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(','),
+  t: pack.openedAt,
+  ...(pack.counted ? { d: 1 as const } : {}),
+});
+
+/**
+ * Puts packs (back) on the shelf, beside the ones already owed; App does this when the collection
+ * holding them couldn't be stored. A pack already there is replaced. False when storage refuses, or
+ * when the shelf is full and a new pack couldn't go on it (the history still has that one).
+ */
+export const savePendingPack = (...packs: OpenedPack[]): boolean => {
+  const shelf = readShelf();
+  let dropped = 0;
+  let saved = true;
+  for (const pack of packs) {
+    const pending = toPending(pack);
+    if (pack.legacy) {
+      // Back into the older build's entry, if it still holds this pack (see above).
+      if (!readLegacy().some((p) => p.n === pack.nonce)) continue;
+      try {
+        localStorage.setItem(STORAGE_KEYS.PENDING_PACK, JSON.stringify(pending));
+      } catch {
+        saved = false;
+      }
+      continue;
+    }
+    const at = shelf.findIndex((p) => p.n === pack.nonce);
+    // A full shelf never drops an owed pack for a new one.
+    if (at >= 0) shelf[at] = pending;
+    else if (shelf.length < SHELF_LIMIT) shelf.push(pending);
+    else dropped++;
   }
-  // If it can't be taken off the shelf, adding it now would add it again on the next load.
-  if (!removePendingPack()) return null;
-  const set = pending && getSet(pending.s, pending.v);
-  if (!pending || !set || (pending.k && pending.k !== getPlayer().publicKeyHex)) return null;
-  try {
-    const cards = toCardsWithMeta(
-      pending.c.split(',').map(decodeCard).map((c) => ({ setId: set.id, cardId: c.id, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1) })),
-    ).map((c) => ({ ...c, isRevealed: true }));
-    const counted = pending.d === 1 ? { counted: true } : {};
-    return { setId: set.id, setVersion: set.version, nonce: pending.n, publicKeyHex: pending.k, cards, score: scoreCards(cards), openedAt: pending.t, ...counted };
-  } catch {
-    return null;
+  if (dropped > 0) console.error(`The pending pack shelf is full (${SHELF_LIMIT}): ${dropped} pack(s) not kept for the next load.`);
+  return writeShelf(shelf) && saved && dropped === 0;
+};
+
+/** The collection has these packs now. */
+export const clearPendingPack = (...nonces: number[]) => {
+  if (nonces.length === 0) return;
+  if (readLegacy().some((p) => nonces.includes(p.n))) removeLegacy();
+  const shelf = readShelf();
+  const kept = shelf.filter((p) => !nonces.includes(p.n));
+  if (kept.length === shelf.length || writeShelf(kept)) return;
+  // A pack left on the shelf would be added again on the next load: take the shelf off, then put the
+  // others back.
+  if (!writeShelf([])) console.error(`The pending pack shelf couldn't be cleared: the next load may add ${shelf.length - kept.length} stored pack(s) again.`);
+  else if (!writeShelf(kept)) console.error(`The pending pack shelf couldn't be rewritten: ${kept.length} owed pack(s) dropped (the history still has them).`);
+};
+
+/**
+ * The packs opened but never added to the collection (this player's only), taken off the shelf. A pack
+ * in the older builds' entry stays there until clearPendingPack (see above).
+ */
+export const takePendingPacks = (): OpenedPack[] => {
+  const legacy = readLegacy();
+  const listed = readShelf();
+  // If they can't be taken off the shelf, adding them now would add them again on the next load.
+  if (!writeShelf([])) return [];
+  const packs: OpenedPack[] = [];
+  for (const pending of [...legacy, ...listed]) {
+    // One pack in both places is added once, and counts once if either copy says it has.
+    const same = packs.find((p) => p.nonce === pending.n);
+    if (same) {
+      if (pending.d === 1) same.counted = true;
+      continue;
+    }
+    const set = getSet(pending.s, pending.v);
+    if (!set) continue;
+    try {
+      const cards = toCardsWithMeta(
+        pending.c.split(',').map(decodeCard).map((c) => ({ setId: set.id, cardId: c.id, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1) })),
+      ).map((c) => ({ ...c, isRevealed: true }));
+      const flags = { ...(pending.d === 1 ? { counted: true } : {}), ...(legacy.includes(pending) ? { legacy: true } : {}) };
+      packs.push({ setId: set.id, setVersion: set.version, nonce: pending.n, publicKeyHex: pending.k, cards, score: scoreCards(cards), openedAt: pending.t, ...flags });
+    } catch { /* Unreadable: the history still has it. */ }
   }
+  // An older build's entry with nothing to add (unreadable, or another player's) goes, as it did there.
+  if (!packs.some((p) => p.legacy)) removeLegacy();
+  return packs;
 };
 
 /** Can this player share this pull? (False after importing a different player's key.) */
