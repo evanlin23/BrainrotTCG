@@ -95,6 +95,28 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(logged()).toEqual([]);
   });
 
+  it('stops replacing the stored collection, rather than grow the archive without end', () => {
+    const data = seed(null);
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify({ raw: '{"0":null}', player: null }));
+    for (let i = 1; i <= 10; i++) {
+      data.set(STORAGE_KEYS.COLLECTION, `{"${i}":null}`);
+      expect(persistCollection({})).toBe('recovered');
+    }
+    const archive = data.get(STORAGE_KEYS.COLLECTION_RECOVERY);
+    expect(JSON.parse(archive!).later).toHaveLength(10);
+    expect(logged()).toEqual([]);
+
+    data.set(STORAGE_KEYS.COLLECTION, '{"11":null}');
+    expect(persistCollection({})).toBe('blocked');
+    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe('{"11":null}');
+    expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
+    expect(logged()).toHaveLength(1);
+    // Bytes it already holds still count as kept, and a readable collection saves as before.
+    data.set(STORAGE_KEYS.COLLECTION, '{"10":null}');
+    expect(persistCollection({})).toBe('recovered');
+    expect(persistCollection({ [card.key]: item })).toBe('saved');
+  });
+
   it.each(['{broken', '[]', '{"raw":"x","later":"y"}'])('never overwrites an archive it cannot read: %s', (originalArchive) => {
     const raw = '{"second":null}';
     const data = seed(raw);

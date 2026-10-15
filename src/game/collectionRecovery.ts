@@ -51,6 +51,12 @@ export const dismissCollectionRecovery = (): boolean => {
   }
 };
 
+/**
+ * Damaged payloads kept beside the first. Only a writer that keeps finding the stored collection
+ * unreadable (an outdated tab, say) adds more, and past this it stops replacing it instead.
+ */
+const LATER_LIMIT = 10;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -84,6 +90,10 @@ const archiveUnreadable = (): 'clean' | 'archived' | 'blocked' => {
     }
     const later: unknown[] = archive.later ?? [];
     if ([archive, ...later].some((kept) => isRecord(kept) && kept.raw === raw)) return 'archived';
+    if (later.length >= LATER_LIMIT) {
+      console.error(`Kept the stored collection: "${key}" already holds ${later.length + 1} unreadable collections.`);
+      return 'blocked';
+    }
     localStorage.setItem(key, JSON.stringify({ ...archive, later: [...later, entry] }));
     return 'archived';
   } catch (error) {

@@ -122,7 +122,8 @@ async function startJourney(page: Page, baseURL: string) {
 const proofState = async (page: Page) => ({
   recorded: await snapshot(page),
   provenance: await page.evaluate((keys) => Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)])), [
-    'brainrot-player-v1', STORAGE_KEYS.ACHIEVEMENTS, STORAGE_KEYS.PENDING_PACK, STORAGE_KEYS.HALL_OF_FAME, STORAGE_KEYS.PULLS,
+    'brainrot-player-v1', STORAGE_KEYS.ACHIEVEMENTS, STORAGE_KEYS.PENDING_PACKS, STORAGE_KEYS.PENDING_PACK,
+    STORAGE_KEYS.HALL_OF_FAME, STORAGE_KEYS.PULLS,
   ]),
 });
 
