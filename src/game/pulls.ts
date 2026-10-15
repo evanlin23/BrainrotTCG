@@ -40,6 +40,8 @@ export interface OpenedPack extends PullRef {
   openedAt: number;
   /** Already counted in the stats and pack milestones: only its cards still need to be stored. */
   counted?: boolean;
+  /** Its ticket mapping couldn't be written to the history (storage full or blocked): warn that saving failed. */
+  unrecorded?: boolean;
 }
 
 export const toCardsWithMeta = (pulled: { setId: string; cardId: string; isHolo: boolean; finish?: Finish | null; misprint?: boolean }[]): CardWithMeta[] =>
@@ -78,7 +80,7 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
     openedAt: Date.now(),
   };
   // Recorded now, not after the reveal: the ticket is spent either way, and a profile needs every one.
-  recordPack(pack);
+  if (!recordPack(pack)) pack.unrecorded = true;
   savePendingPack(pack);
   return pack;
 };
