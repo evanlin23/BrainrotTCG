@@ -66,4 +66,13 @@ describe('profile link failures', () => {
     act(() => window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-history-v1' })));
     expect(myProfileInfo).toHaveBeenCalledTimes(2);
   });
+
+  it('refuses only the link and player card when a ticket has no original mapping', () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 1, missing: 2 });
+    render();
+    expect(button('Copy profile link').disabled).toBe(true);
+    expect(button('Player card').disabled).toBe(true);
+    expect(document.body.textContent).toContain('A complete profile link or player card cannot be created from this save.');
+    expect(button('Re-open them').disabled).toBe(false);
+  });
 });
