@@ -17,8 +17,7 @@ between other things, so every rule below starts from a 390 px wide screen.
    sheet: a bottom sheet on phones, a centred dialog on wide screens, with the same header, close
    button, Escape key, focus handling and backdrop.
 5. **Readable before flashy.** Rubik Glitch is for the logo only. Headings and big numbers use Lilita
-   One (the same face as the card captions); everything else is Archivo, whose condensed widths set
-   labels like a grading slab. Numbers are tabular.
+   One; everything else is Archivo, whose condensed widths set labels like a grading slab. Numbers are tabular.
 6. **Colour carries meaning.** Surfaces are a binder-black ramp with card-stock white text. There is
    one accent, price-sticker yellow, and it only marks the thing to do next (primary buttons,
    progress, the "New" set). Foil only ever appears on holo cards. Rarity colours are identical
@@ -31,8 +30,9 @@ between other things, so every rule below starts from a 390 px wide screen.
 9. **Accessible by default.** Text meets WCAG AA contrast; every control is reachable by keyboard with a
    visible focus ring; touch targets are at least 44 px; panels trap focus and close with Escape;
    motion is reduced when the OS asks for it.
-10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading; animations are
-    120–320 ms and only animate transform and opacity.
+10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading; standard UI transitions
+    are 120–320 ms (rare pull celebrations and card shimmers run longer, and specific card/reveal effects animate
+    properties like box-shadow or clip-path).
 
 ## Looks like a card game, not like an AI demo
 
@@ -40,8 +40,8 @@ The look comes from collecting real cards: binder pages, sleeves, set checklists
 ("SOS 007/012"), set codes printed in the set's colour, rarity marks, and graded-card labels for
 anything verified. Generic app chrome gives a page away as generated. Don't use:
 
-- gradients on buttons, text, borders or backgrounds (foil on holo cards is the one exception);
-- glows, glassy blur, or tinted "neon" shadows;
+- gradients on app chrome (buttons, text, borders or backgrounds); card foil, rarity borders, and special card finishes are the exceptions;
+- glows, glassy blur, or tinted "neon" shadows on app chrome (rare card reveals and finish tells use targeted edge glows);
 - emoji as bullets or markers (🧠 before every score, ✨ for holo); emoji stay where they're content,
   like an achievement's icon or a share post;
 - small letter-spaced uppercase headings over every section; headings are plain sentence case;
@@ -66,14 +66,14 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 
 ## Components
 
-- **Buttons** (`.btn`): `--primary` (gradient, one per screen), `--secondary` (surface + border),
-  `--ghost` (text only); `--lg`, `--block`; `.icon-btn` for icon-only buttons, always with an
-  `aria-label`.
+- **Buttons** (`.btn`): `.btn--primary` (flat yellow background, one per screen), `.btn--secondary`
+  (surface + border), `.btn--ghost` (text only); `.btn--lg`, `.btn--sm`, `.btn--block`; `.icon-btn`
+  for icon-only buttons, always with an `aria-label`.
 - **Sheet** (`ui/Sheet.tsx`): every panel. A bottom sheet on phones, a centred dialog from 720px.
   Title, optional subtitle and sticky footer, close button, Escape, focus trap, scroll lock, focus
   returns to the opener. Sheets stack (a card opened from the collection sits on top of it). Sizes:
-  `sm` (settings, share), `md` (one pull), `lg` (collection, history, achievements, Hall of Fame);
-  `bare` for a single big card.
+  `sm` (settings, share), `md` (one pull), `lg` (collection, history, achievements, Hall of Fame),
+  `full` (supported full-viewport variant); `bare` for a single big card.
 - **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one sheet holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.
@@ -81,9 +81,9 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   (player ID and ticket), like the label on a graded card.
 - **Rows**: lists are rows (thumbnail, two lines of text, a value on the right, a chevron when it
   opens something), not cards in a grid. Settings use grouped rows with `.switch` toggles.
-- **App nav** (`ui/AppNav.tsx`): Collection, Pulls, Hall of Fame, Achievements, Settings, each an
+- **App nav** (`ui/AppNav.tsx`): Collection, Profile, Hall of Fame, Achievements, Settings, each an
   icon plus a label.
-- **Toasts** (`achievements/AchievementToasts.tsx`): one at a time, top centre, auto-dismiss.
+- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 
@@ -92,3 +92,86 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 Run the app, then capture every screen at 390×844 and 1440×900 (a Playwright script that opens a
 pack and every sheet is the quickest way). Look for overlap, cut-off text and anything that needs a
 mouse. Keyboard through it: Tab reaches everything, Escape closes the top panel.
+
+## Proposed local Best cards contract (#337)
+
+**Proposal for owner/Claude review, not shipped.** Keep a short list of individual card instances
+on Profile next to the shipped **All packs** list (its Newest / Best / Hall of Fame tabs) and
+**Best pulls**; no extra primary destination or global board. The heading "Best cards", its
+placement and the cap of 10 are proposals for the owner to confirm. Rank by original-version
+individual `cardPoints` before the pack combo multiplier, preserving finish/holo/misprint together.
+Distinct slots may both qualify; repeated imports of one instance cannot duplicate it.
+
+Use `(full public key, set id, set version, nonce, zero-based slot)` as the instance key: the full
+64-hex `publicKeyHex`, and the slot in engine pack order, not reveal order. Pack history
+(`brainrot-history-v1`) and the pack cache store only the first 16 hex characters of the key
+(`KEY_PREFIX` in `src/game/history.ts`, `keyOf` in `src/game/packStore.ts`), so the full key must
+come from the player or the proof, never from history. On equal points, order by lower nonce (as
+profile highlights do, `src/engine/profile.ts`), then by higher slot (as shipped best-card picks do;
+see the pull headline rule below). The local Best tab instead breaks pack ties by newer `openedAt`,
+which this list must not use. Conflicting set assignments for one nonce require resolution, not two
+awards. Namespace lists by full key; switching/importing an identity never merges its winners with
+another key's. Local timestamps and short display fingerprints are not trusted tie/identity data.
+
+Retain the original pack proof or a portable authoritative assignment reference, including exact
+version/slot, independently of pack-history trimming (when storage is full, history drops cached
+cards, then the oldest packs). Reconstruct before accepting a candidate; cached
+points/cards/images are discardable. Bound the list to the cap (10, owner to confirm) and
+deduplicate parent proofs, without deleting the separate profile ledger or achievement evidence
+(#241/#323).
+
+| Case | Required result |
+| --- | --- |
+| A 40M-point card's parent pack is trimmed from history | Card remains reconstructible with original-pack access |
+| Reimported pack; equal cards in two slots | No duplicate instance; both slots eligible, higher slot first |
+| Later version changes rarity/modifiers | Original version determines points and exact appearance |
+| Missing cache / failed save | Reconstruct with retry; preserve prior winners and report unsaved state |
+| Legacy history already missing | “Best among recoverable pulls”, not certified best-ever |
+
+Portable saves must include required references/provenance even if stored in IndexedDB; restore
+into a fresh browser must not depend on the source cache. An external different-key proof is a
+viewed shared pull, not an owned opening. Public proof/generator formats remain unchanged.
+Rows open shared card detail with the shipped Share card action plus a proposed View original pack;
+pack detail offers a proposed Share pack (#185). Listed proofs establish those instances, not complete lifetime totals or absence of a
+stronger undeclared pull. After approval, split selector/persistence/save coverage from UI wiring.
+The full quota, interruption, mixed-version and round-trip acceptance matrix remains in #337;
+those implementation tests are planned, not executed by this design-only change.
+
+## Proposed pull headline rule (#339)
+
+**Proposal, not implemented.** Choose a consistent pack headline over a dominance threshold:
+**Pack total: [score]**, then **[true combo] ×[multiplier]**, then **Standout card: [finish] [Holo]
+[Misprint] [name] · [card points]** (omit absent modifiers). Card surfaces lead with identity/modifiers
+and Card points. The labels "Pack total", "Standout card" and "Card points" are proposals for the
+owner to confirm, not shipped UI text. Individual points exclude the pack multiplier; neither title
+claims record rarity. Select maximum original-version `cardPoints`; on ties take the **higher** slot
+(the last of the tied cards in engine pack order). That is the shipped best-card rule: `revealOrder`
+(`src/game/reveal.ts`) sorts by `cardPoints` ascending and keeps pack order on ties, and `previewOf`
+(`src/game/previewLinks.ts`, called from `previewFor` in `src/game/pulls.ts`) takes its last card
+when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
+it explains the formula, not pull excitement.
+
+Arithmetic presentation fixtures below are not claimed mined proofs. Different letters are
+separate card ids; names and modifiers must come from actual reconstruction in implementation.
+
+| Fixture | Pack total / combo | Standout |
+| --- | --- | --- |
+| Common Diamond Holo Misprint A40M; B20 C35 D70 E200 | 40,000,325 / No Matches ×1 | A · 40,000,000 |
+| A40M A10 B20 B20 C35 | 400,000,850 / Two Pair ×10 | Slot 0 A · 40,000,000, not 400M |
+| Five common A10 | 500,000 / 5 of a Kind ×10,000 | Slot 4 A · 10 |
+| A35 B35 C10 D20 E10 | 110 / No Matches ×1 | Slot 1 B wins the tie |
+| A10 B20 C35 D70 E200 | 335 / No Matches ×1 | E · 200 |
+| Historical version | Its reconstructed total/combo | No later rarity/modifier assumptions |
+
+One presentation helper returns structured total/combo/standout fields, without a second scorer.
+Results and owned/public pack detail show all fields above cards; personal/global pack rows show
+total, combo and concise standout, opening that detail. Card rows/detail show card identity/points
+and labeled original-pack context. Exact-pull captions/posters use the same fields and proof link.
+Static previews cannot read proof fragments: keep generic hand/card descriptions, stable paths and
+old images; do not imply they depict exact modifiers or regenerate history solely for new titles.
+
+At narrow/short widths, wrap the standout and keep actions reachable. Compact 40M formatting needs
+exact accessible points and full details; rankings use exact values. After approval, implement the
+helper plus consumer regressions across these surfaces. Scoring, generators, selectors, public proof
+URLs and animations do not change. Full surface/mobile/sharing acceptance stays in #339; checks are
+planned, not executed here. Figma authoring (#312) remains deferred.

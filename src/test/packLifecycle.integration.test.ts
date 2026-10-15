@@ -18,11 +18,13 @@ const button = (label: string) => {
 const snapshot = () => Object.fromEntries([STORAGE_KEYS.COLLECTION, STORAGE_KEYS.STATS, STORAGE_KEYS.HISTORY,
   STORAGE_KEYS.PENDING_PACK, 'brainrot-player-v1'].map((key) => [key, localStorage.getItem(key)]));
 
-it('records and awards one real pack, preserving exact cards/modifiers/ticket after reconstructed reload', async () => {
+it('records and awards one real pack, preserving exact cards/modifiers and keeping the save byte-identical after reconstructed reload', async () => {
   app = await mountedApp({
     // Same disposable seed as #304; never import a developer's save. Only identity/preferences are seeded.
     'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Mounted fixture', nextNonce: 0, createdAt: 1 }),
     [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+    // Pin the set the golden values below come from, so a new release (DEFAULT_SET_ID) cannot change them.
+    [STORAGE_KEYS.SELECTED_SET]: 'right-now',
   });
   await app.mount();
   await app.interact(() => {
