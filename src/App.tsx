@@ -92,11 +92,22 @@ function App() {
   const [brokenLink, setBrokenLink] = useState(() => isBrokenLink(window.location.hash));
 
   const playableSets = SETS.filter((s) => !s.archivedAt && (!s.draft || settings.showDraftSets));
-  const [selectedSetId, setSelectedSetId] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.SELECTED_SET) ?? DEFAULT_SET_ID);
+  // A blocked or full storage (SecurityError, QuotaExceededError) only loses the remembered choice.
+  const [selectedSetId, setSelectedSetId] = useState<string>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.SELECTED_SET) ?? DEFAULT_SET_ID;
+    } catch {
+      return DEFAULT_SET_ID;
+    }
+  });
   const selectedSet = playableSets.find((s) => s.id === selectedSetId) ?? playableSets.find((s) => s.id === DEFAULT_SET_ID) ?? playableSets[0];
   const selectSet = useCallback((setId: string) => {
     setSelectedSetId(setId);
-    localStorage.setItem(STORAGE_KEYS.SELECTED_SET, setId);
+    try {
+      localStorage.setItem(STORAGE_KEYS.SELECTED_SET, setId);
+    } catch {
+      // Still selected for this visit.
+    }
   }, []);
 
   // Shared pull links: #/pull/<proof>
