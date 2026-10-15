@@ -227,8 +227,9 @@ localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainro
 and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups. IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
-replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1`; if
-that can't be kept, the stored collection is left alone. Export includes that archive. Import
+replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1` (up to
+11 distinct payloads); if that can't be kept, the stored collection is left alone. Export includes
+that archive. Import
 (`saveFile.ts`) validates every supplied field and the player first, backs up the current save (no
 backup, no import), writes the identity last and, on failure, removes what it wrote and restores
 the previous values. That is structural validation and best-effort rollback, not a transaction. The
@@ -281,8 +282,10 @@ The cache stores reconstructed cards, not a server account or a backup of all hi
 Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
 opener unmounts. `brainrot-pending-pack-v1` supports unfinished-reveal recovery on the next load, but
 writes can fail. A pack leaves that entry only once a collection holding it has been stored; if the
-collection write is blocked, the pack goes back on the one-pack shelf for the next load, marked as
-counted (`d: 1`) so that load only adds its cards (entries without the mark count once).
+collection write is blocked, the pack goes back on the shelf for the next load. One pack is stored
+as one entry, more as a list (up to 50), so an owed pack is never replaced by a newer one. A pack is
+marked as counted (`d: 1`) before the stats counting it are written, and unmarked again if they
+can't be, so the next load counts it once (entries without the mark count once).
 Multi-key state updates are not a transaction, so this is not a guarantee against lost or duplicate
 awards (#233). Screens pass whole pulled-card objects with holo/finish/misprint data
 (`src/game/versions.ts`); preserving those fields still requires checks at rendering, persistence

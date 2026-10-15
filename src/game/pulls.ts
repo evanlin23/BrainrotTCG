@@ -87,6 +87,7 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
  * The collection only takes a pack once its reveal is done (so achievements don't spoil it), but the
  * ticket is spent the moment it opens. Until the collection has it, the pack waits here, so a reload,
  * a closed tab or a dead phone mid-reveal can't lose it: the app adds it on the next load.
+ * One pack is stored as one entry (as it always was); two or more as a list, so none replaces another.
  */
 interface PendingPack {
   s: string;
@@ -99,65 +100,80 @@ interface PendingPack {
   d?: 1;
 }
 
-/** Puts a pack (back) on the shelf; App does this when the collection holding it couldn't be stored. */
-export const savePendingPack = (pack: OpenedPack) => {
-  const pending: PendingPack = {
-    s: pack.setId,
-    v: pack.setVersion,
-    n: pack.nonce,
-    k: pack.publicKeyHex,
-    c: pack.cards.map((c) => encodeCard({ id: c.id, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(','),
-    t: pack.openedAt,
-    ...(pack.counted ? { d: 1 as const } : {}),
-  };
+/** Enough for every pack a blocked collection can owe in one visit; past it, the history still has them. */
+const SHELF_LIMIT = 50;
+
+/** This player's packs on the shelf (empty when it can't be read). */
+const readShelf = (): PendingPack[] => {
   try {
-    localStorage.setItem(STORAGE_KEYS.PENDING_PACK, JSON.stringify(pending));
+    const stored: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACK) ?? '[]');
+    return (Array.isArray(stored) ? stored : [stored]).filter((p: Partial<PendingPack> | null): p is PendingPack =>
+      typeof p?.n === 'number' && (!p.k || p.k === getPlayer().publicKeyHex));
   } catch {
-    // Out of space: the history still has it.
+    return [];
   }
 };
 
-/** Takes the pending pack off the shelf. False when storage refuses (a SecurityError), so it stays. */
-const removePendingPack = (): boolean => {
+/** False when storage refuses (out of space, or a SecurityError), so the shelf is as it was. */
+const writeShelf = (shelf: PendingPack[]): boolean => {
   try {
-    localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+    if (shelf.length === 0) localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+    else localStorage.setItem(STORAGE_KEYS.PENDING_PACK, JSON.stringify(shelf.length === 1 ? shelf[0] : shelf));
     return true;
   } catch {
     return false;
   }
 };
 
-/** The collection has this pack now. */
-export const clearPendingPack = (nonce: number) => {
-  try {
-    const pending = JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACK) ?? 'null') as PendingPack | null;
-    if (pending?.n === nonce) removePendingPack();
-  } catch {
-    removePendingPack();
+/**
+ * Puts packs (back) on the shelf, beside the ones already owed; App does this when the collection
+ * holding them couldn't be stored. A pack already there is replaced. False when storage refuses.
+ */
+export const savePendingPack = (...packs: OpenedPack[]): boolean => {
+  const shelf = readShelf();
+  for (const pack of packs) {
+    const pending: PendingPack = {
+      s: pack.setId,
+      v: pack.setVersion,
+      n: pack.nonce,
+      k: pack.publicKeyHex,
+      c: pack.cards.map((c) => encodeCard({ id: c.id, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(','),
+      t: pack.openedAt,
+      ...(pack.counted ? { d: 1 as const } : {}),
+    };
+    const at = shelf.findIndex((p) => p.n === pack.nonce);
+    // A full shelf never drops an owed pack for a new one; the history still has the new one.
+    if (at >= 0) shelf[at] = pending;
+    else if (shelf.length < SHELF_LIMIT) shelf.push(pending);
   }
+  return writeShelf(shelf);
 };
 
-/** A pack opened but never added to the collection (this player's only), taken off the shelf. */
-export const takePendingPack = (): OpenedPack | null => {
-  let pending: PendingPack | null;
-  try {
-    pending = JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACK) ?? 'null');
-  } catch {
-    pending = null;
+/** The collection has these packs now. */
+export const clearPendingPack = (...nonces: number[]) => {
+  // A pack left on the shelf would be added again on the next load, so if the others can't be kept
+  // without it, none are.
+  if (!writeShelf(readShelf().filter((p) => !nonces.includes(p.n)))) writeShelf([]);
+};
+
+/** The packs opened but never added to the collection (this player's only), taken off the shelf. */
+export const takePendingPacks = (): OpenedPack[] => {
+  const shelf = readShelf();
+  // If they can't be taken off the shelf, adding them now would add them again on the next load.
+  if (!writeShelf([])) return [];
+  const packs: OpenedPack[] = [];
+  for (const pending of shelf) {
+    const set = getSet(pending.s, pending.v);
+    if (!set || packs.some((p) => p.nonce === pending.n)) continue;
+    try {
+      const cards = toCardsWithMeta(
+        pending.c.split(',').map(decodeCard).map((c) => ({ setId: set.id, cardId: c.id, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1) })),
+      ).map((c) => ({ ...c, isRevealed: true }));
+      const counted = pending.d === 1 ? { counted: true } : {};
+      packs.push({ setId: set.id, setVersion: set.version, nonce: pending.n, publicKeyHex: pending.k, cards, score: scoreCards(cards), openedAt: pending.t, ...counted });
+    } catch { /* Unreadable: the history still has it. */ }
   }
-  // If it can't be taken off the shelf, adding it now would add it again on the next load.
-  if (!removePendingPack()) return null;
-  const set = pending && getSet(pending.s, pending.v);
-  if (!pending || !set || (pending.k && pending.k !== getPlayer().publicKeyHex)) return null;
-  try {
-    const cards = toCardsWithMeta(
-      pending.c.split(',').map(decodeCard).map((c) => ({ setId: set.id, cardId: c.id, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1) })),
-    ).map((c) => ({ ...c, isRevealed: true }));
-    const counted = pending.d === 1 ? { counted: true } : {};
-    return { setId: set.id, setVersion: set.version, nonce: pending.n, publicKeyHex: pending.k, cards, score: scoreCards(cards), openedAt: pending.t, ...counted };
-  } catch {
-    return null;
-  }
+  return packs;
 };
 
 /** Can this player share this pull? (False after importing a different player's key.) */

@@ -12,7 +12,7 @@ import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { extractProfile, extractProof } from './engine';
-import { clearPendingPack, savePendingPack, takePendingPack, type OpenedPack, type PullRef } from './game/pulls';
+import { clearPendingPack, savePendingPack, takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { importSaveFile } from './game/saveFile';
 import { getStoredData, setStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
@@ -48,6 +48,8 @@ const loadPull = () => import('./components/share/PullViewerPage');
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
 const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. Export a backup from Settings to recover it.';
+/** What adding a pack changes, so several packs can be added before React renders. */
+type PackProgress = { stats: Stats; collection: Record<string, CollectionItem>; hallOfFame: HallOfFameData };
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
@@ -84,18 +86,25 @@ function App() {
     const previous = previousProgress.current;
     previousProgress.current = new Map([[STORAGE_KEYS.COLLECTION, collection], ...fields]);
     if (!previous) return;
+    let statsHandled = false;
     // The collection archives stored entries it couldn't read before replacing them (or keeps them).
     if (previous.get(STORAGE_KEYS.COLLECTION) !== collection) {
       const result = persistCollection(collection);
       const packs = unsavedPacks.current;
       if (result === 'blocked') {
         setSaveFailed(true);
-        // The shelf holds one pack; a pack taken off it on load goes back so the next load adds it.
-        // It has counted already, so that load only adds its cards.
-        if (packs.length > 0) savePendingPack({ ...packs[packs.length - 1], counted: true });
+        // Every pack the collection couldn't store goes (back) on the shelf for the next load to add.
+        // Marked as counted first, then the stats that count them are stored; if they can't be, the
+        // packs go back unmarked so that load counts them (and the stats wait for it).
+        if (packs.length > 0) {
+          const marked = packs.map((pack) => ({ ...pack, counted: true }));
+          statsHandled = true;
+          if (savePendingPack(...marked) && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
+          else savePendingPack(...packs);
+        }
       } else {
         unsavedPacks.current = [];
-        for (const pack of packs) clearPendingPack(pack.nonce);
+        clearPendingPack(...packs.map((pack) => pack.nonce));
       }
       // The archive can be written even when the collection then can't be.
       if (result !== 'saved' && hasCollectionRecovery()) {
@@ -104,6 +113,7 @@ function App() {
       }
     }
     for (const [key, value] of fields) {
+      if (key === STORAGE_KEYS.STATS && statsHandled) continue;
       if (previous.get(key) !== value && !setStoredData(key, value)) setSaveFailed(true);
     }
   }, [collection, achievements, stats, hallOfFame, settings]);
@@ -325,7 +335,7 @@ function App() {
     allNewAchievements.forEach(id => unlockAchievement(id, newCards, pullRef));
   }, [unlockAchievement]);
 
-  const handlePackOpened = useCallback((pack: OpenedPack) => {
+  const handlePackOpened = useCallback((pack: OpenedPack, from: PackProgress = { stats, collection, hallOfFame }): PackProgress => {
     unsavedPacks.current.push(pack);
     // A pack put back on the shelf counted when it opened (stats, pack milestones): it only adds its cards.
     const counted = pack.counted === true;
@@ -335,13 +345,13 @@ function App() {
 
     // Compute progress in the event handler; React state updaters stay free of side effects.
     const updatedStats: Stats = {
-      ...stats,
-      packsOpened: (stats.packsOpened || 0) + 1,
-      holoCards: { ...stats.holoCards }
+      ...from.stats,
+      packsOpened: (from.stats.packsOpened || 0) + 1,
+      holoCards: { ...from.stats.holoCards }
     };
 
     // Update highest pack value - compare against previous state
-    if (score > (stats.highestPackFlexValue || stats.highestPackValue || 0)) {
+    if (score > (from.stats.highestPackFlexValue || from.stats.highestPackValue || 0)) {
       updatedStats.highestPackFlexValue = score;
       updatedStats.highestPackBaseValue = packValue;
       updatedStats.highestPackMultiplier = pokerHand.multiplier;
@@ -361,7 +371,7 @@ function App() {
     if (!counted) setStats(updatedStats);
 
     // Update collection - track holo and normal counts separately
-    const updatedCollection = { ...collection };
+    const updatedCollection = { ...from.collection };
 
     // Count normal and holo cards separately
     const normalCounts: Record<string, number> = {};
@@ -401,7 +411,7 @@ function App() {
     setCollection(updatedCollection);
 
     // Check Hall of Fame milestones
-    const updatedHallOfFame = { ...hallOfFame };
+    const updatedHallOfFame = { ...from.hallOfFame };
     const cardCounts: Record<string, number> = {};
     newCards.forEach(c => {
       cardCounts[c.id] = (cardCounts[c.id] || 0) + 1;
@@ -409,7 +419,7 @@ function App() {
     const maxCount = Math.max(...Object.values(cardCounts));
 
     // First 4 of a kind
-    if (maxCount >= 4 && !hallOfFame.first4OfAKind) {
+    if (maxCount >= 4 && !from.hallOfFame.first4OfAKind) {
       const cardId = Object.entries(cardCounts).find(([, count]) => count >= 4)?.[0];
       if (cardId) {
         updatedHallOfFame.first4OfAKind = {
@@ -424,7 +434,7 @@ function App() {
     const counts = Object.values(cardCounts);
     const hasThree = counts.some(c => c >= 3);
     const hasTwo = counts.filter(c => c >= 2).length >= 2;
-    if (hasThree && hasTwo && !hallOfFame.firstFullHouse) {
+    if (hasThree && hasTwo && !from.hallOfFame.firstFullHouse) {
       updatedHallOfFame.firstFullHouse = {
         achieved: true,
         date: Date.now(),
@@ -432,7 +442,7 @@ function App() {
       };
     }
 
-    if (updatedHallOfFame !== hallOfFame) {
+    if (updatedHallOfFame !== from.hallOfFame) {
       setHallOfFame(updatedHallOfFame);
     }
 
@@ -441,13 +451,13 @@ function App() {
     packValueAchievements.forEach(id => unlockAchievement(id, newCards, pullRef));
 
     // Check other achievements - get current state to avoid stale closure
-    checkAllAchievements(newCards, pullRef, updatedCollection || collection, counted ? stats : updatedStats, achievementsRef.current, !counted);
+    checkAllAchievements(newCards, pullRef, updatedCollection, counted ? from.stats : updatedStats, achievementsRef.current, !counted);
+    return { stats: counted ? from.stats : updatedStats, collection: updatedCollection, hallOfFame: updatedHallOfFame };
   }, [stats, hallOfFame, collection, checkAllAchievements, unlockAchievement]);
 
-  // A pack whose reveal never finished (a reload, a closed tab): its ticket is spent, so it still counts.
+  // Packs whose reveal never finished (a reload, a closed tab): their tickets are spent, so they still count.
   useEffect(() => {
-    const pending = takePendingPack();
-    if (pending) handlePackOpened(pending);
+    takePendingPacks().reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

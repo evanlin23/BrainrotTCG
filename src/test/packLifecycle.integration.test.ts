@@ -101,13 +101,25 @@ const SEED = {
   [STORAGE_KEYS.SELECTED_SET]: 'right-now',
 };
 const packsOpened = (packs: number) => JSON.stringify({ packsOpened: packs, holoCards: {}, highestPackValue: 0, highestPackCards: [] });
-/** Storage too full for the collection; everything else still fits. */
-const fillStorage = () => {
+/** Storage too full for the collection (or the given keys); everything else still fits. */
+const fillStorage = (keys: string[] = [STORAGE_KEYS.COLLECTION]) => {
   const setItem = Storage.prototype.setItem;
   return vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-    if (key === STORAGE_KEYS.COLLECTION) throw new DOMException('Full', 'QuotaExceededError');
+    if (keys.includes(key)) throw new DOMException('Full', 'QuotaExceededError');
     setItem.call(this, key, value);
   });
+};
+const openOnePack = async () => {
+  await app!.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app!.interact(() => {
+    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+  });
+  await app!.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
+  await app!.interact(() => button('Skip').click());
+  await app!.until('Skip completes the production summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 };
 const storedCards = () => Object.values(read<Record<string, CollectionItem>>(STORAGE_KEYS.COLLECTION) ?? {})
   .reduce((sum, item) => sum + item.normalCount + item.holoCount, 0);
@@ -176,4 +188,55 @@ it('counts a pack left on the shelf in the old format once, however many loads i
   expect(storedCards()).toBe(5);
   expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+}, 60_000);
+
+it('keeps a pack still owed when another opens, and adds each once', async () => {
+  const set = getSet('right-now', 2)!;
+  const cards = set.cards.slice(0, 5).map((c) => encodeCard({ id: c.id, holo: false })).join(',');
+  app = await mountedApp({
+    ...SEED,
+    [STORAGE_KEYS.STATS]: packsOpened(8),
+    [STORAGE_KEYS.PENDING_PACK]: JSON.stringify({ s: set.id, v: set.version, n: 4, c: cards, t: 1 }),
+  });
+  const full = fillStorage();
+  await app.mount();
+  await openOnePack();
+
+  // The owed pack and the new one both wait, each counted once.
+  expect(read<{ n: number; d?: number }[]>(STORAGE_KEYS.PENDING_PACK)).toEqual([
+    expect.objectContaining({ n: 4, d: 1 }), expect.objectContaining({ n: 0, d: 1 }),
+  ]);
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+  expect(app.takeErrors(/^Failed to save to localStorage key /)).toHaveLength(2);
+
+  full.mockRestore();
+  await app.reload();
+  await app.until('both waiting packs reach the stored collection', () => expect(storedCards()).toBe(10));
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  await app.reload();
+  expect(storedCards()).toBe(10);
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+}, 60_000);
+
+it('counts a pack on the next load when the stats counting it could not be stored', async () => {
+  app = await mountedApp({ ...SEED, [STORAGE_KEYS.STATS]: packsOpened(8) });
+  await app.mount();
+  const full = fillStorage([STORAGE_KEYS.COLLECTION, STORAGE_KEYS.STATS]);
+  await openOnePack();
+
+  // Neither its cards nor its count are stored, so the shelf says it still has to count.
+  expect(read<{ n: number; d?: number }>(STORAGE_KEYS.PENDING_PACK)).toEqual(expect.objectContaining({ n: 0 }));
+  expect(read<{ d?: number }>(STORAGE_KEYS.PENDING_PACK)).not.toHaveProperty('d');
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(8);
+  expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([
+    expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`), expect.stringContaining(`"${STORAGE_KEYS.STATS}"`),
+  ]);
+
+  full.mockRestore();
+  await app.reload();
+  await app.until('the waiting pack reaches the stored collection', () => expect(storedCards()).toBe(5));
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(9);
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
+  await app.reload();
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(9);
 }, 60_000);
