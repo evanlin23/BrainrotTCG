@@ -92,7 +92,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
         </div>
       </div>
 
-
       {selected && (
         <CardViewerModal
           card={selected}

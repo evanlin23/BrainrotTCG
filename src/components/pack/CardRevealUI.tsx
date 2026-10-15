@@ -68,7 +68,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   return (
     <>
       <div className="reveal-top">
-        {onLeave && <button type="button" className="reveal-leave" onClick={onLeave}>Back to packs</button>}
+        {onLeave && <button type="button" className="reveal-leave" onClick={onLeave} disabled={revealLocked}>Back to packs</button>}
         <div className="reveal-progress" role="progressbar" aria-label="Cards revealed" aria-valuemin={1} aria-valuemax={totalCards} aria-valuenow={currentIndex + 1} aria-valuetext={`Card ${currentIndex + 1} of ${totalCards}`}>
           {Array.from({ length: totalCards }, (_, i) => (
             <span key={i} className={i < currentIndex ? 'done' : i === currentIndex ? 'current' : ''} aria-hidden="true" />

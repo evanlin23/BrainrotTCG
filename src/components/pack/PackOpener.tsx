@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, type SyntheticEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { CardWithMeta } from '../cards/Card';
 import type { Settings } from '../../types';
@@ -213,9 +213,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
   }, [disabled, pauseBigPulls, openedCards, recordPack]);
 
   const leaveReveal = useCallback(() => {
+    if (pauseBigPulls && performance.now() < revealLockedUntilRef.current) return;
     recordPack();
     finishPack();
-  }, [recordPack, finishPack]);
+  }, [pauseBigPulls, recordPack, finishPack]);
+
+  // A press on the empty space around the card leaves the reveal. A fling that starts on the card and
+  // is released off it clicks their shared ancestor, so the press must start and end on empty space.
+  // A click with no pointer press (keyboard or assistive tech) can't be a drag.
+  const blankPressRef = useRef<boolean | null>(null);
+  const onBlank = (event: SyntheticEvent) => event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('active-card-container');
 
   const closeSummary = useCallback(() => {
     finishPack();
@@ -402,9 +409,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2 }}
-            className="card-reveal-area"
+            className={`card-reveal-area ${!showSummary && !(revealLocked && pauseBigPulls) ? 'can-leave' : ''}`}
+            onPointerDownCapture={(event) => { blankPressRef.current = onBlank(event); }}
+            onPointerUpCapture={(event) => { blankPressRef.current = blankPressRef.current === true && onBlank(event); }}
             onClick={(event) => {
-              if (!showSummary && (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('active-card-container'))) leaveReveal();
+              const pressedBlank = blankPressRef.current;
+              blankPressRef.current = null;
+              if (!showSummary && pressedBlank !== false && onBlank(event)) leaveReveal();
             }}
           >
             {!showSummary ? (
