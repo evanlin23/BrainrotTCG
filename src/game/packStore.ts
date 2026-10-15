@@ -148,13 +148,14 @@ export const readStoredPacks = async (packs: readonly StoredPackRef[], signal?: 
       throw new Error('Saved pack cache is unavailable; retry before restoring profile totals');
     }
     return await new Promise<(string | undefined)[]>((resolve, reject) => {
+      let cleanup = () => {};
       try {
         const tx = database.transaction(STORE, 'readonly');
         const abort = () => {
           try { tx.abort(); } catch { /* A transaction that already completed needs no cancellation. */ }
         };
         signal?.addEventListener('abort', abort, { once: true });
-        const cleanup = () => signal?.removeEventListener('abort', abort);
+        cleanup = () => signal?.removeEventListener('abort', abort);
         tx.onerror = tx.onabort = () => {
           cleanup();
           reject(signal?.aborted ? signal.reason : new Error('Saved pack cache read failed; retry before restoring profile totals'));
@@ -169,6 +170,7 @@ export const readStoredPacks = async (packs: readonly StoredPackRef[], signal?: 
           } else resolve(values as (string | undefined)[]);
         };
       } catch (error) {
+        cleanup();
         reject(error);
       }
     });
