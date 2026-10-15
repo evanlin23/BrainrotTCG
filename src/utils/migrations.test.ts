@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS, getCard, type Card } from '../data/cards';
-import { hydrateCollection } from './migrations';
+import { collectionNeedsRecovery, hydrateCollection, runMigrations } from './migrations';
 
 const current = ALL_CARDS[0];
 const unknown: Card = {
@@ -80,5 +81,35 @@ describe('collection hydration', () => {
     expect(JSON.stringify(parsed)).toBe(raw);
     expect(parsed.corrupt).toBeNull();
     expect(hydrated.keep).not.toBe(parsed.keep);
+  });
+});
+
+describe('v2 collection migration', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps records that are not cards so they stay recoverable instead of dropping them', () => {
+    const store = new Map<string, string>([[STORAGE_KEYS.COLLECTION, JSON.stringify({
+      image: { card: { id: 'image' }, count: 2 },
+      'genesis/chimpanzini-bananini': 'lost',
+      broken: 7,
+      gone: null,
+      list: [1],
+    })]]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    });
+    runMigrations();
+    const migrated = JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!) as Record<string, unknown>;
+    expect(migrated).toMatchObject({
+      'genesis/chimpanzini-bananini': { normalCount: 2, holoCount: 0 },
+      'genesis/chimpanzini-bananini#unreadable': 'lost',
+      broken: 7,
+      gone: null,
+      list: [1],
+    });
+    expect(Object.keys(hydrateCollection(migrated))).toEqual(['genesis/chimpanzini-bananini']);
+    expect(collectionNeedsRecovery(migrated)).toBe(true);
+    expect(store.get('brainrot-data-version')).toBe('3');
   });
 });
