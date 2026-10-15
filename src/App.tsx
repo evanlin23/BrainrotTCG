@@ -500,6 +500,10 @@ function App() {
   }, [stats.packsOpened, collection]);
 
   const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isProfileOpen || isSettingsOpen || isPlayerOpen || !!shareTarget || !!viewProof || !!viewProfile;
+  // A sheet that is none of the tabs (even one on top of My cards, like Share from Best pulls or a
+  // shared link) leaves no tab current.
+  const isNonTabSheetOpen = isAchievementsOpen || isSettingsOpen || isPlayerOpen || !!shareTarget || !!viewProof || !!viewProfile || brokenLink;
+  const activeTab = isNonTabSheetOpen ? null : isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : 'open';
 
   const personalNavigation = <nav className="personal-nav" aria-label="My cards">
     <button type="button" className="btn btn--secondary" aria-current={isCollectionOpen ? 'page' : undefined} onClick={() => openNav('collection')}>Cards</button>
@@ -526,7 +530,7 @@ function App() {
             ),
           )}
         </h1>
-        <AppNav onOpen={openNav} active={isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : isAnyModalOpen || brokenLink ? null : 'open'} />
+        <AppNav onOpen={openNav} active={activeTab} />
         <div className="app-utilities">
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('player')} disabled={packBusy}>Player</button>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('settings')} disabled={packBusy} aria-label="Sound & display" title="Sound & display"><Settings2 aria-hidden="true" size={20} /></button>

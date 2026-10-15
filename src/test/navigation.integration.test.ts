@@ -67,3 +67,28 @@ it('keeps three primary destinations and gives identity, goals, sound and recove
   expect(currentTab()).toBeNull();
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).nextNonce).toBe(0);
 }, 30_000);
+
+it('leaves no tab current while a sheet that is not a tab sits on top of My cards', async () => {
+  app = await mountedApp({
+    'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Navigation fixture', nextNonce: 0, createdAt: 1 }),
+    'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+  });
+  await app.mount();
+  await app.interact(() => button('My cards').click());
+  await app.until('cards destination loads', () => expect(document.querySelector('.collection')).not.toBeNull());
+  expect(currentTab()).toBe('My cards');
+  // A shared link opened while My cards is up: its sheet goes on top without closing the tab's sheet.
+  await app.interact(() => {
+    history.replaceState(null, '', '#/pull/cut-off');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  });
+  await app.until('broken link sheet opens', () => expect(
+    [...document.querySelectorAll('[role="dialog"]')].map((dialog) => document.getElementById(dialog.getAttribute('aria-labelledby') ?? '')?.textContent),
+  ).toContain("This link doesn't work"));
+  expect(document.querySelector('.collection')).not.toBeNull();
+  expect(currentTab()).toBeNull();
+  await app.interact(() => button('Close').click());
+  await app.until('broken link sheet closes', () => expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1));
+  expect(window.location.hash).toBe('');
+  expect(currentTab()).toBe('My cards');
+}, 30_000);

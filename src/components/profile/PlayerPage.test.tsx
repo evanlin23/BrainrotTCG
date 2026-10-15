@@ -119,6 +119,30 @@ describe('saving the display name', () => {
     expect(playerWrites()).toHaveLength(1);
     expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toEqual({ ...stored, name: 'Blurred Name' });
   });
+
+  it('writes and announces a failed save once when a pointer press on Save name blurs the field first', () => {
+    failWrites();
+    type('Unsaved Name');
+    const save = [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent === 'Save name')!;
+    // A real pointer press: pointerdown, then focus moves (blurring the field), then a counted click.
+    const pointerDown = () => act(() => save.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
+    const click = () => act(() => save.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
+    pointerDown();
+    act(() => save.focus());
+    expect(playerWrites()).toHaveLength(1);
+    expect(status()).toBe(SAVE_FAILED);
+    const announced = statusNode();
+    click();
+    // The click reused the blur's result rather than writing and remounting the live region text again.
+    expect(playerWrites()).toHaveLength(1);
+    expect(statusNode()).toBe(announced);
+    // The next press has no blur of its own, so it is the retry the message asks for.
+    pointerDown();
+    click();
+    expect(playerWrites()).toHaveLength(2);
+    expect(statusNode()).not.toBe(announced);
+    expect(status()).toBe(SAVE_FAILED);
+  });
 });
 
 describe('the status line', () => {

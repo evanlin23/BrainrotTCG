@@ -31,12 +31,16 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
   const closeRefused = useRef(false);
   /** The draft whose last save failed; leaving reuses that result instead of writing it again. */
   const failedDraft = useRef<string | null>(null);
+  /** Counts saves; a pointer press on Save name compares it with its pointerdown to see if its own blur saved. */
+  const saves = useRef(0);
+  const savesAtPress = useRef<number | null>(null);
   /**
    * Store the draft if it is a valid, changed name. Only a stored name is reported as saved; a
    * refused write keeps the draft so the player can retry. Leaving the field (`fromBlur`) saves too,
    * but a blank draft is left alone there so the player can keep typing.
    */
   const saveName = (fromBlur = false): RenameResult['status'] => {
+    saves.current += 1;
     const result = renamePlayer(nameDraft);
     setPlayer(result.player);
     failedDraft.current = result.status === 'failed' ? nameDraft : null;
@@ -91,7 +95,16 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
           onBlur={() => saveName(true)}
           onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveName(); } }} />
       </label>
-      <button type="button" className="btn btn--secondary" onClick={() => saveName()}>Save name</button>
+      <button type="button" className="btn btn--secondary"
+        onPointerDown={() => { savesAtPress.current = saves.current; }}
+        onClick={(event) => {
+          // A pointer press blurs the field first. If that blur's save just failed with this draft, it
+          // was already written and announced, so this press doesn't repeat it; a later press retries.
+          const blurSaved = event.detail > 0 && savesAtPress.current !== null && savesAtPress.current !== saves.current;
+          savesAtPress.current = null;
+          if (blurSaved && failedDraft.current === nameDraft) return;
+          saveName();
+        }}>Save name</button>
       <p>Player ID #{player.fingerprint}</p>
       {/* Only save results go in the live region, so opening or editing announces nothing. */}
       <p role="status"><span key={failures}>{nameStatus}</span></p>
