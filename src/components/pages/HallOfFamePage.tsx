@@ -48,17 +48,49 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   const tabsId = useId();
 
   const [pending, setPending] = useState<HallOfFameEntry[]>([]);
+  const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  const [attempt, setAttempt] = useState(0);
+  const loadingRef = useRef(true);
 
   useEffect(() => {
     const controller = new AbortController();
+    loadingRef.current = true;
     loadHallOfFame().then((list) => {
       if (controller.signal.aborted) return;
-      setEntries(list ?? []);
+      loadingRef.current = false;
+      if (list === null) {
+        setLoadState('failed');
+        return;
+      }
+      setEntries(list);
+      setPending([]);
+      setLoadState('loaded');
       // Then anything sent since the last deploy, checked here (see loadPending).
-      loadPending(list ?? [], (entry) => setPending((prev) => [...prev, entry]), controller.signal).catch(() => {});
+      loadPending(list, (entry) => {
+        if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
+      }, controller.signal).catch(() => {});
     });
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
+  const retry = () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    setLoadState('loading');
+    setAttempt((prev) => prev + 1);
+  };
+  // The status announces every outcome. A failure or a finished retry also moves focus to it, but
+  // only when focus has nowhere better to be: on the Retry button (disabled or now gone), lost to the
+  // page, or still on the sheet itself as it opened. Focus the person put elsewhere stays there.
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (loadState !== 'failed' && !(loadState === 'loaded' && attempt > 0)) return;
+    const status = statusRef.current;
+    const active = document.activeElement;
+    if (status && (!active || active === document.body || active === retryRef.current || active === status.closest('[role="dialog"]'))) {
+      status.focus({ preventScroll: true });
+    }
+  }, [loadState, attempt]);
   const all = useMemo(() => (entries ? [...entries, ...pending] : null), [entries, pending]);
 
   // The same rules the deploy used to pick these entries (src/engine/hallOfFame.ts): one entry per
@@ -75,8 +107,10 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   const startedRef = useRef(new Set<number>());
   const runningRef = useRef(false);
   const goneRef = useRef(false);
-  useEffect(() => () => {
-    goneRef.current = true;
+  useEffect(() => {
+    // StrictMode replays setup after cleanup while retaining these refs.
+    goneRef.current = false;
+    return () => { goneRef.current = true; };
   }, []);
   useEffect(() => {
     rankedRef.current = ranked;
@@ -181,11 +215,23 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
         ]}
       />
 
+      {tab !== 'legends' && (
+        <div className={loadState === 'loaded' ? 'sr-only' : 'hof-load-state'}>
+          <p role="status" tabIndex={-1} ref={statusRef}>
+            {loadState === 'loading' ? 'Loading leaderboard…' : loadState === 'loaded' ? 'Leaderboard loaded.' : "Couldn't load the leaderboard. Try again."}
+          </p>
+          {loadState !== 'loaded' && (
+            <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading leaderboard">
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="hof-panel" {...tabPanelProps(tabsId, tab)}>
         {tab === 'top' && (
           <>
-            {all === null && <p className="hof-loading">Loading…</p>}
-            {all?.length === 0 && empty}
+            {loadState === 'loaded' && all?.length === 0 && empty}
             {ranked.length > 0 && (
               <>
                 <p className="hof-note">
@@ -200,7 +246,7 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
         {tab === 'firsts' && (
           <>
             <p className="hof-note">The first verified Full House, 4 of a Kind and 5 of a Kind in each set.</p>
-            {firsts.length > 0 ? <ul className="hof-list">{firsts.map((e) => renderEntry(e))}</ul> : empty}
+            {firsts.length > 0 ? <ul className="hof-list">{firsts.map((e) => renderEntry(e))}</ul> : loadState === 'loaded' ? empty : null}
           </>
         )}
 

@@ -33,16 +33,25 @@ const withId = (entry: Omit<HallOfFameEntry, 'id'> & { id?: unknown }): HallOfFa
 
 let loading: Promise<HallOfFameEntry[] | null> | null = null;
 
+/** A load that hasn't finished by then counts as failed, so the page can offer Retry again. */
+const LOAD_TIMEOUT_MS = 15_000;
+
 /** The published list, fetched once per visit; null if it couldn't be loaded. */
-export const loadHallOfFame = (): Promise<HallOfFameEntry[] | null> =>
-  (loading ??= fetch(`${import.meta.env.BASE_URL}hall-of-fame.json`, { cache: 'no-cache' })
+export const loadHallOfFame = (): Promise<HallOfFameEntry[] | null> => {
+  if (loading) return loading;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
+  loading = fetch(`${import.meta.env.BASE_URL}hall-of-fame.json`, { cache: 'no-cache', signal: controller.signal })
     .then((res) => (res.ok ? res.json() : null))
     .then((data: unknown) => (Array.isArray(data) ? data.map(withId) : null))
     .catch(() => null)
     .then((entries) => {
+      clearTimeout(timeout);
       if (entries === null) loading = null;
       return entries;
-    }));
+    });
+  return loading;
+};
 
 /** How many unfiled submissions one visit checks (a ticket each), newest first after your own. */
 const PENDING_LIMIT = 10;
@@ -55,8 +64,9 @@ const PENDING_LIMIT = 10;
  */
 export const loadPending = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal) => {
   const { fetchEvents, proofFromEvent, HOF_KIND, HOF_TAG } = await import('./nostrInbox');
+  if (signal.aborted) return;
   const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
-  const { events } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: 100 }, undefined, 5000);
+  const { events } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: 100 }, undefined, 5000, undefined, 1, signal);
   const listed = new Set(published.map((e) => e.id));
   const seen = new Set<string>();
   const candidates = events
