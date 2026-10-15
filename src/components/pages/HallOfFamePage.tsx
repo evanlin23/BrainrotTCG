@@ -78,11 +78,18 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
     setLoadState('loading');
     setAttempt((prev) => prev + 1);
   };
-  // A failure or a finished retry moves focus to the status (the Retry button is disabled or gone),
-  // so screen readers announce the outcome.
+  // The status announces every outcome. A failure or a finished retry also moves focus to it, but
+  // only when focus has nowhere better to be: on the Retry button (disabled or now gone), lost to the
+  // page, or still on the sheet itself as it opened. Focus the person put elsewhere stays there.
   const statusRef = useRef<HTMLParagraphElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (loadState === 'failed' || (loadState === 'loaded' && attempt > 0)) statusRef.current?.focus({ preventScroll: true });
+    if (loadState !== 'failed' && !(loadState === 'loaded' && attempt > 0)) return;
+    const status = statusRef.current;
+    const active = document.activeElement;
+    if (status && (!active || active === document.body || active === retryRef.current || active === status.closest('[role="dialog"]'))) {
+      status.focus({ preventScroll: true });
+    }
   }, [loadState, attempt]);
   const all = useMemo(() => (entries ? [...entries, ...pending] : null), [entries, pending]);
 
@@ -214,7 +221,7 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
             {loadState === 'loading' ? 'Loading leaderboard…' : loadState === 'loaded' ? 'Leaderboard loaded.' : "Couldn't load the leaderboard. Try again."}
           </p>
           {loadState !== 'loaded' && (
-            <button type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading leaderboard">
+            <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading leaderboard">
               Retry
             </button>
           )}

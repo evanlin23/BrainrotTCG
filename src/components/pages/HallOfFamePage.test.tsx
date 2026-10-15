@@ -47,6 +47,12 @@ afterEach(() => {
 
 const status = () => document.querySelector<HTMLElement>('[role="status"]')!;
 const retryButton = () => document.querySelector<HTMLButtonElement>('button[aria-label="Retry loading leaderboard"]');
+const tab = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((el) => el.textContent === label)!;
+/** jsdom's click() doesn't focus the button the way a real click does. */
+const clickRetry = () => {
+  retryButton()!.focus();
+  retryButton()!.click();
+};
 
 describe('Hall of Fame loading', () => {
   it('shows a failure with Retry, and Retry fetches again and shows the results', async () => {
@@ -60,7 +66,8 @@ describe('Hall of Fame loading', () => {
     expect(document.body.textContent).not.toContain('Nothing filed here yet');
     expect(retryButton()?.disabled).toBe(false);
 
-    await act(async () => retryButton()!.click());
+    // A real click focuses the button; the button then goes away on success.
+    await act(async () => clickRetry());
     expect(loadHallOfFame).toHaveBeenCalledTimes(2);
     expect(status().textContent).toBe('Loading leaderboard…');
     expect(retryButton()?.disabled).toBe(true);
@@ -72,6 +79,44 @@ describe('Hall of Fame loading', () => {
     expect(document.querySelector('a[aria-label="Number 1: Full House by Alice in Original, score 12345"]')).not.toBeNull();
     expect(loadPending).toHaveBeenCalledTimes(1);
     expect(loadPending.mock.calls[0][0]).toEqual([ENTRY]);
+    expect((loadPending.mock.calls[0][2] as AbortSignal).aborted).toBe(false);
+  });
+
+  it('shows the failure again when a retry fails, and can retry again', async () => {
+    loadHallOfFame.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce([ENTRY]);
+    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    expect(status().textContent).toBe("Couldn't load the leaderboard. Try again.");
+
+    await act(async () => clickRetry());
+    expect(loadHallOfFame).toHaveBeenCalledTimes(2);
+    expect(status().textContent).toBe("Couldn't load the leaderboard. Try again.");
+    expect(retryButton()?.disabled).toBe(false);
+    expect(document.activeElement).toBe(status());
+    expect(loadPending).not.toHaveBeenCalled();
+
+    await act(async () => clickRetry());
+    expect(loadHallOfFame).toHaveBeenCalledTimes(3);
+    expect(status().textContent).toBe('Leaderboard loaded.');
+    expect(loadPending).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves focus on a tab when the load fails or a retry succeeds', async () => {
+    let settle!: (list: HallOfFameEntry[] | null) => void;
+    const pendingLoad = () => new Promise<HallOfFameEntry[] | null>((resolve) => { settle = resolve; });
+    loadHallOfFame.mockImplementationOnce(pendingLoad).mockImplementationOnce(pendingLoad);
+    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    const firstsTab = tab('World firsts');
+
+    firstsTab.focus();
+    await act(async () => settle(null));
+    expect(status().textContent).toBe("Couldn't load the leaderboard. Try again.");
+    expect(document.activeElement).toBe(firstsTab);
+
+    await act(async () => clickRetry());
+    firstsTab.focus();
+    await act(async () => settle([ENTRY]));
+    expect(status().textContent).toBe('Leaderboard loaded.');
+    expect(document.activeElement).toBe(firstsTab);
   });
 
   it('leaves focus alone when the first load succeeds', async () => {
@@ -79,5 +124,16 @@ describe('Hall of Fame loading', () => {
     await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
     expect(status().textContent).toBe('Leaderboard loaded.');
     expect(document.activeElement).not.toBe(status());
+  });
+
+  it('aborts the pending-submissions check when the page closes', async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    expect(loadPending).toHaveBeenCalledTimes(1);
+    const signal = loadPending.mock.calls[0][2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    act(() => root.unmount());
+    expect(signal.aborted).toBe(true);
   });
 });

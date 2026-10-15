@@ -33,16 +33,25 @@ const withId = (entry: Omit<HallOfFameEntry, 'id'> & { id?: unknown }): HallOfFa
 
 let loading: Promise<HallOfFameEntry[] | null> | null = null;
 
+/** A load that hasn't finished by then counts as failed, so the page can offer Retry again. */
+const LOAD_TIMEOUT_MS = 15_000;
+
 /** The published list, fetched once per visit; null if it couldn't be loaded. */
-export const loadHallOfFame = (): Promise<HallOfFameEntry[] | null> =>
-  (loading ??= fetch(`${import.meta.env.BASE_URL}hall-of-fame.json`, { cache: 'no-cache' })
+export const loadHallOfFame = (): Promise<HallOfFameEntry[] | null> => {
+  if (loading) return loading;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
+  loading = fetch(`${import.meta.env.BASE_URL}hall-of-fame.json`, { cache: 'no-cache', signal: controller.signal })
     .then((res) => (res.ok ? res.json() : null))
     .then((data: unknown) => (Array.isArray(data) ? data.map(withId) : null))
     .catch(() => null)
     .then((entries) => {
+      clearTimeout(timeout);
       if (entries === null) loading = null;
       return entries;
-    }));
+    });
+  return loading;
+};
 
 /** How many unfiled submissions one visit checks (a ticket each), newest first after your own. */
 const PENDING_LIMIT = 10;

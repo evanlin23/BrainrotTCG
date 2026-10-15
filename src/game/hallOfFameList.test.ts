@@ -145,6 +145,30 @@ describe('loadHallOfFame', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('gives up on a load that never settles, so a later call fetches again', async () => {
+    vi.useFakeTimers();
+    try {
+      const { loadHallOfFame } = await import('./hallOfFameList');
+      // A request that hangs until its signal aborts, as a stalled connection would.
+      const mockFetch = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
+      vi.stubGlobal('fetch', mockFetch);
+
+      const first = loadHallOfFame();
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(mockFetch.mock.calls[0][1]?.signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(first).resolves.toBeNull();
+
+      mockFetch.mockImplementationOnce(async () => mockSuccessResponse([{ id: 'late-1', proof: 'proof-late' }]));
+      await expect(loadHallOfFame()).resolves.toEqual([{ id: 'late-1', proof: 'proof-late' }]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('caches successful results and empty arrays across subsequent calls', async () => {
     const { loadHallOfFame } = await import('./hallOfFameList');
     const mockFetch = vi.fn(async () => mockSuccessResponse([{ id: 'entry-cached', proof: 'proof-cached' }]));
