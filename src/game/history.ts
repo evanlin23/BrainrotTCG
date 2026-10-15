@@ -89,18 +89,22 @@ const save = (entries: Stored[]) => {
 /**
  * Out of space: first drop the cached cards of the oldest packs (the ticket is enough to re-derive
  * them), halving how many keep cards until it fits; only then drop the oldest packs themselves.
+ * Migration preserves every ticket so its source log can safely be removed only after success.
  */
-const write = (entries: Stored[]) => {
-  if (save(entries)) return;
+const write = (entries: Stored[], preserveTickets = false): boolean => {
+  if (save(entries)) return true;
   for (let withCards = Math.floor(entries.length / 2); ; withCards = Math.floor(withCards / 2)) {
-    if (save(entries.map((e, i) => (i < withCards ? e : { ...e, c: undefined })))) return;
+    if (save(entries.map((e, i) => (i < withCards ? e : { ...e, c: undefined })))) return true;
     if (withCards === 0) break;
   }
-  const bare = entries.map((e) => ({ ...e, c: undefined }));
-  for (let keep = Math.floor(bare.length / 2); keep > 0; keep = Math.floor(keep / 2)) {
-    if (save(bare.slice(0, keep))) return;
+  if (!preserveTickets) {
+    const bare = entries.map((e) => ({ ...e, c: undefined }));
+    for (let keep = Math.floor(bare.length / 2); keep > 0; keep = Math.floor(keep / 2)) {
+      if (save(bare.slice(0, keep))) return true;
+    }
   }
   console.error('Could not save pack history');
+  return false;
 };
 
 const sameTicket = (a: Stored, b: Stored) => a.k === b.k && a.n === b.n;
@@ -150,23 +154,49 @@ export const historyForKey = (publicKeyHex: string): HistoryEntry[] =>
     .filter((e) => e.key === publicKeyHex.slice(0, KEY_PREFIX))
     .sort((a, b) => a.nonce - b.nonce);
 
-/** One-time: bring entries from the old notable-pulls log (no cards) into the history. */
+type LegacyPull = Pick<OpenedPack, 'setId' | 'setVersion' | 'nonce' | 'publicKeyHex' | 'openedAt'> & { score: number; hand: string };
+
+const isLegacyPull = (value: unknown): value is LegacyPull => {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<LegacyPull>;
+  return typeof entry.setId === 'string' && entry.setId.length > 0
+    && Number.isSafeInteger(entry.setVersion) && entry.setVersion! > 0
+    && Number.isSafeInteger(entry.nonce) && entry.nonce! >= 0
+    && (entry.publicKeyHex === undefined || typeof entry.publicKeyHex === 'string')
+    && typeof entry.hand === 'string' && Number.isFinite(entry.score) && Number.isFinite(entry.openedAt);
+};
+
+const isStored = (value: unknown): value is Stored => {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<Stored>;
+  return typeof entry.s === 'string' && entry.s.length > 0
+    && Number.isSafeInteger(entry.v) && entry.v! > 0
+    && Number.isSafeInteger(entry.n) && entry.n! >= 0
+    && typeof entry.k === 'string' && (entry.c === undefined || typeof entry.c === 'string')
+    && typeof entry.h === 'string' && Number.isFinite(entry.x) && Number.isFinite(entry.t);
+};
+
+/** One-time: remove the old log only after every ticket mapping is stored without truncation. */
 export const migratePullLog = () => {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.PULLS);
     if (!raw) return;
-    const old = JSON.parse(raw) as { setId: string; setVersion: number; nonce: number; publicKeyHex?: string; score: number; hand: string; openedAt: number }[];
-    const current = read();
-    const carried = (Array.isArray(old) ? old : [])
-      .filter((p) => p.publicKeyHex)
-      .map((p) =>
-        encode({ setId: p.setId, setVersion: p.setVersion, nonce: p.nonce, key: p.publicKeyHex!.slice(0, KEY_PREFIX), cards: null, hand: p.hand, score: p.score, openedAt: p.openedAt }),
-      )
-      .filter((e) => !current.some((c) => sameTicket(c, e)));
-    write([...current, ...carried].sort((a, b) => b.t - a.t));
-    localStorage.removeItem(STORAGE_KEYS.PULLS);
+    const old: unknown = JSON.parse(raw);
+    const current: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
+    // Keep malformed source data intact rather than replacing it with a partial migration.
+    if (!Array.isArray(old) || !old.every(isLegacyPull) || !Array.isArray(current) || !current.every(isStored)) return;
+    const merged = [...current];
+    for (const pull of old) {
+      if (!pull.publicKeyHex) continue; // Older anonymous pulls have no reproducible ticket identity.
+      const entry = encode({ ...pull, key: pull.publicKeyHex.slice(0, KEY_PREFIX), cards: null });
+      const existing = merged.find((other) => sameTicket(other, entry));
+      // The same ticket cannot prove two sets; preserve conflicting raw logs for recovery.
+      if (existing && (existing.s !== entry.s || existing.v !== entry.v)) return;
+      if (!existing) merged.push(entry);
+    }
+    if (write(merged.sort((a, b) => b.t - a.t), true)) localStorage.removeItem(STORAGE_KEYS.PULLS);
   } catch {
-    // Unreadable old log: nothing to carry over.
+    // Unreadable or unwritable storage: leave the original log available for recovery or retry.
   }
 };
 
