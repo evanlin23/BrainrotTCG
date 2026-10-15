@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 import { preview as startPreview } from 'vite';
-import { browserCommand, isolate } from './browser';
-import { clean, coordinatorPrompt, isBasePath, parseOptions, parseOutcome, tasks } from './contracts';
+import { BrowserRefusal, browserCommand, isolate } from './browser';
+import { agentEnvironment, clean, coordinatorPrompt, isBasePath, parseOptions, parseOutcome, tasks, uncommittedBuildInputs } from './contracts';
 
 const root = process.cwd();
 const output = resolve('test-results/agent-audit.json');
@@ -21,9 +21,9 @@ const stop = (child: ChildProcess) => {
     try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already stopped. */ }
   }
 };
-async function command(command: string, args: string[], cwd: string, seconds: number) {
+async function command(command: string, args: string[], cwd: string, seconds: number, env: NodeJS.ProcessEnv) {
   if (controller.signal.aborted) throw Error('cancelled');
-  const child = spawn(command, args, { cwd, detached: true, stdio: 'ignore', env: process.env });
+  const child = spawn(command, args, { cwd, detached: true, stdio: 'ignore', env });
   children.add(child);
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; stop(child); }, seconds * 1000);
@@ -59,12 +59,14 @@ try {
   const revision = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
   if (revision.status !== 0 || !/^[a-f0-9]{40}\s*$/.test(revision.stdout)) throw Error('Revision unavailable');
   report.revision = revision.stdout.trim();
-  if (spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).stdout.trim()) throw Error('Commit tracked changes before auditing a known revision');
-  const version = spawnSync('codex', ['--version'], { encoding: 'utf8', timeout: 10000 });
+  const drift = uncommittedBuildInputs(root);
+  if (drift) throw Error(drift);
+  const agentEnv = agentEnvironment(process.env);
+  const version = spawnSync('codex', ['--version'], { encoding: 'utf8', timeout: 10000, env: agentEnv });
   if (version.status !== 0 || version.stdout.trim() !== 'codex-cli 0.159.2') throw Error('Supported Codex CLI 0.159.2 unavailable; no agent ran');
   report.runner = version.stdout.trim();
   temporary = await mkdtemp(join(tmpdir(), 'brainrot-audit-'));
-  await command('npm', ['run', 'build'], root, 300);
+  await command('npm', ['run', 'build'], root, 300, process.env);
   const port = 4197;
   const basePath = process.env.BASE_PATH ?? '/BrainrotTCG/';
   if (!isBasePath(basePath)) throw Error('Unsupported base path');
@@ -100,7 +102,7 @@ try {
           if (body.length > 4096) throw Error('Oversized command');
         }
         response.end(await browserCommand(page, JSON.parse(body), steps));
-      } catch { response.writeHead(400).end('Browser action blocked or unavailable'); }
+      } catch (error) { response.writeHead(400).end(error instanceof BrowserRefusal ? error.message : 'Browser action blocked or unavailable'); }
     });
     const taskReport: Record<string, unknown> = { task, prompt: tasks[task], outcome: 'unrun', steps, errors, blockedNetwork: blocked };
     (report.tasks as unknown[]).push(taskReport);
@@ -117,7 +119,7 @@ try {
       for (const feature of disabled) args.push('--disable', feature);
       args.push('-c', 'web_search="disabled"', '-c', 'mcp_servers.audit.command="' + process.execPath + '"', '-c', `mcp_servers.audit.args=${JSON.stringify([join(root, 'scripts/agent-audit/browser-mcp.mjs')])}`, '-c', `mcp_servers.audit.env.BRAINROT_AUDIT_ENDPOINT="http://127.0.0.1:${address.port}/${token}"`);
       args.push(`${tasks[task]}\nUse only the audit browser tools. Describe what you actually did, detours, confusing labels and errors. If you cannot finish, report blocked or ambiguous. Do not infer success. Do not inspect source, files, saves or credentials. Do not submit, copy, download, export or send anything.`);
-      await command('codex', args, taskDirectory, seconds);
+      await command('codex', args, taskDirectory, seconds, agentEnv);
       Object.assign(taskReport, parseOutcome(await readFile(last, 'utf8'), steps));
     } catch (error) { taskReport.reason = clean(error instanceof Error ? error.message : 'Task incomplete'); }
     finally { await context.close(); bridge.closeAllConnections(); await new Promise<void>((resolve) => bridge.close(() => resolve())); }

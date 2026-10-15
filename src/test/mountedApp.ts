@@ -152,6 +152,16 @@ export async function mountedApp(storage: Record<string, string>) {
       }
       throw new Error(`${description}: ${String(last)}; errors: ${errors.join('; ')}; DOM: ${document.body.innerHTML.slice(-3000)}`);
     },
+    /** Advances simulated time for a fixed span, awaiting tickets as until does, so a test can show nothing happened. */
+    async settle(ms: number) {
+      for (let elapsed = 0; elapsed < ms; elapsed += 25) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(25);
+          await vi.dynamicImportSettled();
+          await Promise.all([...jobs]);
+        });
+      }
+    },
     async dispose() {
       try {
         await unmount();

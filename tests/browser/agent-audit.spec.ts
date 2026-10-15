@@ -12,6 +12,8 @@ test('local agent boundary blocks writes and exposes only visible read-only acti
     expect(await browserCommand(page, { name: 'snapshot' }, steps)).toContain('Brainrot');
     await browserCommand(page, { name: 'press', arguments: { key: 'Tab' } }, steps);
     expect(steps).toContain('press: Tab');
+    await expect(browserCommand(page, { name: 'click', arguments: { role: 'button', name: '   ' } }, steps)).rejects.toThrow('non-empty');
+    await expect(browserCommand(page, { name: 'click', arguments: { role: 'button', name: 'No control has this name' } }, steps)).rejects.toThrow('No visible button');
     // Fulfilled at the browser boundary, never sent to a real provider.
     const status = await page.evaluate(async () => (await fetch(location.href, { method: 'POST', body: 'disposable' })).status);
     expect(status).toBe(204);

@@ -32,28 +32,54 @@ export async function isolate(context: BrowserContext, baseURL: string) {
   });
   return blocked;
 }
+export const stepBudget = 40;
+const keys = ['Tab', 'Shift+Tab', 'Enter', 'Escape', 'Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+const readOnly = /export|import|download|copy|share|submit|publish|sign.?in|log.?in/i;
+/** A refusal this adapter wrote itself, safe to show the agent; other failures stay generic. */
+export class BrowserRefusal extends Error {}
+
 export async function browserCommand(page: Page, body: unknown, steps: string[]) {
-  if (!body || typeof body !== 'object') throw Error('Invalid browser command');
+  if (!body || typeof body !== 'object') throw new BrowserRefusal('Invalid browser command');
   const { name, arguments: args } = body as { name: unknown; arguments?: Record<string, unknown> };
-  if (steps.length >= 40) throw Error('Browser step budget exhausted');
+  if (steps.length >= stepBudget) throw new BrowserRefusal('Browser step budget exhausted');
+  let step: string;
+  let act = async () => {};
   if (name === 'click') {
-    if (!args || !['button', 'link'].includes(String(args.role)) || typeof args.name !== 'string' || args.name.length > 150) throw Error('Invalid click');
+    if (!args || !['button', 'link'].includes(String(args.role)) || typeof args.name !== 'string' || args.name.length > 150) throw new BrowserRefusal('Invalid click');
+    const role = args.role as 'button' | 'link';
+    const label = args.name;
+    if (!label.trim()) throw new BrowserRefusal('Click needs the exact, non-empty accessible name of one control from snapshot');
     // Even local exports/copy/share are outside the audit; reports must never contain saves.
-    if (/export|import|download|copy|share|submit|publish|sign.?in|log.?in/i.test(args.name)) throw Error('This action is read-only in this audit');
-    steps.push(`click: ${clean(args.name)}`);
-    await page.getByRole(args.role as 'button' | 'link', { name: args.name, exact: true }).click({ timeout: 5000 });
+    if (readOnly.test(label)) throw new BrowserRefusal('This action is read-only in this audit');
+    step = `click: ${clean(label)}`;
+    act = async () => {
+      const target = page.getByRole(role, { name: label, exact: true });
+      const matches = await target.count();
+      if (!matches) throw new BrowserRefusal(`No visible ${role} has that exact name; take a snapshot and use a listed name`);
+      if (matches > 1) throw new BrowserRefusal(`${matches} visible ${role}s share that exact name; nothing was clicked, so move focus with keys and press Enter instead`);
+      await target.click({ timeout: 5000 });
+    };
   } else if (name === 'press') {
-    if (!args || !['Tab', 'Shift+Tab', 'Enter', 'Escape', 'Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(String(args.key))) throw Error('Invalid key');
-    // Keyboard activation could reach a forbidden export/share control; keep the same guard.
-    const active = page.locator(':focus');
-    const focused = await active.count() ? await active.getAttribute('aria-label') ?? await active.textContent() : '';
-    if (['Enter', 'Space'].includes(String(args.key)) && /export|import|download|copy|share|submit|publish|sign.?in|log.?in/i.test(focused ?? '')) throw Error('This action is read-only in this audit');
-    steps.push(`press: ${args.key}`);
-    await page.keyboard.press(String(args.key));
+    if (!args || !keys.includes(String(args.key))) throw new BrowserRefusal('Invalid key');
+    const key = String(args.key);
+    step = `press: ${key}`;
+    act = async () => {
+      if (key === 'Enter' || key === 'Space') {
+        // Keyboard activation could reach a forbidden export/share control; keep the same guard.
+        const active = page.locator(':focus');
+        const focused = await active.count() ? await active.getAttribute('aria-label') ?? await active.textContent() : '';
+        if (readOnly.test(focused ?? '')) throw new BrowserRefusal('This action is read-only in this audit');
+      }
+      await page.keyboard.press(key);
+    };
   } else if (name === 'wait') {
-    steps.push('wait: 1 second');
-    await page.waitForTimeout(1000);
-  } else if (name === 'snapshot') steps.push('snapshot: visible accessibility tree');
-  else throw Error('Unsupported browser command');
+    step = 'wait: 1 second';
+    act = () => page.waitForTimeout(1000);
+  } else if (name === 'snapshot') step = 'snapshot: visible accessibility tree';
+  else throw new BrowserRefusal('Unsupported browser command');
+  // Reserve the slot before the first await, so concurrent calls cannot overshoot the budget. A
+  // refused or failed action keeps its slot but is relabelled, so it never counts as evidence.
+  const slot = steps.push(step) - 1;
+  try { await act(); } catch (error) { steps[slot] = `not completed: ${step}`; throw error; }
   return (await page.locator('body').ariaSnapshot()).slice(0, 18000);
 }
