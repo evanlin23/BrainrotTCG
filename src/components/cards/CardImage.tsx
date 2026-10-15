@@ -11,7 +11,7 @@ interface CardImageProps extends ImgHTMLAttributes<HTMLImageElement> {
 }
 
 /** Keep the same img element and existing holo/misprint layers, changing only its printed frame. */
-const CardImage = ({ src, finish, thumbnail = false, style, onError, ...props }: CardImageProps) => {
+const CardImage = ({ src, finish, thumbnail = false, style, onError, draggable = false, ...props }: CardImageProps) => {
   const key = `${finish ?? ''}:${src}`;
   const [rendered, setRendered] = useState<{ key: string; src: string }>();
   const [failedThumb, setFailedThumb] = useState<string>();
@@ -31,7 +31,7 @@ const CardImage = ({ src, finish, thumbnail = false, style, onError, ...props }:
     return () => { cancelled = true; };
   }, [src, finish, key, thumb]);
   // Keep the image's dimensions while its inks are prepared, without flashing the plain version.
-  return <img {...props} src={image ?? src} onError={(event) => {
+  return <img draggable={draggable} {...props} src={image ?? src} onError={(event) => {
     if (thumb && event.currentTarget.getAttribute('src') === thumb) setFailedThumb(key);
     onError?.(event);
   }} style={{ ...style, ...(finish && !image ? { visibility: 'hidden' } : {}) }} />;
