@@ -277,3 +277,15 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
 3. **Every card has a built image** (`npm run cards`).
 
 Run everything with `npm run check`.
+
+## Local agent task audits
+
+`npm run audit:agent -- --task=opening --seconds=90` runs a local disposable audit on Unix with Node 22, authenticated **Codex CLI 0.159.2**, `npm ci`, and the lockfile's Chromium (`npx playwright install chromium`). Other CLI versions fail closed pending capability review. This is separate from normal CI; `npm run check` and Actions need no agent account. Optional tasks are `--task=sharing`, `--task=results`, and `--task=recovery`. Start with one task: your provider may charge, and elapsed time is not a currency cap.
+
+The coordinator requires committed tracked files, rebuilds that exact revision and owns a strict-port Vite preview at 127.0.0.1:4197. Each task gets a fresh deterministic disposable identity/context and an empty agent working directory. Prompts contain the task only, without product history, source or expected labels/routes. These are fresh-user fixtures, not existing-profile coverage. The restricted MCP adapter offers visible accessibility snapshots, exact button/link clicks and navigation keys; no evaluation, arbitrary URL, files or saves. User config/rules, shell, extra browsers, apps/plugins and delegation tools are disabled. The CLI stays read-only; this is a constrained audit, not an OS sandbox for arbitrary hostile model output.
+
+The browser blocks external HTTP/WebSockets, POSTs, service workers, forms, popups, clipboard/native share, downloads and named export/import/submit controls. Local opening changes only disposable state. Sharing tasks may be blocked at this deliberate boundary; this does not establish that native sharing works. The coordinator never posts findings, merges or deploys.
+
+Tasks run sequentially: at most four, each 30–180 seconds and 40 browser calls; build limit 300 seconds. Ctrl-C cancels owned child process groups, contexts and server. `test-results/agent-audit.json` records the tested SHA, actual conditions/steps, agent outcome, generic errors, sanitized observations and explicit limitations. Invalid reports, missing tools/provider, timeout or cancellation exit nonzero as incomplete/unrun; completion needs recorded browser interaction. Raw provider output, screenshots, auth, private storage and exports are not retained. Review even sanitized prose before attaching it to a PR.
+
+The report includes a separate coordinator prompt for reproducing/deduplicating findings against existing issues and retesting affected tasks without coaching. Agent outcomes/timings are not human statistics and do not replace real phones, native share, screen readers or newcomers. Refs #239; canonical contributor guidance is being consolidated in #315/#216.
