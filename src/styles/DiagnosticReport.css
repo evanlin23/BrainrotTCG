@@ -1,0 +1,15 @@
+.diagnostic-report textarea {
+  width: 100%;
+  min-height: 14rem;
+  padding: 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  color: inherit;
+  background: transparent;
+  font: 0.8rem/1.5 monospace;
+  resize: vertical;
+}
+.diagnostic-report p, .diagnostic-report label { margin-block: 0.75rem; }
+.diagnostic-capture { display: flex; align-items: start; gap: 0.75rem; }
+.diagnostic-capture input { min-width: 24px; min-height: 24px; }
+.diagnostic-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-block: 0.75rem; }

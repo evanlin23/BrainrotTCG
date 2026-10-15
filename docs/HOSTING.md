@@ -38,7 +38,9 @@ What keeps working:
   origin, which browsers enforce, so no other site can plant or take a save, and the save never goes
   in a URL (URLs end up in browser history and history sync). Players who arrive through a new link
   can do the same from **Settings → From the old address**. If a player already has a different save
-  at the new address, they're asked first and the replaced save is kept as a backup.
+  at the new address, they're asked first and the replaced save is kept as a backup; if the backup
+  can't be stored, nothing is replaced. The old address keeps its copy and, once the save has been
+  handed over, marks it moved (`brainrot-moved-v1`), so later old links go straight through.
 - **The Hall of Fame.** The old address keeps serving `hall-of-fame.json` for the scripts, and the
   issue links it files redirect like any other link.
 
