@@ -283,6 +283,38 @@ it('keeps a pack taken off the shelf in this tab, and says so, when neither the 
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
 }, 60_000);
 
+it('says the shelf holds a counted copy when the stats counting it, and then the uncounted copy, could not be stored', async () => {
+  const set = getSet('right-now', 2)!;
+  const cards = set.cards.slice(0, 5).map((c) => encodeCard({ id: c.id, holo: false })).join(',');
+  app = await mountedApp({
+    ...SEED,
+    [STORAGE_KEYS.STATS]: packsOpened(8),
+    [STORAGE_KEYS.PENDING_PACKS]: JSON.stringify([{ s: set.id, v: set.version, n: 4, c: cards, t: 1 }]),
+  });
+  // The shelf takes the marked copy, then storage fills: neither the stats nor the unmarked copy fit.
+  const setItem = Storage.prototype.setItem;
+  let shelfWrites = 0;
+  const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === STORAGE_KEYS.COLLECTION || key === STORAGE_KEYS.STATS) throw new DOMException('Full', 'QuotaExceededError');
+    if (key === STORAGE_KEYS.PENDING_PACKS && shelfWrites++ > 0) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  await app.mount();
+  await app.until('the blocked collection reports the counted copy left on the shelf', () =>
+    expect(app!.takeErrors(/are on the pending shelf marked as counted, but the stats counting them couldn't be stored/)).toHaveLength(1));
+  expect(app.takeErrors(/couldn't be put back on the pending shelf/)).toEqual([]);
+  app.takeErrors(/^(Failed to save to localStorage key|Migration could not write) /);
+  expect(shelf()).toEqual([expect.objectContaining({ n: 4, d: 1 })]);
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(8);
+
+  // This tab still owes it: once space frees up, the next collection write stores it, counted once.
+  full.mockRestore();
+  await openOnePack();
+  expect(storedCards()).toBe(10);
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(10);
+  expectShelvesEmpty();
+}, 60_000);
+
 it('adds every unmarked pack waiting at load, from both shelf forms, counting each once', async () => {
   const set = getSet('right-now', 2)!;
   const cards = set.cards.slice(0, 5).map((c) => encodeCard({ id: c.id, holo: false })).join(',');

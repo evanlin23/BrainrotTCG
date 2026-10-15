@@ -104,11 +104,17 @@ function App() {
         if (packs.length > 0) {
           const marked = packs.map((pack) => ({ ...pack, counted: true }));
           statsHandled = true;
-          if (savePendingPack(...marked) && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
+          const shelved = savePendingPack(...marked);
+          if (shelved && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
           // Packs taken off the shelf at load may not fit back on it: they stay owed by this tab, and the
-          // next collection change tries again.
+          // next collection change tries again. If the marked copies did fit but the stats didn't, those
+          // copies are what the shelf still holds.
           else if (!savePendingPack(...packs)) {
-            console.error(`${packs.length} pack(s) couldn't be put back on the pending shelf: only this tab has them until its collection is stored.`);
+            console.error(
+              shelved
+                ? `${packs.length} pack(s) are on the pending shelf marked as counted, but the stats counting them couldn't be stored: the next load would add them uncounted unless this tab stores them first.`
+                : `${packs.length} pack(s) couldn't be put back on the pending shelf: only this tab has them until its collection is stored.`,
+            );
           }
         }
       } else {
