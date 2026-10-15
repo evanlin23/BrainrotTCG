@@ -13,4 +13,8 @@ const siteUrl = (): Plugin => ({
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
   plugins: [react(), siteUrl()],
+  test: {
+    // Vitest's defaults (any node_modules, .git) plus the Playwright suite and build output.
+    exclude: ['**/node_modules/**', '**/.git/**', 'tests/browser/**', 'dist/**'],
+  },
 })
