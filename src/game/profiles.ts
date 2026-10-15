@@ -206,9 +206,9 @@ export const reopenMyPacks = (): Promise<void> => reopen(getPlayerTickets());
 const reopen = (snapshot: PlayerTickets): Promise<void> => {
   if (job?.status.running) return job.promise;
   const { player } = snapshot;
-  let missing: (Ticket & { set: SetDefinition })[];
-  try { missing = requireOriginalMappings(myTickets(snapshot)).filter((t) => !t.pack); }
-  catch (error) { return Promise.reject(error); }
+  // A ticket without its original set/version can't be re-opened (that would guess a set). Only the
+  // profile link refuses it (myProfileProof); every mapped ticket is still re-opened.
+  const missing = myTickets(snapshot).filter((t): t is Ticket & { set: SetDefinition } => !!t.set && !t.pack);
   if (missing.length === 0) {
     setPending(null);
     return Promise.resolve();

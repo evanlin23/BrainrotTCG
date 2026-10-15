@@ -355,10 +355,14 @@ Playwright's Chromium; any other CLI version fails closed. It is not part of `np
 Actions, which need no agent account; `tests/browser/agent-audit.spec.ts` checks only the browser
 boundary, with no agent.
 
-The runner refuses uncommitted tracked changes, builds that revision and owns a strict-port preview
-at 127.0.0.1:4197. Each task gets a fresh disposable identity and a restricted MCP adapter
-(`scripts/agent-audit/`): accessibility snapshots, exact button or link clicks and navigation keys,
-at most 40 calls, with no evaluation, URLs, files or saves. The browser blocks external requests,
+The runner refuses uncommitted tracked changes and untracked files under `src/` or `public/` (Vite
+would bundle them, such as a draft set's art), builds that revision and owns a strict-port preview
+at 127.0.0.1:4197. The CLI gets an allowlisted environment (path, home, locale, proxy and its own
+OpenAI or Codex key variables), so CI, GitHub and other tokens never reach it. Each task gets a
+fresh disposable identity and a restricted MCP adapter (`scripts/agent-audit/`): accessibility
+snapshots, clicks on the one button or link with an exact, non-empty accessible name (no match or
+several matches is refused, not guessed) and navigation keys, at most 40 calls even when they
+overlap, with no evaluation, URLs, files or saves. The browser blocks external requests,
 WebSockets, POSTs, service workers, clipboard, native share, downloads and export, import, share and
 submit controls, so sharing tasks may stop at that boundary. It writes a sanitized
 `test-results/agent-audit.json` and never posts, merges or deploys. Agent outcomes are not human

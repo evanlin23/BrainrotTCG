@@ -199,7 +199,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
         {mine && mine.filled > 0 && (
           <p className="pulls-note">
             Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
-            These local totals are partial. A complete profile link cannot be created from this save. Keep a private export
+            These local totals are partial. A complete profile link or player card cannot be created from this save. Keep a private export
             from Settings; if you have an older complete backup, it may contain the missing records.
           </p>
         )}
@@ -215,7 +215,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
               {unopened.toLocaleString()} pack{unopened === 1 ? " in your history doesn't" : "s in your history don't"} have
               {unopened === 1 ? ' its' : ' their'} cards on this device, so the numbers above leave {unopened === 1 ? 'it' : 'them'} out
               for now.{reopen?.error ? " Re-opening stopped with an error." : ''}{' '}
-              <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)} disabled={!!mine?.filled}>
+              <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
                 {reopen?.error ? 'Try again' : 'Re-open them'}
               </button>
             </p>

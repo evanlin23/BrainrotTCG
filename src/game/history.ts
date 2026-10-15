@@ -172,7 +172,8 @@ const isLegacyPull = (value: unknown): value is LegacyPull => {
     && typeof entry.hand === 'string' && Number.isFinite(entry.score) && Number.isFinite(entry.openedAt);
 };
 
-const isStored = (value: unknown): value is Stored => {
+/** The one rule for a stored history entry: pack writes and save imports both refuse anything else. */
+export const isStored = (value: unknown): value is Stored => {
   if (!value || typeof value !== 'object') return false;
   const entry = value as Partial<Stored>;
   return typeof entry.s === 'string' && entry.s.length > 0
