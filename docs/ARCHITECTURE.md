@@ -227,12 +227,20 @@ localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainro
 and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups. IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
-replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1`; if
-that can't be kept, the stored collection is left alone. Export includes that archive. Import
-(`saveFile.ts`) validates every supplied field and the player first, backs up the current save (no
-backup, no import), writes the identity last and, on failure, removes what it wrote and restores
-the previous values. That is structural validation and best-effort rollback, not a transaction. The
+replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1` (up to
+11 distinct payloads); if that can't be kept, the stored collection is left alone. Export includes
+that archive. Import
+(`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
+key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1` (if that copy can't
+be stored, nothing is imported). Fields the file omits keep their stored values, except that a
+different player's save clears this browser's player fields (recovery archive included), which then
+stay only in that backup. It writes the identity last and, on failure, removes what it wrote and
+restores the previous values. That is structural validation and best-effort rollback, not a
+transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
+A render error after React mounts shows `AppErrorBoundary`, which writes nothing and records only the
+opt-in `render-error` diagnostic. Startup steps before React mounts (`receiveSave`, `runMigrations`,
+`migratePullLog`, `loadPackStore` in `main.tsx`) are outside it and need their own handling.
 
 ## Hosting
 
@@ -279,10 +287,27 @@ is cleared before the final save completes. Resumption and cache retention are b
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
 
 Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
-opener unmounts. `brainrot-pending-pack-v1` supports unfinished-reveal recovery on the next load, but
-writes can fail. A pack leaves that entry only once a collection holding it has been stored; if the
-collection write is blocked, the pack goes back on the one-pack shelf for the next load, marked as
-counted (`d: 1`) so that load only adds its cards (entries without the mark count once).
+opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
+on the next load, but writes can fail. It is always a list (up to 50), so an owed pack is never
+replaced by a newer one; past the cap (or if storage refuses the write), the new pack shows the save
+warning and stays only in the history. Load takes every listed pack off the shelf before adding any
+(if the shelf can't be emptied, it adds none, so none is added twice) and holds them until a
+collection holding them is stored; if that collection write is blocked, they go back on the shelf
+for the next load. A tab closed before that write leaves them only in the history. A pack is marked as
+counted (`d: 1`) before the stats counting it are written, and unmarked again if they can't be, so
+the next load counts it once (entries without the mark count once).
+`brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never puts a list or
+a new or listed pack there, so an older build (another tab or a rollback) never finds a list to
+discard, and never sees or clears listed packs. It adds the pack in that entry on load but leaves the
+entry in place until a stored collection holds that pack, so an older tab that stores and clears it
+still reaches the only copy; if storage won't remove the entry then, it is blanked to `null`, which
+every build reads as no pack. If the collection write is blocked, the pack goes back into that entry
+(marked) only while the entry still holds it; otherwise the tab that took or stored it has it. It is
+never copied into the list, which an older tab's clear can't reach. A pack in both forms is added
+once, and counts as counted if either copy is marked. An entry with nothing to add (unreadable, or
+another player's) is removed on load, as older builds do. Accepted risk: an older tab still writes
+each pack it opens into that entry, so it can replace a pack owed there, which then stays only in
+the history.
 Multi-key state updates are not a transaction, so this is not a guarantee against lost or duplicate
 awards (#233). Screens pass whole pulled-card objects with holo/finish/misprint data
 (`src/game/versions.ts`); preserving those fields still requires checks at rendering, persistence
