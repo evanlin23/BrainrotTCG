@@ -526,7 +526,7 @@ function App() {
             ),
           )}
         </h1>
-        <AppNav onOpen={openNav} active={isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : 'open'} />
+        <AppNav onOpen={openNav} active={isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : isAnyModalOpen || brokenLink ? null : 'open'} />
         <div className="app-utilities">
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('player')} disabled={packBusy}>Player</button>
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('settings')} disabled={packBusy} aria-label="Sound & display" title="Sound & display"><Settings2 aria-hidden="true" size={20} /></button>
@@ -557,7 +557,7 @@ function App() {
 
       {/* Achievements Page */}
       {isAchievementsOpen && (
-        <DeferredSheet load={loadAchievements} size="lg" title="Achievements" screenProps={{
+        <DeferredSheet load={loadAchievements} size="lg" title="Goals & rewards" screenProps={{
           unlockedAchievements: achievements,
           onClose: () => setIsAchievementsOpen(false),
           progress: achievementProgress,

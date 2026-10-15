@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { REPO } from '../../constants/config';
 import { browserDiagnostics, clearDiagnostics, isDiagnosticCaptureEnabled, recordDiagnostic, setBrowserDiagnosticCapture } from '../../game/diagnostics';
 import Sheet from './Sheet';
@@ -9,6 +9,10 @@ interface Props { onClose: () => void; }
 
 /** Nothing is uploaded. The player can remove details before explicitly copying or posting. */
 export default function DiagnosticReport({ onClose }: Props) {
+  const id = useId();
+  const textId = `${id}-text`;
+  const guessId = `${id}-guess`;
+  const captureOffId = `${id}-capture-off`;
   const [enabled, setEnabled] = useState(isDiagnosticCaptureEnabled);
   const [draft, setDraft] = useState(preview);
   const [note, setNote] = useState('Review these details before sharing. You can edit or remove any of them.');
@@ -44,9 +48,10 @@ export default function DiagnosticReport({ onClose }: Props) {
           setNote('Recorded steps cleared from this tab.');
         }}>Clear recorded steps</button>
       </div>
-      <label htmlFor="diagnostic-report-text">Report details (editable)</label>
-      {!enabled && <p id="diagnostic-capture-off">Event capture is off, so this report has no recent events.</p>}
-      <textarea id="diagnostic-report-text" aria-describedby={enabled ? undefined : 'diagnostic-capture-off'} value={draft} maxLength={8192} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
+      <label htmlFor={textId}>Report details (editable)</label>
+      <p id={guessId}>Browser and device are rough guesses from this browser's user agent, so correct them if they are wrong.</p>
+      {!enabled && <p id={captureOffId}>Event capture is off, so this report has no recent events.</p>}
+      <textarea id={textId} aria-describedby={enabled ? guessId : `${guessId} ${captureOffId}`} value={draft} maxLength={8192} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
       <p role="status">{note}</p>
       <div className="diagnostic-actions">
         <button className="btn btn--primary" type="button" disabled={copying || !draft.trim()} onClick={() => void copy()}>Copy report</button>

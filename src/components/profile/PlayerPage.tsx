@@ -29,6 +29,8 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
   const [failures, setFailures] = useState(0);
   /** Set once a close was refused because the save failed; editing the name clears it. */
   const closeRefused = useRef(false);
+  /** The draft whose last save failed; leaving reuses that result instead of writing it again. */
+  const failedDraft = useRef<string | null>(null);
   /**
    * Store the draft if it is a valid, changed name. Only a stored name is reported as saved; a
    * refused write keeps the draft so the player can retry. Leaving the field (`fromBlur`) saves too,
@@ -37,6 +39,7 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
   const saveName = (fromBlur = false): RenameResult['status'] => {
     const result = renamePlayer(nameDraft);
     setPlayer(result.player);
+    failedDraft.current = result.status === 'failed' ? nameDraft : null;
     switch (result.status) {
       case 'saved':
         setNameDraft(result.player.name);
@@ -58,18 +61,20 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
     return result.status;
   };
   /**
-   * Escape, the backdrop and Close keep the draft the same way leaving the field does: save it.
-   * If that save fails, stay open once so the player sees the error with their draft still there.
-   * The refusal is tracked on its own: Close and the backdrop blur the field first, so the status
-   * line already shows the failure by the time the close runs.
+   * Escape, the backdrop, Close and the Goals and Save links keep the draft the same way leaving the
+   * field does: save it. If that save fails, stay once so the player sees the error with their draft
+   * still there. A pointer press blurs the field first, and that blur already saved (and announced)
+   * the draft, so a draft that just failed is not written or announced a second time.
    */
-  const close = () => {
-    if (saveName(true) === 'failed' && !closeRefused.current) {
+  const leave = (next: () => void) => {
+    const status = failedDraft.current === nameDraft ? 'failed' : saveName(true);
+    if (status === 'failed' && !closeRefused.current) {
       closeRefused.current = true;
       return;
     }
-    onClose();
+    next();
   };
+  const close = () => leave(onClose);
   return <Sheet title="Player" onClose={close} size="sm">
     <p className="share-note">Your player is saved in this browser. Back up your save to keep your player key.</p>
     <section className="settings-group">
@@ -81,6 +86,7 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
             setNameDraft(Array.from(event.target.value).slice(0, MAX_NAME_LENGTH).join(''));
             setNameStatus('');
             closeRefused.current = false;
+            failedDraft.current = null;
           }}
           onBlur={() => saveName(true)}
           onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); saveName(); } }} />
@@ -91,8 +97,8 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
       <p role="status"><span key={failures}>{nameStatus}</span></p>
     </section>
     <div className="personal-nav">
-      <button type="button" className="btn btn--secondary" onClick={onOpenGoals}>Goals & rewards</button>
-      <button type="button" className="btn btn--secondary" onClick={onOpenSave}>Save & restore</button>
+      <button type="button" className="btn btn--secondary" onClick={() => leave(onOpenGoals)}>Goals & rewards</button>
+      <button type="button" className="btn btn--secondary" onClick={() => leave(onOpenSave)}>Save & restore</button>
     </div>
     <RewardsPanel level={level} settings={settings} onSettingsChange={onSettingsChange} packImage={packImageUrl(DEFAULT_SET_ID)} />
   </Sheet>;

@@ -413,12 +413,14 @@
 }
 
 /* The empty space around the card leaves the reveal, so it shows the pointer. The text and progress
-   around the card don't leave, so they reset it; the card and buttons keep their own. */
+   around the card and the stack sliver behind it don't leave, so they reset it; the card and buttons
+   keep their own. */
 .card-reveal-area.can-leave {
     cursor: pointer;
 }
 
-:where(.card-reveal-area.can-leave) > :where(:not(.active-card-container)) {
+:where(.card-reveal-area.can-leave) > :where(:not(.active-card-container)),
+:where(.card-reveal-area.can-leave) :where(.reveal-stack-card) {
     cursor: auto;
 }
 
@@ -574,7 +576,8 @@
     height: 16px;
 }
 
-/* Narrow screens: the progress takes its own row so both buttons share the one below it. */
+/* Narrow screens: the progress takes its own row so both buttons share the one below it. Skip takes
+   the rest of that row and wraps its own label, so at 320px it doesn't drop to a third row. */
 @media (max-width: 640px) {
     .reveal-top {
         row-gap: 0;
@@ -584,6 +587,12 @@
         order: -1;
         flex-basis: 100%;
         justify-content: center;
+    }
+
+    .reveal-skip {
+        flex: 1 1 0;
+        justify-content: flex-end;
+        text-align: end;
     }
 }
 

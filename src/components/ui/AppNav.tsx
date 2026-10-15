@@ -11,7 +11,8 @@ const ITEMS: { id: NavTarget; label: string; Icon: LucideIcon }[] = [
 
 interface AppNavProps {
   onOpen: (target: NavTarget) => void;
-  active?: 'open' | 'collection' | 'hallOfFame';
+  /** The destination on screen; `null` while a sheet that is none of these is open, so no tab claims the page. */
+  active?: 'open' | 'collection' | 'hallOfFame' | null;
 }
 
 /** Bottom tab bar on phones, inline in the header on wide screens (see AppNav.css). */
