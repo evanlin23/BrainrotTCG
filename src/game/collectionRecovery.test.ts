@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import { hydrateCollection } from '../utils/migrations';
-import { hasCollectionRecovery, persistCollection } from './collectionRecovery';
+import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRecovery, persistCollection } from './collectionRecovery';
 
 const card = ALL_CARDS[0];
 const item = { card, normalCount: 1, holoCount: 0 };
@@ -78,10 +78,26 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(persistCollection({ [card.key]: item })).toBe('recovered');
   });
 
-  it('never replaces a different existing archive to admit another damaged payload', () => {
+  it('adds a different damaged payload beside the archived one instead of blocking saves', () => {
     const raw = '{"second":null}';
     const data = seed(raw);
-    const originalArchive = JSON.stringify({ raw: '{"first":null}' });
+    data.set('brainrot-player-v1', '{"secretKey":"now"}');
+    const first = { raw: '{"first":null}', player: '{"secretKey":"then"}' };
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify(first));
+    expect(persistCollection({ [card.key]: item })).toBe('recovered');
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual({ [card.key]: item });
+    const archive = JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!);
+    expect(archive).toEqual({ ...first, later: [{ raw, player: '{"secretKey":"now"}' }] });
+    // The same damaged bytes again (a retried write) aren't added twice.
+    data.set(STORAGE_KEYS.COLLECTION, raw);
+    expect(persistCollection({})).toBe('recovered');
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!)).toEqual(archive);
+    expect(logged()).toEqual([]);
+  });
+
+  it.each(['{broken', '[]', '{"raw":"x","later":"y"}'])('never overwrites an archive it cannot read: %s', (originalArchive) => {
+    const raw = '{"second":null}';
+    const data = seed(raw);
     data.set(STORAGE_KEYS.COLLECTION_RECOVERY, originalArchive);
     expect(persistCollection({})).toBe('blocked');
     expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
@@ -110,4 +126,39 @@ it('keeps the original private identity snapshot when later ticket counters chan
   full = false;
   expect(persistCollection({})).toBe('recovered');
   expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)!)).toEqual({ raw, player: originalPlayer });
+});
+
+describe('hiding the kept-aside note', () => {
+  it('stays hidden for the same archive and comes back when another payload is kept', () => {
+    const data = seed('{"second":null}');
+    expect(dismissCollectionRecovery()).toBe(false);
+    expect(collectionRecoveryDismissed()).toBe(false);
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify({ raw: '{"first":null}', player: null }));
+    expect(collectionRecoveryDismissed()).toBe(false);
+    expect(dismissCollectionRecovery()).toBe(true);
+    expect(collectionRecoveryDismissed()).toBe(true);
+    // Only a short fingerprint is stored, never a second copy of the archive.
+    expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)!.length).toBeLessThan(20);
+    expect(persistCollection({})).toBe('recovered');
+    expect(collectionRecoveryDismissed()).toBe(false);
+  });
+
+  it('keeps the note hidden for this visit only when storage refuses to remember the choice', async () => {
+    const data = seed(null, (key) => key === STORAGE_KEYS.COLLECTION_RECOVERY_SEEN);
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, '{"raw":"x","player":null}');
+    expect(dismissCollectionRecovery()).toBe(false);
+    expect(collectionRecoveryDismissed()).toBe(true);
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, '{"raw":"x","player":null,"later":[{"raw":"y","player":null}]}');
+    expect(collectionRecoveryDismissed()).toBe(false);
+    // The next visit doesn't know about it.
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, '{"raw":"x","player":null}');
+    vi.resetModules();
+    expect((await import('./collectionRecovery')).collectionRecoveryDismissed()).toBe(false);
+  });
+
+  it('shows the note when storage refuses to read the choice', () => {
+    vi.stubGlobal('localStorage', { getItem: () => { throw new DOMException('denied', 'SecurityError'); } });
+    expect(collectionRecoveryDismissed()).toBe(false);
+    expect(dismissCollectionRecovery()).toBe(false);
+  });
 });

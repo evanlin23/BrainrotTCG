@@ -4,6 +4,7 @@ import { ALL_CARDS } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
 import { exportSaveFile, importSaveFile } from './saveFile';
+import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce } from './player';
 
 const player = (secretKey = 'aa'.repeat(32), nextNonce = 7) => JSON.stringify({ secretKey, name: 'Combo Miner', nextNonce, createdAt: 1 });
@@ -70,6 +71,8 @@ describe('Settings backup preflight', () => {
     ['null collection item', { collection: '{"x":null}' }],
     ['invalid recovery envelope', { collectionRecovery: '{"raw":null,"player":null}' }],
     ['missing recovery identity snapshot', { collectionRecovery: '{"raw":"opaque"}' }],
+    ['non-list later recovery payloads', { collectionRecovery: '{"raw":"opaque","player":null,"later":{}}' }],
+    ['invalid later recovery payload', { collectionRecovery: '{"raw":"opaque","player":null,"later":[{"raw":1,"player":null}]}' }],
     ['unknown historical card without set ID', { collection: JSON.stringify({ x: { card: { id: 'nonexistent', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' }, normalCount: 1 } }) }],
     ['unresolvable partial card', { collection: '{"x":{"card":{"id":"nonexistent"}}}' }],
     ['prototype finish name', { collection: JSON.stringify({ x: { card: { ...ALL_CARDS[0], finish: '__proto__' } } }) }],
@@ -91,7 +94,8 @@ describe('Settings backup preflight', () => {
     ['invalid pull log reference', { pulls: '[{"setId":"genesis","nonce":-1}]' }],
     ['settings array', { settings: '[]' }],
     ['invalid settings flag', { settings: '{"particlesEnabled":"yes"}' }],
-    ['invalid volume', { settings: '{"musicVolume":2}' }],
+    ['non-numeric volume', { settings: '{"musicVolume":"loud"}' }],
+    ['non-finite volume', { settings: '{"effectsVolume":1e999}' }],
     ['Hall of Fame array', { hallOfFame: '[]' }],
     ['invalid Hall of Fame date', { hallOfFame: '{"first4OfAKind":{"achieved":true,"date":"now"}}' }],
   ])('rejects %s before writing any field or backup', (_name, change) => {
@@ -160,6 +164,38 @@ describe('Settings backup preflight', () => {
     expect(store.get('brainrot-player-v1')).toBe(player('bb'.repeat(32), 12));
   });
 
+  it('accepts out-of-range volumes that Settings clamps when it reads them', () => {
+    const settings = '{"musicVolume":1.5,"effectsVolume":-0.25}';
+    expect(importSaveFile(JSON.stringify({ ...fixture(), settings }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
+    expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!))).toMatchObject({ musicVolume: 1, effectsVolume: 0 });
+  });
+
+  it("moves the previous player's omitted data and recovery archive to the backup when the save brings another player", () => {
+    const archive = JSON.stringify({ raw: '{damaged', player: store.get('brainrot-player-v1') });
+    store.set(STORAGE_KEYS.COLLECTION_RECOVERY, archive);
+    store.set(STORAGE_KEYS.PULLS, '[]');
+    store.set(STORAGE_KEYS.HALL_OF_FAME, '{}');
+    const before = new Map(store);
+    const save = { ...fixture(), stats: null, hallOfFame: undefined, settings: null };
+    expect(importSaveFile(JSON.stringify(save))).toBeNull();
+    expect(exportPlayer()).toBe(save.player);
+    for (const key of [STORAGE_KEYS.STATS, STORAGE_KEYS.COLLECTION_RECOVERY, STORAGE_KEYS.PULLS, STORAGE_KEYS.HALL_OF_FAME]) {
+      expect(store.has(key)).toBe(false);
+    }
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(save.collection);
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(before.get(STORAGE_KEYS.SETTINGS)); // a device preference
+    const backup = JSON.parse(store.get('brainrot-before-import-v1')!);
+    expect(backup).toEqual(Object.fromEntries(before));
+  });
+
+  it("keeps omitted data when the save is this browser's own player", () => {
+    store.set(STORAGE_KEYS.PULLS, '[]');
+    expect(importSaveFile(JSON.stringify({ ...fixture(), player: player('bb'.repeat(32), 12), stats: null }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.STATS)).toBe('{"packsOpened":12,"holoCards":{}}');
+    expect(store.get(STORAGE_KEYS.PULLS)).toBe('[]');
+  });
+
   it('accepts empty optional stats maps and preserves harmless own __proto__ JSON data', () => {
     const save = { ...fixture(), stats: '{}', achievements: '{"__proto__":1}' };
     expect(importSaveFile(JSON.stringify(save))).toBeNull();
@@ -204,6 +240,12 @@ describe('private collection recovery archive portability', () => {
     expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(incoming.collection);
     expect(exportPlayer()).toBe(incoming.player);
     expect(JSON.parse(archive).player).not.toBe(incoming.player);
+  });
+
+  it('imports an archive that holds later damaged payloads', () => {
+    const archive = JSON.stringify({ raw: '{"first":null}', player: null, later: [{ raw: '{broken', player: player('cc'.repeat(32), 3) }] });
+    expect(importSaveFile(JSON.stringify({ ...fixture(), collectionRecovery: archive }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
   });
 
   it('backs up an existing archive before importing a different one', () => {

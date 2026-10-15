@@ -4,7 +4,7 @@ import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine
 import { getCard } from '../data/cards';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
 import { backUpSave } from './move';
-import { exportPlayer, importPlayer, parsePlayer } from './player';
+import { exportPlayer, importPlayer, isCurrentPlayer, parsePlayer } from './player';
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -41,7 +41,8 @@ const hallOfFame = (value: unknown) => record(value)
     && boolean(v.achieved) && number(v.date) && optional(v, 'cardId', text) && optional(v, 'cards', (c) => values(c, count))));
 const settings = (value: unknown) => record(value)
   && ['soundEnabled', 'particlesEnabled', 'pauseBigPulls', 'showDraftSets'].every((key) => optional(value, key, boolean))
-  && ['musicVolume', 'effectsVolume'].every((key) => optional(value, key, (v) => number(v) && v <= 1))
+  // readSettings clamps any finite slider value into 0..1, so accept what it can read.
+  && ['musicVolume', 'effectsVolume'].every((key) => optional(value, key, (v) => typeof v === 'number' && Number.isFinite(v)))
   && ['cardBack', 'packFoil'].every((key) => optional(value, key, text));
 const history = (value: unknown) => Array.isArray(value) && value.every((entry) => record(entry)
   && text(entry.s) && count(entry.v) && count(entry.n) && text(entry.k)
@@ -49,10 +50,14 @@ const history = (value: unknown) => Array.isArray(value) && value.every((entry) 
 const pulls = (value: unknown) => Array.isArray(value) && value.every((entry) => ref(entry)
   && record(entry) && number(entry.score) && text(entry.hand) && number(entry.openedAt));
 
+/** One kept-aside collection: its exact bytes and the identity snapshot they belonged to. */
+const archived = (value: unknown): value is RecordValue => record(value) && text(value.raw)
+  && (value.player === null || text(value.player));
+
 const SAVE_FIELDS = [
   ['collection', STORAGE_KEYS.COLLECTION, collection],
-  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, (value: unknown) => record(value) && text(value.raw)
-    && (value.player === null || text(value.player))],
+  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, (value: unknown) => archived(value)
+    && optional(value, 'later', (later) => Array.isArray(later) && later.every(archived))],
   ['achievements', STORAGE_KEYS.ACHIEVEMENTS, achievements],
   ['stats', STORAGE_KEYS.STATS, stats],
   ['hallOfFame', STORAGE_KEYS.HALL_OF_FAME, hallOfFame],
@@ -69,6 +74,9 @@ export const exportSaveFile = (): string => JSON.stringify({
   version: 2,
   dataVersion: CURRENT_DATA_VERSION,
 }, null, 2);
+
+/** Belong to one player; settings are this device's preferences. */
+const PLAYER_FIELDS = new Set<string>(SAVE_FIELDS.map(([, key]) => key).filter((key) => key !== STORAGE_KEYS.SETTINGS));
 
 /** Remove imported values before restoring originals, so rollback does not need both copies' space. */
 const restoreFields = (changed: string[], previous: Map<string, string | null>): boolean => {
@@ -87,7 +95,9 @@ const restoreFields = (changed: string[], previous: Map<string, string | null>):
 };
 
 /**
- * Omitted/null fields preserve existing storage, as older exports omitted fields introduced later.
+ * Omitted/null fields preserve existing storage, as older exports omitted fields introduced later,
+ * unless the save brings a different player: then this browser's player data (recovery archive
+ * included) moves to the import backup instead of staying under the new identity.
  * This validates structure, not the authenticity of cached cards/scores, and is not an atomic commit.
  */
 export const importSaveFile = (raw: string): string | null => {
@@ -101,19 +111,29 @@ export const importSaveFile = (raw: string): string | null => {
     if (!count(dataVersion) || dataVersion < 1 || dataVersion > CURRENT_DATA_VERSION) {
       return 'This save uses an unsupported data version.';
     }
-    const staged: [string, string][] = [];
+    const staged: [string, string | null][] = [];
+    const omitted: string[] = [];
     for (const [field, key, valid] of SAVE_FIELDS) {
       const fieldValue = save[field];
-      if (fieldValue === undefined || fieldValue === null) continue;
+      if (fieldValue === undefined || fieldValue === null) {
+        omitted.push(key);
+        continue;
+      }
       if (typeof fieldValue !== 'string' || !valid(JSON.parse(fieldValue))) {
         return `The ${field} in this save is invalid. Nothing was imported.`;
       }
       staged.push([key, fieldValue]);
     }
-    if (save.player !== undefined && save.player !== null && (typeof save.player !== 'string' || !parsePlayer(save.player))) {
+    const incomingPlayer = save.player === undefined || save.player === null ? null
+      : typeof save.player === 'string' ? parsePlayer(save.player) : null;
+    if (save.player !== undefined && save.player !== null && !incomingPlayer) {
       return 'The player identity in this save is invalid. Nothing was imported.';
     }
-    // Capture originals before even the backup write. Null/omitted fields remain untouched.
+    // Cleared first, which also frees space for the imported fields.
+    if (incomingPlayer && !isCurrentPlayer(incomingPlayer.secretKey)) {
+      staged.unshift(...omitted.filter((key) => PLAYER_FIELDS.has(key)).map((key): [string, null] => [key, null]));
+    }
+    // Capture originals before even the backup write. Other null/omitted fields remain untouched.
     staged.push([DATA_VERSION_KEY, String(dataVersion)]);
     const previous = new Map(staged.map(([key]) => [key, localStorage.getItem(key)]));
     if (!backUpSave('brainrot-before-import-v1')) {
@@ -123,15 +143,18 @@ export const importSaveFile = (raw: string): string | null => {
     try {
       for (const [key, value] of staged) {
         if (previous.get(key) === value) continue;
-        localStorage.setItem(key, value);
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
         changed.push(key);
       }
       // Identity is last: no later write can fail after importPlayer adopts the new memory identity.
       if (typeof save.player === 'string' && !importPlayer(save.player)) throw new Error('Identity import failed');
     } catch {
-      return restoreFields(changed, previous)
-        ? 'Import failed. Your previous save data was restored.'
-        : 'Import failed and could not be fully undone. Any existing import backup was kept.';
+      if (restoreFields(changed, previous)) return 'Import failed. Your previous save data was restored.';
+      // backUpSave copied every app key, so any value here means a copy was just made.
+      const backedUp = [...previous.values()].some((value) => value !== null);
+      return "Import failed partway and couldn't be fully undone, so this browser may now hold parts of both saves."
+        + (backedUp ? ' A copy of the save from before the import is kept in this browser.' : '');
     }
     return null;
   } catch {

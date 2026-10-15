@@ -5,7 +5,6 @@ interface UseKeyboardControlsOptions {
   showSummary: boolean;
   disabled: boolean;
   onCloseSummary: () => void;
-  onToggleAutoMode: () => void;
   /** Open the pack on screen (the keyboard's version of the swipe). */
   onOpenPack: () => void;
   handleInteractionRef: MutableRefObject<() => void>;
@@ -34,7 +33,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const { isOpening, showSummary, disabled, onCloseSummary, onToggleAutoMode, onOpenPack, handleInteractionRef } = latest.current;
+      const { isOpening, showSummary, disabled, onCloseSummary, onOpenPack, handleInteractionRef } = latest.current;
       // Ignore if disabled, or if a sheet is open over the pack (its buttons need these keys), or if
       // focus is on a control that Space or Enter already activates.
       if (disabled) return;
@@ -43,12 +42,6 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       const isKey = e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter';
       if (isKey && target?.closest('button, a, input, select, textarea, [contenteditable="true"]')) return;
 
-      // Secret key 'a' - toggle auto mode
-      if (e.code === 'KeyA' && !e.repeat) {
-        e.preventDefault();
-        onToggleAutoMode();
-        return;
-      }
       if (!isKey) return;
       e.preventDefault();
       if (e.repeat) return;

@@ -240,8 +240,15 @@ legacy `brainrot-pulls-v1` log is kept until its migration into history complete
 otherwise GitHub Pages; `BASE_PATH` and `SITE_URL` determine built paths and preview addresses. Both
 have free static-hosting options, with provider build, storage, traffic and service limits; custom
 domains or additional services can cost money. See `docs/HOSTING.md` for configuration and old-address
-redirects. Save transfer uses origin-checked window-to-window postMessage, not URL contents; storage
-failures and unsupported moves still need recovery and are not guaranteed lossless (#181).
+redirects. Save transfer (`move.ts`, `scripts/redirect-site.ts`) uses origin-checked
+window-to-window postMessage, not URL contents. The old address never deletes its save: it sets
+`brainrot-moved-v1` (a timestamp) once the new address reports `saved` or `same`, or once it sends
+its save to Settings (`#/send`), and from then on old links go straight through without offering
+the move. At the new address, replacing a different player's progress asks first and copies the
+current save into `brainrot-before-move-v1`; if that backup can't be stored, nothing is written
+and the result is `invalid`. A failed write removes what it wrote and restores the previous values
+(best effort, not a transaction). Unsupported moves still need recovery and are not guaranteed
+lossless (#181).
 
 ## Profiles and levels (no server)
 
@@ -273,7 +280,9 @@ The cache stores reconstructed cards, not a server account or a backup of all hi
 
 Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
 opener unmounts. `brainrot-pending-pack-v1` supports unfinished-reveal recovery on the next load, but
-writes can fail and the pending entry is removed before the recovered pack is durably applied.
+writes can fail. A pack leaves that entry only once a collection holding it has been stored; if the
+collection write is blocked, the pack goes back on the one-pack shelf for the next load, marked as
+counted (`d: 1`) so that load only adds its cards (entries without the mark count once).
 Multi-key state updates are not a transaction, so this is not a guarantee against lost or duplicate
 awards (#233). Screens pass whole pulled-card objects with holo/finish/misprint data
 (`src/game/versions.ts`); preserving those fields still requires checks at rendering, persistence

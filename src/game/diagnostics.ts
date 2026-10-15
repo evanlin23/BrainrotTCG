@@ -77,3 +77,11 @@ export function observeDiagnosticEvents(target: Window) {
     target.removeEventListener('hashchange', route);
   };
 }
+
+let stopObserving: (() => void) | undefined;
+export function setBrowserDiagnosticCapture(enabled: boolean) {
+  stopObserving?.();
+  stopObserving = undefined;
+  setDiagnosticCapture(enabled);
+  if (enabled) stopObserving = observeDiagnosticEvents(window);
+}

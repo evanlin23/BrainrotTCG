@@ -49,7 +49,7 @@ async function openPack(current: NonNullable<typeof app>) {
     shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
   });
   await current.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
-  await current.interact(() => button('Skip').click());
+  await current.interact(() => button('Skip opening animation').click());
   await current.until('Skip completes the summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 }
 
@@ -108,3 +108,43 @@ it('keeps the stored collection unchanged, and warns once, when the archive cann
   // Other progress still saves.
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!).packsOpened).toBe(1);
 }, 60_000);
+
+it('shows the kept-aside note at once, and keeps the pack waiting, when only the collection write fails', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === STORAGE_KEYS.COLLECTION) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+
+  await openPack(app);
+
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBe(RAW);
+  expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(RAW);
+  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).not.toBeNull();
+  expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
+  expect(warnings()).toEqual([expect.stringMatching(/couldn't be saved in this browser[\s\S]*kept aside/)]);
+}, 60_000);
+
+it('lets the player hide the kept-aside note until something new is kept aside; Settings still shows it', async () => {
+  const archive = JSON.stringify({ raw: RAW, player: PLAYER });
+  app = await mountedApp({ ...SEED, [STORAGE_KEYS.COLLECTION]: '{}', [STORAGE_KEYS.COLLECTION_RECOVERY]: archive });
+  await app.mount();
+  expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+
+  await app.interact(() => button('Hide note').click());
+  expect(warnings()).toEqual([]);
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+  await app.interact(() => button('Close').click());
+
+  await app.reload();
+  expect(warnings()).toEqual([]);
+
+  // Another damaged payload joins the archive: the note comes back.
+  localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify({ ...JSON.parse(archive), later: [{ raw: '{"x":null}', player: PLAYER }] }));
+  await app.reload();
+  expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+});

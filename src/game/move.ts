@@ -60,6 +60,17 @@ const brainrotKeys = () => Array.from({ length: localStorage.length }, (_, i) =>
 const askToReplace = () =>
   window.confirm('Bring over your save from the old Brainrot TCG address? It replaces the save in this browser now (that one is kept as a backup).');
 
+/** Undo a partial handover: free every touched key first, then put the previous values back. */
+const restoreKeys = (previous: Map<string, string | null>) => {
+  for (const k of previous.keys()) {
+    try { localStorage.removeItem(k); } catch { /* Still put back the rest. */ }
+  }
+  for (const [k, v] of previous) {
+    if (v === null) continue;
+    try { localStorage.setItem(k, v); } catch { /* A replaced save is still under BACKUP_KEY. */ }
+  }
+};
+
 /**
  * Write a handed-over save into this address's storage. If there's already progress here that isn't
  * the same player, `replace` decides (by asking, unless told otherwise) and the replaced save is kept
@@ -71,8 +82,12 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   if (!PROGRESS_KEYS.some((k) => k in incoming)) return 'invalid';
   const here = secretOf(localStorage.getItem(PLAYER_KEY));
   if (here && here === secretOf(incoming[PLAYER_KEY])) return 'same';
-  if (hasProgress()) {
-    if (!replace()) return 'kept';
+  const progress = hasProgress();
+  if (progress && !replace()) return 'kept';
+  // What the incoming writes replace (null: absent), put back if the incoming save doesn't fit.
+  const previous = new Map(Object.keys(incoming).map((k): [string, string | null] => [k, localStorage.getItem(k)]));
+  let replaced: string[] = [];
+  if (progress) {
     const backup = Object.fromEntries(brainrotKeys().filter((k) => k !== BACKUP_KEY).map((k) => [k, localStorage.getItem(k)]));
     // A full or unavailable storage area must not cost the player the save being replaced.
     try {
@@ -80,9 +95,16 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     } catch {
       return 'invalid';
     }
-    for (const k of brainrotKeys()) if (k !== BACKUP_KEY) localStorage.removeItem(k);
+    replaced = Object.keys(backup);
+    for (const k of replaced) previous.set(k, backup[k]);
   }
-  for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
+  try {
+    for (const k of replaced) localStorage.removeItem(k);
+    for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
+  } catch {
+    restoreKeys(previous);
+    return 'invalid';
+  }
   return 'saved';
 };
 
