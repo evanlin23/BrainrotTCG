@@ -157,11 +157,11 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
             onOpenPack={(pack) => openEntry(history.find((e) => e.nonce === pack.nonce && player.publicKeyHex.startsWith(e.key)))}
             actions={
               <>
-                <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing}>
+                <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>
                   <Link2 aria-hidden="true" />
                   {preparing ?? (copied ? 'Link copied' : readyUrl ? 'Copy link now' : 'Copy profile link')}
                 </button>
-                <button type="button" className="btn btn--secondary btn--sm" onClick={shareCard} disabled={!!preparing}>
+                <button type="button" className="btn btn--secondary btn--sm" onClick={shareCard} disabled={!!preparing || !!mine?.filled}>
                   <IdCard aria-hidden="true" /> Player card
                 </button>
               </>
@@ -184,8 +184,9 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
 
         {mine && mine.filled > 0 && (
           <p className="pulls-note">
-            {mine.filled.toLocaleString()} early pack{mine.filled === 1 ? " wasn't" : "s weren't"} recorded on this device. A profile
-            can't skip tickets, so yours counts {mine.filled === 1 ? 'it' : 'them'} as whatever those tickets hold.
+            Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
+            These local totals are partial. A complete profile link cannot be created from this save. Keep a private export
+            from Settings; if you have an older complete backup, it may contain the missing records.
           </p>
         )}
 
@@ -200,7 +201,7 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
               {unopened.toLocaleString()} pack{unopened === 1 ? " in your history doesn't" : "s in your history don't"} have
               {unopened === 1 ? ' its' : ' their'} cards on this device, so the numbers above leave {unopened === 1 ? 'it' : 'them'} out
               for now.{reopen?.error ? " Re-opening stopped with an error." : ''}{' '}
-              <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
+              <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)} disabled={!!mine?.filled}>
                 {reopen?.error ? 'Try again' : 'Re-open them'}
               </button>
             </p>

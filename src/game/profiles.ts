@@ -25,7 +25,7 @@ import {
   type SetDefinition,
   xpForLevel,
 } from '../engine';
-import { DEFAULT_SET_ID, getLatestSet, getSet } from '../content/sets';
+import { getSet } from '../content/sets';
 import { getPlayer, peekNonce } from './player';
 import { historyForKey, type HistoryEntry } from './history';
 import { getReopened, putReopened } from './reopenCache';
@@ -46,31 +46,28 @@ const toPulled = (stored: readonly StoredCard[], set: SetDefinition): PulledCard
 
 interface Ticket {
   nonce: number;
-  set: SetDefinition;
+  set: SetDefinition | null;
   /** Null when this device has no record of the pack (yet). */
   pack: ProfilePack | null;
-  /** True when the set is a guess: the ticket isn't in the history at all. */
+  /** True when the original set/version mapping is missing or unavailable. */
   filled: boolean;
   openedAt: number;
 }
 
-/**
- * Every ticket this key has used, 0..nextNonce-1. A ticket with no record takes the set of the one
- * before it (or after it): its pack was never seen, so any set is as good, and leaving it out isn't
- * allowed.
- */
+/** Every used ticket; absent original mappings stay unknown rather than guessing a different pack. */
 const myTickets = (): Ticket[] => {
   const player = getPlayer();
   const total = peekNonce();
   const known = new Map(historyForKey(player.publicKeyHex).map((e) => [e.nonce, e]));
   const setOf = (e: HistoryEntry | undefined) => (e ? getSet(e.setId, e.setVersion) : undefined);
-  const firstKnown = [...known.values()].map(setOf).find((s) => s);
-  let previous: SetDefinition = firstKnown ?? getLatestSet(DEFAULT_SET_ID)!;
-  let previousTime = 0;
   const tickets: Ticket[] = [];
   for (let nonce = 0; nonce < total; nonce++) {
     const entry = known.get(nonce);
-    const set = setOf(entry) ?? previous;
+    const set = setOf(entry) ?? null;
+    if (!set) {
+      tickets.push({ nonce, set: null, pack: null, filled: true, openedAt: entry?.openedAt ?? 0 });
+      continue;
+    }
     const fromHistory = entry?.cards && setOf(entry) ? toPulled(entry.cards, set) : null;
     // Packs re-opened by an older build were stored without their finishes and misprints; their
     // saved score gives them away. Treat them as unknown so they're re-opened properly.
@@ -83,13 +80,18 @@ const myTickets = (): Ticket[] => {
       nonce,
       set,
       pack: cards && score ? { nonce, set, cards, score } : null,
-      filled: !setOf(entry),
-      openedAt: entry?.openedAt ?? previousTime,
+      filled: false,
+      openedAt: entry?.openedAt ?? 0,
     });
-    previous = set;
-    previousTime = entry?.openedAt ?? previousTime;
   }
   return tickets;
+};
+
+const requireOriginalMappings = (tickets: Ticket[]): (Ticket & { set: SetDefinition })[] => {
+  if (tickets.some((ticket) => !ticket.set || ticket.filled)) {
+    throw new Error('Some original pack set/version mappings are missing. A complete profile cannot be proved from this save.');
+  }
+  return tickets as (Ticket & { set: SetDefinition })[];
 };
 
 const runsOf = (tickets: readonly { set: SetDefinition }[]): ProfileRun[] => {
@@ -104,7 +106,7 @@ const runsOf = (tickets: readonly { set: SetDefinition }[]): ProfileRun[] => {
 
 export interface MyProfile {
   packs: number;
-  /** Tickets this device has no record of (opened before pack history existed). */
+  /** Tickets whose original set/version mapping is missing or unavailable. */
   filled: number;
   /** Tickets whose packs must be re-opened before a profile can be signed. */
   missing: number;
@@ -121,14 +123,14 @@ export const myProfileInfo = (): MyProfile | null => {
  * cards for is re-opened first (reopenMyPacks).
  */
 export const myProfileProof = async (onProgress?: (done: number, total: number) => void): Promise<string | null> => {
-  if (myTickets().length === 0) return null;
+  if (requireOriginalMappings(myTickets()).length === 0) return null;
   const stop = onProgress && onReopenProgress((s) => onProgress(s.done, s.total));
   try {
     await reopenMyPacks();
   } finally {
     stop?.();
   }
-  const tickets = myTickets();
+  const tickets = requireOriginalMappings(myTickets());
   const packs = tickets.flatMap((t) => (t.pack ? [t.pack] : []));
   if (packs.length !== tickets.length) throw new Error('Some packs could not be re-opened');
   const player = getPlayer();
@@ -178,7 +180,9 @@ const setPending = (publicKeyHex: string | null) => {
 export const reopenMyPacks = (): Promise<void> => {
   if (job?.status.running) return job.promise;
   const player = getPlayer();
-  const missing = myTickets().filter((t) => !t.pack);
+  let missing: (Ticket & { set: SetDefinition })[];
+  try { missing = requireOriginalMappings(myTickets()).filter((t) => !t.pack); }
+  catch (error) { return Promise.reject(error); }
   if (missing.length === 0) {
     setPending(null);
     return Promise.resolve();

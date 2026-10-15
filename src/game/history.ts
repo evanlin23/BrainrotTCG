@@ -85,21 +85,14 @@ const save = (entries: Stored[]) => {
 };
 
 /**
- * Out of space: first drop the cached cards of the oldest packs (the ticket is enough to re-derive
- * them), halving how many keep cards until it fits; only then drop the oldest packs themselves.
- * Migration preserves every ticket so its source log can safely be removed only after success.
+ * Out of space: drop only reconstructible cached cards. Original ticket-to-set mappings
+ * are irreplaceable; if even their bare representation cannot fit, keep the previous raw log.
  */
-const write = (entries: Stored[], preserveTickets = false): boolean => {
+const write = (entries: Stored[]): boolean => {
   if (save(entries)) return true;
   for (let withCards = Math.floor(entries.length / 2); ; withCards = Math.floor(withCards / 2)) {
     if (save(entries.map((e, i) => (i < withCards ? e : { ...e, c: undefined })))) return true;
     if (withCards === 0) break;
-  }
-  if (!preserveTickets) {
-    const bare = entries.map((e) => ({ ...e, c: undefined }));
-    for (let keep = Math.floor(bare.length / 2); keep > 0; keep = Math.floor(keep / 2)) {
-      if (save(bare.slice(0, keep))) return true;
-    }
   }
   console.error('Could not save pack history');
   return false;
@@ -119,7 +112,13 @@ export const isHallOfFameWorthy = (entry: Pick<HistoryEntry, 'hand' | 'score'>):
 /** Highest score first; the newest first among equal scores. */
 export const byBest = (a: HistoryEntry, b: HistoryEntry): number => b.score - a.score || b.openedAt - a.openedAt;
 
-export const recordPack = (pack: OpenedPack) => {
+export const recordPack = (pack: OpenedPack): boolean => {
+  let current: Stored[];
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
+    if (!Array.isArray(parsed) || !parsed.every(isStored)) return false;
+    current = parsed;
+  } catch { return false; }
   const entry = encode({
     setId: pack.setId,
     setVersion: pack.setVersion,
@@ -130,7 +129,7 @@ export const recordPack = (pack: OpenedPack) => {
     score: pack.score.score,
     openedAt: pack.openedAt,
   });
-  write([entry, ...read().filter((e) => !sameTicket(e, entry))]);
+  return write([entry, ...current.filter((e) => !sameTicket(e, entry))]);
 };
 
 /** This key's packs in ticket order (what a profile is built from). */
@@ -179,7 +178,7 @@ export const migratePullLog = () => {
       if (existing && (existing.s !== entry.s || existing.v !== entry.v)) return;
       if (!existing) merged.push(entry);
     }
-    if (write(merged.sort((a, b) => b.t - a.t), true)) localStorage.removeItem(STORAGE_KEYS.PULLS);
+    if (write(merged.sort((a, b) => b.t - a.t))) localStorage.removeItem(STORAGE_KEYS.PULLS);
   } catch {
     // Unreadable or unwritable storage: leave the original log available for recovery or retry.
   }

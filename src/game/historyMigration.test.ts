@@ -129,12 +129,19 @@ describe('lossless legacy pull migration', () => {
     expect(data.get(STORAGE_KEYS.PULLS)).toBe(original.pulls);
   });
 
-  it('preserves the existing recordPack severe-quota truncation policy', () => {
-    seed();
+  it('preserves original mappings when even bare mixed-set history cannot fit', () => {
+    const original = seed();
     const bareNewest = [{ s: 'genesis', v: 1, n: 1, k: publicKeyHex.slice(0, 16), h: 'Pair', x: 100, t: 1001 }];
     maxHistoryChars = JSON.stringify(bareNewest).length;
-    recordPack({ ...existing, nonce: 1, openedAt: 1001 });
-    expect(getHistory().map(entry => entry.nonce)).toEqual([1]);
-    expect(getHistory()[0].cards).toBeNull();
+    expect(recordPack({ ...existing, setId: 'right-now', setVersion: 3, nonce: 1, openedAt: 1001 })).toBe(false);
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(original.history);
+    expect(getHistory().map(entry => entry.nonce)).toEqual([0]);
   });
+});
+
+
+it.each(['{', '[null]', '{}'])('does not replace malformed original ticket history during pack recording: %s', raw => {
+  data.set(STORAGE_KEYS.HISTORY, raw);
+  expect(recordPack(existing)).toBe(false);
+  expect(data.get(STORAGE_KEYS.HISTORY)).toBe(raw);
 });
