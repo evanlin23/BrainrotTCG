@@ -50,7 +50,83 @@ later. To use one, add it in Cloudflare (**Workers & Pages → brainrottcg → C
 repository **variable** (not a secret) `SITE_URL` to it, ending in `/` (for example
 `https://brainrottcg.net/`), and deploy.
 
-## Undoing it
+## Switching back to GitHub Pages
 
-Delete the two secrets and deploy: GitHub Pages serves the game again. Saves made at the
-Cloudflare address would stay there, so do this before players settle in, or not at all.
+Delete the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` secrets and deploy: GitHub Pages serves
+the game again. Saves made at the Cloudflare address stay there, so do this before players settle in,
+or not at all. This is a host change, not a release rollback; for a bad release, see
+[Recover on the same origin](#recover-on-the-same-origin).
+
+## Release evidence
+
+Deploys are automatic on pushes to `main`, and only the owner may use the administrator bypass. This
+checklist is evidence to record in the release PR or incident for the owner/operator's judgement, not
+an approval gate:
+
+- Exact candidate/merged commit SHA, Actions run, actual production URL and host, and on Cloudflare
+  the Pages project (`CLOUDFLARE_PROJECT`, default `brainrottcg`) and deployment ID. Record public
+  configuration, never tokens.
+- Results at that revision: `npm run check`, `npm run build`, independent Python verification and
+  relevant browser/storage/asset checks, plus unrun checks and unresolved blockers. The
+  [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
+  builds (`npm run check`, `npm run build`) and deploys only if it passes.
+  [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) skip
+  pushes to `main` (`branches-ignore`), so on a bypassed revision workflow lint (actionlint) and
+  browser tests may not have run.
+- Reviewer/operator, decision and known-good rollback target, plus any observed save loss or
+  corruption, broken historical verification, persistent blank screens or missing assets, or
+  inaccessible opening controls.
+- For storage/proof/set changes, fixture evidence that the rollback target can read data written by
+  the candidate, including identity, ticket/set/version history, pending packs and IndexedDB. Keep
+  private backups offline; a public profile link cannot recover the secret key. Do not test with a
+  player's only save or claim an export includes data it does not serialize.
+
+## Recover on the same origin
+
+Do not delete hosting secrets or change the domain as a rollback
+([switching hosts](#switching-back-to-github-pages) is a separate decision): browser saves belong to
+their origin, so players can lose access to progress without a tested transfer. Keep the canonical URL, base path
+and migration origins consistent with the selected release.
+
+1. Record the failing SHA/run/deployment and current ranking snapshot; choose a known-good production
+   deployment whose storage readers, proof versions and released sets/assets remain compatible.
+   If the older app would erase/misread newer saves or omit a newly released set/version, use a small
+   forward fix instead. Do not ask players to clear site data to make an older build work.
+2. On Cloudflare, verify the recorded successful production deployment's commit/build identity, then
+   roll back to it in the recorded Pages project's dashboard. Preview deployments are not targets;
+   see [Cloudflare's rollback instructions](https://developers.cloudflare.com/pages/configuration/rollbacks/).
+   This selects the previous deployed files on the same project; it does not revert Git, browser data
+   or the GitHub Pages redirect deployment.
+3. Keep all released set definitions, verifier rules and required card/preview assets available
+   ([set versioning](ADDING_A_SET.md#changing-a-released-set)). An incompatible old deployment is not a
+   safe target merely because it once worked. If no compatible deployment exists, prepare a feature
+   PR against current main that reverts the faulty behavior while retaining those contracts. Do not
+   reset or force-push main. Rebuilding a recorded commit is a new artifact, not a byte-identical rollback.
+4. Reconcile the source with a follow-up PR promptly: automatic deployments remain enabled, and a later
+   push or workflow run can replace the provider rollback. The Hall of Fame workflows also run
+   `gh workflow run deploy.yml`: [hall-of-fame.yml](../.github/workflows/hall-of-fame.yml) when a
+   submitted pull verifies and wasn't already verified on that issue, and [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
+   when a run (dispatched about every 15 minutes) files new entries. Land the forward-fix PR first, or
+   pause those workflows, before they redeploy a bad `main`. Avoid overlapping recovery and deploy
+   runs; the workflow's `pages` concurrency group does not serialize dashboard rollbacks.
+
+Cloudflare's deployment history is the artifact rollback source. On its Cloudflare path, the workflow
+uploads only the GitHub Pages **redirect** directory (`pages/`) as `github-pages`; it does not archive
+Cloudflare's `dist/`. Never upload that redirect artifact as the game. When GitHub Pages is the actual
+host, use the compatible feature-PR/forward-fix path above; there is no rollback command in this workflow.
+
+UI and ranking recovery are separate decisions. A provider rollback also restores its bundled
+`hall-of-fame.json`, which can omit newer winners or reintroduce moderated entries. Keep verified issue
+records/moderation intact, retain the current snapshot for comparison, and rebuild ranking data from
+current trusted evidence with compatible code. Do not undo submissions or rejected labels to match an
+old UI. The GitHub redirect's copy may differ until refreshed; record that explicitly.
+
+## Read-only checks after deployment or recovery
+
+At the recorded production URL, confirm the hashed entry script in `index.html` matches the selected
+build and loads, then check required card images and a `/p/` preview page. The deploy workflow checks
+the entry-script reference before updating the old-site redirect, which doesn't prove assets decode or
+the game works. In a disposable browser context, open a known valid historical pull, a current-version
+pull and a profile link, and check invalid-proof recovery, ranking freshness and the old URL's
+forwarding. Use public test proofs, don't open new packs, submit, reset or import real saves, and
+record the tested deployment and any failures.
