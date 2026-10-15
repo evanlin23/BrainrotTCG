@@ -40,3 +40,6 @@ hof-comment.md
 
 # Wrangler (workers/)
 .wrangler
+
+# Playwright test results
+test-results/
