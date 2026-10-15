@@ -628,7 +628,7 @@ function App() {
 
       {/* Collection Browser */}
       {isCollectionOpen && (
-        <DeferredSheet load={loadCollection} size="lg" title="My cards" screenProps={{ collection, navigation: personalNavigation, onClose: () => setIsCollectionOpen(false) }} />
+        <DeferredSheet load={loadCollection} size="lg" title="My cards" screenProps={{ collection, navigation: personalNavigation, recentSetId: selectedSet.id, onClose: () => setIsCollectionOpen(false) }} />
       )}
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}

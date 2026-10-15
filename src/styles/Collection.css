@@ -10,20 +10,46 @@
   padding-top: var(--space-1);
 }
 
-.collection-set-header {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas:
-    'name count'
-    'era count'
-    'bar bar';
-  column-gap: var(--space-3);
-  row-gap: 2px;
+/* The heading holds the set's show/hide button (#344); the button carries the type. */
+.collection-set-header h3 {
+  font: inherit;
+  letter-spacing: normal;
 }
 
-.collection-set-header h3 {
+.collection-set-toggle {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  grid-template-areas:
+    'name count chevron'
+    'era count chevron';
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.collection-set-name {
   grid-area: name;
+  font-family: var(--font-display);
   font-size: var(--text-xl);
+  line-height: var(--leading-tight);
+  letter-spacing: 0.01em;
+}
+
+.collection-set-chevron {
+  grid-area: chevron;
+  width: 18px;
+  height: 18px;
+  color: var(--text-subtle);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.collection-set-toggle[aria-expanded='true'] .collection-set-chevron {
+  transform: rotate(180deg);
 }
 
 .collection-set-era {
@@ -54,7 +80,7 @@
 }
 
 .collection-set-bar {
-  grid-area: bar;
+  display: block;
   height: 4px;
   margin-top: var(--space-2);
   border-radius: var(--radius-pill);

@@ -33,7 +33,7 @@
  * Security: issue bodies are untrusted input. They are only ever parsed here,
  * never interpolated into a shell command, and echoed only through safe().
  */
-import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getSet } from '../src/content/sets/index.ts';
 import {
@@ -54,6 +54,7 @@ import {
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
 import { buildSkipLine, probeLine, processInbox, relayReadLine } from './hof-inbox.ts';
+import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const OUTPUT = `${ROOT}public/hall-of-fame.json`;
@@ -412,15 +413,7 @@ const probe = async (relays: string[]) => {
 };
 
 // Run as a script; tests import the modes and run them against fixtures (scripts/hall-of-fame.test.ts).
-// Both sides are real paths, so it still runs when started through a symlink.
-const isMainModule = (() => {
-  try {
-    return !!process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-})();
-if (isMainModule) {
+if (isMainModule(import.meta.url)) {
   const mode = process.argv[2];
   if (mode === 'verify-issue') await verifyIssue();
   else if (mode === 'inbox') await inbox();
