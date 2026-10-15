@@ -92,3 +92,37 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 Run the app, then capture every screen at 390×844 and 1440×900 (a Playwright script that opens a
 pack and every sheet is the quickest way). Look for overlap, cut-off text and anything that needs a
 mouse. Keyboard through it: Tab reaches everything, Escape closes the top panel.
+
+## Proposed local Best cards contract (#337)
+
+**Proposal for owner/Claude review, not shipped.** Keep 10 individual instances under My cards,
+alongside Best packs; no extra primary destination or global board. Rank by original-version
+individual `cardPoints` before the pack combo multiplier, preserving finish/holo/misprint together.
+Distinct slots may both qualify; repeated imports of one instance cannot duplicate it.
+
+Use `(full public key, set id, set version, nonce, zero-based slot)` as the instance key. Per key,
+ties use lower nonce then slot; conflicting set assignments for one nonce require resolution, not
+two awards. Namespace lists by full key; switching/importing an identity never merges its winners
+with another key's. Local timestamps and short display fingerprints are not trusted tie/identity data.
+
+Retain the original pack proof or a portable authoritative assignment reference, including exact
+version/slot, independently of Best packs eviction. Reconstruct before accepting a candidate;
+cached points/cards/images are discardable. Bound the list to 10 winners and deduplicate parent
+proofs, without deleting the separate profile ledger or achievement evidence (#241/#323).
+
+| Case | Required result |
+| --- | --- |
+| A 40M-point card's parent falls outside Best packs | Card remains reconstructible with original-pack access |
+| Reimported pack; equal cards in two slots | No duplicate instance; both slots eligible, lower slot first |
+| Later version changes rarity/modifiers | Original version determines points and exact appearance |
+| Missing cache / failed save | Reconstruct with retry; preserve prior winners and report unsaved state |
+| Legacy history already missing | “Best among recoverable pulls”, not certified best-ever |
+
+Portable saves must include required references/provenance even if stored in IndexedDB; restore
+into a fresh browser must not depend on the source cache. An external different-key proof is a
+viewed shared pull, not an owned opening. Public proof/generator formats remain unchanged.
+Rows open shared card detail with Share card and View original pack; pack detail offers Share pack
+(#185). Listed proofs establish those instances, not complete lifetime totals or absence of a
+stronger undeclared pull. After approval, split selector/persistence/save coverage from UI wiring.
+The full quota, interruption, mixed-version and round-trip acceptance matrix remains in #337;
+those implementation tests are planned, not executed by this design-only change.
