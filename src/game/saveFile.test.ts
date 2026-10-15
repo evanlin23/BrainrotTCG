@@ -99,8 +99,16 @@ describe('Settings backup preflight', () => {
     // recordPack refuses these too, so importing one would block every later pack write.
     ['history set version 0', { history: '[{"s":"genesis","v":0,"n":0,"k":"a","h":"No Match","x":1,"t":1}]' }],
     ['history without a set id', { history: '[{"s":"","v":1,"n":0,"k":"a","h":"No Match","x":1,"t":1}]' }],
+    // No build stores these.
+    ['negative history score', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","h":"No Match","x":-1,"t":1}]' }],
+    ['negative history opening time', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","h":"No Match","x":1,"t":-1}]' }],
     ['pull log object', { pulls: '{}' }],
     ['invalid pull log reference', { pulls: '[{"setId":"genesis","nonce":-1}]' }],
+    // migratePullLog can't carry these over either.
+    ['pull log set version 0', { pulls: '[{"setId":"genesis","setVersion":0,"nonce":0,"score":1,"hand":"No Match","openedAt":1}]' }],
+    ['pull log without a set id', { pulls: '[{"setId":"","setVersion":1,"nonce":0,"score":1,"hand":"No Match","openedAt":1}]' }],
+    ['pull log without a hand', { pulls: '[{"setId":"genesis","setVersion":1,"nonce":0,"score":1,"openedAt":1}]' }],
+    ['negative pull log score', { pulls: '[{"setId":"genesis","setVersion":1,"nonce":0,"score":-1,"hand":"No Match","openedAt":1}]' }],
     ['settings array', { settings: '[]' }],
     ['invalid settings flag', { settings: '{"particlesEnabled":"yes"}' }],
     ['non-numeric volume', { settings: '{"musicVolume":"loud"}' }],

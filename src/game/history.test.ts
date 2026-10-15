@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
-import { byBest, findPackByCards, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordPack, type HistoryEntry } from './history';
+import { byBest, findPackByCards, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, type HistoryEntry } from './history';
 import { HALL_OF_FAME_MIN_SCORE } from '../engine';
 import type { OpenedPack } from './pulls';
 
@@ -114,6 +114,46 @@ describe('pack history', () => {
     expect(history[0].cards).not.toBeNull();
     expect(history[1].cards).toBeNull();
     expect(localStorage.getItem(STORAGE_KEYS.PULLS)).toBeNull();
+  });
+});
+
+describe('recording the ticket mappings a full storage refused', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('adds only the missing ones, newest first, and leaves recorded ones as they are', () => {
+    installStorage();
+    recordPack(pack(0));
+    recordPack(pack(2, { openedAt: 5_000 }));
+    expect(recordMissing([pack(1), pack(2), pack(3, { openedAt: 9_000 })], KEY)).toBe(true);
+    expect(getHistory().map((e) => [e.nonce, e.openedAt])).toEqual([[3, 9_000], [2, 5_000], [1, 1_001], [0, 1_000]]);
+    expect(getHistory().find((e) => e.nonce === 1)?.cards).toHaveLength(5);
+  });
+
+  it("never adds another player's packs, or a pack without a key", () => {
+    installStorage();
+    expect(recordMissing([pack(0, { publicKeyHex: 'cd'.repeat(32) }), pack(1, { publicKeyHex: undefined })], KEY)).toBe(true);
+    expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBeNull();
+  });
+
+  it('writes nothing when nothing is missing', () => {
+    const data = installStorage();
+    recordPack(pack(0));
+    const stored = data.get(STORAGE_KEYS.HISTORY);
+    const setItem = vi.spyOn(localStorage, 'setItem');
+    expect(recordMissing([pack(0)], KEY)).toBe(true);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(stored);
+  });
+
+  it('reports a history it could not write, or one it would have to drop entries from', () => {
+    installStorage(10);
+    expect(recordMissing([pack(0)], KEY)).toBe(false);
+    const data = installStorage();
+    data.set(STORAGE_KEYS.HISTORY, '[null]');
+    expect(recordMissing([pack(0)], KEY)).toBe(false);
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe('[null]');
   });
 });
 

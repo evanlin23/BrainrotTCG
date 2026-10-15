@@ -149,16 +149,18 @@ const writeShelf = (shelf: PendingPack[]): boolean => {
 /**
  * Load adds whatever pack this entry holds, without checking the collection, so a pack left here
  * after a collection holding it was stored would be added again. If storage won't remove the entry,
- * it is blanked instead: `null` reads as no pack, here and in older builds.
+ * it is blanked instead: `null` reads as no pack, here and in older builds. False if neither works.
  */
-const removeLegacy = () => {
+const removeLegacy = (): boolean => {
   try {
     localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+    return true;
   } catch {
     try {
       localStorage.setItem(STORAGE_KEYS.PENDING_PACK, 'null');
+      return true;
     } catch {
-      console.error("The older builds' pending pack couldn't be cleared: the next load may add a stored pack again.");
+      return false;
     }
   }
 };
@@ -207,7 +209,9 @@ export const savePendingPack = (...packs: OpenedPack[]): boolean => {
 /** The collection has these packs now. */
 export const clearPendingPack = (...nonces: number[]) => {
   if (nonces.length === 0) return;
-  if (readLegacy().some((p) => nonces.includes(p.n))) removeLegacy();
+  if (readLegacy().some((p) => nonces.includes(p.n)) && !removeLegacy()) {
+    console.error("The older builds' pending pack couldn't be removed or blanked: the next load may add it again, though the collection has it.");
+  }
   const shelf = readShelf();
   const kept = shelf.filter((p) => !nonces.includes(p.n));
   if (kept.length === shelf.length || writeShelf(kept)) return;
@@ -245,6 +249,7 @@ export const takePendingPacks = (): OpenedPack[] => {
     } catch { /* Unreadable: the history still has it. */ }
   }
   // An older build's entry with nothing to add (unreadable, or another player's) goes, as it did there.
+  // If it can't, nothing is lost: the next load finds nothing to add in it either.
   if (!packs.some((p) => p.legacy)) removeLegacy();
   return packs;
 };

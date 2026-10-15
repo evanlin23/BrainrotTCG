@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine';
 import { getCard } from '../data/cards';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
-import { isStored } from './history';
+import { isLegacyPull, isStored } from './history';
 import { backUpSave } from './move';
 import { exportPlayer, importPlayer, isCurrentPlayer, parsePlayer } from './player';
 
@@ -46,9 +46,11 @@ const settings = (value: unknown) => record(value)
   && ['musicVolume', 'effectsVolume'].every((key) => optional(value, key, (v) => typeof v === 'number' && Number.isFinite(v)))
   && ['cardBack', 'packFoil'].every((key) => optional(value, key, text));
 // Same rule as recordPack: an entry it would refuse must never be imported, or every later pack write fails.
-const history = (value: unknown) => Array.isArray(value) && value.every(isStored);
-const pulls = (value: unknown) => Array.isArray(value) && value.every((entry) => ref(entry)
-  && record(entry) && number(entry.score) && text(entry.hand) && number(entry.openedAt));
+// Stricter here only: no build stores a negative score or opening time, but a stored one mustn't block writes.
+const history = (value: unknown) => Array.isArray(value) && value.every((entry) => isStored(entry) && number(entry.x) && number(entry.t));
+// Same rule as migratePullLog, which would otherwise keep an imported log it can never carry over.
+const pulls = (value: unknown) => Array.isArray(value) && value.every((entry) => isLegacyPull(entry) && ref(entry)
+  && number(entry.score) && number(entry.openedAt));
 
 /** One kept-aside collection: its exact bytes and the identity snapshot they belonged to. */
 const archived = (value: unknown): value is RecordValue => record(value) && text(value.raw)
