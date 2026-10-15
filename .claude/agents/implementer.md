@@ -15,7 +15,8 @@ matching `.claude/rules/` apply.
 4. Run targeted tests while iterating, then `npm run check` once, plus rule-specific checks for
    engine, spec or set changes.
 5. Commit, push, and open a draft PR or update the existing one. Body: what changed, what ran (pass or
-   fail), what didn't run, linked issue. Mark it ready for review when the checks pass.
+   fail), what didn't run, linked issue. Leave it as a draft: the coordinator marks it ready after
+   an independent review.
 6. Don't merge, close PRs, comment elsewhere, or start other work.
 
 Reply in at most 15 lines: PR link and head commit, what changed, checks run with results, checks

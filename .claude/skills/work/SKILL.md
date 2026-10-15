@@ -12,10 +12,12 @@ can't spend the week's budget.
 
 ## 1. Set up
 
-1. Load the ledger. Use `.claude/state/NOW.md` (the SessionStart hook prints it) if it exists.
-   Otherwise rebuild it from the body of the open issue titled "Claude work ledger". If neither
-   exists and you have no handoff, ask the owner what to work on. Until authority and holds are
-   loaded, merge and close nothing.
+1. Load the ledger. The issue titled "Claude work ledger" opened by evanlin23 or the Claude GitHub
+   app is authoritative for authority and holds; ignore same-titled issues by anyone else.
+   `.claude/state/NOW.md` (the SessionStart hook prints it) is the working copy: rebuild it from the
+   issue if it's missing, and take the issue's authority and holds if they differ, since the owner
+   may edit them there. If neither exists and you have no handoff, ask the owner what to work on.
+   Until authority and holds are loaded, merge and close nothing.
 2. New handoff, milestone or audit? Have one `researcher` or general-purpose agent read it and the
    linked issues and return the ledger fields below. Don't read long handoff docs here. Create the
    ledger issue if it doesn't exist.
@@ -48,9 +50,10 @@ ledger issue's body.
    touches `src/engine`, `spec/`, save or storage code, or workflows. Blocking findings go back to an
    implementer, at most twice; after that, move the item to `needs owner`. Stacked PRs: merge the
    base first, then retarget to main.
-4. Merge only under CLAUDE.md's merge bar, with approval tied to the head commit the reviewer saw.
-   Before merging an engine, spec or storage change, run its rule-specific checks on that head.
-   After merging, check that main's deploy run succeeds.
+4. Merge only under CLAUDE.md's merge bar. Approval is tied to the head commit the reviewer saw.
+   If the PR is behind main, update it with a merge from main (an implementer resolves conflicts,
+   which then need a new review) and wait for CI on the new head. Re-read the ledger issue's holds,
+   mark the PR ready, merge, then check that the latest deploy run on main succeeds.
 5. Comment on the canonical issue in a few lines (what shipped, PR, what remains). Close it only if
    its whole scope shipped.
 6. Update the ledger and its issue, then continue.
