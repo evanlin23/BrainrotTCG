@@ -13,9 +13,8 @@ import { modifierClasses } from '../../game/modifiers';
 import { renderPlayerCard } from '../../game/playerCard';
 import type { Settings } from '../../types';
 import { packImageUrl } from '../../content/art';
-import { getCard } from '../../data/cards';
 import { DEFAULT_SET_ID, getLatestSet, setCode } from '../../content/sets';
-import { byBest, getHistory, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
+import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
 import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
 import { getPlayer } from '../../game/player';
 import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
@@ -49,18 +48,6 @@ const timeAgo = (t: number) => {
   if (Math.abs(hours) < 24) return relative.format(hours, 'hour');
   return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
-
-const cardsOf = (entry: HistoryEntry): CardWithMeta[] | null =>
-  entry.cards
-    ?.map((c, i): CardWithMeta | null => {
-      const card = getCard(`${entry.setId}/${c.id}`);
-      if (!card) return null;
-      const meta: CardWithMeta = { ...card, uniqueId: i, isRevealed: true, isHolo: c.holo };
-      if (c.finish) meta.finish = c.finish;
-      if (c.misprint) meta.misprint = true;
-      return meta;
-    })
-    .filter((c): c is CardWithMeta => c !== null) ?? null;
 
 /** Your level and stats, a link that proves them, and every pack you've opened (newest first). */
 const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull }: MyProfilePageProps) => {
@@ -134,7 +121,7 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
   };
 
   const openEntry = (entry: HistoryEntry | undefined) => {
-    const cards = entry && cardsOf(entry);
+    const cards = entry && historyCards(entry);
     if (entry && cards) onSharePull(entry, cards);
   };
 
@@ -240,7 +227,7 @@ const MyProfilePage = ({ stats, settings, onSettingsChange, onClose, onSharePull
               )}
               <ul className="pulls-list">
                 {listed.slice(0, shown).map((entry) => {
-                  const cards = cardsOf(entry);
+                  const cards = historyCards(entry);
                   const set = getLatestSet(entry.setId);
                   const [a = '#ff3df2', b = '#29f0ff'] = set?.palette ?? [];
                   return (

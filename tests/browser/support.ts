@@ -37,9 +37,10 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0) {
       errors.push(`${request.failure()?.errorText} ${request.url()}`);
     }
   });
-  // No server connection is established by this handler, including relay WebSocket writes.
-  await page.routeWebSocket('**/*', (socket) => socket.close());
-  await page.route('**/*', (route) => {
+  // Context-wide guards also cover popups and other pages. No server connection is established
+  // by this handler, including relay WebSocket writes.
+  await page.context().routeWebSocket('**/*', (socket) => socket.close());
+  await page.context().route('**/*', (route) => {
     if (new URL(route.request().url()).origin === origin) return route.continue();
     // Empty responses avoid disguising local load failures with broad console-error filters.
     return route.fulfill({ status: 204 });
