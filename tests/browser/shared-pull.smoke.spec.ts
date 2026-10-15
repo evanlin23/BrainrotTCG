@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import type { SetDefinition } from '../../src/engine/types';
+import { verifyProof } from '../../src/engine/proof';
+import type { PulledCard, SetDefinition } from '../../src/engine/types';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPreviewPath, previewPath } from '../../src/game/previewLinks';
 import { expectDecoded, monitor, snapshot } from './support';
@@ -8,6 +9,28 @@ import { expectDecoded, monitor, snapshot } from './support';
 const json = <T,>(path: string): T => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8')) as T;
 const vectors = json<typeof import('../../spec/vectors.json')>('../../spec/vectors.json');
 const pythonVectors = json<typeof import('../../spec/vectors-python.json')>('../../spec/vectors-python.json');
+
+// Sets come from disk: src/content/sets uses Vite glob imports that the Node runner cannot load.
+const setFor = (key: string) => {
+  const [setId, version] = key.split('@');
+  const latest = json<SetDefinition>(`../../src/content/sets/${setId}/set.json`);
+  return latest.version === Number(version) ? latest : json<SetDefinition>(`../../src/content/sets/${setId}/set.v${version}.json`);
+};
+const lookup = (setId: string, version: number) => {
+  try {
+    return setFor(`${setId}@${version}`);
+  } catch {
+    return undefined;
+  }
+};
+/** A card as the vectors list it (spec.test.ts): sets with modifiers add finish and misprint. */
+const asVector = ({ cardId, rarity, isHolo, finish, misprint }: PulledCard) =>
+  finish === undefined ? { cardId, rarity, isHolo } : { cardId, rarity, isHolo, finish, misprint };
+
+// Routing disables Chromium's HTTP cache, so card art is refetched on every mount, and a load that is
+// superseded (a finish frame or misprint ghost replacing it, or the page being left) aborts. That is
+// not a missing asset: status >= 400 is still reported and every image shown must decode.
+const loadFailures = (errors: string[]) => errors.filter((error) => !/^net::ERR_ABORTED \S+\/assets\/[\w-]+\.webp$/.test(error));
 
 const proofState = async (page: Page) => ({
   recorded: await snapshot(page),
@@ -32,9 +55,17 @@ for (const { vector, entry } of cases) {
     await expect(page.locator('.app-logo')).toBeVisible();
     const before = await proofState(page);
     const [setId, version] = vector.set.split('@');
-    const latest = json<SetDefinition>(`../../src/content/sets/${setId}/set.json`);
-    const set = latest.version === Number(version) ? latest : json<SetDefinition>(`../../src/content/sets/${setId}/set.v${version}.json`);
+    const set = setFor(vector.set);
     expect(set.version).toBe(Number(version));
+    // The engine re-derives the pinned vector in Node, so the UI below is held to both.
+    const derived = await verifyProof(vector.proof, lookup);
+    expect({
+      name: derived.proof.name, nonce: derived.proof.nonce, fingerprint: derived.fingerprint, cards: derived.cards.map(asVector),
+      points: derived.score.points, hand: derived.score.hand.name, multiplier: derived.score.hand.multiplier, score: derived.score.score,
+    }).toEqual({
+      name: vector.name, nonce: vector.nonce, fingerprint: vector.fingerprint, cards: vector.cards,
+      points: vector.points, hand: vector.hand, multiplier: vector.multiplier, score: vector.score,
+    });
     const path = entry === 'card-preview'
       ? cardPreviewPath(setId, vector.cards[2].cardId)
       : entry === 'pack-preview'
@@ -100,18 +131,26 @@ for (const { vector, entry } of cases) {
     await expect(page.locator('.app-logo')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await proofState(page)).toEqual(before);
-    expect(errors).toEqual([]);
+    expect(loadFailures(errors)).toEqual([]);
   });
 }
 
+const invalidVector = (note: string) => vectors.invalid.find((v) => v.note === note)!;
 const invalidCases = [
   { proof: 'cut-off', title: "This link doesn't work", reason: 'It looks cut off or changed' },
-  { proof: vectors.invalid.find((v) => v.note === 'truncated')!.proof, title: 'Not a valid pull', reason: 'Proof is truncated' },
-  { proof: vectors.invalid.find((v) => v.note === 'signature byte flipped')!.proof, title: 'Not a valid pull', reason: 'Signature does not match' },
+  { ...invalidVector('truncated'), title: 'Not a valid pull', reason: 'Proof is truncated' },
+  { ...invalidVector('signature byte flipped'), title: 'Not a valid pull', reason: 'Signature does not match' },
+  // Tampered after signing: the claimed pack changes, so the original signature no longer covers it.
+  { ...invalidVector('nonce changed after signing'), title: 'Not a valid pull', reason: 'Signature does not match' },
+  { ...invalidVector('small-order public key with a forged signature'), title: 'Not a valid pull', reason: 'Not a valid player key' },
 ];
 
 for (const invalid of invalidCases) {
-  test(`rejects shared pull: ${invalid.reason}`, async ({ page, baseURL }) => {
+  test(`rejects shared pull: ${'note' in invalid ? invalid.note : invalid.proof}`, async ({ page, baseURL }) => {
+    if ('rule' in invalid) {
+      // The engine rejects it for the vector's rule; the app must show that, not render a pull.
+      await expect(verifyProof(invalid.proof, lookup)).rejects.toMatchObject({ rule: invalid.rule });
+    }
     const errors = await monitor(page, baseURL!);
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
@@ -131,6 +170,6 @@ for (const invalid of invalidCases) {
     await expect(page.locator('.app-logo')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await proofState(page)).toEqual(before);
-    expect(errors).toEqual([]);
+    expect(loadFailures(errors)).toEqual([]);
   });
 }
