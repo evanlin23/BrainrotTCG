@@ -233,6 +233,9 @@ that can't be kept, the stored collection is left alone. Export includes that ar
 backup, no import), writes the identity last and, on failure, removes what it wrote and restores
 the previous values. That is structural validation and best-effort rollback, not a transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
+A render error after React mounts shows `AppErrorBoundary`, which writes nothing and records only the
+opt-in `render-error` diagnostic. Startup steps before React mounts (`receiveSave`, `runMigrations`,
+`migratePullLog`, `loadPackStore` in `main.tsx`) are outside it and need their own handling.
 
 ## Hosting
 

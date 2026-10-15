@@ -17,6 +17,9 @@
     width: 100%;
     container-type: size;
     overflow: hidden;
+    /* The pack is a gesture surface: taps, cuts and double taps must not highlight its labels. */
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .pack-shell-wrap {
@@ -50,6 +53,9 @@
     color: var(--text-subtle);
     font-size: var(--text-sm);
     text-align: center;
+    /* An error a player may want to quote in a bug report stays selectable. */
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 .pack-hint.is-error {
@@ -92,6 +98,7 @@
     border-radius: 0;
     overflow: hidden;
     cursor: crosshair;
+    -webkit-user-select: none;
     user-select: none;
     touch-action: none;
     box-shadow: none;
@@ -398,6 +405,9 @@
     width: 100%;
     min-height: 0;
     padding: var(--space-2) var(--gutter) var(--space-4);
+    /* Rapid taps flip and advance cards; they must not select the rarity, counter or tips. */
+    -webkit-user-select: none;
+    user-select: none;
     overflow-x: hidden;
     overflow-y: auto;
 }
@@ -486,6 +496,9 @@
     width: 100%;
     max-width: 64rem;
     min-height: 0;
+    /* The summary is read and copied (card names, totals), so text selection comes back here. */
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 /* Only the contents scroll: the next-pack action always has its own visible row. */
