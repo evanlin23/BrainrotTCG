@@ -111,13 +111,23 @@ const savePendingPack = (pack: OpenedPack) => {
   }
 };
 
+/** Takes the pending pack off the shelf. False when storage refuses (a SecurityError), so it stays. */
+const removePendingPack = (): boolean => {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** The collection has this pack now. */
 export const clearPendingPack = (nonce: number) => {
   try {
     const pending = JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACK) ?? 'null') as PendingPack | null;
-    if (pending?.n === nonce) localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+    if (pending?.n === nonce) removePendingPack();
   } catch {
-    localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+    removePendingPack();
   }
 };
 
@@ -129,7 +139,8 @@ export const takePendingPack = (): OpenedPack | null => {
   } catch {
     pending = null;
   }
-  localStorage.removeItem(STORAGE_KEYS.PENDING_PACK);
+  // If it can't be taken off the shelf, adding it now would add it again on the next load.
+  if (!removePendingPack()) return null;
   const set = pending && getSet(pending.s, pending.v);
   if (!pending || !set || (pending.k && pending.k !== getPlayer().publicKeyHex)) return null;
   try {
