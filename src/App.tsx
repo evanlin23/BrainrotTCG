@@ -489,7 +489,7 @@ function App() {
 
       {/* Achievements Page */}
       {isAchievementsOpen && (
-        <DeferredSheet load={loadAchievements} title="Achievements" screenProps={{
+        <DeferredSheet load={loadAchievements} size="lg" title="Achievements" screenProps={{
           unlockedAchievements: achievements,
           onClose: () => setIsAchievementsOpen(false),
           progress: achievementProgress,
@@ -499,11 +499,11 @@ function App() {
 
       {/* Hall of Fame Page */}
       {isHallOfFameOpen && (
-        <DeferredSheet load={loadHallOfFame} title="Hall of Fame" screenProps={{ onClose: () => setIsHallOfFameOpen(false) }} />
+        <DeferredSheet load={loadHallOfFame} size="lg" title="Hall of Fame" screenProps={{ onClose: () => setIsHallOfFameOpen(false) }} />
       )}
 
       {isProfileOpen && (
-        <DeferredSheet load={loadProfile} title="Profile" screenProps={{
+        <DeferredSheet load={loadProfile} size="lg" title="Profile" screenProps={{
           stats,
           settings,
           onSettingsChange: handleSettingsChange,
@@ -519,14 +519,14 @@ function App() {
 
       {/* Collection Browser */}
       {isCollectionOpen && (
-        <DeferredSheet load={loadCollection} title="Collection" screenProps={{ collection, onClose: () => setIsCollectionOpen(false) }} />
+        <DeferredSheet load={loadCollection} size="lg" title="Collection" screenProps={{ collection, onClose: () => setIsCollectionOpen(false) }} />
       )}
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
 
       {viewProof && <DeferredSheet load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closePullViewer }} />}
 
-      {viewProfile && <DeferredSheet load={loadPublicProfile} title="Shared profile" screenProps={{ proof: viewProfile, onClose: closePullViewer }} />}
+      {viewProfile && <DeferredSheet load={loadPublicProfile} size="lg" title="Shared profile" screenProps={{ proof: viewProfile, onClose: closePullViewer }} />}
 
       {brokenLink && (
         <Sheet title="This link doesn't work" onClose={closePullViewer} size="sm">
@@ -538,7 +538,7 @@ function App() {
 
       {/* Settings Page */}
       {isSettingsOpen && (
-        <DeferredSheet load={loadSettings} title="Settings" screenProps={{
+        <DeferredSheet load={loadSettings} size="sm" title="Settings" screenProps={{
           settings,
           onSettingsChange: handleSettingsChange,
           onClose: () => setIsSettingsOpen(false),

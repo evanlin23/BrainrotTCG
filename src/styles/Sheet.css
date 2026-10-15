@@ -94,6 +94,11 @@
   padding-bottom: var(--space-4);
 }
 
+/* A screen still loading (DeferredSheet) holds roughly its room, so the sheet doesn't jump. */
+.sheet--deferred {
+  min-height: min(60dvh, 32rem);
+}
+
 /* Full screen (e.g. a shared pull opened from a link). */
 .sheet-root--full .sheet {
   height: 100dvh;
