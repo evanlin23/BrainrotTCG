@@ -38,9 +38,10 @@ export const loadHallOfFame = (): Promise<HallOfFameEntry[] | null> =>
   (loading ??= fetch(`${import.meta.env.BASE_URL}hall-of-fame.json`, { cache: 'no-cache' })
     .then((res) => (res.ok ? res.json() : null))
     .then((data: unknown) => (Array.isArray(data) ? data.map(withId) : null))
-    .catch(() => {
-      loading = null; // try again next time
-      return null;
+    .catch(() => null)
+    .then((entries) => {
+      if (entries === null) loading = null;
+      return entries;
     }));
 
 /** How many unfiled submissions one visit checks (a ticket each), newest first after your own. */

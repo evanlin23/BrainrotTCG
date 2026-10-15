@@ -81,8 +81,9 @@ describe('storage helpers', () => {
     it('serializes and writes valid data to localStorage', () => {
       const dataToSave = { foo: 'bar', numbers: [1, 2, 3] };
 
-      setStoredData(TEST_KEY, dataToSave);
+      expect(setStoredData(TEST_KEY, dataToSave)).toBe(true);
 
+      expect(mockLocalStorage.setItem).toHaveBeenCalledOnce();
       expect(mockLocalStorage.setItem).toHaveBeenCalledWith(TEST_KEY, JSON.stringify(dataToSave));
     });
 
@@ -93,11 +94,23 @@ describe('storage helpers', () => {
         throw storageError;
       });
 
-      expect(() => setStoredData(TEST_KEY, { foo: 'bar' })).not.toThrow();
+      let saved: boolean | undefined;
+      expect(() => { saved = setStoredData(TEST_KEY, { foo: 'bar' }); }).not.toThrow();
+      expect(saved).toBe(false);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         `Failed to save to localStorage key "${TEST_KEY}":`,
         storageError,
       );
+    });
+
+    it.each(['QuotaExceededError', 'SecurityError'])('contains a %s DOMException and reports the write as failed', (name) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockLocalStorage.setItem.mockImplementation(() => {
+        throw new DOMException('Denied', name);
+      });
+
+      expect(setStoredData(TEST_KEY, { packsOpened: 1 })).toBe(false);
+      expect(mockLocalStorage.setItem).toHaveBeenCalledOnce();
     });
 
     it('catches and logs error on JSON serialization failure without performing partial writes', () => {
@@ -106,7 +119,9 @@ describe('storage helpers', () => {
       const circularObj: Record<string, unknown> = {};
       circularObj.self = circularObj;
 
-      expect(() => setStoredData(TEST_KEY, circularObj)).not.toThrow();
+      let saved: boolean | undefined;
+      expect(() => { saved = setStoredData(TEST_KEY, circularObj); }).not.toThrow();
+      expect(saved).toBe(false);
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         `Failed to save to localStorage key "${TEST_KEY}":`,
