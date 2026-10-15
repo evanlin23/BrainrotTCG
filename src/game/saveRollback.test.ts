@@ -18,6 +18,8 @@ const fixture = () => ({
   collection: '{}', achievements: '{"new":2}', stats: '{"packsOpened":3,"holoCards":{}}',
   settings: '{"musicVolume":0.6}', player: identity('aa', 3),
 });
+const INCOMPLETE = "Import failed partway and couldn't be fully undone, so this browser may now hold parts of both saves."
+  + ' A copy of the save from before the import is kept in this browser.';
 const withoutBackup = () => new Map([...store].filter(([key]) => key !== BACKUP_KEY));
 const expectBackup = (original: Map<string, string>) => {
   expect(new Map(Object.entries(JSON.parse(store.get(BACKUP_KEY)!)))).toEqual(original);
@@ -87,6 +89,35 @@ describe('synchronous Settings import recovery', () => {
     expectBackup(original);
   });
 
+  it("restores the previous player's cleared data when adopting another player fails", () => {
+    store.set(STORAGE_KEYS.HISTORY, '[]');
+    store.set(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify({ raw: '{damaged', player: store.get(PLAYER_KEY) }));
+    const original = new Map(store);
+    setItem.mockImplementation((key, value) => {
+      if (key === PLAYER_KEY) throw new Error('Identity write denied');
+      store.set(key, value);
+    });
+    expect(importSaveFile(JSON.stringify(fixture()))).toBe('Import failed. Your previous save data was restored.');
+    expect(removeItem).toHaveBeenCalledWith(STORAGE_KEYS.HISTORY);
+    expect(withoutBackup()).toEqual(original);
+    expectBackup(original);
+  });
+
+  it('does not mention a copy when the browser had no save to back up', () => {
+    store.clear();
+    let failed = false;
+    setItem.mockImplementation((key, value) => {
+      if (key === STORAGE_KEYS.STATS && !failed) { failed = true; throw new Error('Import write denied'); }
+      store.set(key, value);
+    });
+    removeItem.mockImplementation((key) => {
+      if (key === STORAGE_KEYS.COLLECTION) throw new Error('Recovery removal denied');
+      store.delete(key);
+    });
+    expect(importSaveFile(JSON.stringify(fixture()))).toBe(INCOMPLETE.slice(0, INCOMPLETE.indexOf(' A copy')));
+    expect(store.has(BACKUP_KEY)).toBe(false);
+  });
+
   it('returns an initially empty browser to empty after a later field fails', () => {
     store.clear();
     let failed = false;
@@ -133,7 +164,7 @@ describe('synchronous Settings import recovery', () => {
       if (failed && key === STORAGE_KEYS.COLLECTION) throw new Error('Recovery write denied');
       store.set(key, value);
     });
-    expect(importSaveFile(JSON.stringify(fixture()))).toBe('Import failed and could not be fully undone. Any existing import backup was kept.');
+    expect(importSaveFile(JSON.stringify(fixture()))).toBe(INCOMPLETE);
     expect(store.has(STORAGE_KEYS.COLLECTION)).toBe(false);
     expect(store.get(STORAGE_KEYS.STATS)).toBe(original.get(STORAGE_KEYS.STATS));
     expect(store.get(PLAYER_KEY)).toBe(original.get(PLAYER_KEY));
@@ -152,7 +183,7 @@ describe('synchronous Settings import recovery', () => {
       if (key === STORAGE_KEYS.ACHIEVEMENTS) throw new Error('Recovery removal denied');
       store.delete(key);
     });
-    expect(importSaveFile(JSON.stringify(fixture()))).toBe('Import failed and could not be fully undone. Any existing import backup was kept.');
+    expect(importSaveFile(JSON.stringify(fixture()))).toBe(INCOMPLETE);
     expect(store.get(STORAGE_KEYS.ACHIEVEMENTS)).toBe(fixture().achievements);
     expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(original.get(STORAGE_KEYS.COLLECTION));
     expectBackup(original);
