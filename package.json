@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.scripts.json",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:browser": "playwright test",
     "cards": "tsx scripts/cards/build.ts",
     "cards:finish-thumbs": "tsx scripts/cards/build-finish-thumbs.ts",
     "check:sets": "tsx scripts/check-sets.ts",
@@ -28,27 +29,28 @@
     "lucide-react": "^0.575.0",
     "qrcode-generator": "^2.0.4",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.64.0",
     "@resvg/resvg-js": "^2.6.2",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^22.20.5",
     "@types/opentype.js": "^1.3.10",
     "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.1.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.4.24",
+    "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^16.5.0",
     "opentype.js": "^2.0.0",
     "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.71.1",
-    "vite": "^7.3.1",
+    "vite": "^7.3.5",
     "vitest": "^5.0.3"
   }
 }
