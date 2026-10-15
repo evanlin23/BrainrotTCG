@@ -91,23 +91,10 @@ npm run dev
 | `npm run check:sets -- --update` | lock a new set version |
 | `npm run og-image` | rebuild the link preview image from the newest sets |
 
-The browser smoke requires Node 22 and a Chromium installation:
+The browser smoke needs Chromium once (`npx playwright install --with-deps chromium`); what it
+covers is in [Development and verification](docs/DEVELOPMENT.md#browser-smoke).
 
-```bash
-npm ci
-npx playwright install --with-deps chromium
-npm run test:browser
-```
-
-The runner builds the current checkout, then owns a strict-port preview server at
-`http://127.0.0.1:4173/BrainrotTCG/`; stop any existing server on that port first.
-Set `BASE_PATH=/` on `npm run test:browser` for a root-path build and preview.
-HTTP requests outside the preview origin and all WebSockets are intercepted before
-navigation, with disposable test contexts and a fixed test identity. Audio is muted.
-Desktop and Pixel 5 emulation exercise keyboard opening and mouse clicks; mobile
-viewport emulation does not establish physical phone, touch/swipe or GPU behavior.
-Failure screenshots, traces and videos remain in `test-results/` (uploaded by CI).
-This gate covers one opening/record/reload journey, not all browser workflows.
+Contributing? Start with [Development and verification](docs/DEVELOPMENT.md) before taking an issue.
 
 ## Adding cards and sets
 
