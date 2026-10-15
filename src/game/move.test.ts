@@ -124,6 +124,28 @@ describe('bringing a save over', () => {
     }));
   });
 
+  it.each([
+    { name: 'replacing a save', progress: true },
+    { name: 'into a visited browser', progress: false },
+  ])('puts back what was here when the incoming save runs out of space: $name', ({ progress }) => {
+    store.set('brainrot-player-v1', progress ? player('bb') : JSON.stringify({ secretKey: 'cc', name: 'Visitor', nextNonce: 0, createdAt: 2 }));
+    store.set('brainrot-settings-v1', '{"musicVolume":0.2}');
+    if (progress) store.set('brainrot-stats-v1', '{"packsOpened":4}');
+    store.set('unrelated-key', 'leave alone');
+    const original = new Map(store);
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'brainrot-found-collection-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      store.set(key, value);
+    });
+
+    expect(importSave(OLD, () => true)).toBe('invalid');
+    const backup = store.get('brainrot-before-move-v1');
+    store.delete('brainrot-before-move-v1');
+    expect(store).toEqual(original);
+    if (progress) expect(JSON.parse(backup!)).toEqual(Object.fromEntries([...original].filter(([key]) => key.startsWith('brainrot-'))));
+    else expect(backup).toBeUndefined();
+  });
+
   it('persists the complete replaced save before any key is removed', () => {
     const original = {
       'brainrot-player-v1': player('bb'),
