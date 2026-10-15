@@ -29,8 +29,18 @@ const asVector = ({ cardId, rarity, isHolo, finish, misprint }: PulledCard) =>
 
 // Routing disables Chromium's HTTP cache, so card art is refetched on every mount, and a load that is
 // superseded (a finish frame or misprint ghost replacing it, or the page being left) aborts. That is
-// not a missing asset: status >= 400 is still reported and every image shown must decode.
-const loadFailures = (errors: string[]) => errors.filter((error) => !/^net::ERR_ABORTED \S+\/assets\/[\w-]+\.webp$/.test(error));
+// not a missing asset: status >= 400 is still reported and every image shown must decode. Chromium
+// fetches the favicon after load, so reloading or leaving soon after can abort that one request too;
+// only that exact abort is forgiven, and a missing favicon still reports its status.
+const loadFailures = (errors: string[], baseURL: string) => errors.filter((error) =>
+  !/^net::ERR_ABORTED \S+\/assets\/[\w-]+\.webp$/.test(error) && error !== `net::ERR_ABORTED ${new URL('logo.png', baseURL).href}`);
+
+// Opening a shared pull verifies its Argon2id ticket in a worker, which is slow on a cold mobile run.
+// Rejections use the same budget so the two paths are held to one standard.
+const VIEWER_TIMEOUT = 20000;
+
+/** Leaving or reloading the app cancels the fonts it is still fetching, so wait until they finish. */
+const fontsSettled = (page: Page) => page.evaluate(async () => { await document.fonts.ready; });
 
 const proofState = async (page: Page) => ({
   recorded: await snapshot(page),
@@ -71,13 +81,18 @@ for (const { vector, entry } of cases) {
       : entry === 'pack-preview'
         ? previewPath({ setId, cardIds: ['remember-november'], hand: 'PAIR' })
         : '';
+    // Every entry is a cold load, so the app reads the fragment when it mounts. Leaving the app first
+    // keeps a direct link from becoming a same-document hash change (which page.goto reports as null).
+    if (!path) {
+      await fontsSettled(page);
+      await page.goto('about:blank');
+    }
     const response = await page.goto(`./${path}#/pull/${vector.proof}`);
-    // Direct fragment navigation returns null; preview pages must be real HTTP responses.
-    if (path) expect(response?.status()).toBe(200);
+    expect(response?.status()).toBe(200);
     // Static preview pages forward the fragment intact to the real application.
     await expect(page).toHaveURL(`${baseURL}#/pull/${vector.proof}`);
     const pull = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
-    await expect(pull).toBeVisible({ timeout: 20000 });
+    await expect(pull).toBeVisible({ timeout: VIEWER_TIMEOUT });
     await expect(pull).toContainText('Verified on this device');
     await expect(pull.locator('.sheet-subtitle')).toContainText(`${set.name} · ${vector.name || 'Anonymous'}`);
     await expect(pull.locator('.share-fp')).toHaveText(`#${vector.fingerprint}`);
@@ -127,26 +142,30 @@ for (const { vector, entry } of cases) {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page).toHaveURL(baseURL!);
     await expect(page.getByRole('button', { name: /^Open a .* pack$/ })).toBeEnabled();
+    await fontsSettled(page);
     await page.reload();
     await expect(page.locator('.app-logo')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await proofState(page)).toEqual(before);
-    expect(loadFailures(errors)).toEqual([]);
+    expect(loadFailures(errors, baseURL!)).toEqual([]);
   });
 }
 
 const invalidVector = (note: string) => vectors.invalid.find((v) => v.note === note)!;
+const cutOff = { proof: 'cut-off', title: "This link doesn't work", reason: 'It looks cut off or changed' };
 const invalidCases = [
-  { proof: 'cut-off', title: "This link doesn't work", reason: 'It looks cut off or changed' },
-  { ...invalidVector('truncated'), title: 'Not a valid pull', reason: 'Proof is truncated' },
-  { ...invalidVector('signature byte flipped'), title: 'Not a valid pull', reason: 'Signature does not match' },
+  { ...cutOff, entry: 'hash change' },
+  // The same broken link opened cold is caught by the app's mount-time read of the fragment.
+  { ...cutOff, entry: 'cold load' },
+  { ...invalidVector('truncated'), title: 'Not a valid pull', reason: 'Proof is truncated', entry: 'hash change' },
+  { ...invalidVector('signature byte flipped'), title: 'Not a valid pull', reason: 'Signature does not match', entry: 'hash change' },
   // Tampered after signing: the claimed pack changes, so the original signature no longer covers it.
-  { ...invalidVector('nonce changed after signing'), title: 'Not a valid pull', reason: 'Signature does not match' },
-  { ...invalidVector('small-order public key with a forged signature'), title: 'Not a valid pull', reason: 'Not a valid player key' },
+  { ...invalidVector('nonce changed after signing'), title: 'Not a valid pull', reason: 'Signature does not match', entry: 'hash change' },
+  { ...invalidVector('small-order public key with a forged signature'), title: 'Not a valid pull', reason: 'Not a valid player key', entry: 'hash change' },
 ];
 
 for (const invalid of invalidCases) {
-  test(`rejects shared pull: ${'note' in invalid ? invalid.note : invalid.proof}`, async ({ page, baseURL }) => {
+  test(`rejects shared pull: ${'note' in invalid ? invalid.note : invalid.proof} (${invalid.entry})`, async ({ page, baseURL }) => {
     if ('rule' in invalid) {
       // The engine rejects it for the vector's rule; the app must show that, not render a pull.
       await expect(verifyProof(invalid.proof, lookup)).rejects.toMatchObject({ rule: invalid.rule });
@@ -155,10 +174,16 @@ for (const invalid of invalidCases) {
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
     const before = await proofState(page);
-    // Hash navigation also tests replacing a route in an already mounted app.
-    await page.evaluate((proof) => { window.location.hash = `#/pull/${proof}`; }, invalid.proof);
+    if (invalid.entry === 'cold load') {
+      await fontsSettled(page);
+      await page.goto('about:blank');
+      expect((await page.goto(`./#/pull/${invalid.proof}`))?.status()).toBe(200);
+    } else {
+      // Hash navigation also tests replacing a route in an already mounted app.
+      await page.evaluate((proof) => { window.location.hash = `#/pull/${proof}`; }, invalid.proof);
+    }
     const dialog = page.getByRole('dialog', { name: invalid.title, exact: true });
-    await expect(dialog).toBeVisible();
+    await expect(dialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
     await expect(dialog).toContainText(invalid.reason);
     await expect(page.locator('.pull-viewer-cert, .pack-viewer-cards')).toHaveCount(0);
     expect(await proofState(page)).toEqual(before);
@@ -166,10 +191,11 @@ for (const invalid of invalidCases) {
     await expect(page).toHaveURL(baseURL!);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Open a .* pack$/ })).toBeEnabled();
+    await fontsSettled(page);
     await page.reload();
     await expect(page.locator('.app-logo')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await proofState(page)).toEqual(before);
-    expect(loadFailures(errors)).toEqual([]);
+    expect(loadFailures(errors, baseURL!)).toEqual([]);
   });
 }
