@@ -2,8 +2,8 @@
 import { STORAGE_KEYS } from '../constants';
 import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine';
 import { getCard } from '../data/cards';
-import { CURRENT_DATA_VERSION, migrateCardKey, setDataVersion } from '../utils/migrations';
-import { backUpSave, hasProgress } from './move';
+import { CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
+import { backUpSave } from './move';
 import { importPlayer, parsePlayer } from './player';
 
 type RecordValue = Record<string, unknown>;
@@ -59,6 +59,22 @@ const SAVE_FIELDS = [
   ['settings', STORAGE_KEYS.SETTINGS, settings],
 ] as const;
 
+/** Remove imported values before restoring originals, so rollback does not need both copies' space. */
+const restoreFields = (changed: string[], previous: Map<string, string | null>): boolean => {
+  for (const key of changed) {
+    try { localStorage.removeItem(key); } catch { /* Still try restoring the old value. */ }
+  }
+  for (const key of changed) {
+    const value = previous.get(key);
+    if (value !== null && value !== undefined) {
+      try { localStorage.setItem(key, value); } catch { /* Verify the final state below. */ }
+    }
+  }
+  return changed.every((key) => {
+    try { return localStorage.getItem(key) === previous.get(key); } catch { return false; }
+  });
+};
+
 /**
  * Omitted/null fields preserve existing storage, as older exports omitted fields introduced later.
  * This validates structure, not the authenticity of cached cards/scores, and is not an atomic commit.
@@ -86,12 +102,26 @@ export const importSaveFile = (raw: string): string | null => {
     if (save.player !== undefined && save.player !== null && (typeof save.player !== 'string' || !parsePlayer(save.player))) {
       return 'The player identity in this save is invalid. Nothing was imported.';
     }
-    if (hasProgress()) backUpSave('brainrot-before-import-v1');
-    for (const [key, value] of staged) localStorage.setItem(key, value);
-    if (typeof save.player === 'string' && !importPlayer(save.player)) {
-      return "Couldn't import the player identity.";
+    // Capture originals before even the backup write. Null/omitted fields remain untouched.
+    staged.push([DATA_VERSION_KEY, String(dataVersion)]);
+    const previous = new Map(staged.map(([key]) => [key, localStorage.getItem(key)]));
+    if (!backUpSave('brainrot-before-import-v1')) {
+      return "Couldn't keep a backup of your current save. Nothing was imported.";
     }
-    setDataVersion(dataVersion);
+    const changed: string[] = [];
+    try {
+      for (const [key, value] of staged) {
+        if (previous.get(key) === value) continue;
+        localStorage.setItem(key, value);
+        changed.push(key);
+      }
+      // Identity is last: no later write can fail after importPlayer adopts the new memory identity.
+      if (typeof save.player === 'string' && !importPlayer(save.player)) throw new Error('Identity import failed');
+    } catch {
+      return restoreFields(changed, previous)
+        ? 'Import failed. Your previous save data was restored.'
+        : 'Import failed and could not be fully undone. Any existing import backup was kept.';
+    }
     return null;
   } catch {
     return "Couldn't read or store that file. Is it a save exported from Settings?";

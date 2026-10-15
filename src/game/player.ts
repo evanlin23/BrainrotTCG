@@ -44,8 +44,10 @@ const read = (): StoredPlayer | null => {
 const write = (stored: StoredPlayer) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    return true;
   } catch (error) {
     console.error('Could not save player identity', error);
+    return false;
   }
 };
 
@@ -127,12 +129,16 @@ export const importPlayer = (raw: string): boolean => {
   const incoming = parsePlayer(raw);
   if (!incoming) return false;
   try {
-    update((existing) => ({
+    // Import must not create a guest or replace the memory fallback until the key is durable.
+    const existing = read() ?? memory;
+    const next = {
       ...incoming,
       name: normalizeName(incoming.name) || randomName(),
       // Never move the ticket counter backwards for the same key (that would replay old packs).
-      nextNonce: existing.secretKey === incoming.secretKey ? Math.max(existing.nextNonce, incoming.nextNonce) : incoming.nextNonce,
-    }));
+      nextNonce: existing?.secretKey === incoming.secretKey ? Math.max(existing.nextNonce, incoming.nextNonce) : incoming.nextNonce,
+    };
+    if (!write(next)) return false;
+    memory = next;
     return true;
   } catch {
     return false;
