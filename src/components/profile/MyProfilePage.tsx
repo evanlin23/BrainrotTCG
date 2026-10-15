@@ -7,6 +7,7 @@ import Sheet from '../ui/Sheet';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
 import ProfileSummary from './ProfileSummary';
+import PackCacheNote from './PackCacheNote';
 import SharePreviewSheet from '../share/SharePreviewSheet';
 import { modifierClasses } from '../../game/modifiers';
 import { renderPlayerCard } from '../../game/playerCard';
@@ -17,6 +18,7 @@ import { STORAGE_KEYS } from '../../constants';
 import { getPlayer } from '../../game/player';
 import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
 import { copyText } from '../../game/shareActions';
+import { usePackCacheVersion } from '../../hooks/usePackCache';
 import '../../styles/Pulls.css';
 
 interface LegacyBest {
@@ -49,7 +51,10 @@ const timeAgo = (t: number) => {
 /** Your level and stats, a link that proves them, and every pack you've opened (newest first). */
 const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePageProps) => {
   const player = getPlayer();
-  const history = useMemo(() => getHistory(), []);
+  // Saved packs are read in pages (game/profiles.ts): recount, and show their cards, as they arrive.
+  const packCache = usePackCacheVersion();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const history = useMemo(() => getHistory(), [packCache]);
   // Re-opening runs in the background (game/profiles.ts); recount when a run ends.
   const [reopen, setReopen] = useState(reopenStatus);
   const [reopenRuns, setReopenRuns] = useState(0);
@@ -70,10 +75,11 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
     return () => window.removeEventListener('storage', onStorage);
   }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const summary = useMemo(() => myStats(), [reopenRuns]);
+  const summary = useMemo(() => myStats(), [reopenRuns, packCache]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const mine = useMemo(() => myProfileInfo(), [reopenRuns]);
-  const unopened = mine ? mine.missing - mine.filled : 0;
+  const mine = useMemo(() => myProfileInfo(), [reopenRuns, packCache]);
+  // Until saved packs are read, a pack not in memory yet isn't one this device lacks.
+  const unopened = mine?.cache === 'ready' ? mine.missing - mine.filled : 0;
   const [shown, setShown] = useState(PAGE);
   const [view, setView] = useState<PackView>('newest');
   const tabsId = useId();
@@ -152,7 +158,16 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
         className="pulls-page"
       >
         {navigation}
-        {mine ? (
+        {mine && !summary ? (
+          <PackCacheNote
+            what="your level and stats"
+            onFailed={
+              <button type="button" className="btn btn--secondary btn--sm" onClick={() => void reopenMyPacks().catch(() => undefined)}>
+                Re-open them
+              </button>
+            }
+          />
+        ) : mine && summary ? (
           <ProfileSummary
             stats={summary}
             onOpenPack={(pack) => openEntry(
@@ -301,7 +316,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
           </section>
         )}
       </Sheet>
-      {cardUrl && (
+      {cardUrl && summary && (
         <SharePreviewSheet
           title="Your player card"
           subtitle="Level, title, sets and best pull, with a QR code that re-checks every pack."

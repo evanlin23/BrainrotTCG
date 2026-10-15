@@ -4,13 +4,15 @@ import { getPlayer, renamePlayer } from '../../game/player';
 import type { Settings } from '../../types';
 import Sheet from '../ui/Sheet';
 import RewardsPanel from './RewardsPanel';
+import PackCacheNote from './PackCacheNote';
 import { packImageUrl } from '../../content/art';
 import { DEFAULT_SET_ID } from '../../content/sets';
 import '../../styles/Settings.css';
 import '../../styles/Pulls.css';
 
 interface PlayerPageProps {
-  level: number;
+  /** Null while saved packs are still being read (or couldn't be). */
+  level: number | null;
   settings: Settings;
   onSettingsChange: (settings: Settings) => void;
   onClose: () => void;
@@ -67,6 +69,10 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
       <button type="button" className="btn btn--secondary" onClick={onOpenGoals}>Goals & rewards</button>
       <button type="button" className="btn btn--secondary" onClick={onOpenSave}>Save & restore</button>
     </div>
-    <RewardsPanel level={level} settings={settings} onSettingsChange={onSettingsChange} packImage={packImageUrl(DEFAULT_SET_ID)} />
+    {level === null ? (
+      <PackCacheNote what="your level and rewards" />
+    ) : (
+      <RewardsPanel level={level} settings={settings} onSettingsChange={onSettingsChange} packImage={packImageUrl(DEFAULT_SET_ID)} />
+    )}
   </Sheet>;
 }

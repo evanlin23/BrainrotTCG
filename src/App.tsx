@@ -20,7 +20,8 @@ import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRecovery, persistCollection } from './game/collectionRecovery';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
-import { myStats, onReopenProgress } from './game/profiles';
+import { myPackCacheState, myStats, onPackCacheChange, onReopenProgress, watchMyPacks } from './game/profiles';
+import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory } from './game/history';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
@@ -192,16 +193,22 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Saved packs (IndexedDB) are read a page at a time while the app runs, aborted on unmount.
+  useEffect(() => watchMyPacks(), []);
+  const packCache = usePackCacheVersion();
   // Level rewards in use (game/progression.ts), checked against the level this save has reached.
-  // Re-read after every pack (myStats reads the pack history, which each pack adds to).
+  // Re-read after every pack (myStats reads the pack history, which each pack adds to), and when
+  // saved packs are read. Null until they are: rewards in use stay as chosen meanwhile.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const level = useMemo(() => myStats().level, [stats.packsOpened]);
+  const level = useMemo(() => myStats()?.level ?? null, [stats.packsOpened, packCache]);
+  const rewardLevel = level ?? Infinity;
   // A level-up says so, with what it unlocked (otherwise it only shows if you open the profile).
+  // Reading saved packs isn't a level-up: no toast until a known level rises.
   const shownLevel = useRef(level);
   useEffect(() => {
     const from = shownLevel.current;
     shownLevel.current = level;
-    if (level <= from) return;
+    if (level === null || from === null || level <= from) return;
     const unlocked = [
       ...TITLES.filter((r) => r.level > from && r.level <= level).map((r) => `the title ${r.name}`),
       ...CARD_BACKS.filter((r) => r.level > from && r.level <= level).map((r) => `the ${r.name} card back`),
@@ -221,9 +228,9 @@ function App() {
   }, [level]);
 
   useEffect(() => {
-    document.documentElement.dataset.cardBack = usable(CARD_BACKS, settings.cardBack, level);
-    document.documentElement.dataset.packFoil = usable(PACK_FOILS, settings.packFoil, level);
-  }, [settings.cardBack, settings.packFoil, level]);
+    document.documentElement.dataset.cardBack = usable(CARD_BACKS, settings.cardBack, rewardLevel);
+    document.documentElement.dataset.packFoil = usable(PACK_FOILS, settings.packFoil, rewardLevel);
+  }, [settings.cardBack, settings.packFoil, rewardLevel]);
 
   // Follow the music slider (0 is off)
   useEffect(() => {
@@ -287,8 +294,13 @@ function App() {
     const stop = onReopenProgress((status) => {
       if (!status.running) unlockFromHistory();
     });
+    // So do saved packs once they're read in.
+    const stopCache = onPackCacheChange(() => {
+      if (myPackCacheState() === 'ready') unlockFromHistory();
+    });
     return () => {
       stop();
+      stopCache();
     };
   }, [unlockFromHistory]);
 
@@ -536,7 +548,7 @@ function App() {
           set={selectedSet}
           disabled={isAnyModalOpen}
           settings={settings}
-          cardBack={usable(CARD_BACKS, settings.cardBack, level)}
+          cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
         />
       </main>

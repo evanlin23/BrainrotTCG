@@ -138,10 +138,8 @@ export async function mountedApp(storage: Record<string, string>,
     });
     const { runMigrations } = await import('../utils/migrations');
     const { migratePullLog } = await import('../game/history');
-    const { loadPackStore } = await import('../game/packStore');
     runMigrations();
     migratePullLog();
-    await loadPackStore(); // Actual production memory-only fallback, no fake IndexedDB.
     const { default: App } = await loadRoot();
     container = document.createElement('div');
     document.body.append(container);

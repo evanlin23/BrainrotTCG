@@ -9,6 +9,8 @@ import { modifierLabel, modifierThumb } from '../../game/modifiers';
 import { CARD_RARITIES, getSetCards, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import { myProgress } from '../../game/profiles';
+import { usePackCacheVersion } from '../../hooks/usePackCache';
+import PackCacheNote from '../profile/PackCacheNote';
 
 const Motion = motion;
 
@@ -33,9 +35,12 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
   };
   const newCount = openedCards.filter((c) => c.isNew).length;
   // What this pack did for your level: shown here so progress isn't hidden away in the profile.
-  const progress = useMemo(() => myProgress(), []);
-  const into = progress.xp - progress.levelXp;
-  const span = progress.nextXp - progress.levelXp;
+  // Null until saved packs are read: a loading note then, never zero XP.
+  const packCache = usePackCacheVersion();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const progress = useMemo(() => myProgress(), [packCache]);
+  const into = progress ? progress.xp - progress.levelXp : 0;
+  const span = progress ? progress.nextXp - progress.levelXp : 1;
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
@@ -54,14 +59,18 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
         <div className="summary-details">
           <h2 className="summary-title">{hand.name}</h2>
           <BrainrotScorePanel points={points} multiplier={hand.multiplier} handName={hand.name} score={score} setId={set.id} />
-          <div className="summary-xp">
-            <span className="summary-xp-text tabular">
-              <strong>+{progress.gained.toLocaleString()} XP</strong> · Level {progress.level} · {into.toLocaleString()}/{span.toLocaleString()} to Level {progress.level + 1}
-            </span>
-            <span className="progress" aria-hidden="true">
-              <span style={{ width: `${Math.min(100, (into / span) * 100)}%` }} />
-            </span>
-          </div>
+          {progress ? (
+            <div className="summary-xp">
+              <span className="summary-xp-text tabular">
+                <strong>+{progress.gained.toLocaleString()} XP</strong> · Level {progress.level} · {into.toLocaleString()}/{span.toLocaleString()} to Level {progress.level + 1}
+              </span>
+              <span className="progress" aria-hidden="true">
+                <span style={{ width: `${Math.min(100, (into / span) * 100)}%` }} />
+              </span>
+            </div>
+          ) : (
+            <PackCacheNote what="your level progress" className="summary-xp summary-xp-text" />
+          )}
 
           <ul className="summary-cards">
             {openedCards.map((card) => (

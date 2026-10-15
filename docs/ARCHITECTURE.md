@@ -240,7 +240,7 @@ transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
 A render error after React mounts shows `AppErrorBoundary`, which writes nothing and records only the
 opt-in `render-error` diagnostic. Startup steps before React mounts (`receiveSave`, `runMigrations`,
-`migratePullLog`, `loadPackStore` in `main.tsx`) are outside it and need their own handling.
+`migratePullLog` in `main.tsx`) are outside it and need their own handling.
 
 ## Hosting
 
@@ -280,9 +280,13 @@ default, so reconstruction does not recover original mixed-set provenance that w
 If cards are missing, signing waits for reconstruction rather than completing instantly.
 
 Own-pack reconstruction runs independently of the profile screen, batches up to 25 results into
-`packStore.ts`, and uses a localStorage pending flag to attempt resumption after a reload. Startup
-loads its IndexedDB card-code cache into memory before rendering (`src/main.tsx`). IndexedDB errors
-can leave only memory results; writes resolve without a durable-success signal, and the pending flag
+`packStore.ts`, and uses a localStorage pending flag to attempt resumption after a reload. The
+IndexedDB card-code cache is no longer loaded before rendering: after mount, `watchMyPacks`
+(`profiles.ts`, via `usePackCache`) reads the current player's packs in pages of 64, one page in
+flight, and aborts on unmount or when another tab changes the save; a read whose player changed is
+dropped. Until a read succeeds, level, stats and rewards show a loading or failed note, never zero; a
+later failed read keeps what was shown, and a resumed re-open waits for a successful read. IndexedDB
+errors can leave only memory results; writes resolve without a durable-success signal, and the pending flag
 is cleared before the final save completes. Resumption and cache retention are best effort (#87).
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
 
