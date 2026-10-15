@@ -2,8 +2,20 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { diagnosticSnapshot, setBrowserDiagnosticCapture } from '../../game/diagnostics';
+import { setBrowserDiagnosticCapture } from '../../game/diagnostics';
 import AppErrorBoundary from './AppErrorBoundary';
+
+const diagnosticsFault = vi.hoisted(() => ({ throws: false }));
+vi.mock('../../game/diagnostics', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../game/diagnostics')>();
+  return {
+    ...actual,
+    recordDiagnostic: (...args: Parameters<typeof actual.recordDiagnostic>) => {
+      if (diagnosticsFault.throws) throw new Error('diagnostics broke');
+      actual.recordDiagnostic(...args);
+    },
+  };
+});
 
 const SECRET = 'PRIVATE_CRASH_DETAIL secretKey=0101 name=Somebody';
 
@@ -32,6 +44,7 @@ describe('app error boundary', () => {
     act(() => root.unmount());
     container.remove();
     setBrowserDiagnosticCapture(false);
+    diagnosticsFault.throws = false;
     consoleError.mockRestore();
     Reflect.deleteProperty(navigator, 'clipboard');
     vi.unstubAllGlobals();
@@ -79,16 +92,34 @@ describe('app error boundary', () => {
     expect(link.rel).toBe('noopener noreferrer');
   });
 
-  it('records the render-error category only when capture is opted in', () => {
+  it('shows and copies the render-error category only when capture is opted in', async () => {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const reportText = () => container.querySelector<HTMLTextAreaElement>('#app-crash-report-text')!.value;
+
     crash();
-    expect(diagnosticSnapshot({}).events).toEqual([]);
+    expect(JSON.parse(reportText()).events).toEqual([]);
     act(() => root.unmount());
 
     setBrowserDiagnosticCapture(true);
     root = createRoot(container);
     crash();
-    expect(diagnosticSnapshot({}).events).toEqual([{ step: 1, event: 'render-error' }]);
-    expect(container.querySelector<HTMLTextAreaElement>('#app-crash-report-text')!.value).not.toContain(SECRET);
+    expect(JSON.parse(reportText()).events).toEqual([{ step: 1, event: 'render-error' }]);
+    expect(reportText()).not.toContain(SECRET);
+    await act(async () => button('Copy report').click());
+    expect(JSON.parse(writeText.mock.calls[0][0]).events).toEqual([{ step: 1, event: 'render-error' }]);
+  });
+
+  it('still shows the fallback when diagnostics throw', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => { throw new Error('blocked'); } }, configurable: true });
+    setBrowserDiagnosticCapture(true);
+    diagnosticsFault.throws = true;
+    crash();
+    expect(container.querySelector('h1')!.textContent).toBe('Something went wrong');
+    expect(JSON.parse(container.querySelector<HTMLTextAreaElement>('#app-crash-report-text')!.value).events).toEqual([]);
+
+    await act(async () => button('Copy report').click());
+    expect(container.querySelector('[role="status"]')!.textContent).toMatch(/^Copy was blocked\./);
   });
 
   it('never touches storage while showing the fallback', () => {

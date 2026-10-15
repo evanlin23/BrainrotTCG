@@ -14,13 +14,21 @@ function sanitizedReport() {
   }
 }
 
+/** Diagnostics are best-effort: a fault there must never take the fallback down too. */
+function noteDiagnostic(event: Parameters<typeof recordDiagnostic>[0]) {
+  try {
+    recordDiagnostic(event);
+  } catch {
+    // Ignore: the report just lacks this category.
+  }
+}
+
 /**
  * Deliberately self-contained (no Sheet, motion or game state) so a fault in shared UI can't take
  * the fallback down with it. It never reads, writes, clears, imports or exports player data.
  */
-function CrashFallback({ reload }: { reload: () => void }) {
+function CrashFallback({ report, reload }: { report: string; reload: () => void }) {
   const heading = useRef<HTMLHeadingElement>(null);
-  const [report] = useState(sanitizedReport);
   const [note, setNote] = useState('');
   useEffect(() => heading.current?.focus(), []);
   const copy = async () => {
@@ -28,7 +36,7 @@ function CrashFallback({ reload }: { reload: () => void }) {
       await navigator.clipboard.writeText(report);
       setNote('Copied the report. Nothing was uploaded.');
     } catch {
-      recordDiagnostic('copy-failed');
+      noteDiagnostic('copy-failed');
       setNote('Copy was blocked. Select the report text and copy it manually. Nothing was uploaded.');
     }
   };
@@ -64,18 +72,20 @@ interface Props {
  * 'render-error' category is noted, and only if the player opted in to diagnostics.
  * Failures while the app boots, before React mounts (see main.tsx), are outside this boundary.
  */
-export default class AppErrorBoundary extends Component<Props, { crashed: boolean }> {
-  state = { crashed: false };
+export default class AppErrorBoundary extends Component<Props, { crashed: boolean; report: string }> {
+  state = { crashed: false, report: '' };
 
   static getDerivedStateFromError() {
     return { crashed: true };
   }
 
   componentDidCatch() {
-    recordDiagnostic('render-error');
+    noteDiagnostic('render-error');
+    // Build the report only after noting the category, so the textarea and Copy both include it.
+    this.setState({ report: sanitizedReport() });
   }
 
   render() {
-    return this.state.crashed ? <CrashFallback reload={this.props.reload ?? reloadPage} /> : this.props.children;
+    return this.state.crashed ? <CrashFallback report={this.state.report} reload={this.props.reload ?? reloadPage} /> : this.props.children;
   }
 }
