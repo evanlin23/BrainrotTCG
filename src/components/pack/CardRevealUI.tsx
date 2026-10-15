@@ -20,6 +20,8 @@ interface CardRevealUIProps {
   onInteraction: () => void;
   /** Skip to the summary, pausing for valuable cards when the setting is enabled. */
   onSkip: () => void;
+  /** Leave the presentation while retaining the already-spent pack. */
+  onLeave?: () => void;
   /** A valuable card gets a moment to land before any input can move on. */
   revealLocked?: boolean;
   /** Visual celebration runs independently of the optional input lock. */
@@ -35,7 +37,7 @@ const SWIPE_SPEED = 500;
  * One card at a time off the top of the stack, rarest last. Big pulls light the back's edge before
  * the flip and get a spotlight after it; a flipped card can be swiped away or tapped.
  */
-const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMovedMouse, onInteraction, onSkip, revealLocked = false, celebrating = false, skipping = false }: CardRevealUIProps) => {
+const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMovedMouse, onInteraction, onSkip, onLeave, revealLocked = false, celebrating = false, skipping = false }: CardRevealUIProps) => {
   const touch = useCoarsePointer();
   const reducedMotion = useReducedMotion();
   const revealed = currentCard?.isRevealed;
@@ -66,13 +68,14 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   return (
     <>
       <div className="reveal-top">
+        {onLeave && <button type="button" className="reveal-leave" onClick={onLeave}>Back to packs</button>}
         <div className="reveal-progress" role="progressbar" aria-label="Cards revealed" aria-valuemin={1} aria-valuemax={totalCards} aria-valuenow={currentIndex + 1} aria-valuetext={`Card ${currentIndex + 1} of ${totalCards}`}>
           {Array.from({ length: totalCards }, (_, i) => (
             <span key={i} className={i < currentIndex ? 'done' : i === currentIndex ? 'current' : ''} aria-hidden="true" />
           ))}
         </div>
-        <button type="button" className="reveal-skip" onClick={onSkip} disabled={revealLocked || skipping}>
-          Skip <FastForward aria-hidden="true" />
+        <button type="button" className="reveal-skip" title="Show the full pack summary; good-pull pauses still follow your settings." onClick={onSkip} disabled={revealLocked || skipping}>
+          Skip opening animation <FastForward aria-hidden="true" />
         </button>
       </div>
 

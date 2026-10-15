@@ -54,16 +54,14 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
   const [skipping, setSkipping] = useState(false);
   const packDesign = packImageUrl(set.id);
   const [hasMovedMouse, setHasMovedMouse] = useState(false);
-  const [autoMode, setAutoMode] = useState(false);
   const effectsVolume = effectsLevel(settings.effectsVolume);
   const pauseBigPulls = settings.pauseBigPulls !== false;
 
   const { playAndCleanup, preloadAudio, cleanupAudio, playRandom } = useAudio();
 
-  const autoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleInteractionRef = useRef<() => void>(() => {});
-  // Set synchronously before React renders: rapid taps and intervals share the same guard.
+  // Set synchronously before React renders: rapid taps and held keys share the same guard.
   const revealLockedUntilRef = useRef(0);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skippingRef = useRef(false);
@@ -213,6 +211,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     setSkipping(true);
   }, [disabled, pauseBigPulls, openedCards, recordPack]);
 
+  const leaveReveal = useCallback(() => {
+    recordPack();
+    finishPack();
+  }, [recordPack, finishPack]);
+
   const closeSummary = useCallback(() => {
     finishPack();
   }, [finishPack]);
@@ -292,7 +295,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     }
   }, [isOpening, showSummary, disabled, openedCards, currentIndex, handleFlip, nextCard, pauseBigPulls]);
 
-  // Keep ref updated for use in intervals (avoids stale closure)
+  // Held Space reads the current interaction without a stale closure.
   useEffect(() => {
     handleInteractionRef.current = handleInteraction;
   }, [handleInteraction]);
@@ -303,7 +306,6 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     showSummary,
     disabled,
     onCloseSummary: closeSummary,
-    onToggleAutoMode: () => setAutoMode(prev => !prev),
     onOpenPack: () => !isPackCut && completeCut(),
     handleInteractionRef,
   });
@@ -325,38 +327,6 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [isOpening, hasMovedMouse]);
-
-  // Auto mode effect
-  useEffect(() => {
-    if (autoMode && !disabled) {
-      autoIntervalRef.current = setInterval(() => {
-        if (showSummary) {
-          closeSummary();
-        } else if (!isOpening && !isPackCut) {
-          completeCut();
-        } else if (isOpening) {
-          handleInteraction();
-        }
-      }, 100);
-    } else {
-      if (autoIntervalRef.current) {
-        clearInterval(autoIntervalRef.current);
-        autoIntervalRef.current = null;
-      }
-    }
-
-    return () => {
-      if (autoIntervalRef.current) {
-        clearInterval(autoIntervalRef.current);
-        autoIntervalRef.current = null;
-      }
-    };
-  }, [autoMode, disabled, showSummary, isOpening, isPackCut, closeSummary, completeCut, handleInteraction]);
-
-  // Stop auto mode when disabled (adjusting state during render avoids an extra effect pass)
-  if (disabled && autoMode) {
-    setAutoMode(false);
-  }
 
   // Pointer event listeners for cutting
   useEffect(() => {
@@ -432,6 +402,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2 }}
             className="card-reveal-area"
+            onClick={(event) => {
+              if (!showSummary && (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('active-card-container'))) leaveReveal();
+            }}
           >
             {!showSummary ? (
               <CardRevealUI
@@ -442,6 +415,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
                 hasMovedMouse={hasMovedMouse}
                 onInteraction={handleInteraction}
                 onSkip={skipAll}
+                onLeave={leaveReveal}
                 revealLocked={revealLocked && pauseBigPulls}
                 celebrating={celebratingCardId === currentCard?.uniqueId}
                 skipping={skipping}
