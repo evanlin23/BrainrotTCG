@@ -3,6 +3,12 @@ import type { Root } from 'react-dom/client';
 import { expect, vi } from 'vitest';
 import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
 
+// framer-motion is a dependency, so vi.resetModules doesn't re-evaluate it, and its frame loop keeps
+// the requestAnimationFrame it first saw. Hand it one that schedules on whichever fake clock is
+// current, so a second mount in the same file still animates.
+let fakeFrame: typeof requestAnimationFrame;
+const onFakeFrame = (callback: FrameRequestCallback) => fakeFrame(callback);
+
 /** jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. */
 export async function mountedApp(storage: Record<string, string>) {
   const errors: string[] = [];
@@ -19,6 +25,8 @@ export async function mountedApp(storage: Record<string, string>) {
   for (const [key, value] of Object.entries(storage)) localStorage.setItem(key, value);
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+  fakeFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = onFakeFrame; // vi.useRealTimers() puts the real one back.
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const blocked = (api: string) => () => {
     const error = `Unexpected external I/O: ${api}`;
@@ -77,6 +85,9 @@ export async function mountedApp(storage: Record<string, string>) {
     root = undefined;
     for (const worker of workers) worker.terminate();
     await Promise.all([...jobs]);
+    // Let framer-motion's scheduled frame run first: if it is cleared, its loop stays flagged as
+    // scheduled and never wakes for a later mount in the same file.
+    vi.advanceTimersToNextFrame();
     vi.clearAllTimers();
     document.body.replaceChildren();
     document.body.className = '';
@@ -118,6 +129,13 @@ export async function mountedApp(storage: Record<string, string>) {
       await mount();
     },
     async interact(action: () => void) { await act(async () => action()); },
+    /** Removes and returns the console errors a test expects; dispose still fails on any others. */
+    takeErrors(pattern: RegExp) {
+      const taken = errors.filter((error) => pattern.test(error));
+      const rest = errors.filter((error) => !pattern.test(error));
+      errors.splice(0, errors.length, ...rest);
+      return taken;
+    },
     async until(description: string, assertion: () => void) {
       let last: unknown;
       // Advance simulated animation time inside act, polling only the named observable outcome.
