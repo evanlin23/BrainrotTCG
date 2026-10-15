@@ -39,8 +39,11 @@ What keeps working:
   in a URL (URLs end up in browser history and history sync). Players who arrive through a new link
   can do the same from **Settings → From the old address**. If a player already has a different save
   at the new address, they're asked first and the replaced save is kept as a backup; if the backup
-  can't be stored, nothing is replaced. The old address keeps its copy and, once the save has been
-  handed over, marks it moved (`brainrot-moved-v1`), so later old links go straight through.
+  can't be stored, nothing is replaced. The old address keeps its copy and marks it moved
+  (`brainrot-moved-v1`) once the new address reports that it stored the save or already had that
+  player's save, or as soon as it sends the save to Settings; after that, old links go straight to
+  the new address without offering the move. **Go without it** marks nothing, so the next old link
+  offers it again.
 - **The Hall of Fame.** The old address keeps serving `hall-of-fame.json` for the scripts, and the
   issue links it files redirect like any other link.
 

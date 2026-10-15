@@ -1,10 +1,13 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const GITHUB_PAGES_URL = 'https://evanlin23.github.io/BrainrotTCG/'
 const buildRevision = () => {
-  try { return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() }
+  // This checkout's revision, wherever the build is started from.
+  const cwd = fileURLToPath(new URL('.', import.meta.url))
+  try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() }
   catch { return 'unknown' }
 }
 
