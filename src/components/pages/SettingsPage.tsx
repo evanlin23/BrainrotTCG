@@ -74,7 +74,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
         setOldSaveNote(
             result === 'same' ? 'Your save from the old address is already here.'
             : result === 'kept' ? 'Kept the save you have here.'
-            : "That didn't look like a save, so nothing changed.",
+            : "Couldn't bring that save over, so nothing changed.",
         );
     };
     const handleBringOldSave = async () => {
