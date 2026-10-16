@@ -266,6 +266,20 @@ describe('leaving the page with an unsaved draft', () => {
     expect(storedName()).toBe('Original Player');
   });
 
+  it('does not write or report a draft the stored player refused as stale on the way out', () => {
+    type('Unsaved Name');
+    // Another tab stores a different player, so the rename itself (not canSave) finds the save stale.
+    otherTabStores(theirs);
+    act(() => input().blur());
+    expect(canSave).toHaveBeenCalled();
+    expect(status()).toBe(SAVE_STALE);
+    expect(playerWrites()).toEqual([]);
+    leave();
+    expect(playerWrites()).toEqual([]);
+    expect(onSaveFailed).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toEqual(theirs);
+  });
+
   it('tries again once the failed draft is edited', () => {
     failWrites();
     type('Unsaved Name');
