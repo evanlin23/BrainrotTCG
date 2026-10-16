@@ -9,7 +9,6 @@ import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/re
 import type { Settings } from '../../types';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import KeptAsideActions from '../ui/KeptAsideActions';
-import { COLLECTION_RECOVERY_NOTES, type CollectionRecoveryState } from '../../game/collectionRecovery';
 import '../../styles/Settings.css';
 import { exportSaveFile } from '../../game/saveFile';
 
@@ -21,14 +20,16 @@ interface SettingsPageProps {
     saveWarning?: string;
     /** Shown beside the warning when only a reload fixes it (the save changed in another tab). */
     onReload?: () => void;
-    /** Unreadable collection data kept aside: shown first in Save & backup, with Download and Discard. */
-    recovery?: Exclude<CollectionRecoveryState, 'none'>;
+    /** Unreadable collection data kept aside (its note): shown first in Save & backup, with Download and Discard. */
+    recoveryNote?: string;
+    /** Whether this tab may still download or discard it (false once the save changed in another tab). */
+    recoveryAllowed?: () => boolean;
     /** The kept-aside data is gone (discarded here); the app refreshes what it shows. */
     onRecoveryGone?: () => void;
 }
 
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help. */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recovery, onRecoveryGone }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryGone }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -190,13 +191,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             <section id="save-backup" className="settings-group" aria-labelledby="settings-save">
                 <h2 id="settings-save" ref={saveHeadingRef} className="section-title" tabIndex={-1}>Save &amp; backup</h2>
                 <div className="settings-panel">
-                    {recovery && (
+                    {recoveryNote && recoveryAllowed && (
                         <div className="settings-row settings-row--wrap">
                             <span className="settings-text">
                                 <span className="settings-label">Kept-aside data</span>
-                                <span className="settings-desc">{COLLECTION_RECOVERY_NOTES[recovery]}</span>
+                                <span className="settings-desc">{recoveryNote}</span>
                             </span>
-                            <KeptAsideActions variant="settings" onGone={() => {
+                            <KeptAsideActions variant="settings" canAct={recoveryAllowed} onGone={() => {
                                 onRecoveryGone?.();
                                 // The row leaves with its buttons: focus stays in this section.
                                 saveHeadingRef.current?.focus();

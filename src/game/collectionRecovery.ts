@@ -24,6 +24,8 @@ export const ARCHIVE_BUDGET = 1_000_000;
 
 /** Payloads this browser had no room to keep, held for this visit only so they can still be downloaded. */
 let unsaved: Entry[] = [];
+/** Older payloads let go from `unsaved` to stay within its limit (the stored archive counts its own in `dropped`). */
+let droppedThisVisit = 0;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -61,8 +63,11 @@ const withLater = (first: Archive, later: Entry[], dropped: number): Archive => 
 const keepForThisVisit = (entry: Entry, why: unknown): 'archived' => {
   if (!unsaved.some((kept) => kept.raw === entry.raw)) {
     unsaved = [...unsaved, entry];
-    // Same rule as the stored archive: the first and the newest.
-    if (unsaved.length > LATER_LIMIT + 1) unsaved.splice(1, 1);
+    // Same rule as the stored archive: the first and the newest, counting the one let go.
+    if (unsaved.length > LATER_LIMIT + 1) {
+      unsaved.splice(1, 1);
+      droppedThisVisit++;
+    }
   }
   console.warn('Unreadable collection data is kept in this tab only, because this browser had no room for it; download it before this tab closes or reloads.', why);
   return 'archived';
@@ -157,10 +162,25 @@ export const collectionRecoveryState = (): CollectionRecoveryState => {
   return storedArchive() === null ? 'none' : 'stored';
 };
 
-/** What the kept-aside note says, in the banner and in Settings > Save & backup. */
+/** What the kept-aside note says, in the banner and in Settings > Save & backup (see collectionRecoveryNote). */
 export const COLLECTION_RECOVERY_NOTES: Record<Exclude<CollectionRecoveryState, 'none'>, string> = {
   stored: "Unreadable collection data was kept aside in this browser. Download a copy, or discard it if you don't need it. Backups include it too.",
   unsaved: 'Unreadable collection data was kept aside, but this browser had no room to store it, so it lasts only until this tab closes or reloads. Download it now to keep it.',
+};
+
+/** Older payloads let go to stay within the limits: the stored archive's count plus this visit's. */
+const droppedCount = (): number => {
+  const stored = storedArchive();
+  return (stored === null ? 0 : readArchive(stored).dropped ?? 0) + droppedThisVisit;
+};
+
+/** The kept-aside note as it is now, saying how many older payloads were let go; undefined when nothing is kept. */
+export const collectionRecoveryNote = (): string | undefined => {
+  const state = collectionRecoveryState();
+  if (state === 'none') return undefined;
+  const dropped = droppedCount();
+  if (dropped === 0) return COLLECTION_RECOVERY_NOTES[state];
+  return `${COLLECTION_RECOVERY_NOTES[state]} ${dropped} older unreadable ${dropped === 1 ? 'save was' : 'saves were'} let go to make room.`;
 };
 
 /** True when this browser holds kept-aside collection data (the stored archive is in the private export). */
@@ -178,6 +198,15 @@ const currentPrint = (): string | null => {
   const stored = localStorage.getItem(ARCHIVE_KEY);
   if (unsaved.length === 0) return stored === null ? null : fingerprint(stored);
   return fingerprint(`${stored ?? ''}\n${JSON.stringify(unsaved)}`);
+};
+
+/** The kept-aside data as it is now, to compare when the player confirms a discard; null when nothing is kept or storage can't be read. */
+export const collectionRecoveryPrint = (): string | null => {
+  try {
+    return currentPrint();
+  } catch {
+    return null;
+  }
 };
 
 /** The kept-aside data hidden during this visit, in case storage can't remember it (full storage). */
@@ -216,9 +245,10 @@ export const collectionRecoveryFile = (now = new Date()): { name: string; text: 
   const archive = stored === null ? null : readArchive(stored);
   const kept = entriesOf(archive);
   const extra = unsaved.filter((entry) => !kept.some((k) => k.raw === entry.raw));
+  const dropped = (archive?.dropped ?? 0) + droppedThisVisit;
   let file: Archive;
-  if (archive) file = extra.length === 0 ? archive : { ...archive, later: [...(archive.later ?? []), ...extra] };
-  else if (extra.length > 0) file = withLater(extra[0], extra.slice(1), 0);
+  if (archive) file = extra.length === 0 && droppedThisVisit === 0 ? archive : withLater(archive, [...(archive.later ?? []), ...extra], dropped);
+  else if (extra.length > 0) file = withLater(extra[0], extra.slice(1), dropped);
   else return null;
   return { name: `brainrot-collection-recovery-${now.toISOString().split('T')[0]}.json`, text: JSON.stringify(file, null, 2) };
 };
@@ -238,16 +268,26 @@ export const downloadCollectionRecovery = (): boolean => {
   return true;
 };
 
-/** Delete the kept-aside data for good, stored and unsaved. False when storage refused to remove it. */
-export const discardCollectionRecovery = (): boolean => {
-  unsaved = [];
-  hiddenThisVisit = null;
+/** 'changed': the kept-aside data isn't what the player was shown, so nothing was removed. 'refused': storage wouldn't remove it. */
+export type DiscardResult = 'discarded' | 'changed' | 'refused';
+
+/**
+ * Delete the kept-aside data for good, stored and unsaved, if it is still what the player was shown
+ * (`shown`, from collectionRecoveryPrint when they were asked); this visit's copies go only once storage
+ * has let go of the stored ones.
+ */
+export const discardCollectionRecovery = (shown: string | null): DiscardResult => {
   try {
+    const print = currentPrint();
+    if (print !== null && print !== shown) return 'changed';
     localStorage.removeItem(ARCHIVE_KEY);
     localStorage.removeItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN);
-    return true;
   } catch (error) {
     console.error(`Failed to remove localStorage key "${ARCHIVE_KEY}":`, error);
-    return false;
+    return 'refused';
   }
+  unsaved = [];
+  droppedThisVisit = 0;
+  hiddenThisVisit = null;
+  return 'discarded';
 };

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../../constants';
-import { discardCollectionRecovery } from '../../game/collectionRecovery';
+import { collectionRecoveryPrint, discardCollectionRecovery } from '../../game/collectionRecovery';
 import KeptAsideActions from './KeptAsideActions';
 
 const ARCHIVE = JSON.stringify({ raw: '{"lost-set/ghost":null}', player: null });
@@ -11,6 +11,9 @@ const ARCHIVE = JSON.stringify({ raw: '{"lost-set/ghost":null}', player: null })
 let root: Root;
 let container: HTMLElement;
 const onGone = vi.fn();
+// Whether the tab may still act (App: same player, progress current), read on every click.
+let allowed = true;
+const canAct = vi.fn(() => allowed);
 
 const button = (label: string) => {
   const found = [...container.querySelectorAll('button')].find((b) => b.textContent === label);
@@ -26,17 +29,19 @@ beforeEach(async () => {
   localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY, ARCHIVE);
   localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'seen');
   onGone.mockReset();
+  allowed = true;
+  canAct.mockClear();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(() => root.render(<KeptAsideActions variant="settings" onGone={onGone} />));
+  await act(() => root.render(<KeptAsideActions variant="settings" canAct={canAct} onGone={onGone} />));
 });
 
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.restoreAllMocks();
-  discardCollectionRecovery();
+  discardCollectionRecovery(collectionRecoveryPrint());
   vi.unstubAllGlobals();
 });
 
@@ -80,6 +85,49 @@ describe('KeptAsideActions', () => {
     expect(document.activeElement).toBe(discard);
     expect(document.getElementById(discard.getAttribute('aria-describedby')!)?.textContent).toBe("This browser wouldn't discard it.");
     expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(ARCHIVE);
+  });
+
+  it('asks again, without discarding, when the kept-aside data changed after the question', async () => {
+    const changed = JSON.stringify({ raw: '{"lost-set/ghost":null}', player: null, later: [{ raw: '{"other":1}', player: null }] });
+    await click('Discard');
+    localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY, changed);
+    button('Discard for good').focus();
+    await click('Discard for good');
+    expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(changed);
+    expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe('seen');
+    expect(onGone).not.toHaveBeenCalled();
+    expect(labels()).toEqual(['Keep it', 'Discard for good']);
+    const keep = button('Keep it');
+    expect(document.activeElement).toBe(keep);
+    expect(document.getElementById(keep.getAttribute('aria-describedby')!)?.textContent)
+      .toBe('The kept-aside data changed since you asked. Discard it all for good? Only a downloaded copy keeps it.');
+
+    // Confirmed against what is shown now, it goes.
+    await click('Discard for good');
+    expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBeNull();
+    expect(onGone).toHaveBeenCalledOnce();
+  });
+
+  it('refuses Download and Discard once this tab may no longer act on the data', async () => {
+    allowed = false;
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    await click('Download');
+    expect(anchorClick).not.toHaveBeenCalled();
+    await click('Discard');
+    expect(labels()).toEqual(['Download', 'Discard']);
+    expect(canAct).toHaveBeenCalledTimes(2);
+    expect(onGone).not.toHaveBeenCalled();
+    expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(ARCHIVE);
+  });
+
+  it('checks again at the confirm: a tab that went stale meanwhile keeps the data', async () => {
+    await click('Discard');
+    allowed = false;
+    await click('Discard for good');
+    expect(labels()).toEqual(['Download', 'Discard']);
+    expect(onGone).not.toHaveBeenCalled();
+    expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(ARCHIVE);
+    expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe('seen');
   });
 
   it('saves the kept-aside data to a dated local file', async () => {

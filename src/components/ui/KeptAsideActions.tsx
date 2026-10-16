@@ -1,47 +1,76 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { discardCollectionRecovery, downloadCollectionRecovery } from '../../game/collectionRecovery';
+import { collectionRecoveryPrint, discardCollectionRecovery, downloadCollectionRecovery } from '../../game/collectionRecovery';
 
 interface KeptAsideActionsProps {
   /** 'banner': link buttons inside the save warning. 'settings': row buttons in Save & backup. */
   variant: 'banner' | 'settings';
+  /**
+   * Whether this tab may still act on the kept-aside data: false once another tab imported or switched
+   * player (the archive may now hold that player's data) or stored newer progress. Checked on every click,
+   * including the confirm, before anything is downloaded or discarded.
+   */
+  canAct: () => boolean;
   /** Nothing is kept aside any more (discarded here, or gone before Download). The parent moves focus. */
   onGone: () => void;
+}
+
+/** The question on screen, and the fingerprint of what was kept aside when it was asked. */
+interface Asked {
+  print: string | null;
+  changed: boolean;
 }
 
 /**
  * Download or discard the unreadable collection data kept aside (game/collectionRecovery). Discard asks
  * first, in place, like Restore's Keep mine / Replace: the safe answer takes focus and reads the question.
+ * If what's kept aside changed after the question, it asks again instead of discarding the new data.
  */
-const KeptAsideActions = ({ variant, onGone }: KeptAsideActionsProps) => {
-  const [confirming, setConfirming] = useState(false);
+const KeptAsideActions = ({ variant, canAct, onGone }: KeptAsideActionsProps) => {
+  const [asked, setAsked] = useState<Asked | null>(null);
   const [refused, setRefused] = useState(false);
   const keepRef = useRef<HTMLButtonElement>(null);
   const discardRef = useRef<HTMLButtonElement>(null);
   const backToDiscard = useRef(false);
   const noteId = useId();
   useEffect(() => {
-    if (confirming) keepRef.current?.focus();
+    if (asked) keepRef.current?.focus();
     else if (backToDiscard.current) discardRef.current?.focus();
     backToDiscard.current = false;
-  }, [confirming, refused]);
+  }, [asked, refused]);
 
   const plain = variant === 'banner' ? 'link-btn save-warning-action' : 'btn btn--secondary btn--sm';
   const strong = variant === 'banner' ? 'link-btn save-warning-action' : 'btn btn--primary btn--sm';
   const note = variant === 'banner' ? undefined : 'settings-desc';
+  const ask = () => {
+    if (canAct()) setAsked({ print: collectionRecoveryPrint(), changed: false });
+  };
   const answer = (discard: boolean) => {
     backToDiscard.current = true;
-    setConfirming(false);
-    if (!discard) return;
-    const gone = discardCollectionRecovery();
-    setRefused(!gone);
-    if (gone) onGone();
+    if (!discard || !asked || !canAct()) {
+      setAsked(null);
+      return;
+    }
+    const result = discardCollectionRecovery(asked.print);
+    if (result === 'changed') {
+      backToDiscard.current = false;
+      setAsked({ print: collectionRecoveryPrint(), changed: true });
+      return;
+    }
+    setAsked(null);
+    setRefused(result === 'refused');
+    if (result === 'discarded') onGone();
   };
 
   return (
     <span className={variant === 'settings' ? 'settings-actions' : undefined}>
-      {confirming ? (
+      {asked ? (
         <>
-          <span id={noteId} className={note}>{variant === 'banner' && ' '}Discard it for good? Only a downloaded copy keeps it.</span>
+          <span id={noteId} className={note}>
+            {variant === 'banner' && ' '}
+            {asked.changed
+              ? 'The kept-aside data changed since you asked. Discard it all for good? Only a downloaded copy keeps it.'
+              : 'Discard it for good? Only a downloaded copy keeps it.'}
+          </span>
           <button type="button" ref={keepRef} className={plain} aria-describedby={noteId} onClick={() => answer(false)}>
             Keep it
           </button>
@@ -52,10 +81,10 @@ const KeptAsideActions = ({ variant, onGone }: KeptAsideActionsProps) => {
       ) : (
         <>
           {refused && <span id={noteId} className={note}>{variant === 'banner' && ' '}This browser wouldn&apos;t discard it.</span>}
-          <button type="button" className={plain} onClick={() => { if (!downloadCollectionRecovery()) onGone(); }}>
+          <button type="button" className={plain} onClick={() => { if (canAct() && !downloadCollectionRecovery()) onGone(); }}>
             Download
           </button>
-          <button type="button" ref={discardRef} className={plain} aria-describedby={refused ? noteId : undefined} onClick={() => setConfirming(true)}>
+          <button type="button" ref={discardRef} className={plain} aria-describedby={refused ? noteId : undefined} onClick={ask}>
             Discard
           </button>
         </>

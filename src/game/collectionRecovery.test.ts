@@ -3,8 +3,9 @@ import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import { hydrateCollection } from '../utils/migrations';
 import {
-  ARCHIVE_BUDGET, collectionRecoveryDismissed, collectionRecoveryFile, collectionRecoveryState, discardCollectionRecovery,
-  dismissCollectionRecovery, hasCollectionRecovery, persistCollection,
+  ARCHIVE_BUDGET, COLLECTION_RECOVERY_NOTES, collectionRecoveryDismissed, collectionRecoveryFile, collectionRecoveryNote,
+  collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, hasCollectionRecovery,
+  persistCollection,
 } from './collectionRecovery';
 
 const card = ALL_CARDS[0];
@@ -31,8 +32,9 @@ beforeEach(() => {
   warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 afterEach(() => {
-  // Forget anything this visit kept in memory (the module outlives each test).
-  discardCollectionRecovery();
+  // Forget anything this visit kept in memory (the module outlives each test), on storage that lets go.
+  seed(null);
+  expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -247,7 +249,7 @@ describe('downloading and discarding kept-aside data', () => {
     data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
     expect(dismissCollectionRecovery()).toBe(true);
     expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe(true);
-    expect(discardCollectionRecovery()).toBe(true);
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
     expect(data.has(ARCHIVE)).toBe(false);
     expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe(false);
     expect(collectionRecoveryState()).toBe('none');
@@ -260,9 +262,69 @@ describe('downloading and discarding kept-aside data', () => {
       getItem: () => '{"raw":"x","player":null}',
       removeItem: () => { throw new DOMException('denied', 'SecurityError'); },
     });
-    expect(discardCollectionRecovery()).toBe(false);
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('refused');
     expect(hasCollectionRecovery()).toBe(true);
     expect(logged()).toEqual([`Failed to remove localStorage key "${ARCHIVE}":`]);
+  });
+
+  it("keeps this visit's payloads when storage refuses the discard", () => {
+    seed('{"1":null}', (key) => key === ARCHIVE);
+    expect(persistCollection({})).toBe('recovered');
+    const removeItem = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => { throw new DOMException('denied', 'SecurityError'); });
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('refused');
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(JSON.parse(collectionRecoveryFile()!.text).raw).toBe('{"1":null}');
+    removeItem.mockRestore();
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    expect(collectionRecoveryState()).toBe('none');
+  });
+
+  it('discards nothing when the kept-aside data changed since the player was asked', () => {
+    const data = seed('{"2":null}', (key, value) => key === ARCHIVE && value.includes('"{\\"2\\":null}"'));
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'seen');
+    let shown = collectionRecoveryPrint();
+    // Another tab stored another payload meanwhile.
+    const stored = JSON.stringify({ raw: '{"0":null}', player: null, later: [{ raw: '{"1":null}', player: null }] });
+    data.set(ARCHIVE, stored);
+    expect(discardCollectionRecovery(shown)).toBe('changed');
+    expect(data.get(ARCHIVE)).toBe(stored);
+    expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe('seen');
+
+    // Or this tab kept one in memory.
+    shown = collectionRecoveryPrint();
+    expect(persistCollection({})).toBe('recovered');
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(discardCollectionRecovery(shown)).toBe('changed');
+    expect(data.get(ARCHIVE)).toBe(stored);
+    expect(collectionRecoveryState()).toBe('unsaved');
+
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    expect(data.has(ARCHIVE)).toBe(false);
+    expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe(false);
+    expect(collectionRecoveryState()).toBe('none');
+  });
+
+  it('says how many older payloads were let go, stored and in memory, in the note and the file', () => {
+    const data = seed(null);
+    expect(collectionRecoveryNote()).toBeUndefined();
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
+    expect(collectionRecoveryNote()).toBe(COLLECTION_RECOVERY_NOTES.stored);
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null, dropped: 3 }));
+    expect(collectionRecoveryNote()).toBe(`${COLLECTION_RECOVERY_NOTES.stored} 3 older unreadable saves were let go to make room.`);
+
+    // Storage takes no archive: this visit keeps the first and the newest ten, counting the one let go.
+    const memory = seed(null, (key) => key === ARCHIVE);
+    for (let i = 0; i <= 11; i++) {
+      memory.set(STORAGE_KEYS.COLLECTION, `{"${i}":null}`);
+      expect(persistCollection({})).toBe('recovered');
+    }
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(collectionRecoveryNote()).toBe(`${COLLECTION_RECOVERY_NOTES.unsaved} 1 older unreadable save was let go to make room.`);
+    const file = JSON.parse(collectionRecoveryFile()!.text);
+    expect(file.raw).toBe('{"0":null}');
+    expect(file.later.map((entry: { raw: string }) => entry.raw)).toEqual(Array.from({ length: 10 }, (_, i) => `{"${i + 2}":null}`));
+    expect(file.dropped).toBe(1);
   });
 });
 
