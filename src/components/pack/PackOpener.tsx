@@ -263,13 +263,19 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     completeCut();
   }, [disabled, isPackCut, isOpening, openBlocked, completeCut]);
 
-  const retryOpen = useCallback(() => {
-    if (refusal === 'blocked') reloadPage();
-    else handleOpen();
-  }, [refusal, handleOpen]);
-
   /** Set when the player goes back to the sealed pack, so the Open pack button takes focus once it's there. */
   const focusOpenRef = useRef(false);
+
+  const retryOpen = useCallback(() => {
+    if (refusal === 'blocked') {
+      reloadPage();
+      return;
+    }
+    // Try again goes as the Open pack button comes back (disabled while the ticket is on its way):
+    // focus moves to it rather than falling to the page for the whole wait.
+    focusOpenRef.current = true;
+    handleOpen();
+  }, [refusal, handleOpen]);
   const openButtonEl = useRef<HTMLButtonElement | null>(null);
   const openButtonRef = useCallback((el: HTMLButtonElement | null) => {
     openButtonEl.current = el;

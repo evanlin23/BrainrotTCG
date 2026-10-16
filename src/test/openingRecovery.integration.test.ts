@@ -151,6 +151,10 @@ it('shows a failed ticket with its reason and Try again, records nothing, and re
 
   failing = false;
   await tryAgain();
+  // Try again went with the refusal: the Open pack button that came back has focus for the wait.
+  expect(document.querySelector('.pack-retry-button')).toBeNull();
+  expect(document.activeElement).toBe(document.querySelector('.pack-open-button'));
+  expect(document.activeElement).not.toBe(document.body);
   await finishReveal();
   const packs = await history();
   expect(packs).toHaveLength(1);

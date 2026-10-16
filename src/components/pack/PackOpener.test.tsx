@@ -194,6 +194,9 @@ describe('the controls under the pack (#312)', () => {
     expect(cutter.completeCut).toHaveBeenCalledTimes(2);
     expect($('.pack-refusal-text')).toBeNull();
     expect(announced()).toBe('');
+    // Try again went with the refusal: focus is on the Open pack button that came back, not the page.
+    expect(retryButton()).toBeNull();
+    expect(document.activeElement).toBe(openButton());
     await pastTheTear();
     expect(openPack).toHaveBeenCalledTimes(2);
   });
