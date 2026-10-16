@@ -215,4 +215,28 @@ describe('a tab whose save another tab of the same player has written since', ()
     expect(normalCount(otherCard)).toBe(1);
     expect(packsOpened()).toBe(6);
   });
+
+  it('keeps a pack it took at load out of the shelf once another tab switched player, so that player’s pack of the same nonce stays', async () => {
+    savePendingPack(owedPack(7));
+    const realSetItem = Storage.prototype.setItem;
+    const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === STORAGE_KEYS.PENDING_PACKS) throw new DOMException('full', 'QuotaExceededError');
+      realSetItem.call(this, key, value);
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    otherTab.afterTake = recordInOtherTab;
+    await mount();
+    expect(shelfNonces()).not.toContain(7);
+    refuse.mockRestore();
+    // Another tab switches to player B, who has a pack of the same nonce on the shelf.
+    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: 'bb'.repeat(32), name: 'B', nextNonce: 8, createdAt: 1 }));
+    savePendingPack(owedPack(7, set.cards[2].id));
+    const shelf = localStorage.getItem(STORAGE_KEYS.PENDING_PACKS);
+    const before = error.mock.calls.length;
+    await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.STATS })));
+    // Player A's pack stays in this tab: on B's shelf it would replace B's pack 7.
+    expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).toBe(shelf);
+    expect(error.mock.calls.slice(before).flat().join(' ')).not.toMatch(/couldn't be put back/);
+    expect(container.textContent).toContain(STALE);
+  });
 });

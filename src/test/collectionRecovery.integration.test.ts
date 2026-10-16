@@ -35,10 +35,34 @@ const button = (label: string) => {
   expect(element, `button ${label}`).toBeDefined();
   return element!;
 };
+const labelled = (label: string) => [...document.querySelectorAll<HTMLElement>('button, [role="button"]')]
+  .some((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label);
 const warnings = () => [...document.querySelectorAll('p[role="alert"].save-warning')].map((el) => el.textContent);
 const stored = () => JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION)!) as Record<string, CollectionItem>;
 const owned = (collection: Record<string, CollectionItem>) =>
   Object.values(collection).reduce((sum, item) => sum + item.normalCount + item.holoCount, 0);
+
+const keptAside = () => document.querySelector('#save-backup')?.textContent ?? '';
+// Download, caught at the file it saves: jsdom has no object URLs, can't follow the link, and its
+// Blob can't be read back, so the file's text is taken as it is built.
+async function download(current: NonNullable<typeof app>) {
+  const texts: string[] = [];
+  let name = '';
+  vi.stubGlobal('Blob', class extends Blob {
+    constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+      super(parts, options);
+      texts.push(parts?.map(String).join('') ?? '');
+    }
+  });
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL() { return 'blob:kept-aside'; }
+    static revokeObjectURL() {}
+  });
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { name = this.download; });
+  await current.interact(() => button('Download').click());
+  expect(texts, 'downloaded file').toHaveLength(1);
+  return { name, file: JSON.parse(texts[0]) as { raw: string; player: string | null; later?: unknown[] } };
+}
 
 async function openPack(current: NonNullable<typeof app>) {
   await current.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
@@ -53,7 +77,7 @@ async function openPack(current: NonNullable<typeof app>) {
   await current.until('Skip completes the summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 }
 
-it('keeps unreadable collection entries through pack writes and offers them in the private export', async () => {
+it('keeps unreadable collection entries through pack writes and offers them to download, discard or export', async () => {
   app = await mountedApp(SEED);
   await app.mount();
   expect(warnings()).toEqual([]);
@@ -71,17 +95,19 @@ it('keeps unreadable collection entries through pack writes and offers them in t
   expect(JSON.parse(player).secretKey).toBe(SECRET);
   expect(JSON.parse(exportSaveFile()).collectionRecovery).toBe(archive);
 
-  // One warning, in the banner and then on the Settings page while the banner steps aside.
-  expect(warnings()).toEqual([expect.stringMatching(/Unreadable collection data was kept aside/)]);
-  // It points at where the export really lives.
-  expect(warnings()[0]).toMatch(/open Settings, then Save & backup, and export a backup\./);
+  // One note in the banner, with its actions; then in Save & backup while the banner steps aside.
+  expect(warnings()).toEqual([expect.stringMatching(/Unreadable collection data was kept aside in this browser\. Download a copy, or discard it/)]);
   expect(warnings()[0]).not.toMatch(/couldn't be saved/);
+  expect(button('Download')).toBeDefined();
+  expect(button('Discard')).toBeDefined();
   await app.interact(() => button('Settings').click());
   await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
   expect(document.querySelector('#save-backup h2')?.textContent).toBe('Save & backup');
   expect(button('Export')).toBeDefined();
-  expect(document.querySelector('.settings p[role="alert"].save-warning')?.textContent).toMatch(/kept aside/);
-  expect(warnings()).toHaveLength(1);
+  expect(warnings()).toEqual([]);
+  expect(keptAside()).toMatch(/Kept-aside data[\s\S]*kept aside in this browser/);
+  expect(button('Download')).toBeDefined();
+  expect(button('Discard')).toBeDefined();
   await app.interact(() => button('Close Settings').click());
   await app.until('Open shows again', () => expect(document.querySelector<HTMLElement>('main.app-main')!.hidden).toBe(false));
 
@@ -93,7 +119,7 @@ it('keeps unreadable collection entries through pack writes and offers them in t
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
 }, 60_000);
 
-it('keeps the stored collection unchanged, and warns once, when the archive cannot be written', async () => {
+it('saves the collection, and keeps the unreadable entries in this tab to download, when the archive cannot be written', async () => {
   app = await mountedApp(SEED);
   await app.mount();
   const setItem = Storage.prototype.setItem;
@@ -104,14 +130,19 @@ it('keeps the stored collection unchanged, and warns once, when the archive cann
 
   await openPack(app);
 
-  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBe(RAW);
+  // The archive never blocks the save: the pack is stored, and the unreadable entries wait in this tab.
+  expect(owned(stored())).toBe(1 + 5);
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBeNull();
-  expect(app.takeErrors(/^Failed to save to localStorage key /))
-    .toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION_RECOVERY}"`)]);
-  expect(warnings()).toEqual([expect.stringMatching(/couldn't be saved in this browser/)]);
-  expect(warnings()[0]).not.toMatch(/kept aside/);
-  // Other progress still saves.
+  expect(app.takeErrors(/kept in this tab only/)).toEqual([expect.stringContaining('QuotaExceededError')]);
+  expect(warnings()).toEqual([expect.stringMatching(/no room to store it, so it lasts only until this tab closes or reloads\. Download it now/)]);
+  expect(warnings()[0]).not.toMatch(/couldn't be saved/);
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!).packsOpened).toBe(1);
+
+  // Download saves them, with the identity they belonged to, to a dated file.
+  const { name, file } = await download(app);
+  expect(name).toBe('brainrot-collection-recovery-2026-01-01.json');
+  expect(file.raw).toBe(RAW);
+  expect(JSON.parse(file.player!).secretKey).toBe(SECRET);
 }, 60_000);
 
 it('shows the kept-aside note at once, and keeps the pack waiting, when only the collection write fails', async () => {
@@ -142,7 +173,8 @@ it('lets the player hide the kept-aside note until something new is kept aside; 
   expect(warnings()).toEqual([]);
   await app.interact(() => button('Settings').click());
   await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
-  expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+  expect(warnings()).toEqual([]);
+  expect(keptAside()).toMatch(/Kept-aside data[\s\S]*kept aside/);
   await app.interact(() => button('Close Settings').click());
   await app.until('Open shows again', () => expect(document.querySelector<HTMLElement>('main.app-main')!.hidden).toBe(false));
 
@@ -153,4 +185,100 @@ it('lets the player hide the kept-aside note until something new is kept aside; 
   localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify({ ...JSON.parse(archive), later: [{ raw: '{"x":null}', player: PLAYER }] }));
   await app.reload();
   expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+});
+
+it('discards the kept-aside data only after asking, and then forgets it', async () => {
+  const archive = JSON.stringify({ raw: RAW, player: PLAYER });
+  app = await mountedApp({ ...SEED, [STORAGE_KEYS.COLLECTION]: '{}', [STORAGE_KEYS.COLLECTION_RECOVERY]: archive, [STORAGE_KEYS.COLLECTION_RECOVERY_SEEN]: 'an older note' });
+  await app.mount();
+  expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+
+  // Discard asks first; the safe answer takes focus and reads the question.
+  await app.interact(() => button('Discard').click());
+  const keep = document.activeElement as HTMLElement;
+  expect(keep.textContent).toBe('Keep it');
+  expect(document.getElementById(keep.getAttribute('aria-describedby')!)?.textContent).toMatch(/Discard it for good\?/);
+  await app.interact(() => keep.click());
+  expect(document.activeElement?.textContent).toBe('Discard');
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
+
+  const collection = localStorage.getItem(STORAGE_KEYS.COLLECTION);
+  expect(collection).not.toBeNull();
+  await app.interact(() => button('Discard').click());
+  await app.interact(() => button('Discard for good').click());
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBeNull();
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBeNull();
+  // Only the kept-aside data goes: the collection stays byte for byte.
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBe(collection);
+  expect(warnings()).toEqual([]);
+  // The note left with its buttons: focus goes to the page's heading.
+  expect(document.activeElement?.matches('.app-logo, .page-title')).toBe(true);
+
+  await app.reload();
+  expect(warnings()).toEqual([]);
+});
+
+// Another tab imports a save or switches player: its old collection can land in the same archive (saveFile),
+// so a tab still showing the old save must not discard it (its only copy) or download it mixed with its own.
+const THEIRS = JSON.stringify({ secretKey: 'bb'.repeat(32), name: 'Other tab', nextNonce: 8, createdAt: 1 });
+const THEIR_ARCHIVE = JSON.stringify({ raw: '{"their-set/lost":null}', player: THEIRS });
+const otherTabSwitches = () => {
+  localStorage.setItem('brainrot-player-v1', THEIRS);
+  localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY, THEIR_ARCHIVE);
+};
+
+it('discards nothing from a tab whose save changed in another tab after the question was asked', async () => {
+  const archive = JSON.stringify({ raw: RAW, player: PLAYER });
+  app = await mountedApp({ ...SEED, [STORAGE_KEYS.COLLECTION]: '{}', [STORAGE_KEYS.COLLECTION_RECOVERY]: archive, [STORAGE_KEYS.COLLECTION_RECOVERY_SEEN]: 'an older note' });
+  await app.mount();
+  expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+
+  await app.interact(() => button('Discard').click());
+  // The storage event can come late, or not at all: the confirm checks the save itself.
+  otherTabSwitches();
+  await app.interact(() => button('Discard for good').click());
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(THEIR_ARCHIVE);
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe('an older note');
+  expect(localStorage.getItem('brainrot-player-v1')).toBe(THEIRS);
+  // The reload warning takes the note's place, and its buttons leave with it, here and in Settings.
+  expect(warnings()).toEqual([expect.stringMatching(/This save changed in another tab/)]);
+  expect(warnings()[0]).not.toMatch(/kept aside/);
+  for (const label of ['Download', 'Discard', 'Discard for good', 'Keep it', 'Hide note']) expect(labelled(label), label).toBe(false);
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  expect(document.querySelector('.settings')?.textContent).not.toMatch(/Kept-aside data/);
+  for (const label of ['Download', 'Discard']) expect(labelled(label), label).toBe(false);
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(THEIR_ARCHIVE);
+});
+
+it('downloads nothing from a tab whose save changed in another tab, and hides the actions once it hears', async () => {
+  const archive = JSON.stringify({ raw: RAW, player: PLAYER });
+  app = await mountedApp({ ...SEED, [STORAGE_KEYS.COLLECTION]: '{}', [STORAGE_KEYS.COLLECTION_RECOVERY]: archive });
+  await app.mount();
+  expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+  const files = vi.fn();
+  vi.stubGlobal('Blob', class extends Blob {
+    constructor(parts?: BlobPart[], options?: BlobPropertyBag) {
+      super(parts, options);
+      files();
+    }
+  });
+  const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+  otherTabSwitches();
+  await app.interact(() => button('Download').click());
+  expect(files).not.toHaveBeenCalled();
+  expect(anchorClick).not.toHaveBeenCalled();
+  expect(warnings()).toEqual([expect.stringMatching(/This save changed in another tab/)]);
+  for (const label of ['Download', 'Discard']) expect(labelled(label), label).toBe(false);
+  expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(THEIR_ARCHIVE);
+
+  // A tab that hears of the switch first never offers them.
+  await app.reload();
+  expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
+  localStorage.setItem('brainrot-player-v1', PLAYER);
+  await app.interact(() => window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' })));
+  expect(warnings()).toEqual([expect.stringMatching(/This save changed in another tab/)]);
+  for (const label of ['Download', 'Discard']) expect(labelled(label), label).toBe(false);
+  expect(files).not.toHaveBeenCalled();
 });
