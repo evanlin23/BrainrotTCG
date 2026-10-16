@@ -5,7 +5,7 @@ import { monitor } from './support';
  * A whole pack by keyboard alone (#12): Tab reaches the pack, Space tears it, and the card is the one
  * button for the reveal, flip then next. Each control shows a focus ring, and a single polite live
  * region names each card as it turns face up, never before. The fixture key's nonce 21 deals no big
- * pull, so nothing holds the reveal.
+ * pull, so nothing holds the reveal, and it repeats a card (2 and 5), so the checks meet a duplicate name.
  */
 const RARITY = '(?:Holo )?(?:Common|Uncommon|Rare|Epic|Legendary|Brainrot)';
 const announced = (n: number) => new RegExp(`^Card ${n} of 5: (.+), ${RARITY}(?:, .+)?$`);
@@ -73,6 +73,7 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
   const area = page.locator('.card-reveal-area');
   // The card that has focus. The one before it can still be leaving, so it's found by focus, not label.
   const card = page.locator('.reveal-card:focus');
+  const names: string[] = [];
   for (let n = 1; n <= 5; n++) {
     // The tear, and each move on, leave focus on the card, ready to flip.
     await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 10000 });
@@ -83,25 +84,38 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
     // Nothing is said about a card still face down, and nothing on the screen names it yet.
     await expect(live).toHaveCount(1);
     await expect(live).toHaveText('');
-    const before = await area.ariaSnapshot();
+    // The card's own name, art and text. Earlier cards, face up, can still be leaving the area.
+    const before = await card.ariaSnapshot();
+    const areaBefore = await area.ariaSnapshot();
+    const liveBefore = await liveTexts(page);
 
     await page.keyboard.press('Space');
     await expect(live).toHaveText(announced(n), { timeout: 10000 });
     const text = (await live.textContent())!;
     const name = text.match(announced(n))![1];
     expect(before, `card ${n} was named before its flip`).not.toContain(name);
-    // Said once: no other region repeats the card.
-    expect((await liveTexts(page)).filter((t) => t.includes(name))).toEqual([text]);
+    // The rest of the area too, unless a leaving card can carry the same name.
+    if (!names.some((earlier) => earlier.includes(name))) {
+      expect(areaBefore, `card ${n} was named on screen before its flip`).not.toContain(name);
+    }
+    names.push(name);
+    // Said once: the announcement, card number and all, is in one region, and no other region newly names
+    // the card. One still naming an earlier card of the same name was there before the flip.
+    const liveAfter = await liveTexts(page);
+    expect(liveAfter.filter((t) => t.includes(text))).toEqual([text]);
+    expect(liveAfter.filter((t) => t !== text && t.includes(name) && !liveBefore.includes(t)), `card ${n} was said twice`).toEqual([]);
 
     await expect(card).toHaveAttribute('aria-label', n < 5 ? 'Next card' : 'See the pack summary');
     expect((await ring(card, '::after')).boxShadow).toContain(BRAND);
     if (n === 1) {
       // The emulated screen-reader view of the reveal, for the PR (Chromium's accessibility tree).
-      console.log(`--- face down, card 1 ---\n${before}\n--- face up, card 1 ---\n${await area.ariaSnapshot()}`);
+      console.log(`--- face down, card 1 ---\n${areaBefore}\n--- face up, card 1 ---\n${await area.ariaSnapshot()}`);
     }
     await page.keyboard.press('Space');
   }
 
+  // The fixture's duplicate, so a repeated name always meets the checks above.
+  expect(new Set(names).size, `the fixture pack repeats no card: ${names.join(', ')}`).toBeLessThan(names.length);
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.summary-card')).toHaveCount(5);
   expect(errors).toEqual([]);
