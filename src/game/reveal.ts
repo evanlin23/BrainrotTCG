@@ -18,7 +18,7 @@ export const isSpecialReveal = (card: Revealable): boolean => rank(card) >= SPEC
 export const nextSpecialRevealIndex = (cards: readonly (Revealable & { isRevealed: boolean })[]): number =>
   cards.findIndex((card) => !card.isRevealed && isSpecialReveal(card));
 
-/** Least valuable first, most valuable last; ties keep pack order. The summary and pack views show this order too. */
+/** Least valuable first, most valuable last; ties keep pack order. The pack summary and a reopened pack's ShareSheet show this order too. */
 export const revealOrder = <T extends Revealable>(cards: readonly T[]): T[] =>
   cards
     .map((card, i) => ({ card, i }))

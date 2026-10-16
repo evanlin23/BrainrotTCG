@@ -283,7 +283,8 @@ matrix (interruption and UI states) remains in #337.
 **Shipped** on the results screen, owned and public pack detail (`PackCardViewer`, so profile packs
 and shared pulls) and card detail. A consistent pack headline, not a dominance threshold:
 **Pack total: [score]**, then **[true combo] ×[multiplier]**. No surface shows a standout line: the
-engine's standout only picks previews; cards show in reveal order (best last). Card surfaces lead with
+engine's standout only picks previews; the summary and a reopened profile pack show cards in reveal
+order (best last), shared pulls in engine order. Card surfaces lead with
 identity/modifiers and Card points, which exclude the pack multiplier. The standout is the maximum
 original-version `cardPoints`; on ties take the **higher** slot (the last of the tied cards in engine
 pack order). That is the shipped best-card rule: `revealOrder`
