@@ -241,13 +241,29 @@ describe('leaving the page with an unsaved draft', () => {
     expect(storedName()).toBe('Original Player');
   });
 
-  it('does not write again a draft whose save just failed', () => {
+  it('does not write again a draft whose save just failed, but still reports it on the way out', () => {
     failWrites();
     type('Unsaved Name');
-    clickSave();
+    act(() => input().blur());
+    expect(status()).toBe(SAVE_FAILED);
     expect(playerWrites()).toHaveLength(1);
+    expect(onSaveFailed).not.toHaveBeenCalled();
+    // A mouse click on a tab, Back or Close leaves without focusing the field again.
     leave();
     expect(playerWrites()).toHaveLength(1);
+    expect(onSaveFailed).toHaveBeenCalledTimes(1);
+    expect(storedName()).toBe('Original Player');
+  });
+
+  it('does not report a draft refused as stale on the way out, which already shows its banner', () => {
+    canSave.mockReturnValue(false);
+    type('Unsaved Name');
+    act(() => input().blur());
+    expect(status()).toBe(SAVE_STALE);
+    leave();
+    expect(playerWrites()).toEqual([]);
+    expect(onSaveFailed).not.toHaveBeenCalled();
+    expect(storedName()).toBe('Original Player');
   });
 
   it('tries again once the failed draft is edited', () => {

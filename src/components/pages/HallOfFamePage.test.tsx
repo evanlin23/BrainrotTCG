@@ -141,7 +141,7 @@ describe('Hall of Fame loading', () => {
 
   it('stops re-verifying a pull when the page closes, so its ticket stops waiting', async () => {
     loadHallOfFame.mockResolvedValueOnce([ENTRY]);
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    await act(async () => root.render(<HallOfFamePage />));
     expect(checkPull).toHaveBeenCalledTimes(1);
     expect(checkPull.mock.calls[0][0]).toBe(ENTRY.proof);
     const signal = checkPull.mock.calls[0][1] as AbortSignal;

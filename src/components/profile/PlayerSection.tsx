@@ -40,8 +40,8 @@ export default function PlayerSection({ level, settings, onSettingsChange, onOpe
   const [nameStatus, setNameStatus] = useState('');
   /** Counts failed saves; a repeat of the same failure remounts the status text so it is announced again. */
   const [failures, setFailures] = useState(0);
-  /** The draft whose last save failed; leaving the page doesn't write it again. */
-  const failedDraft = useRef<string | null>(null);
+  /** The draft whose last save failed, and whether it was refused as stale; leaving the page doesn't write it again. */
+  const failedDraft = useRef<{ draft: string; stale: boolean } | null>(null);
   /** Counts saves; a pointer press on Save name compares it with its pointerdown to see if its own blur saved. */
   const saves = useRef(0);
   const savesAtPress = useRef<number | null>(null);
@@ -54,14 +54,14 @@ export default function PlayerSection({ level, settings, onSettingsChange, onOpe
     saves.current += 1;
     const result = rename(nameDraft);
     if (result.status === 'stale') {
-      failedDraft.current = nameDraft;
+      failedDraft.current = { draft: nameDraft, stale: true };
       setNameStatus(SAVE_STALE);
       setFailures((count) => count + 1);
       return result.status;
     }
     setPlayer(result.player);
     if (result.status === 'saved') onRenamed?.(result.player);
-    failedDraft.current = result.status === 'failed' ? nameDraft : null;
+    failedDraft.current = result.status === 'failed' ? { draft: nameDraft, stale: false } : null;
     switch (result.status) {
       case 'saved':
         setNameDraft(result.player.name);
@@ -84,12 +84,19 @@ export default function PlayerSection({ level, settings, onSettingsChange, onOpe
   };
   // Leaving the page (a tab, Back, Close) keeps an edited draft the way leaving the field does, unless
   // it is the draft that just failed. A draft that still matches the name this page loaded or stored
-  // is never written, so it can't undo a rename made in another tab. A refused write is reported.
+  // is never written, so it can't undo a rename made in another tab. A refused write is reported,
+  // including the one that just failed: its inline line leaves with the page. A stale save isn't,
+  // since its banner already says so.
   const leave = useRef(() => {});
   useEffect(() => {
     leave.current = () => {
       const clean = normalizeName(nameDraft);
-      if (!clean || clean === player.name || failedDraft.current === nameDraft) return;
+      if (!clean || clean === player.name) return;
+      const failed = failedDraft.current;
+      if (failed?.draft === nameDraft) {
+        if (!failed.stale) onSaveFailed();
+        return;
+      }
       if (rename(nameDraft).status === 'failed') onSaveFailed();
     };
   });
@@ -119,7 +126,7 @@ export default function PlayerSection({ level, settings, onSettingsChange, onOpe
           // was already written and announced, so this press doesn't repeat it; a later press retries.
           const blurSaved = event.detail > 0 && savesAtPress.current !== null && savesAtPress.current !== saves.current;
           savesAtPress.current = null;
-          if (blurSaved && failedDraft.current === nameDraft) return;
+          if (blurSaved && failedDraft.current?.draft === nameDraft) return;
           saveName();
         }}>Save name</button>
       <p>Player ID #{player.fingerprint}</p>
