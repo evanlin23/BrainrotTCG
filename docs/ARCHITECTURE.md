@@ -57,7 +57,8 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
-  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors
+  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors,
+                     `cardVersionBoards`
 
 src/content/       Set data, art and registry; existing schemas use the existing engine.
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
@@ -257,8 +258,8 @@ last. The pack summary's `bestPullOrder` lists the earlier slot first instead; b
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
-| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
-| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | planned: Rankings page |
+| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | planned: Rankings page |
 | Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
 Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
