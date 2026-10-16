@@ -343,4 +343,30 @@ describe('the shared ticket list', () => {
     setUp([RIGHT_NOW]);
     expect(expectFresh()).toMatchObject({ stats: null, own: 'loading', info: { packs: 1 } });
   }, 30_000);
+
+  it("swaps to another player's list when only the player record changes", async () => {
+    // One history holding a pack each from two players, the same ticket count and the same store:
+    // only the player tells the two lists apart.
+    setUp([]);
+    const secrets = ['a1'.repeat(32), 'b2'.repeat(32)];
+    const history: object[] = [];
+    const packs: ProfilePack[] = [];
+    for (const secretKey of secrets) {
+      storePlayer(secretKey, 1);
+      const player = getPlayer();
+      const cards = await derivePack(RIGHT_NOW, player.publicKey, 0, computeTicket);
+      const code = cards.map((c) => encodeCard({ id: c.cardId, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(',');
+      const score = scorePulled(cards);
+      history.push({ s: 'right-now', v: 2, n: 0, k: player.publicKeyHex.slice(0, 16), c: code, h: score.hand.name, x: score.score, t: history.length + 1 });
+      packs.push({ nonce: 0, set: RIGHT_NOW, cards, score });
+    }
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    storePlayer(secrets[0], 1);
+    const first = expectFresh();
+    expect(first.stats).toEqual(profileStats([packs[0]]));
+    storePlayer(secrets[1], 1);
+    const second = expectFresh();
+    expect(second.stats).toEqual(profileStats([packs[1]]));
+    expect(second.stats).not.toEqual(first.stats);
+  }, 30_000);
 });

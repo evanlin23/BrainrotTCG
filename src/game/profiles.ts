@@ -94,9 +94,10 @@ function* ticketsOf({ player, nextNonce: total }: PlayerTickets): Generator<Tick
  * ticket count and the pack store's contents. Any change to one builds the list again, so it never
  * goes stale; it saves rebuilding (and re-scoring) every pack several times for one pack opened.
  * Whether saved packs are still loading is never kept here: callers ask the pack cache each time.
+ * The list (one ticket per pack this player opened) stays in memory until one of those changes.
  */
 interface TicketList {
-  raw: string | null;
+  history: number;
   publicKeyHex: string;
   total: number;
   store: number;
@@ -108,14 +109,29 @@ interface TicketList {
 }
 let lastTickets: TicketList | null = null;
 
-const ticketList = ({ player, nextNonce }: PlayerTickets): TicketList => {
+/**
+ * Counts changes to the stored history, so the caches below compare a number and keep one copy of
+ * the history string between them rather than one each.
+ */
+let seenHistory: string | null | undefined;
+let historyChanges = 0;
+const historyVersion = (): number => {
   const raw = storedHistory();
+  if (raw !== seenHistory) {
+    seenHistory = raw;
+    historyChanges++;
+  }
+  return historyChanges;
+};
+
+const ticketList = ({ player, nextNonce }: PlayerTickets): TicketList => {
+  const history = historyVersion();
   const store = packStoreVersion();
   const last = lastTickets;
-  if (last && last.raw === raw && last.publicKeyHex === player.publicKeyHex && last.total === nextNonce && last.store === store) return last;
+  if (last && last.history === history && last.publicKeyHex === player.publicKeyHex && last.total === nextNonce && last.store === store) return last;
   const tickets = [...ticketsOf({ player, nextNonce })];
   // Building can read stored packs but never changes them, so `store` still names what was read.
-  return lastTickets = { raw, publicKeyHex: player.publicKeyHex, total: nextNonce, store, tickets, waiting: tickets.some(awaitsCache) };
+  return lastTickets = { history, publicKeyHex: player.publicKeyHex, total: nextNonce, store, tickets, waiting: tickets.some(awaitsCache) };
 };
 
 /** Shared and read-only: don't change the list or its tickets. */
@@ -125,6 +141,7 @@ const myTickets = (snapshot: PlayerTickets = getPlayerTickets()): readonly Ticke
 export const resetTicketList = () => {
   lastTickets = null;
   allCards = null;
+  seenHistory = undefined;
 };
 
 
@@ -178,11 +195,11 @@ export const myPackCacheState = (): PackCacheState => {
 };
 
 /** Whether every history entry has its cards, worked out again only when the history or pack store changes. */
-let allCards: { raw: string | null; store: number; value: boolean } | null = null;
+let allCards: { history: number; store: number; value: boolean } | null = null;
 const historyHasAllCards = (): boolean => {
-  const raw = storedHistory();
+  const history = historyVersion();
   const store = packStoreVersion();
-  if (allCards?.raw !== raw || allCards.store !== store) allCards = { raw, store, value: getHistory().every(e => e.cards) };
+  if (allCards?.history !== history || allCards.store !== store) allCards = { history, store, value: getHistory().every(e => e.cards) };
   return allCards.value;
 };
 
@@ -636,13 +653,14 @@ export const myProgress = (): MyProgress | null => {
 };
 
 /** Your stats from this device's history (no mining): what viewers of your profile will see. Null while loading. */
+/** Shared with every caller until the list changes, so it's frozen: copy it before changing it. */
 export const myStats = (): ProfileStats | null => {
   const list = countableTickets();
   if (!list) return null;
   if (!list.stats) {
     const tracker = profileStatsTracker();
     for (const t of list.tickets) if (t.pack) tracker.add(t.pack);
-    list.stats = tracker.snapshot();
+    list.stats = Object.freeze(tracker.snapshot());
   }
   return list.stats;
 };
