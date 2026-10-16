@@ -60,6 +60,8 @@ const pulls = (value: unknown) => Array.isArray(value) && value.every((entry) =>
  */
 const olderBestCard = (value: unknown, dataVersion: number) => {
   if (!record(value) || !(text(value.id) || (dataVersion < 2 && number(value.id)))) return false;
+  // `!!c.isHolo` reads null as no holo, but any other non-boolean is a bad field, as in a file.
+  if (!optional(value, 'isHolo', (v) => v === null || boolean(v))) return false;
   const id = String(value.id);
   const lookup = value.key ?? migrateCardKey(id);
   const read = { ...value, id, isHolo: !!value.isHolo, ...(text(lookup) ? getCard(lookup) : undefined) };
