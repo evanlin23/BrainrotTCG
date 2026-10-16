@@ -65,7 +65,11 @@ test.describe('two tabs at once, emulated Chromium (not real devices)', () => {
   const FIRST_PLAYER = '8a88e3dd7409f195';
   const sealed = (page: Page) => page.locator('.pack-refusal-text');
   const player = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('brainrot-player-v1')!) as { secretKey: string; nextNonce: number });
-  const shelf = (page: Page) => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? '[]') as unknown[], STORAGE_KEYS.PENDING_PACKS);
+  // The pending shelf: earlier builds' list and this build's entry per pack.
+  const shelf = (page: Page) => page.evaluate(([list, prefix]) => [
+    ...JSON.parse(localStorage.getItem(list) ?? '[]') as unknown[],
+    ...Object.keys(localStorage).filter((key) => key.startsWith(prefix)),
+  ], [STORAGE_KEYS.PENDING_PACKS, STORAGE_KEYS.PENDING_PACK_PREFIX] as const);
   const cardCount = (collection: Record<string, { normalCount: number; holoCount: number }> | null) =>
     Object.values(collection ?? {}).reduce((total, entry) => total + entry.normalCount + entry.holoCount, 0);
   const packNonces = async (page: Page) => ((await snapshot(page)).history ?? []).filter((entry) => entry.c).map((entry) => entry.n).sort();

@@ -81,7 +81,7 @@ describe('two tabs of one player opening packs at once', () => {
     b.putBack();
     expect(onShelf(1)).toBe(true);
     // Uncounted, so the next load counts it (the stored stats count only A's).
-    expect(read(STORAGE_KEYS.PENDING_PACKS).find((p: { n: number }) => p.n === 1)).not.toHaveProperty('d');
+    expect(read(`${STORAGE_KEYS.PENDING_PACK_PREFIX}${KEY}:1`)).not.toHaveProperty('d');
     // A's own pack is in the stored collection: it stays off the shelf.
     a.putBack();
     expect(onShelf(0)).toBe(false);
@@ -105,7 +105,7 @@ describe('two tabs of one player opening packs at once', () => {
     expect(read(STORAGE_KEYS.STATS).packsOpened).toBe(2);
     b.putBack();
     expect(onShelf(2)).toBe(true);
-    expect(read(STORAGE_KEYS.PENDING_PACKS).find((p: { n: number }) => p.n === 2)).toHaveProperty('d', 1);
+    expect(read(`${STORAGE_KEYS.PENDING_PACK_PREFIX}${KEY}:2`)).toHaveProperty('d', 1);
   });
 
   it('puts nothing back when the other tab stored after reading this tab\'s pack', () => {

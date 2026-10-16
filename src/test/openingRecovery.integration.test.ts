@@ -2,6 +2,7 @@
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
+import { shelfKeys, shelvedPacks } from './pendingShelf';
 import { STORAGE_KEYS } from '../constants/config';
 import type { CollectionItem, Stats } from '../types';
 import { FILE_TOO_BIG_NOTE, NO_ROOM_FOR_COPY_NOTE, PARTIAL_IMPORT_NOTE } from '../game/saveFile';
@@ -26,6 +27,7 @@ const button = (label: string) => [...document.querySelectorAll<HTMLButtonElemen
 const storedCards = () => Object.values(read<Record<string, CollectionItem>>(STORAGE_KEYS.COLLECTION) ?? {})
   .reduce((sum, item) => sum + item.normalCount + item.holoCount, 0);
 const expectShelvesEmpty = () => {
+  expect(shelfKeys()).toEqual([]);
   expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).toBeNull();
   expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
 };
@@ -77,7 +79,7 @@ it('adds a pack left mid-reveal by a reload once, from the pending shelf', async
   await app.until('the reveal starts', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   // Recorded at open; the collection and stats take it when the reveal ends, or on the next load.
   expect((await history()).map((pack) => pack.nonce)).toEqual([0]);
-  expect(read<{ n: number }[]>(STORAGE_KEYS.PENDING_PACKS)?.map((pack) => pack.n)).toEqual([0]);
+  expect(shelvedPacks().map((pack) => pack.n)).toEqual([0]);
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBeNull();
 
   await app.reload();
