@@ -35,6 +35,7 @@ import { useProgressWriter } from './hooks/useProgressWriter';
 import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
+import { LOGO_MARK_PATH, LOGO_MARK_VIEWBOX } from './styles/logoMark';
 import {
   checkPackMilestones,
   checkCollectionAchievements,
@@ -585,6 +586,11 @@ function App() {
   // is theirs already: both come back with the chrome then, not later under the player when it lands.
   const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0 || (packBusy && !packFocus);
   const onPage = route !== 'open';
+  const logoMark = (
+    <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
+      <path fill="currentColor" d={LOGO_MARK_PATH} />
+    </svg>
+  );
   const logoChars = 'Brainrot TCG'.split('').map((char, i) =>
     char === ' ' ? (
       <span key={i} className="title-space" aria-hidden="true" />
@@ -622,9 +628,9 @@ function App() {
       <header className="app-header">
         {/* One h1 per view: the logo on the packs screen; on a page, that page's title (see Page). */}
         {onPage ? (
-          <div className="app-logo" role="img" aria-label="Brainrot TCG">{logoChars}</div>
+          <div className="app-logo" role="img" aria-label="Brainrot TCG">{logoMark}{logoChars}</div>
         ) : (
-          <h1 ref={logoRef} className="app-logo" aria-label="Brainrot TCG" tabIndex={-1}>{logoChars}</h1>
+          <h1 ref={logoRef} className="app-logo" aria-label="Brainrot TCG" tabIndex={-1}>{logoMark}{logoChars}</h1>
         )}
         {showNav && <AppNav onOpen={openPage} onPrefetch={prefetch} active={activeTab} />}
         <div className="app-utilities">

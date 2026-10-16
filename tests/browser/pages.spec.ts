@@ -150,6 +150,19 @@ test('tabs and the gear open each page in turn, and Back walks them back to Open
     const narrowBar = (await nav(page).boundingBox())!;
     const narrowHeader = (await page.locator('.app-header').boundingBox())!;
     expect(narrowBar.y + narrowBar.height).toBeLessThanOrEqual(narrowHeader.y + narrowHeader.height + 1);
+    // The logo (mark and wordmark) scales down with the row, so it ends before the first tab.
+    for (const width of [900, 960, 1000]) {
+      await page.setViewportSize({ width, height: 800 });
+      const { logoRight, tabLeft } = await page.evaluate(() => {
+        const parts = Array.from(document.querySelectorAll('.app-logo, .app-logo *'));
+        const firstTab = document.querySelector('.app-header .app-nav-item')!;
+        return {
+          logoRight: Math.max(...parts.map((el) => el.getBoundingClientRect().right)),
+          tabLeft: firstTab.getBoundingClientRect().left,
+        };
+      });
+      expect(logoRight, `at ${width}px`).toBeLessThanOrEqual(tabLeft);
+    }
   }
   expect(errors).toEqual([]);
 });

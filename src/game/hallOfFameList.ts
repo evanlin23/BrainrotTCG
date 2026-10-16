@@ -1,8 +1,9 @@
 /**
  * The published Hall of Fame (public/hall-of-fame.json, built by scripts/hall-of-fame.ts during
- * deploy): the top pulls and each set's firsts. Nothing in it is trusted; the page re-checks entries.
+ * deploy): the top pulls, each set's firsts and the daily tops. The page shows the published entries
+ * as built, and re-checks only the pending ones it reads from the relays (`loadPending`).
  */
-import { decodeProof, pullId, wouldJoinHallOfFame, type Finish, type RankableEntry } from '../engine';
+import { decodeProof, hallOfFameJoin, pullId, utcDay, type Finish, type RankableEntry } from '../engine';
 import { checkPull } from './pulls';
 import { wasSubmitted } from './share';
 
@@ -60,7 +61,9 @@ const PENDING_LIMIT = 10;
  * Submissions sent in the last week that aren't in the published list yet. The GitHub job files them
  * for good on a schedule, which GitHub can delay; meanwhile every visitor reads the relays and checks
  * them on their own device, so a pull shows as soon as it's sent. Each one that would join the list
- * is handed to `onEntry` as it's checked.
+ * is handed to `onEntry` as it's checked. One that would only join today's top (UTC) counts only if
+ * it was sent today: a daily pull leaves the published list after about two days, and an older
+ * event must not come back as today's.
  */
 export const loadPending = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal) => {
   const { fetchEvents, proofFromEvent, HOF_KIND, HOF_TAG } = await import('./nostrInbox');
@@ -87,11 +90,15 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
     .slice(0, PENDING_LIMIT);
 
   const list: RankableEntry[] = [...published];
-  for (const [i, { proof, id }] of candidates.entries()) {
+  const today = utcDay(new Date().toISOString());
+  const todayStart = Date.parse(`${today}T00:00:00.000Z`) / 1000;
+  for (const [i, { event, proof, id }] of candidates.entries()) {
     if (signal.aborted) return;
     try {
       const pull = await checkPull(proof, signal);
-      if (!wouldJoinHallOfFame({ id, setId: pull.set.id, score: pull.score }, list)) continue;
+      // The same test the inbox applies before filing it: the top pulls, a first, or today's top (UTC).
+      const join = hallOfFameJoin({ id, setId: pull.set.id, score: pull.score }, list, today);
+      if (!join || (join === 'daily' && event.created_at < todayStart)) continue;
       const entry: HallOfFameEntry = {
         id,
         proof,

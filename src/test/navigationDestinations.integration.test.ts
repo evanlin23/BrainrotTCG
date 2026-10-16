@@ -103,12 +103,15 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
   await app.interact(() => button('Retry loading rankings').click());
   await app.until('the retry loads the list', () => expect(hofStatus()?.textContent).toBe('Rankings loaded.'));
   expect(requested).toHaveLength(2);
-  expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).toContain('Nothing filed here yet.');
+  expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).toContain('No pulls filed today yet.');
   expect(document.querySelector('[aria-label="Retry loading rankings"]')).toBeNull();
-  // The legends are part of the app, so the archive shows them whatever the network does.
-  await app.interact(() => button('Archive').click());
-  expect(document.querySelectorAll('.hall-of-fame .hof-legend').length).toBeGreaterThan(0);
+  // The legends are part of the app, so "Where it started" shows them whatever the network does.
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await app.interact(() => { button('Where it started').focus(); button('Where it started').click(); });
+  expect(document.querySelectorAll('[role="dialog"] .hof-legend').length).toBeGreaterThan(0);
+  await app.interact(() => button('Close').click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(button('Where it started'));
   await app.interact(() => button('Close Rankings').click());
   await app.until('Open shows again', () => expect(currentTab()).toBe('Open'));
   expect(location.hash).toBe('');
