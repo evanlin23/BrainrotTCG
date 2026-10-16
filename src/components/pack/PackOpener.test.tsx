@@ -7,22 +7,25 @@ import { admitOptional, resetAdmission } from '../../game/admission';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 
-// The swipe is driven by hand: `cutter.cutting` says whether the player is mid-swipe.
-const cutter = vi.hoisted(() => ({ cutting: false }));
+// The swipe is driven by hand: `cutter.cutting` says whether the player is mid-swipe, `cutter.tear` finishes one.
+const cutter = vi.hoisted(() => ({ cutting: false, tear: () => {} }));
 vi.mock('../../hooks/usePackCutter', () => ({
-  usePackCutter: () => ({
-    packRef: { current: null },
-    isCutting: cutter.cutting,
-    cutPoints: [],
-    sparks: [],
-    resetCutState: () => {},
-    completeCut: () => {},
-    handlePointerDown: () => {},
-    handlePointerMove: () => {},
-    handlePointerEnd: () => {},
-    endCutAttempt: () => {},
-    cleanup: () => {},
-  }),
+  usePackCutter: ({ onCutComplete }: { onCutComplete: () => void }) => {
+    cutter.tear = onCutComplete;
+    return {
+      packRef: { current: null },
+      isCutting: cutter.cutting,
+      cutPoints: [],
+      sparks: [],
+      resetCutState: () => {},
+      completeCut: () => {},
+      handlePointerDown: () => {},
+      handlePointerMove: () => {},
+      handlePointerEnd: () => {},
+      endCutAttempt: () => {},
+      cleanup: () => {},
+    };
+  },
 }));
 vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn() }));
 vi.mock('../../utils/confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
@@ -68,5 +71,25 @@ describe('optional work around a pack', () => {
     await render(false);
     await admitOptional(work);
     expect(work).toHaveBeenCalledOnce();
+  });
+});
+
+describe('focus mode', () => {
+  it('turns on with the tear, stays on through renders, and turns off when the opener unmounts mid-pack', async () => {
+    const onFocusChange = vi.fn();
+    const show = () => act(() => root.render(
+      <PackOpener onOpen={() => {}} onShare={() => {}} onFocusChange={onFocusChange} set={SETS[0]} settings={DEFAULT_SETTINGS} />,
+    ));
+    await show();
+    expect(onFocusChange).toHaveBeenLastCalledWith(false);
+    await act(async () => cutter.tear());
+    expect(onFocusChange).toHaveBeenLastCalledWith(true);
+
+    onFocusChange.mockClear();
+    await show();
+    expect(onFocusChange).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+    expect(onFocusChange.mock.calls).toEqual([[false]]);
   });
 });

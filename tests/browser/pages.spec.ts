@@ -230,6 +230,28 @@ test('Back from a page opened over a pack returns to the pack, and the next Back
   expect(errors).toEqual([]);
 });
 
+test('a page reached from a toast over a pack summary hands focus back to the summary when it closes', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  await page.goto('./');
+  await expect(opener(page)).toBeEnabled();
+  const start = page.url();
+  await openPackSummary(page);
+
+  // With the tabs out of the way, the first pack's unlock toast is how a player gets from its summary to a page.
+  await page.locator('.toast-region').getByRole('button', { name: /achievements? unlocked/i }).click();
+  await onPage(page, baseURL!, PAGES[2], false);
+  await pageNamed(page, 'Profile').getByRole('button', { name: 'Close Profile', exact: true }).click();
+  await expect(page.locator('.pack-summary')).toBeVisible();
+  expect(page.url()).toBe(start);
+  // On a phone the header, logo and all, is still out of the way; from 900px it shows. Either way the
+  // summary is what the player came back to, so it takes focus, never the page body.
+  if ((page.viewportSize()?.width ?? 0) < 900) await expect(page.locator('.app-header')).toBeHidden();
+  else await expect(page.locator('.app-header')).toBeVisible();
+  await expect(page.locator('.summary-title')).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('closing a shared pull opened over a pack keeps the pack, and one Back then leaves it', async ({ page, baseURL }) => {
   // The viewer verifies the proof's Argon2id tickets in a worker, which is slow on a cold mobile run.
   test.setTimeout(90000);

@@ -292,6 +292,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, set, disable
   // Focus mode (#312): the app's chrome stays out of the way for the whole pack, summary included, and
   // comes back as soon as the player leaves it, even while a left pack's ticket is still on its way.
   useEffect(() => onFocusChange?.(stageInPack), [stageInPack, onFocusChange]);
+  // Unmounted mid-pack (the set changed under its summary): the pack is gone, so the chrome comes back.
+  // onFocusChange is a state setter, so this runs on unmount only, never between renders.
+  useEffect(() => () => onFocusChange?.(false), [onFocusChange]);
 
   /**
    * Back to the packs screen from any stage, keeping whatever the pack already spent. It works during
