@@ -44,22 +44,30 @@ const otherTabWrites = (entries: Record<string, string>) => {
   for (const [key, value] of Object.entries(entries)) localStorage.setItem(key, value);
 };
 const storageEvent = (key: string) => app!.interact(() => window.dispatchEvent(new StorageEvent('storage', { key })));
+const packShell = () => document.querySelector<HTMLElement>('[aria-label^="Open a "]');
+const button = (within: ParentNode, label: string) => [...within.querySelectorAll<HTMLElement>('button')]
+  .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label);
 
-async function openPack() {
-  await app!.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+/** Enter on the pack, as the keyboard opens it. */
+async function pressOpen() {
+  await app!.until('the pack shell is ready', () => expect(packShell()).not.toBeNull());
   await app!.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
+    const shell = packShell()!;
     shell.focus();
     shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
     shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
   });
+}
+
+async function openPack() {
+  await pressOpen();
   await app!.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app!.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
   await app!.until('the pack summary shows', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
   await app!.settle(100);
 }
 
-it('stops storing this tab’s progress once another tab loads a different player, and says to reload', async () => {
+it('stops this tab opening packs or storing progress once another tab loads a different player, and says to reload', async () => {
   app = await mountedApp(SEED);
   await app.mount();
   expect(banner()).toBeNull();
@@ -68,28 +76,40 @@ it('stops storing this tab’s progress once another tab loads a different playe
   await storageEvent(PLAYER_KEY);
   // The event alone shows it, before this tab tries to write anything.
   expect(banner()?.textContent).toContain(STALE);
+  expect(banner()?.textContent).toContain("can't open packs");
   const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
 
-  // A pack opened here changes this tab's collection, stats, Hall of Fame and achievements in memory:
-  // none of them reach the other player's save.
-  await openPack();
+  // No pack opens: it would spend the other player's ticket from a tab that can't store what it adds.
+  expect(packShell()?.getAttribute('aria-disabled')).toBe('true');
+  await pressOpen();
+  await app.settle(2000);
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toMatchObject({ nextNonce: 0 });
+  expect(shelf()).toEqual([]);
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
-  expect(banner()?.textContent).toContain(STALE);
-  expect(banner()?.textContent).not.toContain("couldn't be saved in this browser");
-  // The pack opened as the stored player, so it waits on the shelf for that player's next load.
-  expect(shelf()).toMatchObject([{ n: 0, k: keyOf(THEIRS) }]);
 
-  const button = [...banner()!.querySelectorAll('button')].find((el) => el.textContent === 'Reload');
-  await app.interact(() => button!.click());
+  // Settings, where the banner steps aside, offers the same reload.
+  await app.interact(() => button(document, 'Sound & display')!.click());
+  await app.until('Sound & display loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  expect(banner()).toBeNull();
+  const warning = document.querySelector('.settings p[role="alert"].save-warning')!;
+  expect(warning.textContent).toContain(STALE);
+  await app.interact(() => button(warning, 'Reload')!.click());
   expect(reload).toHaveBeenCalledTimes(1);
+  await app.interact(() => button(document, 'Close')!.click());
+  await app.until('the banner is back', () => expect(banner()?.textContent).toContain(STALE));
+  await app.interact(() => button(banner()!, 'Reload')!.click());
+  expect(reload).toHaveBeenCalledTimes(2);
   reload.mockRestore();
 
-  // After the reload the tab is the other player's, with that pack added to their save.
+  // After the reload the tab is the other player's, as stored, and opens packs into their save.
   await app.reload();
-  await app.until('the waiting pack reaches their stored collection', () => expect(owned()).toBe(5));
+  expect(banner()).toBeNull();
+  expect(packsOpened()).toBe(3);
+  await openPack();
+  expect(owned()).toBe(5);
   expect(packsOpened()).toBe(4);
   expect(shelf()).toEqual([]);
-  expect(banner()).toBeNull();
 }, 60_000);
 
 it('blocks the write even when the storage event never arrived', async () => {

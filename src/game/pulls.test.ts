@@ -198,17 +198,19 @@ describe('several packs owed at once', () => {
     expect(data.has(LEGACY)).toBe(false);
   });
 
-  it('clears only the stored packs, then none, and writes nothing when none match', () => {
+  it("clears only the stored packs, then none, and writes nothing when none match (another player's stay)", () => {
     const other = entry(7, { k: 'ab'.repeat(32) });
     data.set(LIST, JSON.stringify([entry(4), entry(5), entry(6), other]));
     clearPendingPack(5, 6);
-    expect(shelved()).toEqual([entry(4)]);
+    expect(shelved()).toEqual([other, entry(4)]);
     data.set(LIST, JSON.stringify([entry(4), other]));
     clearPendingPack();
     clearPendingPack(5);
     expect(shelved()).toEqual([entry(4), other]);
     clearPendingPack(4);
-    expect(data.has(LIST)).toBe(false);
+    expect(shelved()).toEqual([other]);
+    clearPendingPack(7);
+    expect(shelved()).toEqual([other]);
   });
 
   it('keeps the other owed packs when the shorter shelf fits only once the old one is gone', () => {
@@ -248,14 +250,18 @@ describe('several packs owed at once', () => {
     error.mockRestore();
   });
 
-  it("holds this player's packs only", () => {
+  it("holds this player's packs only, and leaves another player's there for that player's next load", () => {
     const me = getPlayer().publicKeyHex;
     const six = pack(6);
-    data.set(LIST, JSON.stringify([entry(4, { k: 'ab'.repeat(32) }), entry(5, { k: me })]));
-    savePendingPack(six);
-    expect(shelved()).toEqual([entry(5, { k: me }), expect.objectContaining({ n: 6 })]);
-    data.set(LIST, JSON.stringify([entry(4, { k: 'ab'.repeat(32) }), entry(5, { k: me })]));
+    const five = { ...pack(5), publicKeyHex: me };
+    // Another player's pack, with a nonce of this player's too (each player counts their own).
+    const theirs = entry(5, { k: 'ab'.repeat(32) });
+    data.set(LIST, JSON.stringify([theirs, entry(5, { k: me })]));
+    savePendingPack(six, { ...five, counted: true });
+    expect(shelved()).toEqual([theirs, expect.objectContaining({ n: 5, k: me, d: 1 }), expect.objectContaining({ n: 6 })]);
+    data.set(LIST, JSON.stringify([theirs, entry(5, { k: me }), 'junk']));
     expect(takePendingPacks().map((p) => p.nonce)).toEqual([5]);
+    expect(shelved()).toEqual([theirs]);
   });
 
   it('reports a shelf it could not write', () => {

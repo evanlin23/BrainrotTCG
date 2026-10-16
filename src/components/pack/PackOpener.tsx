@@ -33,6 +33,8 @@ interface PackOpenerProps {
   onBusyChange?: (busy: boolean) => void;
   set: SetDefinition;
   disabled?: boolean;
+  /** No new pack may start (the save changed in another tab); one already opening still finishes. */
+  openBlocked?: boolean;
   settings: Settings;
   /** The chosen, unlocked back, shared by the active card and the remaining stack. */
   cardBack?: string;
@@ -42,7 +44,7 @@ interface PackOpenerProps {
   onLeaveEarly?: (pack: OpenedPack) => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
@@ -153,7 +155,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     isPackCut,
     volume: effectsVolume,
     particlesEnabled: settings.particlesEnabled,
-    disabled,
+    disabled: disabled || openBlocked,
     onMiss: nudge,
   });
 
@@ -325,7 +327,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
     showSummary,
     disabled,
     onCloseSummary: closeSummary,
-    onOpenPack: () => !isPackCut && completeCut(),
+    onOpenPack: () => !isPackCut && !openBlocked && completeCut(),
     handleInteractionRef,
     onLeave: leaveReveal,
   });
@@ -409,6 +411,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, sett
               error={openError}
               isCutting={isCutting}
               isPackCut={isPackCut}
+              blocked={openBlocked}
               waiting={slowOpen && isPackCut && !isOpening}
               nudging={nudging}
               cutPoints={cutPoints}

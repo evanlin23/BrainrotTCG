@@ -52,7 +52,7 @@ const loadPull = () => import('./components/share/PullViewerPage');
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
-const STALE_SAVE_WARNING = 'This save changed in another tab, so nothing from this tab is saved now. Reload to continue with that save.';
+const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
 const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. To recover it, open Player, then Save & restore, and export a backup.';
 /** What adding a pack changes, so several packs can be added before React renders. */
 type PackProgress = { stats: Stats; collection: Record<string, CollectionItem>; hallOfFame: HallOfFameData };
@@ -631,6 +631,7 @@ function App() {
           onBusyChange={setPackBusy}
           set={selectedSet}
           disabled={isAnyModalOpen}
+          openBlocked={staleSave}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
@@ -700,6 +701,7 @@ function App() {
           onClose: () => setIsSettingsOpen(false),
           onImportSave: handleImportSave,
           saveWarning,
+          onReload: staleSave ? () => reloadPage() : undefined,
         }} />
       )}
     </div>

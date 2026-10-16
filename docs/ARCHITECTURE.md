@@ -299,8 +299,9 @@ cards are in, so each is credited to the pack and date that earned it; if only o
 packs fail to read, those count by hand and score alone rather than holding back your own. A tab
 whose player another tab switched or imported neither unlocks achievements nor stores any progress
 (collection, stats, Hall of Fame, achievements, settings): every write compares the stored player
-with the one the tab loaded, and the banner asks for a reload; packs opened meanwhile wait on the
-pending shelf under the player they opened as. IndexedDB
+with the one the tab loaded, and the banner asks for a reload. Once the tab knows, it opens no new
+pack; one opened before then waits on the pending shelf under the player it opened as, and other
+players' packs stay there when this one's change. IndexedDB
 errors can leave only memory results; writes resolve without a durable-success signal, and the pending flag
 is cleared before the final save completes. Resumption and cache retention are best effort (#87).
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.

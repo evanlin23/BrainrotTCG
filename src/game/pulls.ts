@@ -120,23 +120,32 @@ interface PendingPack {
 /** Enough for every pack a blocked collection can owe in one visit; past it, the history still has them. */
 const SHELF_LIMIT = 50;
 
-/** This player's packs under a key, a list or one entry (empty when it can't be read). */
-const readPacks = (key: string): PendingPack[] => {
+/** Every pack under a key, a list or one entry (empty when it can't be read). */
+const readEntries = (key: string): PendingPack[] => {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
-    return (Array.isArray(stored) ? stored : [stored]).filter((p: Partial<PendingPack> | null): p is PendingPack =>
-      typeof p?.n === 'number' && (!p.k || p.k === getPlayer().publicKeyHex));
+    return (Array.isArray(stored) ? stored : [stored]).filter((p: Partial<PendingPack> | null): p is PendingPack => typeof p?.n === 'number');
   } catch {
     return [];
   }
 };
 
+const isMine = (p: PendingPack) => !p.k || p.k === getPlayer().publicKeyHex;
+/** This player's packs under a key. */
+const readPacks = (key: string): PendingPack[] => readEntries(key).filter(isMine);
+
 const readShelf = () => readPacks(STORAGE_KEYS.PENDING_PACKS);
 /** The pack an older build left in its one-pack entry, if any. */
 const readLegacy = () => readPacks(STORAGE_KEYS.PENDING_PACK);
 
-/** False when storage refuses (out of space, or a SecurityError), so the shelf is as it was. */
-const writeShelf = (shelf: PendingPack[]): boolean => {
+/**
+ * Replaces this player's packs on the shelf with `mine`. Another player's packs stay for that player's
+ * next load: a tab whose player another tab switched leaves the packs it opened there (see App).
+ * False when storage refuses (out of space, or a SecurityError), so the shelf is as it was.
+ */
+const writeShelf = (mine: PendingPack[]): boolean => {
+  const others = readEntries(STORAGE_KEYS.PENDING_PACKS).filter((p) => typeof p.k === 'string' && !isMine(p));
+  const shelf = [...others, ...mine];
   try {
     if (shelf.length === 0) localStorage.removeItem(STORAGE_KEYS.PENDING_PACKS);
     else localStorage.setItem(STORAGE_KEYS.PENDING_PACKS, JSON.stringify(shelf));
@@ -222,8 +231,8 @@ export const clearPendingPack = (...nonces: number[]) => {
 };
 
 /**
- * The packs opened but never added to the collection (this player's only), taken off the shelf. A pack
- * in the older builds' entry stays there until clearPendingPack (see above).
+ * The packs opened but never added to the collection (this player's only), taken off the shelf; other
+ * players' packs stay on it. A pack in the older builds' entry stays there until clearPendingPack (see above).
  */
 export const takePendingPacks = (): OpenedPack[] => {
   const legacy = readLegacy();

@@ -125,8 +125,7 @@ it("keeps achievements a pack unlocks in a tab another player's save replaced ou
   localStorage.setItem(STORAGE_KEYS.HISTORY, '[]');
   const imported = { all_commons_pack: { unlockedAt: 1234 } };
   localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(imported));
-  await app.interact(() => window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' })));
-  await app.settle(100);
+  // No storage event reaches this tab first (once one does, it opens no packs: crossTabSave covers that).
 
   // This tab opens a pack: its first, so it unlocks achievements here, which aren't stored over the
   // other player's; the tab says its save changed elsewhere instead.

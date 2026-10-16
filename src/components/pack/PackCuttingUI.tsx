@@ -12,6 +12,8 @@ interface PackCuttingUIProps {
   error: string | null;
   isCutting: boolean;
   isPackCut: boolean;
+  /** The pack can't be opened now (the app's banner says why). */
+  blocked?: boolean;
   /** The pack is torn but its ticket is still being worked out (a slow phone). */
   waiting?: boolean;
   /** A press just missed the tear line: show where to swipe. */
@@ -27,6 +29,7 @@ const PackCuttingUI = ({
   error,
   isCutting,
   isPackCut,
+  blocked = false,
   waiting = false,
   nudging = false,
   cutPoints,
@@ -45,6 +48,7 @@ const PackCuttingUI = ({
           role="button"
           tabIndex={isPackCut ? -1 : 0}
           aria-label={`Open a ${set.name} pack`}
+          aria-disabled={blocked || undefined}
         >
           {/* Each half carries its foil with it when the wrapper tears. */}
           <div className="pack-half pack-half-bottom">
