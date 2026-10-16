@@ -58,12 +58,13 @@ actually unfurl a page is still checked by hand, against a deployed address.
 
 `npm run test:browser` (Playwright, Chromium) builds the checkout and owns a strict-port preview at
 `http://127.0.0.1:4173/BrainrotTCG/`; stop any server on that port first (or set `PREVIEW_PORT`),
-and set `BASE_PATH=/` for a root-path build. It runs every journey in `tests/browser/` on desktop
-and Pixel 5 viewports; the pack-opener smoke blocks HTTP outside the preview origin and all
-WebSockets, seeds a disposable identity with muted audio, opens one real pack and checks that stats,
-collection and history survive a reload. Failure traces, screenshots and videos land in
-`test-results/` (uploaded by CI). The newcomer agent audit (`npm run audit:agent`, see
-docs/ARCHITECTURE.md) runs locally only, and Pixel 5 emulation is not a phone: do physical-device
+and set `BASE_PATH=/` for a root-path build. It runs the journeys in `tests/browser/` on desktop
+and Pixel 5 viewports (phone-only checks skip desktop); the pack-opener smoke blocks HTTP outside
+the preview origin and all WebSockets, seeds a disposable identity with muted audio, opens one real
+pack and checks that stats, collection and history survive a reload. Failure traces, screenshots
+and videos land in `test-results/` (uploaded by CI). `agent-audit.spec.ts` checks only the audit's
+browser boundary; the newcomer agent audit itself (`npm run audit:agent`, see
+docs/ARCHITECTURE.md) runs locally only. Pixel 5 emulation is not a phone: do physical-device
 checks by hand against the preview and describe them in the PR.
 
 ## Mounted integration tests

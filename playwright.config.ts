@@ -6,7 +6,7 @@ function previewPort(value = '') {
   // Digits only: Number() alone would accept "1e3", "0x50" or " 80 ".
   const port = /^\d+$/.test(value) ? Number(value) : NaN;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`PREVIEW_PORT must be a whole number from 1 to 65535, got "${value}"`);
+    throw new Error(`PREVIEW_PORT must be digits only, from 1 to 65535, got "${value}"`);
   }
   return port;
 }
