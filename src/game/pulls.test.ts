@@ -19,6 +19,19 @@ vi.mock('./ticketMiner', () => ({
 }));
 const mineAtOnce = miner.mine;
 
+// Best-cards bookkeeping that throws, as a store its checks missed would make it.
+const bestCards = vi.hoisted(() => ({ throws: false }));
+vi.mock('./bestCards', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./bestCards')>();
+  return {
+    ...real,
+    recordBestCards: (pack: Parameters<typeof real.recordBestCards>[0]) => {
+      if (bestCards.throws) throw new TypeError('Poisoned best cards');
+      return real.recordBestCards(pack);
+    },
+  };
+});
+
 // A storage whose writes can be refused, as a browser that blocks storage (SecurityError) does.
 const data = new Map<string, string>();
 let refuseRemove: (key: string) => boolean = () => false;
@@ -49,6 +62,7 @@ const reset = () => {
   refuseRemove = () => false;
   refuseWrite = () => false;
   miner.mine = mineAtOnce;
+  bestCards.throws = false;
 };
 
 describe('pending pack when storage refuses to remove it', () => {
@@ -480,6 +494,24 @@ describe('opening a pack', () => {
     expect(held.unsaved).toBe(true);
     expect(held.cards.filter((c) => c.nonce === second.nonce).length).toBeGreaterThan(0);
     expect(best()[me].b.every((e: { n: number }) => e.n === first.nonce)).toBe(true);
+    resetBestCards();
+    error.mockRestore();
+  });
+
+  it('shelves the pack whatever is wrong with the best cards: the ticket is already spent', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const me = getPlayer().publicKeyHex;
+    // A cached card holding a line break, which decodeCard can't read: the list is left alone.
+    const poisoned = JSON.stringify({ [me]: { w: 0, b: [{ s: SET.id, v: SET.version, n: 0, i: 0, c: 'sigma\n', t: 0 }] } });
+    data.set(STORAGE_KEYS.BEST_CARDS, poisoned);
+    const first = await openPack(SET);
+    expect(first.unrecorded).toBeUndefined();
+    expect(data.get(STORAGE_KEYS.BEST_CARDS)).toBe(poisoned);
+    // And bookkeeping that throws anyway fails neither the opening nor the shelf write.
+    bestCards.throws = true;
+    const second = await openPack(SET);
+    expect(second.unrecorded).toBeUndefined();
+    expect(shelved().map((p: { n: number }) => p.n)).toEqual([first.nonce, second.nonce]);
     resetBestCards();
     error.mockRestore();
   });

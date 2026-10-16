@@ -21,6 +21,18 @@ import { syncMyBestCards } from './profiles';
 import { toCardsWithMeta, type OpenedPack } from './pulls';
 import { exportSaveFile, importSaveFile } from './saveFile';
 
+// A cached card that passes the shape check but that decoding can't read: how a bad winner looks if the two drift.
+vi.mock('./cardCode', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./cardCode')>();
+  return {
+    ...real,
+    decodeCard: (text: string) => {
+      if (text === 'unreadable') throw new TypeError('Unreadable card');
+      return real.decodeCard(text);
+    },
+  };
+});
+
 // A later version of right-now that makes every card the rarest: it must never rescore older winners.
 vi.mock('../content/sets', async (importOriginal) => {
   const real = await importOriginal<typeof import('../content/sets')>();
@@ -238,15 +250,48 @@ describe('storage', () => {
     expect(Object.keys(stored()).sort()).toEqual([KEY, TWIN]);
   });
 
-  it.each([
+  it.each<[string, unknown]>([
     ['a short key', { [KEY.slice(0, 16)]: { w: 0, b: [] } }],
     ['too many winners', { [KEY]: { w: 0, b: Array.from({ length: 11 }, (_, n) => ({ s: SET.id, v: 2, n, i: 0, c: WEAK, t: 0 })) } }],
     ['one instance twice', { [KEY]: { w: 0, b: [0, 0].map(() => ({ s: SET.id, v: 2, n: 0, i: 1, c: WEAK, t: 0 })) } }],
     ['two sets on one ticket', { [KEY]: { w: 0, b: [1, 2].map((v, i) => ({ s: SET.id, v, n: 0, i, c: WEAK, t: 0 })) } }],
     ['a negative mark', { [KEY]: { w: -1, b: [] } }],
     ['a pack list for a card', { [KEY]: { w: 0, b: [{ s: SET.id, v: 2, n: 0, i: 0, c: `${WEAK},${WEAK}`, t: 0 }] } }],
+    // decodeCard can't read these (its `.` stops at line breaks), so they'd throw wherever the card is scored.
+    ...[['\\n', '\n'], ['\\r', '\r'], ['U+2028', '\u2028'], ['U+2029', '\u2029']].map(([name, br]) =>
+      [`a card holding ${name}`, { [KEY]: { w: 0, b: [{ s: SET.id, v: 2, n: 0, i: 0, c: `${WEAK}${br}`, t: 0 }] } }] as [string, unknown]),
   ])('rejects %s', (_, value) => {
     expect(isBestCardsStore(value)).toBe(false);
+  });
+
+  it('leaves a store holding an unreadable card alone, and never throws on it', () => {
+    const raw = JSON.stringify({ [KEY]: { w: 0, b: [{ s: SET.id, v: 2, n: 0, i: 0, c: `${WEAK}\n`, t: 0 }] } });
+    data.set(BEST, raw);
+    expect(getBestCards(KEY, 0)).toMatchObject({ cards: [], unsaved: false });
+    expect(recordBestCards(opened(0, cardsOf(Array(SET.packSize).fill(WEAK))))).toBe(false);
+    expect(data.get(BEST)).toBe(raw);
+    expect(getBestCards(KEY, 1)).toMatchObject({ unsaved: true });
+  });
+
+  it("skips a winner it can't score at all, keeps the rest, and rebuilds it from its reference", async () => {
+    const cards = await derivePack(SET, fromHex(KEY), 0, fakeTicket);
+    recordBestCards(opened(0, cards));
+    const all = refs(KEY, 1);
+    const list = stored();
+    const [bad] = list[KEY].b.splice(0, 1, { ...list[KEY].b[0], c: 'unreadable' });
+    data.set(BEST, JSON.stringify(list));
+    expect(isBestCardsStore(list)).toBe(true);
+    const rest = all.filter((r) => r !== `${bad.n}/${bad.i}`);
+    expect(getBestCards(KEY, 1)).toMatchObject({ complete: false, unsaved: false });
+    expect(refs(KEY, 1)).toEqual(rest);
+    // A merge drops it, and reweighs: it may have pushed out what belongs back.
+    expect(offer(KEY)).toBe(true);
+    expect(stored()[KEY].w).toBe(0);
+    expect(stored()[KEY].b).toHaveLength(rest.length);
+    // Held but unscorable, a rebuild re-derives its pack.
+    data.set(BEST, JSON.stringify(list));
+    expect(await rebuildBestCards(KEY, 1, { ticketFn: fakeTicket })).toMatchObject({ failed: 0 });
+    expect(refs(KEY, 1)).toEqual(all);
   });
 });
 

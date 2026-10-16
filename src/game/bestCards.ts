@@ -14,7 +14,7 @@
 import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import { cardPoints, computeTicket, derivePack, fromHex, type PulledCard, type TicketFn } from '../engine';
-import { decodeCard, encodeCard, toPulled } from './cardCode';
+import { decodeCard, encodeCard, isCardCode, toPulled } from './cardCode';
 import { firstOpened, historyForKey } from './history';
 import type { OpenedPack } from './pulls';
 
@@ -77,7 +77,7 @@ const isCount = (value: unknown): value is number => typeof value === 'number' &
 
 const isEntry = (e: unknown): e is StoredBest => isRecord(e)
   && typeof e.s === 'string' && e.s !== '' && isCount(e.v) && e.v >= 1 && isCount(e.n) && isCount(e.i)
-  && (!('c' in e) || (typeof e.c === 'string' && /^[^,]+$/.test(e.c)))
+  && (!('c' in e) || (typeof e.c === 'string' && isCardCode(e.c)))
   && typeof e.t === 'number' && Number.isFinite(e.t) && e.t >= 0;
 
 const instance = (e: Pick<StoredBest, 'n' | 'i'>) => `${e.n}/${e.i}`;
@@ -135,6 +135,15 @@ const score = (entry: StoredBest): Scored => {
   return { entry, card, points: cardPoints(card.rarity, card.isHolo, card.finish, card.misprint) };
 };
 
+/** score, or null for a winner this build can't score at all (say, a cached card it can't read): skipped, so it can't break a list. */
+const tryScore = (entry: StoredBest): Scored | null => {
+  try {
+    return score(entry);
+  } catch {
+    return null;
+  }
+};
+
 /** More points first, then the lower nonce, then the higher slot. */
 const byRank = (a: Scored, b: Scored) => b.points! - a.points! || a.entry.n - b.entry.n || b.entry.i - a.entry.i;
 const byTicket = (a: Scored, b: Scored) => a.entry.n - b.entry.n || b.entry.i - a.entry.i;
@@ -169,6 +178,11 @@ export const mergeBestCards = (
   let weighed = lists.length ? Math.max(...lists.map((l) => l.w)) : 0;
   const existing = new Map<string, StoredBest>();
   for (const e of lists.flatMap((l) => l.b)) {
+    // Skipped, so what it pushed out may belong back: reweigh.
+    if (!tryScore(e)) {
+      weighed = 0;
+      continue;
+    }
     const held = existing.get(instance(e));
     if (!held || (!held.c && e.c)) existing.set(instance(e), e);
   }
@@ -264,12 +278,13 @@ export const recordBestCards = (pack: OpenedPack): boolean => {
 export const getBestCards = (publicKeyHex: string, used: number): BestCards => {
   const held = pending.get(publicKeyHex);
   const list = held ?? readStore()?.store[publicKeyHex];
-  const scored = (list?.b ?? []).map(score);
+  const stored = list?.b ?? [];
+  const scored = stored.map(tryScore).filter((s): s is Scored => !!s);
   const ordered = [...scored.filter((s) => s.card).sort(byRank), ...scored.filter((s) => !s.card).sort(byTicket)];
   const cards = ordered.map(({ entry, card, points }): BestCard => ({
     publicKeyHex, setId: entry.s, setVersion: entry.v, nonce: entry.n, slot: entry.i, card, points,
   }));
-  const complete = (list?.w ?? 0) >= used && cards.every((c) => c.card);
+  const complete = (list?.w ?? 0) >= used && cards.length === stored.length && cards.every((c) => c.card);
   return { cards, complete, unsaved: !!held };
 };
 
@@ -287,7 +302,7 @@ export const rebuildBestCards = async (
   const list = pending.get(publicKeyHex) ?? readStore()?.store[publicKeyHex];
   for (const entry of list?.b ?? []) {
     const set = getSet(entry.s, entry.v);
-    if (set && (all || !score(entry).card)) packs.set(`${entry.n}`, { entry, set });
+    if (set && (all || !tryScore(entry)?.card)) packs.set(`${entry.n}`, { entry, set });
   }
   let failed = 0;
   const candidates: BestCandidate[] = [];
