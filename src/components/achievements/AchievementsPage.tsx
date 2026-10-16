@@ -61,7 +61,7 @@ const AchievementsPage = ({ unlockedAchievements, onClose, progress = {}, onShar
   return (
     <>
       <Sheet
-        title="Goals & rewards"
+        title="Achievements"
         subtitle={
           <span className="tabular">
             {unlocked.length}/{ACHIEVEMENTS.length} unlocked · {percent}%

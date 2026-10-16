@@ -35,7 +35,7 @@ interface MyProfilePageProps {
 
 const PAGE = 30;
 
-/** How the pack list is shown: newest first, best first, or only the ones good enough for the Hall of Fame. */
+/** How the pack list is shown: best first (the default), newest first, or only the ones that qualify for Rankings. */
 type PackView = 'newest' | 'best' | 'hof';
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -48,7 +48,7 @@ const timeAgo = (t: number) => {
   return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-/** Your level and stats, a link that proves them, and every pack you've opened (newest first). */
+/** Your level and stats, a link that proves them, and every pack you've opened (best first). */
 const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePageProps) => {
   const player = getPlayer();
   // Saved packs are read in pages (game/profiles.ts): recount, and show their cards, as they arrive.
@@ -81,7 +81,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
   // Until saved packs are read, a pack not in memory yet isn't one this device lacks.
   const unopened = mine?.cache === 'ready' ? mine.missing - mine.filled : 0;
   const [shown, setShown] = useState(PAGE);
-  const [view, setView] = useState<PackView>('newest');
+  const [view, setView] = useState<PackView>('best');
   const tabsId = useId();
   const best = useMemo(() => [...history].sort(byBest), [history]);
   const worthy = useMemo(() => best.filter(isHallOfFameWorthy), [best]);
@@ -252,17 +252,17 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
               value={view}
               onChange={changeView}
               tabs={[
-                { id: 'newest', label: 'Newest' },
                 { id: 'best', label: 'Best' },
-                { id: 'hof', label: <>Hall of Fame · {worthy.length.toLocaleString()}</> },
+                { id: 'newest', label: 'Newest' },
+                { id: 'hof', label: <>For Rankings · {worthy.length.toLocaleString()}</> },
               ]}
             />
             <div className="pulls-panel" {...tabPanelProps(tabsId, view)}>
               {view === 'hof' && (
                 <p className="pulls-note">
                   {worthy.length
-                    ? 'Good enough for the Hall of Fame. Open one to share it or submit it.'
-                    : `None yet: a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+, gets in.`}
+                    ? 'These qualify for Rankings, the public Hall of Fame. Open one to share it or submit it.'
+                    : `None yet: a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+, qualifies for Rankings.`}
                 </p>
               )}
               <ul className="pulls-list">
@@ -290,7 +290,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
                             {isHallOfFameWorthy(entry) && (
                               <>
                                 <Trophy className="pull-row-hof" aria-hidden="true" />
-                                <span className="sr-only">, good enough for the Hall of Fame</span>
+                                <span className="sr-only">, qualifies for Rankings</span>
                               </>
                             )}
                           </span>

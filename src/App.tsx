@@ -658,7 +658,7 @@ function App() {
 
       {/* Achievements Page */}
       {isAchievementsOpen && (
-        <DeferredSheet load={loadAchievements} size="lg" title="Goals & rewards" screenProps={{
+        <DeferredSheet load={loadAchievements} size="lg" title="Achievements" screenProps={{
           unlockedAchievements: achievements,
           onClose: () => setIsAchievementsOpen(false),
           progress: achievementProgress,
