@@ -82,12 +82,14 @@ it('waits for a slow ticket with the app held on the pack, then records the late
   await app.mount();
   await pressPack();
   await app.until('a slow ticket says so', () => expect(document.querySelector('.pack-hint.is-waiting[role="status"]')?.textContent).toBe('Opening…'));
-  // The ticket is spent from the tear on: nothing may swap the set or open over the pack meanwhile.
+  // Nothing may swap the set or open over the pack meanwhile. Its number is claimed once the ticket is
+  // in hand, in the same step that records the pack, so a number is never spent without its mapping.
   expect(button('Settings')!.disabled).toBe(true);
-  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(1);
+  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
   await expectNothingRecorded();
 
   await finishReveal();
+  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(1);
   expect(await historyCodes()).toEqual(GOLDEN_CARDS);
   expect(await history()).toHaveLength(1);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(1);
@@ -96,7 +98,7 @@ it('waits for a slow ticket with the app held on the pack, then records the late
   expect(document.querySelector('.pack-hint.is-waiting')).toBeNull();
 }, 60_000);
 
-it('records nothing for a pack whose ticket was still mining at a reload, and opens the next nonce once', async () => {
+it('spends nothing for a pack whose ticket was still mining at a reload, and opens that nonce once later', async () => {
   let delayMs = 60_000;
   app = await mountedApp(SEED, { tickets: () => ({ delayMs }) });
   await app.mount();
@@ -104,13 +106,17 @@ it('records nothing for a pack whose ticket was still mining at a reload, and op
   await app.until('a slow ticket says so', () => expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull());
   delayMs = 0;
   await app.reload();
-  // The nonce was spent at the tear, so the interrupted pack is skipped rather than half-recorded.
-  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(1);
+  // The ticket never arrived, so its number was never claimed: nothing is half-recorded, and no number is
+  // left without the set it opened in (which would keep the profile link from ever being made).
+  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
   await expectNothingRecorded();
 
   await pressPack();
   await finishReveal();
-  expect((await history()).map((pack) => pack.nonce)).toEqual([1]);
+  expect((await history()).map((pack) => pack.nonce)).toEqual([0]);
+  expect(await historyCodes()).toEqual(GOLDEN_CARDS);
+  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(1);
+  expect((await import('../game/profiles')).myProfileInfo()).toMatchObject({ packs: 1, filled: 0 });
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(1);
   expect(storedCards()).toBe(5);
   expectShelvesEmpty();
@@ -153,9 +159,10 @@ it('never retries a failed ticket by itself: each press asks once more, and a se
     await app.settle(10_000);
     expect(app.ticketRequests).toHaveLength(asked + 1); // nothing asks again until the next press
   }
-  // Each press spent its own ticket number, and neither recorded anything.
-  expect(app.ticketRequests.slice(-2).map((request) => request.nonce)).toEqual([0, 1]);
-  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(2);
+  // A failed ticket spends no number (it has no pack to map it to): both presses asked for ticket 0, and
+  // neither recorded anything.
+  expect(app.ticketRequests.slice(-2).map((request) => request.nonce)).toEqual([0, 0]);
+  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
   await expectNothingRecorded();
 }, 60_000);
 

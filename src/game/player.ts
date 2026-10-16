@@ -3,6 +3,7 @@
  * name, and the next ticket number. Stored in localStorage; exported with saves.
  */
 import { fingerprint, fromHex, generateKeypair, normalizeName, publicKeyFromSecret, toHex } from '../engine';
+import { ticketsRecorded } from './history';
 
 const STORAGE_KEY = 'brainrot-player-v1';
 
@@ -73,12 +74,6 @@ const current = (): StoredPlayer => {
  */
 let taken: { secretKey: string; nextNonce: number } | null = null;
 
-/** current(), with the ticket counter past every number this tab took for the same key. */
-const forTickets = (): StoredPlayer => {
-  const record = current();
-  return taken?.secretKey === record.secretKey && taken.nextNonce > record.nextNonce ? { ...record, nextNonce: taken.nextNonce } : record;
-};
-
 let lastKey: { secretKeyHex: string; publicKey: Uint8Array } | null = null;
 
 const toPlayer = (s: StoredPlayer): Player => {
@@ -88,6 +83,22 @@ const toPlayer = (s: StoredPlayer): Player => {
   return { name: s.name, secretKey, publicKey, publicKeyHex: toHex(publicKey), fingerprint: fingerprint(publicKey) };
 };
 
+/**
+ * The record with its ticket counter past every ticket its key's pack history records. A pack's mapping
+ * can be stored while the counter write past it was refused (storage full, then a reload): that ticket
+ * is spent, so it is counted, never handed out again. The next claim stores the repaired count.
+ */
+const pastRecorded = (record: StoredPlayer): StoredPlayer => {
+  const recorded = ticketsRecorded(toPlayer(record).publicKeyHex);
+  return recorded > record.nextNonce ? { ...record, nextNonce: recorded } : record;
+};
+
+/** current(), with the ticket counter past every number this tab took or the history records for the same key. */
+const forTickets = (): StoredPlayer => {
+  const record = pastRecorded(current());
+  return taken?.secretKey === record.secretKey && taken.nextNonce > record.nextNonce ? { ...record, nextNonce: taken.nextNonce } : record;
+};
+
 export const getPlayer = (): Player => toPlayer(current());
 
 /** The ticket number the next pack will use (without consuming it). */
@@ -95,7 +106,7 @@ export const peekNonce = (): number => forTickets().nextNonce;
 
 /** The player and how many tickets it has used, read from one record so neither belongs to another key. */
 export const getPlayerTickets = (): { player: Player; nextNonce: number } => {
-  const record = current();
+  const record = pastRecorded(current());
   return { player: toPlayer(record), nextNonce: record.nextNonce };
 };
 

@@ -95,6 +95,23 @@ describe('profile link failures', () => {
     expect(myProfileInfo).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    [1, 'for 1 pack.'],
+    [1234, `for ${(1234).toLocaleString()} packs.`],
+  ])('counts the %i packs that cannot be linked and points to the private recovery options', (filled, count) => {
+    myProfileInfo.mockReturnValue({ packs: filled + 2, filled, missing: 0, cache: 'ready' });
+    render();
+    const text = document.body.textContent!;
+    expect(text).toContain(`Original set/version records are missing or unavailable ${count}`);
+    expect(text).toContain('Keep a private export (open Settings, then Save & backup)');
+    expect(text).toContain('an older complete backup, it may contain the missing records');
+  });
+
+  it('says nothing about unlinkable packs when every ticket has its original mapping', () => {
+    render();
+    expect(document.body.textContent).not.toContain('missing or unavailable');
+  });
+
   it('refuses only the link and player card when a ticket has no original mapping', () => {
     myProfileInfo.mockReturnValue({ packs: 3, filled: 1, missing: 2, cache: 'ready' });
     render();
