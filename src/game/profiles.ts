@@ -410,7 +410,10 @@ const readBackoff = (publicKeyHex: string): { failures: number; retryAt: number 
     if (typeof value !== 'object' || value === null) return null;
     const { publicKeyHex: owner, failures, retryAt } = value as Record<string, unknown>;
     if (owner !== publicKeyHex || !Number.isInteger(failures) || (failures as number) < 1 || typeof retryAt !== 'number' || !Number.isFinite(retryAt)) return null;
-    return { failures: failures as number, retryAt };
+    // Further off than the longest wait: written while the clock was ahead, or corrupt. Clamping to
+    // now + the longest wait would move along with now and never end, so it's due at once instead.
+    const now = Date.now();
+    return { failures: failures as number, retryAt: retryAt > now + BACKOFF_MAX_MS ? now : retryAt };
   } catch {
     return null;
   }
