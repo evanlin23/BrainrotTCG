@@ -183,7 +183,8 @@ it('leaves another player’s name alone when this tab leaves Profile with an ed
   history.replaceState(null, '', '/BrainrotTCG/#/profile');
   await app.mount();
   const nameField = () => document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]');
-  await app.until('Profile loads', () => expect(nameField()).not.toBeNull());
+  await app.until('Profile loads', () => expect(button(document, 'Edit name')).toBeDefined());
+  await app.interact(() => button(document, 'Edit name')!.click());
   await app.interact(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(nameField()!, 'Alice');
     nameField()!.dispatchEvent(new Event('input', { bubbles: true }));

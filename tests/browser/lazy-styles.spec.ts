@@ -25,11 +25,12 @@ test('the Profile page is styled when it is the first page opened', async ({ pag
   const profile = page.getByRole('main', { name: 'Profile', exact: true });
   await expect(profile.getByText(/^Player ID #/)).toBeVisible();
   // The pack foil swatches use a full-size foil overlay that only their own rules contain.
+  await profile.locator('#rewards summary').click();
   const swatch = profile.locator('.foil-swatch').first();
   await expect(swatch).toBeVisible({ timeout: 15000 });
   await expect(swatch).toHaveCSS('position', 'relative');
   await expectBounded(page, profile);
-  await expect(profile.locator('.share-note').first()).toHaveCSS('display', 'flex');
+  await expect(profile.locator('.profile-save-note')).toHaveCSS('display', 'flex');
   expect(errors).toEqual([]);
 });
 

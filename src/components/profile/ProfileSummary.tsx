@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { POKER_HANDS, xpForLevel, type HandKey, type ProfilePack, type ProfileStats } from '../../engine';
 import { COLLECTIBLE_CARDS, collectibleOwned, getSetCards } from '../../data/cards';
@@ -30,9 +30,11 @@ interface ProfileSummaryProps {
   onOpenPack?: (pack: ProfilePack) => void;
 }
 
-/** Level, the numbers that matter, best pulls and collection by era. Same for your profile and someone else's. */
+/** Level, the numbers that matter, best pulls, then the collection score and cards by set. Same for your profile and someone else's. */
 const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack }: ProfileSummaryProps) => {
   const [open, setOpen] = useState<ProfilePack | null>(null);
+  const bestId = useId();
+  const collectionId = useId();
   const floor = xpForLevel(stats.level);
   const ceiling = xpForLevel(stats.level + 1);
   const best = stats.best.filter((p) => p.cards.length > 0).slice(0, 3);
@@ -94,25 +96,9 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack
       )}
       {partial && <p className="profile-footnote">* so far, while the rest of the packs are re-opened</p>}
 
-      <section className="profile-collection" aria-label="Collection Brainrot Score">
-        <span className="profile-collection-head">
-          <span>
-            <span className="profile-collection-label">Collection score{partial && '*'}</span>{' '}
-            <span className="profile-collection-tier">{milestone ? milestone.name : 'No milestone yet'}</span>
-          </span>
-          <span className="profile-level-next tabular">
-            {stats.points.toLocaleString()}
-            {nextMilestone && ` / ${nextMilestone.points.toLocaleString()} for ${nextMilestone.name}`}
-          </span>
-        </span>
-        <span className="progress" aria-hidden="true">
-          <span style={{ width: `${nextMilestone ? ((stats.points - milestoneFloor) / (nextMilestone.points - milestoneFloor)) * 100 : 100}%` }} />
-        </span>
-      </section>
-
       {best.length > 0 && (
-        <section>
-          <h3 className="section-title profile-heading">Best pulls</h3>
+        <section className="profile-block" aria-labelledby={bestId}>
+          <h3 id={bestId} className="section-title profile-heading">Best pulls</h3>
           <ul className="pulls-list">
             {best.map((pack) => {
               const cards = toCardsWithMeta(pack.cards);
@@ -148,34 +134,55 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack
         </section>
       )}
 
-      {sets.length > 0 && (
-        <section>
-          <h3 className="section-title profile-heading">Collection by era{partial && '*'}</h3>
-          <p className="profile-footnote profile-sets-key">
-            <strong>Complete</strong>: every card in the set. <strong>Master</strong>: every card in the set as a holo.
-          </p>
-          <ul className="profile-sets">
-            {sets.map((set) => {
-              const have = stats.uniqueBySet[set.id] ?? 0;
-              const size = getSetCards(set.id).length;
-              const done = setProgress(have, stats.holoUniqueBySet[set.id] ?? 0, size);
-              const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
-              return (
-                <li key={set.id} style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}>
-                  <span className="profile-set-name">{set.name}</span>
-                  <span className="profile-set-count tabular">
-                    {done && <SetBadge done={done} />}
-                    {have}/{size}
-                  </span>
-                  <span className="profile-set-bar" aria-hidden="true">
-                    <span style={{ width: `${(have / size) * 100}%` }} />
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
+      <section className="profile-block profile-collection" aria-labelledby={collectionId}>
+        <h3 id={collectionId} className="section-title profile-heading">
+          Collection{partial && '*'}
+        </h3>
+        <div className="profile-collection-score">
+          <span className="profile-collection-head">
+            <span>
+              <span className="profile-collection-label">Collection score</span>{' '}
+              <span className="profile-collection-tier">{milestone ? milestone.name : 'No milestone yet'}</span>
+            </span>
+            <span className="profile-level-next tabular">
+              {stats.points.toLocaleString()}
+              {nextMilestone && ` / ${nextMilestone.points.toLocaleString()} for ${nextMilestone.name}`}
+            </span>
+          </span>
+          <span className="progress" aria-hidden="true">
+            <span style={{ width: `${nextMilestone ? ((stats.points - milestoneFloor) / (nextMilestone.points - milestoneFloor)) * 100 : 100}%` }} />
+          </span>
+        </div>
+        {sets.length > 0 && (
+          <>
+            <ul className="profile-sets" aria-label="Cards by set">
+              {sets.map((set) => {
+                const have = stats.uniqueBySet[set.id] ?? 0;
+                const size = getSetCards(set.id).length;
+                const done = setProgress(have, stats.holoUniqueBySet[set.id] ?? 0, size);
+                const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
+                return (
+                  <li key={set.id} style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}>
+                    <span className="profile-set-name">
+                      <span className="profile-set-title">{set.name}</span>
+                      {done && <SetBadge done={done} />}
+                    </span>
+                    <span className="profile-set-bar" aria-hidden="true">
+                      <span style={{ width: `${(have / size) * 100}%` }} />
+                    </span>
+                    <span className="profile-set-count tabular">
+                      {have}/{size}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="profile-footnote profile-sets-key">
+              <strong>Complete</strong>: every card in the set. <strong>Master</strong>: every card in the set as a holo.
+            </p>
+          </>
+        )}
+      </section>
 
       {open && (
         <Sheet title={open.score.hand.name} subtitle={`${open.set.name} · ticket #${open.nonce}`} onClose={() => setOpen(null)} size="md">
