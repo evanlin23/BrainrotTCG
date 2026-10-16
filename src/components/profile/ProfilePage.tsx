@@ -3,11 +3,13 @@ import { ChevronRight, IdCard, Link2, Trophy } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import CardImage from '../cards/CardImage';
 import PackCardViewer from '../ui/PackCardViewer';
+import type { PageSection } from '../ui/Page';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
 import ProfileSummary from './ProfileSummary';
 import PackCacheNote from './PackCacheNote';
 import PlayerSection from './PlayerSection';
+import RewardsSection from './RewardsSection';
 import AchievementsSection from '../achievements/AchievementsSection';
 import SharePreviewSheet from '../share/SharePreviewSheet';
 import { modifierClasses } from '../../game/modifiers';
@@ -48,6 +50,8 @@ interface ProfilePageProps {
   canSave: () => boolean;
   /** A name couldn't be stored as the page was left. */
   onSaveFailed: () => void;
+  /** The section a link or toast asked for: Achievements or rewards open when asked for. */
+  section?: PageSection;
 }
 
 const PAGE = 30;
@@ -66,8 +70,8 @@ const timeAgo = (t: number) => {
 };
 
 /**
- * The Profile page (#/profile): your level and stats with a link that proves them, your name and
- * level rewards, achievements, and every pack you've opened (best first).
+ * The Profile page (#/profile): your name, your level and stats with a link that proves them,
+ * achievements, the card backs and foils your level unlocked, and every pack you've opened (best first).
  */
 const ProfilePage = ({
   stats,
@@ -82,6 +86,7 @@ const ProfilePage = ({
   onOpenPacks,
   canSave,
   onSaveFailed,
+  section,
 }: ProfilePageProps) => {
   const [player, setPlayer] = useState(getPlayer);
   // Saved packs are read in pages (game/profiles.ts): recount, and show their cards, as they arrive.
@@ -180,9 +185,8 @@ const ProfilePage = ({
   return (
     <>
       <div className="profile-page pulls-page">
-        <p className="page-subtitle">
-          {player.name} <span className="share-fp">#{player.fingerprint}</span>
-        </p>
+        <PlayerSection onRenamed={setPlayer} canSave={canSave} onSaveFailed={onSaveFailed} />
+
         <h2 className="sr-only">Level and stats</h2>
         {mine && !summary ? (
           <PackCacheNote
@@ -260,10 +264,19 @@ const ProfilePage = ({
           )
         )}
 
-        <PlayerSection level={level} settings={settings} onSettingsChange={onSettingsChange} onOpenSave={onOpenSave} onRenamed={setPlayer}
-          canSave={canSave} onSaveFailed={onSaveFailed} />
+        <AchievementsSection
+          unlockedAchievements={unlockedAchievements}
+          progress={achievementProgress}
+          onSharePull={onShareAchievementPull}
+          openRequest={section?.id === 'achievements' ? section.n : undefined}
+        />
 
-        <AchievementsSection unlockedAchievements={unlockedAchievements} progress={achievementProgress} onSharePull={onShareAchievementPull} />
+        <RewardsSection
+          level={level}
+          settings={settings}
+          onSettingsChange={onSettingsChange}
+          openRequest={section?.id === 'rewards' ? section.n : undefined}
+        />
 
         {stats.highestPackLegacy && stats.highestPackCards?.length ? (
           <section className="pulls-legacy">
@@ -346,6 +359,11 @@ const ProfilePage = ({
             </div>
           </section>
         )}
+
+        <p className="profile-save-note">
+          <span>Saved in this browser ·</span>
+          <button type="button" className="link-btn" onClick={onOpenSave}>Back up</button>
+        </p>
       </div>
       {cardUrl && summary && (
         <SharePreviewSheet

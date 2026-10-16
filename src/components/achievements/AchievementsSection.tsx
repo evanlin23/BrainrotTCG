@@ -16,7 +16,12 @@ interface AchievementsSectionProps {
   progress?: Record<string, [have: number, need: number, unit: string]>;
   /** Share the pack that unlocked one, the same way as from the profile. */
   onSharePull?: (ref: PullRef, cards: CardWithMeta[]) => void;
+  /** Changes each time something links here (an achievement toast), which opens the full list. */
+  openRequest?: number;
 }
+
+/** How many of the newest unlocks show before "Show all achievements". */
+const RECENT = 3;
 
 /** Older saves stored just the unlock time. */
 const normalize = (data: AchievementData | number | undefined): Omit<AchievementData, 'pack'> & { pack?: CardWithMeta[] } | null => {
@@ -39,11 +44,18 @@ const refFor = ({ pack, ref, unlockedAt }: Unlocked): PullRef | null => {
 };
 
 /**
- * The Profile page's Achievements section (#/profile, where achievement toasts lead): a checklist, like
- * the one printed in a pack, unlocked first (newest on top), then everything still to get.
+ * The Profile page's Achievements section (#/profile, where achievement toasts lead): the count and
+ * the newest unlocks, then the whole checklist, like the one printed in a pack, behind "Show all".
+ * A toast's link opens that list.
  */
-const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull }: AchievementsSectionProps) => {
+const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull, openRequest }: AchievementsSectionProps) => {
   const [selected, setSelected] = useState<Unlocked | null>(null);
+  const [open, setOpen] = useState(openRequest !== undefined);
+  const [seenRequest, setSeenRequest] = useState(openRequest);
+  if (openRequest !== seenRequest) {
+    setSeenRequest(openRequest);
+    if (openRequest !== undefined) setOpen(true);
+  }
   const selectedRef = useMemo(() => (selected ? refFor(selected) : null), [selected]);
 
   const { unlocked, locked } = useMemo(() => {
@@ -60,6 +72,33 @@ const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull 
 
   const percent = Math.round((unlocked.length / ACHIEVEMENTS.length) * 100);
 
+  const unlockedItem = (entry: Unlocked) => {
+    const { achievement, pack } = entry;
+    const body = (
+      <>
+        <span className="achievement-box is-checked" aria-hidden="true">
+          <Check strokeWidth={3.5} />
+        </span>
+        <span className="achievement-text">
+          <span className="achievement-name">{achievement.name}</span>
+          <span className="achievement-desc">{achievement.description}</span>
+        </span>
+      </>
+    );
+    return (
+      <li key={achievement.id}>
+        {pack?.length ? (
+          <button type="button" className="achievement is-unlocked" onClick={() => setSelected(entry)} aria-label={`${achievement.name}: view the pack`}>
+            {body}
+            <ChevronRight className="achievement-chevron" aria-hidden="true" />
+          </button>
+        ) : (
+          <div className="achievement is-unlocked">{body}</div>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
       <section id="achievements" className="achievements profile-section" aria-labelledby="achievements-title">
@@ -73,62 +112,44 @@ const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull 
 
         {unlocked.length > 0 && (
           <section className="achievements-group">
-            <h3 className="section-title">Unlocked</h3>
-            <ul className="achievement-list">
-              {unlocked.map((entry) => {
-                const { achievement, pack } = entry;
-                const body = (
-                  <>
-                    <span className="achievement-box is-checked" aria-hidden="true">
-                      <Check strokeWidth={3.5} />
-                    </span>
-                    <span className="achievement-text">
-                      <span className="achievement-name">{achievement.name}</span>
-                      <span className="achievement-desc">{achievement.description}</span>
-                    </span>
-                  </>
-                );
-                return (
-                  <li key={achievement.id}>
-                    {pack?.length ? (
-                      <button type="button" className="achievement is-unlocked" onClick={() => setSelected(entry)} aria-label={`${achievement.name}: view the pack`}>
-                        {body}
-                        <ChevronRight className="achievement-chevron" aria-hidden="true" />
-                      </button>
-                    ) : (
-                      <div className="achievement is-unlocked">{body}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            <h3 className="section-title">Recently unlocked</h3>
+            <ul className="achievement-list">{unlocked.slice(0, RECENT).map(unlockedItem)}</ul>
           </section>
         )}
 
-        {locked.length > 0 && (
-          <section className="achievements-group">
-            <h3 className="section-title">Still to get</h3>
-            <ul className="achievement-list">
-              {locked.map((achievement) => (
-                <li key={achievement.id}>
-                  <div className="achievement is-locked">
-                    <span className="achievement-box" aria-hidden="true" />
-                    <span className="achievement-text">
-                      <span className="achievement-name">{achievement.name}</span>
-                      <span className="achievement-desc">{achievement.description}</span>
-                    </span>
-                    {progress[achievement.id] && (
-                      <span className="achievement-progress tabular">
-                        {Math.min(progress[achievement.id][0], progress[achievement.id][1]).toLocaleString()}/
-                        {progress[achievement.id][1].toLocaleString()}
+        <details className="profile-disclosure achievements-all" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+          <summary>Show all achievements ({ACHIEVEMENTS.length})</summary>
+          {unlocked.length > RECENT && (
+            <section className="achievements-group">
+              <h3 className="section-title">Unlocked earlier</h3>
+              <ul className="achievement-list">{unlocked.slice(RECENT).map(unlockedItem)}</ul>
+            </section>
+          )}
+          {locked.length > 0 && (
+            <section className="achievements-group">
+              <h3 className="section-title">Still to get</h3>
+              <ul className="achievement-list">
+                {locked.map((achievement) => (
+                  <li key={achievement.id}>
+                    <div className="achievement is-locked">
+                      <span className="achievement-box" aria-hidden="true" />
+                      <span className="achievement-text">
+                        <span className="achievement-name">{achievement.name}</span>
+                        <span className="achievement-desc">{achievement.description}</span>
                       </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+                      {progress[achievement.id] && (
+                        <span className="achievement-progress tabular">
+                          {Math.min(progress[achievement.id][0], progress[achievement.id][1]).toLocaleString()}/
+                          {progress[achievement.id][1].toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </details>
       </section>
 
       {selected?.pack && (

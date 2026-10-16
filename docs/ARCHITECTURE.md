@@ -526,7 +526,7 @@ Current progression is derived from packs (`src/game/progression.ts`) and does n
 versioned generation rules. Its claims can be recomputed for the range in a verified profile:
 
 - **Levels** unlock a title (shown next to the level), card backs and pack foils (cosmetic, picked
-  under Profile → Level rewards; applied as `data-card-back` / `data-pack-foil` on `<html>`).
+  under Profile → Card back and foil; applied as `data-card-back` / `data-pack-foil` on `<html>`).
 - **Collection score**: the points of every card pulled, holos at holo points, with named milestones
   (Bronze 1,000 up to Brainrot 2,000,000).
 - **Sets**: each set is *Complete* with every card and *Master* with every card as a holo, shown on
