@@ -360,7 +360,10 @@ Settings stay last-writer-wins.
 Ticket numbers (`src/game/player.ts` `claimNonce`) are claimed under a Web Lock named for the
 player's public key and the number, so two tabs never spend one number even when one tab's storage
 read lags. A tab holds the lock of the highest number it took per key until it closes and lets the
-lower ones go; a claim skips any number below a lock another tab holds. Where Web Locks are missing
+lower ones go; a claim skips any number at or below a lock another tab holds. Claims for a key take
+turns under a lock named for the key, and a number's lock outlasts a turn only if that claim took it,
+so a skip never leaves a number unused (a gap in the history would break profile proofs). Without
+`query()` the number locks alone turn a claim away from a held number. Where Web Locks are missing
 or refuse (insecure pages, older browsers) a tab counts on its own, past any number it saw taken.
 A tab never hands out a number below its own count for the same key (exports carry that count too)
 or at or below one its pack history maps for that key (a mapping stored while the count was refused),
