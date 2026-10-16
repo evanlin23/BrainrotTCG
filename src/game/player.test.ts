@@ -211,7 +211,8 @@ describe('claiming the next ticket number', () => {
         held.delete(name);
       }
     });
-    return { held, request };
+    const query = vi.fn(async () => ({ held: [...held].map((name) => ({ name, mode: 'exclusive' as const })), pending: [] }));
+    return { held, request, query };
   };
 
   /** Tab A opens a pack, then tab B, whose view of storage still lags behind A's write (as another process's cache can). */
@@ -244,6 +245,34 @@ describe('claiming the next ticket number', () => {
     expect(JSON.parse(lagging.get(PLAYER_KEY)!).nextNonce).toBe(14);
     // Each number stays held while its tab is open.
     expect(locks.held).toEqual(new Set([`brainrot-ticket:${ORIGINAL_KEY}:12`, `brainrot-ticket:${ORIGINAL_KEY}:13`]));
+  });
+
+  it('holds only the lock of the highest number a tab took, so held locks stop growing', async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const locks = fakeLocks();
+    vi.stubGlobal('navigator', { locks });
+    for (const expected of [12, 13, 14]) expect((await player.claimNonce()).nonce).toBe(expected);
+    await vi.waitFor(() => expect(locks.held).toEqual(new Set([`brainrot-ticket:${ORIGINAL_KEY}:14`])));
+  });
+
+  it('never gives a lagging tab a number below a lock another tab still holds, once lower ones are let go', async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const lagging = new Map(store);
+    let view = store;
+    getItem.mockImplementation((key: string) => view.get(key) ?? null);
+    setItem.mockImplementation((key: string, value: string) => { view.set(key, value); });
+    const locks = fakeLocks();
+    vi.stubGlobal('navigator', { locks });
+    vi.resetModules();
+    const tabA = await import('./player');
+    vi.resetModules();
+    const tabB = await import('./player');
+    expect([(await tabA.claimNonce()).nonce, (await tabA.claimNonce()).nonce]).toEqual([12, 13]);
+    // 12's lock is free again, but B, still reading 12 from storage, must not take it.
+    await vi.waitFor(() => expect(locks.held).toEqual(new Set([`brainrot-ticket:${ORIGINAL_KEY}:13`])));
+    view = lagging;
+    expect((await tabB.claimNonce()).nonce).toBe(14);
+    expect(JSON.parse(lagging.get(PLAYER_KEY)!).nextNonce).toBe(15);
   });
 
   it('gives calls in one tab different numbers when they run at once', async () => {
@@ -289,6 +318,26 @@ describe('claiming the next ticket number', () => {
     expect(stored().nextNonce).toBe(15);
   });
 
+  it('falls back from the last number it tried, never one it saw held by another tab', async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const locks = fakeLocks();
+    locks.held.add(`brainrot-ticket:${ORIGINAL_KEY}:12`).add(`brainrot-ticket:${ORIGINAL_KEY}:13`);
+    const request = vi.fn((name: string, options: { ifAvailable?: boolean }, callback: (lock: { name: string } | null) => unknown) =>
+      name.endsWith(':14') ? Promise.reject(new DOMException('Timed out', 'AbortError')) : locks.request(name, options, callback));
+    vi.stubGlobal('navigator', { locks: { request, query: locks.query } });
+    expect((await player.claimNonce()).nonce).toBe(14);
+    expect(stored().nextNonce).toBe(15);
+  });
+
+  it('counts on from the numbers it tried when every lock it asks for is held', async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const locks = fakeLocks();
+    for (let nonce = 12; nonce < 1012; nonce++) locks.held.add(`brainrot-ticket:${ORIGINAL_KEY}:${nonce}`);
+    vi.stubGlobal('navigator', { locks });
+    expect((await player.claimNonce()).nonce).toBe(1012);
+    expect(stored().nextNonce).toBe(1013);
+  });
+
   it('never repeats a number when storage refuses the new count, and says it was not stored', async () => {
     store.set(PLAYER_KEY, JSON.stringify(original));
     denyIdentityWrites();
@@ -329,6 +378,30 @@ describe('claiming the next ticket number', () => {
     store.set(PLAYER_KEY, JSON.stringify(original));
     storageEvent(PLAYER_KEY);
     expect(stored()).toEqual(original);
+  });
+
+  it('says so when storage refuses to restore the count over a lower one, and only then', () => {
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    const storageEvent = (key: string | null) => target.dispatchEvent(Object.assign(new Event('storage'), { key }));
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    expect(player.allocateNonce().nonce).toBe(12);
+    const refused = vi.fn();
+    const stop = player.watchPlayer(() => undefined, refused);
+
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    storageEvent(PLAYER_KEY);
+    expect(stored().nextNonce).toBe(13);
+    storageEvent(PLAYER_KEY);
+    storageEvent(null);
+    expect(refused).not.toHaveBeenCalled();
+
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    denyIdentityWrites();
+    storageEvent(PLAYER_KEY);
+    expect(stored()).toEqual(original);
+    expect(refused).toHaveBeenCalledTimes(1);
+    stop();
   });
 
   it('keeps the count this tab reached in an export, when storage refused it', () => {
