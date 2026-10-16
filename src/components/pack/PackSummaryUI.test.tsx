@@ -7,20 +7,6 @@ import { getSetCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
 import PackSummaryUI from './PackSummaryUI';
 
-const cache = vi.hoisted(() => ({ state: 'loading', version: 0, listeners: new Set<() => void>() }));
-const { myProgress, hydrateMyPacks } = vi.hoisted(() => ({ myProgress: vi.fn(), hydrateMyPacks: vi.fn() }));
-vi.mock('../../game/profiles', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../game/profiles')>()),
-  myProgress,
-  hydrateMyPacks,
-  myPackCacheState: () => cache.state,
-  packCacheVersion: () => cache.version,
-  onPackCacheChange: (listener: () => void) => {
-    cache.listeners.add(listener);
-    return () => cache.listeners.delete(listener);
-  },
-}));
-
 // The share sheet itself is tested on its own (CardShareSheet.test.tsx): here, what it was opened with.
 const { shareSheet } = vi.hoisted(() => ({ shareSheet: vi.fn() }));
 vi.mock('../share/CardShareSheet', () => ({
@@ -29,12 +15,6 @@ vi.mock('../share/CardShareSheet', () => ({
     return <div role="dialog">Sharing {props.card.name}</div>;
   },
 }));
-
-const setCache = (state: string) => {
-  cache.state = state;
-  cache.version += 1;
-  for (const listener of cache.listeners) listener();
-};
 
 const set = getSet('genesis', 1)!;
 const cards: CardWithMeta[] = getSetCards(set.id).slice(0, 5).map((card, i) => ({
@@ -46,9 +26,6 @@ let container: HTMLElement;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  cache.state = 'loading';
-  myProgress.mockReset().mockReturnValue(null);
-  hydrateMyPacks.mockReset().mockResolvedValue('ready');
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
   act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} />));
@@ -62,60 +39,38 @@ afterEach(() => {
 
 const text = () => container.textContent ?? '';
 
-describe('level progress while saved packs are read', () => {
-  it('shows a loading note instead of zero XP, then the progress once the packs are in', () => {
-    expect(container.querySelector('[role="status"]')?.textContent).toContain('Reading your saved packs');
-    expect(text()).toContain('Your level progress will show');
-    expect(text()).not.toMatch(/XP|Level \d/);
-
-    myProgress.mockReturnValue({ level: 3, xp: 260, gained: 40, levelXp: 200, nextXp: 400 });
-    act(() => setCache('ready'));
-    expect(container.querySelector('[role="status"]')).toBeNull();
-    expect(text()).toContain('+40 XP');
-    expect(text()).toContain('Level 3 · 60/200 to Level 4');
-  });
-
-  it('offers a retry when the read failed, still without zero XP', () => {
-    act(() => setCache('failed'));
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("so your level progress can't be shown yet");
-    expect(text()).not.toMatch(/XP|Level \d/);
-    const retry = [...container.querySelectorAll('button')].find((el) => el.textContent === 'Try again')!;
-    act(() => retry.click());
-    expect(hydrateMyPacks).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('special cards line', () => {
-  it('says how many cards are special and which kinds, and is absent for a plain pack', () => {
-    expect(text()).not.toContain('special');
-    const special = cards.map((card, i) => ({ ...card, isHolo: i === 0, finish: i === 1 ? 'GOLD' : null, misprint: i === 1 }) as CardWithMeta);
+describe('special and new cards', () => {
+  it('marks them on their tiles instead of in a line of text', () => {
+    const special = cards.map((card, i) => ({ ...card, isHolo: i === 0, finish: i === 1 ? 'GOLD' : null, misprint: i === 1, isNew: i === 2 }) as CardWithMeta);
     act(() => root.render(<PackSummaryUI openedCards={special} set={set} onClose={() => {}} />));
-    expect(container.querySelector('.summary-actions + .summary-new')?.textContent).toBe('2 special cards · Gold, Holo, Misprint');
+    expect([...container.querySelectorAll('.summary-cards .mod-label')].map((el) => el.textContent)).toEqual(['Gold · Misprint']);
+    expect(container.querySelectorAll('.summary-cards .new-sticker')).toHaveLength(1);
+    expect(text()).not.toContain('special card');
   });
 });
 
 describe('result first', () => {
   const follows = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-  it('puts the heading with the score, then the cards, then the actions, the rest folded below, and the keyboard on the heading', () => {
+  it('puts the heading with the score, then the Card guide, the cards, and the actions last, with the keyboard on the heading', () => {
     act(() => root.unmount());
     root = createRoot(container);
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} holdOptional />));
-    const [title, list, actions, how] = ['.summary-title', '.summary-cards', '.summary-actions', 'details.summary-how'].map((s) => container.querySelector(s)!);
-    expect(follows(title, list) && follows(list, actions) && follows(actions, how)).toBe(true);
-    expect(title.textContent).toMatch(/[\d,]+ Brainrot Score$/);
+    const [title, list, foot, actions] = ['.summary-title', '.summary-cards', '.summary-foot', '.summary-actions'].map((s) => container.querySelector(s)!);
+    expect(follows(title, foot) && follows(foot, list) && follows(list, actions)).toBe(true);
+    expect(actions.nextElementSibling).toBeNull();
+    expect(title.textContent).toMatch(/^[\d,]+ Brainrot Score$/);
     expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Open another pack']);
-    // The breakdown and the card guide are folded away, not gone.
-    expect(how.hasAttribute('open')).toBe(false);
-    expect(how.querySelector('.summary-how-math')?.textContent).toMatch(/pts × .+ Brainrot Score$/);
-    expect([...how.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
+    expect([...foot.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
+    // No per-pack breakdown and no level progress: the guide explains scoring, Profile holds progress.
+    expect(text()).not.toMatch(/XP|Level \d|How this score works|pts ×/);
     expect(document.activeElement).toBe(title);
   });
 
   it('says how rare the combo is', () => {
     const pair = cards.map((card, i) => (i === 1 ? { ...cards[0], uniqueId: 9 } : card));
     act(() => root.render(<PackSummaryUI openedCards={pair} set={set} onClose={() => {}} />));
-    expect(container.querySelector('.pack-headline-odds')?.textContent).toMatch(/^Pair: about 1 in [\d.,]+ packs$/);
+    expect(container.querySelector('.pack-headline-odds')?.textContent).toMatch(/^Pair · about 1 in [\d.,]+ packs$/);
   });
 
   it('hints that a card opens up close until one is opened', () => {

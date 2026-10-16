@@ -1,7 +1,7 @@
 /*
  * The one-screen pack summary (components/pack/PackSummaryUI.tsx, docs/DESIGN.md one-screen summary
- * rule): headline, the five cards in one row, then the actions stuck to the bottom; the rest below the
- * fold. Scoped to .pack-summary so it wins over the older summary rules in PackOpener.css.
+ * rule): headline, the Card guide link, the five cards in one row, then the actions stuck to the
+ * bottom. Scoped to .pack-summary so it wins over the older summary rules in PackOpener.css.
  */
 
 .pack-summary .pack-headline {
@@ -10,26 +10,46 @@
 }
 
 .pack-summary .pack-headline-heading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   margin: 0;
   line-height: 1.15;
-}
-
-.pack-summary .pack-headline-heading .pack-headline-combo {
-  font-size: var(--text-lg);
-  color: var(--text-muted);
-}
-
-.pack-summary .pack-headline-heading .pack-headline-total {
   font-size: var(--text-3xl);
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
-.pack-headline-odds {
-  color: var(--text-subtle);
+/* "[combo] · about 1 in [n] packs", or just the combo when it has no odds (No Matches). */
+.pack-summary .pack-headline-odds {
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/* One line, only for a pull that makes today's Rankings: "🏆 Makes today's Rankings · Submit". */
+.pack-summary .summary-hof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1) var(--space-2);
+  /* The same height loading, empty or in any state, so the cards below never move. */
+  min-height: var(--touch-target);
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+.pack-summary .summary-hof:focus {
+  outline: none;
+}
+
+.pack-summary .summary-hof-submit {
+  min-height: var(--touch-target);
+}
+
+/* Focus brought into view by the keyboard stops above the stuck actions, not under them. */
+.pack-summary .summary-content {
+  scroll-padding-bottom: calc(var(--touch-target) + var(--space-3) + var(--space-2));
 }
 
 /*
@@ -38,6 +58,8 @@
  */
 .pack-summary .summary-cards {
   gap: var(--space-2);
+  /* The last content: clear of the actions' faded strip when scrolled to the end. */
+  margin-bottom: var(--space-2);
 }
 
 .pack-summary .summary-cards li {
@@ -54,10 +76,10 @@
   font-size: var(--text-xs);
 }
 
-/* Says the card opens up close; the New sticker keeps the other corner. */
+/* Says the card opens up close: bottom left, clear of the New sticker in the top right. */
 .summary-card-expand {
   position: absolute;
-  top: 2px;
+  bottom: 2px;
   left: 2px;
   z-index: 1;
   display: grid;
@@ -72,8 +94,18 @@
   pointer-events: none;
 }
 
+/* Above the cards, under the headline: the tap hint and the Card guide on one line, wrapping on narrow screens. */
+.summary-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
 .summary-caption {
-  margin: var(--space-2) 0 0;
+  margin: 0;
   color: var(--text-subtle);
   font-size: var(--text-sm);
 }
@@ -90,6 +122,12 @@
   padding-top: var(--space-3);
   padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
   background: linear-gradient(to bottom, transparent, var(--bg) var(--space-3));
+  /* The faded strip above the buttons is see-through to taps too: what shows through it stays tappable. */
+  pointer-events: none;
+}
+
+.pack-summary .summary-actions > * {
+  pointer-events: auto;
 }
 
 @media (max-width: 480px) {
@@ -121,36 +159,4 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-}
-
-.pack-summary .summary-new {
-  margin-top: var(--space-2);
-}
-
-.pack-summary .summary-xp {
-  margin: var(--space-3) auto 0;
-}
-
-.summary-how {
-  width: min(100%, 28rem);
-  margin-top: var(--space-3);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  text-align: center;
-}
-
-.summary-how summary {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--touch-target);
-  padding-inline: var(--space-2);
-  cursor: pointer;
-}
-
-.summary-how-math {
-  margin: 0 0 var(--space-2);
-}
-
-.summary-how-math strong {
-  color: var(--text);
 }

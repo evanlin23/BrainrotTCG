@@ -1011,20 +1011,6 @@ button.reveal-card {
     margin-bottom: var(--space-5);
 }
 
-.summary-xp {
-    display: grid;
-    gap: var(--space-1);
-    width: min(100%, 22rem);
-    margin: calc(-1 * var(--space-3)) auto 0;
-    color: var(--text-muted);
-    font-size: var(--text-sm);
-    text-align: center;
-}
-
-.summary-xp strong {
-    color: var(--brand);
-}
-
 .summary-cards {
     display: flex;
     flex-wrap: wrap;
@@ -1116,13 +1102,6 @@ button.reveal-card {
     max-width: 100%;
     min-height: var(--touch-target);
     padding-inline: var(--space-2);
-}
-
-.summary-new {
-    margin-top: var(--space-3);
-    color: var(--text-muted);
-    font-size: var(--text-sm);
-    font-weight: 600;
 }
 
 /* The card is the reveal's button (flip, then next). Its ring is drawn over the big-pull halo, which

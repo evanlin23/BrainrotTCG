@@ -44,7 +44,7 @@ it('is the Card guide, explaining rarity, holo and modifiers and how often a pac
   expect(text).not.toContain('has no finishes or misprints');
   expect(text).toContain('about 63% of packs have at least one');
   // The scoring tables stay.
-  expect(text).toContain('Brainrot Score = card points × combo multiplier');
+  expect(text).toContain('Brainrot Score = card points added up × combo multiplier');
 });
 
 it('leaves finishes out for a set without modifiers', () => {

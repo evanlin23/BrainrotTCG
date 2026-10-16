@@ -15,9 +15,12 @@ const INSET = 34;
 
 const isPhone = () => test.info().project.name.startsWith('mobile');
 
-/** Opens the fixture player's first pack and skips to its summary. */
-async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewport = isPhone() ? PHONE : DESKTOP } = {}) {
-  const errors = await monitor(page, baseURL);
+/**
+ * Opens the fixture player's first pack and skips to its summary. `history` seeds that many synthetic
+ * packs first, so the pack opened is the fixture's ticket with that nonce.
+ */
+async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewport = isPhone() ? PHONE : DESKTOP, history = 0 } = {}) {
+  const errors = await monitor(page, baseURL, history);
   await page.setViewportSize(viewport);
   if (isPhone()) {
     const cdp = await page.context().newCDPSession(page);
@@ -151,7 +154,8 @@ function viewerDrags(page: Page) {
   });
 }
 
-for (const textZoom of [100, 200]) {
+// At 100% the summary fits without scrolling (the tests below); 200% text makes it scroll.
+for (const textZoom of [200]) {
   test(`keeps the summary's actions on screen at ${textZoom}% text, stuck above the inset while the rest scrolls`, async ({ page, baseURL }) => {
     test.setTimeout(60000);
     const { errors } = await openSummary(page, baseURL!, { textZoom });
@@ -183,7 +187,7 @@ for (const textZoom of [100, 200]) {
     await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
 
-    // Focus order is the page's: the heading, every card and its Share, the actions, then the rest.
+    // Focus order is the page's: the heading, the Card guide, every card and its Share, then the actions.
     // Each stop is on screen and not under anything, the stuck actions included.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = 0; });
     await page.locator('.summary-title').focus();
@@ -199,7 +203,7 @@ for (const textZoom of [100, 200]) {
       expect(await obstruction(page), `stop ${stop + 1} is covered or off screen`).toBeNull();
     }
     expect(visited).toEqual(expected);
-    expect(visited.at(-1)).toContain('How this score works');
+    expect(visited.at(-1)).toContain('Open another pack');
     expect(errors).toEqual([]);
   });
 }
@@ -210,9 +214,11 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
   test.setTimeout(60000);
   const { errors } = await openSummary(page, baseURL!, { viewport });
   expect(await page.locator('.summary-content').evaluate((list) => list.scrollTop)).toBe(0);
+  // The cards are the last content: the summary has nothing left to scroll to.
+  expect(await page.locator('.summary-content').evaluate((list) => list.scrollHeight - list.clientHeight)).toBeLessThanOrEqual(0);
   for (const locator of [
     page.locator('.summary-title'),
-    page.locator('.pack-headline-total'),
+    page.locator('.pack-headline-odds'),
     ...Array.from({ length: 5 }, (_, index) => page.locator('.summary-card').nth(index)),
     page.getByRole('button', { name: 'Share', exact: true }),
     page.getByRole('button', { name: 'Open another pack' }),
@@ -286,11 +292,14 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
   // Swipes across the cards, sideways and up, flick or drag: they scroll or select, never dismiss.
   const first = (await page.locator('.summary-card').first().boundingBox())!;
   const last = (await page.locator('.summary-card').last().boundingBox())!;
-  // The long drag runs right to left across the whole row: a level left-to-right drag is the browser's
-  // own swipe-back in Chromium's touch emulation (history.back, which no page CSS stops there), not
-  // the summary dismissing itself.
+  // The long drag runs right to left across the whole row with touch: a level left-to-right drag is
+  // the browser's own swipe-back in Chromium's touch emulation (history.back, which no page CSS stops
+  // there), not the summary dismissing itself.
+  // Without touch there's no swipe-back, so the mouse run drags it left to right.
+  const across = [last.x + last.width / 2, first.x + first.width / 2];
+  const [from, to] = hasTouch ? across : across.reverse();
   const strokes = [
-    [last.x + last.width / 2, last.y + last.height / 2, first.x + first.width / 2, last.y + last.height / 2],
+    [from, last.y + last.height / 2, to, last.y + last.height / 2],
     [first.x + first.width * 0.8, first.y + first.height / 2, Math.max(4, first.x - 120), first.y + first.height / 2],
     [first.x + first.width / 2, first.y + first.height * 0.8, first.x + first.width / 2, Math.max(8, first.y - 160)],
   ];
@@ -340,5 +349,74 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
   await expect(packShell).toBeVisible({ timeout: 15000 });
   await expect(summary).toHaveCount(0);
   expect(await recorded()).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+// The fixture's ticket 10 is a Two Pair worth 20,900, over the Hall of Fame's score bar. The list is an
+// empty stand-in, so it makes today's Rankings; the relays stay blocked and nothing is submitted.
+for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }]) test(`a pull that makes today's Rankings says so above the fold with the actions at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  const { errors } = await openSummary(page, baseURL!, { viewport, history: 10 });
+  const line = page.locator('.summary-hof');
+  await expect(line).toContainText("Makes today's Rankings");
+  await expect(line.getByRole('button', { name: 'Submit to the Hall of Fame' })).toBeVisible();
+  const boxes = await page.evaluate(() => Array.from(document.querySelectorAll('.summary-hof, .summary-actions .btn'), (element) => {
+    const { top, bottom, left, right } = element.getBoundingClientRect();
+    const actions = document.querySelector('.summary-actions')!.getBoundingClientRect();
+    return {
+      what: element.textContent!.trim(),
+      onScreen: top >= 0 && bottom <= innerHeight && left >= 0 && right <= innerWidth,
+      clearOfActions: element.closest('.summary-actions') !== null || bottom <= actions.top,
+    };
+  }));
+  expect(boxes.length).toBeGreaterThanOrEqual(3);
+  for (const box of boxes) expect(box, JSON.stringify(box)).toMatchObject({ onScreen: true, clearOfActions: true });
+  expect(await page.evaluate(() => document.querySelector('.summary-content')!.scrollTop)).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+// The line keeps one height while the list loads and in every state after, so the cards below never
+// move. The relays are stand-ins on this page: a socket asking for pending sends closes, and a send
+// either fails (the socket closes) or waits for the test to accept it. Nothing leaves the browser.
+test('the Hall of Fame line never moves the cards below it', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  let release = () => {};
+  const listLoads = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/hall-of-fame.json', async (route) => {
+    await listLoads;
+    await route.fulfill({ json: [] });
+  });
+  let relays: 'refuse' | 'hold' = 'refuse';
+  const held: (() => void)[] = [];
+  await page.routeWebSocket(/.*/, (socket) => socket.onMessage((message) => {
+    const [type, event] = JSON.parse(String(message)) as [string, { id: string }];
+    if (type === 'EVENT' && relays === 'hold') held.push(() => socket.send(JSON.stringify(['OK', event.id, true, ''])));
+    else socket.close();
+  }));
+  const { errors } = await openSummary(page, baseURL!, { history: 10 });
+  const line = page.locator('.summary-hof');
+  const cardsTop = () => page.locator('.summary-cards').evaluate((cards) => cards.getBoundingClientRect().top);
+  const tops: Record<string, number> = {};
+
+  await expect(line).toHaveAttribute('aria-hidden', 'true');
+  tops.loading = await cardsTop();
+  release();
+  const submit = line.getByRole('button', { name: 'Submit to the Hall of Fame' });
+  await expect(submit).toBeVisible();
+  tops.offered = await cardsTop();
+  await submit.click();
+  await expect(line).toContainText("Couldn't submit");
+  tops.failed = await cardsTop();
+  relays = 'hold';
+  await line.getByRole('button', { name: 'Retry' }).click();
+  await expect(line).toContainText('Submitting…');
+  await expect.poll(() => held.length).toBeGreaterThan(0);
+  tops.sending = await cardsTop();
+  held[0]();
+  await expect(line).toContainText('Submitted · #1 today');
+  tops.sent = await cardsTop();
+
+  expect(tops, JSON.stringify(tops)).toEqual(Object.fromEntries(Object.keys(tops).map((state) => [state, tops.loading])));
   expect(errors).toEqual([]);
 });
