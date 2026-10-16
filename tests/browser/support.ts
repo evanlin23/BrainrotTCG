@@ -84,6 +84,17 @@ export async function expectDecoded(images: Locator, count: number) {
   }
 }
 
+/** Waits until the target's box holds still between two reads, 150ms apart (the pack drops in). */
+export async function expectStill(target: Locator, message: string) {
+  let last = '';
+  await expect.poll(async () => {
+    const box = JSON.stringify(await target.boundingBox());
+    const still = box === last;
+    last = box;
+    return still;
+  }, { message, intervals: [150] }).toBe(true);
+}
+
 export async function snapshot(page: Page) {
   return page.evaluate((keys) => ({
     stats: JSON.parse(localStorage.getItem(keys.STATS) ?? 'null'),

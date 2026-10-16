@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, fingerFor, type Finger } from './support';
+import { monitor, expectDecoded, expectStill, fingerFor, type Finger } from './support';
 
 // Rapid presses on game controls must not highlight text or start a native image drag, while
 // inputs, copyable text and links keep their normal behaviour (#264).
@@ -24,11 +24,28 @@ async function hammer(page: Page, target: Locator) {
   await page.mouse.click(x, y, { clickCount: 3 });
 }
 
+/** Where the drags below press: the middle across, 70% down. */
+async function pressPoint(target: Locator) {
+  const box = (await target.boundingBox())!;
+  return { x: box.x + box.width / 2, y: box.y + box.height * 0.7 };
+}
+
+/**
+ * The logo, once the pack has dropped in: it falls from above the screen, past the logo, so a press
+ * before then can land on the pack instead. Checks that the drags' press point hits the logo.
+ */
+async function settledLogo(page: Page) {
+  await expectStill(page.getByRole('button', { name: /^Open a .* pack$/ }), 'the pack stops moving');
+  const logo = page.locator('.app-logo');
+  const { x, y } = await pressPoint(logo);
+  expect(await logo.evaluate((element, [px, py]) => element.contains(document.elementFromPoint(px, py)), [x, y]),
+    'a press there lands on the logo').toBe(true);
+  return logo;
+}
+
 /** Presses on an image and moves a short way, the start of a native drag if one were allowed. */
 async function tryDrag(page: Page, target: Locator, dx: number, dy: number) {
-  const box = (await target.boundingBox())!;
-  const x = box.x + box.width / 2;
-  const y = box.y + box.height * 0.7;
+  const { x, y } = await pressPoint(target);
   await page.mouse.move(x, y);
   await page.mouse.down();
   for (let step = 1; step <= 5; step++) await page.mouse.move(x + (dx * step) / 5, y + (dy * step) / 5);
@@ -37,9 +54,7 @@ async function tryDrag(page: Page, target: Locator, dx: number, dy: number) {
 
 /** The same with a finger: a long press first, as a phone starts its own drags and selections. */
 async function tryTouchDrag(page: Page, finger: Finger, target: Locator, dx: number, dy: number) {
-  const box = (await target.boundingBox())!;
-  const x = box.x + box.width / 2;
-  const y = box.y + box.height * 0.7;
+  const { x, y } = await pressPoint(target);
   await finger.press(x, y);
   await page.waitForTimeout(800);
   for (let step = 1; step <= 5; step++) await finger.move(x + (dx * step) / 5, y + (dy * step) / 5);
@@ -82,9 +97,10 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   const dragStarts = await countDragStarts(page);
 
   // A press-drag across the title letters grows a selection wherever text is selectable.
-  await tryDrag(page, page.locator('.app-logo'), 60, 0);
+  const logo = await settledLogo(page);
+  await tryDrag(page, logo, 60, 0);
   expect(await selectedText(page)).toBe('');
-  await page.locator('.app-logo').click({ clickCount: 3 });
+  await logo.click({ clickCount: 3 });
   await packShell.dblclick();
   await packShell.click({ clickCount: 3 });
   expect(await selectedText(page)).toBe('');
@@ -179,6 +195,7 @@ test.describe('with a touch screen', () => {
     await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
     await tryTouchDrag(page, finger, page.locator('.summary-cards img').first(), 30, 0);
     expect(await dragStarts()).toBe(0);
+    expect(await selectedText(page)).toBe('');
     // A swipe up scrolls down, and a swipe down scrolls back up.
     await expectSummaryScrolls(page, async (x, y, down) => {
       await finger.press(x, y);
@@ -192,8 +209,8 @@ test.describe('with a touch screen', () => {
     test.setTimeout(60000);
     const errors = await monitor(page, baseURL!, 0, { returning: true });
     await page.goto('./');
-    const logo = page.locator('.app-logo');
-    await expect(logo).toBeVisible();
+    await expect(page.locator('.app-logo')).toBeVisible();
+    const logo = await settledLogo(page);
     const dragStarts = await countDragStarts(page);
     const finger = await fingerFor(page, true);
 

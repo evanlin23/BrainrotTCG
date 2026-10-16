@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, fingerFor } from './support';
+import { monitor, expectDecoded, expectStill, fingerFor } from './support';
 
 // Cut sparks start on the drawn cut, at the press and at the pointer, in the same frame (#265).
 // useSparks jitters each spark by up to 8px across and 2px down in the pack's own pixels, so the
@@ -20,13 +20,7 @@ async function settledPack(page: Page, ancestorTransform?: string) {
   const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
   await expectDecoded(packShell.locator('img'), 2);
   await packShell.scrollIntoViewIfNeeded();
-  let last = '';
-  await expect.poll(async () => {
-    const box = JSON.stringify(await packShell.boundingBox());
-    const still = box === last;
-    last = box;
-    return still;
-  }, { message: 'the pack stops moving', intervals: [150] }).toBe(true);
+  await expectStill(packShell, 'the pack stops moving');
   return packShell;
 }
 
