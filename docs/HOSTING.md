@@ -52,8 +52,8 @@ What keeps working:
 Domains cost money (about $10–15 a year), so this is optional, and it's best decided before the
 move: saves only carry over from the GitHub Pages address, not from `pages.dev` to a domain added
 later. To use one, add it in Cloudflare (**Workers & Pages → brainrottcg → Custom domains**), set a
-repository **variable** (not a secret) `SITE_URL` to it, ending in `/` (for example
-`https://brainrottcg.net/`), and deploy.
+repository **variable** (not a secret) `SITE_URL` to it, with or without the trailing `/` (for
+example `https://brainrottcg.net/`), and deploy.
 
 ## Switching back to GitHub Pages
 
@@ -75,10 +75,13 @@ an approval gate:
   relevant browser/storage/asset checks, plus unrun checks and unresolved blockers. The
   [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
   builds (`npm run check`, `npm run build`) and deploys only if it passes. The build job holds no
-  secrets and seals what it built; the Cloudflare job publishes only those sealed files, and both
-  publishing jobs first check the run is still the newest `main`. Only the last job may write Pages.
+  secrets and seals what it built; the Cloudflare job publishes only those sealed files. Only the
+  last job may write Pages. Deploys run one at a time (the `pages` concurrency group): a newer push
+  to `main` cancels an older run, and the site job stops any run not started from `main`.
   [scripts/deploy_contract.py](../scripts/deploy_contract.py) does the sealing and checks, and CI's
-  workflow lint runs its test, which reads these promises from the workflow files.
+  workflow lint runs its test, which reads these promises from the workflow files. Its strictness is
+  deliberate: it fails closed, so any drift between the workflow and the contract fails CI until
+  both are changed together.
   [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) skip
   pushes to `main` (`branches-ignore`), so on a bypassed revision workflow lint (actionlint) and
   browser tests may not have run.

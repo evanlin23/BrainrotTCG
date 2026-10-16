@@ -3,7 +3,6 @@
   seal DIR          (build)   write DIR/dist/deployment-id.json and a manifest of every file's hash;
                               prints manifest_sha256=<hash of the manifest> for $GITHUB_OUTPUT
   verify DIR        (publish) the downloaded files are exactly the ones build sealed in this run
-  current-main      (publish, deploy) this run's commit is still the head of main
   check-workflows   (CI) .github/workflows do what docs/HOSTING.md says, read from the YAML
 
 Standard library only, so the jobs that run it install nothing. Run it with `python3 -I`.
@@ -15,7 +14,6 @@ from pathlib import Path
 import re
 import sys
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r'[0-9a-f]{40}')
@@ -40,11 +38,11 @@ def marker(env):
     require(SHA.fullmatch(sha), 'GITHUB_SHA is not a full commit hash')
     require(re.fullmatch(r'[1-9][0-9]*', run_id), 'GITHUB_RUN_ID is not a run number')
     parts = urlsplit(url)
-    require(not any(c.isspace() for c in url) and parts.scheme == 'https' and parts.hostname
-            and not parts.username and not parts.password and parts.port is None
-            and not parts.query and not parts.fragment and parts.path == '/',
-            f'SITE_URL {url!r} must be a plain https:// address ending in a single /')
-    return {'repository': repository, 'run_id': run_id, 'sha': sha, 'url': url}
+    require(not re.search(r'[\s?#]', url) and parts.scheme == 'https' and parts.hostname
+            and not parts.username and not parts.password and parts.port is None and parts.path in ('', '/'),
+            f'SITE_URL {url!r} must be a plain https:// address, with or without one trailing /')
+    # The trailing / is optional in SITE_URL; the marker always has exactly one.
+    return {'repository': repository, 'run_id': run_id, 'sha': sha, 'url': url.removesuffix('/') + '/'}
 
 
 def canonical(value, **options):
@@ -93,21 +91,6 @@ def verify(release, env, digest):
     require(sealed.get('files') == hashes(dist), "the files don't match the sealed hashes")
     require((dist / 'deployment-id.json').read_text(encoding='utf-8') == canonical(expected),
             "dist/deployment-id.json doesn't name this run")
-
-
-def current_main(env, opener=urlopen):
-    repository, sha, token = env.get('GITHUB_REPOSITORY', ''), env.get('GITHUB_SHA', ''), env.get('GITHUB_TOKEN', '')
-    require(re.fullmatch(r'[\w.-]+/[\w.-]+', repository), 'GITHUB_REPOSITORY is missing or malformed')
-    require(SHA.fullmatch(sha), 'GITHUB_SHA is not a full commit hash')
-    require(token, 'GITHUB_TOKEN is missing')
-    api = env.get('GITHUB_API_URL') or 'https://api.github.com'
-    require(api.startswith('https://'), 'GITHUB_API_URL must be https')
-    request = Request(f'{api}/repos/{repository}/git/ref/heads/main', headers={
-        'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28'})
-    with opener(request, timeout=30) as response:
-        head = json.load(response)['object']['sha']
-    require(head == sha, f'main has moved on to {head}; a newer run publishes it')
 
 
 # --- Workflow files ------------------------------------------------------------------------------
@@ -258,14 +241,13 @@ def walk(node, path=()):
 CLOUDFLARE = "needs.site.outputs.host == 'cloudflare'"
 GUARD = {'name': 'Require the main source ref', 'env': {'SOURCE_REF': '${{ github.ref }}'},
          'run': 'test "$SOURCE_REF" = refs/heads/main'}
-CURRENT_MAIN = {'env': {'GITHUB_TOKEN': '${{ github.token }}'}, 'run': 'python3 -I scripts/deploy_contract.py current-main'}
 VERIFIER = 'python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json'
 PERMISSIONS = {
     'independent-verifier': {'contents': 'read'},
     'site': None,  # inherits the workflow's empty set
     'build': {'contents': 'read', 'issues': 'read'},
     'publish': {'contents': 'read'},
-    'deploy': {'contents': 'read', 'pages': 'write', 'id-token': 'write'},
+    'deploy': {'pages': 'write', 'id-token': 'write'},
 }
 NEEDS = {'site': {'independent-verifier'}, 'build': {'site'}, 'publish': {'site', 'build'}, 'deploy': {'build', 'publish'}}
 SECRET_STEPS = {('site', 'site'), ('publish', 'Deploy to Cloudflare Pages')}
@@ -301,7 +283,6 @@ PUBLISH = [
     cloudflare({'uses': 'actions/download-artifact', 'with': {'artifact-ids': '${{ needs.build.outputs.artifact_id }}', 'path': 'release'}}),
     cloudflare({'env': {'MANIFEST_SHA256': '${{ needs.build.outputs.manifest_sha256 }}', 'SITE_URL': '${{ needs.site.outputs.url }}'},
                 'run': 'python3 -I scripts/deploy_contract.py verify release'}),
-    cloudflare(CURRENT_MAIN),
     cloudflare({'uses': 'actions/setup-node', 'with': {'node-version': 22, 'package-manager-cache': False}}),
     cloudflare({'run': 'npm ci --prefix tools/wrangler --ignore-scripts'}),
     cloudflare({'env': {'CLOUDFLARE_API_TOKEN': '${{ secrets.CLOUDFLARE_API_TOKEN }}',
@@ -311,14 +292,14 @@ PUBLISH = [
                        '--branch=main --commit-hash="$GITHUB_SHA" --commit-dirty=true'}),
     cloudflare({'env': {'URL': '${{ needs.site.outputs.url }}'},
                 'run': lambda run: isinstance(run, str) and '| cmp -s release/dist/deployment-id.json - && exit 0' in run
-                and 'deployment-id.json?run=' in run}),
+                and '"${URL%/}/deployment-id.json?run=' in run}),
 ]
-DEPLOY = [
-    {'uses': 'actions/checkout', 'with': {'persist-credentials': False, 'sparse-checkout': '/scripts/deploy_contract.py',
-                                         'sparse-checkout-cone-mode': False}},
-    CURRENT_MAIN,
-    {'uses': 'actions/deploy-pages'},
-]
+DEPLOY = [{'uses': 'actions/deploy-pages'}]
+# Only one deploy runs at a time, and a newer push to main cancels the older run: with GUARD, this
+# is what stops an older build publishing over a newer one.
+CONCURRENCY = {'group': 'pages', 'cancel-in-progress': True}
+# The site lookup hands SITE_URL on ending in exactly one /, whichever way the variable is written.
+SITE_URL_OUTPUT = 'echo "url=${url%/}/"'
 
 
 def check_deploy(workflow):
@@ -329,6 +310,8 @@ def check_deploy(workflow):
         problems.append('deploy.yml: must run only on pushes to main and manual runs')
     if workflow.get('permissions') != {}:
         problems.append('deploy.yml: the workflow must grant no token scopes (permissions: {})')
+    if workflow.get('concurrency') != CONCURRENCY:
+        problems.append('deploy.yml: concurrency must be the pages group with cancel-in-progress: true')
     jobs = workflow.get('jobs') or {}
     if set(jobs) != set(PERMISSIONS):
         return problems + [f'deploy.yml: jobs must be exactly {sorted(PERMISSIONS)}']
@@ -365,6 +348,8 @@ def check_deploy(workflow):
         problems.append('deploy.yml: independent-verifier must end by checking both vector files')
     if len(site) != 2 or site[0] != GUARD or site[1].get('id') != 'site' or 'uses' in site[1]:
         problems.append('deploy.yml: site must be the main-ref guard, then the host lookup, and run no actions')
+    elif SITE_URL_OUTPUT not in str(site[1].get('run', '')):
+        problems.append(f'deploy.yml: the site lookup must hand on its address ending in one / ({SITE_URL_OUTPUT})')
     if any(step == GUARD for job in ('build', 'publish', 'deploy', 'independent-verifier') for step in jobs[job].get('steps') or []):
         problems.append('deploy.yml: the main-ref guard belongs in site only')
     if jobs['site'].get('outputs') != {key: f'${{{{ steps.site.outputs.{key} }}}}' for key in ('host', 'url', 'base')}:
@@ -387,10 +372,10 @@ def check_deploy(workflow):
                                         'manifest_sha256': '${{ steps.seal.outputs.manifest_sha256 }}'}:
         problems.append('deploy.yml: build outputs must be the handoff artifact ID and the sealed manifest hash')
     if len(publish) != len(PUBLISH) or not all(match(step, spec) for step, spec in zip(publish, PUBLISH)):
-        problems.append('deploy.yml: publish must check out its two files, download by artifact ID, verify the seal, check main, '
+        problems.append('deploy.yml: publish must check out its two files, download by artifact ID, verify the seal, '
                         'set up Node, install Wrangler without scripts, deploy release/dist, then wait for deployment-id.json')
     if len(deploy) != len(DEPLOY) or not all(match(step, spec) for step, spec in zip(deploy, DEPLOY)):
-        problems.append('deploy.yml: deploy must check out the contract, check main, then deploy Pages')
+        problems.append('deploy.yml: deploy must only deploy Pages')
     if jobs['deploy'].get('environment') != {'name': 'github-pages', 'url': '${{ steps.deployment.outputs.page_url }}'}:
         problems.append('deploy.yml: deploy must publish to the github-pages environment')
     return problems
@@ -429,14 +414,12 @@ def main(argv, env):
         print(f'manifest_sha256={seal(Path(args[0]), env)}')
     elif command == 'verify' and len(args) == 1:
         verify(Path(args[0]), env, env.get('MANIFEST_SHA256', ''))
-    elif command == 'current-main' and not args:
-        current_main(env)
     elif command == 'check-workflows' and len(args) <= 1:
         problems = check_workflows(*map(Path, args))
         require(not problems, '\n  '.join(['the workflows break the deploy contract:'] + problems))
         print('Workflows keep the deploy contract.')
     else:
-        raise Rejected('usage: deploy_contract.py seal DIR | verify DIR | current-main | check-workflows [DIR]')
+        raise Rejected('usage: deploy_contract.py seal DIR | verify DIR | check-workflows [DIR]')
 
 
 if __name__ == '__main__':

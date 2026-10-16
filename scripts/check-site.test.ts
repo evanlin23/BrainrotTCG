@@ -116,6 +116,13 @@ describe('checkSite', () => {
     expect(await checkSite(options)).toEqual({ pages: pages.length + 1, images: images.length + 1, errors: [] });
   });
 
+  it.each([GITHUB, CLOUDFLARE])('checks a build for $name the same whether SITE_URL ends in / or not', async (host) => {
+    const { options, pages, images } = await build(host);
+    const result = { pages: pages.length + 1, images: images.length + 1, errors: [] };
+    expect(await checkSite({ ...options, site: host.site.replace(/\/$/, '') })).toEqual(result);
+    expect(await checkSite({ ...options, site: host.site })).toEqual(result);
+  });
+
   it('passes link-preview tags written in another attribute order', async () => {
     const { options, outDir } = await build(CLOUDFLARE);
     const file = `${outDir}index.html`;

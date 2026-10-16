@@ -13,7 +13,8 @@
  *   BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/ npm run build    (Cloudflare Pages)
  *   BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/ npm run check:site
  *
- * BASE_PATH, SITE_URL and OUT_DIR mean what they do for the build. It reads only the build and the
+ * BASE_PATH, SITE_URL and OUT_DIR mean what they do for the build (SITE_URL with or without its
+ * trailing /). It reads only the build and the
  * set registry: no network, and it never writes into the build.
  */
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -77,7 +78,9 @@ const expectedPreviewPages = async ({ base, site, versions, sets }: SiteCheckOpt
 };
 
 export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Promise<SiteCheckResult> => {
-  const { base, site } = options;
+  const { base } = options;
+  // SITE_URL may end in / or not: compare against it ending in exactly one, as the build writes it.
+  const site = `${options.site.replace(/\/+$/, '')}/`;
   const outDir = path.resolve(options.outDir);
   const errors: AssetValidationError[] = [];
   const fail = (file: string, error: string) => {
@@ -156,7 +159,7 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   }
 
   // Every page the set registry gets, as scripts/preview-pages.ts names them.
-  const expected = await expectedPreviewPages(options);
+  const expected = await expectedPreviewPages({ ...options, site });
   for (const [page, what] of expected) {
     if (!present.has(page)) fail(page, `Missing: the preview page for ${what}`);
   }

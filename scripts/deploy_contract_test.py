@@ -4,7 +4,6 @@ Standard library only. The PyYAML comparison runs where PyYAML is installed and 
 otherwise.
 """
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
@@ -85,16 +84,26 @@ class Workflows(unittest.TestCase):
         self.assertBroken('deploy.yml', '| cmp -s release/dist/deployment-id.json - && exit 0', '&& exit 0',
                           'publish must')
 
-    def test_current_main_removed_before_pages(self):
-        self.assertBroken('deploy.yml', """          sparse-checkout: /scripts/deploy_contract.py
-          sparse-checkout-cone-mode: false
-      - name: Check this run is still the newest main
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/deploy_contract.py current-main
-""", """          sparse-checkout: /scripts/deploy_contract.py
-          sparse-checkout-cone-mode: false
-""", 'deploy must check out the contract, check main')
+    def test_readiness_check_needs_one_slash(self):
+        self.assertBroken('deploy.yml', '"${URL%/}/deployment-id.json?run=', '"${URL}deployment-id.json?run=', 'publish must')
+
+    def test_deploy_runs_more(self):
+        self.assertBroken('deploy.yml', '    steps:\n      - uses: actions/deploy-pages',
+                          '    steps:\n      - run: npm ci\n      - uses: actions/deploy-pages', 'deploy must only deploy Pages')
+
+    def test_concurrency_removed(self):
+        self.assertBroken('deploy.yml', 'concurrency:\n  group: pages\n  cancel-in-progress: true\n', '',
+                          'concurrency must be the pages group')
+
+    def test_concurrency_weakened(self):
+        for old, new in (('cancel-in-progress: true', 'cancel-in-progress: false'), ('  cancel-in-progress: true\n', ''),
+                         ('  group: pages\n', '  group: pages-${{ github.run_id }}\n')):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, 'concurrency must be the pages group')
+
+    def test_site_url_not_normalized(self):
+        self.assertBroken('deploy.yml', 'echo "url=${url%/}/"', 'echo "url=$url"', 'site lookup must hand on its address')
 
     def test_secret_in_dependency_install(self):
         self.assertBroken('deploy.yml', '        run: npm ci --prefix tools/wrangler --ignore-scripts\n',
@@ -341,12 +350,23 @@ class Handoff(unittest.TestCase):
                 self.refused(digest, {**ENV, key: value}, 'another commit, run or address')
 
     def test_site_url_shape(self):
-        for url in ('http://brainrottcg.pages.dev/', 'https://brainrottcg.pages.dev', 'https://brainrottcg.pages.dev/app/',
-                    'https://u:p@brainrottcg.pages.dev/', 'https://brainrottcg.pages.dev:8443/', 'https://brainrottcg.pages.dev/?a',
-                    'https://brainrottcg.pages.dev/#a', 'https://brainrottcg.pages.dev/ ', 'https:///', ''):
+        for url in ('http://brainrottcg.pages.dev/', 'https://brainrottcg.pages.dev/app/', 'https://brainrottcg.pages.dev/app',
+                    'https://brainrottcg.pages.dev//', 'https://u:p@brainrottcg.pages.dev/', 'https://brainrottcg.pages.dev:8443/',
+                    'https://brainrottcg.pages.dev/?a', 'https://brainrottcg.pages.dev?', 'https://brainrottcg.pages.dev/#a',
+                    'https://brainrottcg.pages.dev#', 'https://brainrottcg.pages.dev/ ', 'https:///', 'https://', ''):
             with self.subTest(url):
                 with self.assertRaisesRegex(dc.Rejected, 'SITE_URL'):
                     dc.marker({**ENV, 'SITE_URL': url})
+
+    def test_site_url_trailing_slash_optional(self):
+        """https://x and https://x/ are the same address: the same marker, and either one verifies the other's seal."""
+        bare = {**ENV, 'SITE_URL': ENV['SITE_URL'].rstrip('/')}
+        self.assertEqual(dc.marker(bare), dc.marker(ENV))
+        self.assertEqual(dc.marker(bare)['url'], 'https://brainrottcg.pages.dev/')
+        digest = dc.seal(self.release, bare)
+        dc.verify(self.release, ENV, digest)
+        dc.verify(self.release, bare, digest)
+        self.assertEqual(json.loads((self.dist / 'deployment-id.json').read_text())['url'], 'https://brainrottcg.pages.dev/')
 
     def test_cli(self):
         run = subprocess.run([sys.executable, '-I', str(SCRIPT), 'seal', str(self.release)],
@@ -374,51 +394,23 @@ class Handoff(unittest.TestCase):
         (bin_dir / 'sleep').write_text('#!/bin/sh\n')
         for stub in ('curl', 'sleep'):
             (bin_dir / stub).chmod(0o755)
-        env = {'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'URL': ENV['SITE_URL'],
-               'GITHUB_RUN_ID': ENV['GITHUB_RUN_ID'], 'GITHUB_RUN_ATTEMPT': '2'}
-
-        def check(content):
-            served.write_bytes(content)
-            return subprocess.run(['bash', '-e', '-c', script], cwd=self.tmp, env=env, capture_output=True).returncode
-
         marker = (self.dist / 'deployment-id.json').read_bytes()
-        self.assertEqual(check(marker), 0)
-        self.assertIn(f'{ENV["SITE_URL"]}deployment-id.json?run=123456-2', (self.tmp / 'curl.log').read_text())
-        self.assertNotEqual(check(marker.replace(b'123456', b'123455')), 0)
-        self.assertNotEqual(check(marker.rstrip(b'\n')), 0)
+        for url in (ENV['SITE_URL'], ENV['SITE_URL'].rstrip('/')):
+            with self.subTest(url):
+                env = {'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'URL': url,
+                       'GITHUB_RUN_ID': ENV['GITHUB_RUN_ID'], 'GITHUB_RUN_ATTEMPT': '2'}
+                log = self.tmp / 'curl.log'
+                log.write_text('')
 
+                def check(content):
+                    served.write_bytes(content)
+                    return subprocess.run(['bash', '-e', '-c', script], cwd=self.tmp, env=env, capture_output=True).returncode
 
-class CurrentMain(unittest.TestCase):
-    def opener(self, head):
-        self.requests = []
-
-        def open_(request, timeout):
-            self.requests.append((request, timeout))
-            return io.BytesIO(json.dumps({'object': {'sha': head, 'type': 'commit'}}).encode())
-        return open_
-
-    def env(self, **extra):
-        return {**ENV, 'GITHUB_TOKEN': 'token', **extra}
-
-    def test_still_main(self):
-        dc.current_main(self.env(), self.opener(ENV['GITHUB_SHA']))
-        request, timeout = self.requests[0]
-        self.assertEqual(request.get_full_url(), 'https://api.github.com/repos/evanlin23/BrainrotTCG/git/ref/heads/main')
-        self.assertEqual(request.get_header('Authorization'), 'Bearer token')
-        self.assertEqual(request.get_method(), 'GET')
-        self.assertEqual(timeout, 30)
-
-    def test_main_moved_on(self):
-        with self.assertRaisesRegex(dc.Rejected, 'main has moved on to b{40}'):
-            dc.current_main(self.env(), self.opener('b' * 40))
-
-    def test_needs_token_and_https(self):
-        with self.assertRaisesRegex(dc.Rejected, 'GITHUB_TOKEN'):
-            dc.current_main(self.env(GITHUB_TOKEN=''), self.opener(ENV['GITHUB_SHA']))
-        with self.assertRaisesRegex(dc.Rejected, 'https'):
-            dc.current_main(self.env(GITHUB_API_URL='http://api.github.com'), self.opener(ENV['GITHUB_SHA']))
-        dc.current_main(self.env(GITHUB_API_URL='https://ghe.example/api/v3'), self.opener(ENV['GITHUB_SHA']))
-        self.assertTrue(self.requests[0][0].get_full_url().startswith('https://ghe.example/api/v3/repos/'))
+                self.assertEqual(check(marker), 0)
+                self.assertIn('https://brainrottcg.pages.dev/deployment-id.json?run=123456-2', log.read_text())
+                self.assertNotIn('.dev//', log.read_text())
+                self.assertNotEqual(check(marker.replace(b'123456', b'123455')), 0)
+                self.assertNotEqual(check(marker.rstrip(b'\n')), 0)
 
 
 class Guard(unittest.TestCase):
@@ -432,6 +424,30 @@ class Guard(unittest.TestCase):
             with self.subTest(ref):
                 code = subprocess.run(['bash', '-e', '-c', guard['run']], env={'SOURCE_REF': ref}).returncode
                 self.assertEqual(code == 0, passes)
+
+
+@unittest.skipUnless(shutil.which('jq'), 'the site lookup needs jq, as on the runner')
+class SiteLookup(unittest.TestCase):
+    """The site job's lookup, run as the workflow has it with Cloudflare's API stubbed: SITE_URL may end in / or not."""
+
+    def outputs(self, custom_url):
+        script = dc.load(WORKFLOWS / 'deploy.yml')['jobs']['site']['steps'][1]['run']
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        (tmp / 'curl').write_text('#!/bin/sh\necho \'{"success":true,"result":{"subdomain":"brainrottcg.pages.dev"}}\'\n')
+        (tmp / 'curl').chmod(0o755)
+        env = {'PATH': f'{tmp}:{os.environ["PATH"]}', 'GITHUB_OUTPUT': str(tmp / 'out'), 'CLOUDFLARE_API_TOKEN': 'token',
+               'CLOUDFLARE_ACCOUNT_ID': 'account', 'PROJECT': 'brainrottcg', 'CUSTOM_URL': custom_url,
+               'OWNER': 'evanlin23', 'REPO': 'BrainrotTCG'}
+        subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script], env=env, check=True, capture_output=True)
+        return dict(line.split('=', 1) for line in (tmp / 'out').read_text().splitlines())
+
+    def test_address_ends_in_one_slash(self):
+        for custom_url, url in (('', 'https://brainrottcg.pages.dev/'), ('https://brainrottcg.com', 'https://brainrottcg.com/'),
+                                ('https://brainrottcg.com/', 'https://brainrottcg.com/')):
+            with self.subTest(custom_url):
+                self.assertEqual(self.outputs(custom_url), {'host': 'cloudflare', 'url': url, 'base': '/'})
+                self.assertEqual(dc.marker({**ENV, 'SITE_URL': url})['url'], url)
 
 
 if __name__ == '__main__':

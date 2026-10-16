@@ -12,10 +12,10 @@ const buildRevision = () => {
   catch { return 'unknown' }
 }
 
-/** The page's own address in its link-preview tags: SITE_URL when the site is hosted elsewhere. */
+/** The page's own address in its link-preview tags: SITE_URL (with or without its trailing /) when the site is hosted elsewhere. */
 const siteUrl = (): Plugin => ({
   name: 'site-url',
-  transformIndexHtml: (html) => (process.env.SITE_URL ? html.replaceAll(GITHUB_PAGES_URL, process.env.SITE_URL) : html),
+  transformIndexHtml: (html) => (process.env.SITE_URL ? html.replaceAll(GITHUB_PAGES_URL, `${process.env.SITE_URL.replace(/\/+$/, '')}/`) : html),
 })
 
 // The site's path: GitHub Pages serves it under /BrainrotTCG/; another host can set BASE_PATH=/.

@@ -8,6 +8,8 @@ on:
 # Each job asks for its own token scopes; none is granted by default.
 permissions: {}
 
+# One deploy at a time: a newer push to main cancels this run. With the main-ref guard in site,
+# this is what keeps an older build from publishing over a newer one.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -76,7 +78,9 @@ jobs:
             github; exit 0
           fi
           echo "Cloudflare Pages project $PROJECT: https://$sub/"
-          { echo "host=cloudflare"; echo "url=${CUSTOM_URL:-https://$sub/}"; echo "base=/"; } >> "$GITHUB_OUTPUT"
+          # SITE_URL may end in / or not; everything after this sees it ending in exactly one.
+          url=${CUSTOM_URL:-https://$sub/}
+          { echo "host=cloudflare"; echo "url=${url%/}/"; echo "base=/"; } >> "$GITHUB_OUTPUT"
 
   build:
     # Runs the app's dependencies, so it gets no secrets and a read-only token.
@@ -191,11 +195,6 @@ jobs:
           MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
           SITE_URL: ${{ needs.site.outputs.url }}
         run: python3 -I scripts/deploy_contract.py verify release
-      - name: Check this run is still the newest main
-        if: needs.site.outputs.host == 'cloudflare'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/deploy_contract.py current-main
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.site.outputs.host == 'cloudflare'
         with:
@@ -221,7 +220,7 @@ jobs:
           URL: ${{ needs.site.outputs.url }}
         run: |
           for i in $(seq 1 30); do
-            curl -fsS --max-time 15 "${URL}deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" | cmp -s release/dist/deployment-id.json - && exit 0
+            curl -fsS --max-time 15 "${URL%/}/deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" | cmp -s release/dist/deployment-id.json - && exit 0
             sleep 10
           done
           echo "::error::$URL isn't serving this build"; exit 1
@@ -230,21 +229,11 @@ jobs:
     needs: [build, publish]
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-          sparse-checkout: /scripts/deploy_contract.py
-          sparse-checkout-cone-mode: false
-      - name: Check this run is still the newest main
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/deploy_contract.py current-main
       - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
         id: deployment
