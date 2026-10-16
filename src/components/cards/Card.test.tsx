@@ -69,4 +69,29 @@ describe('card tilt', () => {
     render(meta(), true);
     expect(addEventListener.mock.calls.some(([type]) => String(type) === 'mousemove')).toBe(false);
   });
+
+  it('stops tilting, and levels the card, when reduced motion turns on mid-pack', () => {
+    const listeners = new Set<() => void>();
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' ? reduce : true,
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+    }));
+    const removeEventListener = vi.spyOn(window, 'removeEventListener');
+    render(meta(), true);
+    const wrapper = host.querySelector<HTMLElement>('.card-wrapper')!;
+    vi.spyOn(wrapper, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
+    act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100, clientY: 100 })); });
+    expect(wrapper.style.transform).not.toContain('rotateX(0deg)');
+
+    act(() => {
+      reduce = true;
+      listeners.forEach((listener) => listener());
+    });
+    expect(removeEventListener.mock.calls.some(([type]) => String(type) === 'mousemove')).toBe(true);
+    expect(wrapper.style.transform).toBe('perspective(1000px) rotateX(0deg) rotateY(0deg)');
+    act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 0, clientY: 0 })); });
+    expect(wrapper.style.transform).toBe('perspective(1000px) rotateX(0deg) rotateY(0deg)');
+    removeEventListener.mockRestore();
+  });
 });
