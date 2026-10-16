@@ -68,8 +68,11 @@ export const previousUtcDay = (day: string): string => {
 
 /**
  * The best `HALL_OF_FAME_DAILY_TOP` pulls verified on one UTC day, best first. Ranked like
- * `topPulls`: each pull once, credited to its earliest verification (so a pull first verified on an
- * earlier day doesn't count again), and ties go to the earlier one.
+ * `topPulls`: each pull once, credited to its earliest verification in `entries` (so a pull verified
+ * on an earlier day among them doesn't count again), and ties go to the earlier one. The build only
+ * passes the last two days' daily-only entries, so this alone can't stop a pull from counting on a
+ * later day again: intake turns one down while a `daily` issue from the last eight days carries it
+ * (scripts/hall-of-fame.ts), and one filed again after that can count again.
  */
 export const dailyPulls = <T extends RankableEntry>(entries: readonly T[], day: string): T[] =>
   uniquePulls(entries)

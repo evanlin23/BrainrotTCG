@@ -207,7 +207,11 @@ The deploy writes the ranked list. Workflows attempt to close verified issues, a
 both open and closed states. It lists every `verified` issue, but `daily` issues only when updated
 since 00:00 UTC the day before (`since=`), and keeps a daily-only entry only when its `submittedAt`
 falls on the build's day or the day before, so old daily issues cost nothing. The inbox lists
-`verified` issues plus any `hall-of-fame` issue updated in the last eight days. Each listing stops at
+`verified` issues plus any `hall-of-fame` issue updated in the last eight days. So that a daily-only
+pull counts on one day's top only, intake and the inbox turn it down while another `daily` issue
+updated in the last eight days carries it; proofs carry no signed time, so one filed again after that
+can count again. The page's pending check counts a daily-only relay pull only when its event was sent
+on the current UTC day. Each listing stops at
 100 pages of 100 issues; past that, the build and the inbox fail instead of publishing or filing
 against part of the list. Deploys keep each verified issue's result
 in the Actions cache, keyed on the engine, the sets and the script. Unchanged issues can reuse their
@@ -218,7 +222,8 @@ Issue text is untrusted: it's only parsed by the script, never put into a shell 
 echoed back through a sanitiser. The submitter's GitHub username comes from GitHub. "World first"
 order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
 the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
-counts once, however many times it's submitted or re-signed. A maintainer can drop an entry by adding
+counts once in the top 100 and the firsts, however many times it's submitted or re-signed (the daily
+tops follow the eight-day rule above). A maintainer can drop an entry by adding
 the `rejected` label to its issue.
 
 ### Ranking boards (`src/engine/rankings.ts`)

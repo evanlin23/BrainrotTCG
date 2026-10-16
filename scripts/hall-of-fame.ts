@@ -33,7 +33,10 @@
  * Labels: a pull that makes the top pulls or is a first is labelled `verified`
  * and is listed by every deploy. One that only makes its UTC day's top (up to
  * 50 a day) is labelled `daily`, and deploys only list those updated since the
- * day before, so the issues a deploy reads don't grow with the daily ones.
+ * day before, so the issues a deploy reads don't grow with the daily ones. So
+ * that such a pull counts on one day's top only, the inbox and verify-issue
+ * turn it down while another issue updated in the last 8 days carries it under
+ * `daily` (`recentIssuesSince`); one filed again after that can count again.
  * Every issue listing reads all its pages, and fails rather than stop short.
  *
  * "World first" order uses the time the bot first verified that exact pull on
@@ -248,14 +251,17 @@ export const verifyIssue = async () => {
     }
   }
   // A new verification only goes in if it would join the list (the top pulls, a first, or today's
-  // top). The same pull verified again keeps the label it has.
+  // top), and one that only makes today's top only if it isn't already on an earlier day's. The same
+  // pull verified again keeps the label it has.
   let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
   if (result.ok && !already) {
     const list = await publishedList();
     const day = today();
     const reason = list && joinRefusal(result.pull, list, day);
     if (reason) result = { ok: false, reason };
-    else label = joinLabel(result.pull, list, day);
+    else if (joinLabel(result.pull, list, day) === 'verified') label = 'verified';
+    else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
+    else label = 'daily';
   }
   const body = result.ok ? verifiedComment(result.entry, result.pull) : `❌ **Not added.** ${result.reason}${FOOTER}`;
   writeFileSync('hof-comment.md', body);
@@ -284,6 +290,36 @@ const listIssues = async (query: string, token: string): Promise<Issue[]> => {
 
 /** Each issue once, by number. */
 const byNumber = (issues: readonly Issue[]) => [...new Map(issues.map((i) => [i.number, i])).values()];
+
+/**
+ * Where intake starts reading issues that aren't `verified`: the inbox's relay window and a day (8
+ * days), to the second. Deploys read `daily` issues only from the day before on, so this is how far
+ * back a pull already on a day's top is kept from counting on another (see "Labels" above).
+ */
+const recentIssuesSince = () => new Date(Date.now() - (INBOX_WINDOW_S + 24 * 60 * 60) * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
+
+/**
+ * Whether an issue other than `number` carries pull `id` under the `daily` label and was updated
+ * since `recentIssuesSince`. If GitHub can't be read, it says no (as with the published list,
+ * nothing is held back).
+ */
+const filedDailyElsewhere = async (id: string, number: number, token: string): Promise<boolean> => {
+  try {
+    const issues = await listIssues(`labels=hall-of-fame,daily&since=${recentIssuesSince()}`, token);
+    return issues.some((i) => {
+      if (i.number === number) return false;
+      try {
+        const proof = extractProof(i.body ?? '');
+        return !!proof && pullId(decodeProof(proof)) === id;
+      } catch {
+        return false;
+      }
+    });
+  } catch (error) {
+    console.warn(`Could not list recent daily issues; not checking for this pull on an earlier day. ${error}`);
+    return false;
+  }
+};
 
 /**
  * Issues the bot has verified (it adds the labels; submitters can't add labels themselves): every
@@ -407,8 +443,7 @@ export const inbox = async () => {
   const filed = new Set<string>();
   // Issues this job opened but didn't finish (it stopped before labelling them): finished next.
   const unfinished = new Map<string, Issue>();
-  const recent = new Date((since - 24 * 60 * 60) * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
-  const listed = byNumber([...(await listIssues('labels=hall-of-fame,verified', token)), ...(await listIssues(`labels=hall-of-fame&since=${recent}`, token))]);
+  const listed = byNumber([...(await listIssues('labels=hall-of-fame,verified', token)), ...(await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token))]);
   for (const issue of listed) {
     const proof = extractProof(issue.body ?? '');
     if (!proof) continue;

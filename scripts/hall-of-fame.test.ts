@@ -356,6 +356,32 @@ describe('verify-issue (issue workflow)', () => {
     expect([...board.writes(), ...full.writes()]).toEqual([]);
   });
 
+  it("turns down a pull that only makes today's top while another issue from the last 8 days carries it under daily", async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    const published = dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1);
+    const daily = (number: number, updated: string) => issue(number, fourOfAKind, { labels: ['hall-of-fame', 'daily'], updated });
+
+    // Filed two days ago, it left the published list but must not count on today's top too.
+    const again = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published });
+    const refused = await run(link(fourOfAKind));
+    expect(refused.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified' });
+    expect(refused.comment).toContain('**Not added.**');
+    expect(refused.comment).toContain('counts on one day only');
+    expect(refused.comment).not.toContain('hof-verified');
+
+    // The issue itself, one past the 8 days, and one under another label don't hold it back.
+    const own = fakeGitHub({ issues: [daily(7, '2026-10-16T11:00:00Z'), daily(5, '2026-10-08T11:59:59Z'), issue(6, fourOfAKind, { updated: '2026-10-15T00:00:00Z' })], published });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    // Nor does a GitHub error: the pull goes ahead.
+    const down = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published, fail: (r) => r.path === '/issues' });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    // A pull that joins the all-time list isn't checked.
+    const allTime = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published: [] });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified' });
+    expect(allTime.requests.some((r) => r.path === '/issues')).toBe(false);
+    expect([again, own, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
+  });
+
   it('changes nothing when the bot already verified the same pull on the issue', async () => {
     fakeGitHub({ issues: [], comments: { 7: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'false', label: 'verified' });
