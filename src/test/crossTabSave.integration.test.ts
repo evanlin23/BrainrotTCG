@@ -108,14 +108,14 @@ it('stops this tab opening packs or storing progress once another tab loads a di
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
 
   // Settings, where the banner steps aside, offers the same reload.
-  await app.interact(() => button(document, 'Sound & display')!.click());
-  await app.until('Sound & display loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
   expect(banner()).toBeNull();
   const warning = document.querySelector('.settings p[role="alert"].save-warning')!;
   expect(warning.textContent).toContain(STALE);
   await app.interact(() => button(warning, 'Reload')!.click());
   expect(reload).toHaveBeenCalledTimes(1);
-  await app.interact(() => button(document, 'Close')!.click());
+  await app.interact(() => button(document, 'Close Settings')!.click());
   await app.until('the banner is back', () => expect(banner()?.textContent).toContain(STALE));
   await app.interact(() => button(banner()!, 'Reload')!.click());
   expect(reload).toHaveBeenCalledTimes(2);
@@ -177,6 +177,24 @@ it('blocks the write even when the storage event never arrived', async () => {
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
   expect(banner()?.textContent).toContain(STALE);
 }, 60_000);
+
+it('leaves another player’s name alone when this tab leaves Profile with an edited name, and says why', async () => {
+  app = await mountedApp(SEED);
+  history.replaceState(null, '', '/BrainrotTCG/#/profile');
+  await app.mount();
+  const nameField = () => document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]');
+  await app.until('Profile loads', () => expect(nameField()).not.toBeNull());
+  await app.interact(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(nameField()!, 'Alice');
+    nameField()!.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  // No storage event: the other tab's import is caught when leaving the page tries to store the name.
+  otherTabWrites(THEIR_SAVE);
+  await app.interact(() => button(document, 'Close Profile')!.click());
+  await app.until('Open shows again', () => expect(nameField()).toBeNull());
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toEqual(JSON.parse(record(THEIRS, 'Other tab')));
+  expect(banner()?.textContent).toContain(STALE);
+});
 
 it('keeps saving when another tab stores the same player (a rename)', async () => {
   app = await mountedApp(SEED);

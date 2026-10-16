@@ -71,19 +71,19 @@ it('keeps unreadable collection entries through pack writes and offers them in t
   expect(JSON.parse(player).secretKey).toBe(SECRET);
   expect(JSON.parse(exportSaveFile()).collectionRecovery).toBe(archive);
 
-  // One warning, in the banner and then in Save & restore while the banner steps aside.
+  // One warning, in the banner and then on the Settings page while the banner steps aside.
   expect(warnings()).toEqual([expect.stringMatching(/Unreadable collection data was kept aside/)]);
   // It points at where the export really lives.
-  expect(warnings()[0]).toMatch(/open Player, then Save & restore, and export a backup\./);
-  expect(warnings()[0]).not.toMatch(/Settings/);
+  expect(warnings()[0]).toMatch(/open Settings, then Save & backup, and export a backup\./);
   expect(warnings()[0]).not.toMatch(/couldn't be saved/);
-  await app.interact(() => button('Player').click());
-  await app.until('Player loads', () => expect(button('Save & restore')).toBeDefined());
-  await app.interact(() => button('Save & restore').click());
-  await app.until('Save & restore loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  expect(document.querySelector('#save-backup h2')?.textContent).toBe('Save & backup');
+  expect(button('Export')).toBeDefined();
   expect(document.querySelector('.settings p[role="alert"].save-warning')?.textContent).toMatch(/kept aside/);
   expect(warnings()).toHaveLength(1);
-  await app.interact(() => button('Close').click());
+  await app.interact(() => button('Close Settings').click());
+  await app.until('Open shows again', () => expect(document.querySelector<HTMLElement>('main.app-main')!.hidden).toBe(false));
 
   // Still offered after a reload; the next write keeps the archive as it was.
   await app.reload();
@@ -140,10 +140,11 @@ it('lets the player hide the kept-aside note until something new is kept aside; 
 
   await app.interact(() => button('Hide note').click());
   expect(warnings()).toEqual([]);
-  await app.interact(() => button('Sound & display').click());
-  await app.until('Sound & display loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
   expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
-  await app.interact(() => button('Close').click());
+  await app.interact(() => button('Close Settings').click());
+  await app.until('Open shows again', () => expect(document.querySelector<HTMLElement>('main.app-main')!.hidden).toBe(false));
 
   await app.reload();
   expect(warnings()).toEqual([]);

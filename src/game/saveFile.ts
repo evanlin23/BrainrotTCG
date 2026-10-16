@@ -225,6 +225,6 @@ export const importSaveFile = (raw: string): string | null => {
     }
     return null;
   } catch {
-    return "Couldn't read or store that file. Is it a save exported from Save & restore?";
+    return "Couldn't read or store that file. Is it a save exported from Save & backup?";
   }
 };

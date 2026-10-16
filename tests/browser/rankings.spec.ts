@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { monitor } from './support';
 
-// Rankings pages its rows, and Best pulls leads with the best packs. The leaderboard is a synthetic
+// Rankings pages its rows, and Profile's best pulls lead with the best packs. The leaderboard is a synthetic
 // list served in place of hall-of-fame.json: its proofs are fake, so each row fails the page's own
 // re-check, which changes nothing about paging. Nothing here fetches real data or submits anything.
 
@@ -23,12 +23,12 @@ const entries = Array.from({ length: 45 }, (_, i) => ({
 }));
 
 test('Rankings shows 20 rows, and each Show more adds 20 from the keyboard', async ({ page, baseURL }) => {
-  const errors = await monitor(page, baseURL!);
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: entries }));
   await page.goto('./');
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
   await main.getByRole('button', { name: 'Rankings', exact: true }).click();
-  const rankings = page.getByRole('dialog', { name: 'Rankings', exact: true });
+  const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
   const rows = rankings.locator('.hof-list .hof-entry');
   await expect(rows).toHaveCount(20);
   await expect(rows.first()).toHaveAttribute('aria-label', /^Number 1: /);
@@ -52,10 +52,10 @@ test('Rankings shows 20 rows, and each Show more adds 20 from the keyboard', asy
   expect(errors).toEqual([]);
 });
 
-test('Best pulls sorts best first and names the filter for Rankings', async ({ page, baseURL }) => {
+test('Profile sorts best pulls first and names the filter for Rankings', async ({ page, baseURL }) => {
   // Three synthetic history rows, the same shape the performance runs use; never verified or sent.
   // They're stored newest first with the best in the middle, so Best and Newest differ.
-  const errors = await monitor(page, baseURL!, 3);
+  const errors = await monitor(page, baseURL!, 3, { returning: true });
   await page.addInitScript(({ key }) => {
     if (sessionStorage.getItem('rankings-fixture')) return;
     sessionStorage.setItem('rankings-fixture', '1');
@@ -64,9 +64,8 @@ test('Best pulls sorts best first and names the filter for Rankings', async ({ p
   }, { key: STORAGE_KEYS.HISTORY });
   await page.goto('./');
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
-  await main.getByRole('button', { name: 'My cards', exact: true }).click();
-  const myCards = page.getByRole('dialog', { name: 'My cards', exact: true });
-  await myCards.getByRole('navigation', { name: 'My cards', exact: true }).getByRole('button', { name: 'Best pulls', exact: true }).click();
+  await main.getByRole('button', { name: 'Profile', exact: true }).click();
+  const myCards = page.getByRole('main', { name: 'Profile', exact: true });
 
   const tabs = myCards.getByRole('tablist', { name: 'Sort packs', exact: true }).getByRole('tab');
   await expect(tabs).toHaveText(['Best', 'Newest', 'For Rankings · 0']);

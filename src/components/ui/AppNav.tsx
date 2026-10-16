@@ -1,20 +1,20 @@
-import { Globe, Layers, PackageOpen, type LucideIcon } from 'lucide-react';
+import { Globe, Layers, PackageOpen, UserRound, type LucideIcon } from 'lucide-react';
+import type { Page } from '../../game/route';
 import '../../styles/AppNav.css';
 
-export type NavTarget = 'open' | 'collection' | 'achievements' | 'hallOfFame' | 'profile' | 'settings' | 'player' | 'save';
-
-const ITEMS: { id: NavTarget; label: string; Icon: LucideIcon }[] = [
-  { id: 'open', label: 'Open packs', Icon: PackageOpen },
-  { id: 'collection', label: 'My cards', Icon: Layers },
-  { id: 'hallOfFame', label: 'Rankings', Icon: Globe },
+const ITEMS: { id: Page; label: string; Icon: LucideIcon }[] = [
+  { id: 'open', label: 'Open', Icon: PackageOpen },
+  { id: 'cards', label: 'Cards', Icon: Layers },
+  { id: 'rankings', label: 'Rankings', Icon: Globe },
+  { id: 'profile', label: 'Profile', Icon: UserRound },
 ];
 
 interface AppNavProps {
-  onOpen: (target: NavTarget) => void;
-  /** Pointing at, focusing or pressing a tab: a chance to start loading its screen. */
-  onPrefetch?: (target: NavTarget) => void;
-  /** The destination on screen; `null` while a sheet that is none of these is open, so no tab claims the page. */
-  active?: 'open' | 'collection' | 'hallOfFame' | null;
+  onOpen: (page: Page) => void;
+  /** Pointing at, focusing or pressing a tab: a chance to start loading its page. */
+  onPrefetch?: (page: Page) => void;
+  /** The page on screen; `null` while a sheet is open over it, so no tab claims it. Settings is none of these. */
+  active?: Page | null;
 }
 
 /** Bottom tab bar on phones, inline in the header on wide screens (see AppNav.css). */

@@ -46,11 +46,11 @@ const expectRejectedWithoutWrites = (raw: string) => {
   expect(store).toEqual(before);
 };
 
-describe('Save & restore backup preflight', () => {
+describe('Save & backup preflight', () => {
   it.each(['{', 'null', '[]', '"save"'])('rejects malformed/top-level JSON %s without writes', expectRejectedWithoutWrites);
 
   it('points an unreadable file back to where saves are exported', () => {
-    expect(importSaveFile('{')).toBe("Couldn't read or store that file. Is it a save exported from Save & restore?");
+    expect(importSaveFile('{')).toBe("Couldn't read or store that file. Is it a save exported from Save & backup?");
   });
 
   it.each([
@@ -284,7 +284,7 @@ describe('private collection recovery archive portability', () => {
 });
 
 
-it('round-trips an opaque recovery archive through the serializer Save & restore actually downloads', () => {
+it('round-trips an opaque recovery archive through the serializer Save & backup actually downloads', () => {
   const raw = '{ definitely not collection JSON\n';
   const archive = JSON.stringify({ raw, player: player('cc'.repeat(32), 91) });
   store.set(STORAGE_KEYS.COLLECTION_RECOVERY, archive);

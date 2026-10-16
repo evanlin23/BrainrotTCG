@@ -86,6 +86,7 @@ src/game/          Browser glue around the engine.
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
   collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
+  route.ts           the page addresses (#/cards, #/rankings, #/profile, #/settings) and their titles
 
 src/components/    React UI (pack opening, collection, set picker, share sheet, pull viewer, pages)
 
@@ -218,6 +219,16 @@ than generated for each unique pull. Their count and size grow with the publishe
 `scripts/preview-pages.ts` writes them after the Vite build, with pages titled like "A Full House in Summer of Slop", and keeps the pictures in `.cache/previews/`
 (cached in CI too) so only new or changed ones are drawn. The pages forward to the pull. The path only
 picks the preview; the pull is still re-derived from the proof when it's opened.
+
+Addresses and Back (`src/hooks/useRoute.ts`, `src/hooks/usePackHistory.ts`): Open has no hash;
+`#/cards`, `#/rankings`, `#/profile` (your own) and `#/settings` are pages. A shared
+`#/pull/<proof>` or `#/profile/<proof>` opens its viewer sheet over whatever page is showing, and a
+link that doesn't parse gets the broken-link sheet. Pages, opened packs and links share one history:
+each pushes an entry marked in `history.state`, so Back from a page returns to the previous page or
+to the pack it was opened over, Back from a pack leaves it, and closing a link or a page steps back
+over the entries it added rather than replacing them, so no pack entry is stranded. A page or link
+loaded directly has nothing under it, so closing it replaces the address with Open. Diagnostics
+report the page by its allowlisted name, never the hash.
 
 ## Saves
 

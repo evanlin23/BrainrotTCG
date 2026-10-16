@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
+import { fromHex, publicKeyFromSecret, toHex } from '../engine';
 
 const PLAYER_KEY = 'brainrot-player-v1';
 const identity = (secretKey = 'aa'.repeat(32), nextNonce = 7, name = 'Incoming Player') => ({ secretKey, name, nextNonce, createdAt: 1 });
@@ -130,11 +131,13 @@ describe('durable player imports', () => {
 
 describe('renaming the player', () => {
   beforeEach(() => store.set(PLAYER_KEY, JSON.stringify(original)));
+  const ORIGINAL_KEY = toHex(publicKeyFromSecret(fromHex(original.secretKey)));
+  const nameOf = (result: import('./player').RenameResult) => ('player' in result ? result.player.name : null);
 
   it('stores a changed name on the current record, keeping its key and ticket counter', () => {
-    const result = player.renamePlayer('  New   Name ');
+    const result = player.renamePlayer('  New   Name ', ORIGINAL_KEY);
     expect(result.status).toBe('saved');
-    expect(result.player.name).toBe('New Name');
+    expect(nameOf(result)).toBe('New Name');
     expect(JSON.parse(store.get(PLAYER_KEY)!)).toEqual({ ...original, name: 'New Name' });
     expect(player.getPlayer().name).toBe('New Name');
   });
@@ -144,9 +147,9 @@ describe('renaming the player', () => {
     ['security', new DOMException('Storage blocked', 'SecurityError')],
   ])('reports a refused write (%s) and keeps the stored name', (_label, error) => {
     setItem.mockImplementation(() => { throw error; });
-    const result = player.renamePlayer('New Name');
+    const result = player.renamePlayer('New Name', ORIGINAL_KEY);
     expect(result.status).toBe('failed');
-    expect(result.player.name).toBe('Original Player');
+    expect(nameOf(result)).toBe('Original Player');
     expect(store.get(PLAYER_KEY)).toBe(JSON.stringify(original));
     expect(player.getPlayer().name).toBe('Original Player');
     // Not even the in-memory fallback adopts the name when storage later becomes unreadable.
@@ -155,10 +158,19 @@ describe('renaming the player', () => {
   });
 
   it.each([['blank', '   '], ['unchanged', ' Original  Player ']])('writes nothing for a %s name', (status, name) => {
-    const result = player.renamePlayer(name);
+    const result = player.renamePlayer(name, ORIGINAL_KEY);
     expect(result.status).toBe(status);
-    expect(result.player.name).toBe('Original Player');
+    expect(nameOf(result)).toBe('Original Player');
     expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when another player is stored now, and hands that player back to no one', () => {
+    const theirs = identity('cc'.repeat(32), 5, 'Their Player');
+    store.set(PLAYER_KEY, JSON.stringify(theirs));
+    const result = player.renamePlayer('My New Name', ORIGINAL_KEY);
+    expect(result).toEqual({ status: 'stale' });
+    expect(setItem).not.toHaveBeenCalled();
+    expect(store.get(PLAYER_KEY)).toBe(JSON.stringify(theirs));
   });
 });
 

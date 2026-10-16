@@ -1,3 +1,5 @@
+import { pageForHash } from './route';
+
 /** Optional, session-only observations. Raw errors, names, saves and URLs are never accepted. */
 const EVENTS = ['pack-open', 'view-cards', 'view-rankings', 'route-change', 'render-error', 'unhandled-error', 'copy-failed'] as const;
 export type DiagnosticEvent = typeof EVENTS[number];
@@ -41,7 +43,8 @@ export function diagnosticSnapshot(environment: Environment) {
     build: typeof environment.revision === 'string' && /^[a-f0-9]{40}$/i.test(environment.revision) ? environment.revision.slice(0, 12) : 'unknown',
     browser: /Firefox\//i.test(ua) ? 'firefox' : /Edg\//i.test(ua) ? 'edge' : /Chrome\//i.test(ua) ? 'chromium' : /Safari\//i.test(ua) ? 'safari' : 'other',
     device: /iPhone|iPad|iPod/i.test(ua) ? 'ios' : /Android/i.test(ua) ? 'android' : 'other',
-    route: hash.startsWith('#/pull/') ? 'shared-pull' : hash.startsWith('#/profile/') ? 'shared-profile' : hash ? 'other' : 'opening',
+    // A fixed name for each known route: the hash itself (a proof, a player key) is never kept.
+    route: pageForHash(hash) ?? (hash.startsWith('#/pull/') ? 'shared-pull' : hash.startsWith('#/profile/') ? 'shared-profile' : hash ? 'other' : 'opening'),
     viewport: { width: dimension(environment.width), height: dimension(environment.height) },
     connectivity: environment.online === true ? 'online' : environment.online === false ? 'offline' : 'unknown',
     connection: environment.effectiveType === 'slow-2g' || environment.effectiveType === '2g' ? 'slow'

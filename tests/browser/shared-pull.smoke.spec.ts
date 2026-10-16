@@ -56,8 +56,8 @@ const JOURNEY_TIMEOUT = 60000;
  * loading, so before every exit fonts, background work and requests settle; fonts settle after every
  * arrival too.
  */
-async function startJourney(page: Page, baseURL: string) {
-  const errors = await monitor(page, baseURL);
+async function startJourney(page: Page, baseURL: string, { returning = false } = {}) {
+  const errors = await monitor(page, baseURL, 0, { returning });
   // On every mount the app mines the next pack's ticket in a worker, then preloads that pack's art with
   // new Image(). The page counts both (observing only: messages and images pass through unchanged), so
   // a journey can wait until that work is idle instead of racing it.
@@ -128,89 +128,73 @@ const proofState = async (page: Page) => ({
 });
 
 /**
- * Back on the opener, reaches every destination through the real navigation: the main nav (Open
- * packs, My cards, Rankings), the personal nav inside My cards (Cards, Best pulls), and the header
- * utilities (Player, with Achievements and Save & restore, and the Sound & display gear). Each one
- * must render and give the opener back when it closes. Nothing here saves, imports, exports or submits.
+ * Back on the opener, reaches every destination through the real navigation: the tabs (Open, Cards,
+ * Rankings, Profile with its Achievements section, and Profile's link to Save & backup) and the
+ * Settings gear. Each is a page at its own address that gives the opener back when it closes or on
+ * Back. Nothing here saves, imports, exports or submits.
  */
-async function walkDestinations(page: Page) {
+async function walkDestinations(page: Page, baseURL: string) {
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
   const navItem = (name: string) => main.getByRole('button', { name, exact: true });
   const opener = page.getByRole('button', { name: /^Open a .* pack$/ });
-  const dialog = (name: string) => page.getByRole('dialog', { name, exact: true });
+  const pageNamed = (name: string) => page.getByRole('main', { name, exact: true });
   const backToOpening = async () => {
+    await expect(page.locator('main.page')).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(navItem('Open packs')).toHaveAttribute('aria-current', 'page');
+    await expect(navItem('Open')).toHaveAttribute('aria-current', 'page');
+    await expect(page).toHaveURL(baseURL);
     await expect(opener).toBeEnabled();
   };
-  const close = async (sheet: ReturnType<typeof dialog>) => {
-    await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+  const arrive = async (name: string, hash: string) => {
+    await expect(page).toHaveURL(`${baseURL}${hash}`);
+    await expect(page).toHaveTitle(`${name} - Brainrot TCG`);
+    await expect(pageNamed(name).getByRole('heading', { level: 1, name, exact: true })).toBeFocused();
+  };
+  const close = async (name: string) => {
+    await pageNamed(name).getByRole('button', { name: `Close ${name}`, exact: true }).click();
     await backToOpening();
+    await expect(page.locator('.app-logo')).toBeFocused();
   };
 
-  await navItem('My cards').click();
-  const myCards = dialog('My cards');
-  const personal = myCards.getByRole('navigation', { name: 'My cards', exact: true });
-  await expect(myCards).toHaveClass(/\bcollection\b/);
+  await navItem('Cards').click();
+  await arrive('Cards', '#/cards');
   // Viewing someone else's pull records nothing, so this player's collection is still empty.
-  await expect(myCards.locator('.collection-empty')).toHaveText('Open packs to start your collection.');
-  await expect(navItem('My cards')).toHaveAttribute('aria-current', 'page');
-  await expect(personal.getByRole('button', { name: 'Cards', exact: true })).toHaveAttribute('aria-current', 'page');
-  await personal.getByRole('button', { name: 'Best pulls', exact: true }).click();
-  await expect(myCards).toHaveClass(/\bpulls-page\b/);
-  await expect(myCards.locator('.sheet-subtitle')).toContainText('Browser smoke fixture');
-  await expect(personal.getByRole('button', { name: 'Best pulls', exact: true })).toHaveAttribute('aria-current', 'page');
-  await expect(personal.getByRole('button', { name: 'Cards', exact: true })).not.toHaveAttribute('aria-current');
-  await expect(navItem('My cards')).toHaveAttribute('aria-current', 'page');
-  // Back from Best pulls to Cards stays inside My cards.
-  await personal.getByRole('button', { name: 'Cards', exact: true }).click();
-  await expect(myCards).toHaveClass(/\bcollection\b/);
-  await expect(personal.getByRole('button', { name: 'Cards', exact: true })).toHaveAttribute('aria-current', 'page');
-  await close(myCards);
-  // Switching between Cards and Best pulls swaps sheets; focus still returns to what opened My cards.
-  await expect(navItem('My cards')).toBeFocused();
+  await expect(pageNamed('Cards').locator('.collection-empty')).toHaveText('Open packs to start your collection.');
+  await expect(navItem('Cards')).toHaveAttribute('aria-current', 'page');
+  await close('Cards');
 
   await navItem('Rankings').click();
-  const rankings = dialog('Rankings');
-  await expect(rankings).toBeVisible();
-  await expect(rankings).toHaveClass(/\bhall-of-fame\b/);
+  await arrive('Rankings', '#/rankings');
+  await expect(pageNamed('Rankings').locator('.hall-of-fame')).toBeVisible();
   await expect(navItem('Rankings')).toHaveAttribute('aria-current', 'page');
-  await page.keyboard.press('Escape');
+  await page.goBack();
   await backToOpening();
-  await expect(navItem('Rankings')).toBeFocused();
 
-  const playerButton = page.getByRole('button', { name: 'Player', exact: true });
-  await playerButton.click();
-  let player = dialog('Player');
-  await expect(player.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true })).toHaveValue('Browser smoke fixture');
-  await expect(player.getByText(/^Player ID #/)).toBeVisible();
-  await player.getByRole('button', { name: 'Achievements', exact: true }).click();
-  const goals = dialog('Achievements');
-  await expect(goals).toBeVisible();
-  await expect(player).toHaveCount(0);
-  await close(goals);
-  await expect(playerButton).toBeFocused();
+  await navItem('Profile').click();
+  await arrive('Profile', '#/profile');
+  const profile = pageNamed('Profile');
+  await expect(profile.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true })).toHaveValue('Browser smoke fixture');
+  await expect(profile.getByText(/^Player ID #/)).toBeVisible();
+  await expect(profile.getByRole('heading', { name: 'Achievements', exact: true })).toBeVisible();
+  await profile.getByRole('button', { name: 'Save & backup', exact: true }).click();
+  const settings = pageNamed('Settings');
+  await expect(page).toHaveURL(`${baseURL}#/settings`);
+  await expect(settings.getByRole('heading', { name: 'Save & backup', exact: true })).toBeFocused();
+  await expect(main.locator('[aria-current="page"]')).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(`${baseURL}#/profile`);
+  await expect(profile.getByText(/^Player ID #/)).toBeVisible();
+  await close('Profile');
 
-  await playerButton.click();
-  player = dialog('Player');
-  await player.getByRole('button', { name: 'Save & restore', exact: true }).click();
-  const save = dialog('Save & restore');
-  await expect(save.getByRole('heading', { name: 'Save data', exact: true })).toBeVisible();
-  await expect(save.getByRole('heading', { name: 'Experience', exact: true })).toHaveCount(0);
-  await expect(player).toHaveCount(0);
-  await close(save);
-  await expect(playerButton).toBeFocused();
-
-  const gear = page.getByRole('button', { name: 'Sound & display', exact: true });
+  const gear = page.getByRole('button', { name: 'Settings', exact: true });
   await gear.click();
-  const sound = dialog('Sound & display');
-  await expect(sound.getByRole('heading', { name: 'Experience', exact: true })).toBeVisible();
-  await expect(sound.getByRole('slider').first()).toBeVisible();
-  await expect(sound.getByRole('heading', { name: 'Save data', exact: true })).toHaveCount(0);
-  await close(sound);
-  await expect(gear).toBeFocused();
+  await arrive('Settings', '#/settings');
+  await expect(settings.getByRole('heading', { level: 2 })).toHaveText(['Sound & display', 'Save & backup', 'Help']);
+  await expect(settings.getByRole('slider').first()).toBeVisible();
+  await expect(gear).toHaveAttribute('aria-current', 'page');
+  await close('Settings');
 
-  await navItem('Open packs').click();
+  await navItem('Open').click();
   await backToOpening();
 }
 
@@ -225,7 +209,8 @@ const cases = [
 for (const { vector, entry } of cases) {
   test(`verifies ${vector.note} from ${entry}, inspects exact cards, returns to opening and reaches every destination`, async ({ page, baseURL }) => {
     test.setTimeout(JOURNEY_TIMEOUT);
-    const { errors, openRoute } = await startJourney(page, baseURL!);
+    // A player who has saved a pack before, so the tabs show (#222); the journey itself saves nothing.
+    const { errors, openRoute } = await startJourney(page, baseURL!, { returning: true });
     await openRoute('./');
     const before = await proofState(page);
     const [setId, version] = vector.set.split('@');
@@ -299,7 +284,7 @@ for (const { vector, entry } of cases) {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page).toHaveURL(baseURL!);
     await expect(page.getByRole('button', { name: /^Open a .* pack$/ })).toBeEnabled();
-    await walkDestinations(page);
+    await walkDestinations(page, baseURL!);
     await expect(page).toHaveURL(baseURL!);
     expect(await proofState(page)).toEqual(before);
     await openRoute();

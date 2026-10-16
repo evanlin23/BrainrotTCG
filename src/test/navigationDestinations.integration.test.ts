@@ -42,13 +42,14 @@ async function openPack(current: NonNullable<typeof app>) {
   await current.until('Skip completes the summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 }
 
-it('reaches best pulls, the name editor, settings and rankings from the navigation, and each one works', async () => {
+it('reaches best pulls, the name editor, settings and rankings as pages, and each one works', async () => {
   app = await mountedApp(SEED);
   await app.mount();
   await openPack(app);
 
-  // Name edit under Player.
-  await app.interact(() => button('Player').click());
+  // Name edit, on Profile.
+  await app.interact(() => button('Profile').click());
+  expect(location.hash).toBe('#/profile');
   await app.until('the name editor loads', () => expect(document.querySelector('input[autocomplete="nickname"]')).not.toBeNull());
   await app.interact(() => {
     const input = document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]')!;
@@ -58,34 +59,29 @@ it('reaches best pulls, the name editor, settings and rankings from the navigati
   });
   await app.interact(() => button('Save name').click());
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).name).toBe('Renamed fixture');
-  await app.interact(() => button('Close').click());
 
-  // Best pulls under My cards: the new name, and the pack just opened, which can be opened again.
-  await app.interact(() => button('My cards').click());
-  await app.until('My cards loads', () => expect(document.querySelector('.collection')).not.toBeNull());
-  await app.interact(() => button('Best pulls').click());
+  // Best pulls, on the same page: the new name, and the pack just opened, which can be opened again.
   await app.until('Best pulls lists the opened pack', () => expect(document.querySelector('#pulls-history-title')?.textContent).toBe('All packs · 1'));
-  expect(currentTab()).toBe('My cards');
+  expect(currentTab()).toBe('Profile');
   expect(document.querySelector('.pulls-page')?.textContent).toContain('Renamed fixture #');
   const row = document.querySelector<HTMLButtonElement>('.pulls-page .pull-row')!;
   expect(row.querySelector('.pull-row-setname')?.textContent).toContain('Summer of Slop');
   expect(row.disabled).toBe(false);
   expect(row.querySelectorAll('.pull-row-thumbs img')).toHaveLength(5);
   expect(document.body.textContent).not.toContain('No packs yet');
-  await app.interact(() => button('Close').click());
-  await app.until('the sheet closes', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
 
-  // Settings under Sound & display: a switch saves at once and survives a reload.
-  await app.interact(() => button('Sound & display').click());
+  // Settings, from the gear: a switch saves at once and survives a reload, which lands back on Settings.
+  await app.interact(() => button('Settings').click());
+  expect(location.hash).toBe('#/settings');
   await app.until('settings load', () => expect(toggle('Particles').getAttribute('aria-checked')).toBe('false'));
   await app.interact(() => toggle('Particles').click());
   expect(toggle('Particles').getAttribute('aria-checked')).toBe('true');
   await app.until('the setting is saved', () => expect(settings().particlesEnabled).toBe(true));
-  await app.interact(() => button('Close').click());
   await app.reload();
-  await app.interact(() => button('Sound & display').click());
   await app.until('settings reload', () => expect(toggle('Particles').getAttribute('aria-checked')).toBe('true'));
-  await app.interact(() => button('Close').click());
+  await app.interact(() => button('Close Settings').click());
+  await app.until('Open shows again', () => expect(document.querySelector<HTMLElement>('main.app-main')!.hidden).toBe(false));
 
   // Rankings, the global scope: a failed load offers Retry, and a retry shows the published list.
   const blocked = globalThis.fetch;
@@ -111,8 +107,10 @@ it('reaches best pulls, the name editor, settings and rankings from the navigati
   await app.interact(() => button('Legends').click());
   expect(document.querySelectorAll('.hall-of-fame .hof-legend').length).toBeGreaterThan(0);
   expect(hofStatus()).toBeNull();
-  await app.interact(() => button('Close').click());
-  expect(document.activeElement).toBe(button('Rankings'));
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await app.interact(() => button('Close Rankings').click());
+  await app.until('Open shows again', () => expect(currentTab()).toBe('Open'));
+  expect(location.hash).toBe('');
   // Checking unfiled submissions reaches for the relays, which the harness blocks.
   app.takeErrors(/^Unexpected external I\/O: WebSocket$/);
 }, 60_000);

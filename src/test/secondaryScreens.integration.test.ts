@@ -122,112 +122,133 @@ it('contains an import rejection and retries with a new request without losing t
   expect(document.activeElement).toBe(button('Open screen'));
 });
 
-it('keeps actual App secondary navigation working without changing the selected pack', async () => {
-  app = await mountedApp({
-    'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Deferred screens fixture', nextNonce: 0, createdAt: 1 }),
-    'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
-  });
+const PLAYER = (name: string) => ({
+  'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name, nextNonce: 0, createdAt: 1 }),
+  'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+});
+/** A player who has saved a pack, so the tabs show (#222). */
+const RETURNING = { 'brainrot-stats-v1': JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }) };
+const openShows = () => expect(document.querySelector<HTMLElement>('main.app-main')!.hidden).toBe(false);
+
+it('keeps actual App pages working without changing the selected pack', async () => {
+  app = await mountedApp({ ...PLAYER('Pages fixture'), ...RETURNING });
   await app.mount();
   const pack = document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label');
-  for (const [target, content] of [['My cards', '.collection'], ['Player', '.settings-group'], ['Sound & display', '.settings-group']]) {
+  for (const [target, content] of [['Cards', '.collection'], ['Profile', 'input[autocomplete="nickname"]'], ['Settings', '.settings-group']]) {
     await app.interact(() => { button(target).focus(); button(target).click(); });
     await app.until(`${target} loads its production controls`, () => {
-      expect(document.querySelector(`[role="dialog"]${content}, [role="dialog"] ${content}`)).not.toBeNull();
-      expect(document.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+      expect(document.querySelector(`main.page ${content}`)).not.toBeNull();
+      expect(document.querySelector('main.page [role="alert"]')).toBeNull();
     });
-    await app.interact(() => button('Close').click());
-    expect(document.activeElement).toBe(button(target));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await app.interact(() => button(`Close ${target}`).click());
+    await app.until(`${target} closes to Open`, openShows);
+    expect(document.activeElement).toBe(document.querySelector('.app-logo'));
     expect(document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label')).toBe(pack);
   }
 });
 
-it('opens the era of the selected pack first in My cards', async () => {
+it('opens the era of the selected pack first in Cards', async () => {
   // One card each of the oldest openable era (the selected pack) and the two newest, from the registry
   // the app reads, so a new set moves the fixture with it. Without the selected era, the collection
   // would open the two newest and leave the selected one collapsed.
   const openable = SETS.filter(isOpenable);
   const [selected, secondNewest, newest] = [openable[0], ...openable.slice(-2)];
   expect(new Set([selected.id, secondNewest.id, newest.id]).size).toBe(3);
-  // The 24-pocket budget the sheet opens with fits the selected and newest eras, not a third.
+  // The 24-pocket budget the page opens with fits the selected and newest eras, not a third.
   const pockets = (set: { id: string }) => getSetCards(set.id).length;
   expect(pockets(selected) + pockets(newest)).toBeLessThanOrEqual(24);
   expect(pockets(selected) + pockets(newest) + pockets(secondNewest)).toBeGreaterThan(24);
   const cards = [selected, secondNewest, newest].map((set) => getSetCards(set.id)[0]);
   app = await mountedApp({
-    'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Selected era fixture', nextNonce: 0, createdAt: 1 }),
-    'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+    ...PLAYER('Selected era fixture'),
     [STORAGE_KEYS.SELECTED_SET]: selected.id,
     [STORAGE_KEYS.COLLECTION]: JSON.stringify(Object.fromEntries(cards.map((card) => [card.key, { card, normalCount: 1, holoCount: 0 }]))),
     [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
   });
   await app.mount();
-  const headers = () => [...document.querySelectorAll('[role="dialog"].collection .collection-set-toggle')];
-  await app.interact(() => button('My cards').click());
-  await app.until('the real collection loads under My cards', () => expect(headers()).toHaveLength(3));
+  const headers = () => [...document.querySelectorAll('main.page .collection .collection-set-toggle')];
+  await app.interact(() => button('Cards').click());
+  await app.until('the real collection loads under Cards', () => expect(headers()).toHaveLength(3));
   const open = headers().filter((h) => h.getAttribute('aria-expanded') === 'true').map((h) => h.querySelector('.collection-set-name')?.textContent);
   expect(open).toEqual([selected.name, newest.name]);
 });
 
-// The App's own Rankings, Best pulls (titled "My cards", like the collection) and Share sheets, through
-// the real DeferredSheet. Each loader stands in for a chunk a deploy removed while `stale` holds its title,
-// then resolves a stub screen in the real Sheet that records the props the App passed. The collection
-// shares the "My cards" title but has no stats, so it loads for real. (Mocking the screen modules themselves is
-// unreliable here: vitest serves StrictMode's second concurrent import() the unmocked module.)
-type StubProps = Record<string, unknown> & { onClose: () => void };
+// The App's own Rankings and Profile pages, through the real Page, and its Share sheet, through the real
+// DeferredSheet. Each loader stands in for a chunk a deploy removed while `stale` holds its title, then
+// resolves a stub screen that records the props the App passed. Cards and Settings load for real. (Mocking
+// the screen modules themselves is unreliable here: vitest serves StrictMode's second concurrent import()
+// the unmocked module.)
+type StubProps = Record<string, unknown>;
 type Loader = () => Promise<{ default: ComponentType<StubProps> }>;
-type Wrapped = { title: string; size?: string; load: Loader; screenProps: StubProps };
-const lazyScreens = { Rankings: '../components/pages/HallOfFamePage', 'My cards': '../components/profile/MyProfilePage', 'Share your pull': '../components/share/ShareSheet' };
+type Wrapped = { title: string; size?: string; width?: string; skeleton?: string; load: Loader; screenProps: StubProps };
+const lazyScreens = { Rankings: '../components/pages/HallOfFamePage', Profile: '../components/profile/ProfilePage', 'Share your pull': '../components/share/ShareSheet' };
 type Title = keyof typeof lazyScreens;
-type Seen = { appLoad: Loader; load: Loader; calls: number; size?: string; props?: StubProps };
-afterEach(() => { vi.doUnmock('../components/ui/DeferredSheet'); });
+type Seen = { appLoad: Loader; load: Loader; calls: number; size?: string; skeleton?: string; props?: StubProps };
+afterEach(() => {
+  vi.doUnmock('../components/ui/DeferredSheet');
+  vi.doUnmock('../components/ui/Page');
+});
 
-it('mounts the App Rankings, Best pulls and Share sheets through DeferredSheet and recovers them from a stale chunk', async () => {
+it('mounts the App Rankings and Profile pages and the Share sheet on demand and recovers them from a stale chunk', async () => {
   const stale = new Set(Object.keys(lazyScreens));
   const seen: Partial<Record<Title, Seen>> = {};
+  const track = (title: Title, props: Wrapped) => {
+    const entry: Seen = seen[title] ??= {
+      appLoad: props.load,
+      calls: 0,
+      load: async () => {
+        entry.calls += 1;
+        if (stale.has(title)) throw new TypeError('Failed to fetch dynamically imported module');
+        return { default: stub(title) };
+      },
+    };
+    entry.size = props.size ?? props.width;
+    entry.skeleton = props.skeleton;
+    return entry;
+  };
+  const { createElement } = await import('react');
+  const stub = (title: Title) => (props: StubProps) => {
+    seen[title]!.props = props;
+    const share = title === 'Profile' && createElement('button', {
+      key: 'share',
+      type: 'button',
+      onClick: () => (props.onSharePull as (entry: object, cards: []) => void)({ setId: 'stub-set', setVersion: 1, nonce: 7, key: 'ab'.repeat(32) }, []),
+    }, 'Share stub pull');
+    const children = [`${title} loaded`, share] as ReactNode;
+    return title === 'Share your pull' ? createElement(SheetStub!, { title: `${title} screen`, onClose: props.onClose as () => void, children }) : createElement('div', null, children);
+  };
+  let SheetStub: ComponentType<{ title: string; onClose: () => void; children: ReactNode }> | undefined;
+  const wrap = (original: ComponentType<Wrapped>) => (props: Wrapped) => {
+    if (!(props.title in lazyScreens)) return createElement(original, props);
+    return createElement(original, { ...props, load: track(props.title as Title, props).load });
+  };
   vi.doMock('../components/ui/DeferredSheet', async (importOriginal) => {
-    const { createElement } = await import('react');
-    const { default: Sheet } = await import('../components/ui/Sheet');
-    const DeferredSheet = (await importOriginal<{ default: ComponentType<Wrapped> }>()).default;
-    const stub = (title: Title) => (props: StubProps) => {
-      seen[title]!.props = props;
-      const share = title === 'My cards' && createElement('button', {
-        key: 'share',
-        type: 'button',
-        onClick: () => (props.onSharePull as (entry: object, cards: []) => void)({ setId: 'stub-set', setVersion: 1, nonce: 7, key: 'ab'.repeat(32) }, []),
-      }, 'Share stub pull');
-      return createElement(Sheet, { title: `${title} screen`, onClose: props.onClose, children: [`${title} loaded`, share] as ReactNode });
-    };
-    const Wrapper = (props: Wrapped) => {
-      if (!(props.title in lazyScreens) || (props.title === 'My cards' && !('stats' in props.screenProps))) return createElement(DeferredSheet, props);
-      const title = props.title as Title;
-      const entry: Seen = seen[title] ??= {
-        appLoad: props.load,
-        calls: 0,
-        load: async () => {
-          entry.calls += 1;
-          if (stale.has(title)) throw new TypeError('Failed to fetch dynamically imported module');
-          return { default: stub(title) };
-        },
-      };
-      entry.size = props.size;
-      return createElement(DeferredSheet, { ...props, load: entry.load });
-    };
-    return { default: Wrapper };
+    SheetStub = (await import('../components/ui/Sheet')).default;
+    return { default: wrap((await importOriginal<{ default: ComponentType<Wrapped> }>()).default) };
   });
-  app = await mountedApp({
-    'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Stale chunk fixture', nextNonce: 0, createdAt: 1 }),
-    'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+  vi.doMock('../components/ui/Page', async (importOriginal) => {
+    const original = await importOriginal<{ default: ComponentType<Wrapped> }>();
+    return { ...original, default: wrap(original.default) };
   });
+  app = await mountedApp({ ...PLAYER('Stale chunk fixture'), ...RETURNING });
   await app.mount();
   const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
 
   const recover = async (title: Title, open: () => void) => {
     expect(seen[title], `${title} is not mounted before it is requested`).toBeUndefined();
     await app!.interact(open);
-    await app!.until(`${title} explains a failed chunk`, () => expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(`Couldn't load ${title}`));
-    const size = title === 'Share your pull' ? 'md' : 'lg';
-    expect(seen[title]!.size ?? 'md').toBe(size);
-    expect(document.querySelector('[role="dialog"] [role="alert"]')!.closest('.sheet-root')!.classList).toContain(`sheet-root--${size}`);
+    const sheet = title === 'Share your pull';
+    const alert = () => document.querySelector(sheet ? '[role="dialog"] [role="alert"]' : 'main.page [role="alert"]');
+    await app!.until(`${title} explains a failed chunk`, () => expect(alert()?.textContent).toContain(`Couldn't load ${title}`));
+    if (sheet) {
+      expect(seen[title]!.size ?? 'md').toBe('md');
+      expect(alert()!.closest('.sheet-root')!.classList).toContain('sheet-root--md');
+    } else {
+      // A page holds its place in the layout, not in a sheet.
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(alert()!.closest('main.page')!.classList).toContain('page--lg');
+    }
     const saved = JSON.stringify(Object.entries(localStorage));
     await app!.interact(() => button('Reload').click());
     expect(reload).toHaveBeenCalledOnce();
@@ -238,19 +259,20 @@ it('mounts the App Rankings, Best pulls and Share sheets through DeferredSheet a
     await app!.interact(() => button('Retry').click());
     await app!.until(`${title} loads on retry`, () => expect(document.body.textContent).toContain(`${title} loaded`));
     expect(seen[title]!.calls, `${title} retry requests the chunk again`).toBeGreaterThan(failed);
-    expect(document.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+    expect(alert()).toBeNull();
     // The App's own loader resolves the production screen.
     const real = await import(/* @vite-ignore */ lazyScreens[title]) as { default: unknown };
     expect((await seen[title]!.appLoad()).default).toBe(real.default);
   };
 
-  await recover('Rankings', () => { button('Rankings').focus(); button('Rankings').click(); });
-  await app.interact(() => button('Close').click());
-  expect(document.activeElement).toBe(button('Rankings'));
+  await recover('Rankings', () => button('Rankings').click());
+  // Rankings holds its place with rows, like the list it loads.
+  expect(seen.Rankings!.skeleton).toBe('rows');
+  await app.interact(() => button('Close Rankings').click());
+  await app.until('Rankings closes to Open', openShows);
+  expect(document.activeElement).toBe(document.querySelector('.app-logo'));
 
-  await app.interact(() => button('My cards').click());
-  await app.until('the real collection loads under My cards', () => expect(document.querySelector('[role="dialog"].collection')).not.toBeNull());
-  await recover('My cards', () => button('Best pulls').click());
+  await recover('Profile', () => button('Profile').click());
   await recover('Share your pull', () => button('Share stub pull').click());
   expect(seen['Share your pull']!.props?.target).toMatchObject({ ref: { setId: 'stub-set', setVersion: 1, nonce: 7, publicKeyHex: 'ab'.repeat(32) }, cards: [] });
 });

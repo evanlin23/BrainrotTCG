@@ -3,7 +3,8 @@ import { Settings2 } from 'lucide-react';
 import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
 import AchievementToasts, { type ToastItem } from './components/achievements/AchievementToasts';
-import AppNav, { type NavTarget } from './components/ui/AppNav';
+import AppNav from './components/ui/AppNav';
+import AppPage, { type PageSection } from './components/ui/Page';
 import DeferredSheet from './components/ui/DeferredSheet';
 import { sheetLoader } from './components/ui/sheetEntry';
 import SetPicker from './components/sets/SetPicker';
@@ -13,7 +14,6 @@ import { cardPoints, scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
-import { extractProfile, extractProof } from './engine';
 import { clearPendingPack, savePendingPack, takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
 import { getStoredData, setStoredData } from './utils/storage';
@@ -26,6 +26,8 @@ import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory, recordMissing } from './game/history';
 import { getPlayer, sameSave, saveMark, watchPlayer } from './game/player';
 import { reloadPage } from './game/reload';
+import { PAGE_TITLES, type Page } from './game/route';
+import { useRoute } from './hooks/useRoute';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import {
@@ -39,27 +41,25 @@ import {
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
 
-// Keep loaders stable. A secondary screen is requested when its state opens it, or a moment earlier
-// when the player points at, focuses or presses what opens it: never at startup or on idle.
-const loadPlayer = sheetLoader(() => import('./components/profile/PlayerPage'));
-const loadProfile = sheetLoader(() => import('./components/profile/MyProfilePage'));
+// Keep loaders stable. A page or sheet is requested when its route or state opens it, or a moment
+// earlier when the player points at, focuses or presses what opens it: never at startup (unless the
+// address opens it) or on idle.
+const loadProfilePage = sheetLoader(() => import('./components/profile/ProfilePage'));
 const loadPublicProfile = sheetLoader(() => import('./components/profile/ProfileViewerPage'));
-const loadAchievements = sheetLoader(() => import('./components/achievements/AchievementsPage'));
 const loadHallOfFame = sheetLoader(() => import('./components/pages/HallOfFamePage'));
 const loadSettings = sheetLoader(() => import('./components/pages/SettingsPage'));
 const loadCollection = sheetLoader(() => import('./components/collection/CollectionBrowser'));
 const loadShare = sheetLoader(() => import('./components/share/ShareSheet'));
 const loadPull = sheetLoader(() => import('./components/share/PullViewerPage'));
-const PREFETCH: Partial<Record<NavTarget, () => Promise<unknown>>> = {
-  collection: loadCollection, profile: loadProfile, achievements: loadAchievements, hallOfFame: loadHallOfFame,
-  player: loadPlayer, settings: loadSettings, save: loadSettings,
+const PREFETCH: Partial<Record<Page, () => Promise<unknown>>> = {
+  cards: loadCollection, rankings: loadHallOfFame, profile: loadProfilePage, settings: loadSettings,
 };
+/** The document title on the packs screen: index.html's. */
+const OPEN_TITLE = document.title;
 
-/** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
-const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
 const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
-const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. To recover it, open Player, then Save & restore, and export a backup.';
+const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. To recover it, open Settings, then Save & backup, and export a backup.';
 /** What adding a pack changes, so several packs can be added before React renders. */
 type PackProgress = { stats: Stats; collection: Record<string, CollectionItem>; hallOfFame: HallOfFameData };
 
@@ -96,6 +96,12 @@ function App() {
     if (!playerChanged.current && !sameSave(mountedSave, saveMark())) playerChanged.current = true;
     return !playerChanged.current;
   }, [mountedSave]);
+  // For pages that write the save themselves (Profile's name): refuse, and say why, once it changed.
+  const canWriteSave = useCallback(() => {
+    if (samePlayer()) return true;
+    setStaleSave(true);
+    return false;
+  }, [samePlayer]);
   const previousProgress = useRef<Map<string, unknown> | null>(null);
   // Packs given to the collection that it hasn't stored yet: each stays on the pending shelf till then.
   const unsavedPacks = useRef<OpenedPack[]>([]);
@@ -165,19 +171,19 @@ function App() {
     }
   }, [collection, achievements, stats, hallOfFame, settings, samePlayer]);
 
-  const [isCollectionOpen, setIsCollectionOpen] = useState(false);
-  const [isAchievementsOpen, setIsAchievementsOpen] = useState(false);
-  const [isHallOfFameOpen, setIsHallOfFameOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<'sound' | 'save'>('sound');
-  const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+  // The page showing (Open has no hash), and any shared link open over it: see useRoute.
+  const { route, proof: viewProof, profile: viewProfile, broken: brokenLink, navigate, closePage, closeLink } = useRoute();
+  // A part of the page to bring into view (a toast's achievements, Profile's link to Save & backup).
+  const [section, setSection] = useState<PageSection>(null);
+  const sectionRequests = useRef(0);
+  // Focus follows the route only once it changes in this visit: a page loaded directly starts like any page load.
+  const [initialRoute] = useState(route);
+  const [routeMoved, setRouteMoved] = useState(false);
+  if (!routeMoved && route !== initialRoute) setRouteMoved(true);
+  const logoRef = useRef<HTMLHeadingElement>(null);
   const [notificationQueue, setNotificationQueue] = useState<ToastItem[]>([]);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [packBusy, setPackBusy] = useState(false);
-  const [viewProof, setViewProof] = useState<string | null>(() => extractProof(window.location.hash));
-  const [viewProfile, setViewProfile] = useState<string | null>(() => extractProfile(window.location.hash));
-  const [brokenLink, setBrokenLink] = useState(() => isBrokenLink(window.location.hash));
 
   const playableSets = SETS.filter((s) => !s.archivedAt && (!s.draft || settings.showDraftSets));
   const [selectedSetId, setSelectedSetId] = useState<string>(readSelectedSet);
@@ -187,24 +193,12 @@ function App() {
     saveSelectedSet(setId);
   }, []);
 
-  // Shared pull links: #/pull/<proof>
+  // Each page names the tab; back on the packs screen, focus returns to the top of it (the page's
+  // own heading takes focus itself, see Page).
   useEffect(() => {
-    const onHashChange = () => {
-      setViewProof(extractProof(window.location.hash));
-      setViewProfile(extractProfile(window.location.hash));
-      setBrokenLink(isBrokenLink(window.location.hash));
-    };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
-  const closePullViewer = useCallback(() => {
-    // Shared links arrive through a preview page (/p/<id>), which is only there for chat apps.
-    const path = /\/p\/[^/]+$/.test(window.location.pathname) ? import.meta.env.BASE_URL : window.location.pathname + window.location.search;
-    history.replaceState(null, '', path);
-    setViewProof(null);
-    setViewProfile(null);
-    setBrokenLink(false);
-  }, []);
+    document.title = route === 'open' ? OPEN_TITLE : PAGE_TITLES[route];
+    if (route === 'open' && routeMoved) logoRef.current?.focus({ preventScroll: true });
+  }, [route, routeMoved]);
 
   const bgMusicRef = useRef<HTMLAudioElement | null>(null);
 
@@ -278,7 +272,7 @@ function App() {
         id: `level-${level}`,
         kicker: 'Level up',
         name: `Level ${level}`,
-        description: unlocked.length ? `Unlocked ${unlocked.join(', ')}. Pick it on your Player page.` : next ? `Next: ${next.name} at level ${next.level}.` : 'Keep opening.',
+        description: unlocked.length ? `Unlocked ${unlocked.join(', ')}. Pick it on your Profile.` : next ? `Next: ${next.name} at level ${next.level}.` : 'Keep opening.',
         opens: 'profile',
       },
     ]);
@@ -384,7 +378,7 @@ function App() {
   const noticeKeptPack = useCallback((pack: OpenedPack) => {
     if (pack.unrecorded) return;
     keptNotices.current += 1;
-    const notice: ToastItem = { id: `pack-kept-${keptNotices.current}`, kicker: 'Pack kept', name: 'Its cards are in My cards', description: 'Tap to see them.', opens: 'collection' };
+    const notice: ToastItem = { id: `pack-kept-${keptNotices.current}`, kicker: 'Pack kept', name: 'Its cards are in Cards', description: 'Tap to see them.', opens: 'collection' };
     setNotificationQueue((prev) => [notice, ...prev]);
   }, []);
 
@@ -392,21 +386,17 @@ function App() {
     setNotificationQueue(prev => prev.filter(a => !ids.includes(a.id)));
   }, []);
 
-  /** Start fetching a screen on intent, so it is usually there by the click; not while a pack opens. */
-  const prefetch = useCallback((target: NavTarget) => {
-    if (!packBusy) PREFETCH[target]?.().catch(() => {});
+  /** Start fetching a page on intent, so it is usually there by the click; not while a pack opens. */
+  const prefetch = useCallback((page: Page) => {
+    if (!packBusy) PREFETCH[page]?.().catch(() => {});
   }, [packBusy]);
-  const intent = (target: NavTarget) => ({ onPointerEnter: () => prefetch(target), onFocus: () => prefetch(target), onPointerDown: () => prefetch(target) });
+  const intent = (page: Page) => ({ onPointerEnter: () => prefetch(page), onFocus: () => prefetch(page), onPointerDown: () => prefetch(page) });
 
-  const openNav = useCallback((target: NavTarget) => {
-    setIsCollectionOpen(target === 'collection');
-    setIsProfileOpen(target === 'profile');
-    setIsAchievementsOpen(target === 'achievements');
-    setIsHallOfFameOpen(target === 'hallOfFame');
-    setIsPlayerOpen(target === 'player');
-    setIsSettingsOpen(target === 'settings' || target === 'save');
-    if (target === 'settings' || target === 'save') setSettingsSection(target === 'save' ? 'save' : 'sound');
-  }, []);
+  /** Go to a page (adding a history entry), and to one of its sections when given. */
+  const openPage = useCallback((page: Page, sectionId?: string) => {
+    setSection(sectionId ? { id: sectionId, n: ++sectionRequests.current } : null);
+    navigate(page);
+  }, [navigate]);
 
   const handleSettingsChange = useCallback((newSettings: Settings) => {
     setSettings(newSettings);
@@ -592,20 +582,26 @@ function App() {
     () => (saveFailed ? notificationQueue.filter((toast) => !toast.id.startsWith('pack-kept-')) : notificationQueue),
     [saveFailed, notificationQueue],
   );
-  const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isProfileOpen || isSettingsOpen || isPlayerOpen || !!shareTarget || !!viewProof || !!viewProfile;
-  // A sheet that is none of the tabs (even one on top of My cards, like Share from Best pulls or a
-  // shared link) leaves no tab current.
-  const isNonTabSheetOpen = isAchievementsOpen || isSettingsOpen || isPlayerOpen || !!shareTarget || !!viewProof || !!viewProfile || brokenLink;
-  const activeTab = isNonTabSheetOpen ? null : isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : 'open';
-
-  const personalNavigation = <nav className="personal-nav" aria-label="My cards">
-    <button type="button" className="btn btn--secondary" aria-current={isCollectionOpen ? 'page' : undefined} {...intent('collection')} onClick={() => openNav('collection')}>Cards</button>
-    <button type="button" className="btn btn--secondary" aria-current={isProfileOpen ? 'page' : undefined} {...intent('profile')} onClick={() => openNav('profile')}>Best pulls</button>
-  </nav>;
+  const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
+  // A sheet (Share, or a shared link) leaves no tab current; Settings is none of the tabs either.
+  const activeTab = shareTarget || viewProof || viewProfile || brokenLink ? null : route;
+  // A new player sees only the packs screen until their first pack is saved (#222). A save with cards
+  // but no pack count (an old one, or stats that couldn't be read) is not a new player's.
+  const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0;
+  const onPage = route !== 'open';
+  const logoChars = 'Brainrot TCG'.split('').map((char, i) =>
+    char === ' ' ? (
+      <span key={i} className="title-space" aria-hidden="true" />
+    ) : (
+      <span key={i} className="title-char" aria-hidden="true" style={{ animationDelay: `${i * 0.08}s` }}>
+        {char}
+      </span>
+    ),
+  );
 
   return (
-    <div className={`app ${packBusy ? 'is-focus' : ''}`}>
-      {bannerWarning && !isSettingsOpen && (
+    <div className={`app${packBusy ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
+      {bannerWarning && route !== 'settings' && (
         <p role="alert" className="save-warning">
           {bannerWarning}
           {staleSave && <button type="button" className="link-btn save-warning-action" onClick={() => reloadPage()}>Reload</button>}
@@ -613,21 +609,26 @@ function App() {
         </p>
       )}
       <header className="app-header">
-        <h1 className="app-logo" aria-label="Brainrot TCG">
-          {'Brainrot TCG'.split('').map((char, i) =>
-            char === ' ' ? (
-              <span key={i} className="title-space" aria-hidden="true" />
-            ) : (
-              <span key={i} className="title-char" aria-hidden="true" style={{ animationDelay: `${i * 0.08}s` }}>
-                {char}
-              </span>
-            ),
-          )}
-        </h1>
-        <AppNav onOpen={openNav} onPrefetch={prefetch} active={activeTab} />
+        {/* One h1 per view: the logo on the packs screen; on a page, that page's title (see Page). */}
+        {onPage ? (
+          <div className="app-logo" role="img" aria-label="Brainrot TCG">{logoChars}</div>
+        ) : (
+          <h1 ref={logoRef} className="app-logo" aria-label="Brainrot TCG" tabIndex={-1}>{logoChars}</h1>
+        )}
+        {showNav && <AppNav onOpen={openPage} onPrefetch={prefetch} active={activeTab} />}
         <div className="app-utilities">
-          <button type="button" className="btn btn--ghost btn--sm" {...intent('player')} onClick={() => openNav('player')} disabled={packBusy}>Player</button>
-          <button type="button" className="btn btn--ghost btn--sm" {...intent('settings')} onClick={() => openNav('settings')} disabled={packBusy} aria-label="Sound & display" title="Sound & display"><Settings2 aria-hidden="true" size={20} /></button>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            {...intent('settings')}
+            onClick={() => openPage('settings')}
+            disabled={packBusy}
+            aria-label="Settings"
+            title="Settings"
+            aria-current={route === 'settings' ? 'page' : undefined}
+          >
+            <Settings2 aria-hidden="true" size={20} />
+          </button>
         </div>
       </header>
 
@@ -635,11 +636,12 @@ function App() {
       <AchievementToasts
         queue={visibleNotifications}
         onDismiss={dismissNotifications}
-        onOpen={(target) => openNav(target === 'profile' ? 'player' : target)}
-        paused={isAnyModalOpen}
+        onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'player'))}
+        paused={isAnyModalOpen || onPage}
       />
 
-      <main className="app-main">
+      {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}
+      <main className="app-main" hidden={onPage} inert={onPage}>
         <SetPicker sets={playableSets} selectedId={selectedSet.id} onSelect={selectSet} collection={collection} disabled={packBusy} />
         <PackOpener
           key={selectedSet.id}
@@ -647,7 +649,7 @@ function App() {
           onShare={sharePack}
           onBusyChange={setPackBusy}
           set={selectedSet}
-          disabled={isAnyModalOpen}
+          disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
@@ -656,71 +658,60 @@ function App() {
         />
       </main>
 
-      {/* Achievements Page */}
-      {isAchievementsOpen && (
-        <DeferredSheet load={loadAchievements} size="lg" title="Achievements" screenProps={{
-          unlockedAchievements: achievements,
-          onClose: () => setIsAchievementsOpen(false),
-          progress: achievementProgress,
-          onSharePull: (ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) }),
-        }} />
+      {route === 'cards' && (
+        <AppPage load={loadCollection} title="Cards" onClose={closePage} autoFocus={routeMoved} screenProps={{ collection, recentSetId: selectedSet.id }} />
       )}
 
-      {/* Hall of Fame Page */}
-      {isHallOfFameOpen && (
-        <DeferredSheet load={loadHallOfFame} size="lg" title="Rankings" screenProps={{ onClose: () => setIsHallOfFameOpen(false) }} />
+      {route === 'rankings' && (
+        <AppPage load={loadHallOfFame} title="Rankings" skeleton="rows" onClose={closePage} autoFocus={routeMoved} screenProps={{}} />
       )}
 
-      {isProfileOpen && (
-        <DeferredSheet load={loadProfile} size="lg" title="My cards" screenProps={{
+      {route === 'profile' && (
+        <AppPage load={loadProfilePage} title="Profile" section={section} onClose={closePage} autoFocus={routeMoved} screenProps={{
           stats,
-          navigation: personalNavigation,
-          onClose: () => setIsProfileOpen(false),
+          level,
+          settings,
+          onSettingsChange: handleSettingsChange,
+          unlockedAchievements: achievements,
+          achievementProgress,
           onSharePull: (entry, cards) =>
             setShareTarget({
               ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
               cards,
               score: scoreCards(cards),
             }),
+          onShareAchievementPull: (ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) }),
+          onOpenSave: () => openPage('settings', 'save-backup'),
+          onOpenPacks: () => openPage('open'),
+          canSave: canWriteSave,
+          onSaveFailed: () => setSaveFailed(true),
         }} />
       )}
 
-      {/* Collection Browser */}
-      {isCollectionOpen && (
-        <DeferredSheet load={loadCollection} size="lg" title="My cards" screenProps={{ collection, navigation: personalNavigation, recentSetId: selectedSet.id, onClose: () => setIsCollectionOpen(false) }} />
+      {route === 'settings' && (
+        <AppPage load={loadSettings} title="Settings" width="md" section={section} onClose={closePage} autoFocus={routeMoved} screenProps={{
+          settings,
+          onSettingsChange: handleSettingsChange,
+          onImportSave: handleImportSave,
+          saveWarning,
+          onReload: staleSave ? () => reloadPage() : undefined,
+        }} />
       )}
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
 
-      {viewProof && <DeferredSheet load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closePullViewer }} />}
+      {viewProof && <DeferredSheet load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closeLink }} />}
 
-      {viewProfile && <DeferredSheet load={loadPublicProfile} size="lg" title="Shared profile" screenProps={{ proof: viewProfile, onClose: closePullViewer }} />}
+      {viewProfile && <DeferredSheet load={loadPublicProfile} size="lg" title="Shared profile" screenProps={{ proof: viewProfile, onClose: closeLink }} />}
 
       {brokenLink && (
-        <Sheet title="This link doesn't work" onClose={closePullViewer} size="sm">
+        <Sheet title="This link doesn't work" onClose={closeLink} size="sm">
           <p className="share-note">
             It looks cut off or changed, maybe when it was copied or pasted. Ask for the link again, or open a pack yourself.
           </p>
         </Sheet>
       )}
 
-      {isPlayerOpen && <DeferredSheet load={loadPlayer} size="sm" title="Player" screenProps={{
-        level, settings, onSettingsChange: handleSettingsChange, onClose: () => setIsPlayerOpen(false),
-        onOpenGoals: () => openNav('achievements'), onOpenSave: () => openNav('save'),
-      }} />}
-
-      {/* Settings Page */}
-      {isSettingsOpen && (
-        <DeferredSheet load={loadSettings} size="sm" title={settingsSection === 'save' ? 'Save & restore' : 'Sound & display'} screenProps={{
-          section: settingsSection,
-          settings,
-          onSettingsChange: handleSettingsChange,
-          onClose: () => setIsSettingsOpen(false),
-          onImportSave: handleImportSave,
-          saveWarning,
-          onReload: staleSave ? () => reloadPage() : undefined,
-        }} />
-      )}
     </div>
   );
 }

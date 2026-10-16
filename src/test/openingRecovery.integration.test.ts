@@ -83,7 +83,7 @@ it('waits for a slow ticket with the app held on the pack, then records the late
   await pressPack();
   await app.until('a slow ticket says so', () => expect(document.querySelector('.pack-hint.is-waiting[role="status"]')?.textContent).toBe('Opening…'));
   // The ticket is spent from the tear on: nothing may swap the set or open over the pack meanwhile.
-  expect(button('Player')!.disabled).toBe(true);
+  expect(button('Settings')!.disabled).toBe(true);
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(1);
   await expectNothingRecorded();
 
@@ -125,7 +125,7 @@ it('shows a failed ticket as an alert, records nothing, and records exactly one 
     .toBe('This pack refused to open. Try again!'));
   expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('Simulated ticket failure')]);
   await expectNothingRecorded();
-  await app.until('the app is free again', () => expect(button('Player')!.disabled).toBe(false));
+  await app.until('the app is free again', () => expect(button('Settings')!.disabled).toBe(false));
 
   failing = false;
   await pressPack();
@@ -147,7 +147,7 @@ it('never retries a failed ticket by itself: each press asks once more, and a se
     await app.until(`press ${press} asks for a ticket`, () => expect(app!.ticketRequests.length).toBeGreaterThan(asked));
     await app.until(`failure ${press} is announced`, () => expect(document.querySelector('.pack-hint.is-error[role="alert"]')?.textContent)
       .toBe('This pack refused to open. Try again!'));
-    await app.until('the app is free again', () => expect(button('Player')!.disabled).toBe(false));
+    await app.until('the app is free again', () => expect(button('Settings')!.disabled).toBe(false));
     expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('Simulated ticket failure')]);
     expect(app.ticketRequests).toHaveLength(asked + 1);
     await app.settle(10_000);
@@ -179,10 +179,8 @@ it("restores this player's save when storage fills mid-import, then keeps openin
   });
   app = await mountedApp({ ...SEED, [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 3, holoCards: {} }) });
   await app.mount();
-  await app.interact(() => button('Player')!.click());
-  await app.until('the player sheet loads', () => expect(button('Save & restore')).toBeDefined());
-  await app.interact(() => button('Save & restore')!.click());
-  await app.until('recovery controls load', () => expect(button('Import')).toBeDefined());
+  await app.interact(() => button('Settings')!.click());
+  await app.until('Save & backup loads', () => expect(button('Import')).toBeDefined());
   const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
   Object.defineProperty(input, 'files', { value: [new File([save], 'save.json', { type: 'application/json' })] });
   await app.interact(() => input.dispatchEvent(new Event('change', { bubbles: true })));
@@ -204,7 +202,8 @@ it("restores this player's save when storage fills mid-import, then keeps openin
   expect(after).toEqual(before);
 
   // The identity in memory never switched, so the next pack is this player's nonce-0 pack.
-  await app.interact(() => button('Close')!.click());
+  await app.interact(() => button('Close Settings')!.click());
+  await app.until('Open shows again', () => expect(document.querySelector<HTMLElement>('main.app-main')!.hidden).toBe(false));
   await pressPack();
   await finishReveal();
   expect(await historyCodes()).toEqual(GOLDEN_CARDS);
@@ -223,10 +222,8 @@ it("says so and then reloads when a failed import can't be undone, so the app do
   await app.mount();
   const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
   const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
-  await app.interact(() => button('Player')!.click());
-  await app.until('the player sheet loads', () => expect(button('Save & restore')).toBeDefined());
-  await app.interact(() => button('Save & restore')!.click());
-  await app.until('recovery controls load', () => expect(button('Import')).toBeDefined());
+  await app.interact(() => button('Settings')!.click());
+  await app.until('Save & backup loads', () => expect(button('Import')).toBeDefined());
   const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
   Object.defineProperty(input, 'files', { value: [new File([save], 'save.json', { type: 'application/json' })] });
   await app.interact(() => input.dispatchEvent(new Event('change', { bubbles: true })));
