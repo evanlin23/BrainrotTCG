@@ -28,7 +28,7 @@ import { getSet } from '../content/sets';
 import { getPlayer, getPlayerTickets } from './player';
 import { firstOpened, getHistory, historyForKey, storedHistory, type HistoryEntry } from './history';
 import { getReopened, putReopened } from './reopenCache';
-import { getStoredPack, hydratePackStore, packStoreVersion, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
+import { getStoredPack, hydratePackStore, packRefKey, packStoreVersion, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
 import { decodeCard, encodeCard, toPulled } from './cardCode';
 import { createTicketPool } from './ticketPool';
 import { admitOptional } from './admission';
@@ -226,14 +226,12 @@ export const historyAchievementsReady = (): boolean => {
   return getHistory().every(e => e.cards || !publicKeyHex.startsWith(e.key));
 };
 
-const refId = (key: string, publicKeyHex: string, nonce: number) => `${key}|${publicKeyHex.slice(0, 16)}|${nonce}`;
-
 /** Your tickets waiting on the store. */
 const myCacheRefs = (snapshot: PlayerTickets): Map<string, StoredPackRef> => {
   const refs = new Map<string, StoredPackRef>();
   const { publicKeyHex } = snapshot.player;
   for (const t of myTickets(snapshot)) {
-    if (t.set && awaitsCache(t)) refs.set(refId(setKey(t.set), publicKeyHex, t.nonce), { setKey: setKey(t.set), publicKeyHex, nonce: t.nonce });
+    if (t.set && awaitsCache(t)) refs.set(packRefKey(setKey(t.set), publicKeyHex, t.nonce), { setKey: setKey(t.set), publicKeyHex, nonce: t.nonce });
   }
   return refs;
 };
@@ -244,7 +242,7 @@ const historyCacheRefs = (skip: ReadonlyMap<string, StoredPackRef>): StoredPackR
   for (const e of getHistory()) {
     if (e.cards) continue;
     const key = `${e.setId}@${e.setVersion}`;
-    const id = refId(key, e.key, e.nonce);
+    const id = packRefKey(key, e.key, e.nonce);
     if (!skip.has(id) && !refs.has(id)) refs.set(id, { setKey: key, publicKeyHex: e.key, nonce: e.nonce });
   }
   return [...refs.values()];

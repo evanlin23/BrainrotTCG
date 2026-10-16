@@ -6,13 +6,15 @@ import { cardPoints, versionPackChance, type Rarity } from '../engine';
 import { getLatestSet, isOpenable } from '../content/sets';
 import type { CardVersion } from './versions';
 
-/** "1 in N packs" with N rounded to two significant figures (one decimal under 10), or "Most packs" above 1/2. */
+/** The N of "1 in N": two significant figures with thousands separators, one decimal under 10 ("2.5", "13", "2,400"). */
+export const formatOneIn = (n: number): string =>
+  (n < 10 ? Math.round(n * 10) / 10 : Number(n.toPrecision(2))).toLocaleString('en-US');
+
+/** "1 in N packs" with N from `formatOneIn`, or "Most packs" above 1/2. */
 export const packOddsText = (chance: number | null): string | null => {
   if (chance === null || !(chance > 0)) return null;
   if (chance > 0.5) return 'Most packs';
-  const n = 1 / chance;
-  const rounded = n < 10 ? Math.round(n * 10) / 10 : Number(n.toPrecision(2));
-  return `1 in ${rounded.toLocaleString('en-US')} packs`;
+  return `1 in ${formatOneIn(1 / chance)} packs`;
 };
 
 export interface CardStats {
