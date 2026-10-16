@@ -34,9 +34,10 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
 
-CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke and actionlint on
-every pull request and on pushes to branches other than main. The deploy workflow runs the verifier
-and `npm run check` again before deploying main.
+CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
+deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
+to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
+deploying main. CI uploads files only from failed runs, kept for 7 days.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
