@@ -1,7 +1,7 @@
 /**
  * The published Hall of Fame (public/hall-of-fame.json, built by scripts/hall-of-fame.ts during
- * deploy): the top pulls, each set's firsts and the daily tops. The page shows the published entries
- * as built, and re-checks only the pending ones it reads from the relays (`loadPending`).
+ * deploy): the top pulls and the daily tops of the last two UTC days. The page shows the published
+ * entries as built, and re-checks only the pending ones it reads from the relays (`loadPending`).
  */
 import { decodeProof, hallOfFameJoin, pullId, utcDay, type Finish, type RankableEntry } from '../engine';
 import { checkPull } from './pulls';

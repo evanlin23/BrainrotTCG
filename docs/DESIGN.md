@@ -186,8 +186,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   today yet", shows up to 3 of yesterday's best and how to submit. All-time is the published top 100
   by Brainrot Score. Rows aren't re-checked on the page: each links to its pull, which re-derives it.
   A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
-  before pulls were verifiable, so unranked) in a sheet. World firsts stay in the published data but
-  have no section.
+  before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
