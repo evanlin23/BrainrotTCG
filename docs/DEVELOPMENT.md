@@ -88,16 +88,20 @@ globals and modules. Run one with
 ## Test budgets
 
 `npm test`, and so `npm run check` and CI, runs the suite once with V8 coverage and enforces two
-budgets. Targeted `npx vitest run <path>` runs skip both (adding `--coverage` to one turns the
-floors on, and a partial run won't meet them).
+budgets, checked in this order:
 
 | Budget | Baseline (October 2026, 798 tests) | Enforced | Set in |
 | --- | --- | --- | --- |
+| Wall time of the whole run | 61.9-64.9 s with coverage, 57.4-64.4 s without, on a shared 4-core container; 53.5-62.7 s on CI without | at most 150 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
 | Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 78.2%, statements 81.8%, lines 83.5% | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
-| Wall time of the whole run | 62-65 s with coverage, 57-64 s without, on a shared 4-core container; 54-63 s on CI without | at most 150 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
 
-After the coverage summary the run prints `Test budget: N tests in M files took Xs (budget 150s)`,
-and it fails only past the budget. The baseline came from three runs each of `vitest run` and
+After the test summary, and before the coverage summary, the run prints
+`Test budget: N tests in M files took Xs (budget 150s)`, and it fails only past the budget. The
+runtime budget holds for every `npm test` run, whatever flags follow `--`: the `testBudget()` plugin
+in `vite.config.ts` adds its reporter after `--reporter` flags replace the configured ones, so
+`npm test -- --reporter=dot` keeps it, and `npm test -- --coverage.enabled=false` drops only the
+floors. Targeted `npx vitest run <path>` runs skip both budgets; adding `--coverage` to one turns
+the floors on, and a partial run won't meet them. The baseline came from three runs each of `vitest run` and
 `npm test` plus recent CI runs. Coverage stayed within 0.05 points between runs and added up to
 20% wall time, so it rides in the one test run. Instrumentation makes the CPU-bound engine
 simulations about 3x slower; under heavy load one run took 100 s and two of them passed the 5 s

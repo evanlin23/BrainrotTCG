@@ -198,7 +198,8 @@ export const importSaveFile = (raw: string): string | null => {
     staged.push([DATA_VERSION_KEY, String(dataVersion)]);
     // The stamp goes before any imported value, so another tab still on the old save stops writing it
     // (see saveMark). A different player's fields are cleared before it, which frees space for it and
-    // the imported fields, and again after it, in case such a tab wrote one back in between.
+    // the imported fields, and again after it, in case such a tab wrote one in between: clears always
+    // run, even for a field that was absent when `previous` was captured.
     const clears = incomingPlayer && !isCurrentPlayer(incomingPlayer.secretKey)
       ? omitted.filter((key) => PLAYER_FIELDS.has(key)).map((key): [string, null] => [key, null]) : [];
     staged.unshift(...clears, [SAVE_STAMP_KEY, newSaveStamp()], ...clears);
@@ -209,7 +210,7 @@ export const importSaveFile = (raw: string): string | null => {
     const changed: string[] = [];
     try {
       for (const [key, value] of staged) {
-        if (previous.get(key) === value) continue;
+        if (value !== null && previous.get(key) === value) continue;
         if (value === null) localStorage.removeItem(key);
         else localStorage.setItem(key, value);
         if (!changed.includes(key)) changed.push(key);

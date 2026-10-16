@@ -363,3 +363,21 @@ it('clears again a field that a tab still on the old save wrote back before the 
   expect(write.mock.calls.slice(0, 2).map(([key]) => key)).toEqual(['brainrot-before-import-v1', SAVE_STAMP_KEY]);
   expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
 });
+
+it.each([
+  ['succeeds', null, undefined],
+  ['fails', 'Import failed. Your previous save data was restored.', STORAGE_KEYS.STATS],
+])('clears again a field that was absent until a tab still on the old save wrote it mid-import, when the import %s', (_name, result, failing) => {
+  store.set(SAVE_STAMP_KEY, 'earlier');
+  let oldTab = true;
+  write.mockImplementation((key, value) => {
+    if (key === SAVE_STAMP_KEY && oldTab) { oldTab = false; store.set(STORAGE_KEYS.PULLS, '["old tab"]'); }
+    if (key === failing) throw new Error('quota');
+    store.set(key, value);
+  });
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+  expect(importSaveFile(JSON.stringify(fixture()))).toBe(result);
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+  if (failing) expect(store.get(SAVE_STAMP_KEY)).toBe('earlier');
+  else expect(exportPlayer()).toBe(fixture().player);
+});
