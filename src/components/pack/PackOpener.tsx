@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { CardWithMeta } from '../cards/Card';
 import type { Settings } from '../../types';
@@ -6,6 +6,7 @@ import type { SetDefinition } from '../../engine';
 import { openPack, prefetchNextPack, type OpenedPack } from '../../game/pulls';
 import { holdLive } from '../../game/admission';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
+import { buzz } from '../../utils/motion';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
@@ -16,6 +17,7 @@ import PackCuttingUI from './PackCuttingUI';
 import CardRevealUI from './CardRevealUI';
 import PackSummaryUI from './PackSummaryUI';
 import PackTopBar from './PackTopBar';
+import ShowcaseRibbon from './ShowcaseRibbon';
 import { packImageUrl } from '../../content/art';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
@@ -34,6 +36,10 @@ interface PackOpenerProps {
   onShare: (pack: OpenedPack) => void;
   /** True while a pack is being opened (its ticket is spent but it isn't recorded yet). */
   onBusyChange?: (busy: boolean) => void;
+  /** True from the tear until the player leaves the pack (while its X shows): the app's focus mode. */
+  onFocusChange?: (focus: boolean) => void;
+  /** True while a revealed big pull is being showcased (its ribbon and halo are up): the app holds its notices. */
+  onShowcaseChange?: (showcase: boolean) => void;
   set: SetDefinition;
   disabled?: boolean;
   /** No new pack may start (the save changed in another tab); one already opening still finishes. */
@@ -47,7 +53,7 @@ interface PackOpenerProps {
   onLeaveEarly?: (pack: OpenedPack) => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
@@ -79,6 +85,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
   const [leavingOpen, setLeavingOpen] = useState(false);
   /** What a ticket that lands after the player left needs, as of the latest render. */
   const landingRef = useRef({ onOpen, onLeaveEarly, resetCutState: () => {} });
+  /** Whether a tear may still spend its ticket, as of the latest render (see handleCutComplete). */
+  const openBlockedRef = useRef(openBlocked);
 
   const startOpening = useCallback(async () => {
     let pack: OpenedPack;
@@ -132,7 +140,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
 
   // From the tear on, the ticket is spent: the app mustn't swap sets (or open a sheet over it) until
   // the pack is recorded. The ticket can still be mining here on a slow phone.
-  // The summary comes after it's recorded, so the tabs and the pack switcher come back there.
+  // The summary comes after it's recorded, so it isn't busy (focus mode still hides the chrome there).
   useEffect(() => onBusyChange?.((isOpening && !showSummary) || (isPackCut && !isOpening)), [isOpening, isPackCut, showSummary, onBusyChange]);
 
   // Mining taking a while: say so, rather than leave a torn pack sitting still.
@@ -161,8 +169,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     }
     setOpenError(null);
     openTimeoutRef.current = window.setTimeout(() => {
-      // Started: from here the ticket is spent, so leaving keeps the pack rather than cancelling it.
       openTimeoutRef.current = null;
+      if (openBlockedRef.current) {
+        // Another tab changed the save since the tear: put the pack back sealed rather than spend a
+        // ticket this tab can't store.
+        setIsPackCut(false);
+        landingRef.current.resetCutState();
+        return;
+      }
+      // Started: from here the ticket is spent, so leaving keeps the pack rather than cancelling it.
       void startOpening();
     }, 460);
   }, [startOpening]);
@@ -193,9 +208,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     landingRef.current = { onOpen, onLeaveEarly, resetCutState };
   });
 
+  useEffect(() => {
+    openBlockedRef.current = openBlocked;
+  });
+
   // From the first swipe until the summary, re-opening and checking other pulls start no new ticket
-  // (one already mining finishes), so this pack's ticket and animations get the device.
-  const live = isCutting || (isOpening && !showSummary) || (isPackCut && !isOpening);
+  // (one already mining finishes), so this pack's ticket and animations get the device; the summary
+  // then holds them until its cards have decoded (PackSummaryUI). Not while a
+  // sheet covers the pack: a check opened there (a shared pull or profile link) shouldn't wait for a
+  // reveal it hides. This pack's own ticket still holds while it mines (ticketMiner).
+  const live = !disabled && (isCutting || (isOpening && !showSummary) || (isPackCut && !isOpening));
   useEffect(() => (live ? holdLive() : undefined), [live]);
 
   // A pack that refused to open can be torn again, as its error asks.
@@ -271,6 +293,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
    */
   const stageInPack = (isPackCut && !leavingOpen) || isOpening || !!openError;
 
+  // Focus mode (#312): the app's chrome stays out of the way for the whole pack, summary included, and
+  // comes back as soon as the player leaves it, even while a left pack's ticket is still on its way.
+  useEffect(() => onFocusChange?.(stageInPack), [stageInPack, onFocusChange]);
+  // Unmounted mid-pack (the set changed under its summary): the pack is gone, so the chrome comes back.
+  // onFocusChange is a state setter, so this runs on unmount only, never between renders.
+  useEffect(() => () => onFocusChange?.(false), [onFocusChange]);
+
   /**
    * Back to the packs screen from any stage, keeping whatever the pack already spent. It works during
    * a big pull's pause too (ending its celebration): the pause holds the cards, not the player.
@@ -310,7 +339,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     if (!disabled) leavePack();
   }, [disabled, leavePack]);
 
-  usePackHistory(stageInPack, leavePack);
+  // Browser Back goes through the same guard: behind a sheet it leaves nothing, and the pack keeps its entry.
+  usePackHistory(stageInPack, leaveFromUi);
 
   const handleFlip = useCallback(() => {
     const currentCard = openedCards[currentIndex];
@@ -337,10 +367,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
 
     setOpenedCards(openedCards.map((card, index) => index === currentIndex ? { ...card, isRevealed: true } : card));
 
-    // A short buzz on phones: a tick for any card, a double for big pulls.
-    if (typeof navigator.vibrate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      navigator.vibrate(isBigPull(currentCard) ? [18, 60, 30] : 8);
-    }
+    // A short buzz on phones: a tick for any card, a double for big pulls. None under reduced motion.
+    buzz(isBigPull(currentCard) ? [18, 60, 30] : 8);
 
     if (settings.particlesEnabled) {
       // A finish or misprint gets at least an Epic's confetti.
@@ -457,6 +485,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
   }, [cleanupCutter]);
 
   const currentCard = openedCards[currentIndex];
+  // The showcase lasts as long as the celebration: its timer, moving on, the X or the summary ends it.
+  const showcase = isOpening && !showSummary && !!currentCard?.isRevealed
+    && celebratingCardId === currentCard.uniqueId && isSpecialReveal(currentCard);
+  // Before paint, so a notice can't flash in the frame the ribbon first shows.
+  useLayoutEffect(() => {
+    if (!showcase) return;
+    onShowcaseChange?.(true);
+    return () => onShowcaseChange?.(false);
+  }, [showcase, onShowcaseChange]);
 
   return (
     <div className="pack-opener-container">
@@ -464,6 +501,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
         <PackTopBar
           onLeave={leaveFromUi}
           progress={isOpening && !showSummary ? { index: currentIndex, total: openedCards.length } : undefined}
+          showcase={showcase ? <ShowcaseRibbon card={currentCard} /> : undefined}
         />
       )}
       <AnimatePresence mode="wait">
@@ -523,6 +561,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
                 set={set}
                 onClose={closeSummary}
                 onShare={openedPack ? () => onShare(dealtPack()!) : undefined}
+                holdOptional={!disabled}
               />
             )}
           </Motion.div>

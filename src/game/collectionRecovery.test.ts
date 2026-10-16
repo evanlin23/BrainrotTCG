@@ -2,29 +2,44 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import { hydrateCollection } from '../utils/migrations';
-import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRecovery, persistCollection } from './collectionRecovery';
+import {
+  ARCHIVE_BUDGET, COLLECTION_RECOVERY_NOTES, collectionRecoveryDismissed, collectionRecoveryFile, collectionRecoveryNote,
+  collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, hasCollectionRecovery,
+  persistCollection,
+} from './collectionRecovery';
 
 const card = ALL_CARDS[0];
 const item = { card, normalCount: 1, holoCount: 0 };
-const seed = (raw: string | null, fail?: (key: string) => boolean) => {
+const ARCHIVE = STORAGE_KEYS.COLLECTION_RECOVERY;
+const seed = (raw: string | null, fail?: (key: string, value: string) => boolean) => {
   const data = new Map<string, string>();
   if (raw !== null) data.set(STORAGE_KEYS.COLLECTION, raw);
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => data.get(key) ?? null,
     setItem: (key: string, value: string) => {
-      if (fail?.(key)) throw new DOMException('full', 'QuotaExceededError');
+      if (fail?.(key, value)) throw new DOMException('full', 'QuotaExceededError');
       data.set(key, value);
     },
+    removeItem: (key: string) => { data.delete(key); },
   });
   return data;
 };
+const archiveIn = (data: Map<string, string>) => JSON.parse(data.get(ARCHIVE)!);
 let errors: ReturnType<typeof vi.spyOn>;
-beforeEach(() => { errors = vi.spyOn(console, 'error').mockImplementation(() => {}); });
+let warnings: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+});
 afterEach(() => {
+  // Forget anything this visit kept in memory (the module outlives each test), on storage that lets go.
+  seed(null);
+  expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 const logged = () => errors.mock.calls.map((call: unknown[]) => String(call[0]));
+const warned = () => warnings.mock.calls.map((call: unknown[]) => String(call[0]));
 
 describe('collection recovery before a subsequent pack write', () => {
   it('preserves the exact original raw payload including a same-key unreadable card', () => {
@@ -57,13 +72,18 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(logged()).toEqual([]);
   });
 
-  it('rejects the collection write when archiving fails; original raw bytes survive', () => {
+  it("still saves when the archive can't be written, keeping the payload for this visit to download", () => {
     const raw = '{"damaged":null}';
-    const data = seed(raw, (key) => key === STORAGE_KEYS.COLLECTION_RECOVERY);
-    expect(persistCollection({ [card.key]: item })).toBe('blocked');
-    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
-    expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(false);
-    expect(logged()).toEqual([`Failed to save to localStorage key "${STORAGE_KEYS.COLLECTION_RECOVERY}":`]);
+    const data = seed(raw, (key) => key === ARCHIVE);
+    data.set('brainrot-player-v1', '{"secretKey":"now"}');
+    expect(persistCollection({ [card.key]: item })).toBe('recovered');
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual({ [card.key]: item });
+    expect(data.has(ARCHIVE)).toBe(false);
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(hasCollectionRecovery()).toBe(true);
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw, player: '{"secretKey":"now"}' });
+    expect(warned()).toEqual([expect.stringMatching(/kept in this tab only/)]);
+    expect(logged()).toEqual([]);
   });
 
   it('keeps both the original and archive when the final collection write fails, then retries safely', () => {
@@ -95,37 +115,97 @@ describe('collection recovery before a subsequent pack write', () => {
     expect(logged()).toEqual([]);
   });
 
-  it('stops replacing the stored collection, rather than grow the archive without end', () => {
+  it('keeps the first and the newest ten, counting the later payloads it lets go', () => {
     const data = seed(null);
-    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, JSON.stringify({ raw: '{"0":null}', player: null }));
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
     for (let i = 1; i <= 10; i++) {
       data.set(STORAGE_KEYS.COLLECTION, `{"${i}":null}`);
       expect(persistCollection({})).toBe('recovered');
     }
-    const archive = data.get(STORAGE_KEYS.COLLECTION_RECOVERY);
-    expect(JSON.parse(archive!).later).toHaveLength(10);
-    expect(logged()).toEqual([]);
+    expect(archiveIn(data).later).toHaveLength(10);
+    expect(warned()).toEqual([]);
 
-    data.set(STORAGE_KEYS.COLLECTION, '{"11":null}');
-    expect(persistCollection({})).toBe('blocked');
-    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe('{"11":null}');
-    expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
-    expect(logged()).toHaveLength(1);
+    for (let i = 11; i <= 12; i++) {
+      data.set(STORAGE_KEYS.COLLECTION, `{"${i}":null}`);
+      expect(persistCollection({})).toBe('recovered');
+      expect(data.get(STORAGE_KEYS.COLLECTION)).toBe('{}');
+    }
+    const archive = archiveIn(data);
+    expect(archive.raw).toBe('{"0":null}');
+    expect(archive.later.map((entry: { raw: string }) => entry.raw)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `{"${i + 3}":null}`));
+    expect(archive.dropped).toBe(2);
+    expect(warned()).toEqual([expect.stringMatching(/Let the 1 oldest later payload/), expect.stringMatching(/Let the 1 oldest/)]);
+    expect(logged()).toEqual([]);
     // Bytes it already holds still count as kept, and a readable collection saves as before.
-    data.set(STORAGE_KEYS.COLLECTION, '{"10":null}');
+    data.set(STORAGE_KEYS.COLLECTION, '{"12":null}');
     expect(persistCollection({})).toBe('recovered');
+    expect(archiveIn(data)).toEqual(archive);
     expect(persistCollection({ [card.key]: item })).toBe('saved');
   });
 
-  it.each(['{broken', '[]', '{"raw":"x","later":"y"}'])('never overwrites an archive it cannot read: %s', (originalArchive) => {
-    const raw = '{"second":null}';
-    const data = seed(raw);
-    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, originalArchive);
-    expect(persistCollection({})).toBe('blocked');
-    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(raw);
-    expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(originalArchive);
-    expect(logged()).toHaveLength(1);
+  it(`keeps the whole archive within ${ARCHIVE_BUDGET} characters, then keeps a payload too big for it in memory`, () => {
+    const big = (name: string, size: number) => JSON.stringify({ [name]: 'x'.repeat(size) });
+    const data = seed(big('a', 400_000));
+    expect(persistCollection({})).toBe('recovered');
+    data.set(STORAGE_KEYS.COLLECTION, big('b', 300_000));
+    expect(persistCollection({})).toBe('recovered');
+    data.set(STORAGE_KEYS.COLLECTION, big('c', 300_000));
+    expect(persistCollection({})).toBe('recovered');
+    const archive = archiveIn(data);
+    expect(data.get(ARCHIVE)!.length).toBeLessThanOrEqual(ARCHIVE_BUDGET);
+    expect(archive.raw).toBe(big('a', 400_000));
+    expect(archive.later).toEqual([{ raw: big('c', 300_000), player: null }]);
+    expect(archive.dropped).toBe(1);
+    expect(collectionRecoveryState()).toBe('stored');
+
+    // The first and this one together are over budget: the stored archive stays, the save goes on.
+    const stored = data.get(ARCHIVE);
+    data.set(STORAGE_KEYS.COLLECTION, big('d', 700_000));
+    expect(persistCollection({ [card.key]: item })).toBe('recovered');
+    expect(data.get(ARCHIVE)).toBe(stored);
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual({ [card.key]: item });
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(JSON.parse(collectionRecoveryFile()!.text).later.map((entry: { raw: string }) => entry.raw))
+      .toEqual([big('c', 300_000), big('d', 700_000)]);
+    expect(warned().at(-1)).toMatch(/kept in this tab only/);
   });
+
+  it('lets the oldest later payloads go when storage is full, then keeps the newest in memory and still saves', () => {
+    let room = 2;
+    const data = seed('{"4":null}', (key, value) => key === ARCHIVE && (JSON.parse(value).later?.length ?? 0) > room);
+    const entry = (i: number) => ({ raw: `{"${i}":null}`, player: null });
+    data.set(ARCHIVE, JSON.stringify({ ...entry(0), later: [entry(1), entry(2), entry(3)] }));
+    expect(persistCollection({})).toBe('recovered');
+    expect(archiveIn(data)).toEqual({ ...entry(0), later: [entry(3), entry(4)], dropped: 2 });
+    expect(warned()).toEqual([expect.stringMatching(/Let the 2 oldest later payload/)]);
+
+    room = 0;
+    const stored = data.get(ARCHIVE);
+    data.set(STORAGE_KEYS.COLLECTION, '{"5":null}');
+    expect(persistCollection({ [card.key]: item })).toBe('recovered');
+    expect(data.get(ARCHIVE)).toBe(stored);
+    expect(JSON.parse(data.get(STORAGE_KEYS.COLLECTION)!)).toEqual({ [card.key]: item });
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(warned().at(-1)).toMatch(/kept in this tab only/);
+    // The same bytes again aren't kept twice.
+    data.set(STORAGE_KEYS.COLLECTION, '{"5":null}');
+    expect(persistCollection({})).toBe('recovered');
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ ...entry(0), later: [entry(3), entry(4), entry(5)], dropped: 2 });
+    expect(logged()).toEqual([]);
+  });
+
+  it.each(['{broken', '[]', '{"raw":"x","later":"y"}', '{"raw":"x","player":null,"dropped":-1}', '{"raw":"x","player":null,"kind":"other"}'])(
+    'keeps an archive it cannot read as the first entry instead of blocking: %s', (originalArchive) => {
+      const raw = '{"second":null}';
+      const data = seed(raw);
+      data.set(ARCHIVE, originalArchive);
+      expect(persistCollection({})).toBe('recovered');
+      expect(data.get(STORAGE_KEYS.COLLECTION)).toBe('{}');
+      expect(archiveIn(data)).toEqual({ raw: originalArchive, player: null, kind: 'unparseable-archive', later: [{ raw, player: null }] });
+      expect(warned()).toEqual([expect.stringMatching(/couldn't be read, so its exact text is kept as the first entry/)]);
+      expect(logged()).toEqual([]);
+    });
 
   it('does not write anything if the persisted collection cannot be read', () => {
     const setItem = vi.fn();
@@ -136,6 +216,135 @@ describe('collection recovery before a subsequent pack write', () => {
   });
 });
 
+
+describe('downloading and discarding kept-aside data', () => {
+  it('builds a dated JSON file of the stored archive and this visit\'s unsaved payloads', () => {
+    const data = seed(null);
+    const now = new Date('2026-10-16T12:00:00Z');
+    expect(collectionRecoveryFile(now)).toBeNull();
+    const stored = { raw: '{"0":null}', player: '{"secretKey":"then"}', later: [{ raw: '{"1":null}', player: null }], dropped: 3 };
+    data.set(ARCHIVE, JSON.stringify(stored));
+    expect(collectionRecoveryFile(now)).toEqual({ name: 'brainrot-collection-recovery-2026-10-16.json', text: JSON.stringify(stored, null, 2) });
+
+    // Nothing stored, everything in memory: the first unsaved payload leads.
+    const memory = seed('{"2":null}', (key) => key === ARCHIVE);
+    memory.set('brainrot-player-v1', '{"secretKey":"now"}');
+    expect(persistCollection({})).toBe('recovered');
+    memory.set(STORAGE_KEYS.COLLECTION, '{"3":null}');
+    expect(persistCollection({})).toBe('recovered');
+    expect(JSON.parse(collectionRecoveryFile(now)!.text)).toEqual({
+      raw: '{"2":null}', player: '{"secretKey":"now"}', later: [{ raw: '{"3":null}', player: '{"secretKey":"now"}' }],
+    });
+  });
+
+  it('downloads an unreadable archive as its exact text', () => {
+    const data = seed(null);
+    data.set(ARCHIVE, '{broken');
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw: '{broken', player: null, kind: 'unparseable-archive' });
+  });
+
+  it('discards the stored archive, its hidden-note fingerprint and the unsaved payloads', () => {
+    const data = seed('{"1":null}', (key) => key === ARCHIVE);
+    expect(persistCollection({})).toBe('recovered');
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
+    expect(dismissCollectionRecovery()).toBe(true);
+    expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe(true);
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    expect(data.has(ARCHIVE)).toBe(false);
+    expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe(false);
+    expect(collectionRecoveryState()).toBe('none');
+    expect(hasCollectionRecovery()).toBe(false);
+    expect(collectionRecoveryFile()).toBeNull();
+  });
+
+  it('reports a discard storage refused', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => '{"raw":"x","player":null}',
+      removeItem: () => { throw new DOMException('denied', 'SecurityError'); },
+    });
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('refused');
+    expect(hasCollectionRecovery()).toBe(true);
+    expect(logged()).toEqual([`Failed to remove localStorage key "${ARCHIVE}":`]);
+  });
+
+  it('reports the discard done when only the hidden-note fingerprint stays behind', () => {
+    const data = seed('{"1":null}', (key) => key === ARCHIVE);
+    expect(persistCollection({})).toBe('recovered');
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
+    expect(dismissCollectionRecovery()).toBe(true);
+    const remove = localStorage.removeItem;
+    vi.spyOn(localStorage, 'removeItem').mockImplementation((key: string) => {
+      if (key === STORAGE_KEYS.COLLECTION_RECOVERY_SEEN) throw new DOMException('denied', 'SecurityError');
+      remove(key);
+    });
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    expect(data.has(ARCHIVE)).toBe(false);
+    expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe(true);
+    expect(collectionRecoveryState()).toBe('none');
+    expect(logged()).toEqual([]);
+    expect(warned()).toContain(`Failed to remove localStorage key "${STORAGE_KEYS.COLLECTION_RECOVERY_SEEN}":`);
+  });
+
+  it("keeps this visit's payloads when storage refuses the discard", () => {
+    seed('{"1":null}', (key) => key === ARCHIVE);
+    expect(persistCollection({})).toBe('recovered');
+    const removeItem = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => { throw new DOMException('denied', 'SecurityError'); });
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('refused');
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(JSON.parse(collectionRecoveryFile()!.text).raw).toBe('{"1":null}');
+    removeItem.mockRestore();
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    expect(collectionRecoveryState()).toBe('none');
+  });
+
+  it('discards nothing when the kept-aside data changed since the player was asked', () => {
+    const data = seed('{"2":null}', (key, value) => key === ARCHIVE && value.includes('"{\\"2\\":null}"'));
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'seen');
+    let shown = collectionRecoveryPrint();
+    // Another tab stored another payload meanwhile.
+    const stored = JSON.stringify({ raw: '{"0":null}', player: null, later: [{ raw: '{"1":null}', player: null }] });
+    data.set(ARCHIVE, stored);
+    expect(discardCollectionRecovery(shown)).toBe('changed');
+    expect(data.get(ARCHIVE)).toBe(stored);
+    expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe('seen');
+
+    // Or this tab kept one in memory.
+    shown = collectionRecoveryPrint();
+    expect(persistCollection({})).toBe('recovered');
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(discardCollectionRecovery(shown)).toBe('changed');
+    expect(data.get(ARCHIVE)).toBe(stored);
+    expect(collectionRecoveryState()).toBe('unsaved');
+
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    expect(data.has(ARCHIVE)).toBe(false);
+    expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe(false);
+    expect(collectionRecoveryState()).toBe('none');
+  });
+
+  it('says how many older payloads were let go, stored and in memory, in the note and the file', () => {
+    const data = seed(null);
+    expect(collectionRecoveryNote()).toBeUndefined();
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
+    expect(collectionRecoveryNote()).toBe(COLLECTION_RECOVERY_NOTES.stored);
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null, dropped: 3 }));
+    expect(collectionRecoveryNote()).toBe(`${COLLECTION_RECOVERY_NOTES.stored} 3 older unreadable saves were let go to make room.`);
+
+    // Storage takes no archive: this visit keeps the first and the newest ten, counting the one let go.
+    const memory = seed(null, (key) => key === ARCHIVE);
+    for (let i = 0; i <= 11; i++) {
+      memory.set(STORAGE_KEYS.COLLECTION, `{"${i}":null}`);
+      expect(persistCollection({})).toBe('recovered');
+    }
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(collectionRecoveryNote()).toBe(`${COLLECTION_RECOVERY_NOTES.unsaved} 1 older unreadable save was let go to make room.`);
+    const file = JSON.parse(collectionRecoveryFile()!.text);
+    expect(file.raw).toBe('{"0":null}');
+    expect(file.later.map((entry: { raw: string }) => entry.raw)).toEqual(Array.from({ length: 10 }, (_, i) => `{"${i + 2}":null}`));
+    expect(file.dropped).toBe(1);
+  });
+});
 
 it('keeps the original private identity snapshot when later ticket counters change', () => {
   const raw = '{"damaged":null}';
@@ -161,6 +370,17 @@ describe('hiding the kept-aside note', () => {
     expect(collectionRecoveryDismissed()).toBe(true);
     // Only a short fingerprint is stored, never a second copy of the archive.
     expect(data.get(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)!.length).toBeLessThan(20);
+    expect(persistCollection({})).toBe('recovered');
+    expect(collectionRecoveryDismissed()).toBe(false);
+  });
+
+  it('brings the note back when a payload is kept for this visit only, and hides that too', () => {
+    const data = seed('{"1":null}', (key) => key === ARCHIVE);
+    expect(persistCollection({})).toBe('recovered');
+    expect(collectionRecoveryDismissed()).toBe(false);
+    expect(dismissCollectionRecovery()).toBe(true);
+    expect(collectionRecoveryDismissed()).toBe(true);
+    data.set(STORAGE_KEYS.COLLECTION, '{"2":null}');
     expect(persistCollection({})).toBe('recovered');
     expect(collectionRecoveryDismissed()).toBe(false);
   });

@@ -42,6 +42,12 @@ describe('optionsFromEnv', () => {
     });
     expect(optionsFromEnv({ OUT_DIR: 'pages/' }).outDir).toBe('pages/');
   });
+
+  it('names SITE_URL ending in one /, whether it was set with one or not', () => {
+    for (const SITE_URL of ['https://brainrottcg.pages.dev', 'https://brainrottcg.pages.dev/']) {
+      expect(optionsFromEnv({ BASE_PATH: '/', SITE_URL }).site).toBe('https://brainrottcg.pages.dev/');
+    }
+  });
 });
 
 describe('setStubs', () => {

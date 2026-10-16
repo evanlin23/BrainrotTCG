@@ -86,6 +86,7 @@ src/game/          Browser glue around the engine.
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
   collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
+  route.ts           the page addresses (#/cards, #/rankings, #/profile, #/settings) and their titles
 
 src/components/    React UI (pack opening, collection, set picker, share sheet, pull viewer, pages)
 
@@ -219,23 +220,40 @@ than generated for each unique pull. Their count and size grow with the publishe
 (cached in CI too) so only new or changed ones are drawn. The pages forward to the pull. The path only
 picks the preview; the pull is still re-derived from the proof when it's opened.
 
+Addresses and Back (`src/hooks/useRoute.ts`, `src/hooks/usePackHistory.ts`): Open has no hash;
+`#/cards`, `#/rankings`, `#/profile` (your own) and `#/settings` are pages. A shared
+`#/pull/<proof>` or `#/profile/<proof>` opens its viewer sheet over whatever page is showing, and a
+link that doesn't parse gets the broken-link sheet. Pages, opened packs and links share one history:
+each pushes an entry marked in `history.state`, so Back from a page returns to the previous page or
+to the pack it was opened over, Back from a pack leaves it, and closing a link or a page steps back
+over the entries it added rather than replacing them, so no pack entry is stranded. A page or link
+loaded directly has nothing under it, so closing it replaces the address with Open. Diagnostics
+report the page by its allowlisted name, never the hash.
+
 ## Saves
 
 localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainrot-player-v1`
-(identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1` and
-`brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions)
-and the `brainrot-before-import-v1`, `brainrot-before-move-v1` and
-`brainrot-before-move-pending-v1` backups (for recovery by hand: the app never reads them back). IndexedDB holds one database,
+(identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1`,
+`brainrot-reopen-backoff-v1` (how long an automatic resume waits after re-opened packs couldn't be
+saved) and `brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions),
+`brainrot-save-stamp-v1` (changed by every import and move, so other open tabs can tell) and the
+`brainrot-before-import-v1`, `brainrot-before-move-v1` and `brainrot-before-move-pending-v1` backups
+(kept for recovery by hand: the app never restores a save from them). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
-replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1` (up to
-11 distinct payloads); if that can't be kept, the stored collection is left alone. Export includes
-that archive. Import
+replaced, unreadable entries are archived byte for byte, with the identity snapshot they belonged to,
+in `brainrot-collection-recovery-v1`: each distinct payload once, the first and then the newest 10,
+within 1M characters (older ones in between are let go and counted). The archive never blocks the
+save: a payload storage has no room for is kept for that visit only, and the note asks the player to
+download it. Nothing discards kept-aside data silently; the player can download or discard it from the
+save warning or Settings. Export includes that archive. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
-import's copy (if that copy can't be stored, nothing is imported; a failed import keeps it). Fields the file omits keep their stored values, except that a
+import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; if the
+copy can't be stored, nothing is imported; a failed import keeps it). Fields the file omits keep their stored values, except that a
 different player's save clears this browser's player fields (recovery archive included), which then
-stay only in that backup. It writes the identity last and, on failure, removes what it wrote and
+stay only in that backup. It clears those fields, writes a new `brainrot-save-stamp-v1` before any imported field, clears
+them again (even ones that were absent, which a tab still on the old save may have just written), and writes the identity last; on failure it removes what it wrote and
 restores the previous values. That is structural validation and best-effort rollback, not a
 transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
@@ -261,20 +279,18 @@ than v3 (checked as migrations and the profile read them), and a missing `brainr
 is stored as `1` so the save's migrations run; otherwise the result is `invalid` and nothing is
 written. Neither side's `brainrot-before-*` backups are handed over. Replacing a different
 player's progress asks first and copies the current save into `brainrot-before-move-v1`, or, while
-an earlier move's copy is there, into `brainrot-before-move-pending-v1`. There are never more than
-these two copies: while a pending copy is there (left by a move that couldn't be undone, or whose
-copy couldn't take the earlier one's place), it holds the save from before that move and later moves
-take no new copy. Neither copy is written over or removed before a move succeeds. Once one has,
-with or without progress to replace, a pending copy (its own or one left earlier) replaces the one
-in `brainrot-before-move-v1` in a single write and is removed; if that write fails, both stay until
-a later move succeeds. A move into a browser without progress takes no copy and only moves a
-pending one into place. If the copy can't be stored, nothing is written and the result is `full`
-(storage quota) or `invalid`. Into a browser without progress, keys the save doesn't carry stay. A
-failed write removes what it wrote, restores the previous values and then drops the copy just taken
-(best effort, not a transaction); copies left earlier are never touched, and the result is `full`
-(storage quota) or `invalid`. If the values can't all be restored, the result is `partial` and every
-copy is kept (the save that was here, or, if one was already pending, the save from before that
-earlier move): the player is told this browser may hold parts of both saves, Save & restore then reloads so the page shows what
+an earlier move's copy is there, into `brainrot-before-move-pending-v1`. A pending copy an earlier
+move left first replaces the one in `brainrot-before-move-v1` (one write, then it is removed), so the
+save being replaced is always copied and there are never more than these two copies; if either write
+fails, nothing is written and the result is `full` (storage quota) or `invalid`. The move then
+removes that save's keys (player and stamp first, so a tab still on it stops writing). Once moved,
+with or without progress to replace, a pending copy replaces the one in `brainrot-before-move-v1`
+the same way; if that fails, both stay until the next move. Into a browser without progress, keys
+the save doesn't carry stay and no copy is taken. A failed write removes what it wrote, restores the
+previous values and drops only the copy just taken (best effort, not a transaction), and the result
+is `full` (storage quota) or `invalid`. If the values can't all be restored, the result is `partial`
+and every copy is kept: the player is told this browser may hold parts of both saves, Save & restore then
+reloads so the page shows what
 storage holds (a partial file import does the same), and the move window stays open on any failure
 so its note can be read.
 
@@ -316,11 +332,30 @@ failed read keeps what was shown, and a resumed re-open waits for a successful r
 earned from the history and from card modifiers are worked out only once every history pack's
 cards are in, so each is credited to the pack and date that earned it; if only other players'
 packs fail to read, those count by hand and score alone rather than holding back your own. A tab
-whose player another tab switched or imported neither unlocks achievements nor stores any progress
-(collection, stats, Hall of Fame, achievements, settings): every write compares the stored player
-with the one the tab loaded, and the banner asks for a reload. Once the tab knows, it opens no new
-pack; one opened before then waits on the pending shelf under the player it opened as, and other
-players' packs stay there when this one's change. IndexedDB
+whose save another tab replaced (a player switch or move, any file import, even of the same player, or
+clearing this site's storage) neither unlocks achievements nor stores any progress (collection,
+stats, Hall of Fame, achievements, settings): every write compares the stored player, whether its
+record is still stored, and `brainrot-save-stamp-v1` with what the tab loaded, and the banner asks
+for a reload. Once the tab knows, it opens no new pack (one torn open in the moment before goes back
+sealed, with no ticket spent); one opened before then waits on the pending shelf under the player it
+opened as (if the shelf takes it, as below), and other players' packs stay there when this one's
+change. Two tabs of the same player (no import or switch, so the stamp can't tell) are guarded too:
+every write also compares the stored collection, stats, Hall of Fame and achievements with what the
+tab last read or stored (`src/game/progressGuard.ts`, plus a storage listener), and a tab another tab
+has written past stops the same way instead of storing its older copy over that tab's packs. Packs it
+took off the pending shelf at load and hasn't stored or shelved since go back on it for the next load
+to add. Packs it opened itself aren't put back: any the shelf took when they opened are still there
+unless the other tab has taken and stored them, so putting them back could add them twice. If storage
+refuses the put-back, the save warning stays up and the next change or storage event tries again.
+Settings stay last-writer-wins.
+Limits: storage has no lock across tabs, so two tabs of one player writing in the same instant can
+both pass that check (the later write replaces the earlier, whose pack stays in the history; the
+earlier tab then hears the write and stops), and a tab that writes before an import's stamp reaches
+it can still overwrite an imported field (import with other tabs closed; the file and
+`brainrot-before-import-v1` remain). A tab stopped
+by an import that then failed and was undone stays stopped until it reloads. Storage cleared with no
+storage event (a browser's clear-site-data) is noticed at the next write, but a pack opened first
+stores this tab's player again, and if that save had no stamp the tab then writes its progress back. IndexedDB
 errors can leave only memory results; writes resolve without a durable-success signal, and the pending flag
 is cleared before the final save completes. Resumption and cache retention are best effort (#87).
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
@@ -329,15 +364,21 @@ Collection, stats and achievements normally receive a pack when its reveal finis
 opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
 on the next load, but writes can fail. It is always a list (up to 50, other players' packs included,
 and none of theirs is dropped to make room), so an owed pack is never
-replaced by a newer one; past the cap (or if storage refuses the write), the new pack shows the save
+replaced by a newer one. Other players' packs don't expire either: one can be the only copy of a pack
+owed to that player's collection, which this browser can't check, and they come only from a tab that
+opened a pack before it knew another tab had changed the save; past the cap (or if storage refuses the write), the new pack shows the save
 warning and isn't on the shelf while it reveals: it still reaches the collection when its reveal
-finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but a tab
-closed before that leaves it only in the history (if that write went through). Load
+finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but nothing
+keeps it for the next load: a tab closed before that leaves it only in the history, if that write went
+through. Load
 takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
 so none is added twice) and holds them until a collection holding them is stored. Taking packs off
 rewrites the shelf in place; if storage refuses, it removes the shelf and writes it again, then
 keeps only other players' packs (this player's other owed packs drop; the history has them), then puts
-the shelf back as it was. Only if all of that is refused do other players' packs go, with an error logged. If that collection
+the shelf back as it was: load then adds none and leaves them listed, while a pack taken off after its
+reveal stays listed and the next load may add it again (an error is logged). If even that is refused,
+the shelf is gone and this tab holds other players' packs, writing them back with its next shelf
+write; they are lost only if it closes first (an error is logged). If that collection
 write is blocked, they stay owed by this tab and go into its next collection write; a copy also goes
 back on the shelf for the next load, if the shelf takes it. A tab closed before that write leaves the
 shelf copy for the next load or, if the shelf refused it, the pack only in the history. After each
@@ -446,3 +487,90 @@ WebSockets, POSTs, service workers, clipboard, native share, downloads and expor
 submit controls, so sharing tasks may stop at that boundary. It writes a sanitized
 `test-results/agent-audit.json` and never posts, merges or deploys. Agent outcomes are not human
 evidence. No real agent task run has been recorded yet (unrun). Refs #239.
+
+## Proposals (not shipped)
+
+These await the owner's decision and describe nothing the app does today.
+
+### Display-name and publication policy (#348)
+
+Status: proposed, awaiting owner (#348).
+
+No matcher or enforcement is installed. Names are nonunique labels beside a key fingerprint (spec
+section 9). Retain released 24-code-point/fixed-character proof rules (spec section 7, rule 2); verify
+the original signed bytes, never a normalized substitute. Legacy empty names remain valid (viewers
+show "Anonymous"). Format, cryptographic validity and permitted publication are separate; React
+escaping and the bot's Markdown sanitiser are not moderation. Today the name field already counts
+code points (it cuts input at 24, silently) and a rename to a blank name is refused; entry UI should
+also preview normalization and explain rejected or truncated input. A grapheme or UTF-16
+`maxLength` is not that count.
+
+| Owner decision | Recommendation for review |
+| --- | --- |
+| Languages/content | Explicit English scope; disallow targeted slurs/harassment, explicit sexual names, spam/links and false official affiliation |
+| Ordinary slang/swearing | Allow meme slang; owner sets swearing threshold before selecting a preset |
+| Disallowed name in valid existing proof | Keep verification; show “Name hidden” plus fingerprint, with separate policy explanation |
+| New public submission | Reject publication with actionable feedback; retain original signed evidence |
+| Appeals/overrides/removal | Owner chooses contact/process; versioned allowlist and review; rejected-issue removal/rebuild |
+
+Apply one policy version at editable UI and trusted issue/relay intake, including bypassed clients.
+Mask pending/direct pull/profile views, captions/posters and accessible text consistently; private
+backups preserve raw signed evidence. Old external images cannot be recalled. A matcher cannot
+reliably identify impersonation or establish human identity; retain key fingerprints without that claim.
+
+Official READMEs reviewed October 15, 2026: [Obscenity](https://github.com/jo3-l/obscenity) offers an
+English preset, configurable transformations/boundaries and whitelist (MIT); [@2toad/profanity](https://github.com/2Toad/Profanity)
+offers multiple languages, whole-word and Unicode-boundary options (default boundaries are ASCII-
+oriented). Both need explicit false-positive exceptions. A small audited matcher avoids a package
+but makes evasions/boundaries our maintenance responsibility. Evaluate Obscenity first for an
+English policy, without adopting its preset wholesale. Before selection, inspect pinned dependency/
+license data and measure compressed client bytes and short-name cost; benchmarks remain **unrun**.
+
+Planned fixtures include 24/25 code points, astral emoji, combining sequences, empty/space/control/
+bidi input, links, mixed-script/leet evasions, and legitimate substrings such as Scunthorpe/Arsenic.
+Expected moderation outcomes require the approved policy; these are not library pass claims. Bound
+input work; retain existing proof-decoder limits. Full boundary/removal fixtures stay in #348/#21;
+after approval split entry feedback, shared matcher and trusted publication/display implementation.
+No signed name bytes, released proof rules or generator versions change in this proposal.
+
+### Scalable-profile decision (#323)
+
+Status: proposed, awaiting owner (#323).
+
+**For review: defer production aggregate formats; proceed with one bounded feasibility prototype.**
+A minimal input ledger is interim provenance protection, not the owner's final history-free design.
+Current profile v1 signs assignments for tickets 0..N−1 as runs, XP and up to five best-pack claims
+(min(5, N)). The bounds below (N ≤ 100,000, at most 64 set entries) come from
+`src/engine/profile.ts` (spec section 11). Today `history.ts` already keeps every recorded assignment
+as JSON in localStorage (`brainrot-history-v1`): quota recovery drops only cached cards, and an
+unrecorded assignment stays unknown and blocks the profile link (see Profiles and levels).
+
+| Route | State / verification | Decision boundary |
+| --- | --- | --- |
+| Minimal original-assignment ledger | O(N) worst-case assignments and cold regeneration; cards/images are caches | Near-term storage mitigation (a compact form of today's history), not scalable aggregate verification |
+| Recursive aggregate proof / IVC | Updatable proof/prover state plus current aggregates; succinct verification can avoid historical replay | Candidate long-term route; Argon2id proving/browser feasibility unmeasured |
+| Trusted verified checkpoint | Bounded job replays a range and signs aggregate state | Optional trusted service (#243), even if built on Actions/Workers |
+
+Six bits per assignment at 64 set entries gives 75,000 raw bytes for 100,000 tickets, excluding
+identity/table/encoding/database overhead; runs compress long sessions. This arithmetic bound is
+not a measured save size. Public v1 remains run-based with worst-case long links. IndexedDB can
+exceed localStorage's common roughly 5MiB limit but still faces quota, denial, eviction and clearing.
+A migration keeps today's rule: known assignments or valid same-key profile runs only; missing
+history stays unknown, never guessed. Save-schema changes do not require changed generator odds; a new public
+proof format requires separate version/spec/vectors and an independent verifier.
+
+An IVC step must bind initial identity, monotonic nonce, original allowed rules and every aggregate
+update. Collection/variant state and prover parameters need not be constant-sized. Bootstrap from
+intact inputs; lost assignments cannot be retroactively certified. A compact verification proof may
+omit state needed to continue proving after restore. [Nova](https://github.com/microsoft/Nova)
+establishes IVC/compression primitives, not practical browser proving for 32MiB/two-iteration Argon2id;
+parameter/setup trust needs separate review. Checkpoints instead require named verifier key/rules,
+range commitment, budgets, availability, rollback/key-rotation and owner acceptance of service trust.
+
+Next prototype stays outside production builds/formats: one exact released derivation/aggregate
+step in one selected circuit/zkVM, engine fixture equality and altered-input rejection. Measure
+prover time/peak memory, parameters/download bytes, proof versus resumable-state bytes, verification,
+browser/WASM feasibility and export/restore/continue; all benchmarks are **unrun**. Compare bounded
+checkpoint replay budgets without deployment, then choose proceed/defer. Full acceptance stays in
+#323. Neither route witnesses human play, animation completion, wall-clock time or undeclared lifetime
+mining; self-signed totals/Merkle roots alone do not prove aggregate correctness.

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { RotateCcw, Share2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
@@ -10,6 +10,7 @@ import { CARD_RARITIES, getSetCards, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import { myProgress } from '../../game/profiles';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
+import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackCacheNote from '../profile/PackCacheNote';
 import '../../styles/CollectionLabel.css';
 
@@ -20,14 +21,26 @@ interface PackSummaryUIProps {
   set: SetDefinition;
   onClose: () => void;
   onShare?: () => void;
+  /** Keep optional work waiting until these cards have decoded (off while a sheet covers them). */
+  holdOptional?: boolean;
 }
 
 /**
- * After the last card: the hand as the headline, the score, and the five cards laid out like a
- * pack's contents on a table, each with its collector number, rarity and a NEW sticker if it's new.
+ * After the last card, result first: the hand as the headline, then the five cards laid out like a
+ * pack's contents on a table (each with its collector number, rarity and a NEW sticker if it's new),
+ * then the score and level, with the actions in their own row below.
  */
-const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProps) => {
+const PackSummaryUI = ({ openedCards, set, onClose, onShare, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
+  const cardsRef = useRef<HTMLUListElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useHoldUntilDecoded(cardsRef, holdOptional);
+  // The keyboard starts at the result, not on an action: the heading, so the cards come next.
+  useEffect(() => {
+    if (holdOptional) headingRef.current?.focus({ preventScroll: true });
+    // Only as it appears; not while a sheet covers it (holdOptional is off then).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { points, hand, score } = scoreCards(openedCards);
   const setCards = getSetCards(set.id);
   const numberOf = (card: CardWithMeta) => {
@@ -46,36 +59,10 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
-      <div className="summary-actions">
-        {onShare && (
-          <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
-            <Share2 aria-hidden="true" /> Share
-          </button>
-        )}
-        <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
-          <RotateCcw aria-hidden="true" /> Open another pack
-        </button>
-      </div>
-
       <div className="summary-content">
         <div className="summary-details">
-          <h2 className="summary-title">{hand.name}</h2>
-          {/* The hand's name is the heading just above, so the panel doesn't repeat it. */}
-          <BrainrotScorePanel points={points} multiplier={hand.multiplier} score={score} setId={set.id} />
-          {progress ? (
-            <div className="summary-xp">
-              <span className="summary-xp-text tabular">
-                <strong>+{progress.gained.toLocaleString()} XP</strong> · Level {progress.level} · {into.toLocaleString()}/{span.toLocaleString()} to Level {progress.level + 1}
-              </span>
-              <span className="progress" aria-hidden="true">
-                <span style={{ width: `${Math.min(100, (into / span) * 100)}%` }} />
-              </span>
-            </div>
-          ) : (
-            <PackCacheNote what="your level progress" className="summary-xp summary-xp-text" />
-          )}
-
-          <ul className="summary-cards">
+          <h2 className="summary-title" ref={headingRef} tabIndex={-1}>{hand.name}</h2>
+          <ul className="summary-cards" ref={cardsRef}>
             {openedCards.map((card) => (
               <li key={card.uniqueId}>
                 <button
@@ -102,7 +89,33 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
               {newCount} new {newCount === 1 ? 'card' : 'cards'} for your binder
             </p>
           )}
+          {/* The hand's name is the heading above the cards, so the panel doesn't repeat it. */}
+          <BrainrotScorePanel points={points} multiplier={hand.multiplier} score={score} setId={set.id} />
+          {progress ? (
+            <div className="summary-xp">
+              <span className="summary-xp-text tabular">
+                <strong>+{progress.gained.toLocaleString()} XP</strong> · Level {progress.level} · {into.toLocaleString()}/{span.toLocaleString()} to Level {progress.level + 1}
+              </span>
+              <span className="progress" aria-hidden="true">
+                <span style={{ width: `${Math.min(100, (into / span) * 100)}%` }} />
+              </span>
+            </div>
+          ) : (
+            <PackCacheNote what="your level progress" className="summary-xp summary-xp-text" />
+          )}
         </div>
+      </div>
+
+      {/* After the result, in a row of their own that never scrolls away. */}
+      <div className="summary-actions">
+        {onShare && (
+          <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
+            <Share2 aria-hidden="true" /> Share
+          </button>
+        )}
+        <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
+          <RotateCcw aria-hidden="true" /> Open another pack
+        </button>
       </div>
 
       {selected && (

@@ -30,7 +30,11 @@ export interface AssetCheck {
   path: string;
   dimensions?: { width: number; height: number };
   alpha?: boolean;
+  /** WebP unless given (scripts/check-site.ts checks the JPEG link-preview pictures). */
+  format?: 'webp' | 'jpeg';
 }
+
+const FORMAT_NAMES = { webp: 'WebP', jpeg: 'JPEG' } as const;
 
 // scripts/cards/pack.ts renders 768x1376; its 696x1236 picker crop resizes to 300x533.
 const PACK_DIMENSIONS = { width: 768, height: 1376 };
@@ -82,7 +86,7 @@ export const getRegisteredAssetChecks = (sets: SetDefinition[], rootDir = ROOT):
           Object.values(parsed).some((hash) => typeof hash !== 'string')) throw new Error('Expected a card-to-hash object');
         manifest = parsed;
       } catch (error) {
-        throw new Error(`${path.relative(rootDir, manifestPath)}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`${path.relative(rootDir, manifestPath)}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
     }
     // The generator emits these finishes for each opted-in card, including retained old versions.
@@ -120,7 +124,8 @@ export const validateCardAsset = async (filePath: string, expected?: Omit<AssetC
     // Inspect/decode one byte snapshot; libvips' filename cache must not hide changed files.
     const image = sharp(readFileSync(filePath));
     const meta = await image.metadata();
-    if (meta.format !== 'webp') return { valid: false, error: `Expected WebP, got ${meta.format ?? 'unknown format'}` };
+    const format = expected?.format ?? 'webp';
+    if (meta.format !== format) return { valid: false, error: `Expected ${FORMAT_NAMES[format]}, got ${meta.format ?? 'unknown format'}` };
     if (!meta.width || !meta.height || meta.width <= 0 || meta.height <= 0) {
       return { valid: false, error: `Invalid or non-positive dimensions (${meta.width ?? 0}x${meta.height ?? 0})` };
     }
@@ -138,9 +143,9 @@ export const validateCardAsset = async (filePath: string, expected?: Omit<AssetC
 };
 
 /**
- * Validates card assets for the provided sets with bounded concurrency.
+ * Validates assets with bounded concurrency; error paths are relative to rootDir.
  */
-const checkAssets = async (
+export const checkAssets = async (
   assets: AssetCheck[],
   concurrency: number,
   rootDir: string,

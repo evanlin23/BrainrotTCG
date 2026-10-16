@@ -18,7 +18,7 @@
 
 .app-nav ul {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   height: var(--nav-height);
   max-width: 36rem;
   margin: 0 auto;
@@ -68,7 +68,7 @@
   white-space: nowrap;
 }
 
-/* Focus mode (a pack is being opened): get out of the way, for the keyboard too (hidden after the fade). */
+/* Focus mode (a pack is open, summary included): get out of the way, for the keyboard too (hidden after the fade). */
 .app.is-focus .app-nav {
   transform: translateY(110%);
   opacity: 0;
@@ -119,8 +119,6 @@
 
 .app-utilities { display: flex; gap: var(--space-2); }
 .app-utilities .btn { min-height: 48px; }
-.personal-nav { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
-.personal-nav [aria-current="page"] { border-color: var(--brand); color: var(--text); }
 
 @media (max-width: 899px) {
   /* The logo shrinks with the screen so logo and buttons share one row from 360px up; narrower, they wrap. */

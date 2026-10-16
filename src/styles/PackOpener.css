@@ -48,6 +48,61 @@
     padding: 0;
 }
 
+/* A big pull's ribbon takes the progress's place for the celebration, in the band above the card. */
+.showcase-ribbon {
+    position: relative;
+    isolation: isolate;
+    justify-self: center;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    max-width: 100%;
+    min-height: var(--touch-target);
+    padding: var(--space-1) var(--space-6);
+    color: var(--brand-ink);
+    line-height: var(--leading-tight);
+    text-align: center;
+    filter: drop-shadow(0 0 12px #ffd23f99) drop-shadow(0 4px 10px #0009);
+    animation: showcase-ribbon var(--special-reveal-duration) ease-out both;
+}
+
+/* The ribbon's notched band, on its own layer so the drop shadow follows the notches. */
+.showcase-ribbon::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(180deg, #ffe69b, var(--brand));
+    clip-path: polygon(0 0, 100% 0, calc(100% - var(--space-3)) 50%, 100% 100%, 0 100%, var(--space-3) 50%);
+}
+
+.showcase-ribbon-kicker {
+    font-size: var(--text-xs);
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.showcase-ribbon-points {
+    font-size: var(--text-base);
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+@keyframes showcase-ribbon {
+    0% { opacity: 0; transform: scale(0.6); }
+    12% { opacity: 1; transform: scale(1.08); }
+    22%, 88% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* No scale or bounce: the ribbon is just there for the celebration. */
+    .showcase-ribbon {
+        animation: none;
+    }
+}
+
 /*
  * The pack is huge on purpose: too big for the screen, held up from below. Its top (the set ribbon
  * and the tear line) always shows; the rest runs off the bottom of the space.
@@ -534,7 +589,7 @@
     user-select: text;
 }
 
-/* Only the contents scroll: the next-pack action always has its own visible row. */
+/* Result first: only the contents scroll, and the actions keep their own visible row below them. */
 .summary-content {
     display: flex;
     flex: 1;
@@ -569,7 +624,7 @@
     justify-content: center;
     gap: var(--space-3);
     width: 100%;
-    margin-bottom: var(--space-3);
+    padding-top: var(--space-3);
 }
 
 @media (max-width: 480px) {
@@ -625,116 +680,50 @@
     touch-action: pan-y;
 }
 
-/* A valuable card gets one celebratory beat as its flip lands. */
-.reveal-card.is-celebrating::before {
-    content: '';
-    position: absolute;
-    inset: -6px;
-    z-index: 4;
-    border: 3px solid #ffe38a;
-    border-radius: 12px;
-    box-shadow: 0 0 24px #ffd23f, 0 0 64px #ffd23f80;
-    pointer-events: none;
-    animation: valuable-card-ring var(--special-reveal-duration) ease-out both;
-}
-
-.reveal-card.is-celebrating::after {
-    content: '✦';
-    position: absolute;
-    top: 8%;
-    right: -18px;
-    z-index: 4;
-    color: var(--brand);
-    font-size: 42px;
-    line-height: 1;
-    pointer-events: none;
-    animation: valuable-card-spark var(--special-reveal-duration) ease-out both;
-}
-
-@keyframes valuable-card-ring {
-    0% { opacity: 0; transform: scale(0.98); }
-    25% { opacity: 0.8; }
-    100% { opacity: 0; transform: scale(1.12); }
-}
-
-@keyframes valuable-card-spark {
-    0% { opacity: 0; transform: translateY(12px) rotate(-12deg) scale(0.4); }
-    30% { opacity: 1; }
-    100% { opacity: 0; transform: translateY(-22px) rotate(12deg) scale(1.1); }
-}
-
-.special-reveal-celebration {
+/*
+ * A valuable card's showcase, as its flip lands: a halo that glows behind the card (it paints under
+ * it, inside the card's own stacking context, so it scales with it and never tints the art) and a
+ * ribbon in the top bar above it (.showcase-ribbon). Nothing sits over the card for a screenshot.
+ */
+.showcase-halo {
     position: absolute;
     inset: 0;
-    z-index: 5;
+    z-index: -1;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 0 0 3px #ffe38a, 0 0 28px 6px #ffd23fb3, 0 0 80px 24px #ffd23f59;
     pointer-events: none;
-    display: grid;
-    place-items: center;
+    animation: showcase-halo var(--special-reveal-duration) ease-out both;
 }
 
-.special-reveal-rays {
+/* Rays fanning out from behind the card. */
+.showcase-halo::before {
+    content: '';
     position: absolute;
-    inset: -12px;
-    background: repeating-conic-gradient(from 0deg, #ffd23f26 0deg 8deg, transparent 8deg 24deg);
-    mask-image: radial-gradient(ellipse, transparent 18%, #000 48%, transparent 72%);
-    animation: valuable-card-rays var(--special-reveal-duration) ease-out both;
+    inset: -30%;
+    background: repeating-conic-gradient(from 0deg, #ffd23f40 0deg 8deg, transparent 8deg 24deg);
+    mask-image: radial-gradient(closest-side, transparent 45%, #000 70%, transparent 100%);
+    animation: showcase-rays var(--special-reveal-duration) linear both;
 }
 
-.special-reveal-banner {
-    position: absolute;
-    bottom: 8%;
-    display: grid;
-    gap: 2px;
-    min-width: min(80%, 18rem);
-    padding: 12px 24px;
-    border: 1px solid #ffe38a;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #ffe69b, #ffd23f);
-    box-shadow: 0 0 32px #ffd23f80, 0 8px 24px #0009;
-    color: #241800;
-    text-align: center;
-    animation: valuable-card-banner var(--special-reveal-duration) ease-out both;
+@keyframes showcase-halo {
+    0% { opacity: 0; }
+    15%, 85% { opacity: 1; }
+    100% { opacity: 0; }
 }
 
-.special-reveal-banner > span {
-    font-size: clamp(22px, 4cqw, 32px);
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-}
-
-.special-reveal-banner > strong {
-    font-size: 18px;
-}
-
-@keyframes valuable-card-rays {
-    0% { opacity: 0; transform: rotate(-12deg) scale(0.8); }
-    25% { opacity: 1; }
-    85% { opacity: 1; }
-    100% { opacity: 0; transform: rotate(12deg) scale(1.08); }
-}
-
-@keyframes valuable-card-banner {
-    0% { opacity: 0; transform: translateY(12px) scale(0.85); }
-    20% { opacity: 1; transform: translateY(0) scale(1.04); }
-    35%, 85% { opacity: 1; transform: translateY(0) scale(1); }
-    100% { opacity: 0; transform: translateY(-4px) scale(1); }
+@keyframes showcase-rays {
+    0% { transform: rotate(-10deg); }
+    100% { transform: rotate(10deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .special-reveal-rays {
+    /* Static: the glow is simply there for the celebration, with no fade or turn. */
+    .showcase-halo,
+    .showcase-halo::before {
         animation: none;
+    }
+    .showcase-halo::before {
         opacity: 0.65;
-    }
-    .special-reveal-banner {
-        animation: none;
-    }
-    .reveal-card.is-celebrating::before {
-        animation: none;
-        opacity: 0.65;
-    }
-    .reveal-card.is-celebrating::after {
-        animation: none;
     }
 }
 
@@ -777,10 +766,16 @@
 /* ---- Summary: the pack's contents laid out on the table ---- */
 
 .summary-title {
-    margin-bottom: 0;
+    margin-bottom: var(--space-4);
+}
+
+/* Focused as the summary appears (tabindex -1), so the keyboard starts at the result; not a control. */
+.summary-title:focus {
+    outline: none;
 }
 
 .pack-summary .score-panel {
+    margin-top: var(--space-5);
     margin-bottom: var(--space-5);
 }
 
@@ -788,7 +783,7 @@
     display: grid;
     gap: var(--space-1);
     width: min(100%, 22rem);
-    margin: calc(-1 * var(--space-3)) auto var(--space-5);
+    margin: calc(-1 * var(--space-3)) auto 0;
     color: var(--text-muted);
     font-size: var(--text-sm);
     text-align: center;
@@ -890,6 +885,27 @@
 .pack-shell:focus-visible {
     outline: 3px solid var(--brand);
     outline-offset: 6px;
+}
+
+/* The pack's edges can sit off screen or under the stage's clip, so the hint on it rings too. */
+.pack-shell:focus-visible .swipe-hint {
+    box-shadow: var(--focus-ring), var(--shadow-1);
+}
+
+/* The card is the reveal's button (flip, then next). Its ring is drawn over the big-pull halo, which
+   paints under the card, and follows the card's corners. */
+.reveal-card:focus-visible {
+    box-shadow: none;
+}
+
+.reveal-card:focus-visible::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: 8px;
+    box-shadow: var(--focus-ring);
+    pointer-events: none;
 }
 
 /* Phones: the card at about five sixths of the width, the summary a size down. (Last in the file so

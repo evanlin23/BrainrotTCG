@@ -27,16 +27,17 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 | When | Run |
 | --- | --- |
 | While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
-| Before pushing | `npm run check` (lint, typecheck, all tests, set locks, card assets), once |
+| Before pushing | `npm run check` (lint, typecheck, all tests within the test budgets, set locks, card assets), once |
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
-| Changed the build | also `npm run build` |
+| Changed the build or link previews | also `npm run build && npm run check:site`, and the same with `BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
 
-CI runs `npm run check`, `npm run build`, the Python verifier, the browser smoke and actionlint on
-every pull request and on pushes to branches other than main. The deploy workflow runs the verifier
-and `npm run check` again before deploying main.
+CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
+deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
+to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
+deploying main. CI uploads files only from failed runs, kept for 7 days.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
@@ -45,6 +46,12 @@ generated geometry. It covers openable pack wrappers/thumbnails, retained pack a
 finish thumbnails declared by the generator manifest (or present for registered cards), the
 shared alpha frame mask and card back. Missing undeclared finish variants retain the existing
 full-size fallback. Preview outputs and built hosting paths are outside this check.
+
+The site check (`npm run check:site`, after a build, about 30 s) reads `dist/` with the build's
+`BASE_PATH` and `SITE_URL`. Every page's local links and stylesheet `url()`s must stay under
+`BASE_PATH` and be in the build, every share and set page the set registry gets must be there and
+forward to `BASE_PATH`, and each page's `og:image` must be under `SITE_URL` and decode as a JPEG of
+its `og:image:width`x`og:image:height`. `scripts/check-site.test.ts` covers it offline with fixtures.
 
 Two fixture suites in `npm run check` cover the hosting and Hall of Fame contracts without a build,
 a token or the network. `scripts/preview-pages.test.ts` writes the share pages (`p/`) and set pages
@@ -58,11 +65,14 @@ actually unfurl a page is still checked by hand, against a deployed address.
 
 `npm run test:browser` (Playwright, Chromium) builds the checkout and owns a strict-port preview at
 `http://127.0.0.1:4173/BrainrotTCG/`; stop any server on that port first (or set `PREVIEW_PORT`),
-and set `BASE_PATH=/` for a root-path build. It blocks HTTP outside the preview origin and all
-WebSockets, seeds a disposable identity with muted audio, opens one real pack on desktop and Pixel 5
-viewports, and checks that stats, collection and history survive a reload. Failure traces,
-screenshots and videos land in `test-results/` (uploaded by CI). It covers that one journey only: agent-audit and physical-device
-checks don't exist yet, so do those by hand against the preview and describe them in the PR.
+and set `BASE_PATH=/` for a root-path build. It runs the journeys in `tests/browser/` on desktop
+and Pixel 5 viewports (phone-only checks skip desktop); the pack-opener smoke blocks HTTP outside
+the preview origin and all WebSockets, seeds a disposable identity with muted audio, opens one real
+pack and checks that stats, collection and history survive a reload. Failure traces, screenshots
+and videos land in `test-results/` (uploaded by CI). `agent-audit.spec.ts` checks only the audit's
+browser boundary; the newcomer agent audit itself (`npm run audit:agent`, see
+docs/ARCHITECTURE.md) runs locally only. Pixel 5 emulation is not a phone: do physical-device
+checks by hand against the preview and describe them in the PR.
 
 ## Mounted integration tests
 
@@ -81,6 +91,35 @@ save), drives the UI with `interact()`, waits for one observable outcome with
 `dispose()` in `afterEach` fails on any other error, warning or I/O and restores storage, timers,
 globals and modules. Run one with
 `npx vitest run src/test/packLifecycle.integration.test.ts`; `npm test` runs them all.
+
+## Test budgets
+
+`npm test`, and so `npm run check` and CI, runs the suite once with V8 coverage and enforces two
+budgets, checked in this order:
+
+| Budget | Baseline (October 2026, 798 tests) | Enforced | Set in |
+| --- | --- | --- | --- |
+| Wall time of the whole run | 61.9-64.9 s with coverage, 57.4-64.4 s without, on a shared 4-core container; 53.5-62.7 s on CI without | at most 150 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
+| Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 78.2%, statements 81.8%, lines 83.5% | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
+
+After the test summary, and before the coverage summary, the run prints
+`Test budget: N tests in M files took Xs (budget 150s)`, and it fails only past the budget. The
+runtime budget holds for every `npm test` run, whatever flags follow `--`: the `testBudget()` plugin
+in `vite.config.ts` adds its reporter after `--reporter` flags replace the configured ones, so
+`npm test -- --reporter=dot` keeps it, and `npm test -- --coverage.enabled=false` drops only the
+floors. Targeted `npx vitest run <path>` runs skip both budgets; adding `--coverage` to one turns
+the floors on, and a partial run won't meet them. The baseline came from three runs each of `vitest run` and
+`npm test` plus recent CI runs. Coverage stayed within 0.05 points between runs and added up to
+20% wall time, so it rides in the one test run. Instrumentation makes the CPU-bound engine
+simulations about 3x slower; under heavy load one run took 100 s and two of them passed the 5 s
+default timeout, so `npm test` passes `--testTimeout=15000`.
+
+The floors sit 3-4 points below the baseline and the runtime budget about 2.4x above it, so
+ordinary work, a large UI refactor included, shouldn't trip them. To move one, run `npm test` three
+times on an up-to-date branch, set each floor a few points below the lowest figure and the runtime
+budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor
+only for removed or unreachable code, never to land untested code. When the runtime budget trips,
+look for a slow or hanging test before raising it.
 
 ## Performance baseline
 
@@ -111,6 +150,20 @@ covers the main JS target only. Compare runs only on the same machine, browser, 
 recorded revision, never against the deployed site. `npx vitest run tests/performance/report.test.ts`
 checks the report schema, and this must exit nonzero with zero timing samples:
 `PERF_INJECT_FUNCTIONAL_FAILURE=1 npm run test:performance -- --grep 'first-cold / 1' --output=test-results/performance-failure --max-failures=1`.
+
+### Optional work (opt-in)
+
+`npm run test:performance:optional-work` (report-only, in no check or CI job) times the same
+throttled opening with optional work idle and active (#342): 24 synthetic records, then the same
+records without their cards and an unfinished re-open, so the app re-mines them in the background.
+It presses once the live ticket is ready, so both time the same opening; it records press to summary
+and to decoded summary (optional work is held until the summary's cards decode, 2 s at most), plus
+the live ticket's mining time. Ticket jobs per worker, workers created and peak busy are counted in
+the page; the Argon2 figure is peak busy × `TICKET_PARAMS.memorySize`, an estimate kept apart from
+the measured main-target heap. Reports go to
+`test-results/performance-optional-work/`. It's **desktop-Chromium emulation, not real-device
+evidence** (#8): CDP's CPU slowdown doesn't throttle workers, and the pool size follows the emulated
+navigator. `npx vitest run tests/performance/optional-work.test.ts` checks its report.
 
 ## Dependency audit
 

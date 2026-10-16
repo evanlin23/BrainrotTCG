@@ -57,7 +57,7 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
   for (const [i, event] of ordered.entries()) {
     if (ctx.seen.has(event.id)) continue;
     const proof = verifyEvent(event) ? proofFromEvent(event) : null;
-    let id: string | null = null;
+    let id: string | null;
     try {
       id = proof ? pullId(decodeProof(proof)) : null;
     } catch {

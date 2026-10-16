@@ -3,6 +3,7 @@ import { ALL_CARDS, type Card } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { hydrateCard, hydrateCollection, runMigrations } from '../utils/migrations';
 import { importSave } from './move';
+import { SAVE_STAMP_KEY } from './player';
 
 /** Just enough of localStorage and window for importSave. */
 const store = new Map<string, string>();
@@ -161,6 +162,26 @@ describe('bringing a save over', () => {
     expect(store.has('brainrot-stats-v1')).toBe(false);
   });
 
+  it.each([['no stamp', {}], ['its own stamp', { [SAVE_STAMP_KEY]: 'old address' }]])(
+    'writes a fresh stamp over an earlier import\'s when the moved save has %s', (_name, stamp) => {
+      store.set('brainrot-player-v1', player('bb'));
+      store.set('brainrot-stats-v1', '{"packsOpened":4}');
+      store.set(SAVE_STAMP_KEY, 'earlier import');
+      expect(importSave({ ...OLD, ...stamp }, () => true)).toBe('saved');
+      expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+      expect(['earlier import', 'old address']).not.toContain(store.get(SAVE_STAMP_KEY));
+    });
+
+  it('changes the stamp, first, when a save without a player key comes into a visited browser', () => {
+    const visitor = JSON.stringify({ secretKey: 'cc', name: 'Visitor', nextNonce: 0, createdAt: 2 });
+    store.set('brainrot-player-v1', visitor);
+    const write = vi.spyOn(localStorage, 'setItem');
+    expect(importSave({ 'brainrot-found-collection-v1': OLD['brainrot-found-collection-v1'] })).toBe('saved');
+    expect(store.get('brainrot-player-v1')).toBe(visitor);
+    expect(write.mock.calls[0][0]).toBe(SAVE_STAMP_KEY);
+    expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+  });
+
   it('does nothing when the same player is already here', () => {
     store.set('brainrot-player-v1', player('aa'));
     store.set('brainrot-found-collection-v1', '{"newer":{"normal":9}}');
@@ -183,6 +204,16 @@ describe('bringing a save over', () => {
     const backup = JSON.parse(store.get('brainrot-before-move-v1')!) as Record<string, string>;
     expect(backup['brainrot-player-v1']).toBe(player('bb'));
     expect(backup['brainrot-stats-v1']).toBe('{"packsOpened":4}');
+  });
+
+  it('removes the replaced player and stamp before its other keys', () => {
+    store.set('brainrot-stats-v1', '{"packsOpened":4}');
+    store.set(SAVE_STAMP_KEY, 'earlier import');
+    store.set('brainrot-player-v1', player('bb'));
+    const removed: string[] = [];
+    vi.spyOn(localStorage, 'removeItem').mockImplementation((key) => { removed.push(key); store.delete(key); });
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(removed).toEqual(['brainrot-player-v1', SAVE_STAMP_KEY, 'brainrot-stats-v1']);
   });
 
   it("doesn't ask when this browser only visited (a player key with no packs)", () => {
@@ -309,7 +340,84 @@ describe('bringing a save over', () => {
     if (previousBackup) expect(store.get(BACKUP)).toBe('{"previous":"backup"}');
   });
 
-  it("keeps at most two copies when new ones can't take the earlier one's place, and the next move that can moves the pending one", () => {
+  it('moves a pending copy into place before backing up a later save with progress, never holding more than two', () => {
+    store.set('brainrot-player-v1', player('bb'));
+    store.set('brainrot-stats-v1', '{"packsOpened":9}'); // played on since the move that left a copy pending
+    const here = JSON.stringify(Object.fromEntries(store));
+    store.set(BACKUP, '{"copy":1}');
+    store.set(PENDING, '{"copy":2}');
+    const events: string[] = [];
+    let most = moveCopies().length;
+    const track = (event: string) => {
+      events.push(event);
+      most = Math.max(most, moveCopies().length);
+    };
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      store.set(key, value);
+      if (key.startsWith('brainrot-before-')) track(`${key} = ${value === here ? 'here' : value}`);
+    });
+    vi.spyOn(localStorage, 'removeItem').mockImplementation((key) => {
+      store.delete(key);
+      if (key.startsWith('brainrot-before-')) track(`drop ${key}`);
+    });
+
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(events).toEqual([
+      `${BACKUP} = {"copy":2}`, `drop ${PENDING}`, // the pending copy takes the oldest one's place
+      `${PENDING} = here`, // so this save is backed up too
+      `${BACKUP} = here`, `drop ${PENDING}`, // and, once moved, takes the earlier one's place
+    ]);
+    expect(most).toBe(2);
+    expect(moveCopies()).toEqual([BACKUP]);
+    expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
+    expect(store.has('brainrot-stats-v1')).toBe(false);
+  });
+
+  it.each([
+    { error: 'QuotaExceededError', result: 'full' },
+    { error: 'SecurityError', result: 'invalid' },
+  ])("changes nothing when a pending copy can't take the earlier one's place first: $error", ({ error, result }) => {
+    store.set('brainrot-player-v1', player('bb'));
+    store.set('brainrot-stats-v1', '{"packsOpened":9}');
+    store.set(BACKUP, '{"copy":1}');
+    store.set(PENDING, '{"copy":2}');
+    const original = new Map(store);
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === BACKUP) throw new DOMException('Injected failure', error);
+      store.set(key, value);
+    });
+    const remove = vi.spyOn(localStorage, 'removeItem');
+
+    expect(importSave(OLD, () => true)).toBe(result);
+    // Both copies and the save here stay; the move doesn't go on without a copy of it.
+    expect(store).toEqual(original);
+    expect(write).toHaveBeenCalledExactlyOnceWith(BACKUP, '{"copy":2}');
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('drops only the copy it took when the incoming save then fails, keeping the pending one it moved into place', () => {
+    store.set('brainrot-player-v1', player('bb'));
+    store.set('brainrot-stats-v1', '{"packsOpened":9}');
+    const here = new Map(store);
+    store.set(BACKUP, '{"copy":1}');
+    store.set(PENDING, '{"copy":2}');
+    const dropped: string[] = [];
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'brainrot-found-collection-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    vi.spyOn(localStorage, 'removeItem').mockImplementation((key) => {
+      if (key.startsWith('brainrot-before-')) dropped.push(key);
+      store.delete(key);
+    });
+
+    expect(importSave(OLD, () => true)).toBe('full');
+    expect(store).toEqual(new Map([...here, [BACKUP, '{"copy":2}']]));
+    // Once as the pending copy moved into place, then the copy just taken.
+    expect(dropped).toEqual([PENDING, PENDING]);
+  });
+
+  it("stops the next move rather than drop a copy when a pending one can't take the earlier one's place", () => {
     store.set('brainrot-player-v1', player('bb'));
     store.set('brainrot-stats-v1', '{"packsOpened":4}');
     store.set(BACKUP, '{"previous":"backup"}');
@@ -319,53 +427,51 @@ describe('bringing a save over', () => {
       store.set(key, value);
     });
 
+    // Moved, but its copy can't take BACKUP's place, so it stays pending.
     expect(importSave(OLD, () => true)).toBe('saved');
     expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
     expect(store.get(BACKUP)).toBe('{"previous":"backup"}');
     expect(JSON.parse(store.get(PENDING)!)).toEqual(here);
+    const afterMove = new Map(store);
 
-    // A second successful move whose copy can't take BACKUP's place either adds no third copy.
+    // The next move replaces progress too, and with no room to make way for its copy it changes nothing.
+    expect(importSave({ ...OLD, 'brainrot-player-v1': player('cc') }, () => true)).toBe('full');
+    expect(store).toEqual(afterMove);
+
+    // With room again it backs up the save it replaces, and keeps only that copy once moved.
+    vi.restoreAllMocks();
+    const moved = Object.fromEntries([...store].filter(([key]) => !key.startsWith('brainrot-before-')));
     expect(importSave({ ...OLD, 'brainrot-player-v1': player('cc') }, () => true)).toBe('saved');
     expect(store.get('brainrot-player-v1')).toBe(player('cc'));
-    expect(moveCopies()).toEqual([PENDING, BACKUP]);
-    expect(store.get(BACKUP)).toBe('{"previous":"backup"}');
-    expect(JSON.parse(store.get(PENDING)!)).toEqual(here);
-
-    // Not left pending for good: the next move that succeeds moves it into BACKUP's place.
-    vi.restoreAllMocks();
-    expect(importSave({ ...OLD, 'brainrot-player-v1': player('dd') }, () => true)).toBe('saved');
     expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(here);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(moved);
   });
 
-  it('loses neither copy when a move retried after a partial one fails again', () => {
+  it('keeps the save from before a partial move, and the save left here, when a retry fails again', () => {
     store.set('brainrot-player-v1', player('bb'));
     store.set('brainrot-found-collection-v1', '{"original":{"normalCount":2}}');
     const copy2 = Object.fromEntries(store);
     store.set(BACKUP, '{"previous":"backup"}'); // copy1
-    let fail = (key: string): boolean => key === 'brainrot-found-collection-v1';
     vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
-      if (fail(key)) throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      if (key === 'brainrot-found-collection-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
       store.set(key, value);
     });
+    const saveHere = () => Object.fromEntries([...store].filter(([key]) => !key.startsWith('brainrot-before-')));
 
     expect(importSave(OLD, () => true)).toBe('partial');
     expect(store.get(BACKUP)).toBe('{"previous":"backup"}');
     expect(JSON.parse(store.get(PENDING)!)).toEqual(copy2);
-    const afterPartial = new Map(store);
+    const left = saveHere();
 
-    // The retry's incoming save runs out of room: it takes no copy of its own, and both stay.
+    // The retry runs out of room too: the save from before the partial move takes the oldest copy's
+    // place, the retry's own copy goes again, and what the partial move left here stays.
     expect(importSave(OLD, () => true)).toBe('full');
-    expect(store).toEqual(afterPartial);
-
-    // A retry that succeeds keeps the save from before the partial move, not the mix it left.
-    fail = () => false;
-    expect(importSave(OLD, () => true)).toBe('saved');
     expect(moveCopies()).toEqual([BACKUP]);
     expect(JSON.parse(store.get(BACKUP)!)).toEqual(copy2);
+    expect(saveHere()).toEqual(left);
   });
 
-  it('keeps at most two copies through repeated partial moves, the original save among them', () => {
+  it('keeps at most two copies through repeated partial moves: the saves from before the last two', () => {
     const original = {
       'brainrot-player-v1': player('bb'),
       'brainrot-found-collection-v1': '{"original":{"normalCount":2}}',
@@ -382,18 +488,23 @@ describe('bringing a save over', () => {
       if (key === 'brainrot-found-collection-v1' || key === lost[attempt]) throw new DOMException('Injected quota failure', 'QuotaExceededError');
       store.set(key, value);
     });
+    const saveHere = () => Object.fromEntries([...store].filter(([key]) => !key.startsWith('brainrot-before-')));
 
     for (attempt = 0; attempt < lost.length; attempt++) {
+      const here = saveHere();
+      const earlier = store.get(PENDING) ?? store.get(BACKUP);
+      if (attempt === 0) expect(here).toEqual(original);
       expect(importSave(OLD, () => true)).toBe('partial');
       expect(moveCopies()).toEqual([PENDING, BACKUP]);
-      expect(store.get(BACKUP)).toBe('{"previous":"backup"}');
-      expect(JSON.parse(store.get(PENDING)!)).toEqual(original);
+      expect(store.get(BACKUP)).toBe(earlier);
+      expect(JSON.parse(store.get(PENDING)!)).toEqual(here);
     }
 
     vi.restoreAllMocks();
+    const here = saveHere();
     expect(importSave(OLD, () => true)).toBe('saved');
     expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(original);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(here);
   });
 
   it('persists the complete replaced save before any key is removed', () => {
@@ -431,6 +542,7 @@ describe('bringing a save over', () => {
     expect(events).toEqual([
       `backup ${PENDING}`,
       ...Object.keys(original).map(() => 'remove'),
+      'incoming', // the fresh stamp
       ...Object.keys(OLD).map(() => 'incoming'),
       // Moved, so the new copy takes the earlier one's place in one write.
       `backup ${BACKUP}`, `drop ${PENDING}`,

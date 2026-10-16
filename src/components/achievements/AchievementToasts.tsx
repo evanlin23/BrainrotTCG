@@ -18,9 +18,13 @@ interface AchievementToastsProps {
   queue: ToastItem[];
   /** Remove these ids from the queue. */
   onDismiss: (ids: string[]) => void;
-  /** Tapping a toast opens the achievements list, the profile for a level-up, or My cards for a kept pack. */
+  /** Tapping a toast opens the achievements list, the profile for a level-up, or Cards for a kept pack. */
   onOpen: (target: ToastTarget) => void;
-  /** A sheet is open: hold the toasts until it closes, so they never cover its title or close button. */
+  /**
+   * Hold the toasts, in order, until this clears: while a sheet or page is open, so they never cover
+   * its title or close button, and while a big pull is on show, so none lands in its screenshot. A
+   * toast already up leaves at once (no fade) and comes back in full afterwards; none is dropped.
+   */
   paused?: boolean;
 }
 
@@ -46,39 +50,42 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false }: Achieve
 
   return (
     <div className="toast-region" role="status" aria-live="polite">
-      <AnimatePresence mode="wait">
-        {key && (
-          <motion.button
-            key={key}
-            type="button"
-            className={`toast ${!grouped && shown[0].kicker ? 'toast--detail' : ''}`}
-            onClick={() => {
-              onDismiss(shown.map((a) => a.id));
-              onOpen(shown[0].opens ?? 'achievements');
-            }}
-            initial={{ y: -12, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -8, opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-          >
-            <span className="toast-icon" aria-hidden="true">
-              {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}
-            </span>
-            <span className="toast-text">
-              <span className="toast-kicker">{grouped ? `${shown.length} achievements unlocked` : (shown[0].kicker ?? 'Achievement unlocked')}</span>
-              <span className="toast-title">
-                {grouped
-                  ? shown
-                      .slice(0, 3)
-                      .map((a) => a.name)
-                      .join(', ') + (shown.length > 3 ? ` +${shown.length - 3} more` : '')
-                  : shown[0].name}
+      {/* Unmounted while paused, so a toast on screen goes at once instead of fading over the showcase. */}
+      {!paused && (
+        <AnimatePresence mode="wait">
+          {key && (
+            <motion.button
+              key={key}
+              type="button"
+              className={`toast ${!grouped && shown[0].kicker ? 'toast--detail' : ''}`}
+              onClick={() => {
+                onDismiss(shown.map((a) => a.id));
+                onOpen(shown[0].opens ?? 'achievements');
+              }}
+              initial={{ y: -12, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -8, opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+            >
+              <span className="toast-icon" aria-hidden="true">
+                {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}
               </span>
-              {!grouped && <span className="toast-desc">{shown[0].description}</span>}
-            </span>
-          </motion.button>
-        )}
-      </AnimatePresence>
+              <span className="toast-text">
+                <span className="toast-kicker">{grouped ? `${shown.length} achievements unlocked` : (shown[0].kicker ?? 'Achievement unlocked')}</span>
+                <span className="toast-title">
+                  {grouped
+                    ? shown
+                        .slice(0, 3)
+                        .map((a) => a.name)
+                        .join(', ') + (shown.length > 3 ? ` +${shown.length - 3} more` : '')
+                    : shown[0].name}
+                </span>
+                {!grouped && <span className="toast-desc">{shown[0].description}</span>}
+              </span>
+            </motion.button>
+          )}
+        </AnimatePresence>
+      )}
     </div>
   );
 };

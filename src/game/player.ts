@@ -108,22 +108,29 @@ export const allocateNonce = (): { nonce: number; player: Player } => {
 
 /**
  * What a rename did, with the player as it is now stored: `saved`; `blank` or `unchanged` (nothing
- * written); or `failed` (this browser refused the write, so the old name stays).
+ * written); or `failed` (this browser refused the write, so the old name stays). `stale` means the
+ * stored player is no longer the one the rename was meant for (another tab switched or imported a
+ * save), so nothing was written and that player isn't handed back.
  */
-export interface RenameResult {
-  status: 'saved' | 'blank' | 'unchanged' | 'failed';
-  player: Player;
-}
+export type RenameResult =
+  | { status: 'saved' | 'blank' | 'unchanged' | 'failed'; player: Player }
+  | { status: 'stale' };
 
-/** Change only the name, on the record read from storage now, so another tab's key and ticket counter stay intact. */
-export const renamePlayer = (name: string): RenameResult => {
+/**
+ * Change only the name, on the record read from storage now, so another tab's key and ticket counter
+ * stay intact. `expectedKey` is the public key (hex) of the player being renamed: if the stored player
+ * has another key, nothing is written, so one player's name never lands on another player.
+ */
+export const renamePlayer = (name: string, expectedKey: string): RenameResult => {
   const clean = normalizeName(name);
   const record = current();
-  if (!clean) return { status: 'blank', player: toPlayer(record) };
-  if (clean === record.name) return { status: 'unchanged', player: toPlayer(record) };
+  const player = toPlayer(record);
+  if (player.publicKeyHex !== expectedKey) return { status: 'stale' };
+  if (!clean) return { status: 'blank', player };
+  if (clean === record.name) return { status: 'unchanged', player };
   const next = { ...record, name: clean };
   // Adopt the name only once it is stored, so the page never shows a name the next read would undo.
-  if (!write(next)) return { status: 'failed', player: toPlayer(record) };
+  if (!write(next)) return { status: 'failed', player };
   memory = next;
   return { status: 'saved', player: toPlayer(next) };
 };
@@ -151,14 +158,48 @@ export const parsePlayer = (raw: string): StoredPlayer | null => {
 export const isCurrentPlayer = (secretKey: string): boolean => (read() ?? memory)?.secretKey === secretKey;
 
 /**
- * Calls `onChange` when another tab stores a player record (an import, a switch, a rename) or clears
- * this browser's storage, so a tab can find out that its player changed before it next writes. The
- * storage event only reaches other tabs, and can arrive late: writers still compare getPlayer()
- * themselves. Returns the unsubscribe.
+ * Changed by every save-file import and move, before either writes an incoming value, so a tab that
+ * loaded the save from before can tell even when the same player comes back.
+ */
+export const SAVE_STAMP_KEY = 'brainrot-save-stamp-v1';
+
+/** A new value for SAVE_STAMP_KEY. */
+export const newSaveStamp = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+/** Which save this browser holds: the player, whether its record is stored, and the import stamp. */
+export interface SaveMark {
+  key: string;
+  stored: boolean;
+  stamp: string | null;
+}
+
+export const saveMark = (): SaveMark => {
+  // First, so a browser without a player stores its new guest before `stored` is read.
+  const key = getPlayer().publicKeyHex;
+  let stamp: string | null = null;
+  try {
+    stamp = localStorage.getItem(SAVE_STAMP_KEY);
+  } catch { /* Storage unavailable: no import can have happened either. */ }
+  return { key, stored: read() !== null, stamp };
+};
+
+/**
+ * Whether storage still holds the save `loaded` was taken from: the same player, no import since,
+ * and its record not cleared (a tab that loaded without a stored record, as when storage is
+ * unavailable, stays the same if one appears).
+ */
+export const sameSave = (loaded: SaveMark, now: SaveMark): boolean =>
+  loaded.key === now.key && loaded.stamp === now.stamp && (now.stored || !loaded.stored);
+
+/**
+ * Calls `onChange` when another tab stores a player record (an import, a switch, a rename), imports a
+ * save, or clears this browser's storage, so a tab can find out that its save changed before it next
+ * writes. The storage event only reaches other tabs, and can arrive late: writers still compare
+ * saveMark() themselves. Returns the unsubscribe.
  */
 export const watchPlayer = (onChange: () => void): (() => void) => {
   const listener = (event: StorageEvent) => {
-    if (event.key === null || event.key === STORAGE_KEY) onChange();
+    if (event.key === null || event.key === STORAGE_KEY || event.key === SAVE_STAMP_KEY) onChange();
   };
   window.addEventListener('storage', listener);
   return () => window.removeEventListener('storage', listener);

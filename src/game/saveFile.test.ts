@@ -5,7 +5,7 @@ import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
 import { exportSaveFile, importSaveFile } from './saveFile';
 import { readSettings } from '../utils/settings';
-import { exportPlayer, importPlayer, peekNonce } from './player';
+import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY } from './player';
 import { recordPack } from './history';
 import type { OpenedPack } from './pulls';
 
@@ -46,11 +46,11 @@ const expectRejectedWithoutWrites = (raw: string) => {
   expect(store).toEqual(before);
 };
 
-describe('Save & restore backup preflight', () => {
+describe('Save & backup preflight', () => {
   it.each(['{', 'null', '[]', '"save"'])('rejects malformed/top-level JSON %s without writes', expectRejectedWithoutWrites);
 
   it('points an unreadable file back to where saves are exported', () => {
-    expect(importSaveFile('{')).toBe("Couldn't read or store that file. Is it a save exported from Save & restore?");
+    expect(importSaveFile('{')).toBe("Couldn't read or store that file. Is it a save exported from Save & backup?");
   });
 
   it.each([
@@ -79,6 +79,10 @@ describe('Save & restore backup preflight', () => {
     ['missing recovery identity snapshot', { collectionRecovery: '{"raw":"opaque"}' }],
     ['non-list later recovery payloads', { collectionRecovery: '{"raw":"opaque","player":null,"later":{}}' }],
     ['invalid later recovery payload', { collectionRecovery: '{"raw":"opaque","player":null,"later":[{"raw":1,"player":null}]}' }],
+    ['negative recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":-1}' }],
+    ['fractional recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":1.5}' }],
+    ['string recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":"3"}' }],
+    ['unknown recovery entry kind', { collectionRecovery: '{"raw":"opaque","player":null,"kind":"other"}' }],
     ['unknown historical card without set ID', { collection: JSON.stringify({ x: { card: { id: 'nonexistent', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' }, normalCount: 1 } }) }],
     ['unresolvable partial card', { collection: '{"x":{"card":{"id":"nonexistent"}}}' }],
     ['prototype finish name', { collection: JSON.stringify({ x: { card: { ...ALL_CARDS[0], finish: '__proto__' } } }) }],
@@ -237,7 +241,7 @@ describe('Save & restore backup preflight', () => {
 
   it('reports a denied write instead of reporting successful import', () => {
     write.mockImplementationOnce(() => { throw new Error('storage denied'); });
-    // No current progress, so the first attempted write is an imported field rather than a backup.
+    // No current progress, so the first attempted write is the import's own (its stamp) rather than a backup.
     store.clear();
     expect(importSaveFile(JSON.stringify(fixture()))).not.toBeNull();
     expect(store.size).toBe(0);
@@ -273,6 +277,12 @@ describe('private collection recovery archive portability', () => {
     expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
   });
 
+  it('imports an archive that counts payloads let go and wraps one it could not read', () => {
+    const archive = JSON.stringify({ raw: '{broken archive', player: null, kind: 'unparseable-archive', later: [{ raw: '{"x":1}', player: null }], dropped: 2 });
+    expect(importSaveFile(JSON.stringify({ ...fixture(), collectionRecovery: archive }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
+  });
+
   it('backs up an existing archive before importing a different one', () => {
     const previous = JSON.stringify({ raw: '{old}', player: player('bb'.repeat(32), 12) });
     store.set(STORAGE_KEYS.COLLECTION_RECOVERY, previous);
@@ -284,7 +294,7 @@ describe('private collection recovery archive portability', () => {
 });
 
 
-it('round-trips an opaque recovery archive through the serializer Save & restore actually downloads', () => {
+it('round-trips an opaque recovery archive through the serializer Save & backup actually downloads', () => {
   const raw = '{ definitely not collection JSON\n';
   const archive = JSON.stringify({ raw, player: player('cc'.repeat(32), 91) });
   store.set(STORAGE_KEYS.COLLECTION_RECOVERY, archive);
@@ -312,4 +322,72 @@ it('restores the exact previous recovery archive if a later imported field fails
     .toBe('Import failed. Your previous save data was restored.');
   expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(previous);
   expect(JSON.parse(store.get('brainrot-before-import-v1')!)[STORAGE_KEYS.COLLECTION_RECOVERY]).toBe(previous);
+});
+
+it('stamps the save before writing any imported field, even for the same player', () => {
+  store.set(SAVE_STAMP_KEY, 'earlier');
+  expect(importSaveFile(JSON.stringify({ ...fixture(), player: player('bb'.repeat(32), 12) }))).toBeNull();
+  expect(write.mock.calls.slice(0, 2).map(([key]) => key)).toEqual(['brainrot-before-import-v1', SAVE_STAMP_KEY]);
+  expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+  expect(store.get(SAVE_STAMP_KEY)).not.toBe('earlier');
+});
+
+it.each([['an earlier stamp', 'earlier'], ['no stamp', undefined]])('puts back %s when the import fails', (_name, earlier) => {
+  if (earlier) store.set(SAVE_STAMP_KEY, earlier);
+  write.mockImplementation((key, value) => {
+    if (key === STORAGE_KEYS.STATS) throw new Error('quota');
+    store.set(key, value);
+  });
+  expect(importSaveFile(JSON.stringify(fixture()))).toBe('Import failed. Your previous save data was restored.');
+  expect(store.get(SAVE_STAMP_KEY)).toBe(earlier);
+});
+
+it("clears a different player's fields before the stamp, so an import that only fits after the clears succeeds", () => {
+  store.set(STORAGE_KEYS.PULLS, JSON.stringify(Array.from({ length: 2_000 }, () => 'old')));
+  const bytes = () => [...store].reduce((sum, [key, value]) => sum + key.length + value.length, 0);
+  let limit = Infinity;
+  write.mockImplementation((key, value) => {
+    const before = store.get(key);
+    store.set(key, value);
+    if (bytes() > limit) {
+      if (before === undefined) store.delete(key);
+      else store.set(key, before);
+      throw new DOMException('full', 'QuotaExceededError');
+    }
+    if (key === 'brainrot-before-import-v1') limit = bytes(); // full once the backup is in
+  });
+  const save = fixture(); // another player, without the pulls this browser holds
+  expect(importSaveFile(JSON.stringify(save))).toBeNull();
+  expect(exportPlayer()).toBe(save.player);
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+  expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+});
+
+it('clears again a field that a tab still on the old save wrote back before the stamp', () => {
+  store.set(STORAGE_KEYS.PULLS, '[]');
+  write.mockImplementation((key, value) => {
+    if (key === SAVE_STAMP_KEY) store.set(STORAGE_KEYS.PULLS, '["old tab"]');
+    store.set(key, value);
+  });
+  expect(importSaveFile(JSON.stringify(fixture()))).toBeNull();
+  expect(write.mock.calls.slice(0, 2).map(([key]) => key)).toEqual(['brainrot-before-import-v1', SAVE_STAMP_KEY]);
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+});
+
+it.each([
+  ['succeeds', null, undefined],
+  ['fails', 'Import failed. Your previous save data was restored.', STORAGE_KEYS.STATS],
+])('clears again a field that was absent until a tab still on the old save wrote it mid-import, when the import %s', (_name, result, failing) => {
+  store.set(SAVE_STAMP_KEY, 'earlier');
+  let oldTab = true;
+  write.mockImplementation((key, value) => {
+    if (key === SAVE_STAMP_KEY && oldTab) { oldTab = false; store.set(STORAGE_KEYS.PULLS, '["old tab"]'); }
+    if (key === failing) throw new Error('quota');
+    store.set(key, value);
+  });
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+  expect(importSaveFile(JSON.stringify(fixture()))).toBe(result);
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+  if (failing) expect(store.get(SAVE_STAMP_KEY)).toBe('earlier');
+  else expect(exportPlayer()).toBe(fixture().player);
 });

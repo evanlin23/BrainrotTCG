@@ -36,9 +36,7 @@ it('shares the exact owned modifier from a history pack, retaining pack sharing 
   await app.until('summary records the full pack', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
   await app.interact(() => button('Open another pack').click());
   await app.until('manual pack screen returns', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
-  await app.interact(() => button('My cards').click());
-  await app.until('personal destination opens', () => expect(button('Best pulls')).toBeDefined());
-  await app.interact(() => button('Best pulls').click());
+  await app.interact(() => button('Profile').click());
   await app.until('history has the owned pack', () => expect(document.querySelector('.pull-row')).not.toBeNull());
   await app.interact(() => document.querySelector<HTMLButtonElement>('.pull-row')!.click());
   await app.until('owned pack exposes all cards', () => expect(document.querySelectorAll('.share-pack-cards .pack-viewer-card-grid')).toHaveLength(5));

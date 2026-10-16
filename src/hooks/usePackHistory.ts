@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useRef } from 'react';
+import { HISTORY_ENTRY_EVENT } from '../game/route';
 
 /** Marks the one history entry a pack holds. The URL is never changed, so share links are untouched. */
 const PACK_ENTRY = 'brainrotPack';
@@ -8,6 +9,30 @@ const onPackEntry = () => {
   return !!state && typeof state === 'object' && (state as Record<string, unknown>)[PACK_ENTRY] === true;
 };
 
+/** The pack's entry is still the current one, at the address it was added at. */
+const stillOnEntry = (href: string) => onPackEntry() && location.href === href;
+
+/**
+ * Something of this site is below the current entry, so stepping back stays here and fires popstate.
+ * The Navigation API knows; without it, a tab with one entry is the only sure sign nothing is.
+ */
+const canStepBack = () => {
+  const navigation = (window as { navigation?: { canGoBack?: unknown } }).navigation;
+  return typeof navigation?.canGoBack === 'boolean' ? navigation.canGoBack : history.length > 1;
+};
+
+/** Drops the current entry's pack mark in place, keeping the rest of its state. */
+const unmarkEntry = () => {
+  const state: unknown = history.state;
+  const rest = { ...(state && typeof state === 'object' ? state as Record<string, unknown> : {}) };
+  delete rest[PACK_ENTRY];
+  history.replaceState(rest, '');
+  window.dispatchEvent(new Event(HISTORY_ENTRY_EVENT));
+};
+
+/** The entry this page loaded on has been checked (once per load, however often the opener remounts). */
+let loadChecked = false;
+
 /**
  * Browser Back inside a pack goes back to the packs screen instead of leaving the site.
  *
@@ -15,7 +40,9 @@ const onPackEntry = () => {
  * it's an earlier pack's, reached with Forward), so entries never stack across packs. Back from it
  * calls `onBack`, the same handler as the pack's X. Leaving any other way (the X, Escape, the
  * summary's next-pack button) steps back over the entry, so the next Back leaves the page as it would
- * have before, and Forward onto the old entry reopens nothing.
+ * have before, and Forward onto the old entry reopens nothing. A page loaded (or reloaded) on a pack's
+ * entry has no pack, so it steps back over that entry the same way, and the first Back leaves (or, with
+ * nothing of ours below it, just stops it being a pack's entry).
  */
 export const usePackHistory = (inPack: boolean, onBack: () => void) => {
   const onBackRef = useRef(onBack);
@@ -32,12 +59,33 @@ export const usePackHistory = (inPack: boolean, onBack: () => void) => {
   });
 
   useEffect(() => {
+    if (loadChecked) return;
+    loadChecked = true;
+    // No pack survives a load: an entry left by one before it (a reload mid-pack) is stale.
+    if (!onPackEntry() || heldRef.current) return;
+    // Nothing of ours below it (a restored tab can keep just this entry): a step back would do nothing,
+    // and no popstate would ever clear poppingRef, so later packs would add no entry. Unmark it instead.
+    if (!canStepBack()) {
+      unmarkEntry();
+      return;
+    }
+    poppingRef.current = true;
+    history.back();
+  }, []);
+
+  useEffect(() => {
     if (inPack && !heldRef.current && !poppingRef.current) {
-      if (!onPackEntry()) history.pushState({ [PACK_ENTRY]: true }, '');
+      if (!onPackEntry()) {
+        history.pushState({ [PACK_ENTRY]: true }, '');
+        window.dispatchEvent(new Event(HISTORY_ENTRY_EVENT));
+      }
       heldRef.current = true;
       hrefRef.current = location.href;
     } else if (!inPack && heldRef.current) {
       heldRef.current = false;
+      // Only step back while the entry is the current one: from a page or link opened over the pack,
+      // Back already belongs to them (useRoute steps back onto the entry when they close).
+      if (!stillOnEntry(hrefRef.current)) return;
       poppingRef.current = true;
       history.back();
     }
@@ -65,6 +113,6 @@ export const usePackHistory = (inPack: boolean, onBack: () => void) => {
   useEffect(() => () => {
     if (!heldRef.current) return;
     heldRef.current = false;
-    history.back();
+    if (stillOnEntry(hrefRef.current)) history.back();
   }, []);
 };

@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Crown, ShieldAlert, ShieldCheck } from 'lucide-react';
-import Sheet from '../ui/Sheet';
 import CardImage from '../cards/CardImage';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
@@ -39,11 +38,8 @@ const PAGE_SIZE = 20;
 
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 
-interface HallOfFamePageProps {
-  onClose: () => void;
-}
-
-const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
+/** The Rankings page (#/rankings). */
+const HallOfFamePage = () => {
   const [entries, setEntries] = useState<HallOfFameEntry[] | null>(null);
   const [checks, setChecks] = useState<Record<number, Check>>({});
   const [tab, setTab] = useState<'top' | 'firsts' | 'legends'>('top');
@@ -82,14 +78,15 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   };
   // The status announces every outcome. A failure or a finished retry also moves focus to it, but
   // only when focus has nowhere better to be: on the Retry button (disabled or now gone), lost to the
-  // page, or still on the sheet itself as it opened. Focus the person put elsewhere stays there.
+  // page, or still on the page's heading as it opened. Focus the person put elsewhere stays there.
   const statusRef = useRef<HTMLParagraphElement>(null);
   const retryRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (loadState !== 'failed' && !(loadState === 'loaded' && attempt > 0)) return;
     const status = statusRef.current;
     const active = document.activeElement;
-    if (status && (!active || active === document.body || active === retryRef.current || active === status.closest('[role="dialog"]'))) {
+    const opened = status?.closest('.page')?.querySelector('.page-title');
+    if (status && (!active || active === document.body || active === retryRef.current || active === opened)) {
       status.focus({ preventScroll: true });
     }
   }, [loadState, attempt]);
@@ -99,7 +96,7 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   // pull, the earliest verification keeping the credit. A pull can be signed more than once, so they
   // key on the pull id (set, key and ticket number) rather than the proof text.
   const ranked = useMemo(() => topPulls(all ?? []), [all]);
-  // The leaderboard shows a page at a time so the sheet stays short on a phone. Only what's drawn
+  // The leaderboard shows a page at a time so the page stays short on a phone. Only what's drawn
   // changes: the order, and which entries get re-verified, are the same whatever is shown.
   const [shown, setShown] = useState(PAGE_SIZE);
   const listRef = useRef<HTMLOListElement>(null);
@@ -126,10 +123,17 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   const startedRef = useRef(new Set<number>());
   const runningRef = useRef(false);
   const goneRef = useRef(false);
+  const stopRef = useRef<AbortController | null>(null);
   useEffect(() => {
     // StrictMode replays setup after cleanup while retaining these refs.
     goneRef.current = false;
-    return () => { goneRef.current = true; };
+    const stop = new AbortController();
+    stopRef.current = stop;
+    return () => {
+      goneRef.current = true;
+      // Leaving stops a check waiting for its ticket (one already mining finishes).
+      stop.abort();
+    };
   }, []);
   useEffect(() => {
     rankedRef.current = ranked;
@@ -139,11 +143,12 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
       runningRef.current = true;
       for (let entry = next(); entry && !goneRef.current; entry = next()) {
         const { issue } = entry;
+        const { signal } = stopRef.current!;
         startedRef.current.add(issue);
         setChecks((prev) => ({ ...prev, [issue]: 'checking' }));
         let result: Check = 'failed';
         try {
-          const pull = await checkPull(entry.proof);
+          const pull = await checkPull(entry.proof, signal);
           // Every field we display must be exactly what the proof produces.
           const matches =
             pull.proof.name === entry.name &&
@@ -162,6 +167,11 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
           result = matches ? 'verified' : 'failed';
         } catch {
           result = 'failed';
+        }
+        if (signal.aborted && result === 'failed') {
+          // Stopped, not failed: check it again if the page comes back (StrictMode's replay).
+          startedRef.current.delete(issue);
+          break;
         }
         if (!goneRef.current) setChecks((prev) => ({ ...prev, [issue]: result }));
       }
@@ -221,7 +231,8 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   );
 
   return (
-    <Sheet title="Rankings" subtitle={`The top ${HALL_OF_FAME_TOP} pulls, and the first of every hand in each set`} onClose={onClose} size="lg" className="hall-of-fame">
+    <div className="hall-of-fame">
+      <p className="page-subtitle">The top {HALL_OF_FAME_TOP} pulls, and the first of every hand in each set</p>
       <Tabs
         idBase={tabsId}
         label="Hall of Fame lists"
@@ -293,7 +304,7 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
           </>
         )}
       </div>
-    </Sheet>
+    </div>
   );
 };
 

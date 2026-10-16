@@ -38,7 +38,7 @@ const fillStorage = () => {
   });
 };
 
-// The page's Sheet renders into document.body.
+// The Settings screen renders into a container in document.body (Page supplies its heading and close).
 const note = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'From the old address')!;
 const button = (name: string) => [...document.body.querySelectorAll('button')].find((el) => el.textContent?.trim() === name)!;
 const click = async (name: string) => {
@@ -47,8 +47,6 @@ const click = async (name: string) => {
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  // jsdom has no ResizeObserver; the page's Sheet only uses it to track overflow.
-  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.stubGlobal('alert', vi.fn((message: string) => void events.push(`alert: ${message}`)));
   events.length = 0;
   localStorage.clear();
@@ -56,7 +54,7 @@ beforeEach(() => {
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
   act(() => root.render(
-    <SettingsPage section="save" settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onClose={() => {}} onImportSave={() => null} />,
+    <SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} />,
   ));
 });
 

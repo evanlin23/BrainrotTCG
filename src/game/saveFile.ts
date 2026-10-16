@@ -3,8 +3,9 @@ import { STORAGE_KEYS } from '../constants';
 import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine';
 import { getCard } from '../data/cards';
 import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
+import { isArchive } from './collectionRecovery';
 import { isLegacyPull, isStored } from './history';
-import { exportPlayer, importPlayer, isCurrentPlayer, parsePlayer } from './player';
+import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -69,14 +70,10 @@ const olderBestCard = (value: unknown, dataVersion: number) => {
   return card(Object.fromEntries(Object.entries(read).filter(([, v]) => v !== undefined)));
 };
 
-/** One kept-aside collection: its exact bytes and the identity snapshot they belonged to. */
-const archived = (value: unknown): value is RecordValue => record(value) && text(value.raw)
-  && (value.player === null || text(value.player));
-
 const SAVE_FIELDS = [
   ['collection', STORAGE_KEYS.COLLECTION, collection],
-  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, (value: unknown) => archived(value)
-    && optional(value, 'later', (later) => Array.isArray(later) && later.every(archived))],
+  // The archive's own rule: exact bytes and identity snapshots, `later`, `dropped` and `kind` included.
+  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, isArchive],
   ['achievements', STORAGE_KEYS.ACHIEVEMENTS, achievements],
   ['stats', STORAGE_KEYS.STATS, stats],
   ['hallOfFame', STORAGE_KEYS.HALL_OF_FAME, hallOfFame],
@@ -194,12 +191,15 @@ export const importSaveFile = (raw: string): string | null => {
     if (save.player !== undefined && save.player !== null && !incomingPlayer) {
       return 'The player identity in this save is invalid. Nothing was imported.';
     }
-    // Cleared first, which also frees space for the imported fields.
-    if (incomingPlayer && !isCurrentPlayer(incomingPlayer.secretKey)) {
-      staged.unshift(...omitted.filter((key) => PLAYER_FIELDS.has(key)).map((key): [string, null] => [key, null]));
-    }
     // Capture originals before even the backup write. Other null/omitted fields remain untouched.
     staged.push([DATA_VERSION_KEY, String(dataVersion)]);
+    // The stamp goes before any imported value, so another tab still on the old save stops writing it
+    // (see saveMark). A different player's fields are cleared before it, which frees space for it and
+    // the imported fields, and again after it, in case such a tab wrote one in between: clears always
+    // run, even for a field that was absent when `previous` was captured.
+    const clears = incomingPlayer && !isCurrentPlayer(incomingPlayer.secretKey)
+      ? omitted.filter((key) => PLAYER_FIELDS.has(key)).map((key): [string, null] => [key, null]) : [];
+    staged.unshift(...clears, [SAVE_STAMP_KEY, newSaveStamp()], ...clears);
     const previous = new Map(staged.map(([key]) => [key, localStorage.getItem(key)]));
     if (!backUpSave('brainrot-before-import-v1')) {
       return "Couldn't keep a backup of your current save. Nothing was imported.";
@@ -207,10 +207,10 @@ export const importSaveFile = (raw: string): string | null => {
     const changed: string[] = [];
     try {
       for (const [key, value] of staged) {
-        if (previous.get(key) === value) continue;
+        if (value !== null && previous.get(key) === value) continue;
         if (value === null) localStorage.removeItem(key);
         else localStorage.setItem(key, value);
-        changed.push(key);
+        if (!changed.includes(key)) changed.push(key);
       }
       // Identity is last: no later write can fail after importPlayer adopts the new memory identity.
       if (typeof save.player === 'string' && !importPlayer(save.player)) throw new Error('Identity import failed');
@@ -222,6 +222,6 @@ export const importSaveFile = (raw: string): string | null => {
     }
     return null;
   } catch {
-    return "Couldn't read or store that file. Is it a save exported from Save & restore?";
+    return "Couldn't read or store that file. Is it a save exported from Save & backup?";
   }
 };

@@ -6,6 +6,8 @@ import type { Card as CardType } from '../../data/cards';
 import type { Finish } from '../../engine';
 import { FINISH_INFO, modifierClasses, modifierLabel } from '../../game/modifiers';
 import CardImage from './CardImage';
+import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
+import { cardFaceLabel } from './cardLabel';
 
 export interface CardWithMeta extends CardType {
     uniqueId: number;
@@ -31,6 +33,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
     const cardRef = useRef<HTMLDivElement>(null);
     const [tilt, setTilt] = useState({ rotateX: 0, rotateY: 0 });
     const [hasShined, setHasShined] = useState(false);
+    const reducedMotion = usePrefersReducedMotion();
 
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
@@ -54,11 +57,13 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
         };
 
         // Tilt follows a real mouse only: phones send a mousemove with every tap, which would leave
-        // the card stuck at an angle.
-        if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+        // the card stuck at an angle. No tilt under reduced motion either, and turning it on mid-pack
+        // stops the tilt straight away.
+        if (reducedMotion || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, []);
+    }, [reducedMotion]);
+    const shownTilt = reducedMotion ? { rotateX: 0, rotateY: 0 } : tilt;
 
     // Trigger shine animation once, the first time a holo card is flipped
     if (isFlipped && card.isHolo && !hasShined) {
@@ -82,7 +87,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
             className={cardClasses}
             onContextMenu={(e) => e.preventDefault()}
             style={{
-                transform: `perspective(1000px) rotateX(${tilt.rotateX}deg) rotateY(${tilt.rotateY}deg)`,
+                transform: `perspective(1000px) rotateX(${shownTilt.rotateX}deg) rotateY(${shownTilt.rotateY}deg)`,
                 ...(card.finish ? { '--finish-tell': FINISH_INFO[card.finish].color } : {}),
                 transition: 'transform 0.15s ease-out'
             }}
@@ -98,14 +103,14 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
                 }}
                 onClick={onFlip}
             >
-                {/* Card Back */}
-                <div className="card-face card-back">
+                {/* Card Back. Only the face that shows is read out, so the front can't spoil the flip. */}
+                <div className="card-face card-back" aria-hidden={isFlipped}>
                     <img src={cardBackImage} alt="Card back" className="card-back-image" draggable="false" />
                 </div>
 
                 {/* Card Front */}
-                <div className={`card-face card-front ${modifierClasses(card)}`}>
-                    <CardImage src={card.image} finish={card.finish} alt={card.name} className="card-full-image" draggable="false" />
+                <div className={`card-face card-front ${modifierClasses(card)}`} aria-hidden={!isFlipped}>
+                    <CardImage src={card.image} finish={card.finish} alt={cardFaceLabel(card)} className="card-full-image" draggable="false" />
                     {card.misprint && <CardImage src={card.image} finish={card.finish} alt="" aria-hidden="true" className="misprint-ghost" draggable="false" />}
                     {card.isHolo && <div className="holo-shine-overlay"></div>}
                     <div className="holo-overlay"></div>

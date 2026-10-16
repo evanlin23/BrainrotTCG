@@ -20,7 +20,11 @@ interface Stats {
   highestPackHandName?: string; highestPackFlexValue?: number;
 }
 
-export async function monitor(page: Page, baseURL: string, historyRecords = 0, { routeHttp = true } = {}) {
+/**
+ * Collects page errors and seeds a fixture player. `returning` also records saved packs, so the tabs
+ * show: a new player sees only the packs screen until their first pack is saved (#222).
+ */
+export async function monitor(page: Page, baseURL: string, historyRecords = 0, { routeHttp = true, returning = false } = {}) {
   const errors: string[] = [];
   const origin = new URL(baseURL).origin;
   page.on('pageerror', (error) => errors.push(error.message));
@@ -46,7 +50,7 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
     // Empty responses avoid disguising local load failures with broad console-error filters.
     return route.fulfill({ status: 204 });
   });
-  await page.addInitScript(({ historyRecords, keys, origin }) => {
+  await page.addInitScript(({ historyRecords, returning, keys, origin }) => {
     if (window.location.origin !== origin) return;
     // Fresh smoke seeds identity/audio only; optional performance history below is synthetic.
     if (!localStorage.getItem('brainrot-player-v1')) {
@@ -54,6 +58,9 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
         secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: historyRecords, createdAt: 1,
       }));
       localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+      if (returning) {
+        localStorage.setItem(keys.STATS, JSON.stringify({ packsOpened: Math.max(historyRecords, 1), holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
+      }
       if (historyRecords) {
         // Performance shape only: repeated nonce0 cached cards at synthetic nonces. This is
         // intentionally NOT a verified history/profile, and never enters a proof verifier.
@@ -63,7 +70,7 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
         localStorage.setItem('brainrot-data-version', '3');
       }
     }
-  }, { historyRecords, keys: STORAGE_KEYS, origin });
+  }, { historyRecords, returning, keys: STORAGE_KEYS, origin });
   return errors;
 }
 
@@ -75,6 +82,17 @@ export async function expectDecoded(images: Locator, count: number) {
     )).toBe(true);
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }
+}
+
+/** Waits until the target's box holds still between two reads, 150ms apart (the pack drops in). */
+export async function expectStill(target: Locator, message: string) {
+  let last = '';
+  await expect.poll(async () => {
+    const box = JSON.stringify(await target.boundingBox());
+    const still = box === last;
+    last = box;
+    return still;
+  }, { message, intervals: [150] }).toBe(true);
 }
 
 export async function snapshot(page: Page) {
@@ -132,4 +150,29 @@ export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1
     .toEqual(cards.map((card) => card.key).sort());
 
   return before;
+}
+
+/** One pointer: the mouse, or a single touch point sent over CDP in a touch project. */
+export interface Finger {
+  press(x: number, y: number): Promise<void>;
+  move(x: number, y: number): Promise<void>;
+  release(): Promise<void>;
+}
+
+export async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
+  if (!touch) {
+    return {
+      press: async (x, y) => { await page.mouse.move(x, y); await page.mouse.down(); },
+      move: (x, y) => page.mouse.move(x, y),
+      release: () => page.mouse.up(),
+    };
+  }
+  const cdp = await page.context().newCDPSession(page);
+  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points }).then(() => {});
+  return {
+    press: (x, y) => send('touchStart', [{ x, y }]),
+    move: (x, y) => send('touchMove', [{ x, y }]),
+    release: () => send('touchEnd', []),
+  };
 }

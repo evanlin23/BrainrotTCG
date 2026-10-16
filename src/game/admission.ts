@@ -100,6 +100,9 @@ export const admitOptional = <T>(work: () => Promise<T>, signal?: AbortSignal): 
     });
   });
 
+/** For tests: how many optional requests are waiting for a slot. */
+export const waitingOptional = (): number => waiting.length;
+
 /** For tests. */
 export const resetAdmission = () => {
   waiting.length = 0;

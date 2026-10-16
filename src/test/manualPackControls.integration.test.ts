@@ -47,7 +47,25 @@ const pressA = () => app!.interact(() => window.dispatchEvent(new KeyboardEvent(
 const escape = () => app!.interact(() => (document.activeElement ?? document.body)
   .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
 const toasts = () => [...document.querySelectorAll('.toast')].map((el) => el.textContent ?? '').join(' | ');
-const openMyCards = () => app!.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent === 'My cards')!.click());
+// The tabs are hidden while a pack is open, but an address typed or followed still opens a page or a link.
+const go = (hash: string) => app!.interact(() => { location.hash = hash; });
+const pageTitle = () => document.querySelector('main.page h1')?.textContent ?? null;
+// Focus mode: the app's chrome (tabs, set picker, and the header on phones) is hidden around a pack.
+const focusMode = () => $('.app')!.classList.contains('is-focus');
+const mockPoster = async () => {
+  const graphics = await import('../game/bragImage');
+  vi.spyOn(graphics, 'renderPoster').mockResolvedValue(new Blob(['pack'], { type: 'image/png' }));
+  // Graphics/URL boundary only: jsdom can't draw the poster.
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL() { return 'blob:mounted-fixture'; }
+    static revokeObjectURL() {}
+  });
+  return import('../App');
+};
+const summary = async () => {
+  await app!.interact(() => button('Skip opening animation').click());
+  await app!.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+};
 
 it('ignores the old auto-open key on the sealed pack and during a reveal', async () => {
   app = await mountedApp(preferences());
@@ -102,19 +120,23 @@ it('leaves a spent reveal only by its Back to packs button, exactly once: empty 
   }
 }, 30_000);
 
-it('does not leave or record a reveal from behind an open sheet', async () => {
+it('does not leave or record a reveal from behind a page, and the reveal is still there when it closes', async () => {
   app = await mountedApp(preferences());
   await app.mount();
   await reveal();
   await app.interact(() => $('.card-wrapper')!.click());
-  await openMyCards();
-  await app.until('a sheet opens over the reveal', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
+  await go('#/cards');
+  await app.until('Cards opens over the reveal', () => expect(pageTitle()).toBe('Cards'));
+  expect($('main.app-main')!.hidden).toBe(true);
   await app.interact(() => button('Back to packs').click());
+  await escape();
   await app.settle(400);
-  expect(sealed(), 'a press behind the sheet left the reveal').toBeNull();
-  expect(stats()?.packsOpened ?? 0, 'a press behind the sheet recorded the pack').toBe(0);
-  await app.interact(() => button('Close').click());
-  await app.until('the sheet closes', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  expect(progress(), 'a press behind the page left the reveal').toBe('1');
+  expect(stats()?.packsOpened ?? 0, 'a press behind the page recorded the pack').toBe(0);
+  await app.interact(() => button('Close Cards').click());
+  await app.until('the page closes onto the reveal', () => expect($('main.app-main')!.hidden).toBe(false));
+  expect(progress()).toBe('1');
+  expect(location.hash).toBe('');
   await app.interact(() => button('Back to packs').click());
   await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
   expect(stats()?.packsOpened).toBe(1);
@@ -131,14 +153,17 @@ it('leaves a reveal with Escape as Back to packs does, and says the face-down ca
   expect(stats()?.packsOpened).toBe(1);
   expect(stats()?.highestPackCards).toHaveLength(5);
   await app.until('a notice says the pack was kept', () => expect(toasts()).toContain('Pack kept'));
-  expect(toasts()).toContain('Its cards are in My cards');
+  expect(toasts()).toContain('Its cards are in Cards');
   // Tapping the notice opens the cards it names.
   await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast')].find((el) => el.textContent?.includes('Pack kept'))!.click());
-  await app.until('My cards opens from the notice', () => expect(document.querySelector('[role="dialog"]')?.textContent).toContain('My cards'));
+  await app.until('Cards opens from the notice', () => expect(pageTitle()).toBe('Cards'));
+  expect(location.hash).toBe('#/cards');
 
-  // With no reveal open, Escape only closes the sheet and opens or records nothing.
+  // With no reveal open, Escape on the page or back on Open opens or records nothing.
   await escape();
-  await app.until('Escape closes the sheet', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  await app.settle(400);
+  await app.interact(() => button('Close Cards').click());
+  await app.until('Open shows again', () => expect($('main.app-main')!.hidden).toBe(false));
   await escape();
   await app.settle(1000);
   expect($('.reveal-progress')).toBeNull();
@@ -169,7 +194,8 @@ it('lets Escape close a sheet over the reveal without closing the reveal', async
   app = await mountedApp(preferences());
   await app.mount();
   await reveal();
-  await openMyCards();
+  // A shared link followed during the reveal: its sheet goes on top of the pack.
+  await go('#/pull/cut-off');
   await app.until('a sheet opens over the reveal', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
   await escape();
   await app.until('Escape closes the sheet', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
@@ -178,28 +204,23 @@ it('lets Escape close a sheet over the reveal without closing the reveal', async
   expect(sealed()).toBeNull();
   expect(stats()?.packsOpened ?? 0, 'Escape under a sheet recorded the pack').toBe(0);
   expect(toasts()).not.toContain('Pack kept');
+  expect(location.hash).toBe('');
   await escape();
   await app.until('the next Escape closes the reveal', () => expect(sealed()).not.toBeNull());
   expect(stats()?.packsOpened).toBe(1);
 }, 30_000);
 
-it('shares from the summary, which puts its actions above the cards', async () => {
+it('shares from the summary, which leads with the result and puts its actions after the cards', async () => {
   app = await mountedApp(preferences());
-  await app.mount(async () => {
-    const graphics = await import('../game/bragImage');
-    vi.spyOn(graphics, 'renderPoster').mockResolvedValue(new Blob(['pack'], { type: 'image/png' }));
-    // Graphics/URL boundary only: jsdom can't draw the poster.
-    vi.stubGlobal('URL', class extends URL {
-      static createObjectURL() { return 'blob:mounted-fixture'; }
-      static revokeObjectURL() {}
-    });
-    return import('../App');
-  });
+  await app.mount(mockPoster);
   await reveal();
-  await app.interact(() => button('Skip opening animation').click());
-  await app.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
-  const actions = $('.summary-actions')!;
-  expect(actions.compareDocumentPosition($('.summary-cards')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await summary();
+  const cards = $('.summary-cards')!;
+  expect(cards.compareDocumentPosition($('.summary-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the actions came before the cards').toBeTruthy();
+  expect($('.summary-title')!.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(cards.compareDocumentPosition($('.pack-summary .score-panel')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the score came before the cards').toBeTruthy();
+  // Keyboard focus starts at the result, not on a button below it.
+  expect(document.activeElement).toBe($('.summary-title'));
   expect(button('Open another pack')).toBeDefined();
   expect(stats()?.packsOpened).toBe(1);
   expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
@@ -210,13 +231,31 @@ it('shares from the summary, which puts its actions above the cards', async () =
   expect(stats()?.packsOpened).toBe(1);
 }, 30_000);
 
+it('hides the app chrome from the tear through the summary, and brings it back when the pack is left', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  expect(focusMode()).toBe(false);
+  await reveal();
+  expect(focusMode(), 'the reveal showed the chrome').toBe(true);
+  expect(button('Settings').disabled, 'the reveal enabled Settings').toBe(true);
+  await summary();
+  expect(focusMode(), 'the summary brought the chrome back').toBe(true);
+  // Focus mode is not "busy": the summary still leaves Settings and the set picker usable.
+  expect(button('Settings').disabled).toBe(false);
+  await app.interact(() => button('Open another pack').click());
+  await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
+  expect(focusMode(), 'the packs screen kept the chrome hidden').toBe(false);
+}, 30_000);
+
 it('lets the X end a big pull\'s hold and leave, recording the pack once; nothing else gets past the hold', async () => {
   app = await mountedApp(preferences({ nextNonce: 22, pauseBigPulls: true }));
   await app.mount();
   await reveal();
   await app.interact(() => button('Skip opening animation').click());
   await app.until('skip stops on the big pull', () => expect($('.active-card-container')?.getAttribute('aria-busy')).toBe('true'));
-  expect($('.special-reveal-celebration')).not.toBeNull();
+  // The showcase: a ribbon in the top bar, above the card, and a halo behind it.
+  expect($('.pack-top-bar .showcase-ribbon[role="status"]')?.textContent).toMatch(/Big pull!.*points/);
+  expect($('.reveal-card .showcase-halo')).not.toBeNull();
   const area = $('.card-reveal-area')!;
   const card = progress();
   await app.interact(() => {
@@ -233,7 +272,8 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
   expect(button('Back to packs').disabled, 'the X is disabled during the hold').toBe(false);
   await app.interact(() => button('Back to packs').click());
   await app.until('the X leaves during the hold', () => expect(sealed()).not.toBeNull());
-  expect($('.special-reveal-celebration'), 'the celebration outlived the pack').toBeNull();
+  expect($('.showcase-ribbon'), 'the celebration outlived the pack').toBeNull();
+  expect($('.showcase-halo'), 'the celebration outlived the pack').toBeNull();
   expect($('.active-card-container')).toBeNull();
   expect(stats()?.packsOpened).toBe(1);
   expect(stats()?.highestPackCards).toHaveLength(5);
@@ -246,6 +286,29 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
   await app.reload();
   expect(localStorage.getItem(STORAGE_KEYS.STATS)).toBe(before);
   expect(sealed()).not.toBeNull();
+}, 30_000);
+
+it('holds the last pack\'s notices while a big pull is on show, and shows them all once it ends', async () => {
+  // Nonce 21 has no big pull; the next pack, nonce 22, does.
+  app = await mountedApp(preferences({ nextNonce: 21, pauseBigPulls: true }));
+  await app.mount();
+  await reveal();
+  await escape();
+  await app.until('the first pack is kept', () => expect(toasts()).toContain('Pack kept'));
+  await app.until('a fresh pack is ready', () => expect(sealed()).not.toBeNull());
+  await reveal();
+  const before = toasts();
+  expect(before, 'a notice is up when the big pull lands').not.toBe('');
+  await app.interact(() => button('Skip opening animation').click());
+  await app.until('the big pull is on show', () => expect($('.showcase-ribbon')).not.toBeNull());
+  // Gone the frame the ribbon shows, and nothing new shows over the showcase.
+  expect(toasts()).toBe('');
+  await app.settle(1500);
+  expect($('.showcase-ribbon')).not.toBeNull();
+  expect(toasts()).toBe('');
+  // When it ends, the held notice comes back first, in full.
+  await app.until('the showcase ends', () => expect($('.showcase-ribbon')).toBeNull());
+  await app.until('the held notice shows', () => expect(toasts()).toBe(before));
 }, 30_000);
 
 it('leaves the summary with Escape, as Open another pack does, without recording it again', async () => {
@@ -293,8 +356,10 @@ it('leaves a torn pack whose ticket is on its way at once, and records it once, 
     shell.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
   });
   await app.until('the slow ticket says so', () => expect($('.pack-hint.is-waiting')).not.toBeNull());
+  expect(focusMode()).toBe(true);
   await app.interact(() => button('Back to packs').click());
   expect(button('Back to packs'), 'the X stayed after leaving').toBeUndefined();
+  expect(focusMode(), 'the packs screen kept the chrome hidden while the ticket mined').toBe(false);
   expect($('.pack-hint.is-waiting'), 'the pack still said it was opening').toBeNull();
   expect($('.pack-shell.is-cut'), 'the pack still looked torn').toBeNull();
   await app.until('leaving steps back over the pack\'s history entry', () =>
@@ -368,7 +433,55 @@ describe('browser Back in a pack', () => {
       await app.until(`${leave} returns to the packs screen`, () => expect(sealed()).not.toBeNull());
       await app.until(`${leave} steps back over the pack's entry`, () => expect(packEntry()).toBe(false));
       expect(history.length, `${leave} stacked history`).toBe(length);
+      expect(focusMode(), `${leave} kept the chrome hidden`).toBe(false);
     }
     expect(stats()?.packsOpened).toBe(3);
+  }, 30_000);
+
+  it('does not leave the summary from under its share sheet, as the summary\'s own buttons don\'t', async () => {
+    app = await mountedApp(preferences());
+    await app.mount(mockPoster);
+    await reveal();
+    const length = history.length;
+    await summary();
+    await app.interact(() => button('Share').click());
+    await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
+    await back();
+    await app.until('the pack takes its entry back', () => expect(packEntry()).toBe(true));
+    expect(history.length).toBe(length);
+    expect(document.querySelectorAll('.summary-card'), 'Back left the summary under the sheet').toHaveLength(5);
+    expect(sealed()).toBeNull();
+    expect(focusMode()).toBe(true);
+
+    // With the sheet closed, Back leaves the summary as before.
+    await escape();
+    await app.until('Escape closes the sheet', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    expect(document.querySelectorAll('.summary-card')).toHaveLength(5);
+    await back();
+    await app.until('Back leaves the summary', () => expect(sealed()).not.toBeNull());
+    expect(focusMode()).toBe(false);
+    expect(stats()?.packsOpened).toBe(1);
+  }, 30_000);
+
+  it('steps back over a pack\'s entry the page was loaded on, so the first Back leaves the page', async () => {
+    app = await mountedApp(preferences());
+    // A reload while a pack was open: the page comes back on the pack's entry, with no pack.
+    history.replaceState({ below: true }, '');
+    history.pushState({ brainrotPack: true }, '');
+    const length = history.length;
+    await app.mount();
+    await app.until('the load steps back over the old entry', () => expect(history.state).toEqual({ below: true }));
+    expect(history.length).toBe(length);
+    expect(sealed()).not.toBeNull();
+    expect(focusMode()).toBe(false);
+
+    // The next pack adds its own entry in the old one's place, and Back from it leaves it.
+    await reveal();
+    expect(packEntry()).toBe(true);
+    expect(history.length, 'the pack stacked history over the old entry').toBe(length);
+    await back();
+    await app.until('Back returns to the packs screen', () => expect(sealed()).not.toBeNull());
+    await app.until('Back lands below the pack', () => expect(history.state).toEqual({ below: true }));
+    expect(stats()?.packsOpened).toBe(1);
   }, 30_000);
 });

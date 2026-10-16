@@ -1,11 +1,11 @@
-/* Collection sheet: the set grid and its card thumbnails. */
+/* Cards page: the set grid and its card thumbnails. */
 
 .collection-set {
   padding: var(--space-4) 0;
   border-top: 1px solid var(--border);
 }
 
-.collection-set:first-child {
+.page-subtitle + .collection-set {
   border-top: none;
   padding-top: var(--space-1);
 }
@@ -103,7 +103,7 @@
   margin-top: var(--space-2);
 }
 
-.collection-later:first-child {
+.page-subtitle + .collection-later {
   padding-top: 0;
   border-top: none;
 }

@@ -1,8 +1,7 @@
-import { useId, useMemo, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
-import Sheet from '../ui/Sheet';
 import { CARD_RARITIES, cardPoints, COLLECTIBLE_CARDS, getSetCards, type Card } from '../../data/cards';
 import { isOpenable, SETS } from '../../content/sets';
 import { FINISH_INFO, bestFinish } from '../../game/modifiers';
@@ -14,8 +13,6 @@ import '../../styles/CollectionLabel.css';
 
 interface CollectionBrowserProps {
   collection: Record<string, CollectionItem>;
-  onClose: () => void;
-  navigation?: ReactNode;
   /** The set packs are opened from (App's selected set), so the cards you just pulled show open. */
   recentSetId?: string;
 }
@@ -23,14 +20,14 @@ interface CollectionBrowserProps {
 type Owned = { normalCount: number; holoCount: number; finishes?: Partial<Record<Finish, number>>; misprints?: number };
 
 /**
- * Grid pockets the sheet opens with (#344). The era you open packs from always opens (or the newest
+ * Grid pockets the page opens with (#344). The era you open packs from always opens (or the newest
  * started one, without that); then the other started eras open newest first while they fit. The rest
  * start collapsed behind their header, so a big collection mounts a bounded number of tiles, and no
  * card art or finish work, instead of every card of every era.
  */
 const INITIAL_POCKETS = 24;
 
-/** Which started eras open with the sheet: the recent one, then newest first while the budget lasts. */
+/** Which started eras open with the page: the recent one, then newest first while the budget lasts. */
 const initiallyOpen = (started: { set: { id: string }; pockets: number }[], recentSetId?: string) => {
   const newestFirst = [...started].reverse();
   const recent = newestFirst.findIndex((s) => s.set.id === recentSetId);
@@ -48,7 +45,7 @@ const initiallyOpen = (started: { set: { id: string }; pockets: number }[], rece
  * Eras you've started, in timeline order, with every card (the missing ones as empty slots), each
  * header a button that shows or hides its grid; then the eras you haven't started, one line each.
  */
-const CollectionBrowser = ({ collection, onClose, navigation, recentSetId }: CollectionBrowserProps) => {
+const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) => {
   const [selected, setSelected] = useState<{ card: Card } & Owned | null>(null);
 
   const owned = useMemo(() => {
@@ -87,7 +84,7 @@ const CollectionBrowser = ({ collection, onClose, navigation, recentSetId }: Col
   const started = sections.filter((s) => s.have > 0);
   const notStarted = sections.filter((s) => s.have === 0);
 
-  // Which started sets show their grid, decided when the sheet opens; a set started while it is
+  // Which started sets show their grid, decided when the page opens; a set started while it is
   // open shows open. Collapsing unmounts the grid, so hidden cards cost nothing.
   const [open, setOpen] = useState<Record<string, boolean>>(() => initiallyOpen(started, recentSetId));
   const gridIds = useId();
@@ -96,18 +93,10 @@ const CollectionBrowser = ({ collection, onClose, navigation, recentSetId }: Col
 
   return (
     <>
-      <Sheet
-        title="My cards"
-        subtitle={
-          <span className="tabular">
-            {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} Brainrot Score
-          </span>
-        }
-        onClose={onClose}
-        size="lg"
-        className="collection"
-      >
-        {navigation}
+      <div className="collection">
+        <p className="page-subtitle tabular">
+          {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} Brainrot Score
+        </p>
         {started.map(({ set, cards, have }) => {
           const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
           const expanded = open[set.id] ?? true;
@@ -212,7 +201,7 @@ const CollectionBrowser = ({ collection, onClose, navigation, recentSetId }: Col
           </section>
         )}
         {uniqueOwned === 0 && <p className="collection-empty">Open packs to start your collection.</p>}
-      </Sheet>
+      </div>
 
       {selected && (
         <CardViewerModal

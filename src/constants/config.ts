@@ -4,7 +4,11 @@ export const REPO = 'evanlin23/BrainrotTCG';
 // Storage keys
 export const STORAGE_KEYS = {
   COLLECTION: 'brainrot-found-collection-v1',
-  /** Exact unreadable collection payload kept before a filtered collection replaces it. */
+  /**
+   * Exact unreadable collection payloads kept before a filtered collection replaces them: the first,
+   * the newest under `later`, a `dropped` count of later ones let go to stay in budget, and
+   * `kind: 'unparseable-archive'` when the first is an older archive that couldn't be read.
+   */
   COLLECTION_RECOVERY: 'brainrot-collection-recovery-v1',
   /** Fingerprint of the archive whose kept-aside note this viewer hid (not part of a save). */
   COLLECTION_RECOVERY_SEEN: 'brainrot-collection-recovery-seen-v1',

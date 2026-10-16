@@ -96,7 +96,7 @@
   padding-bottom: var(--space-4);
 }
 
-/* A short muted note in a sheet. Many sheets use it, including the Player sheet and broken-link screens. */
+/* A short muted note. Share and viewer sheets use it, and so does Profile's save note. */
 .share-note {
   display: flex;
   gap: var(--space-2);

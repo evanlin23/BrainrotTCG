@@ -77,14 +77,15 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   diagnostics.setBrowserDiagnosticCapture(false);
 });
 
-it('opens from the real Sound & display screen as a labelled dialog that never touches the network', async () => {
+it('opens from the real Settings page as a labelled dialog that never touches the network', async () => {
   app = await mountedApp({
     'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Diagnostics fixture', nextNonce: 0, createdAt: 1 }),
     'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
   });
   await app.mount();
-  await app.interact(() => { button('Sound & display').focus(); button('Sound & display').click(); });
-  await app.until('Sound & display loads', () => expect(document.querySelector('[role="dialog"] .settings-group')).not.toBeNull());
+  await app.interact(() => { button('Settings').focus(); button('Settings').click(); });
+  await app.until('Settings loads', () => expect(document.querySelector('main.page .settings-group')).not.toBeNull());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
 
   const fetchSpy = vi.fn();
   vi.stubGlobal('fetch', fetchSpy);
@@ -106,6 +107,8 @@ it('opens from the real Sound & display screen as a labelled dialog that never t
   const text = dialog.querySelector('textarea')!;
   expect(JSON.parse(text.value).captureEnabled).toBe(false);
   expect(dialog.textContent).toContain('Event capture is off, so this report has no recent events.');
+  // The page is named from an allowlist, never copied from the address.
+  expect(JSON.parse(text.value).route).toBe('settings');
 
   // A hash with a query is reduced to a coarse route category.
   history.replaceState(null, '', '#/x?secret=1');
@@ -126,9 +129,9 @@ it('opens from the real Sound & display screen as a labelled dialog that never t
   expect(send).not.toHaveBeenCalled();
   expect(sendBeacon).not.toHaveBeenCalled();
 
-  // Escape closes only the report and hands focus back to its opener inside Settings.
+  // Escape closes only the report and hands focus back to its opener on the Settings page.
   await app.interact(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
   expect(document.querySelector('.diagnostic-report')).toBeNull();
-  expect(document.querySelector('[role="dialog"] .settings-group')).not.toBeNull();
+  expect(document.querySelector('main.page .settings-group')).not.toBeNull();
   expect(document.activeElement).toBe(button('Report a problem'));
 });
