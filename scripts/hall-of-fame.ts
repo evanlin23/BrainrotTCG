@@ -17,7 +17,8 @@
  *
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
  *     Lists verified Hall of Fame issues, verifies each proof, and writes the
- *     list (the top pulls and each set's firsts, src/engine/hallOfFame.ts) to
+ *     list (the top pulls, each set's firsts, and the daily top of the build's
+ *     UTC day and the day before; src/engine/hallOfFame.ts) to
  *     public/hall-of-fame.json. Results are kept in hof-build-cache.json (cached
  *     between deploys): an issue unchanged since the last deploy isn't checked
  *     again, so a deploy's cost grows with new submissions, not with all of them.
@@ -43,9 +44,11 @@ import {
   HALL_OF_FAME_MIN_SCORE,
   HALL_OF_FAME_TOP,
   hallOfFameList,
+  previousUtcDay,
   pullId,
   qualifiesForHallOfFame,
   topPulls,
+  utcDay,
   verifyProof,
   wouldJoinHallOfFame,
   type RankableEntry,
@@ -246,6 +249,17 @@ const listVerifiedIssues = async (token: string): Promise<Issue[]> => {
 const BUILD_CACHE = 'hof-build-cache.json';
 type BuildCache = Record<string, { updatedAt: string; entry: HallOfFameEntry | null; reason?: string }>;
 
+/**
+ * What `build` publishes: the top pulls, each set's firsts, and the daily top of the build's UTC day
+ * and the day before (Rankings' "Today", and yesterday's best just after midnight). The first
+ * verification of a pull keeps the credit. Daily entries only add to the list, so intake
+ * (wouldJoinHallOfFame) and older clients read the same top pulls and firsts as before.
+ */
+export const listToPublish = <T extends RankableEntry>(verified: readonly T[], now = new Date()): T[] => {
+  const today = utcDay(now.toISOString());
+  return hallOfFameList(verified, [today, previousUtcDay(today)]);
+};
+
 export const build = async (output = OUTPUT) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
@@ -294,8 +308,7 @@ export const build = async (output = OUTPUT) => {
     verified.push(entry);
   }
   writeFileSync(BUILD_CACHE, JSON.stringify(next));
-  // The top pulls and each set's firsts; the first verification of a pull keeps the credit.
-  const entries = hallOfFameList(verified);
+  const entries = listToPublish(verified);
   for (const e of entries) console.log(`#${e.issue}: ${e.hand} (${e.score}), verified ${e.submittedAt}`);
   writeFileSync(output, JSON.stringify(entries, null, 1) + '\n');
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);

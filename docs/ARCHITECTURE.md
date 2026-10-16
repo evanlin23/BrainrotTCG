@@ -39,8 +39,9 @@ flowchart LR
 
 GitHub keeps verified submission issues used to build the Hall of Fame list; public Nostr relays
 carry submissions from players without a GitHub account. Either can omit or delay submissions. The build verifies issues
-(or reuses cached verification), while the Hall of Fame UI re-checks entries in the current top 30
-one at a time; it does not re-verify the whole published list. Opening a pull link verifies its proof.
+(or reuses cached verification). The Rankings page doesn't re-derive published entries again: each
+row links to its pull, and opening a pull link verifies its proof. Relay submissions not filed yet
+are re-derived on the device before they show.
 `spec/verify_pull.py` independently implements the proof spec with different libraries, and CI
 checks both implementations against both sets of test vectors.
 
@@ -157,9 +158,9 @@ player ─► Share ─► "on GitHub" ─► GitHub issue form (pull link; need
                     scripts/hall-of-fame.ts verify-issue  ─► comment + labels (+ redeploy)
                                    │
                     .github/workflows/deploy.yml
-                    scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + firsts)
+                    scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + firsts + daily top 50)
                                    │
-                    Hall of Fame page checks current top 30; pull links verify individually
+                    Rankings page shows it as published; pull links verify individually
 ```
 
 **Without an account** (`src/game/nostrInbox.ts`): the game wraps the pull proof in a Nostr event
@@ -191,10 +192,15 @@ those proof rules, rather than delivery or mining fairness. A maintainer can dro
 its issue's `rejected` label.
 
 **Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score plus the first Full
-House, 4 of a Kind and 5 of a Kind in each set. The output is bounded by 100 plus three firsts per set,
-with overlapping entries deduplicated; it grows with the number of sets. The rules
+House, 4 of a Kind and 5 of a Kind in each set. The published file also keeps the best 50 pulls filed
+on the build's UTC day and the day before (`dailyPulls`, by `submittedAt`), which Rankings' Today tab
+and its "yesterday's best" read. The output is bounded by 100, plus three firsts per set, plus 100
+daily entries, with overlapping entries deduplicated; it grows with the number of sets. The rules
 live in `src/engine/hallOfFame.ts`. The share sheet and intake test whether a qualifying pull would
 join the available published snapshot; when it cannot be loaded, they fall back to qualification.
+They rank against the top 100 and firsts only, so the daily entries never change who qualifies.
+Intake still files only pulls that would join the top 100 or be a first, so once the top 100 is
+full, Today shows those pulls rather than every qualifying pull of the day.
 The deploy writes the ranked list. Workflows attempt to close verified issues, and the build reads
 both open and closed states. Deploys keep each verified issue's result
 in the Actions cache, keyed on the engine, the sets and the script. Unchanged issues can reuse their

@@ -18,6 +18,8 @@ export const qualifiesForHallOfFame = (score: PackScore): boolean =>
  * and check at any size.
  */
 export const HALL_OF_FAME_TOP = 100;
+/** The best pulls of one UTC day ("Today" in Rankings), on top of the all-time list. */
+export const HALL_OF_FAME_DAILY_TOP = 50;
 
 /** What the list needs to know about an entry. `id` is its pull id (one entry per pull). */
 export interface RankableEntry {
@@ -49,10 +51,40 @@ export const firstPulls = <T extends RankableEntry>(entries: readonly T[]): T[] 
   return uniquePulls(entries).filter((e) => e.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER && !seen.has(firstKey(e)) && !!seen.add(firstKey(e)));
 };
 
-/** Everything the Hall of Fame keeps: the top pulls and the firsts, each pull once. */
-export const hallOfFameList = <T extends RankableEntry>(entries: readonly T[]): T[] => {
+/**
+ * The UTC calendar day of an ISO time, as YYYY-MM-DD. Everyone shares the same day whatever their
+ * time zone, so "today" is the same board for every player. An unreadable time has no day ('').
+ */
+export const utcDay = (iso: string): string => {
+  const time = Date.parse(iso);
+  return Number.isNaN(time) ? '' : new Date(time).toISOString().slice(0, 10);
+};
+
+/** The UTC day before a YYYY-MM-DD day ('' for an unreadable one). */
+export const previousUtcDay = (day: string): string => {
+  const midnight = Date.parse(`${day}T00:00:00.000Z`);
+  return Number.isNaN(midnight) ? '' : new Date(midnight - 86_400_000).toISOString().slice(0, 10);
+};
+
+/**
+ * The best `HALL_OF_FAME_DAILY_TOP` pulls verified on one UTC day, best first. Ranked like
+ * `topPulls`: each pull once, credited to its earliest verification (so a pull first verified on an
+ * earlier day doesn't count again), and ties go to the earlier one.
+ */
+export const dailyPulls = <T extends RankableEntry>(entries: readonly T[], day: string): T[] =>
+  uniquePulls(entries)
+    .filter((e) => utcDay(e.submittedAt) === day)
+    .sort(byRank)
+    .slice(0, HALL_OF_FAME_DAILY_TOP);
+
+/**
+ * Everything the Hall of Fame keeps: the top pulls, the firsts, and the daily top of each of `days`
+ * (UTC, YYYY-MM-DD), each pull once. The daily entries only add to the list, so the top pulls and
+ * firsts read from it are the same with or without them.
+ */
+export const hallOfFameList = <T extends RankableEntry>(entries: readonly T[], days: readonly string[] = []): T[] => {
   const kept = new Map<string, T>();
-  for (const e of [...topPulls(entries), ...firstPulls(entries)]) if (!kept.has(e.id)) kept.set(e.id, e);
+  for (const e of [...topPulls(entries), ...firstPulls(entries), ...days.flatMap((day) => dailyPulls(entries, day))]) if (!kept.has(e.id)) kept.set(e.id, e);
   return [...kept.values()];
 };
 

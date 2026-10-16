@@ -10,9 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
-import { decodeProof, pullId, verifyProof } from '../src/engine/index.ts';
+import { dailyPulls, decodeProof, firstPulls, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, topPulls, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { build, inbox, verifyIssue } from './hall-of-fame.ts';
+import { build, inbox, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
 
@@ -229,6 +229,32 @@ describe('build (deploy workflow)', () => {
     fixture.issues[0] = issue(1, pair, { updated: '2026-10-03T00:00:00Z' });
     await build(output());
     expect(entries()).toEqual([]);
+  });
+});
+
+describe('published list', () => {
+  const pull = (id: string, score: number, submittedAt: string): RankableEntry => ({ id, setId: 'set-a', hand: 'Full House', multiplier: 7, score, submittedAt });
+  const day = (date: string, n: number, base = 10) =>
+    Array.from({ length: n }, (_, i) => pull(`${date}-${i}`, base + i, `${date}T${String(i % 24).padStart(2, '0')}:${String(Math.floor(i / 24)).padStart(2, '0')}:00.000Z`));
+
+  it("keeps the build's UTC day and the day before on top of the all-time list and firsts", () => {
+    const allTime = day('2026-10-01', HALL_OF_FAME_TOP + 10, 100_000); // fill the top 100 well above the daily pulls
+    const verified = [...allTime, ...day('2026-10-14', 4), ...day('2026-10-15', 6), ...day('2026-10-16', HALL_OF_FAME_DAILY_TOP + 5)];
+    const now = new Date('2026-10-16T00:30:00.000Z'); // just after midnight: yesterday is still kept
+    const list = listToPublish(verified, now);
+    const plain = hallOfFameList(verified);
+    // Top 100 and firsts are unchanged; only extra entries follow them.
+    expect(list.slice(0, plain.length)).toEqual(plain);
+    expect(topPulls(list)).toEqual(topPulls(verified));
+    expect(firstPulls(list)).toEqual(firstPulls(verified));
+    const extra = list.slice(plain.length);
+    expect(extra.filter((e) => e.submittedAt.startsWith('2026-10-16'))).toHaveLength(HALL_OF_FAME_DAILY_TOP);
+    expect(extra.filter((e) => e.submittedAt.startsWith('2026-10-15'))).toHaveLength(6);
+    expect(extra.filter((e) => e.submittedAt.startsWith('2026-10-14'))).toEqual([]);
+    expect(dailyPulls(list, '2026-10-16')).toEqual(dailyPulls(verified, '2026-10-16'));
+    // A build a minute before midnight keeps the 15th and the 14th instead.
+    const before = listToPublish(verified, new Date('2026-10-15T23:59:00.000Z')).slice(plain.length);
+    expect(new Set(before.map((e) => e.submittedAt.slice(0, 10)))).toEqual(new Set(['2026-10-15', '2026-10-14']));
   });
 });
 

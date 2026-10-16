@@ -1,16 +1,16 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Crown, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Crown, History, ShieldCheck } from 'lucide-react';
 import CardImage from '../cards/CardImage';
+import Sheet from '../ui/Sheet';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
 import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
-import { checkPull } from '../../game/pulls';
 import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
-import { firstPulls, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP, normalizeName, topPulls } from '../../engine';
+import { dailyPulls, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP, normalizeName, previousUtcDay, topPulls, utcDay } from '../../engine';
 
-// Hackathon legends: screenshots from before pulls were verifiable.
+// Hackathon legends ("Where it started"): screenshots from before pulls were verifiable.
 import adiImage from '../../assets/images/hall_of_fame/adi-four-of-a-kind.webp';
 import danielImage from '../../assets/images/hall_of_fame/daniel-full-house.webp';
 import squidImage from '../../assets/images/hall_of_fame/tehsquid-full-house.webp';
@@ -29,26 +29,45 @@ const HACKATHON_LEGENDS: LegendEntry[] = [
   { name: 'TehSquid', description: 'Full House', image: squidImage, date: 'March 4th, 2026', portrait: true },
 ];
 
-type Check = 'checking' | 'verified' | 'failed';
-
-/** How many entries to re-verify on this device (each costs one ticket). */
-const VERIFY_LIMIT = 30;
 /** How many leaderboard rows show at first, and how many more each "Show more" adds. */
 const PAGE_SIZE = 20;
+/** How many of yesterday's best show when nothing has been filed today. */
+const YESTERDAY_SHOWN = 3;
 
-const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-/** Whether a time falls on today's date where the player is. */
-const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
+/** Today's UTC day (YYYY-MM-DD), moving on at 00:00 UTC while the page is open. */
+const useUtcToday = () => {
+  const [day, setDay] = useState(() => utcDay(new Date().toISOString()));
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      const now = new Date();
+      const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+      // A timer that fires a moment early finds the same day and simply waits again.
+      timer = setTimeout(() => {
+        setDay(utcDay(new Date().toISOString()));
+        arm();
+      }, midnight - now.getTime());
+    };
+    arm();
+    return () => clearTimeout(timer);
+  }, []);
+  return day;
+};
 
-/** All-time and Today rank live pulls; the archive keeps world firsts and the hackathon legends. */
-type RankingsTab = 'all' | 'today' | 'archive';
+/** When the day after `day` starts (00:00 UTC), in the player's own clock. */
+const localResetTime = (day: string) =>
+  new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+/** Today ranks the current UTC day's pulls; All-time ranks the best ever. */
+type RankingsTab = 'today' | 'all';
 
 /** The Rankings page (#/rankings). */
 const HallOfFamePage = () => {
   const [entries, setEntries] = useState<HallOfFameEntry[] | null>(null);
-  const [checks, setChecks] = useState<Record<number, Check>>({});
-  const [tab, setTab] = useState<RankingsTab>('all');
+  const [tab, setTab] = useState<RankingsTab>('today');
+  const [legendsOpen, setLegendsOpen] = useState(false);
   const tabsId = useId();
+  const day = useUtcToday();
 
   const [pending, setPending] = useState<HallOfFameEntry[]>([]);
   const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'failed'>('loading');
@@ -68,7 +87,7 @@ const HallOfFamePage = () => {
       setEntries(list);
       setPending([]);
       setLoadState('loaded');
-      // Then anything sent since the last deploy, checked here (see loadPending).
+      // Then anything sent since the last deploy, re-derived here before it shows (see loadPending).
       loadPending(list, (entry) => {
         if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
       }, controller.signal).catch(() => {});
@@ -99,10 +118,15 @@ const HallOfFamePage = () => {
 
   // The same rules the deploy used to pick these entries (src/engine/hallOfFame.ts): one entry per
   // pull, the earliest verification keeping the credit. A pull can be signed more than once, so they
-  // key on the pull id (set, key and ticket number) rather than the proof text.
+  // key on the pull id (set, key and ticket number) rather than the proof text. Published entries
+  // aren't re-derived here: the deploy already did, from the same site as this code. Each row links
+  // to its pull, which re-derives it when opened.
   const ranked = useMemo(() => topPulls(all ?? []), [all]);
+  // Today: pulls filed on the current UTC day (the same day for everyone), plus any just submitted.
+  const today = useMemo(() => dailyPulls(all ?? [], day), [all, day]);
+  const yesterday = useMemo(() => dailyPulls(all ?? [], previousUtcDay(day)).slice(0, YESTERDAY_SHOWN), [all, day]);
   // The leaderboard shows a page at a time so the page stays short on a phone. Only what's drawn
-  // changes: the order, and which entries get re-verified, are the same whatever is shown.
+  // changes: the order is the same whatever is shown.
   const [shown, setShown] = useState(PAGE_SIZE);
   const listRef = useRef<HTMLOListElement>(null);
   const focusRowRef = useRef<number | null>(null);
@@ -122,91 +146,13 @@ const HallOfFamePage = () => {
     setTab(next);
     setShown(PAGE_SIZE);
   };
-  // Today: pulls filed today on this device's calendar, plus any just submitted and not filed yet
-  // (their own time can't be trusted, see loadPending). The published list holds only the top pulls
-  // and the firsts, so a pull filed today that made neither isn't here. Worked out on each render of
-  // the Today tab, not memoised, so a page left open past midnight moves on to the new day.
-  const today = tab === 'today' ? topPulls((all ?? []).filter((e) => e.pending || isToday(e.submittedAt))) : [];
-  // World firsts go by when GitHub verified them, so only filed entries can be one.
-  const firsts = useMemo(() => firstPulls(entries ?? []), [entries]);
 
-  // Don't trust the JSON either: re-derive each pack here, one at a time. One queue for the whole
-  // visit: entries arriving later (just-submitted ones reorder the list) join it, and nothing already
-  // checked is checked again, since each check mines a ticket.
-  const rankedRef = useRef(ranked);
-  const startedRef = useRef(new Set<number>());
-  const runningRef = useRef(false);
-  const goneRef = useRef(false);
-  const stopRef = useRef<AbortController | null>(null);
-  useEffect(() => {
-    // StrictMode replays setup after cleanup while retaining these refs.
-    goneRef.current = false;
-    const stop = new AbortController();
-    stopRef.current = stop;
-    return () => {
-      goneRef.current = true;
-      // Leaving stops a check waiting for its ticket (one already mining finishes).
-      stop.abort();
-    };
-  }, []);
-  useEffect(() => {
-    rankedRef.current = ranked;
-    const next = () => rankedRef.current.slice(0, VERIFY_LIMIT).find((e) => !e.pending && !startedRef.current.has(e.issue));
-    const run = async () => {
-      if (runningRef.current) return;
-      runningRef.current = true;
-      for (let entry = next(); entry && !goneRef.current; entry = next()) {
-        const { issue } = entry;
-        const { signal } = stopRef.current!;
-        startedRef.current.add(issue);
-        setChecks((prev) => ({ ...prev, [issue]: 'checking' }));
-        let result: Check = 'failed';
-        try {
-          const pull = await checkPull(entry.proof, signal);
-          // Every field we display must be exactly what the proof produces.
-          const matches =
-            pull.proof.name === entry.name &&
-            pull.fingerprint === entry.fingerprint &&
-            pull.set.id === entry.setId &&
-            pull.score.hand.name === entry.hand &&
-            pull.score.score === entry.score &&
-            pull.cards.length === entry.cards.length &&
-            pull.cards.every(
-              (c, i) =>
-                c.cardId === entry.cards[i]?.cardId &&
-                c.isHolo === entry.cards[i]?.isHolo &&
-                (c.finish ?? null) === (entry.cards[i]?.finish ?? null) &&
-                !!c.misprint === !!entry.cards[i]?.misprint,
-            );
-          result = matches ? 'verified' : 'failed';
-        } catch {
-          result = 'failed';
-        }
-        if (signal.aborted && result === 'failed') {
-          // Stopped, not failed: check it again if the page comes back (StrictMode's replay).
-          startedRef.current.delete(issue);
-          break;
-        }
-        if (!goneRef.current) setChecks((prev) => ({ ...prev, [issue]: result }));
-      }
-      runningRef.current = false;
-      // Entries that arrived while the last check was finishing.
-      if (!goneRef.current && next()) void run();
-    };
-    void run();
-  }, [ranked]);
-
-  const renderEntry = (entry: HallOfFameEntry, rank?: number) => {
-    const check = entry.pending ? 'verified' : checks[entry.issue];
+  const renderEntry = (entry: HallOfFameEntry, rank: number) => {
     const who = normalizeName(entry.name) || 'Anonymous';
     return (
-      <li key={`${entry.proof}-${rank ?? 'first'}`}>
-        <a
-          className={`hof-entry ${check === 'failed' ? 'is-failed' : ''}`}
-          href={`#/pull/${entry.proof}`}
-          aria-label={`${rank !== undefined ? `Number ${rank + 1}: ` : ''}${entry.hand} by ${who} in ${entry.setName}, score ${entry.score}`}
-        >
-          {rank !== undefined && <span className="hof-rank tabular">{rank + 1}</span>}
+      <li key={entry.id}>
+        <a className="hof-entry" href={`#/pull/${entry.proof}`} aria-label={`Number ${rank + 1}: ${entry.hand} by ${who} in ${entry.setName}, score ${entry.score}`}>
+          <span className="hof-rank tabular">{rank + 1}</span>
           <span className="hof-cards" aria-hidden="true">
             {entry.cards.map((c, i) => {
               const card = getCard(`${entry.setId}/${c.cardId}`);
@@ -220,14 +166,11 @@ const HallOfFamePage = () => {
             </span>
             <span className="hof-meta">
               {entry.pending && <span className="hof-pending">Just submitted · </span>}
-              {/* On world firsts, when matters, so it goes first where a long set name can't push it off. */}
-              {rank === undefined && `${formatDate(entry.submittedAt)} · `}
               {entry.setName}
             </span>
           </span>
           <span className="hof-side">
             <span className="hof-score tabular">{entry.score.toLocaleString()}</span>
-            <CheckBadge check={check} />
           </span>
         </a>
       </li>
@@ -245,15 +188,12 @@ const HallOfFamePage = () => {
     </>
   );
 
-  const empty = (
-    <div className="hof-empty">
-      <Crown aria-hidden="true" />
-      <p>
-        <strong>Nothing filed here yet.</strong> Pull a Full House or better (or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+),
-        share it, and submit it from the share sheet. You could be first.
-      </p>
-    </div>
+  const guidance = (
+    <>
+      Pull a Full House or better (or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+), share it, and submit it from the share sheet.
+    </>
   );
+  const proofNote = 'Every pull here was re-derived from its proof when it was filed; open one to check it yourself.';
 
   return (
     <div className="hall-of-fame">
@@ -264,9 +204,8 @@ const HallOfFamePage = () => {
         value={tab}
         onChange={changeTab}
         tabs={[
-          { id: 'all', label: 'All-time' },
           { id: 'today', label: 'Today' },
-          { id: 'archive', label: 'Archive' },
+          { id: 'all', label: 'All-time' },
         ]}
       />
 
@@ -282,84 +221,86 @@ const HallOfFamePage = () => {
       </div>
 
       <div className="hof-panel" {...tabPanelProps(tabsId, tab)}>
-        {tab === 'all' && (
+        {tab === 'today' && loadState === 'loaded' && (
           <>
-            {loadState === 'loaded' && all?.length === 0 && empty}
-            {ranked.length > 0 && (
+            <p className="hof-note">
+              <ShieldCheck aria-hidden="true" />
+              <span>
+                Today&apos;s best pulls. Resets at 00:00 UTC ({localResetTime(day)} your time). {proofNote}
+              </span>
+            </p>
+            {today.length > 0 ? (
+              rankedList(today)
+            ) : (
               <>
-                <p className="hof-note">
-                  <ShieldCheck aria-hidden="true" /> The top {HALL_OF_FAME_TOP} by Brainrot Score. The top {VERIFY_LIMIT} are re-checked on your device; open one to see it.
-                </p>
-                {rankedList(ranked)}
+                <div className="hof-empty">
+                  <Crown aria-hidden="true" />
+                  <p>
+                    <strong>No pulls filed today yet.</strong> {guidance} Yours could be first.
+                  </p>
+                </div>
+                {yesterday.length > 0 && (
+                  <section className="hof-yesterday" aria-labelledby={`${tabsId}-yesterday`}>
+                    <h2 id={`${tabsId}-yesterday`} className="section-title">
+                      Yesterday&apos;s best
+                    </h2>
+                    <ol className="hof-list">{yesterday.map((e, i) => renderEntry(e, i))}</ol>
+                  </section>
+                )}
               </>
             )}
           </>
         )}
 
-        {tab === 'today' && loadState === 'loaded' && (
+        {tab === 'all' && loadState === 'loaded' && (
           <>
-            <p className="hof-note">Pulls filed today (your time) that made the top {HALL_OF_FAME_TOP} or a world first, plus any just submitted. Only pulls in the all-time top {VERIFY_LIMIT} are re-checked on your device.</p>
-            {today.length > 0 ? (
-              rankedList(today)
+            {ranked.length > 0 ? (
+              <>
+                <p className="hof-note">
+                  <ShieldCheck aria-hidden="true" />
+                  <span>
+                    The top {HALL_OF_FAME_TOP} by Brainrot Score. {proofNote}
+                  </span>
+                </p>
+                {rankedList(ranked)}
+              </>
             ) : (
               <div className="hof-empty">
                 <Crown aria-hidden="true" />
                 <p>
-                  <strong>Nothing new today yet.</strong> Submit a Full House or better (or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+) from its share sheet to
-                  put it here.
+                  <strong>Nothing filed here yet.</strong> {guidance} You could be first.
                 </p>
               </div>
             )}
           </>
         )}
-
-        {tab === 'archive' && (
-          <>
-            <p className="hof-note">Kept for the record, apart from the rankings.</p>
-            <section className="hof-archive" aria-labelledby={`${tabsId}-firsts`}>
-              <h2 id={`${tabsId}-firsts`} className="section-title">
-                World firsts
-              </h2>
-              <p className="hof-note">The first verified Full House, 4 of a Kind and 5 of a Kind in each set, dated when it was filed.</p>
-              {firsts.length > 0 ? <ul className="hof-list">{firsts.map((e) => renderEntry(e))}</ul> : loadState === 'loaded' ? empty : null}
-            </section>
-            <section className="hof-archive" aria-labelledby={`${tabsId}-legends`}>
-              <h2 id={`${tabsId}-legends`} className="section-title">
-                Hackathon legends
-              </h2>
-              <p className="hof-note">Screenshots from the hackathon, before pulls could be verified, so they aren't ranked.</p>
-              <ul className="hof-legends">
-                {HACKATHON_LEGENDS.map((entry) => (
-                  <li key={entry.name} className="hof-legend">
-                    <img src={entry.image} alt={`${entry.name}'s ${entry.description}`} className={entry.portrait ? 'is-portrait' : ''} loading="lazy" />
-                    <span className="hof-legend-info">
-                      <strong>{entry.name}</strong>
-                      <span>
-                        {entry.description} · {entry.date}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </>
-        )}
       </div>
+
+      {/* Where it started: the hackathon's screenshots, kept apart from the verified rankings. */}
+      <div className="hof-origins">
+        <button type="button" className="btn btn--ghost btn--sm" aria-haspopup="dialog" onClick={() => setLegendsOpen(true)}>
+          <History aria-hidden="true" /> Where it started
+        </button>
+      </div>
+      {legendsOpen && (
+        <Sheet title="Where it started" subtitle="Screenshots from the hackathon, before pulls could be verified, so they aren't ranked." onClose={() => setLegendsOpen(false)} className="hof-legends-sheet">
+          <ul className="hof-legends">
+            {HACKATHON_LEGENDS.map((entry) => (
+              <li key={entry.name} className="hof-legend">
+                <img src={entry.image} alt={`${entry.name}'s ${entry.description}`} className={entry.portrait ? 'is-portrait' : ''} loading="lazy" />
+                <span className="hof-legend-info">
+                  <strong>{entry.name}</strong>
+                  <span>
+                    {entry.description} · {entry.date}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Sheet>
+      )}
     </div>
   );
-};
-
-const CheckBadge = ({ check }: { check?: Check }) => {
-  // Verified is the normal case and the note above says so; only exceptions get a mark.
-  if (check === 'verified') return null;
-  if (check === 'failed')
-    return (
-      <span className="hof-check is-failed">
-        <ShieldAlert aria-hidden="true" /> Failed
-      </span>
-    );
-  if (check === 'checking') return <span className="hof-check">Checking…</span>;
-  return null;
 };
 
 export default HallOfFamePage;
