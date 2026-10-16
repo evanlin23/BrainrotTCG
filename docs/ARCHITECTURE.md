@@ -256,7 +256,8 @@ times are compared as instants: `selectBoard` and `rebuildBoard` rewrite every r
 coverage bound's included, in `receiptTime`'s millisecond form first, so GitHub's `…07Z` and a
 client's `…07.123Z` sort correctly. `receiptTime` takes only ISO 8601 UTC ending in `Z` and throws
 on anything else. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
-last. The pack summary's `bestPullOrder` lists the earlier slot first instead; boards don't follow it.
+last. The pack summary and the reopened pack's sheet (ShareSheet) show the cards in that same reveal
+order; the shared-pull page keeps engine order.
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
@@ -361,12 +362,19 @@ download it. Nothing discards kept-aside data silently; the player can download 
 save warning or Settings. Export includes that archive. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
-import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; if the
-copy can't be stored, nothing is imported; a failed import keeps it). Fields the file omits keep their stored values, except that a
+import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; a failed
+import keeps it). If the copy can't be stored, or storage fills while it is there, everything is put back
+(the earlier copy too) and Settings offers "Replace without a copy", which imports with `keepCopy: false`
+after telling the player to export first. A storage refusal proves the quota is below what that write
+asked for; when the save with the file in place (no new copy) would need at least that, the answer is
+instead that the file is too big for this browser, and nothing is offered. Without a copy, App downloads
+the save from before on request if the import is left half done. Fields the file omits keep their stored values, except that a
 different player's save clears this browser's player fields (recovery archive included), which then
 stay only in that backup. It clears those fields, writes a new `brainrot-save-stamp-v1` before any imported field, clears
-them again (even ones that were absent, which a tab still on the old save may have just written), and writes the identity last; on failure it removes what it wrote and
-restores the previous values. That is structural validation and best-effort rollback, not a
+them again (even ones that were absent, which a tab still on the old save may have just written), removes
+every stored value the file replaces, so the old and new saves never both take up the ~5 MB quota, then
+writes the new values and the identity last; on failure it removes what it wrote and restores the previous
+values from memory. That is structural validation and best-effort rollback, not a
 transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
 A render error after React mounts shows `AppErrorBoundary`, which writes nothing except the opt-in

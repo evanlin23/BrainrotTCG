@@ -12,6 +12,7 @@ import { useHallOfFameSubmit } from './useHallOfFameSubmit';
 import { renderPoster } from '../../game/bragImage';
 import Sheet from '../ui/Sheet';
 import PackCardViewer from '../ui/PackCardViewer';
+import { revealOrder } from '../../game/reveal';
 import SharePreviewSheet from './SharePreviewSheet';
 import '../../styles/Share.css';
 
@@ -95,7 +96,8 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
       <section className="share-pack-cards" aria-label="Cards in this pack">
         <h3 className="section-title">Cards in this pack</h3>
         <p className="share-note">Choose a card to view or share it. The controls above share the whole pack.</p>
-        <PackCardViewer cards={target.cards} displayMode="grid" showValue={false} canShareCards />
+        {/* In the order the pack was revealed, best last, like its summary. */}
+        <PackCardViewer cards={revealOrder(target.cards)} displayMode="grid" showValue={false} canShareCards />
       </section>
       <p className="share-note">
         <ShieldCheck aria-hidden="true" /> Anyone who opens the link or scans the code re-checks this exact pack on their own
