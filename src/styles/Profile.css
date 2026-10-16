@@ -295,20 +295,13 @@
 
 .reward-option[aria-checked='true'] {
   border-color: var(--brand);
-  box-shadow: 0 0 0 1px var(--brand);
-}
-
-.reward-option:focus-visible {
-  box-shadow: var(--focus-ring);
-}
-
-.reward-option[aria-checked='true']:focus-visible {
-  box-shadow: 0 0 0 1px var(--brand), var(--focus-ring);
+  box-shadow: 0 0 0 1px var(--brand), var(--focus-shadow);
 }
 
 .reward-option.is-locked {
-  cursor: default;
-  opacity: 0.55;
+  cursor: not-allowed;
+  opacity: var(--opacity-disabled);
+  border-style: dashed;
 }
 
 .reward-option.is-locked .back-swatch,

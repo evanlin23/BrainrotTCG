@@ -194,7 +194,8 @@
     position: absolute;
     top: 6%;
     right: 5%;
-    z-index: 3;
+    /* Over the foil, shine and ghost (1), like the modifier sticker; the image retry button (3) stays on top. */
+    z-index: 2;
     padding: 0.2em 0.6em;
     border-radius: 3px;
     background: var(--brand);
@@ -329,7 +330,8 @@
     /* On the strip between the art and the caption, so neither the name nor the caption is covered. */
     bottom: 27.5%;
     left: 50%;
-    z-index: 3;
+    /* Over the foil and shine (1); the image retry button (3) stays on top. */
+    z-index: 2;
     max-width: 92%;
     overflow: hidden;
     padding: 0.2em 0.6em;

@@ -48,6 +48,8 @@
   /* Kept for old references: the accent is flat now. */
   --brand-gradient: var(--brand);
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--brand);
+  /* The ring above is the look; this transparent outline is what forced-colours mode paints. */
+  --focus-outline: 2px solid transparent;
   /* Holo foil: holo cards, holo copies and the Master badge. */
   --foil: linear-gradient(115deg, #ff7ac8, #ffd23f 30%, #6ff2c6 55%, #7ab8ff 80%, #d38bff);
 
@@ -127,8 +129,15 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --content-max: 76rem;
 
-  /* Layers */
+  /* States: disabled controls fade to this and also show a dashed border (never colour alone). */
+  --opacity-disabled: 0.5;
+
+  /* Layers. Inside a component, stack with 1-3 under isolation: isolate (DOM order breaks ties).
+     Anything that must clear siblings uses this ladder; raw z-index above 3 fails the style scan. */
+  --z-stage-fx: 5;
+  --z-header: 40;
   --z-nav: 50;
+  --z-hud: 60;
   --z-sheet: 100;
   --z-toast: 200;
 }
