@@ -642,8 +642,10 @@ function App() {
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
   // A sheet (Share, or a shared link) leaves no tab current; Settings is none of the tabs either.
   const activeTab = shareTarget || viewProof || viewProfile || brokenLink ? null : route;
-  // A new player sees only the packs screen until their first pack is saved (#222). A save with cards
-  // but no pack count (an old one, or stats that couldn't be read) is not a new player's.
+  // A new player sees only the logo and the pack until their first pack is saved (#222, #312): no tabs,
+  // no set picker. A save with cards but no pack count (an old one, or stats that couldn't be read) is
+  // not a new player's. A pack is saved in focus mode (which hides both) or as the player leaves it, so
+  // neither appears mid-reveal.
   const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0;
   const onPage = route !== 'open';
   const logoChars = 'Brainrot TCG'.split('').map((char, i) =>
@@ -699,7 +701,7 @@ function App() {
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}
       <main ref={mainRef} className="app-main" hidden={onPage} inert={onPage}>
-        <SetPicker sets={playableSets} selectedId={selectedSet.id} onSelect={selectSet} collection={collection} disabled={packBusy} />
+        {showNav && <SetPicker sets={playableSets} selectedId={selectedSet.id} onSelect={selectSet} collection={collection} disabled={packBusy} />}
         <PackOpener
           key={selectedSet.id}
           onOpen={handlePackOpened}
