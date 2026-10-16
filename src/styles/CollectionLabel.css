@@ -19,4 +19,4 @@
 .collection-label-rarity.rare { --r: var(--rarity-rare); }
 .collection-label-rarity.epic { --r: var(--rarity-epic); }
 .collection-label-rarity.legendary { --r: var(--rarity-legendary); }
-.collection-label-rarity.brainrot { --r: #ffd23f; }
+.collection-label-rarity.brainrot { --r: var(--rarity-brainrot-solid); }

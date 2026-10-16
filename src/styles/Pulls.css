@@ -42,7 +42,7 @@
 }
 
 .pull-row:hover:not(:disabled) {
-  background: rgba(243, 239, 230, 0.05);
+  background: var(--tint-hover);
 }
 
 .pulls-list li + li .pull-row {
@@ -63,8 +63,8 @@
 .pull-row-thumbs img,
 .pull-row-blank {
   width: 26px;
-  aspect-ratio: 687 / 1024;
-  border-radius: 3px;
+  aspect-ratio: var(--card-aspect);
+  border-radius: var(--radius-sm);
   box-shadow: 0 0 0 1.5px var(--bg-elevated);
   object-fit: cover;
 }

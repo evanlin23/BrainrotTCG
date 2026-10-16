@@ -4,13 +4,14 @@
  */
 import type React from 'react';
 import { FINISHES_RAREST_FIRST, type Finish } from '../engine';
+import { FINISH_COLORS } from '../styles/palette';
 import '../styles/Modifiers.css';
 
 export const FINISH_INFO: Record<Finish, { name: string; color: string }> = {
-  SILVER: { name: 'Silver', color: '#cfd6dd' },
-  GOLD: { name: 'Gold', color: '#ffcf4a' },
-  PLATINUM: { name: 'Platinum', color: '#a8e6ff' },
-  DIAMOND: { name: 'Diamond', color: '#c9b6ff' },
+  SILVER: { name: 'Silver', color: FINISH_COLORS.SILVER },
+  GOLD: { name: 'Gold', color: FINISH_COLORS.GOLD },
+  PLATINUM: { name: 'Platinum', color: FINISH_COLORS.PLATINUM },
+  DIAMOND: { name: 'Diamond', color: FINISH_COLORS.DIAMOND },
 };
 
 /** What makes a card special beyond its rarity, e.g. "Gold · Holo · Misprint" ('' if nothing). */
