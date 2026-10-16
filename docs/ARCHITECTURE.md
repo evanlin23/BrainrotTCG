@@ -56,6 +56,7 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
+  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors
 
 src/content/       Set data, art and registry; existing schemas use the existing engine.
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
@@ -206,6 +207,58 @@ order uses the time the bot first verified that exact pull on the issue (a marke
 the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
 counts once, however many times it's submitted or re-signed. A maintainer can drop an entry by adding
 the `rejected` label to its issue.
+
+### Ranking boards (`src/engine/rankings.ts`)
+
+This is an engine contract only (#223, #338). Nothing publishes or shows these boards yet, and the
+Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with these fields:
+
+- the schema version, scope and capacity;
+- the `SCORING_ERA` its scores came from;
+- completeness: complete, or partial with a reason;
+- `certifiedThrough`: how far down the ranking the board holds every candidate there is;
+- freshness: `generatedAt`, the latest first receipt, and source counts for candidates,
+  duplicates, other eras and uncertain entries.
+
+All boards use one order: score, then the earlier trusted first receipt, then pull id. Receipt
+times are compared as instants (`receiptTime`), so GitHub's `…07Z` and a client's `…07.123Z` sort
+correctly. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
+last. The pack summary's `bestPullOrder` lists the earlier slot first instead; boards don't follow it.
+
+| Board | Ranks | Identity | Size | Where |
+| --- | --- | --- | --- | --- |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
+| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
+| Best versions of this card (#224) | one card's instances | `pullId#slot` | - | card details |
+
+Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
+destinations. Best versions of this card opens from a card's details.
+
+- **Evidence.** Inputs are verified pack reconstructions (`packEvidence` from `verifyProof`), never
+  a client's score.
+- **Card entries.** A card scores `cardPoints` before the combo multiplier. It carries its exact
+  modifiers, set id and version, proof and slot.
+- **Independent cutoffs.** One proof can feed both boards. A weak pack with one great card makes
+  Best cards without making Best packs.
+- **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
+  pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
+  until they are re-derived from their proofs.
+- **Rebuilds.** `rebuildBoard` rebuilds from retained evidence after removals. Its coverage
+  defaults to the previous board's `certifiedThrough`:
+  - Exact with coverage `all`, when every candidate was kept.
+  - With a winners-only cache, the board certifies only places at or above the previous bound. It
+    comes back shorter and partial (`runners-up-not-retained`) rather than promoting runners-up
+    it never kept. The bound is stored, so it survives removing every entry.
+  - A `min-score` board stays partial (`below-intake-minimum`) unless a wider coverage is passed.
+- **Intake minimum.** A pack scores at least each of its cards' points (`scorePack`: the combo
+  multiplier is never below 1), so every card worth `HALL_OF_FAME_MIN_SCORE` or more sits in a
+  pack that qualified. That bound holds only over every filed issue, not over the pruned
+  `hallOfFameList`. It also holds only while the top 100 has room: once it fills, intake refuses
+  packs that don't beat the 100th place, so the bound rises to just above the highest 100th-place
+  score intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
+  (`below-intake-minimum`). So the card board lists only cards worth at least 20,000 and stays
+  partial until intake has filed enough of them to fill it.
+- **Daily boards** come later.
 
 ## Sharing and link previews
 
