@@ -74,6 +74,28 @@ describe('holding optional work until the summary decodes', () => {
     expect(work).toHaveBeenCalledOnce();
   });
 
+  it('counts the cap from the first hold, however often a sheet covers the summary', async () => {
+    vi.useFakeTimers();
+    await render(<Summary />);
+    await act(async () => vi.advanceTimersByTime(SUMMARY_DECODE_CAP_MS - 500));
+    await render(<Summary active={false} />);
+    await act(async () => vi.advanceTimersByTime(100));
+    await render(<Summary />);
+    const work = queue();
+    await act(async () => vi.advanceTimersByTime(399));
+    expect(work).not.toHaveBeenCalled();
+
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(work).toHaveBeenCalledOnce();
+
+    // Uncovered after the cap has passed: nothing is held again.
+    await render(<Summary active={false} />);
+    await render(<Summary />);
+    const later = queue();
+    await act(async () => {});
+    expect(later).toHaveBeenCalledOnce();
+  });
+
   it('starts it when the summary is left, or a sheet covers it', async () => {
     await render(<Summary />);
     const left = queue();
