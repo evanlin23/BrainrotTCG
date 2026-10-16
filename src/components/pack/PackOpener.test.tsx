@@ -223,3 +223,40 @@ describe('the controls under the pack (#312)', () => {
     expect(document.querySelectorAll('[aria-live]')).toHaveLength(1);
   });
 });
+
+describe('the reveal sounds on a first pack', () => {
+  it('download only once the reveal is drawn and the page is idle, not ahead of its card backs', async () => {
+    // A test that unmounts mid-pack steps browser history back; let that land before this one starts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const idle: (() => void)[] = [];
+    vi.stubGlobal('requestIdleCallback', (task: () => void) => idle.push(task));
+    vi.stubGlobal('cancelIdleCallback', () => {});
+    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    const set = SETS[0];
+    const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+    vi.mocked(openPack).mockResolvedValue({
+      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
+    } as unknown as Awaited<ReturnType<typeof openPack>>);
+    try {
+      await render(false);
+      act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+      await act(async () => { vi.advanceTimersByTime(500); });
+      await act(async () => {});
+      // Dealt (the reveal itself waits on the pack's exit animation, which jsdom doesn't run), with
+      // its sounds waiting for the page to go idle rather than racing its card backs.
+      expect(openPack).toHaveBeenCalledOnce();
+      expect(idle.length).toBeGreaterThan(0);
+      expect(load).not.toHaveBeenCalled();
+
+      act(() => idle.splice(0).forEach((task) => task()));
+      expect(load).toHaveBeenCalled();
+      const loaded = load.mock.contexts as HTMLAudioElement[];
+      expect(loaded.every((el) => el.preload === 'auto')).toBe(true);
+      expect(new Set(loaded).size).toBe(loaded.length);
+    } finally {
+      load.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});

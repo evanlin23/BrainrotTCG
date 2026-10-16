@@ -30,14 +30,26 @@ export const useAudio = () => {
   }, []);
 
   /**
-   * Preload multiple audio files
+   * Preload multiple audio files. With `defer`, nothing downloads until `loadDeferred` (a sound
+   * played before then still plays, fetched as it starts).
    */
-  const preloadAudio = useCallback((sources: string[]): HTMLAudioElement[] => {
+  const preloadAudio = useCallback((sources: string[], { defer = false } = {}): HTMLAudioElement[] => {
     return sources.map(src => {
       const audio = new Audio(src);
+      audio.preload = defer ? 'none' : 'auto';
+      if (!defer) audio.load();
+      return audio;
+    });
+  }, []);
+
+  /**
+   * Download audio preloaded with `defer`. Skips elements already cleaned up.
+   */
+  const loadDeferred = useCallback((audioElements: HTMLAudioElement[]) => {
+    audioElements.forEach(audio => {
+      if (!audio.getAttribute('src') || audio.preload === 'auto') return;
       audio.preload = 'auto';
       audio.load();
-      return audio;
     });
   }, []);
 
@@ -63,6 +75,7 @@ export const useAudio = () => {
   return {
     playAndCleanup,
     preloadAudio,
+    loadDeferred,
     cleanupAudio,
     playRandom,
   };

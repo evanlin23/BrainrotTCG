@@ -8,6 +8,7 @@ import { runMigrations } from './utils/migrations'
 import { migratePullLog } from './game/history'
 import { receiveSave } from './game/move'
 import { resumeReopening } from './game/profiles'
+import { warmUpFirstPack } from './game/warmUp'
 
 // A window the site's old address opened to hand over a save does only that (see game/move.ts).
 receiveSave().then((receiver) => {
@@ -30,4 +31,5 @@ receiveSave().then((receiver) => {
     </StrictMode>,
   )
   resumeReopening()
+  warmUpFirstPack()
 })
