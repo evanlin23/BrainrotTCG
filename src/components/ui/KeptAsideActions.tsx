@@ -97,7 +97,7 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
               ? 'The kept-aside data changed since you asked. Discard it all for good? Only a downloaded copy keeps it.'
               : 'Discard it for good? Only a downloaded copy keeps it.'}
           </span>
-          <button type="button" ref={keepRef} className={plain} aria-describedby={noteId} onClick={() => answer(false)}>
+          <button type="button" ref={keepRef} className={`${plain} quiet-focus`} aria-describedby={noteId} onClick={() => answer(false)}>
             Keep it
           </button>
           <button type="button" className={strong} onClick={() => answer(true)}>
@@ -110,7 +110,7 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
           <button type="button" className={plain} onClick={() => { if (canAct() && !downloadCollectionRecovery()) onGone(); }}>
             Download
           </button>
-          <button type="button" ref={discardRef} className={plain} aria-describedby={refused ? noteId : undefined} onClick={ask}>
+          <button type="button" ref={discardRef} className={`${plain} quiet-focus`} aria-describedby={refused ? noteId : undefined} onClick={ask}>
             Discard
           </button>
         </>

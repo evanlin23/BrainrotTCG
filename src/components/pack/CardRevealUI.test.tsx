@@ -38,7 +38,7 @@ describe('good-pull reveal', () => {
   it('lights a halo behind the card, and puts nothing over it', () => {
     const html = render(false);
     // Inside the card's own layer, before the card, so it paints under the art.
-    expect(html).toMatch(/class="reveal-card is-celebrating"[^>]*><div class="showcase-halo" aria-hidden="true"><\/div><div class="card-wrapper/);
+    expect(html).toMatch(/class="reveal-card quiet-focus is-celebrating"[^>]*><div class="showcase-halo" aria-hidden="true"><\/div><div class="card-wrapper/);
     // The old banner over the card is gone; the points are on the ribbon in the top bar (PackTopBar).
     expect(html).not.toMatch(/special-reveal-(celebration|banner|rays)/);
     expect(html).not.toMatch(/[\d,]+ points/);

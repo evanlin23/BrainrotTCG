@@ -9,7 +9,7 @@ const closeButton = (html: string) => html.match(/<button[^>]*aria-label="Back t
 describe('pack top bar', () => {
   it('is an icon button named Back to packs that is never disabled', () => {
     const html = renderToStaticMarkup(<PackTopBar onLeave={() => {}} />);
-    expect(closeButton(html)).toContain('class="icon-btn pack-close"');
+    expect(closeButton(html)).toContain('class="icon-btn pack-close quiet-focus"');
     expect(closeButton(html)).not.toContain('disabled');
     expect(html).not.toContain('role="progressbar"');
   });
