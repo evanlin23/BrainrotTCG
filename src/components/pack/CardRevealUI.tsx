@@ -9,6 +9,8 @@ import cardBackImage from '../../assets/images/card_back.webp';
 import RarityBadge from '../ui/RarityBadge';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
+import { siteLabel } from '../../game/pulls';
+import { cardNumber } from '../../data/cards';
 
 const Motion = motion;
 
@@ -36,6 +38,8 @@ interface CardRevealUIProps {
   /** Visual celebration runs independently of the optional input lock. */
   celebrating?: boolean;
   skipping?: boolean;
+  /** The pack's set, named in the provenance line under the card. */
+  setName?: string;
 }
 
 /** How far (px) or how fast (px/s) a flipped card has to be flung to move on. */
@@ -46,7 +50,7 @@ const SWIPE_SPEED = 500;
  * One card at a time off the top of the stack, rarest last. Big pulls light the back's edge before
  * the flip and get a spotlight after it; a flipped card can be swiped away or tapped.
  */
-const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMovedMouse, onInteraction, onSkip, revealLocked = false, celebrating = false, skipping = false }: CardRevealUIProps) => {
+const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMovedMouse, onInteraction, onSkip, revealLocked = false, celebrating = false, skipping = false, setName }: CardRevealUIProps) => {
   const touch = useCoarsePointer();
   const reducedMotion = usePrefersReducedMotion();
   const revealed = currentCard?.isRevealed;
@@ -132,6 +136,19 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
         {revealed && <RarityBadge rarity={currentCard.rarity} isHolo={currentCard.isHolo} finish={currentCard.finish} misprint={currentCard.misprint} />}
         {revealed && currentCard.isNew && <span className="reveal-new">New</span>}
       </div>
+      {/* Where this card is from, as a screenshot would show it. Its number waits for the flip like the
+          badge, but holds its space so nothing moves between cards. Three parts that never break inside
+          (game, site, set and number), so a narrow phone wraps the line after a dot and never cuts it. */}
+      {currentCard && (
+        <p className="reveal-provenance" aria-hidden="true">
+          <span className="reveal-provenance-part"><span className="reveal-provenance-mark">Brainrot TCG</span> ·</span>{' '}
+          <span className="reveal-provenance-part reveal-provenance-site">{siteLabel()} ·</span>{' '}
+          <span className="reveal-provenance-part reveal-provenance-set">
+            {setName ?? currentCard.setId}{' '}
+            <span className={`reveal-provenance-number tabular ${revealed ? 'is-shown' : ''} ${slow ? 'is-slow' : ''}`}>{cardNumber(currentCard)}</span>
+          </span>
+        </p>
+      )}
 
       {/* The reveal's one announcement of each card, as it turns face up ("Card 3 of 5: …"). */}
       <div className="sr-only" aria-live="polite" aria-atomic="true">{currentCard && revealAnnouncement(currentCard, currentIndex, totalCards)}</div>

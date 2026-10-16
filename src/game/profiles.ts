@@ -33,8 +33,9 @@ import { getStoredPack, hydratePackStore, putStoredPacks, type StoredPack, type 
 import { decodeCard, encodeCard, modifiersFor, type StoredCard } from './cardCode';
 import { createTicketPool } from './ticketPool';
 import { admitOptional } from './admission';
+import { siteUrl } from './pulls';
 
-export const profileUrl = (profile: string): string => `${window.location.origin}${import.meta.env.BASE_URL}#/profile/${profile}`;
+export const profileUrl = (profile: string): string => `${siteUrl()}#/profile/${profile}`;
 
 const toPulled = (stored: readonly StoredCard[], set: SetDefinition): PulledCard[] | null => {
   const cards = stored.map((c, slot) => {

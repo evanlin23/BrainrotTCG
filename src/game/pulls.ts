@@ -336,12 +336,17 @@ export const proofFor = (ref: PullRef): string => {
   );
 };
 
+/** Where this site is served from, with its base path (e.g. https://example.github.io/BrainrotTCG/). */
+export const siteUrl = (): string => `${window.location.origin}${import.meta.env.BASE_URL}`;
+
+/** The site's address as people would type it: no scheme, no trailing slash (e.g. example.github.io/BrainrotTCG). */
+export const siteLabel = (): string => siteUrl().replace(/^[a-z]+:\/\//i, '').replace(/\/+$/, '');
+
 /**
  * A pull link. With a link-preview page (previewFor, or cardPreviewPath for one card), it goes
  * through that page (src/game/previewLinks.ts), so chat apps show the cards instead of the site.
  */
-export const pullUrl = (proof: string, previewPage?: string): string =>
-  `${window.location.origin}${import.meta.env.BASE_URL}${previewPage ?? ''}#/pull/${proof}`;
+export const pullUrl = (proof: string, previewPage?: string): string => `${siteUrl()}${previewPage ?? ''}#/pull/${proof}`;
 
 /** A pack's link-preview page: the cards that make its hand, or its best card. */
 export const previewFor = (cards: readonly { key: string; rarity: Rarity; isHolo: boolean }[]): string | undefined => {
