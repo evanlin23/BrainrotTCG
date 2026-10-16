@@ -1,6 +1,7 @@
 /* The big single-card viewer (CardViewerModal.tsx), a bare sheet. */
 
-.card-viewer .sheet-body {
+/* Outranks `.sheet-root--bare .sheet-body` (Sheet.css) by specificity, not stylesheet order. */
+.sheet-root--bare .sheet.card-viewer .sheet-body {
   display: flex;
   flex-direction: column;
   align-items: center;
