@@ -151,14 +151,48 @@ export const parsePlayer = (raw: string): StoredPlayer | null => {
 export const isCurrentPlayer = (secretKey: string): boolean => (read() ?? memory)?.secretKey === secretKey;
 
 /**
- * Calls `onChange` when another tab stores a player record (an import, a switch, a rename) or clears
- * this browser's storage, so a tab can find out that its player changed before it next writes. The
- * storage event only reaches other tabs, and can arrive late: writers still compare getPlayer()
- * themselves. Returns the unsubscribe.
+ * Changed by every save-file import, before it writes anything else, so a tab that loaded the save
+ * from before can tell even when the import brings back the same player.
+ */
+export const SAVE_STAMP_KEY = 'brainrot-save-stamp-v1';
+
+/** A new value for SAVE_STAMP_KEY. */
+export const newSaveStamp = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+/** Which save this browser holds: the player, whether its record is stored, and the import stamp. */
+export interface SaveMark {
+  key: string;
+  stored: boolean;
+  stamp: string | null;
+}
+
+export const saveMark = (): SaveMark => {
+  // First, so a browser without a player stores its new guest before `stored` is read.
+  const key = getPlayer().publicKeyHex;
+  let stamp: string | null = null;
+  try {
+    stamp = localStorage.getItem(SAVE_STAMP_KEY);
+  } catch { /* Storage unavailable: no import can have happened either. */ }
+  return { key, stored: read() !== null, stamp };
+};
+
+/**
+ * Whether storage still holds the save `loaded` was taken from: the same player, no import since,
+ * and its record not cleared (a tab that loaded without a stored record, as when storage is
+ * unavailable, stays the same if one appears).
+ */
+export const sameSave = (loaded: SaveMark, now: SaveMark): boolean =>
+  loaded.key === now.key && loaded.stamp === now.stamp && (now.stored || !loaded.stored);
+
+/**
+ * Calls `onChange` when another tab stores a player record (an import, a switch, a rename), imports a
+ * save, or clears this browser's storage, so a tab can find out that its save changed before it next
+ * writes. The storage event only reaches other tabs, and can arrive late: writers still compare
+ * saveMark() themselves. Returns the unsubscribe.
  */
 export const watchPlayer = (onChange: () => void): (() => void) => {
   const listener = (event: StorageEvent) => {
-    if (event.key === null || event.key === STORAGE_KEY) onChange();
+    if (event.key === null || event.key === STORAGE_KEY || event.key === SAVE_STAMP_KEY) onChange();
   };
   window.addEventListener('storage', listener);
   return () => window.removeEventListener('storage', listener);

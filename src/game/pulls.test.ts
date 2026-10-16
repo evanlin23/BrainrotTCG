@@ -236,19 +236,19 @@ describe('several packs owed at once', () => {
     error.mockRestore();
   });
 
-  it("never leaves a pack handed out on the shelf, and says so when another player's go with it", () => {
+  it("never leaves a pack handed out on the shelf, and says so when another player's can't stay on it", () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const other = entry(7, { k: 'ab'.repeat(32) });
     data.set(LIST, JSON.stringify([other, entry(4), entry(5), entry(6)]));
     refuseWrite = (k) => k === LIST;
     clearPendingPack(5);
     expect(data.has(LIST)).toBe(false);
-    expect(error).toHaveBeenLastCalledWith(expect.stringContaining("2 owed pack(s) dropped (the history still has them), and another player's"));
+    expect(error).toHaveBeenLastCalledWith(expect.stringContaining("2 owed pack(s) dropped (the history still has them); another player's owed packs are kept in this tab"));
 
     data.set(LIST, JSON.stringify([other, entry(4)]));
     expect(takePendingPacks().map((p) => p.nonce)).toEqual([4]);
     expect(data.has(LIST)).toBe(false);
-    expect(error).toHaveBeenLastCalledWith(expect.stringContaining("another player's owed packs were dropped"));
+    expect(error).toHaveBeenLastCalledWith(expect.stringContaining("another player's owed packs are kept in this tab"));
 
     // With none of this player's listed, there is nothing to take off and another player's stay.
     error.mockClear();
@@ -256,6 +256,35 @@ describe('several packs owed at once', () => {
     expect(takePendingPacks()).toEqual([]);
     expect(shelved()).toEqual([other]);
     expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("keeps another player's packs the shelf couldn't keep, and writes them back once with the next shelf write", () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const [four, six] = [pack(4), pack(6)];
+    const other = entry(7, { k: 'ab'.repeat(32) });
+    data.set(LIST, JSON.stringify([other, entry(4), entry(5)]));
+    refuseWrite = (k) => k === LIST;
+    clearPendingPack(5);
+    expect(data.has(LIST)).toBe(false);
+    // Nothing of this player's is left to take off, but the held packs get another try.
+    clearPendingPack(4);
+    expect(data.has(LIST)).toBe(false);
+    refuseWrite = () => false;
+    clearPendingPack(4);
+    expect(shelved()).toEqual([other]);
+    // Once stored, this tab no longer holds them, so later writes don't add them again.
+    expect(savePendingPack(six)).toBe(true);
+    expect(shelved()).toEqual([other, expect.objectContaining({ n: 6 })]);
+
+    // The same when a save puts this player's packs back: the held packs go on the shelf with them.
+    data.set(LIST, JSON.stringify([other, entry(4)]));
+    refuseWrite = (k) => k === LIST;
+    expect(takePendingPacks().map((p) => p.nonce)).toEqual([4]);
+    expect(data.has(LIST)).toBe(false);
+    refuseWrite = () => false;
+    expect(savePendingPack({ ...four, counted: true })).toBe(true);
+    expect(shelved()).toEqual([other, expect.objectContaining({ n: 4, d: 1 })]);
     error.mockRestore();
   });
 

@@ -4,7 +4,7 @@ import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine
 import { getCard } from '../data/cards';
 import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
 import { isLegacyPull, isStored } from './history';
-import { exportPlayer, importPlayer, isCurrentPlayer, parsePlayer } from './player';
+import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -200,6 +200,8 @@ export const importSaveFile = (raw: string): string | null => {
     }
     // Capture originals before even the backup write. Other null/omitted fields remain untouched.
     staged.push([DATA_VERSION_KEY, String(dataVersion)]);
+    // Before any other write, so another tab still on the old save stops writing it (see saveMark).
+    staged.unshift([SAVE_STAMP_KEY, newSaveStamp()]);
     const previous = new Map(staged.map(([key]) => [key, localStorage.getItem(key)]));
     if (!backUpSave('brainrot-before-import-v1')) {
       return "Couldn't keep a backup of your current save. Nothing was imported.";
