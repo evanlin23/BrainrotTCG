@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../../constants';
@@ -11,6 +11,8 @@ const ARCHIVE = JSON.stringify({ raw: '{"lost-set/ghost":null}', player: null })
 let root: Root;
 let container: HTMLElement;
 const onGone = vi.fn();
+const onChanged = vi.fn();
+const onLeave = vi.fn();
 // Whether the tab may still act (App: same player, progress current), read on every click.
 let allowed = true;
 const canAct = vi.fn(() => allowed);
@@ -29,12 +31,14 @@ beforeEach(async () => {
   localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY, ARCHIVE);
   localStorage.setItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'seen');
   onGone.mockReset();
+  onChanged.mockReset();
+  onLeave.mockReset();
   allowed = true;
   canAct.mockClear();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(() => root.render(<KeptAsideActions variant="settings" canAct={canAct} onGone={onGone} />));
+  await act(() => root.render(<KeptAsideActions variant="settings" canAct={canAct} onGone={onGone} onChanged={onChanged} onLeave={onLeave} />));
 });
 
 afterEach(() => {
@@ -96,6 +100,8 @@ describe('KeptAsideActions', () => {
     expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(changed);
     expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe('seen');
     expect(onGone).not.toHaveBeenCalled();
+    // The parent refreshes its note to what is kept aside now.
+    expect(onChanged).toHaveBeenCalledOnce();
     expect(labels()).toEqual(['Keep it', 'Discard for good']);
     const keep = button('Keep it');
     expect(document.activeElement).toBe(keep);
@@ -106,6 +112,7 @@ describe('KeptAsideActions', () => {
     await click('Discard for good');
     expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBeNull();
     expect(onGone).toHaveBeenCalledOnce();
+    expect(onChanged).toHaveBeenCalledOnce();
   });
 
   it('refuses Download and Discard once this tab may no longer act on the data', async () => {
@@ -170,5 +177,61 @@ describe('KeptAsideActions', () => {
     await click('Download');
     expect(anchorClick).not.toHaveBeenCalled();
     expect(onGone).toHaveBeenCalledOnce();
+  });
+});
+
+describe('KeptAsideActions leaving with focus inside', () => {
+  // Like App and Settings: a stale tab drops the buttons and may show Reload (App's banner does,
+  // Settings shows it when the warning is up) beside the section heading.
+  const Parent = ({ withReload }: { withReload: boolean }) => {
+    const [stale, setStale] = useState(false);
+    const reloadRef = useRef<HTMLButtonElement>(null);
+    const headingRef = useRef<HTMLHeadingElement>(null);
+    const allow = () => {
+      if (allowed) return true;
+      setStale(true);
+      return false;
+    };
+    return (
+      <section>
+        <h2 ref={headingRef} tabIndex={-1}>Save &amp; backup</h2>
+        {stale && withReload && <button type="button" ref={reloadRef}>Reload</button>}
+        {!stale && (
+          <KeptAsideActions variant="settings" canAct={allow} onGone={onGone} onChanged={onChanged} onLeave={() => {
+            onLeave();
+            (reloadRef.current ?? headingRef.current)?.focus();
+          }} />
+        )}
+      </section>
+    );
+  };
+  const render = (withReload: boolean) => act(() => root.render(<Parent withReload={withReload} />));
+
+  it.each([
+    [true, 'Discard', 'Reload'],
+    [false, 'Discard', 'heading'],
+    [true, 'Discard for good', 'Reload'],
+    [false, 'Discard for good', 'heading'],
+  ])('with Reload shown: %s, the tab going stale on %s moves focus to %s, not the page body', async (withReload, label, target) => {
+    await render(withReload);
+    if (label === 'Discard for good') await click('Discard');
+    button(label).focus();
+    allowed = false;
+    await click(label);
+    await Promise.resolve();
+    expect(onLeave).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(target === 'Reload' ? button('Reload') : container.querySelector('h2'));
+    expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(ARCHIVE);
+  });
+
+  it('leaves focus alone when it was elsewhere', async () => {
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    await act(() => root.render(null));
+    await Promise.resolve();
+    expect(onLeave).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
   });
 });

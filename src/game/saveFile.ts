@@ -3,6 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine';
 import { getCard } from '../data/cards';
 import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
+import { isArchive } from './collectionRecovery';
 import { isLegacyPull, isStored } from './history';
 import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
 
@@ -69,14 +70,10 @@ const olderBestCard = (value: unknown, dataVersion: number) => {
   return card(Object.fromEntries(Object.entries(read).filter(([, v]) => v !== undefined)));
 };
 
-/** One kept-aside collection: its exact bytes and the identity snapshot they belonged to. */
-const archived = (value: unknown): value is RecordValue => record(value) && text(value.raw)
-  && (value.player === null || text(value.player));
-
 const SAVE_FIELDS = [
   ['collection', STORAGE_KEYS.COLLECTION, collection],
-  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, (value: unknown) => archived(value)
-    && optional(value, 'later', (later) => Array.isArray(later) && later.every(archived))],
+  // The archive's own rule: exact bytes and identity snapshots, `later`, `dropped` and `kind` included.
+  ['collectionRecovery', STORAGE_KEYS.COLLECTION_RECOVERY, isArchive],
   ['achievements', STORAGE_KEYS.ACHIEVEMENTS, achievements],
   ['stats', STORAGE_KEYS.STATS, stats],
   ['hallOfFame', STORAGE_KEYS.HALL_OF_FAME, hallOfFame],
