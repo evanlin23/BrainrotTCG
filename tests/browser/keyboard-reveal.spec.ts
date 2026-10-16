@@ -84,7 +84,8 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
     // Nothing is said about a card still face down, and nothing on the screen names it yet.
     await expect(live).toHaveCount(1);
     await expect(live).toHaveText('');
-    // The card's own name, art and text. Earlier cards, face up, can still be leaving the area.
+    // The card's own name, art and text. Earlier cards, face up, can still be leaving the area: inert, so out of
+    // Chromium's accessibility tree, but Playwright's snapshot doesn't skip inert content and still lists them.
     const before = await card.ariaSnapshot();
     const areaBefore = await area.ariaSnapshot();
     const liveBefore = await liveTexts(page);
