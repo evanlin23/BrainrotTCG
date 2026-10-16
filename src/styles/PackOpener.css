@@ -157,6 +157,45 @@
     }
 }
 
+/*
+ * A desktop window is wide enough that the whole pack at the stage's height is small (a third of the
+ * screen, #536), and the owner wants the big pack back. So here the pack is sized to the part of it
+ * a player needs to see, and its bottom runs on past the stage: --pack-share is the share of the
+ * printed pack, from the crimp down, that is on the stage at rest. The wrapper art's printed pack
+ * starts 0.184 widths down its box (0.084 below --pack-fit's top, after the pull-up above) and is
+ * 1.575 widths tall; half of it shows the crimp, the set ribbon, the tear line, the logo and the top of
+ * the cards, and the rest is what the fade below hides. --pack-fit stays the floor, so the pack is
+ * never smaller than the whole of it on the stage. The 80% and 1600px caps still apply.
+ *
+ * The cut-off bottom fades out (a mask on the stage, which is also its clip) instead of ending on a
+ * hard edge, and the stage can't be scrolled to the rest of the pack (overflow: clip, which even a
+ * script or a focus can't scroll), so the page stays one screen. The tear line, the hint and the Open
+ * pack button all sit in the top of the pack, well above the fade. Phones and a phone on its side (under
+ * 900px wide or 600px tall) keep the fit above.
+ */
+@media (min-width: 900px) and (min-height: 600px) {
+    .pack-display {
+        --pack-fade: min(22%, 9rem);
+        overflow: hidden;
+        overflow: clip;
+        /* Only the alpha matters to a mask; the stops come from --black so no raw colour lands here. */
+        --pack-fade-mask: linear-gradient(to bottom,
+                var(--black) calc(100% - var(--pack-fade)),
+                color-mix(in srgb, var(--black) 55%, transparent) calc(100% - var(--pack-fade) * 0.55),
+                color-mix(in srgb, var(--black) 15%, transparent) calc(100% - var(--pack-fade) * 0.2),
+                transparent);
+        -webkit-mask-image: var(--pack-fade-mask);
+        mask-image: var(--pack-fade-mask);
+    }
+
+    .pack-shell-wrap,
+    .pack-actions {
+        --pack-share: 0.52;
+        --pack-big: calc((100cqh - var(--pack-gap)) / (1.575 * var(--pack-share) + 0.084));
+        --pack-w: min(80vw, 1600px, max(var(--pack-fit), var(--pack-big)));
+    }
+}
+
 .pack-hint {
     position: absolute;
     top: 32%;
