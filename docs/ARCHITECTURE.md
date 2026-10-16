@@ -336,8 +336,11 @@ opened as, and other players' packs stay there when this one's change. Two tabs 
 (no import or switch, so the stamp can't tell) are guarded too: every write also compares the stored
 collection, stats, Hall of Fame and achievements with what the tab last read or stored
 (`src/game/progressGuard.ts`, plus a storage listener), and a tab another tab has written past stops
-the same way instead of storing its older copy over that tab's packs. The packs it took off the
-pending shelf at load go back on it for the next load to add. Settings stay last-writer-wins.
+the same way instead of storing its older copy over that tab's packs. Packs it took off the pending
+shelf at load and hasn't stored or shelved since go back on it for the next load to add; packs it
+opened itself are already on the shelf, where the other tab may have taken and stored them, so they
+aren't put back twice. If storage refuses the put-back, the save warning stays up and the next change
+or storage event tries again. Settings stay last-writer-wins.
 Limits: storage has no lock across tabs, so two tabs of one player writing in the same instant can
 both pass that check (the later write replaces the earlier, whose pack stays in the history; the
 earlier tab then hears the write and stops), and a tab that writes before an import's stamp reaches
