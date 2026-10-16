@@ -15,7 +15,7 @@ import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { extractProfile, extractProof } from './engine';
 import { clearPendingPack, savePendingPack, takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
-import { importSaveFile } from './game/saveFile';
+import { importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
 import { getStoredData, setStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRecovery, persistCollection } from './game/collectionRecovery';
@@ -416,6 +416,11 @@ function App() {
   const handleImportSave = useCallback((data: string): string | null => {
     const error = importSaveFile(data);
     if (!error) window.location.reload();
+    else if (error.startsWith(PARTIAL_IMPORT_NOTE)) {
+      // The app still holds the save from before; only a reload shows what storage now holds.
+      window.alert(error);
+      reloadPage();
+    }
     return error;
   }, []);
 

@@ -163,7 +163,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
 
   const handlePointerDown = useCallback((event: PointerEvent) => {
     if (event.button !== 0) return;
-    if (disabled || (event.target as Element | null)?.closest?.('[role="dialog"], .sheet-backdrop')) {
+    // The pack's top bar (its X) can sit over the tear line on a phone: pressing it never cuts.
+    if (disabled || (event.target as Element | null)?.closest?.('[role="dialog"], .sheet-backdrop, .pack-top-bar')) {
       blockedRef.current = true;
       return;
     }
