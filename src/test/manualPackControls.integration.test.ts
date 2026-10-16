@@ -217,7 +217,7 @@ it('shares from the summary, which leads with the result and puts its actions af
   const cards = $('.summary-cards')!;
   expect(cards.compareDocumentPosition($('.summary-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the actions came before the cards').toBeTruthy();
   expect($('.summary-title')!.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(cards.compareDocumentPosition($('.pack-summary .summary-how')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the score math came before the cards').toBeTruthy();
+  expect($('.summary-actions')!.nextElementSibling, 'something followed the actions').toBeNull();
   // Keyboard focus starts at the result, not on a button below it.
   expect(document.activeElement).toBe($('.summary-title'));
   expect(button('Open another pack')).toBeDefined();

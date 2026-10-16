@@ -7,16 +7,13 @@ import CardImage from '../cards/CardImage';
 import DeferredSheet from '../ui/DeferredSheet';
 import { sheetLoader } from '../ui/sheetEntry';
 import CardGuideButton from '../ui/CardGuideButton';
-import { modifierLabel, modifierThumb, specialCardsLine } from '../../game/modifiers';
+import { modifierLabel, modifierThumb } from '../../game/modifiers';
 import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
 import { comboOneIn, type SetDefinition } from '../../engine';
-import { myProgress } from '../../game/profiles';
 import type { PullRef } from '../../game/pulls';
 import { bestPullOrder } from '../../game/reveal';
 import { versionOf } from '../../game/versions';
-import { usePackCacheVersion } from '../../hooks/usePackCache';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
-import PackCacheNote from '../profile/PackCacheNote';
 import PackHeadline from './PackHeadline';
 import SummaryHallOfFame from './SummaryHallOfFame';
 import '../../styles/CollectionLabel.css';
@@ -38,11 +35,12 @@ interface PackSummaryUIProps {
 
 /**
  * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (Brainrot
- * Score, then the combo and how rare it is), the five cards in one compact row, best pull
- * first (each opens up close, and has its own Share for an image of it that links to this pack), then
- * the actions, stuck to the bottom so they never scroll away. Below them: new cards, level progress,
- * and how the score works, folded. Sharing starts here, never mid-reveal: the link carries the whole
- * pack, so it would spoil the cards still face down.
+ * Score, then the combo and how rare it is, then the Hall of Fame line), the five cards in one compact
+ * row, best pull first (each opens up close, has its own Share for an image of it that links to this
+ * pack, and wears its New and special badges), the Card guide link, then the actions, stuck to the
+ * bottom so they never scroll away. Nothing follows them: level progress lives on Profile. Sharing
+ * starts here, never mid-reveal: the link carries the whole pack, so it would spoil the cards still
+ * face down.
  */
 const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
@@ -73,18 +71,9 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
     event.currentTarget.scrollBy({ top: before ? box.bottom - stuck.top + 8 : box.top - stuck.bottom - 8 });
   };
   const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
-  const { points, hand, score } = packScore;
+  const { hand } = packScore;
   // Enumerates every pack of the set, so once per set and combo (not again on each render).
   const oneIn = useMemo(() => comboOneIn(set, hand), [set, hand]);
-  const newCount = openedCards.filter((c) => c.isNew).length;
-  const special = specialCardsLine(openedCards);
-  // What this pack did for your level: shown here so progress isn't hidden away in the profile.
-  // Null until saved packs are read: a loading note then, never zero XP.
-  const packCache = usePackCacheVersion();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const progress = useMemo(() => myProgress(), [packCache]);
-  const into = progress ? progress.xp - progress.levelXp : 0;
-  const span = progress ? progress.nextXp - progress.levelXp : 1;
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
@@ -128,7 +117,10 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
               </li>
             ))}
           </ul>
-          {!viewed && <p className="summary-caption">Tap a card to see it up close</p>}
+          <div className="summary-foot">
+            {!viewed && <p className="summary-caption">Tap a card to see it up close</p>}
+            <CardGuideButton set={set} />
+          </div>
 
           {/* Right after the result, and stuck to the bottom so they never scroll away. */}
           <div className="summary-actions" ref={actionsRef}>
@@ -141,33 +133,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
               <RotateCcw aria-hidden="true" /> Open another pack
             </button>
           </div>
-
-          {special && <p className="summary-new">{special}</p>}
-          {newCount > 0 && (
-            <p className="summary-new tabular">
-              {newCount} new {newCount === 1 ? 'card' : 'cards'} for your binder
-            </p>
-          )}
-          {progress ? (
-            <div className="summary-xp">
-              <span className="summary-xp-text tabular">
-                <strong>+{progress.gained.toLocaleString()} XP</strong> · Level {progress.level} · {into.toLocaleString()}/{span.toLocaleString()} to Level {progress.level + 1}
-              </span>
-              <span className="progress" aria-hidden="true">
-                <span style={{ width: `${Math.min(100, (into / span) * 100)}%` }} />
-              </span>
-            </div>
-          ) : (
-            <PackCacheNote what="your level progress" className="summary-xp summary-xp-text" />
-          )}
-          <details className="summary-how">
-            <summary>How this score works</summary>
-            <p className="summary-how-math tabular">
-              {points.toLocaleString()} pts × <strong>{hand.multiplier.toLocaleString()}</strong> for {hand.name} ={' '}
-              <strong>{score.toLocaleString()}</strong> Brainrot Score
-            </p>
-            <CardGuideButton set={set} />
-          </details>
         </div>
       </div>
 

@@ -7,7 +7,7 @@ interface PackHeadlineProps {
   cards: readonly CardWithMeta[];
   /**
    * The results screen: "[n] Brainrot Score" is its heading, focused as it appears, and the combo
-   * follows on one line with how rare it is (its multiplier is in "How this score works").
+   * follows on one line with how rare it is (its multiplier is in the Card guide).
    */
   headingRef?: Ref<HTMLHeadingElement>;
   /** Results screen only: how rare the combo is in this set, on the combo's line. */

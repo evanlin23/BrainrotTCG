@@ -290,18 +290,22 @@ it explains the formula, not pull excitement.
 On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · about
 1 in [n] packs** from `comboOneIn` (`src/engine/headline.ts`), the share of all packs of the set with
 that combo (just **No Matches** when it has no odds), then the Hall of Fame line when the pull
-qualifies. The combo is named once and no multiplier shows: "How this score works" has points ×
-multiplier = score.
+qualifies. The combo is named once and no multiplier shows: the Card guide (one tap, no fold) has
+points per rarity, the holo, finish and misprint bonuses, the combo multipliers, and Score = card
+points added up × combo multiplier. There is no per-pack breakdown.
 
 ### One-screen summary rule (#339)
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
 no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
 Fame line), the five cards in one compact row (each a button that opens the
-card up close, with a ⤢ corner, best pull first, its own Share), then the actions: **Open another
-pack** primary, **Share** secondary, stuck to the bottom of the summary's scroller above the safe
-area. Keyboard focus is scrolled clear of the stuck actions. New cards, the XP row and a folded "How
-this score works" (the math and the card guide) sit below them. Focus starts on the heading.
+card up close, with a ⤢ corner, best pull first, its own Share; new and special cards carry the
+tile's own New sticker and modifier label, never a line of text), the tap hint and the **Card guide**
+link, then the actions: **Open another pack** primary, **Share** secondary, stuck to the bottom of
+the summary's scroller above the safe area. The actions are the last element: nothing sits below
+them, and at default text a 5-card pack needs no scroll at 390x844. No XP or level here: level-ups
+toast and progress lives on Profile. Keyboard focus is scrolled clear of the stuck actions, whose
+faded strip passes taps through. Focus starts on the heading.
 
 Arithmetic presentation fixtures below are not claimed mined proofs. Different letters are
 separate card ids; names and modifiers must come from actual reconstruction in implementation.

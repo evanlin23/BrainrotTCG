@@ -154,7 +154,8 @@ function viewerDrags(page: Page) {
   });
 }
 
-for (const textZoom of [100, 200]) {
+// At 100% the summary fits without scrolling (the tests below); 200% text makes it scroll.
+for (const textZoom of [200]) {
   test(`keeps the summary's actions on screen at ${textZoom}% text, stuck above the inset while the rest scrolls`, async ({ page, baseURL }) => {
     test.setTimeout(60000);
     const { errors } = await openSummary(page, baseURL!, { textZoom });
@@ -186,7 +187,7 @@ for (const textZoom of [100, 200]) {
     await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
 
-    // Focus order is the page's: the heading, every card and its Share, the actions, then the rest.
+    // Focus order is the page's: the heading, every card and its Share, the Card guide, then the actions.
     // Each stop is on screen and not under anything, the stuck actions included.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = 0; });
     await page.locator('.summary-title').focus();
@@ -202,7 +203,7 @@ for (const textZoom of [100, 200]) {
       expect(await obstruction(page), `stop ${stop + 1} is covered or off screen`).toBeNull();
     }
     expect(visited).toEqual(expected);
-    expect(visited.at(-1)).toContain('How this score works');
+    expect(visited.at(-1)).toContain('Open another pack');
     expect(errors).toEqual([]);
   });
 }
@@ -213,6 +214,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
   test.setTimeout(60000);
   const { errors } = await openSummary(page, baseURL!, { viewport });
   expect(await page.locator('.summary-content').evaluate((list) => list.scrollTop)).toBe(0);
+  // The cards are the last content: the summary has nothing left to scroll to.
+  expect(await page.locator('.summary-content').evaluate((list) => list.scrollHeight - list.clientHeight)).toBeLessThanOrEqual(0);
   for (const locator of [
     page.locator('.summary-title'),
     page.locator('.pack-headline-odds'),
