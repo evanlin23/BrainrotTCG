@@ -320,7 +320,7 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   line-height: 1.2;
   text-align: center;

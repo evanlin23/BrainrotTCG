@@ -20,6 +20,21 @@ const SEED = {
   [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
 };
 
+/** Opens the pack on the shell and skips its reveal, through to the summary. */
+const openAPack = async () => {
+  await app!.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app!.interact(() => {
+    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+  });
+  await app!.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
+  await app!.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
+  await app!.until('the pack summary shows', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+};
+const toasts = () => document.querySelector('.toast-region')?.textContent ?? '';
+
 type Unlocked = { unlockedAt: number; pack?: unknown[]; ref?: { nonce: number } };
 const achievements = () => JSON.parse(localStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS) ?? '{}') as Record<string, Unlocked>;
 
@@ -115,16 +130,7 @@ it("keeps achievements a pack unlocks in a tab another player's save replaced ou
 
   // This tab opens a pack: its first, so it unlocks achievements here, which aren't stored over the
   // other player's; the tab says it couldn't save instead.
-  await app.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
-  await app.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
-  });
-  await app.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
-  await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
-  await app.until('the pack summary shows', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+  await openAPack();
   await app.settle(100);
   expect(document.body.textContent).toMatch(/\d+ achievements unlocked/);
   expect(achievements()).toEqual(imported);
@@ -146,4 +152,45 @@ it("unlocks achievements from your own packs when another player's saved pack ca
     expect(unlocked.pack).toHaveLength(5);
   });
   expect(app.takeErrors(/Reading saved packs failed/).length).toBeGreaterThan(0);
+});
+
+it('toasts a level-up when the same player levels up after their saved packs are read in', async () => {
+  // 19 packs of the same cards: 110 XP for the first (4 new cards), 10 for each after, so 290 XP
+  // (level 2), and the next pack (at least 10 XP) reaches level 3.
+  app = await mountedApp({ ...SEED, 'brainrot-player-v1': JSON.stringify({ secretKey: '0a'.repeat(32), name: 'Mounted fixture', nextNonce: 19, createdAt: 1 }) });
+  const { getPlayer } = await import('../game/player');
+  const key = getPlayer().publicKeyHex;
+  const entry = { s: 'genesis', v: 1, k: key.slice(0, 16), h: POKER_HANDS.PAIR.name, x: 0 };
+  // The first pack's cards live only in IndexedDB, so the level waits for the async read.
+  localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify([
+    { ...entry, n: 0, t: 1000 },
+    ...Array.from({ length: 18 }, (_, i) => ({ ...entry, n: i + 1, c: CARDS, t: 2000 + i })),
+  ]));
+  const store = await import('../game/packStore');
+  let release!: () => void;
+  const landed = new Promise<void>((resolve) => { release = resolve; });
+  vi.spyOn(store, 'hydratePackStore').mockImplementation(async (_refs, signal) => {
+    await landed;
+    signal?.throwIfAborted();
+    await store.putStoredPacks([{ setKey: 'genesis@1', publicKeyHex: key, nonce: 0, cards: SAVED }]);
+    return true;
+  });
+  await app.mount();
+  await app.settle(500);
+
+  // The read lands: the level becomes known (2), which isn't a level-up, so no toast says so.
+  release();
+  await app.until('the saved packs are read in', () => expect(achievements().two_of_kind).toBeDefined());
+  for (let elapsed = 0; elapsed < 8000; elapsed += 250) {
+    await app.settle(250);
+    expect(toasts()).not.toContain('Level up');
+  }
+
+  // The same player opens a pack and reaches level 3: that is a level-up, toasted from level 2.
+  await openAPack();
+  await app.until('the level-up toast shows', () => {
+    expect(toasts()).toContain('Level up');
+    expect(toasts()).toContain('Level 3');
+    expect(toasts()).toContain('Unlocked the title Pack Rat');
+  });
 });

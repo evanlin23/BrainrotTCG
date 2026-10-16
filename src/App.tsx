@@ -355,6 +355,16 @@ function App() {
     setNotificationQueue(prev => prev.some(a => a.id === achievementId) ? prev : [...prev, achievement]);
   }, []);
 
+  // Closing a reveal early still records the pack: say where its cards went, ahead of any unlocks.
+  // Not when it couldn't be saved: the save warning says so instead (see visibleNotifications).
+  const keptNotices = useRef(0);
+  const noticeKeptPack = useCallback((pack: OpenedPack) => {
+    if (pack.unrecorded) return;
+    keptNotices.current += 1;
+    const notice: ToastItem = { id: `pack-kept-${keptNotices.current}`, kicker: 'Pack kept', name: 'Its cards are in My cards', description: 'Tap to see them.', opens: 'collection' };
+    setNotificationQueue((prev) => [notice, ...prev]);
+  }, []);
+
   const dismissNotifications = useCallback((ids: string[]) => {
     setNotificationQueue(prev => prev.filter(a => !ids.includes(a.id)));
   }, []);
@@ -542,6 +552,12 @@ function App() {
     return out;
   }, [stats.packsOpened, collection]);
 
+  // A collection write can fail after its pack's notice is queued: once the save warning shows, the
+  // "Pack kept" notice would contradict it, so it never shows (the warning never clears).
+  const visibleNotifications = useMemo(
+    () => (saveFailed ? notificationQueue.filter((toast) => !toast.id.startsWith('pack-kept-')) : notificationQueue),
+    [saveFailed, notificationQueue],
+  );
   const isAnyModalOpen = isCollectionOpen || isAchievementsOpen || isHallOfFameOpen || isProfileOpen || isSettingsOpen || isPlayerOpen || !!shareTarget || !!viewProof || !!viewProfile;
   // A sheet that is none of the tabs (even one on top of My cards, like Share from Best pulls or a
   // shared link) leaves no tab current.
@@ -580,6 +596,14 @@ function App() {
         </div>
       </header>
 
+      {/* Right under the header, and the save warning when it shows: a toast never covers either. */}
+      <AchievementToasts
+        queue={visibleNotifications}
+        onDismiss={dismissNotifications}
+        onOpen={(target) => openNav(target === 'profile' ? 'player' : target)}
+        paused={isAnyModalOpen}
+      />
+
       <main className="app-main">
         <SetPicker sets={playableSets} selectedId={selectedSet.id} onSelect={selectSet} collection={collection} disabled={packBusy} />
         <PackOpener
@@ -592,15 +616,9 @@ function App() {
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
+          onLeaveEarly={noticeKeptPack}
         />
       </main>
-
-      <AchievementToasts
-        queue={notificationQueue}
-        onDismiss={dismissNotifications}
-        onOpen={(target) => openNav(target === 'profile' ? 'player' : 'achievements')}
-        paused={isAnyModalOpen}
-      />
 
       {/* Achievements Page */}
       {isAchievementsOpen && (

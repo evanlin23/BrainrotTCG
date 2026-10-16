@@ -69,6 +69,11 @@ afterEach(() => {
 
 const render = (collection: Record<string, CollectionItem>, recentSetId?: string) =>
   act(() => root.render(<CollectionBrowser collection={collection} onClose={() => {}} recentSetId={recentSetId} />));
+/** A fresh sheet: which eras open is decided when it mounts. */
+const remount = () => {
+  act(() => root.unmount());
+  root = createRoot(container);
+};
 
 const sheet = () => document.querySelector<HTMLElement>('.sheet.collection')!;
 const headers = () => [...sheet().querySelectorAll<HTMLButtonElement>('.collection-set-toggle')];
@@ -148,15 +153,22 @@ describe('bounded collection grid (#344)', () => {
     expect(mountedPockets()).toBe(24);
   });
 
-  it('opens the era you just pulled from, even when an older era would fill the budget', () => {
-    // 19 Genesis cards, then a Summer of Slop pack, then My cards.
+  it('opens the era you just pulled from, even when older and newer eras would fill the budget', () => {
+    // 19 Genesis cards, a Summer of Slop pack, a card from each of two newer eras, then My cards.
+    addFutureSets(2);
     const genesis = setNamed('Genesis');
     const slop = setNamed('Summer of Slop');
-    render(own([...getSetCards(genesis.id), ...getSetCards(slop.id).slice(0, 5)]), slop.id);
+    const collection = own([...getSetCards(genesis.id), ...getSetCards(slop.id).slice(0, 5), getSetCards('future-1')[0], getSetCards('future-2')[0]]);
+    // Without a selected era, the two newer eras fill the budget and Summer of Slop starts collapsed.
+    render(collection);
+    expect(openEras()).toEqual(['Future era 1', 'Future era 2']);
+    remount();
+    render(collection, slop.id);
     expect(getSetCards(genesis.id)).toHaveLength(19);
-    expect(openEras()).toEqual([slop.name]);
+    expect(openEras()).toEqual([slop.name, 'Future era 2']);
     expect(gridOf(headerOf(genesis.name))).toBeNull();
-    expect(mountedPockets()).toBe(getSetCards(slop.id).length);
+    expect(gridOf(headerOf('Future era 1'))).toBeNull();
+    expect(mountedPockets()).toBe(24);
     expect(tiles(gridOf(headerOf(slop.name))!)).toHaveLength(5);
   });
 
