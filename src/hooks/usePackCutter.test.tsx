@@ -303,10 +303,7 @@ describe('usePackCutter with more than one finger', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
-  // Known bug, found while covering #312: a mouse is the primary pointer of its own type, so its
-  // press reads as the touch's lost release and takes the stroke over (usePackCutter.ts:201-204).
-  // The touch stroke then never opens. Flip this to `it` once the hook keeps the touch stroke.
-  it.fails('keeps the touch stroke when a mouse clicks during it', () => {
+  it('keeps the touch stroke when a mouse clicks during it', () => {
     down(at(0.3));
     move(at(0.4));
     down(at(0.7), mouse);
@@ -314,6 +311,31 @@ describe('usePackCutter with more than one finger', () => {
     move(at(0.5));
     expect(onCutComplete).not.toHaveBeenCalled();
     up(at(0.6));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not open from a pen swiping during a touch stroke, nor let it block the touch', () => {
+    const pen = { pointerId: 9, pointerType: 'pen', isPrimary: true } as Partial<PointerEvent>;
+    down(at(0.3));
+    move(at(0.35));
+    // On its own, the pen's 50% swipe would open the pack mid-drag.
+    down(at(0.4), pen);
+    move(at(0.9), pen);
+    up(at(0.9), pen);
+    expect(onCutComplete).not.toHaveBeenCalled();
+    move(at(0.5));
+    up(at(0.6));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('measures only the new stroke when a new touch presses after a lost touch release', () => {
+    down(at(0.3));
+    move(at(0.45));
+    // That release never comes. Kept, the old stroke would make this move span 50% and open.
+    down(at(0.6), { pointerId: 3 });
+    move(at(0.8), { pointerId: 3 });
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.9), { pointerId: 3 });
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
