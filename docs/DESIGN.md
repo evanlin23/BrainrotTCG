@@ -84,7 +84,8 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   button (back to Open), then the screen, loaded on demand: a skeleton holds its place meanwhile
   (rows for Rankings, blocks otherwise), never a sheet, and a failed load offers Reload and Retry.
   Opened from inside the app, focus moves to the `h1`; the document title becomes "Cards - Brainrot
-  TCG" and so on. Escape doesn't close a page; Back and Close do.
+  TCG" and so on. Escape doesn't close a page; Back and Close do. Each view has one `h1`: the page's
+  title on a page, the logo on Open (on a page the logo is a named image, not a heading).
 - **Sheet** (`ui/Sheet.tsx`): a panel over the current place. A bottom sheet on phones, a centred
   dialog from 720px. Title, optional subtitle and sticky footer, close button, Escape, focus trap,
   scroll lock, focus returns to the opener. Sheets stack (a card opened from the collection sits on

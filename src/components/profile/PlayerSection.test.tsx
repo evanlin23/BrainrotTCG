@@ -13,6 +13,12 @@ let root: Root;
 let container: HTMLElement;
 let setItem: MockInstance<Storage['setItem']>;
 let onOpenSave: ReturnType<typeof vi.fn<() => void>>;
+let canSave: ReturnType<typeof vi.fn<() => boolean>>;
+let onSaveFailed: ReturnType<typeof vi.fn<() => void>>;
+const section = (level: number | null) => (
+  <PlayerSection level={level} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onOpenSave={onOpenSave}
+    canSave={canSave} onSaveFailed={onSaveFailed} />
+);
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -21,11 +27,11 @@ beforeEach(() => {
   localStorage.setItem(PLAYER_KEY, JSON.stringify(stored));
   setItem = vi.spyOn(Storage.prototype, 'setItem');
   onOpenSave = vi.fn<() => void>();
+  canSave = vi.fn(() => true);
+  onSaveFailed = vi.fn<() => void>();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
-  act(() => root.render(
-    <PlayerSection level={1} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onOpenSave={onOpenSave} />,
-  ));
+  act(() => root.render(section(1)));
 });
 
 afterEach(() => {
@@ -47,6 +53,13 @@ const clickSave = () => act(() => {
 });
 const failWrites = () => setItem.mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
 const SAVE_FAILED = "Couldn't save your name in this browser. Try again.";
+const SAVE_STALE = "Your name wasn't saved: this save changed in another tab. Reload to continue with that save.";
+/** Another tab stores a record (a different player, or this one renamed) without this page knowing. */
+const otherTabStores = (record: object) => {
+  localStorage.setItem(PLAYER_KEY, JSON.stringify(record));
+  setItem.mockClear();
+};
+const theirs = { secretKey: 'ef'.repeat(32), name: 'Their Player', nextNonce: 9, createdAt: 2 };
 const playerWrites = () => setItem.mock.calls.filter(([key]) => key === PLAYER_KEY);
 const statusNode = () => document.querySelector('.settings-group [role="status"]')!.firstChild;
 /** Leaving the Profile page (a tab, Back or its close button) unmounts the section. */
@@ -153,6 +166,19 @@ describe('the status line', () => {
     // Same text, new node inside the live region, so screen readers hear the second failure too.
     expect(document.querySelector('.settings-group [role="status"]')!.firstChild).not.toBe(shown);
   });
+
+  it.each([
+    ['another player is stored now', () => otherTabStores(theirs), 'Their Player'],
+    ['this tab may no longer write its save', () => canSave.mockReturnValue(false), 'Original Player'],
+  ])('writes nothing and says why when %s', (_label, change, kept) => {
+    type('My New Name');
+    change();
+    clickSave();
+    expect(status()).toBe(SAVE_STALE);
+    expect(playerWrites()).toEqual([]);
+    expect(storedName()).toBe(kept);
+    expect(input().value).toBe('My New Name');
+  });
 });
 
 
@@ -162,6 +188,50 @@ describe('leaving the page with an unsaved draft', () => {
     leave();
     expect(storedName()).toBe('Left Name');
     expect(playerWrites()).toHaveLength(1);
+    expect(onSaveFailed).not.toHaveBeenCalled();
+  });
+
+  it('never writes a draft that was not edited, so a rename from another tab stays', () => {
+    otherTabStores({ ...stored, name: 'Renamed Elsewhere' });
+    leave();
+    expect(playerWrites()).toEqual([]);
+    expect(storedName()).toBe('Renamed Elsewhere');
+  });
+
+  it('never writes a draft edited back to the loaded name', () => {
+    type('Something Else');
+    type(' Original  Player ');
+    otherTabStores({ ...stored, name: 'Renamed Elsewhere' });
+    leave();
+    expect(playerWrites()).toEqual([]);
+    expect(storedName()).toBe('Renamed Elsewhere');
+  });
+
+  it('writes nothing once another player is stored, so that player keeps its name', () => {
+    type('Left Name');
+    otherTabStores(theirs);
+    leave();
+    expect(playerWrites()).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toEqual(theirs);
+    expect(onSaveFailed).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing once this tab may no longer write its save', () => {
+    type('Left Name');
+    canSave.mockReturnValue(false);
+    leave();
+    expect(canSave).toHaveBeenCalled();
+    expect(playerWrites()).toEqual([]);
+    expect(storedName()).toBe('Original Player');
+  });
+
+  it('reports a name this browser refused to store on the way out', () => {
+    failWrites();
+    type('Left Name');
+    leave();
+    expect(playerWrites()).toHaveLength(1);
+    expect(onSaveFailed).toHaveBeenCalledTimes(1);
+    expect(storedName()).toBe('Original Player');
   });
 
   it('writes nothing for a blank or unchanged draft', () => {
@@ -205,9 +275,7 @@ describe('the save note', () => {
 });
 
 describe('while the level is unknown', () => {
-  const rerender = (level: number | null) => act(() => root.render(
-    <PlayerSection level={level} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onOpenSave={onOpenSave} />,
-  ));
+  const rerender = (level: number | null) => act(() => root.render(section(level)));
 
   it('shows a loading note instead of the rewards, then the rewards once the level is known', () => {
     rerender(null);

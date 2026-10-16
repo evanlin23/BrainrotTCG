@@ -60,6 +60,8 @@ const render = (props: Partial<Parameters<typeof ProfilePage>[0]> = {}) =>
         onSharePull={() => {}}
         onOpenSave={() => {}}
         onOpenPacks={() => {}}
+        canSave={() => true}
+        onSaveFailed={() => {}}
         {...props}
       />,
     ),

@@ -38,6 +38,10 @@ it('gives Open, Cards, Rankings and Profile a page each, with an address, a titl
   expect(location.hash).toBe('#/cards');
   expect(document.title).toBe('Cards - Brainrot TCG');
   expect(document.activeElement).toBe(document.querySelector('main.page h1'));
+  // One h1 per view: on a page it is the page's title, and the logo is a named image instead.
+  expect(document.querySelectorAll('h1')).toHaveLength(1);
+  expect(document.querySelector('.app-logo')!.tagName).toBe('DIV');
+  expect(document.querySelector('.app-logo')!.getAttribute('role')).toBe('img');
   // The packs screen stays mounted under the page, hidden and inert, so a pack in progress survives.
   expect(packsHidden()).toBe(true);
   expect(document.querySelector('main.app-main')!.hasAttribute('inert')).toBe(true);
@@ -84,6 +88,8 @@ it('gives Open, Cards, Rankings and Profile a page each, with an address, a titl
   expect(document.title).toBe(openTitle);
   expect(currentTab()).toBe('Open');
   expect(document.activeElement).toBe(document.querySelector('.app-logo'));
+  expect(document.querySelectorAll('h1')).toHaveLength(1);
+  expect(document.querySelector('.app-logo')!.tagName).toBe('H1');
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).nextNonce).toBe(0);
 }, 30_000);
 

@@ -178,6 +178,24 @@ it('blocks the write even when the storage event never arrived', async () => {
   expect(banner()?.textContent).toContain(STALE);
 }, 60_000);
 
+it('leaves another player’s name alone when this tab leaves Profile with an edited name, and says why', async () => {
+  app = await mountedApp(SEED);
+  history.replaceState(null, '', '/BrainrotTCG/#/profile');
+  await app.mount();
+  const nameField = () => document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]');
+  await app.until('Profile loads', () => expect(nameField()).not.toBeNull());
+  await app.interact(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(nameField()!, 'Alice');
+    nameField()!.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  // No storage event: the other tab's import is caught when leaving the page tries to store the name.
+  otherTabWrites(THEIR_SAVE);
+  await app.interact(() => button(document, 'Close Profile')!.click());
+  await app.until('Open shows again', () => expect(nameField()).toBeNull());
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toEqual(JSON.parse(record(THEIRS, 'Other tab')));
+  expect(banner()?.textContent).toContain(STALE);
+});
+
 it('keeps saving when another tab stores the same player (a rename)', async () => {
   app = await mountedApp(SEED);
   await app.mount();

@@ -44,6 +44,10 @@ interface ProfilePageProps {
   onOpenSave: () => void;
   /** Go to the packs screen. */
   onOpenPacks: () => void;
+  /** Whether this tab may still write its save (false once another tab switched or replaced it). */
+  canSave: () => boolean;
+  /** A name couldn't be stored as the page was left. */
+  onSaveFailed: () => void;
 }
 
 const PAGE = 30;
@@ -76,6 +80,8 @@ const ProfilePage = ({
   onShareAchievementPull,
   onOpenSave,
   onOpenPacks,
+  canSave,
+  onSaveFailed,
 }: ProfilePageProps) => {
   const [player, setPlayer] = useState(getPlayer);
   // Saved packs are read in pages (game/profiles.ts): recount, and show their cards, as they arrive.
@@ -254,7 +260,8 @@ const ProfilePage = ({
           )
         )}
 
-        <PlayerSection level={level} settings={settings} onSettingsChange={onSettingsChange} onOpenSave={onOpenSave} onRenamed={setPlayer} />
+        <PlayerSection level={level} settings={settings} onSettingsChange={onSettingsChange} onOpenSave={onOpenSave} onRenamed={setPlayer}
+          canSave={canSave} onSaveFailed={onSaveFailed} />
 
         <AchievementsSection unlockedAchievements={unlockedAchievements} progress={achievementProgress} onSharePull={onShareAchievementPull} />
 

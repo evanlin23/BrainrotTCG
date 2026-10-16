@@ -96,6 +96,12 @@ function App() {
     if (!playerChanged.current && !sameSave(mountedSave, saveMark())) playerChanged.current = true;
     return !playerChanged.current;
   }, [mountedSave]);
+  // For pages that write the save themselves (Profile's name): refuse, and say why, once it changed.
+  const canWriteSave = useCallback(() => {
+    if (samePlayer()) return true;
+    setStaleSave(true);
+    return false;
+  }, [samePlayer]);
   const previousProgress = useRef<Map<string, unknown> | null>(null);
   // Packs given to the collection that it hasn't stored yet: each stays on the pending shelf till then.
   const unsavedPacks = useRef<OpenedPack[]>([]);
@@ -583,6 +589,15 @@ function App() {
   // but no pack count (an old one, or stats that couldn't be read) is not a new player's.
   const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0;
   const onPage = route !== 'open';
+  const logoChars = 'Brainrot TCG'.split('').map((char, i) =>
+    char === ' ' ? (
+      <span key={i} className="title-space" aria-hidden="true" />
+    ) : (
+      <span key={i} className="title-char" aria-hidden="true" style={{ animationDelay: `${i * 0.08}s` }}>
+        {char}
+      </span>
+    ),
+  );
 
   return (
     <div className={`app${packBusy ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
@@ -594,17 +609,12 @@ function App() {
         </p>
       )}
       <header className="app-header">
-        <h1 ref={logoRef} className="app-logo" aria-label="Brainrot TCG" tabIndex={-1}>
-          {'Brainrot TCG'.split('').map((char, i) =>
-            char === ' ' ? (
-              <span key={i} className="title-space" aria-hidden="true" />
-            ) : (
-              <span key={i} className="title-char" aria-hidden="true" style={{ animationDelay: `${i * 0.08}s` }}>
-                {char}
-              </span>
-            ),
-          )}
-        </h1>
+        {/* One h1 per view: the logo on the packs screen; on a page, that page's title (see Page). */}
+        {onPage ? (
+          <div className="app-logo" role="img" aria-label="Brainrot TCG">{logoChars}</div>
+        ) : (
+          <h1 ref={logoRef} className="app-logo" aria-label="Brainrot TCG" tabIndex={-1}>{logoChars}</h1>
+        )}
         {showNav && <AppNav onOpen={openPage} onPrefetch={prefetch} active={activeTab} />}
         <div className="app-utilities">
           <button
@@ -673,6 +683,8 @@ function App() {
           onShareAchievementPull: (ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) }),
           onOpenSave: () => openPage('settings', 'save-backup'),
           onOpenPacks: () => openPage('open'),
+          canSave: canWriteSave,
+          onSaveFailed: () => setSaveFailed(true),
         }} />
       )}
 

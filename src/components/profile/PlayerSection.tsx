@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MAX_NAME_LENGTH } from '../../engine';
+import { MAX_NAME_LENGTH, normalizeName } from '../../engine';
 import { getPlayer, renamePlayer, type RenameResult } from '../../game/player';
 import type { Settings } from '../../types';
 import RewardsPanel from './RewardsPanel';
@@ -11,6 +11,7 @@ import '../../styles/Pulls.css';
 import '../../styles/Profile.css';
 
 const SAVE_FAILED = "Couldn't save your name in this browser. Try again.";
+const SAVE_STALE = "Your name wasn't saved: this save changed in another tab. Reload to continue with that save.";
 
 type Player = ReturnType<typeof getPlayer>;
 
@@ -23,11 +24,18 @@ interface PlayerSectionProps {
   onOpenSave: () => void;
   /** A new name was stored. */
   onRenamed?: (player: Player) => void;
+  /** Whether this tab may still write its save (false once another tab switched or replaced it). */
+  canSave: () => boolean;
+  /** Storing the draft on the way out of the page failed, so the app can warn that it wasn't kept. */
+  onSaveFailed: () => void;
 }
 
 /** The Profile page's player: name, ID and level rewards. A local identity, not an online sign-in. */
-export default function PlayerSection({ level, settings, onSettingsChange, onOpenSave, onRenamed }: PlayerSectionProps) {
+export default function PlayerSection({ level, settings, onSettingsChange, onOpenSave, onRenamed, canSave, onSaveFailed }: PlayerSectionProps) {
   const [player, setPlayer] = useState(getPlayer);
+  /** The player this page renames: a save stored under another key meanwhile is never renamed. */
+  const [playerKey] = useState(player.publicKeyHex);
+  const rename = (draft: string): RenameResult => (canSave() ? renamePlayer(draft, playerKey) : { status: 'stale' });
   const [nameDraft, setNameDraft] = useState(player.name);
   const [nameStatus, setNameStatus] = useState('');
   /** Counts failed saves; a repeat of the same failure remounts the status text so it is announced again. */
@@ -44,7 +52,13 @@ export default function PlayerSection({ level, settings, onSettingsChange, onOpe
    */
   const saveName = (fromBlur = false): RenameResult['status'] => {
     saves.current += 1;
-    const result = renamePlayer(nameDraft);
+    const result = rename(nameDraft);
+    if (result.status === 'stale') {
+      failedDraft.current = nameDraft;
+      setNameStatus(SAVE_STALE);
+      setFailures((count) => count + 1);
+      return result.status;
+    }
     setPlayer(result.player);
     if (result.status === 'saved') onRenamed?.(result.player);
     failedDraft.current = result.status === 'failed' ? nameDraft : null;
@@ -68,15 +82,18 @@ export default function PlayerSection({ level, settings, onSettingsChange, onOpe
     }
     return result.status;
   };
-  // Leaving the page (a tab, Back, Close) keeps the draft the way leaving the field does: store it,
-  // quietly, unless it is the draft that just failed.
-  const draftRef = useRef(nameDraft);
+  // Leaving the page (a tab, Back, Close) keeps an edited draft the way leaving the field does, unless
+  // it is the draft that just failed. A draft that still matches the name this page loaded or stored
+  // is never written, so it can't undo a rename made in another tab. A refused write is reported.
+  const leave = useRef(() => {});
   useEffect(() => {
-    draftRef.current = nameDraft;
+    leave.current = () => {
+      const clean = normalizeName(nameDraft);
+      if (!clean || clean === player.name || failedDraft.current === nameDraft) return;
+      if (rename(nameDraft).status === 'failed') onSaveFailed();
+    };
   });
-  useEffect(() => () => {
-    if (failedDraft.current !== draftRef.current) renamePlayer(draftRef.current);
-  }, []);
+  useEffect(() => () => leave.current(), []);
   return <section id="player" className="settings-group profile-section" aria-labelledby="player-title">
     <h2 id="player-title" className="section-title" tabIndex={-1}>Player</h2>
     <p className="share-note">

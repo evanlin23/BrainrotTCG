@@ -217,6 +217,32 @@ it('warns when a ticket mapping missing from the history still cannot be recorde
   await drainToasts(app);
 }, 60_000);
 
+it('warns when a name edited on Profile cannot be stored as the page is left', async () => {
+  app = await mountedApp(SEED);
+  history.replaceState(null, '', '/BrainrotTCG/#/profile');
+  await app.mount();
+  const nameField = () => document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]');
+  await app.until('Profile loads', () => expect(nameField()).not.toBeNull());
+  await app.interact(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(nameField()!, 'Left behind');
+    nameField()!.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === 'brainrot-player-v1') throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  expect(banner()).toBeNull();
+
+  await app.interact(() => button('Close Profile').click());
+  await app.until('Open shows again', () => expect(nameField()).toBeNull());
+
+  expect(app.takeErrors(/^Could not save player identity/)).toHaveLength(1);
+  expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).name).toBe('Mounted fixture');
+  expectAppShown();
+  expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
+});
+
 it('starts on the default set when reading the remembered set throws SecurityError', async () => {
   app = await mountedApp(SEED);
   const getItem = Storage.prototype.getItem;
