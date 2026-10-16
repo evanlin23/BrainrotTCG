@@ -8,6 +8,7 @@ import { sameVersion, versionOf, type CardVersion, type OwnedVersion } from '../
 import RarityBadge from '../ui/RarityBadge';
 import Sheet from '../ui/Sheet';
 import CardImage from './CardImage';
+import '../../styles/CardViewer.css';
 
 interface CardViewerModalProps {
   /** The card. A pulled card carries its own version (holo, finish, misprint), and that's what shows. */

@@ -4,7 +4,8 @@
   position: fixed;
   inset: auto 0 0 0;
   z-index: var(--z-nav);
-  padding-bottom: var(--safe-bottom);
+  /* Clear of the home indicator, and of a landscape notch at either side. */
+  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
   background: var(--bg-elevated);
   border-top: 1px solid var(--border);
   transition:

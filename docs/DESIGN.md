@@ -1,8 +1,10 @@
 # Design
 
 How Brainrot TCG looks and behaves. The values live in `src/styles/tokens.css`; the shared pieces in
-`src/styles/base.css` and `src/components/ui/`. Most players are on phones, opening packs one-handed
-between other things, so every rule below starts from a 390 px wide screen.
+`src/styles/base.css` and `src/components/ui/`. Each component imports the stylesheet for the classes
+it renders, because a lazy screen only gets the CSS its own chunk imports (`tests/browser/lazy-styles.spec.ts`).
+Most players are on phones, opening packs one-handed between other things, so every rule below starts
+from a 390 px wide screen.
 
 ## Principles
 
@@ -68,7 +70,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | Shape | `--radius-sm` … `--radius-xl`, `--radius-pill` | |
 | Depth | `--shadow-1` … `--shadow-3` | `--glow-brand` is `none` |
 | Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--ease-out`, `--ease-spring` | zero under reduced motion |
-| Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom` | |
+| Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` | the page runs under the notch (`viewport-fit=cover`), so anything fixed to a screen edge pads by these; `theme-color` matches `--bg` |
 
 ## Components
 
