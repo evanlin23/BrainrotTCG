@@ -12,6 +12,7 @@ const removeItem = vi.fn((key: string) => { store.delete(key); });
 let importSaveFile: typeof import('./saveFile').importSaveFile;
 let player: typeof import('./player');
 let backUpSave: typeof import('./saveFile').backUpSave;
+let NO_ROOM_FOR_COPY_NOTE: string;
 
 const fixture = () => ({
   version: 2, dataVersion: 3, exportedAt: '2026-10-14T00:00:00Z',
@@ -43,7 +44,7 @@ beforeEach(async () => {
   store.set(STORAGE_KEYS.STATS, '{"packsOpened":8,"holoCards":{}}');
   store.set(STORAGE_KEYS.SETTINGS, '{"musicVolume":0.1}');
   store.set(VERSION_KEY, '1');
-  ({ importSaveFile, backUpSave } = await import('./saveFile'));
+  ({ importSaveFile, backUpSave, NO_ROOM_FOR_COPY_NOTE } = await import('./saveFile'));
   player = await import('./player');
 });
 afterEach(() => {
@@ -140,7 +141,7 @@ describe('synchronous Settings import recovery', () => {
       if (key === BACKUP_KEY) throw new Error('Backup quota denied');
       store.set(key, value);
     });
-    expect(importSaveFile(JSON.stringify(fixture()))).toBe("Couldn't keep a backup of your current save. Nothing was imported.");
+    expect(importSaveFile(JSON.stringify(fixture()))).toBe(NO_ROOM_FOR_COPY_NOTE);
     expect(store).toEqual(original);
     expect(setItem).toHaveBeenCalledTimes(1);
     expect(setItem.mock.calls[0][0]).toBe(BACKUP_KEY);

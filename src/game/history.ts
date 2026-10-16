@@ -87,6 +87,9 @@ const rawHistory = (): string | null => {
   }
 };
 
+/** The stored history as saved (null when unreadable): equal strings mean an unchanged history. */
+export const storedHistory = (): string | null => rawHistory();
+
 const parseHistory = (raw: string | null): Stored[] => {
   try {
     const parsed = JSON.parse(raw ?? '[]');

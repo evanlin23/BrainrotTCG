@@ -5,9 +5,9 @@ import { monitor, expectDecoded, expectStill, fingerFor, type Finger } from './s
  * As a pack opens, the app moves focus by script: onto each card, then the result. Chromium rings
  * script focus that no click put there, and a phone's taps rarely focus anything, so a player opening
  * by touch or mouse saw a yellow ring round each card and took it for a selection (#312). The ring
- * stays for keyboard players: Tab and the keys that drive the reveal set data-input="keyboard"
- * (components/ui/inputModality.ts), and a keyboard open rings every target focus moves to. Before any
- * press it rings too, for a screen reader or switch that moves focus with no key the page hears.
+ * stays for keyboard players who navigate: Tab, arrows, Home/End, Page keys and Escape set
+ * data-input="keyboard" (components/ui/inputModality.ts). Space and Enter, which only drive the game,
+ * set "press" and are as quiet as a click. Before any input it rings, for a screen reader or switch that moves focus with no key the page hears.
  * The phone check is Chromium's touch emulation at a 390px phone size, not a real phone.
  */
 
@@ -25,19 +25,21 @@ const ringOf = (target: Locator) => target.evaluate((el) => {
   };
 });
 
-async function expectNoRing(target: Locator, what: string) {
+async function expectNoRing(target: Locator, what: string, input = 'pointer') {
   const ring = await ringOf(target);
-  expect(ring.input, `${what}: input`).toBe('pointer');
+  expect(ring.input, `${what}: input`).toBe(input);
   expect(ring.outline, `${what}: outline`).toBe('none');
   expect(ring.shadows, `${what}: box-shadow`).not.toContain(RING);
   return ring;
 }
 
 /** The ring is there. Buttons ease their box-shadow in, so it's read once that has settled. */
-async function expectRing(target: Locator, what: string) {
+async function expectRing(target: Locator, what: string, input = 'keyboard') {
   await expect.poll(async () => (await ringOf(target)).shadows, { message: what }).toContain(RING);
-  expect(await ringOf(target), what).toMatchObject({ focusVisible: true, input: 'keyboard' });
+  expect(await ringOf(target), what).toMatchObject({ focusVisible: true, input });
 }
+
+const expectNoRingAfterPress = (target: Locator, what: string) => expectNoRing(target, what, 'press');
 
 const selectedText = (page: Page) => page.evaluate(() => document.getSelection()?.toString() ?? '');
 
@@ -218,7 +220,22 @@ test('opened by mouse: no ring on the cards, the pack or the result, and a drag 
   expect(errors).toEqual([]);
 });
 
-test('opened by keyboard: every target focus moves to keeps its ring, until a click', async ({ page, baseURL }, testInfo) => {
+test('opened with Space alone: no ring on the pack, the cards or the result', async ({ page, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
+  test.setTimeout(90000);
+  const { errors } = await sealedPack(page, baseURL!);
+  // The first Space opens the pack from the sealed screen, cutting it with no button pressed.
+  await page.keyboard.press('Space');
+  await revealAll(page, () => page.keyboard.press('Space'), expectNoRingAfterPress);
+  await expectNoRingAfterPress(page.locator('.summary-title'), 'the result');
+  // Space again closes the result; whatever focus lands on next rings nothing.
+  await page.keyboard.press('Space');
+  await expect(page.locator('.pack-summary')).toBeHidden();
+  await expectNoRingAfterPress(page.locator('.pack-open-button'), 'Open pack once the result closes');
+  expect(errors).toEqual([]);
+});
+
+test('opened by keyboard: Tab rings, Space is quiet, Tab rings again, until a click', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
   test.setTimeout(90000);
   const { errors } = await sealedPack(page, baseURL!);
@@ -229,15 +246,25 @@ test('opened by keyboard: every target focus moves to keeps its ring, until a cl
   }
   await expectRing(pack, 'Open pack');
 
-  await page.keyboard.press('Space');
-  await revealAll(page, () => page.keyboard.press('Space'), expectRing);
+  // Space is down but not yet released (a button clicks on keyup), so Open pack still holds the focus
+  // Tab gave it: it keeps its ring.
+  await page.keyboard.down('Space');
+  expect(await page.evaluate(() => document.documentElement.dataset.input)).toBe('press');
+  await expectRing(pack, 'Open pack while Space is held', 'press');
+  await page.keyboard.up('Space');
+  await revealAll(page, () => page.keyboard.press('Space'), expectNoRingAfterPress);
   const title = page.locator('.summary-title');
   await expect(title).toBeFocused();
-  await expectRing(title, 'the result');
+  await expectNoRingAfterPress(title, 'the result');
+
+  // Tab brings the ring back on whatever it reaches.
+  await page.keyboard.press('Tab');
+  const tabbed = page.locator(':focus');
+  await expectRing(tabbed, 'the control Tab reached');
   const summaryCard = page.locator('.summary-card').first();
   // The ring goes between the card's rarity edge and its shadow; neither is lost to base.css's ring rule.
   const ownShadow = (target: Locator) => target.evaluate((el) => getComputedStyle(el).boxShadow);
-  const ringShadow = await ownShadow(title);
+  const ringShadow = await ownShadow(tabbed);
   const restingShadow = await ownShadow(summaryCard);
   expect(restingShadow).toContain('rgba(0, 0, 0, 0) 0px 0px 0px 0px');
   await scriptFocus(summaryCard);

@@ -9,6 +9,8 @@ import { cardPreviewPath } from '../../game/previewLinks';
 import { canShare, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
 import { modifierLabel } from '../../game/modifiers';
+import { cardStats } from '../../game/cardStats';
+import { RARITY_MARK } from '../../game/share';
 import type { CardVersion } from '../../game/versions';
 import { RARITY_COLORS } from '../../styles/palette';
 import SharePreviewSheet from './SharePreviewSheet';
@@ -49,7 +51,12 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
   const url = proof ? pullUrl(proof) : undefined;
   const link = proof ? pullUrl(proof, cardPreviewPath(card.setId, cardId)) : undefined;
   const rarity = CARD_RARITIES[card.rarity];
-  const text = `${card.name} (${mods ? `${mods} ` : ''}${rarity.name}) from ${setName} in Brainrot TCG${link ? `\n${link}` : ''}`;
+  const stats = cardStats(card, version).line;
+  const text = [
+    `${RARITY_MARK[card.rarity]} ${card.name} · ${mods ? `${mods.replace(/ · /g, ' ')} ` : ''}${rarity.name} · ${stats}`,
+    `${setName} in Brainrot TCG`,
+    ...(link ? [link] : []),
+  ].join('\n');
 
   return (
     <SharePreviewSheet
@@ -75,6 +82,7 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
           fingerprint: player.fingerprint,
           url,
           cert: pack ? `${code} #${pack.nonce}` : undefined,
+          stats,
         })
       }
       imageName={`brainrot-${card.key.replace('/', '-')}${mods ? `-${mods.toLowerCase().replace(/ · /g, '-')}` : ''}.png`}

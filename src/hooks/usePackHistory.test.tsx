@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The load check runs once per module load, so each test imports a fresh copy.
 let usePackHistory: typeof import('./usePackHistory').usePackHistory;
+let STRAY_BACK_TIMEOUT_MS: number;
 let enter: (inPack: boolean) => void = () => {};
 let backs = 0;
 
@@ -47,7 +48,7 @@ const packStillTakesBack = async () => {
 
 beforeEach(async () => {
   vi.resetModules();
-  ({ usePackHistory } = await import('./usePackHistory'));
+  ({ usePackHistory, STRAY_BACK_TIMEOUT_MS } = await import('./usePackHistory'));
   backs = 0;
 });
 afterEach(() => {
@@ -87,5 +88,50 @@ describe('usePackHistory on a page loaded on a stale pack entry', () => {
     mount();
     await settle(() => !onPackEntry());
     await packStillTakesBack();
+  });
+});
+
+describe('usePackHistory after an opener unmounts mid-pack', () => {
+  it("doesn't read the old opener's step back as the player's Back when a new pack starts first", async () => {
+    history.pushState({}, '', '/BrainrotTCG/');
+    mount();
+    act(() => enter(true));
+    expect(onPackEntry()).toBe(true);
+    act(() => root?.unmount());
+    // The new opener's pack starts before the old one's step back has landed.
+    mount();
+    act(() => enter(true));
+    // Let the old step back land, then add the new pack's own entry.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(backs).toBe(0);
+    expect(onPackEntry()).toBe(true);
+    // It holds an entry of its own, so Back still closes it.
+    history.back();
+    await settle(() => backs === 1);
+    expect(onPackEntry()).toBe(false);
+  });
+
+  it("stops waiting on the old opener's step back if it never lands", async () => {
+    history.pushState({}, '', '/BrainrotTCG/');
+    mount();
+    act(() => enter(true));
+    // The old opener's step back goes nowhere, so no popstate ever comes.
+    const back = vi.spyOn(history, 'back').mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      act(() => root?.unmount());
+      expect(back).toHaveBeenCalledTimes(1);
+      back.mockRestore();
+      mount();
+      act(() => enter(true));
+      act(() => vi.advanceTimersByTime(STRAY_BACK_TIMEOUT_MS));
+    } finally {
+      vi.useRealTimers();
+    }
+    // The new pack holds the entry, so Back closes it rather than leaving.
+    expect(onPackEntry()).toBe(true);
+    history.back();
+    await settle(() => backs === 1);
+    expect(onPackEntry()).toBe(false);
   });
 });

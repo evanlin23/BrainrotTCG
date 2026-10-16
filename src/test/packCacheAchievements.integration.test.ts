@@ -119,7 +119,7 @@ it("never stores this tab's achievements over a save another tab imported or swi
 });
 
 it("keeps achievements a pack unlocks in a tab another player's save replaced out of that save", async () => {
-  app = await mountedApp(SEED);
+  app = await mountedApp(SEED, { hallOfFame: [] });
   await app.mount();
   // Another tab switches to a different player, whose save has an achievement this tab's doesn't.
   localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '0b'.repeat(32), name: 'Imported', nextNonce: 0, createdAt: 2 }));

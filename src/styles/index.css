@@ -61,6 +61,18 @@
   box-shadow: none;
 }
 
+a.app-logo--link {
+  display: inline-block;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+a.app-logo--link:focus-visible {
+  outline: var(--focus-outline);
+  box-shadow: var(--focus-shadow, none);
+  outline-offset: 4px;
+}
+
 .app-logo .title-char {
   display: inline-block;
 }
@@ -113,11 +125,16 @@
     padding-top: var(--space-4);
   }
 
-  /* The logo shares the row with the tabs and the gear (about 450px with their gaps), so it scales
-     from 36px at 900px to its full 52px by about 1060px, and never shrinks below its own content. */
+  /* The logo shares the row with the tabs and the gear (about 28rem with their gaps), so it scales
+     from 36px at 900px to its full 52px by about 1060px, and never shrinks below its own content.
+     The floor binds where the ramp (10vw - 3.375rem) is under 1.75rem, i.e. a viewport under 51.25rem,
+     which only happens when a player's browser font is set larger than 16px. At 18px that is 900px to
+     about 922px, and again from 1024px (base.css's 112.5% root, 20.25px) to about 1037px. The old
+     2.25rem floor (40.5px at 18px) held the logo up to about 1013px and left the tabs an 18px gap;
+     1.75rem lets the ramp run. At 16px the ramp is already 36px at 900px, above the floor. */
   .app-logo {
     flex-shrink: 0;
-    font-size: clamp(2.25rem, 10vw - 3.375rem, 3.25rem);
+    font-size: clamp(1.75rem, 10vw - 3.375rem, 3.25rem);
   }
 
   .app-main,
