@@ -181,6 +181,7 @@ function App() {
   const [routeMoved, setRouteMoved] = useState(false);
   if (!routeMoved && route !== initialRoute) setRouteMoved(true);
   const logoRef = useRef<HTMLHeadingElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const [notificationQueue, setNotificationQueue] = useState<ToastItem[]>([]);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [packBusy, setPackBusy] = useState(false);
@@ -198,10 +199,14 @@ function App() {
   }, []);
 
   // Each page names the tab; back on the packs screen, focus returns to the top of it (the page's
-  // own heading takes focus itself, see Page).
+  // own heading takes focus itself, see Page). Back over a pack, the chrome has stepped aside (on a
+  // phone the logo too), so focus goes back into the pack: its summary's heading, or else its X.
   useEffect(() => {
     document.title = route === 'open' ? OPEN_TITLE : PAGE_TITLES[route];
-    if (route === 'open' && routeMoved) logoRef.current?.focus({ preventScroll: true });
+    if (route !== 'open' || !routeMoved) return;
+    const main = mainRef.current;
+    const target = main?.querySelector<HTMLElement>('.summary-title') ?? main?.querySelector<HTMLElement>('.pack-close') ?? logoRef.current;
+    target?.focus({ preventScroll: true });
   }, [route, routeMoved]);
 
   const bgMusicRef = useRef<HTMLAudioElement | null>(null);
@@ -645,7 +650,7 @@ function App() {
       />
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}
-      <main className="app-main" hidden={onPage} inert={onPage}>
+      <main ref={mainRef} className="app-main" hidden={onPage} inert={onPage}>
         <SetPicker sets={playableSets} selectedId={selectedSet.id} onSelect={selectSet} collection={collection} disabled={packBusy} />
         <PackOpener
           key={selectedSet.id}

@@ -6,6 +6,7 @@ import type { SetDefinition } from '../../engine';
 import { openPack, prefetchNextPack, type OpenedPack } from '../../game/pulls';
 import { holdLive } from '../../game/admission';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
+import { buzz } from '../../utils/motion';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
@@ -295,6 +296,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Focus mode (#312): the app's chrome stays out of the way for the whole pack, summary included, and
   // comes back as soon as the player leaves it, even while a left pack's ticket is still on its way.
   useEffect(() => onFocusChange?.(stageInPack), [stageInPack, onFocusChange]);
+  // Unmounted mid-pack (the set changed under its summary): the pack is gone, so the chrome comes back.
+  // onFocusChange is a state setter, so this runs on unmount only, never between renders.
+  useEffect(() => () => onFocusChange?.(false), [onFocusChange]);
 
   /**
    * Back to the packs screen from any stage, keeping whatever the pack already spent. It works during
@@ -363,10 +367,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
 
     setOpenedCards(openedCards.map((card, index) => index === currentIndex ? { ...card, isRevealed: true } : card));
 
-    // A short buzz on phones: a tick for any card, a double for big pulls.
-    if (typeof navigator.vibrate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      navigator.vibrate(isBigPull(currentCard) ? [18, 60, 30] : 8);
-    }
+    // A short buzz on phones: a tick for any card, a double for big pulls. None under reduced motion.
+    buzz(isBigPull(currentCard) ? [18, 60, 30] : 8);
 
     if (settings.particlesEnabled) {
       // A finish or misprint gets at least an Epic's confetti.

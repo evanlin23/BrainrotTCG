@@ -26,6 +26,16 @@ jobs:
           key: previews-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp') }}
           restore-keys: previews-
       - run: npm run build
+      # Every page's links stay under the base path, and every preview page and picture is there,
+      # decodes and points at the site (scripts/check-site.ts).
+      - run: npm run check:site
+      # The deploy builds for the root on Cloudflare Pages (docs/HOSTING.md). The pictures don't
+      # depend on the path, so this build draws none.
+      - name: Build and check for the root path
+        env:
+          BASE_PATH: /
+          SITE_URL: https://brainrottcg.pages.dev/
+        run: npm run build && npm run check:site
 
   # A second, independent implementation of spec/PULL_SPEC.md (Python + OpenSSL) must agree with
   # the engine on every test vector.
