@@ -267,6 +267,24 @@ describe('downloading and discarding kept-aside data', () => {
     expect(logged()).toEqual([`Failed to remove localStorage key "${ARCHIVE}":`]);
   });
 
+  it('reports the discard done when only the hidden-note fingerprint stays behind', () => {
+    const data = seed('{"1":null}', (key) => key === ARCHIVE);
+    expect(persistCollection({})).toBe('recovered');
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
+    expect(dismissCollectionRecovery()).toBe(true);
+    const remove = localStorage.removeItem;
+    vi.spyOn(localStorage, 'removeItem').mockImplementation((key: string) => {
+      if (key === STORAGE_KEYS.COLLECTION_RECOVERY_SEEN) throw new DOMException('denied', 'SecurityError');
+      remove(key);
+    });
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    expect(data.has(ARCHIVE)).toBe(false);
+    expect(data.has(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe(true);
+    expect(collectionRecoveryState()).toBe('none');
+    expect(logged()).toEqual([]);
+    expect(warned()).toContain(`Failed to remove localStorage key "${STORAGE_KEYS.COLLECTION_RECOVERY_SEEN}":`);
+  });
+
   it("keeps this visit's payloads when storage refuses the discard", () => {
     seed('{"1":null}', (key) => key === ARCHIVE);
     expect(persistCollection({})).toBe('recovered');

@@ -24,14 +24,15 @@ interface SettingsPageProps {
     recoveryNote?: string;
     /** Whether this tab may still download or discard it (false once the save changed in another tab). */
     recoveryAllowed?: () => boolean;
-    /** The kept-aside data is gone (discarded here); the app refreshes what it shows. */
-    onRecoveryGone?: () => void;
+    /** What's kept aside changed (discarded here, or more kept aside meanwhile); the app refreshes what it shows. */
+    onRecoveryChanged?: () => void;
 }
 
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help. */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryGone }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
+    const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const handleExportSave = () => {
         const blob = new Blob([exportSaveFile()], { type: 'text/plain' });
@@ -148,7 +149,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             {saveWarning && (
                 <p role="alert" className="save-warning">
                     {saveWarning}
-                    {onReload && <button type="button" className="link-btn save-warning-action" onClick={onReload}>Reload</button>}
+                    {onReload && <button type="button" ref={reloadRef} className="link-btn save-warning-action" onClick={onReload}>Reload</button>}
                 </p>
             )}
             <section className="settings-group" aria-labelledby="settings-sound">
@@ -198,9 +199,11 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                 <span className="settings-desc">{recoveryNote}</span>
                             </span>
                             <KeptAsideActions variant="settings" canAct={recoveryAllowed} onGone={() => {
-                                onRecoveryGone?.();
+                                onRecoveryChanged?.();
                                 // The row leaves with its buttons: focus stays in this section.
                                 saveHeadingRef.current?.focus();
+                            }} onChanged={() => onRecoveryChanged?.()} onLeave={() => {
+                                (reloadRef.current ?? saveHeadingRef.current)?.focus();
                             }} />
                         </div>
                     )}

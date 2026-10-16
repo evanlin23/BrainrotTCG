@@ -79,6 +79,10 @@ describe('Save & backup preflight', () => {
     ['missing recovery identity snapshot', { collectionRecovery: '{"raw":"opaque"}' }],
     ['non-list later recovery payloads', { collectionRecovery: '{"raw":"opaque","player":null,"later":{}}' }],
     ['invalid later recovery payload', { collectionRecovery: '{"raw":"opaque","player":null,"later":[{"raw":1,"player":null}]}' }],
+    ['negative recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":-1}' }],
+    ['fractional recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":1.5}' }],
+    ['string recovery let-go count', { collectionRecovery: '{"raw":"opaque","player":null,"dropped":"3"}' }],
+    ['unknown recovery entry kind', { collectionRecovery: '{"raw":"opaque","player":null,"kind":"other"}' }],
     ['unknown historical card without set ID', { collection: JSON.stringify({ x: { card: { id: 'nonexistent', name: 'Old Card', image: '/old.webp', rarity: 'COMMON' }, normalCount: 1 } }) }],
     ['unresolvable partial card', { collection: '{"x":{"card":{"id":"nonexistent"}}}' }],
     ['prototype finish name', { collection: JSON.stringify({ x: { card: { ...ALL_CARDS[0], finish: '__proto__' } } }) }],
@@ -269,6 +273,12 @@ describe('private collection recovery archive portability', () => {
 
   it('imports an archive that holds later damaged payloads', () => {
     const archive = JSON.stringify({ raw: '{"first":null}', player: null, later: [{ raw: '{broken', player: player('cc'.repeat(32), 3) }] });
+    expect(importSaveFile(JSON.stringify({ ...fixture(), collectionRecovery: archive }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
+  });
+
+  it('imports an archive that counts payloads let go and wraps one it could not read', () => {
+    const archive = JSON.stringify({ raw: '{broken archive', player: null, kind: 'unparseable-archive', later: [{ raw: '{"x":1}', player: null }], dropped: 2 });
     expect(importSaveFile(JSON.stringify({ ...fixture(), collectionRecovery: archive }))).toBeNull();
     expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
   });

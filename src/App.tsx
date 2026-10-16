@@ -237,6 +237,7 @@ function App() {
   const [routeMoved, setRouteMoved] = useState(false);
   if (!routeMoved && route !== initialRoute) setRouteMoved(true);
   const logoRef = useRef<HTMLHeadingElement>(null);
+  const reloadRef = useRef<HTMLButtonElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const [notificationQueue, setNotificationQueue] = useState<ToastItem[]>([]);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
@@ -681,13 +682,15 @@ function App() {
       {bannerWarning && route !== 'settings' && (
         <p role="alert" className="save-warning">
           {bannerWarning}
-          {staleSave && <button type="button" className="link-btn save-warning-action" onClick={() => reloadPage()}>Reload</button>}
+          {staleSave && <button type="button" ref={reloadRef} className="link-btn save-warning-action" onClick={() => reloadPage()}>Reload</button>}
           {showRecoveryNote && (
             <>
               <KeptAsideActions variant="banner" canAct={recoveryCurrent} onGone={() => {
                 recoveryChanged();
                 // The note and its buttons leave: focus goes to the open page's heading, or the logo.
                 (document.querySelector<HTMLElement>('.page-title') ?? logoRef.current)?.focus();
+              }} onChanged={recoveryChanged} onLeave={() => {
+                (reloadRef.current ?? document.querySelector<HTMLElement>('.page-title') ?? logoRef.current)?.focus();
               }} />
               <button type="button" className="link-btn save-warning-action" onClick={hideRecoveryNote}>Hide note</button>
             </>
@@ -785,7 +788,7 @@ function App() {
           onReload: staleSave ? () => reloadPage() : undefined,
           recoveryNote: staleSave ? undefined : recoveryNote,
           recoveryAllowed: recoveryCurrent,
-          onRecoveryGone: recoveryChanged,
+          onRecoveryChanged: recoveryChanged,
         }} />
       )}
 
