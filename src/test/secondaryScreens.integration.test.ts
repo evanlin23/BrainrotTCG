@@ -98,6 +98,29 @@ it('enters once: a screen arriving after its placeholder is on screen takes its 
   expect(root('Real Sheet content').classList).not.toContain('sheet-root--settled');
 });
 
+it('waits out the rest of the placeholder entrance on a timer before the screen takes its place', async () => {
+  // jsdom has no stylesheet, so the entrance is 0ms unless the token is set here.
+  document.documentElement.style.setProperty('--dur-slow', '400ms');
+  try {
+    const fixture = await setup();
+    const root = (text: string) => [...document.querySelectorAll('.sheet-root')].find((el) => el.textContent?.includes(text));
+    await app!.interact(() => { button('Open screen').focus(); button('Open screen').click(); });
+    await app!.settle(100); // the placeholder is on screen, part way through its entrance
+    await app!.interact(() => fixture.initial.resolve(fixture.screen));
+    await app!.settle(150);
+    expect(document.querySelector('[role="status"]')?.textContent, 'the placeholder finishes its entrance').toBe('Loading Example…');
+    expect(root('Real Sheet content')).toBeUndefined();
+    await app!.until('the screen takes the placeholder\'s place once its entrance ends', () => expect(root('Real Sheet content')).toBeDefined());
+    expect(document.querySelector('[role="status"]')).toBeNull();
+    expect(root('Real Sheet content')!.classList).toContain('sheet-root--settled');
+    expect(document.activeElement?.getAttribute('role')).toBe('dialog');
+    await app!.interact(() => button('Close').click());
+    expect(document.activeElement).toBe(button('Open screen'));
+  } finally {
+    document.documentElement.style.removeProperty('--dur-slow');
+  }
+});
+
 it('contains an import rejection and retries with a new request without losing the Sheet focus', async () => {
   const fixture = await setup();
   await app!.interact(() => { button('Open screen').focus(); button('Open screen').click(); });
@@ -174,6 +197,54 @@ it('opens the era of the selected pack first in Cards', async () => {
   expect(open).toEqual([selected.name, newest.name]);
 });
 
+it('fetches a page on intent, but not while a pack is opening', async () => {
+  // Every lazy screen request the App makes goes through sheetLoader: record which importer ran.
+  const requested: string[] = [];
+  vi.doMock('../components/ui/sheetEntry', async (importOriginal) => {
+    const original = await importOriginal<typeof import('../components/ui/sheetEntry')>();
+    return {
+      ...original,
+      sheetLoader: <M extends { default: unknown }>(importer: () => Promise<M>) =>
+        original.sheetLoader(() => { requested.push(String(importer)); return importer(); }),
+    };
+  });
+  app = await mountedApp({
+    ...PLAYER('Prefetch fixture'),
+    ...RETURNING,
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+    [STORAGE_KEYS.SELECTED_SET]: 'right-now',
+  }, { tickets: () => ({ delayMs: 4000 }) });
+  await app.mount();
+  const point = (label: string) => {
+    const tab = button(label);
+    tab.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }));
+    tab.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    tab.focus();
+  };
+  expect(requested, 'nothing is fetched at startup').toEqual([]);
+
+  await app.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app.interact(() => {
+    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+  });
+  await app.until('a slow ticket holds the app on the pack', () => expect(document.querySelector('.pack-hint.is-waiting[role="status"]')).not.toBeNull());
+  expect(button('Settings').disabled).toBe(true);
+  await app.interact(() => { point('Cards'); point('Rankings'); });
+  await app.settle(100);
+  expect(requested, 'no page is fetched while a pack opens').toEqual([]);
+
+  await app.until('the ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
+  await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
+  await app.until('the pack lets go of the app', () => expect(button('Settings').disabled).toBe(false));
+  expect(requested).toEqual([]);
+  await app.interact(() => point('Cards'));
+  expect(requested).toHaveLength(1);
+  expect(requested[0]).toContain('CollectionBrowser');
+}, 60_000);
+
 // The App's own Rankings and Profile pages, through the real Page, and its Share sheet, through the real
 // DeferredSheet. Each loader stands in for a chunk a deploy removed while `stale` holds its title, then
 // resolves a stub screen that records the props the App passed. Cards and Settings load for real. (Mocking
@@ -188,6 +259,7 @@ type Seen = { appLoad: Loader; load: Loader; calls: number; size?: string; skele
 afterEach(() => {
   vi.doUnmock('../components/ui/DeferredSheet');
   vi.doUnmock('../components/ui/Page');
+  vi.doUnmock('../components/ui/sheetEntry');
 });
 
 it('mounts the App Rankings and Profile pages and the Share sheet on demand and recovers them from a stale chunk', async () => {
