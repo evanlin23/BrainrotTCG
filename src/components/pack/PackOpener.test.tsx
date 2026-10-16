@@ -152,7 +152,9 @@ describe('the controls under the pack (#312)', () => {
 
   beforeEach(async () => {
     // A test that unmounts mid-pack steps browser history back; let that land before this one starts.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // jsdom takes three chained timer turns (queue, traverse, fire popstate). A Back landing after this
+    // test's tear reads as the player leaving, so the refused ticket would show no refusal.
+    for (let turn = 0; turn < 3; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   });
   afterEach(() => vi.useRealTimers());
