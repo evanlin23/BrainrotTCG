@@ -7,7 +7,8 @@ import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList'
 import { getLatestSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
 import { canShare, previewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
-import { bragText, hallOfFameSubmitUrl, submitToHallOfFame, wasSubmitted } from '../../game/share';
+import { bragText, hallOfFameSubmitUrl } from '../../game/share';
+import { useHallOfFameSubmit } from './useHallOfFameSubmit';
 import { renderPoster } from '../../game/bragImage';
 import Sheet from '../ui/Sheet';
 import PackCardViewer from '../ui/PackCardViewer';
@@ -104,23 +105,12 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
   );
 };
 
-type SubmitState = 'idle' | 'sending' | 'sent' | 'failed';
-
 /**
  * One tap, no account: the pull goes to public relays and a GitHub Action adds it within about 15
  * minutes. The GitHub issue form stays as a fallback.
  */
 const HallOfFameSubmit = ({ proof, id, score, githubUrl }: { proof: string; id: string; score: number; githubUrl: string }) => {
-  const [state, setState] = useState<SubmitState>(() => (wasSubmitted(id) ? 'sent' : 'idle'));
-
-  const submit = async () => {
-    setState('sending');
-    try {
-      setState((await submitToHallOfFame(proof, id, score)) ? 'sent' : 'failed');
-    } catch {
-      setState('failed');
-    }
-  };
+  const [state, submit] = useHallOfFameSubmit(proof, id, score);
 
   const note =
     state === 'sent'

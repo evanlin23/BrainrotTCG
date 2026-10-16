@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { soundVolume } from '../constants/audio';
 
 export interface PreloadedAssets {
   brainrotVoices: HTMLAudioElement[];
@@ -13,11 +14,11 @@ export const useAudio = () => {
   const activeAudioRef = useRef<HTMLAudioElement[]>([]);
 
   /**
-   * Play audio (at `volume`, 0 to 1) and automatically clean up when finished
+   * Play audio (at `volume`, 0 to 1, scaled by the sound's own gain) and automatically clean up when finished
    */
   const playAndCleanup = useCallback((audio: HTMLAudioElement, volume = 1) => {
     const clone = audio.cloneNode() as HTMLAudioElement;
-    clone.volume = volume;
+    clone.volume = soundVolume(audio.getAttribute('src'), volume);
     activeAudioRef.current.push(clone);
 
     clone.onended = () => {
