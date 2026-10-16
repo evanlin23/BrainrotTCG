@@ -96,6 +96,21 @@
   padding-bottom: var(--space-4);
 }
 
+/* A short muted note in a sheet. Many sheets use it, including the Player sheet and broken-link screens. */
+.share-note {
+  display: flex;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.share-note svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
 /* A screen still loading (DeferredSheet) holds roughly its room, so the sheet doesn't jump. */
 .sheet--deferred {
   min-height: min(60dvh, 32rem);

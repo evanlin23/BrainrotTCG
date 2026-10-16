@@ -10,6 +10,7 @@ import { ownedVersions } from '../../game/versions';
 import type { Finish } from '../../engine';
 import type { CollectionItem } from '../../types';
 import '../../styles/Collection.css';
+import '../../styles/CollectionLabel.css';
 
 interface CollectionBrowserProps {
   collection: Record<string, CollectionItem>;

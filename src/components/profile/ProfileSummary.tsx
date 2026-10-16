@@ -10,6 +10,7 @@ import PackCardViewer from '../ui/PackCardViewer';
 import CardImage from '../cards/CardImage';
 import SetBadge from '../sets/SetBadge';
 import Sheet from '../ui/Sheet';
+import '../../styles/Pulls.css';
 import '../../styles/Profile.css';
 
 const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
