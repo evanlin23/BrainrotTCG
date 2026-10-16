@@ -8,11 +8,12 @@ const LIFETIME_MS = 620;
 
 type Sparks = ReturnType<typeof useSparks>;
 let latest: Sparks;
+let renders = 0;
 const Probe = ({ enabled, onRender }: { enabled: boolean; onRender: (sparks: Sparks) => void }) => {
   onRender(useSparks(enabled));
   return null;
 };
-const record = (sparks: Sparks) => { latest = sparks; };
+const record = (sparks: Sparks) => { latest = sparks; renders += 1; };
 
 let reduced = false;
 const motionListeners = new Set<() => void>();
@@ -31,6 +32,7 @@ const emit = () => act(() => latest.emitSpark(40, 60));
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  renders = 0;
   reduced = false;
   motionListeners.clear();
   vi.stubGlobal('matchMedia', (query: string) => ({
@@ -62,7 +64,8 @@ describe('useSparks', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('expires each burst with one timer, leaving a later overlapping burst in place', () => {
+  // One timer serves every burst on screen (#266), where each burst used to have its own.
+  it('expires overlapping bursts with one timer, leaving a later burst in place', () => {
     const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
     render(true);
     const idle = latest.sparks;
@@ -72,8 +75,8 @@ describe('useSparks', () => {
     emit();
     const secondIds = latest.sparks.slice(3).map(spark => spark.id);
     expect(latest.sparks).toHaveLength(6);
-    expect(setTimeoutSpy).toHaveBeenCalledTimes(2);
-    expect(vi.getTimerCount()).toBe(2);
+    expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
 
     act(() => vi.advanceTimersByTime(LIFETIME_MS - 100));
     expect(latest.sparks.map(spark => spark.id)).toEqual(secondIds);
@@ -81,6 +84,47 @@ describe('useSparks', () => {
     expect(vi.getTimerCount()).toBe(1);
 
     act(() => vi.advanceTimersByTime(100));
+    expect(latest.sparks).toBe(idle);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('expires a swipe-long stream of bursts with one timer and a few batched updates (#266)', () => {
+    render(true);
+    const idle = latest.sparks;
+    for (let burst = 0; burst < 60; burst += 1) {
+      emit();
+      expect(vi.getTimerCount()).toBe(1);
+      expect(latest.sparks.length).toBeLessThanOrEqual(220);
+      act(() => vi.advanceTimersByTime(10));
+    }
+    expect(latest.sparks).toHaveLength(180);
+
+    // 60 bursts over 600ms leave in at most one update per 100ms, not one each.
+    const before = renders;
+    for (let elapsed = 0; elapsed < LIFETIME_MS + 100 && latest.sparks !== idle; elapsed += 10) {
+      act(() => vi.advanceTimersByTime(10));
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(1);
+    }
+    expect(latest.sparks).toBe(idle);
+    expect(renders - before).toBeLessThanOrEqual(7);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cancels the expiry timer when cleared', () => {
+    render(true);
+    const idle = latest.sparks;
+    emit();
+    act(() => latest.clearSparks());
+    expect(latest.sparks).toBe(idle);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('still expires a burst when the clock goes back', () => {
+    render(true);
+    const idle = latest.sparks;
+    emit();
+    vi.setSystemTime(Date.now() - 60 * 60 * 1000);
+    act(() => vi.advanceTimersByTime(LIFETIME_MS));
     expect(latest.sparks).toBe(idle);
     expect(vi.getTimerCount()).toBe(0);
   });

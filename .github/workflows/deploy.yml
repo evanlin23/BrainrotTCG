@@ -8,8 +8,11 @@ on:
 # Each job asks for its own token scopes; none is granted by default.
 permissions: {}
 
-# One deploy at a time: a newer push to main cancels this run. With the main-ref guard in site,
-# this is what keeps an older build from publishing over a newer one.
+# One deploy at a time: a newer push to main cancels this run. With the main-ref guard in site
+# and the tip-of-main guard that starts publish and deploy (so re-running a run whose commit main
+# has moved past, or just its publish or deploy job, fails), this is what keeps an older commit's
+# build from publishing over a newer one. Runs on main's current commit, such as Hall of Fame
+# refreshes, are not told apart: re-running an earlier one still passes.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -78,9 +81,10 @@ jobs:
             github; exit 0
           fi
           echo "Cloudflare Pages project $PROJECT: https://$sub/"
-          # SITE_URL may end in / or not; everything after this sees it ending in exactly one.
+          # SITE_URL may end in any number of /; everything after this sees it ending in exactly one.
           url=${CUSTOM_URL:-https://$sub/}
-          { echo "host=cloudflare"; echo "url=${url%/}/"; echo "base=/"; } >> "$GITHUB_OUTPUT"
+          while [ "${url%/}" != "$url" ]; do url=${url%/}; done
+          { echo "host=cloudflare"; echo "url=$url/"; echo "base=/"; } >> "$GITHUB_OUTPUT"
 
   build:
     # Runs the app's dependencies, so it gets no secrets and a read-only token.
@@ -154,6 +158,8 @@ jobs:
           mkdir release
           mv dist release/dist
           python3 -I scripts/deploy_contract.py seal release >> "$GITHUB_OUTPUT"
+      # Kept one day, like the Pages upload below: publish and deploy only take this run's uploads,
+      # so a re-run more than a day later must re-run all jobs, starting from build.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         id: handoff
         if: needs.site.outputs.host == 'cloudflare'
@@ -175,6 +181,17 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Fails a re-run whose commit main has moved past, which would put an older build over a newer
+      # one (see concurrency). It compares commits, not runs: Hall of Fame refreshes start several runs
+      # on one commit, so re-running an earlier one still passes and serves its older list until the next.
+      - name: Require the tip of main
+        if: needs.site.outputs.host == 'cloudflare'
+        run: |
+          tip=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | awk '$2 == "refs/heads/main" {print $1}')
+          if [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::error::Not publishing $GITHUB_SHA: main is now at ${tip:-a commit this job could not read}. Re-running a deploy whose commit is no longer main's tip would put an older build over a newer one. If no newer deploy run is in progress, start this workflow on main by hand (Actions > Deploy to GitHub Pages > Run workflow)."
+            exit 1
+          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: needs.site.outputs.host == 'cloudflare'
         with:
@@ -235,5 +252,15 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Fails a re-run whose commit main has moved past, which would put an older build over a newer
+      # one (see concurrency). It compares commits, not runs: Hall of Fame refreshes start several runs
+      # on one commit, so re-running an earlier one still passes and serves its older list until the next.
+      - name: Require the tip of main
+        run: |
+          tip=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | awk '$2 == "refs/heads/main" {print $1}')
+          if [ "$tip" != "$GITHUB_SHA" ]; then
+            echo "::error::Not publishing $GITHUB_SHA: main is now at ${tip:-a commit this job could not read}. Re-running a deploy whose commit is no longer main's tip would put an older build over a newer one. If no newer deploy run is in progress, start this workflow on main by hand (Actions > Deploy to GitHub Pages > Run workflow)."
+            exit 1
+          fi
       - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
         id: deployment

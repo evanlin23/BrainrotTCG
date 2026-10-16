@@ -34,8 +34,8 @@ let cutter: Cutter;
 let onCutComplete: ReturnType<typeof vi.fn<() => void>>;
 let onMiss: ReturnType<typeof vi.fn<() => void>>;
 
-const Probe = ({ hold, disabled = false }: { hold: (cutter: Cutter) => void; disabled?: boolean }) => {
-  const latest = usePackCutter({ onCutComplete, onMiss, isOpening: false, isPackCut: false, volume: 0, particlesEnabled: false, disabled });
+const Probe = ({ hold, disabled = false, particles = false }: { hold: (cutter: Cutter) => void; disabled?: boolean; particles?: boolean }) => {
+  const latest = usePackCutter({ onCutComplete, onMiss, isOpening: false, isPackCut: false, volume: 0, particlesEnabled: particles, disabled });
   const { packRef } = latest;
   useEffect(() => hold(latest));
   return <div ref={packRef} />;
@@ -345,5 +345,162 @@ describe('usePackCutter with more than one finger', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
     up(at(0.6), { pointerId: 2 });
     expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('usePackCutter frame batching (#266)', () => {
+  /** Frames requested and not yet run or cancelled. */
+  let frames: Map<number, FrameRequestCallback>;
+  /** Commits of the probe since the count was last reset. */
+  let commits: number;
+
+  /** Runs the frames requested so far, as the browser's next frame would. */
+  const runFrame = () => act(() => {
+    const queued = [...frames.values()];
+    frames.clear();
+    for (const callback of queued) callback(Date.now());
+  });
+
+  /** Re-renders the probe counting its commits, with sparks on or off. */
+  const renderCounting = (particles: boolean) => act(() => root.render(
+    <Probe hold={(latest) => { cutter = latest; commits += 1; }} particles={particles} />,
+  ));
+
+  /** Cut-line x of each drawn point, as a percentage of the pack's width. */
+  const drawnX = () => cutter.cutPoints.map((point) => Math.round(point.x));
+  const coalesced = (...points: Point[]) => ({ getCoalescedEvents: () => points as unknown as PointerEvent[] });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    frames = new Map();
+    let nextFrame = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      nextFrame += 1;
+      frames.set(nextFrame, callback);
+      return nextFrame;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (frame: number) => { frames.delete(frame); });
+    commits = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('draws the moves between two frames in one update, keeping every point', () => {
+    renderCounting(false);
+    down(at(0.3));
+    expect(drawnX()).toEqual([30]);
+    commits = 0;
+    move(at(0.32));
+    move(at(0.36), coalesced(at(0.34), at(0.36)));
+    move(at(0.38));
+    expect(commits).toBe(0);
+    expect(drawnX()).toEqual([30]);
+    expect(frames.size).toBe(1);
+
+    runFrame();
+    expect(commits).toBe(1);
+    expect(drawnX()).toEqual([30, 32, 34, 36, 38]);
+    expect(frames.size).toBe(0);
+  });
+
+  it('draws one spark burst a frame, at the latest point', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // no spark jitter
+    renderCounting(true);
+    down(at(0.3));
+    const burst = cutter.sparks.length;
+    expect(burst).toBeGreaterThan(0);
+    vi.advanceTimersByTime(16);
+    commits = 0;
+    move(at(0.32));
+    move(at(0.34));
+    move(at(0.36));
+    expect(cutter.sparks).toHaveLength(burst);
+
+    runFrame();
+    expect(commits).toBe(1);
+    expect(cutter.sparks).toHaveLength(2 * burst);
+    expect(cutter.sparks[burst].x).toBeCloseTo(0.36 * rect.width);
+  });
+
+  it('decides the cut from points no frame has drawn yet', () => {
+    renderCounting(false);
+    down(at(0.3));
+    move(at(0.42));
+    move(at(0.55));
+    move(at(0.4));
+    expect(drawnX()).toEqual([30]);
+    up(at(0.4));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+    expect(frames.size).toBe(0);
+  });
+
+  it('opens mid-drag on the move that reaches 45%, and drops its frame', () => {
+    renderCounting(true);
+    down(at(0.2));
+    move(at(0.4));
+    expect(frames.size).toBe(1);
+    move(at(0.66));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+    expect(frames.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(cutter.cutPoints).toEqual([]);
+    expect(cutter.sparks).toHaveLength(0);
+  });
+
+  it('measures the pack once per press, and again after a resize or a scroll', () => {
+    const pack = container.firstElementChild as HTMLDivElement;
+    const measure = vi.spyOn(pack, 'getBoundingClientRect');
+    down(at(0.3));
+    move(at(0.32));
+    move(at(0.34));
+    expect(measure).toHaveBeenCalledTimes(1);
+
+    act(() => { window.dispatchEvent(new Event('resize')); });
+    move(at(0.36));
+    move(at(0.38));
+    expect(measure).toHaveBeenCalledTimes(2);
+
+    // Scrolling any element can move the pack; scroll events don't bubble, so this is caught early.
+    act(() => { document.body.dispatchEvent(new Event('scroll')); });
+    up(at(0.4));
+    expect(measure).toHaveBeenCalledTimes(3);
+
+    down(at(0.3));
+    expect(measure).toHaveBeenCalledTimes(4);
+  });
+
+  const exits: [string, () => void][] = [
+    ['a release', () => up(at(0.33))],
+    ['a cancel', () => act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.33))))],
+    ['blur or a hidden page', () => act(() => cutter.endCutAttempt())],
+    ['a reset', () => act(() => cutter.resetCutState())],
+    ['unmount', () => {
+      act(() => root.unmount());
+      root = createRoot(container);
+    }],
+  ];
+
+  it.each(exits)('cancels its frame and spark timer on %s', (_exit, end) => {
+    renderCounting(true);
+    down(at(0.3));
+    vi.advanceTimersByTime(16);
+    move(at(0.33));
+    expect(frames.size).toBe(1);
+    expect(vi.getTimerCount()).toBe(1);
+
+    end();
+    expect(frames.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('stops listening for resizes and scrolls on unmount', () => {
+    const removed = vi.spyOn(window, 'removeEventListener');
+    act(() => root.unmount());
+    root = createRoot(container);
+    expect(removed.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(['resize', 'scroll']));
   });
 });

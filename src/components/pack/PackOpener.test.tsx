@@ -8,7 +8,7 @@ import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 
 // The swipe is driven by hand: `cutter.cutting` says whether the player is mid-swipe, `cutter.tear` finishes one.
-const cutter = vi.hoisted(() => ({ cutting: false, tear: () => {} }));
+const cutter = vi.hoisted(() => ({ cutting: false, tear: () => {}, endCutAttempt: vi.fn() }));
 vi.mock('../../hooks/usePackCutter', () => ({
   usePackCutter: ({ onCutComplete }: { onCutComplete: () => void }) => {
     cutter.tear = onCutComplete;
@@ -22,7 +22,7 @@ vi.mock('../../hooks/usePackCutter', () => ({
       handlePointerDown: () => {},
       handlePointerMove: () => {},
       handlePointerEnd: () => {},
-      endCutAttempt: () => {},
+      endCutAttempt: cutter.endCutAttempt,
       cleanup: () => {},
     };
   },
@@ -41,6 +41,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   resetAdmission();
   cutter.cutting = false;
+  cutter.endCutAttempt.mockReset();
   root = createRoot(document.body.appendChild(document.createElement('div')));
 });
 
@@ -91,5 +92,38 @@ describe('focus mode', () => {
 
     act(() => root.unmount());
     expect(onFocusChange.mock.calls).toEqual([[false]]);
+  });
+});
+
+describe('a stroke cut short by leaving the page (#266)', () => {
+  const setVisibility = (state: DocumentVisibilityState) =>
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+
+  afterEach(() => {
+    // Drop the own property so jsdom's own getter answers again.
+    delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState;
+  });
+
+  it('ends the stroke when the window loses focus or the page is hidden, not when it shows again', async () => {
+    await render(false);
+    window.dispatchEvent(new Event('blur'));
+    expect(cutter.endCutAttempt).toHaveBeenCalledOnce();
+
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(cutter.endCutAttempt).toHaveBeenCalledTimes(2);
+
+    setVisibility('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(cutter.endCutAttempt).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops listening once the opener unmounts', async () => {
+    await render(false);
+    act(() => root.unmount());
+    setVisibility('hidden');
+    window.dispatchEvent(new Event('blur'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(cutter.endCutAttempt).not.toHaveBeenCalled();
   });
 });

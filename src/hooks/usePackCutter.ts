@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { useSparks } from './useSparks';
-import { mapPackPointer } from './packCutCoordinates';
+import { mapPackPointer, type PackLayout, type PackRect } from './packCutCoordinates';
 import { FAIRY_DUST_SRC, WOOSH_SRC } from '../constants/audio';
 
 // Pack cutting constants
@@ -46,6 +46,13 @@ const pointsOf = (event: PointerEvent): { clientX: number; clientY: number }[] =
   return coalesced.length > 0 ? coalesced : [event];
 };
 
+/** The pack's box and layout size as measured at a press, reused for that press's moves. */
+interface PackMeasure {
+  pack: HTMLElement;
+  rect: PackRect;
+  layout: PackLayout;
+}
+
 interface UsePackCutterOptions {
   onCutComplete: () => void;
   isOpening: boolean;
@@ -84,29 +91,98 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
    */
   const blockedRef = useRef(false);
   const fairyDustRef = useRef<HTMLAudioElement | null>(null);
+  /**
+   * The pack as measured at this press. Moves reuse it instead of forcing a layout read each time
+   * (#266); a press, a resize or a scroll measures again.
+   */
+  const measureRef = useRef<PackMeasure | null>(null);
+  /**
+   * Moves only extend the stroke (which decides the cut) right away. The points they add to the cut
+   * line and the spark at the latest one wait here for the next animation frame, which draws them in
+   * one batched update however many moves arrived since the last (#266).
+   */
+  const frameRef = useRef<number | null>(null);
+  const pendingCutsRef = useRef<CutPoint[]>([]);
+  const pendingSparkRef = useRef<CutPoint | null>(null);
+  const emitSparkRef = useRef(emitSpark);
+  useLayoutEffect(() => {
+    emitSparkRef.current = emitSpark;
+  }, [emitSpark]);
+
+  /** Drop a frame that hasn't drawn yet, and what it would have drawn. */
+  const cancelFrame = useCallback(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+    pendingCutsRef.current = [];
+    pendingSparkRef.current = null;
+  }, []);
+
+  const drawFrame = useCallback(() => {
+    frameRef.current = null;
+    const cuts = pendingCutsRef.current;
+    const spark = pendingSparkRef.current;
+    pendingCutsRef.current = [];
+    pendingSparkRef.current = null;
+    if (cutCompletedRef.current || !strokeRef.current || cuts.length === 0) return;
+    setCutPoints((prev) => {
+      const next = prev.concat(cuts);
+      return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
+    });
+    if (spark) emitSparkRef.current(spark.x, spark.y);
+  }, []);
+
+  // A resize or a scroll can move the pack under a press: measure it again at the next point.
+  // Unmounting drops a frame that hasn't drawn.
+  useEffect(() => {
+    const remeasure = () => { measureRef.current = null; };
+    window.addEventListener('resize', remeasure);
+    window.addEventListener('scroll', remeasure, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('resize', remeasure);
+      window.removeEventListener('scroll', remeasure, { capture: true });
+      cancelFrame();
+    };
+  }, [cancelFrame]);
 
   const resetCutState = useCallback(() => {
+    cancelFrame();
+    measureRef.current = null;
     setIsCutting(false);
     setCutPoints([]);
     clearSparks();
     strokeRef.current = null;
     cutCompletedRef.current = false;
-  }, [clearSparks]);
+  }, [clearSparks, cancelFrame]);
 
-  const getLocalPoint = useCallback((clientX: number, clientY: number) => {
+  const measurePack = useCallback((): PackMeasure | null => {
     const pack = packRef.current;
     if (!pack) return null;
-    const rect = pack.getBoundingClientRect();
+    if (measureRef.current?.pack !== pack) {
+      const { left, top, width, height } = pack.getBoundingClientRect();
+      measureRef.current = {
+        pack,
+        rect: { left, top, width, height },
+        layout: { clientWidth: pack.clientWidth, clientHeight: pack.clientHeight },
+      };
+    }
+    return measureRef.current;
+  }, []);
+
+  const getLocalPoint = useCallback((clientX: number, clientY: number) => {
+    const measure = measurePack();
+    if (!measure) return null;
+    const { rect, layout } = measure;
     return {
-      ...mapPackPointer(clientX, clientY, rect, pack, CUT_LINE_RATIO),
+      ...mapPackPointer(clientX, clientY, rect, layout, CUT_LINE_RATIO),
       tearY: rect.height * TEAR_LINE_RATIO,
       tolerance: Math.min(52, Math.max(26, rect.height * 0.08)),
     };
-  }, []);
+  }, [measurePack]);
 
   const completeCut = useCallback(() => {
     if (cutCompletedRef.current) return;
 
+    cancelFrame();
     cutCompletedRef.current = true;
     setIsCutting(false);
     setCutPoints([]);
@@ -121,13 +197,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     }
 
     onCutComplete();
-  }, [onCutComplete, clearSparks, volume]);
+  }, [onCutComplete, clearSparks, cancelFrame, volume]);
 
   /**
    * Follow one pointer position. A stroke starts where a press reaches the tear line; after that,
    * any point over the pack's height counts (x past an edge counts as that edge), so a slanted swipe
    * still cuts and drifting off the line doesn't end it. A release point is only measured (`draw`
-   * false): the cut line and sparks end with the press.
+   * false): the cut line and sparks end with the press. A stroke's start draws at once; its later
+   * points count toward the cut at once and are drawn at the next frame.
    */
   const trackPoint = useCallback((clientX: number, clientY: number, draw = true) => {
     if (cutCompletedRef.current || isOpening || isPackCut) return;
@@ -167,18 +244,21 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     stroke.maxY = Math.max(stroke.maxY, point.y);
     if (!draw) return;
 
-    setCutPoints((prev) => {
-      const next = [...prev, cut];
-      return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
-    });
-    emitSpark(spark.x, spark.y);
-
     if (strokeCuts(stroke, point.width, DRAG_CUT_RATIO)) {
       completeCut();
+      return;
     }
-  }, [isOpening, isPackCut, getLocalPoint, emitSpark, completeCut, volume]);
+
+    const pending = pendingCutsRef.current;
+    pending.push(cut);
+    if (pending.length > MAX_CUT_POINTS) pending.shift();
+    pendingSparkRef.current = spark;
+    if (frameRef.current === null) frameRef.current = requestAnimationFrame(drawFrame);
+  }, [isOpening, isPackCut, getLocalPoint, emitSpark, completeCut, drawFrame, volume]);
 
   const endCutAttempt = useCallback(() => {
+    cancelFrame();
+    measureRef.current = null;
     setIsCutting(false);
     isPointerDownRef.current = false;
     ownerRef.current = null;
@@ -194,7 +274,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     if (!cutCompletedRef.current) {
       setCutPoints([]);
     }
-  }, [clearSparks]);
+  }, [clearSparks, cancelFrame]);
 
   const handlePointerDown = useCallback((event: PointerEvent) => {
     if (event.button !== 0) return;
@@ -216,6 +296,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       blockedRef.current = true;
       return;
     }
+    measureRef.current = null;
     const point = getLocalPoint(event.clientX, event.clientY);
     // A press beside the pack, dragged onto it, doesn't cut either.
     if (!point || point.x < 0 || point.x > point.width || point.y < 0 || point.y > point.height) {
@@ -242,12 +323,12 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     if (event?.type === 'pointerup' && strokeRef.current && !disabled && !isOpening && !isPackCut) {
       // The release point (and any coalesced into it) counts, so a flick with no moves still cuts.
       for (const { clientX, clientY } of [...pointsOf(event), event]) trackPoint(clientX, clientY, false);
-      const pack = packRef.current;
+      const width = measurePack()?.rect.width;
       const stroke = strokeRef.current;
-      if (pack && stroke && strokeCuts(stroke, pack.getBoundingClientRect().width, RELEASE_CUT_RATIO)) completeCut();
+      if (width !== undefined && stroke && strokeCuts(stroke, width, RELEASE_CUT_RATIO)) completeCut();
     }
     endCutAttempt();
-  }, [disabled, isOpening, isPackCut, trackPoint, completeCut, endCutAttempt]);
+  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt]);
 
   const cleanup = useCallback(() => {
     if (fairyDustRef.current) {
