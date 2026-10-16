@@ -132,11 +132,12 @@ describe('the card leaving', () => {
     expect(leaving.hasAttribute('inert')).toBe(false);
     expect(leaving.hasAttribute('aria-hidden')).toBe(false);
     render(meta({ uniqueId: 2 }), 1);
-    // Still on screen for its exit, but inert, so neither Tab nor a screen reader reaches it.
+    // Still on screen for its exit, but inert, so neither Tab nor a screen reader reaches it. Not
+    // aria-hidden, which Chrome blocks while the card still has focus.
     expect(leaving.isConnected).toBe(true);
     expect(cardButton()).not.toBe(leaving);
     expect(leaving.hasAttribute('inert')).toBe(true);
-    expect(leaving.getAttribute('aria-hidden')).toBe('true');
+    expect(leaving.hasAttribute('aria-hidden')).toBe(false);
     // The card that replaces it is the reveal's button.
     expect(cardButton().hasAttribute('inert')).toBe(false);
     expect(cardButton().hasAttribute('aria-hidden')).toBe(false);

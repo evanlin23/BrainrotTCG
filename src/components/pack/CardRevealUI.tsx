@@ -12,10 +12,14 @@ import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS } from '../../ga
 
 const Motion = motion;
 
-/** The card on top. One leaving keeps its last props for its exit, so it is inert until it has gone. */
+/**
+ * The card on top. One leaving keeps its last props for its exit, so it is inert until it has gone:
+ * out of the Tab order and the accessibility tree. Not aria-hidden too, since it can still hold focus
+ * for a moment, until the next card takes it, and Chrome blocks aria-hidden over a focused element.
+ */
 const RevealCard = (props: ComponentPropsWithRef<typeof Motion.div>) => {
   const present = useIsPresent();
-  return <Motion.div {...props} inert={!present || undefined} aria-hidden={!present || undefined} />;
+  return <Motion.div {...props} inert={!present || undefined} />;
 };
 
 interface CardRevealUIProps {

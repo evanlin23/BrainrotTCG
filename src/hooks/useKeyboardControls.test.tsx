@@ -154,8 +154,8 @@ describe('modifier keys', () => {
 });
 
 describe('a held Space', () => {
-  const space = (type: 'keydown' | 'keyup') => act(() => {
-    document.body.dispatchEvent(new KeyboardEvent(type, { key: ' ', code: 'Space', bubbles: true, cancelable: true }));
+  const space = (type: 'keydown' | 'keyup', init: KeyboardEventInit = {}) => act(() => {
+    document.body.dispatchEvent(new KeyboardEvent(type, { key: ' ', code: 'Space', bubbles: true, cancelable: true, ...init }));
   });
   const wait = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
   beforeEach(() => { vi.useFakeTimers(); });
@@ -191,5 +191,74 @@ describe('a held Space', () => {
     render({ handleInteractionRef: { current: interact }, showSummary: true });
     wait(1000);
     expect(interact).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops when the window loses focus before it repeats, as its keyup never comes', () => {
+    const interact = vi.fn();
+    render({ handleInteractionRef: { current: interact } });
+    space('keydown');
+    wait(200);
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    wait(1000);
+    expect(interact).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops when the pack goes away before it repeats', () => {
+    const interact = vi.fn();
+    render({ handleInteractionRef: { current: interact } });
+    space('keydown');
+    wait(200);
+    act(() => root?.unmount());
+    root = null;
+    wait(1000);
+    expect(interact).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs one chain however many times Space goes down while held', () => {
+    const interact = vi.fn();
+    render({ handleInteractionRef: { current: interact } });
+    space('keydown');
+    wait(100);
+    // A second press without a keyup between (another keyboard, or a lost keyup) neither acts nor restarts the delay.
+    space('keydown');
+    expect(interact).toHaveBeenCalledTimes(1);
+    wait(300);
+    expect(interact).toHaveBeenCalledTimes(2);
+    // The system's own key repeat adds nothing either.
+    for (let n = 0; n < 5; n++) space('keydown', { repeat: true });
+    wait(150);
+    expect(interact).toHaveBeenCalledTimes(3);
+    space('keyup');
+    wait(1000);
+    expect(interact).toHaveBeenCalledTimes(3);
+
+    // Nor does it start a chain once the hold has stopped: only a fresh press does.
+    space('keydown', { repeat: true });
+    wait(1000);
+    expect(interact).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops for a sheet opened over the pack, or the pack turning disabled', () => {
+    const interact = vi.fn();
+    render({ handleInteractionRef: { current: interact } });
+    space('keydown');
+    wait(400);
+    expect(interact).toHaveBeenCalledTimes(2);
+    const dialog = add(document.createElement('div'));
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    wait(1000);
+    // And it stays stopped once the sheet closes, until Space is pressed again.
+    dialog.remove();
+    wait(1000);
+    expect(interact).toHaveBeenCalledTimes(2);
+    space('keyup');
+
+    space('keydown');
+    wait(400);
+    expect(interact).toHaveBeenCalledTimes(4);
+    render({ handleInteractionRef: { current: interact }, disabled: true });
+    wait(1000);
+    expect(interact).toHaveBeenCalledTimes(4);
   });
 });

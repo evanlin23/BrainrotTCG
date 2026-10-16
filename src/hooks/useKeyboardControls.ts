@@ -22,6 +22,9 @@ const HOLD_DELAY_MS = 400;
 /** Then it moves on a card this often. */
 const HOLD_REPEAT_MS = 150;
 
+/** A sheet open over the pack, whose buttons need these keys. */
+const sheetOpen = () => document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+
 /**
  * Space or Enter does the next thing: open the pack, flip, next card, next pack. Holding Space runs
  * through the cards. Escape leaves a pack at any stage. With Ctrl, Cmd or Alt held, none of these
@@ -47,6 +50,11 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
 
     const repeatAfter = (ms: number) => {
       spaceTimerRef.current = setTimeout(() => {
+        // A sheet opened over the pack, or the pack turned disabled, ends the hold: a press would be ignored now too.
+        if (latest.current.disabled || sheetOpen()) {
+          stopHold();
+          return;
+        }
         latest.current.handleInteractionRef.current();
         if (spaceHeldRef.current) repeatAfter(HOLD_REPEAT_MS);
       }, ms);
@@ -57,7 +65,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       // Ignore if disabled, or if a sheet is open over the pack (its buttons need these keys), or if
       // focus is on a control that Space or Enter already activates.
       if (disabled) return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      if (sheetOpen()) return;
       // Ctrl, Cmd and Alt combos belong to the browser and the system (Ctrl+Enter, Alt+Space), never the pack.
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
