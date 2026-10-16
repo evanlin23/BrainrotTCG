@@ -197,11 +197,15 @@ describe('watching the player from other tabs', () => {
 describe('claiming the next ticket number', () => {
   const ORIGINAL_KEY = toHex(publicKeyFromSecret(fromHex(original.secretKey)));
   const stored = () => JSON.parse(store.get(PLAYER_KEY)!);
-  /** Web Locks as a browser grants them: one holder per name, across tabs, until its callback settles. */
+  /**
+   * Web Locks as a browser grants them: one holder per name, across tabs, until its callback settles. A
+   * request waits for the holder to let go, or with ifAvailable is turned away at once.
+   */
   const fakeLocks = (beforeGrant?: (name: string) => void) => {
     const held = new Set<string>();
-    const request = vi.fn(async (name: string, _options: { ifAvailable?: boolean }, callback: (lock: { name: string } | null) => unknown) => {
+    const request = vi.fn(async (name: string, options: { ifAvailable?: boolean }, callback: (lock: { name: string } | null) => unknown) => {
       await Promise.resolve();
+      while (held.has(name) && !options.ifAvailable) await new Promise((resolve) => setTimeout(resolve, 0));
       if (held.has(name)) return callback(null);
       held.add(name);
       beforeGrant?.(name);
@@ -281,6 +285,45 @@ describe('claiming the next ticket number', () => {
     const claims = await Promise.all([player.claimNonce(), player.claimNonce()]);
     expect(claims.map((c) => [c.nonce, c.stored])).toEqual([[12, true], [13, true]]);
     expect(stored().nextNonce).toBe(14);
+  });
+
+  it('leaves no number unused when two tabs claim at once', async () => {
+    // A number skipped is a gap in the history, and a profile proof can't cover a gap.
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const locks = fakeLocks();
+    // A slow query() leaves time for the other tab's claim to start meanwhile.
+    const query = vi.fn(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); return locks.query(); });
+    vi.stubGlobal('navigator', { locks: { request: locks.request, query } });
+    vi.resetModules();
+    const tabA = await import('./player');
+    vi.resetModules();
+    const tabB = await import('./player');
+    const claims = await Promise.all([tabA.claimNonce(), tabB.claimNonce()]);
+    expect(claims.map((c) => c.nonce).sort((a, b) => a - b)).toEqual([12, 13]);
+    expect(stored().nextNonce).toBe(14);
+  });
+
+  it('still takes turns and never repeats a number where Web Locks lack query(), falling back from the last number tried', async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const locks = fakeLocks();
+    const lock = (nonce: number) => `brainrot-ticket:${ORIGINAL_KEY}:${nonce}`;
+    // Another tab holds 12 and 13.
+    locks.held.add(lock(12)).add(lock(13));
+    vi.stubGlobal('navigator', { locks: { request: locks.request } });
+    const claims = await Promise.all([player.claimNonce(), player.claimNonce()]);
+    expect(claims.map((c) => c.nonce).sort((a, b) => a - b)).toEqual([14, 15]);
+    expect(stored().nextNonce).toBe(16);
+    expect(console.error).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(locks.held).toEqual(new Set([lock(12), lock(13), lock(15)])));
+
+    // A lock request that fails: on from the last number tried, past the ones it saw held.
+    locks.held.add(lock(16)).add(lock(17));
+    const request = vi.fn((name: string, options: { ifAvailable?: boolean }, callback: (lock: { name: string } | null) => unknown) =>
+      name === lock(18) ? Promise.reject(new DOMException('Timed out', 'AbortError')) : locks.request(name, options, callback));
+    vi.stubGlobal('navigator', { locks: { request } });
+    expect((await player.claimNonce()).nonce).toBe(18);
+    expect(console.error).toHaveBeenCalledWith('Could not hold a ticket number', expect.any(DOMException));
+    expect(stored().nextNonce).toBe(19);
   });
 
   it('moves past a number another tab stored while this one waited for its lock', async () => {
