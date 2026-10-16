@@ -7,6 +7,8 @@ import { CARD_FLIP_SRC } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import type { Settings } from '../../types';
+import type { SetDefinition } from '../../engine';
+import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import KeptAsideActions from '../ui/KeptAsideActions';
 import '../../styles/Settings.css';
@@ -26,10 +28,12 @@ interface SettingsPageProps {
     recoveryAllowed?: () => boolean;
     /** What's kept aside changed (discarded here, or more kept aside meanwhile); the app refreshes what it shows. */
     onRecoveryChanged?: () => void;
+    /** The pack being opened: Help's card guide shows its odds. */
+    guideSet?: SetDefinition;
 }
 
-/** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help. */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged }: SettingsPageProps) => {
+/** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
@@ -270,7 +274,10 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             </section>
             <section className="settings-group" aria-labelledby="settings-help">
                 <h2 id="settings-help" className="section-title">Help</h2>
-                <button type="button" className="btn btn--secondary" onClick={() => setReporting(true)}>Report a problem</button>
+                <div className="settings-help-actions">
+                    {guideSet && <CardGuideButton set={guideSet} className="btn btn--secondary" />}
+                    <button type="button" className="btn btn--secondary" onClick={() => setReporting(true)}>Report a problem</button>
+                </div>
             </section>
             {reporting && <DiagnosticReport onClose={() => setReporting(false)} />}
         </div>

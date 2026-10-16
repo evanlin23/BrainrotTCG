@@ -12,6 +12,8 @@ from a 390 px wide screen.
    pack; during a reveal it's the next card; in the summary it's opening another pack. Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is only the logo, the
    gear and the pack: the tabs and the era picker come once their first pack is saved and they leave it.
+   A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
+   away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
    The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
    an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
@@ -113,7 +115,8 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   current one marked `aria-current="page"`. A fixed bottom bar on phones (under 900px, with
   safe-area padding) and part of the header from 900px; 44px targets. It stays hidden for a new
   player until their first pack is saved (#222) and while a pack is open. The header's gear
-  ("Settings") opens the Settings page: Sound & display, Save & backup, Help.
+  ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
+  problem).
 - **Profile** (`profile/ProfilePage.tsx`): name and the save note ("Name and rewards"), level and
   stats, best pulls, then the Achievements section (`#achievements`), which achievement toasts link
   to. Its shareable image is the "Profile card"; "Player ID" stays the name of the key's fingerprint,
