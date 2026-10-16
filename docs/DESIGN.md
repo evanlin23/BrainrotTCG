@@ -98,6 +98,10 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Focus.** One ring for every control: `:focus-visible` draws `--focus-ring` as a box-shadow over
   the transparent `--focus-outline`, which forced colours paint instead. No control sets its own ring
   or `outline: none`; one with its own box-shadow appends `var(--focus-shadow)`, empty until focused.
+  Focus the app moves by script (next card, result, dialog) shows no ring once a mouse, pen or touch
+  press was the last input (`data-input="pointer"`, `components/ui/inputModality.ts`); Tab or an app
+  key brings it back. Covers `[tabindex=-1]` and `.quiet-focus` targets; mark such a control
+  `.quiet-focus` and draw its ring with `var(--focus-shadow)`.
 - **Disabled.** `--opacity-disabled` with `cursor: not-allowed` and a dashed edge (the border, or an
   inset dashed outline on a borderless button), so colour is never the only cue.
 - **Size.** `.btn--sm` keeps the 44 px `--touch-target`. Text never goes under 12 px (`--text-xs`);
@@ -153,9 +157,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   scroll lock, focus returns to the opener. Sheets stack (a card opened from the collection sits on
   top of it). Sizes: `sm` (the scoring guide, short notices such as an invalid link, Report a
   problem), `md` (one pull, share previews, the pack behind an achievement), `lg` (shared profiles,
-  pack shelf), `full` (full-viewport variant, unused for now); `bare` for a single big card (the card
-  viewer), which also closes on a tap on its empty space or the backdrop, never on the card or its
-  text (a press must start and end there, so selecting the text never closes it).
+  pack shelf), `full` (full-viewport variant, unused for now). The `bare` prop drops the panel for a
+  single big card (the card viewer), which also closes on a tap on its empty space or the backdrop,
+  never on the card or its text (a press must start and end there, so selecting the text never
+  closes it).
 - **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one page holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.
