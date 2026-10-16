@@ -349,12 +349,14 @@ unless the other tab has taken and stored them, so putting them back could add t
 refuses the put-back, the save warning stays up and the next change or storage event tries again.
 Settings stay last-writer-wins.
 Ticket numbers (`src/game/player.ts` `claimNonce`) are claimed under a Web Lock named for the
-player's public key and the number, held until the tab closes, so two tabs never spend one number
-even when one tab's storage read lags; where Web Locks are missing or refuse (insecure pages, older
-browsers) a tab counts on its own. A tab never hands out a number below its own count for the same
-key (exports carry that count too), rewrites the stored count while the app watches the player
-(`watchPlayer`) when another tab's lower one lands later, and shows the save warning when storage
-refuses the new count (after a reload that number could be handed out again).
+player's public key and the number, so two tabs never spend one number even when one tab's storage
+read lags. A tab holds the lock of the highest number it took per key until it closes and lets the
+lower ones go; a claim skips any number below a lock another tab holds. Where Web Locks are missing
+or refuse (insecure pages, older browsers) a tab counts on its own, past any number it saw taken.
+A tab never hands out a number below its own count for the same key (exports carry that count too),
+rewrites the stored count while the app watches the player (`watchPlayer`) when another tab's lower
+one lands later, and shows the save warning when storage refuses the new count or that rewrite
+(after a reload that number could be handed out again).
 Limits: progress writes have no lock across tabs, so two tabs of one player writing in the same instant can
 both pass that check (the later write replaces the earlier, whose pack stays in the history; the
 earlier tab then hears the write and stops), and a tab that writes before an import's stamp reaches
