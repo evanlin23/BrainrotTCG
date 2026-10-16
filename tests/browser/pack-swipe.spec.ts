@@ -8,7 +8,7 @@ import { monitor, expectDecoded, fingerFor, type Finger } from './support';
 async function sealedPack(page: Page) {
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const packShell = page.locator('.pack-shell');
   await expectDecoded(packShell.locator('img'), 2);
   await packShell.scrollIntoViewIfNeeded();
   return packShell;

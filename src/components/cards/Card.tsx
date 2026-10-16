@@ -23,7 +23,8 @@ export interface CardWithMeta extends CardType {
 interface CardProps {
     card: CardWithMeta;
     isFlipped: boolean;
-    onFlip: () => void;
+    /** A click on the card. The reveal leaves it out: its card is a button that handles the click itself. */
+    onFlip?: () => void;
     slowFlip?: boolean;
     /** Before the flip, light the back's edge in the card's rarity colour (rare and up). */
     tell?: boolean;

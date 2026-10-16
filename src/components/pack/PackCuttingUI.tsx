@@ -1,22 +1,28 @@
 import { MoveHorizontal } from 'lucide-react';
-import { RefObject } from 'react';
+import type { Ref, RefObject } from 'react';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
 import type { Spark } from '../../hooks/useSparks';
 import type { SetDefinition } from '../../engine';
 import { seamBands } from './seamTrail';
+import { REFUSAL_COPY, type PackRefusal } from './refusal';
 
 interface PackCuttingUIProps {
   packRef: RefObject<HTMLDivElement | null>;
   packDesign: string;
   set: SetDefinition;
-  error: string | null;
+  /** The last tear didn't open a pack: say why, with a way to try again, in place of the Open pack button. */
+  refusal?: PackRefusal | null;
+  /** Opens the pack exactly as a finished swipe does: the control for a tap, a click, a key or a screen reader. */
+  onOpen: () => void;
+  /** The refusal's button: open again, or reload for a save another tab changed. */
+  onRetry?: () => void;
+  openButtonRef?: Ref<HTMLButtonElement>;
+  retryButtonRef?: Ref<HTMLButtonElement>;
   isCutting: boolean;
   /** A press landed on the tear line and hasn't gone across yet: light the line under it. */
   pressing?: boolean;
   isPackCut: boolean;
-  /** The pack can't be opened now (the app's banner says why). */
-  blocked?: boolean;
   /** The pack is torn but its ticket is still being worked out (a slow phone). */
   waiting?: boolean;
   /** A press just missed the tear line: show where to swipe. */
@@ -31,11 +37,14 @@ const PackCuttingUI = ({
   packRef,
   packDesign,
   set,
-  error,
+  refusal = null,
+  onOpen,
+  onRetry,
+  openButtonRef,
+  retryButtonRef,
   isCutting,
   pressing = false,
   isPackCut,
-  blocked = false,
   waiting = false,
   nudging = false,
   tapped = false,
@@ -47,15 +56,11 @@ const PackCuttingUI = ({
   return (
     <>
       <div className="pack-shell-wrap">
-        {/* Also a button for the keyboard: Enter or Space opens it, same as the swipe. */}
+        {/* A gesture surface only: the Open pack button under it is the control for keys and screen readers. */}
         <div
           ref={packRef}
           className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${tapped && !isCutting && !pressing ? 'is-tapped' : ''}`}
           style={{ '--pack-mask': `url("${packDesign}")` } as React.CSSProperties}
-          role="button"
-          tabIndex={isPackCut ? -1 : 0}
-          aria-label={`Open a ${set.name} pack`}
-          aria-disabled={blocked || undefined}
         >
           {/* Each half carries its foil with it when the wrapper tears. */}
           <div className="pack-half pack-half-bottom">
@@ -120,15 +125,33 @@ const PackCuttingUI = ({
             ))}
           </div>
         </div>
-        {error && (
-          <p className="pack-hint is-error" role="alert">
-            {error}
-          </p>
-        )}
-        {waiting && !error && (
-          <p className="pack-hint is-waiting" role="status">
+        {/* Seen, not read: the pack's live region (PackOpener) says it once. */}
+        {waiting && !refusal && (
+          <p className="pack-hint is-waiting" aria-hidden="true">
             Opening…
           </p>
+        )}
+      </div>
+      {/* Under the tear line: the swipe is the show, this is the same opening for everyone else (#312). */}
+      <div className="pack-actions">
+        {refusal ? (
+          <div className="pack-refusal">
+            <p className="pack-refusal-text">{REFUSAL_COPY[refusal].message}</p>
+            <button type="button" ref={retryButtonRef} className="btn btn--primary btn--sm pack-retry-button" onClick={onRetry}>
+              {REFUSAL_COPY[refusal].action}
+            </button>
+          </div>
+        ) : (
+          // Stays mounted (and focused) through the tear, so focus has somewhere to be until the first card takes it.
+          <button
+            type="button"
+            ref={openButtonRef}
+            className="btn btn--secondary btn--sm pack-open-button"
+            onClick={onOpen}
+            aria-disabled={isPackCut || undefined}
+          >
+            Open pack
+          </button>
         )}
       </div>
     </>

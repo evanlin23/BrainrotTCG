@@ -39,27 +39,16 @@ const render = (currentCard: CardWithMeta, currentIndex = 0, extra: { revealLock
   <CardRevealUI currentCard={currentCard} currentIndex={currentIndex} totalCards={5} hasMovedMouse={false}
     onInteraction={() => {}} onSkip={() => {}} {...extra} />,
 ));
-const live = () => host.querySelector<HTMLElement>('[aria-live]')!;
 const cardButton = () => {
-  const cards = host.querySelectorAll<HTMLElement>('.reveal-card');
+  const cards = host.querySelectorAll<HTMLButtonElement>('.reveal-card');
   return cards[cards.length - 1];
 };
 
 describe('the reveal for screen readers', () => {
-  it('announces each card once, as it turns face up, and nothing before', () => {
+  it('leaves announcing to the pack\'s one live region (PackOpener), so nothing is said twice', () => {
     render(meta());
-    expect(host.querySelectorAll('[aria-live]')).toHaveLength(1);
-    expect(live().getAttribute('aria-live')).toBe('polite');
-    expect(live().getAttribute('aria-atomic')).toBe('true');
-    expect(live().textContent).toBe('');
-
     render(meta({ isRevealed: true, isNew: true }));
-    expect(live().textContent).toBe(`Card 1 of 5: ${common.name}, Common, new`);
-
-    render(meta({ ...legendary, uniqueId: 2, isHolo: true, finish: 'GOLD' }), 1);
-    expect(live().textContent).toBe('');
-    render(meta({ ...legendary, uniqueId: 2, isHolo: true, finish: 'GOLD', isRevealed: true }), 1);
-    expect(live().textContent).toBe(`Card 2 of 5: ${legendary.name}, Holo Legendary, Gold`);
+    expect(host.querySelector('[aria-live]')).toBeNull();
   });
 
   it('shows the rarity badge without reading it again, and adds no status of its own', () => {
@@ -74,15 +63,30 @@ describe('the reveal for screen readers', () => {
 });
 
 describe('the card as the reveal\'s button', () => {
-  it('flips, then moves on, and says which', () => {
+  it('is a real button that flips, then moves on, and says which, with the face\'s rarity once it shows', () => {
     render(meta(), 2);
-    expect(cardButton().getAttribute('role')).toBe('button');
-    expect(cardButton().tabIndex).toBe(0);
+    expect(cardButton().tagName).toBe('BUTTON');
+    expect(cardButton().type).toBe('button');
+    expect(cardButton().hasAttribute('role')).toBe(false);
+    expect(cardButton().hasAttribute('tabindex')).toBe(false);
+    // Face down, it says nothing of the card, so the flip isn't spoiled.
     expect(cardButton().getAttribute('aria-label')).toBe('Flip card 3 of 5');
     render(meta({ isRevealed: true }), 2);
-    expect(cardButton().getAttribute('aria-label')).toBe('Next card');
-    render(meta({ isRevealed: true }), 4);
-    expect(cardButton().getAttribute('aria-label')).toBe('See the pack summary');
+    expect(cardButton().getAttribute('aria-label')).toBe(`Next card. Card 3 of 5: ${common.name}, Common`);
+    render(meta({ ...legendary, isHolo: true, isRevealed: true }), 4);
+    expect(cardButton().getAttribute('aria-label')).toBe(`See the pack summary. Card 5 of 5: ${legendary.name}, Holo Legendary`);
+  });
+
+  it('turns a click into the reveal\'s interaction, and keeps its keys for the pack', () => {
+    const onInteraction = vi.fn();
+    act(() => root.render(
+      <CardRevealUI currentCard={meta()} currentIndex={0} totalCards={5} hasMovedMouse={false}
+        onInteraction={onInteraction} onSkip={() => {}} />,
+    ));
+    act(() => cardButton().click());
+    expect(onInteraction).toHaveBeenCalledTimes(1);
+    // Space and Enter on it go to the pack's keys (hold Space to flip and move on), not a second click.
+    expect(cardButton().hasAttribute('data-pack-keys')).toBe(true);
   });
 
   it('is marked disabled while a big pull holds the reveal', () => {

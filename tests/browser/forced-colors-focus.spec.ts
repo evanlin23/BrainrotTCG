@@ -11,7 +11,7 @@ test('shows a visible focus outline on every Tab stop of the pack screen in forc
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  const pack = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
   await expect(pack).toBeVisible();
   expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
 

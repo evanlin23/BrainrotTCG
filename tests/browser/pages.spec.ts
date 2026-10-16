@@ -26,7 +26,7 @@ const nav = (page: Page) => page.getByRole('navigation', { name: 'Main', exact: 
 const tab = (page: Page, name: string) => nav(page).getByRole('button', { name, exact: true });
 const gear = (page: Page) => page.getByRole('button', { name: 'Settings', exact: true });
 const pageNamed = (page: Page, name: string) => page.getByRole('main', { name, exact: true });
-const opener = (page: Page) => page.getByRole('button', { name: /^Open a .* pack$/ });
+const opener = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
 // The link under the pack; the summary's score panel has its own "Card guide" button.
 const cardGuide = (page: Page) => page.locator('.card-guide-entry').getByRole('button', { name: 'Card guide', exact: true });
 /** The control that marks a page current: its tab, or the gear for Settings. */
@@ -202,7 +202,7 @@ test('the card guide link fits a 320 px phone at 200% text, under the pack it le
   await page.keyboard.press('Escape');
   await expect(opener(page)).toBeVisible();
   // The pack is still on screen and still opens with a swipe along its tear line (#486).
-  const pack = opener(page);
+  const pack = page.locator('.pack-shell');
   await pack.scrollIntoViewIfNeeded();
   await expect(pack).toBeInViewport();
   const packBox = (await pack.boundingBox())!;

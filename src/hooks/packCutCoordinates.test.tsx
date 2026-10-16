@@ -109,7 +109,7 @@ describe('usePackCutter sparks (#265)', () => {
         cutter.handlePointerMove({ ...finger, clientX } as unknown as PointerEvent);
       }
       return (
-        <PackCuttingUI packRef={cutter.packRef} packDesign="/test-design.webp" set={SETS[0]} error={null}
+        <PackCuttingUI packRef={cutter.packRef} packDesign="/test-design.webp" set={SETS[0]} onOpen={() => {}}
           isCutting={cutter.isCutting} isPackCut={false} cutPoints={cutter.cutPoints} sparks={cutter.sparks} />
       );
     };
@@ -142,7 +142,7 @@ describe('PackCuttingUI spark layer (#265)', () => {
         packRef={{ current: null }}
         packDesign="/test-design.webp"
         set={SETS[0]}
-        error={null}
+        onOpen={() => {}}
         isCutting={true}
         isPackCut={false}
         cutPoints={[{ x: 40, y: 19 }, { x: 60, y: 19 }]}
@@ -154,7 +154,9 @@ describe('PackCuttingUI spark layer (#265)', () => {
     expect(html).toContain('class="drag-spark"');
     expect(html).toContain('--x:192px');
     expect(html).toContain('--y:108.87px');
-    // Both layers are children of the pack, before the pack and wrapper close.
-    expect(html.endsWith('</span></div></div></div>')).toBe(true);
+    // Both layers are children of the pack, before the pack and wrapper close
+    // (the controls under the pack follow the wrapper).
+    const beforeActions = html.slice(0, html.indexOf('<div class="pack-actions">'));
+    expect(beforeActions.endsWith('</span></div></div></div>')).toBe(true);
   });
 });

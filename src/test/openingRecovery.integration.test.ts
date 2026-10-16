@@ -42,14 +42,28 @@ const expectNothingRecorded = async () => {
 };
 
 const pressPack = async () => {
-  await app!.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app!.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
   await app!.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
 };
+/** The pack's one polite live region (#312). */
+const announced = () => document.querySelector('.pack-opener-container > [aria-live="polite"]')?.textContent;
+const REFUSED = "This pack didn't open, and no cards were dealt.";
+/** A refused pack says why, in place of the Open pack button, with Try again focused and announced. */
+const expectRefused = (what: string) => app!.until(what, () => {
+  expect(document.querySelector('.pack-refusal-text')?.textContent).toBe(REFUSED);
+  expect(announced()).toBe(REFUSED);
+  expect(document.querySelector('.pack-open-button')).toBeNull();
+  const retry = document.querySelector<HTMLButtonElement>('.pack-retry-button');
+  expect(retry?.textContent).toBe('Try again');
+  expect(document.activeElement).toBe(retry);
+});
+const tryAgain = () => app!.interact(() => document.querySelector<HTMLButtonElement>('.pack-retry-button')!.click());
 const finishReveal = async () => {
   await app!.until('the ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app!.interact(() => button('Skip opening animation')!.click());
@@ -81,7 +95,10 @@ it('waits for a slow ticket with the app held on the pack, then records the late
   app = await mountedApp(SEED, { tickets: () => ({ delayMs: 4000 }) });
   await app.mount();
   await pressPack();
-  await app.until('a slow ticket says so', () => expect(document.querySelector('.pack-hint.is-waiting[role="status"]')?.textContent).toBe('Opening…'));
+  await app.until('a slow ticket says so', () => {
+    expect(document.querySelector('.pack-hint.is-waiting')?.textContent).toBe('Opening…');
+    expect(announced()).toBe('Opening the pack…');
+  });
   // Nothing may swap the set or open over the pack meanwhile. Its number is claimed once the ticket is
   // in hand, in the same step that records the pack, so a number is never spent without its mapping.
   expect(button('Settings')!.disabled).toBe(true);
@@ -122,19 +139,18 @@ it('spends nothing for a pack whose ticket was still mining at a reload, and ope
   expectShelvesEmpty();
 }, 60_000);
 
-it('shows a failed ticket as an alert, records nothing, and records exactly one pack on retry', async () => {
+it('shows a failed ticket with its reason and Try again, records nothing, and records exactly one pack on retry', async () => {
   let failing = true;
   app = await mountedApp(SEED, { tickets: () => (failing ? { error: 'Simulated ticket failure' } : undefined) });
   await app.mount();
   await pressPack();
-  await app.until('the failure is announced', () => expect(document.querySelector('.pack-hint.is-error[role="alert"]')?.textContent)
-    .toBe('This pack refused to open. Try again!'));
+  await expectRefused('the failure is shown and announced');
   expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('Simulated ticket failure')]);
   await expectNothingRecorded();
   await app.until('the app is free again', () => expect(button('Settings')!.disabled).toBe(false));
 
   failing = false;
-  await pressPack();
+  await tryAgain();
   await finishReveal();
   const packs = await history();
   expect(packs).toHaveLength(1);
@@ -149,10 +165,11 @@ it('never retries a failed ticket by itself: each press asks once more, and a se
   await app.mount();
   for (const press of [1, 2]) {
     const asked = app.ticketRequests.length;
-    await pressPack();
+    // The first press is Open pack; the second, the Try again that took its place.
+    if (press === 1) await pressPack();
+    else await tryAgain();
     await app.until(`press ${press} asks for a ticket`, () => expect(app!.ticketRequests.length).toBeGreaterThan(asked));
-    await app.until(`failure ${press} is announced`, () => expect(document.querySelector('.pack-hint.is-error[role="alert"]')?.textContent)
-      .toBe('This pack refused to open. Try again!'));
+    await expectRefused(`failure ${press} is shown and announced`);
     await app.until('the app is free again', () => expect(button('Settings')!.disabled).toBe(false));
     expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('Simulated ticket failure')]);
     expect(app.ticketRequests).toHaveLength(asked + 1);
