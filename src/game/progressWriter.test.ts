@@ -62,19 +62,31 @@ const pack = (nonce: number, extra: Partial<OpenedPack> = {}) =>
 const withPack = (from: HeldProgress): HeldProgress =>
   ({ ...from, collection: { ...from.collection }, stats: stats(from.stats.packsOpened + 1) });
 
-let host: ProgressWriterHost & { calls: string[]; player: boolean; current: boolean };
+// The stored-packs record (ProgressGuard.storing and friends): its calls apart from the rest, whether it
+// can be written, and which nonces another tab's collection dropped.
+let host: ProgressWriterHost & { calls: string[]; player: boolean; current: boolean; stamps: string[]; stampable: boolean; drop: number[] };
 const writer = () => createProgressWriter(host);
 beforeEach(() => {
   Object.assign(storage, { log: [], shelf: new Set(), refuse: new Set(), shelfFull: false, shelfRoom: Infinity, collection: 'saved', recovery: 'none', history: true });
   const calls: string[] = [];
+  const stamps: string[] = [];
   host = {
-    calls, player: true, current: true,
+    calls, player: true, current: true, stamps, stampable: true, drop: [],
     samePlayer: () => host.player,
     progressCurrent: () => host.current,
     noted: () => calls.push('noted'),
     stale: () => calls.push('stale'),
     failed: () => calls.push('failed'),
     keptAside: (note, dismissed) => calls.push(`keptAside ${note} ${dismissed}`),
+    storing: (player, nonces) => {
+      stamps.push(`storing ${nonces.join(',')} as ${player}`);
+      return host.stampable;
+    },
+    unstored: () => stamps.push('unstored'),
+    dropped: (player, nonces) => {
+      stamps.push(`dropped? ${nonces.join(',')} as ${player}`);
+      return nonces.filter((nonce) => host.drop.includes(nonce));
+    },
   };
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -119,7 +131,7 @@ describe('createProgressWriter', () => {
     expect(storage.log).toEqual([]);
     expect(host.calls).toEqual(['stale']);
     // Nor does a put-back (the shelf holds another save's packs now).
-    w.putBackTaken();
+    w.putBack();
     expect(storage.log).toEqual([]);
   });
 
@@ -136,7 +148,7 @@ describe('createProgressWriter', () => {
     expect(storage.log).toEqual(['shelve 1']);
     expect(host.calls).toEqual(['stale']);
     // Back on the shelf, it is the next load's: no second put-back.
-    w.putBackTaken();
+    w.putBack();
     expect(storage.log).toEqual(['shelve 1']);
   });
 
@@ -145,11 +157,11 @@ describe('createProgressWriter', () => {
     w.commit(loaded);
     w.packsTaken([pack(1)]);
     storage.shelfFull = true;
-    w.putBackTaken();
+    w.putBack();
     expect(host.calls).toEqual(['failed']);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("1 pack(s) couldn't be put back on the pending shelf"));
     storage.shelfFull = false;
-    w.putBackTaken();
+    w.putBack();
     expect(storage.log).toEqual(['shelve 1', 'shelve 1']);
     expect(host.calls).toEqual(['failed']);
   });
@@ -272,5 +284,74 @@ describe('createProgressWriter', () => {
     w.commit({ ...loaded, achievements: { a: 1 }, hallOfFame: { h: {} } as HeldProgress['hallOfFame'] });
     expect(storage.log).toEqual([`set ${STORAGE_KEYS.ACHIEVEMENTS}`, `set ${STORAGE_KEYS.HALL_OF_FAME}`]);
     expect(host.calls).toEqual(['failed', 'noted']);
+  });
+
+  it('records the packs a collection write holds just before it, and puts the record back when the write is blocked', () => {
+    const w = writer();
+    w.commit(loaded);
+    w.commit(withPack(loaded));
+    // No packs: nothing to record.
+    expect(host.stamps).toEqual([]);
+    w.packAdded(pack(1));
+    w.packAdded(pack(2));
+    w.commit(withPack(withPack(loaded)));
+    expect(host.stamps).toEqual(['storing 1,2 as me']);
+
+    host.stamps.length = 0;
+    storage.collection = 'blocked';
+    w.packAdded(pack(3));
+    w.commit(withPack(withPack(withPack(loaded))));
+    expect(host.stamps).toEqual(['storing 3 as me', 'unstored']);
+    // Nor when the record itself can't be written.
+    host.stamps.length = 0;
+    host.stampable = false;
+    w.commit(withPack(withPack(withPack(withPack(loaded)))));
+    expect(host.stamps).toEqual(['storing 3 as me']);
+  });
+
+  it('once stale, puts back uncounted the packs it stored that another tab\'s collection dropped, and only those', () => {
+    const w = writer();
+    w.commit(loaded);
+    w.packAdded(pack(1));
+    w.packAdded(pack(2, { counted: true }));
+    w.commit(withPack(loaded));
+    storage.log.length = 0;
+    host.drop = [2];
+    host.current = false;
+    w.commit(withPack(withPack(loaded)));
+    expect(host.stamps).toEqual(['storing 1,2 as me', 'dropped? 1,2 as me']);
+    expect(storage.log).toEqual(['shelve 2']);
+    expect(host.calls).toEqual(['noted', 'stale']);
+    // Back on the shelf, it is the next load's: no second put-back.
+    w.putBack();
+    expect(storage.log).toEqual(['shelve 2']);
+  });
+
+  it('keeps a dropped pack owed, and warns, while the shelf refuses it', () => {
+    const w = writer();
+    w.commit(loaded);
+    w.packAdded(pack(1));
+    w.commit(withPack(loaded));
+    host.drop = [1];
+    storage.shelfFull = true;
+    w.putBack();
+    expect(host.calls).toEqual(['noted', 'failed']);
+    storage.shelfFull = false;
+    w.putBack();
+    expect(storage.log.filter((line) => line.startsWith('shelve'))).toEqual(['shelve 1', 'shelve 1']);
+  });
+
+  it('puts back nothing it stored when the record is another tab\'s and holds them, or after a player switch', () => {
+    const w = writer();
+    w.commit(loaded);
+    w.packAdded(pack(1));
+    w.commit(withPack(loaded));
+    storage.log.length = 0;
+    w.putBack();
+    expect(storage.log).toEqual([]);
+    host.drop = [1];
+    host.player = false;
+    w.putBack();
+    expect(storage.log).toEqual([]);
   });
 });
