@@ -37,8 +37,8 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
   const url = proof ? pullUrl(proof) : '';
   const link = proof ? pullUrl(proof, previewFor(target.cards)) : '';
   const id = useMemo(() => (proof ? pullId(decodeProof(proof)) : ''), [proof]);
-  // Submit only what would make the list (the top pulls, a first, or today's top in UTC); until it
-  // loads, anything that qualifies.
+  // Submit only what would make the list (the top pulls or today's top in UTC); until it loads,
+  // anything that qualifies.
   const [list, setList] = useState<HallOfFameEntry[] | null>(null);
   useEffect(() => {
     if (qualifiesForHallOfFame(target.score)) loadHallOfFame().then(setList);

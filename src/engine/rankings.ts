@@ -12,10 +12,11 @@ import type { Finish, PulledCard, Rarity } from './types';
  */
 export const RANKING_SCHEMA_VERSION = 1;
 
-/** Best cards: the top 10 card instances of all time. */
+/** Best cards (the top 10 card instances of all time), and each card's own best versions board. */
 export const CARD_BOARD_SIZE = 10;
 
-export type RankingScope = 'packs' | 'cards';
+/** Best packs, Best cards, and one card's best versions (`card` names which). */
+export type RankingScope = 'packs' | 'cards' | 'card-versions';
 
 /** What every ranked entry carries. */
 export interface RankKey {
@@ -85,6 +86,8 @@ export type Completeness = { status: 'complete' } | { status: 'partial'; reason:
 export interface RankingSnapshot<T extends RankKey = RankKey> {
   schemaVersion: number;
   scope: RankingScope;
+  /** The card a card-versions board ranks (cardKey); absent on every other scope. */
+  card?: string;
   capacity: number;
   scoringEra: number;
   completeness: Completeness;
@@ -104,6 +107,8 @@ export interface RankingSnapshot<T extends RankKey = RankKey> {
 
 export interface BoardOptions {
   scope: RankingScope;
+  /** Recorded on the snapshot; required for card-versions, refused otherwise. */
+  card?: string;
   capacity: number;
   generatedAt: string;
   /** Defaults to the current SCORING_ERA. */
@@ -132,8 +137,36 @@ const covers = (coverage: Coverage, e: RankKey): boolean =>
   coverage.kind === 'all' ||
   (coverage.kind === 'min-score' ? e.score >= coverage.score : !!coverage.last && compareRanked(e, coverage.last) <= 0);
 
+const proofOf = (e: RankKey): unknown => (e as { proof?: unknown }).proof;
+
+/** Whether a carries a proof that sorts before b's: a deterministic pick between two copies of one entry. */
+const lowerProof = (a: RankKey, b: RankKey): boolean => {
+  const pa = proofOf(a);
+  const pb = proofOf(b);
+  return typeof pa === 'string' && typeof pb === 'string' && pa < pb;
+};
+
+/** The card a card-versions candidate is an instance of (cardKey), if it names one. */
+const cardOf = (e: RankKey): string | undefined => {
+  const { setId, cardId } = e as { setId?: unknown; cardId?: unknown };
+  return typeof setId === 'string' && typeof cardId === 'string' ? cardKey(setId, cardId) : undefined;
+};
+
+/** Each pull's best entry (compareRanked), so repeated copies of a card in one pack hold one place. */
+const bestPerPull = <T extends RankKey>(entries: Iterable<T>): T[] => {
+  const best = new Map<string, T>();
+  for (const e of entries) {
+    const kept = best.get(e.pullId);
+    if (!kept || compareRanked(e, kept) < 0) best.set(e.pullId, e);
+  }
+  return [...best.values()];
+};
+
 /**
- * Rank candidates into a board. Each id counts once (its earliest receipt; the first given on a tie).
+ * Rank candidates into a board. Each id counts once: its earliest receipt, then (on a tie between two
+ * that carry proofs) the lower proof text, then the first given. A card-versions board names one card:
+ * a candidate of another card throws, and each pull holds one place, its best instance of the card
+ * (the others count as duplicates).
  * Candidates from another scoring era can't be compared, so any of them leaves the board empty and
  * partial until they are re-derived. Otherwise the board takes the best `capacity` entries the
  * coverage certifies, and is complete when that fills it or the coverage is everything. Receipt times
@@ -141,17 +174,20 @@ const covers = (coverage: Coverage, e: RankKey): boolean =>
  * before anything is compared, so they compare by instant; one that isn't a receipt time throws.
  */
 export const selectBoard = <T extends RankKey>(candidates: readonly T[], options: BoardOptions): RankingSnapshot<T> => {
-  const { scope, capacity, generatedAt, scoringEra = SCORING_ERA } = options;
+  const { scope, card, capacity, generatedAt, scoringEra = SCORING_ERA } = options;
   if (!Number.isInteger(capacity) || capacity < 1) throw new RangeError(`Board capacity must be a positive integer, got ${capacity}`);
+  if ((scope === 'card-versions') !== (card !== undefined)) throw new RangeError(`A card is named by card-versions boards only (scope ${scope})`);
   const coverage = normalizedCoverage(options.coverage ?? { kind: 'all' });
   const earliest = new Map<string, T>();
   let otherEra = 0;
   for (const c of candidates.map(normalized)) {
+    if (card !== undefined && cardOf(c) !== card) throw new RangeError(`The ${card} board was given ${c.id}, an instance of ${cardOf(c) ?? 'no card'}`);
     const kept = earliest.get(c.id);
     if (c.scoringEra !== scoringEra) otherEra++;
-    else if (!kept || c.firstReceivedAt < kept.firstReceivedAt) earliest.set(c.id, c);
+    else if (!kept || c.firstReceivedAt < kept.firstReceivedAt || (c.firstReceivedAt === kept.firstReceivedAt && lowerProof(c, kept))) earliest.set(c.id, c);
   }
-  const ranked = [...earliest.values()].sort(compareRanked);
+  const unique = scope === 'card-versions' ? bestPerPull(earliest.values()) : [...earliest.values()];
+  const ranked = unique.sort(compareRanked);
   const certain = otherEra > 0 ? [] : ranked.filter((e) => covers(coverage, e));
   const complete = otherEra === 0 && (coverage.kind === 'all' || certain.length >= capacity);
   const reason: PartialReason = otherEra > 0 ? 'scoring-changed' : coverage.kind === 'min-score' ? 'below-intake-minimum' : 'runners-up-not-retained';
@@ -160,13 +196,14 @@ export const selectBoard = <T extends RankKey>(candidates: readonly T[], options
   return {
     schemaVersion: RANKING_SCHEMA_VERSION,
     scope,
+    ...(card === undefined ? {} : { card }),
     capacity,
     scoringEra,
     completeness: complete ? { status: 'complete' } : { status: 'partial', reason },
     certifiedThrough,
     generatedAt,
     latestReceivedAt: ranked.reduce<string | null>((latest, e) => (latest === null || e.firstReceivedAt > latest ? e.firstReceivedAt : latest), null),
-    sources: { candidates: candidates.length, duplicates: candidates.length - otherEra - earliest.size, otherEra, uncertain: ranked.length - certain.length },
+    sources: { candidates: candidates.length, duplicates: candidates.length - otherEra - ranked.length, otherEra, uncertain: ranked.length - certain.length },
     entries: certain.slice(0, capacity),
   };
 };
@@ -179,9 +216,8 @@ interface ScopeOptions {
 
 /**
  * Best packs: the Hall of Fame's top pulls through the shared schema. The same entries in the same
- * order as topPulls, except that receipt times are compared by instant (receiptTime) and two pulls
- * tied on both score and time are placed by pull id rather than by input order. Entries must be
- * scored by the current engine.
+ * order as topPulls (score, then time, then pull id), except that receipt times are compared by
+ * instant (receiptTime). Entries must be scored by the current engine.
  */
 export const packBoard = <T extends RankableEntry>(entries: readonly T[], { generatedAt, capacity = HALL_OF_FAME_TOP, coverage }: ScopeOptions) =>
   selectBoard(
@@ -277,6 +313,42 @@ export const cardBoard = (evidence: readonly PackEvidence[], { generatedAt, capa
   selectBoard(cardInstances(evidence), { scope: 'cards', capacity, generatedAt, coverage });
 
 /**
+ * A card's identity across set versions, as the collection, combos and card pages key it. An
+ * instance's points come from the rarity and modifiers it was pulled with in its own version, so
+ * versions of one card rank together on one board (each entry keeps its setVersion).
+ */
+export const cardKey = (setId: string, cardId: string): string => `${setId}/${cardId}`;
+
+/**
+ * Best versions of each card: one board per cardKey, each ranking only that card's instances by
+ * their own points (cardInstances; never the pack's score or hand multiplier). Every board selects
+ * and cuts off on its own, so a card whose best pack misses Best packs and Best cards still has its
+ * own winners, and an instance from another scoring era leaves only its own card's board partial.
+ * Each pack holds one place on a card's board, its best copy of that card (selectBoard), so a pack
+ * with the card twice doesn't fill two places. Ties fall to compareRanked: earlier receipt, then pull
+ * id, then the later slot. A `through` bound belongs to one board, so it is refused here; rebuild
+ * one card's board with rebuildBoard instead.
+ * The boards certify only what the instances cover: a pack-score intake minimum (min-score) still
+ * holds for each card, since a pack scores at least each of its cards, but it leaves the boards of
+ * cards worth less than the minimum empty and partial.
+ */
+export const cardVersionBoards = (
+  instances: readonly CardInstance[],
+  { generatedAt, capacity = CARD_BOARD_SIZE, coverage }: ScopeOptions,
+): Map<string, RankingSnapshot<CardInstance>> => {
+  if (coverage?.kind === 'through') throw new RangeError('A through bound certifies one board; rebuild card boards one at a time');
+  const byCard = new Map<string, CardInstance[]>();
+  for (const i of instances) {
+    const key = cardKey(i.setId, i.cardId);
+    const list = byCard.get(key);
+    if (list) list.push(i);
+    else byCard.set(key, [i]);
+  }
+  const keys = [...byCard.keys()].sort(order);
+  return new Map(keys.map((card) => [card, selectBoard(byCard.get(card)!, { scope: 'card-versions', card, capacity, generatedAt, coverage })]));
+};
+
+/**
  * Rebuild a board from what was kept, after pulls are removed or new evidence arrives. `candidates`
  * are the kept entries (or their re-derivations) plus anything new. `coverage` is what the candidates
  * are known to hold in full; it defaults to what the previous board certified (`certifiedThrough`),
@@ -284,7 +356,8 @@ export const cardBoard = (evidence: readonly PackEvidence[], { generatedAt, capa
  * runners-up it never kept, and a board certified only above the intake minimum stays so. Pass
  * `{ kind: 'all' }` only when the candidates really are every pull there is. After a scoring-era
  * change the previous bound means nothing, so nothing is certified until the caller passes a coverage
- * for candidates re-derived from their proofs.
+ * for candidates re-derived from their proofs. A card-versions board takes only its own card's
+ * instances: a candidate of another card throws.
  */
 export const rebuildBoard = <T extends RankKey>(
   previous: RankingSnapshot<T>,
@@ -297,6 +370,7 @@ export const rebuildBoard = <T extends RankKey>(
     candidates.filter((c) => !gone.has(c.pullId)),
     {
       scope: previous.scope,
+      card: previous.card,
       capacity: previous.capacity,
       generatedAt,
       coverage: coverage ?? (eraChanged ? { kind: 'through', last: null } : previous.certifiedThrough),

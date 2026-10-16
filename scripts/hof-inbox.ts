@@ -23,9 +23,10 @@ export interface InboxContext {
    * The score a pull must beat to join the list (`hallOfFameFloor`), or null while there's room. An
    * event whose score hint is at or below it is set aside without re-deriving it or spending budget.
    * The hint is the sender's claim: one that claims too little only loses its own pull, and one that
-   * claims more is verified in full like any other.
+   * claims more is verified in full like any other. A function is asked again for each event, with
+   * its pull id, so the floor can rise as pulls are filed and can differ from pull to pull.
    */
-  floor?: number | null;
+  floor?: number | null | ((id: string) => number | null);
   /** Files one verified, accepted pull. */
   file: (proof: string, pull: VerifiedPull, event: NostrEvent) => Promise<void>;
   log?: (line: string) => void;
@@ -75,9 +76,10 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       continue;
     }
     const hint = scoreHintFromEvent(event);
-    if (ctx.floor != null && hint !== null && hint <= ctx.floor) {
+    const floor = typeof ctx.floor === 'function' ? ctx.floor(id) : ctx.floor;
+    if (floor != null && hint !== null && hint <= floor) {
       ctx.seen.add(event.id);
-      ctx.log?.(`${event.id}: claims ${hint}, at or below the floor of ${ctx.floor}; not checked`);
+      ctx.log?.(`${event.id}: claims ${hint}, at or below the floor of ${floor}; not checked`);
       continue;
     }
     // The rest wait for the next run.
