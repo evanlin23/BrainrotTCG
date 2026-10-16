@@ -57,7 +57,8 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
-  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors
+  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors,
+                     `cardVersionBoards`
 
 src/content/       Set data, art and registry; existing schemas use the existing engine.
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds

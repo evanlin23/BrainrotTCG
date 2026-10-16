@@ -5,11 +5,12 @@ root and in `tools/wrangler` whenever a lockfile changes, and update this file.
 
 ## Current state
 
-Re-run on 2026-10-16 on main (7233d12) after a frozen `npm ci`; the counts below were taken on 2026-10-15. A finding is a package and can carry several advisories.
+Re-run on 2026-10-16 on main (7233d12) after a frozen `npm ci`; the "After" column below is that
+re-run. A finding is a package and can carry several advisories.
 
 | Lockfile | Before (main at bd55082) | After the lockfile refresh |
 | --- | --- | --- |
-| Root, `npm audit` | 8 in 369 packages (4 high, 2 moderate, 2 low) | 0 in 343 packages |
+| Root, `npm audit` | 8 in 369 packages (4 high, 2 moderate, 2 low) | 0 |
 | Root, `npm audit --omit=dev` | 0 in 16 production packages | 0 |
 | `tools/wrangler`, both commands | 0 in 91 packages | 0 (unchanged) |
 
@@ -62,6 +63,7 @@ server, PR CI or the production bundle. `workers/hall-of-fame-cron/README.md` me
 
 `.github/dependabot.yml` covers the root npm lockfile (grouped `dev-tooling` and `prod`, with
 `hash-wasm` and `@noble/*` as separate PRs), `tools/wrangler`, and GitHub Actions (grouped). Every
-`uses:` in `.github/workflows` is already pinned to a SHA, so nothing was added. Security advisories
-open Dependabot PRs on their own; each gets review and green CI before merging
-(docs/DEVELOPMENT.md).
+`uses:` in `.github/workflows` is already pinned to a SHA, so nothing was added. Only the weekly
+version updates run: Dependabot security-update PRs are off unless the owner enables them, so
+advisories show up in the Security tab and `npm audit`. Every Dependabot PR gets review and green CI
+before merging (docs/DEVELOPMENT.md).
