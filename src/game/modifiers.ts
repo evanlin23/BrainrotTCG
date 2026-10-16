@@ -3,7 +3,7 @@
  * points live in the engine; a set opts in with `"modifiers": 1`.
  */
 import type React from 'react';
-import { FINISHES_RAREST_FIRST, MODIFIERS_V1, ODDS_TOTAL, type Finish, type SetDefinition } from '../engine';
+import { FINISHES_RAREST_FIRST, type Finish } from '../engine';
 import '../styles/Modifiers.css';
 
 export const FINISH_INFO: Record<Finish, { name: string; color: string }> = {
@@ -31,18 +31,6 @@ export const specialCardsLine = (cards: readonly { isHolo?: boolean; finish?: Fi
     ...(special.some((c) => c.misprint) ? ['Misprint'] : []),
   ];
   return `${special.length} special ${special.length === 1 ? 'card' : 'cards'} · ${kinds.join(', ')}`;
-};
-
-/**
- * The chance that a pack of this set has at least one special card (holo, a finish or a misprint),
- * for the card guide. Each card rolls holo, its finish and misprint separately (src/engine/pack.ts),
- * so a card is plain when all three miss, and a pack is plain only when every card is.
- */
-export const specialPackChance = (set: Pick<SetDefinition, 'holoOdds' | 'packSize' | 'modifiers'>): number => {
-  const finish = set.modifiers === 1 ? Object.values(MODIFIERS_V1.finishOdds).reduce((a, b) => a + b, 0) / ODDS_TOTAL : 0;
-  const misprint = set.modifiers === 1 ? MODIFIERS_V1.misprintOdds / ODDS_TOTAL : 0;
-  const plainCard = (1 - set.holoOdds / ODDS_TOTAL) * (1 - finish) * (1 - misprint);
-  return 1 - plainCard ** set.packSize;
 };
 
 /** The rarest finish in a tally of finishes owned, if any. */

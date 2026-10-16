@@ -49,3 +49,11 @@ it('leaves finishes out for a set without modifiers', () => {
   expect(text).not.toContain('Finishes (Silver');
   expect(text).toContain('Holo cards are special cards: about 23% of packs have at least one.');
 });
+
+it('leaves the special-card chance out rather than guess it for a modifier table it does not know', () => {
+  const set = { ...getLatestSet('right-now')!, modifiers: 2 as unknown as 1 };
+  act(() => root.render(<ScoringGuide set={set} onClose={() => {}} />));
+  const text = document.body.textContent ?? '';
+  expect(text).toContain('Holo is a shiny copy that any card can roll');
+  expect(text).not.toContain('of packs have at least one');
+});

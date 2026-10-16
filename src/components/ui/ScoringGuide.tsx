@@ -10,11 +10,12 @@ import {
   RARITY_POINTS,
   handOdds,
   oneIn,
+  specialPackChance,
   type HandKey,
   type SetDefinition,
 } from '../../engine';
 import { CARD_RARITIES } from '../../data/cards';
-import { FINISH_INFO, specialPackChance } from '../../game/modifiers';
+import { FINISH_INFO } from '../../game/modifiers';
 import RarityBadge from './RarityBadge';
 import Sheet from './Sheet';
 import '../../styles/Scoring.css';
@@ -34,9 +35,13 @@ const formatChance = (p: number) => {
   return `${percent >= 1 ? Math.round(percent) : percent.toFixed(1)}%`;
 };
 
+/** "Silver up to Diamond": the commonest finish to the rarest. */
+const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.length - 1]].name} up to ${FINISH_INFO[FINISHES_RAREST_FIRST[0]].name}`;
+
 /** The card guide: what makes a card rare or special, and how Brainrot Score works, with the exact odds for this set. */
 const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
   const odds = useMemo(() => handOdds(set), [set]);
+  const specialChance = useMemo(() => specialPackChance(set), [set]);
   const rarities = [...RARITIES_RAREST_FIRST].reverse().filter((r) => set.odds[r] > 0);
   const commonest = rarities[0];
   const rarest = rarities[rarities.length - 1];
@@ -52,12 +57,14 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         </p>
         {set.modifiers === 1 && (
           <p className="scoring-note">
-            <strong>Finishes</strong> (Silver up to Diamond) and <strong>misprints</strong> are rarer extras on top. They stack with holo and with each other.
+            <strong>Finishes</strong> ({FINISH_RANGE}) and <strong>misprints</strong> are rarer extras on top. They stack with holo and with each other.
           </p>
         )}
-        <p className="scoring-note">
-          Holo{set.modifiers === 1 ? ', finished and misprinted cards are' : ' cards are'} special cards: about {formatChance(specialPackChance(set))} of packs have at least one.
-        </p>
+        {specialChance !== null && (
+          <p className="scoring-note">
+            Holo{set.modifiers === 1 ? ', finished and misprinted cards are' : ' cards are'} special cards: about {formatChance(specialChance)} of packs have at least one.
+          </p>
+        )}
 
         <h3>Brainrot Score</h3>
         <p className="scoring-formula">

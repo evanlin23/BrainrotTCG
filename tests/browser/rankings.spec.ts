@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { STORAGE_KEYS } from '../../src/constants/config';
 import { monitor } from './support';
 
 // Rankings pages its rows, and Best pulls leads with the best packs. The leaderboard is a synthetic
@@ -53,7 +54,14 @@ test('Rankings shows 20 rows, and each Show more adds 20 from the keyboard', asy
 
 test('Best pulls sorts best first and names the filter for Rankings', async ({ page, baseURL }) => {
   // Three synthetic history rows, the same shape the performance runs use; never verified or sent.
+  // They're stored newest first with the best in the middle, so Best and Newest differ.
   const errors = await monitor(page, baseURL!, 3);
+  await page.addInitScript(({ key }) => {
+    if (sessionStorage.getItem('rankings-fixture')) return;
+    sessionStorage.setItem('rankings-fixture', '1');
+    const row = (n: number, x: number) => ({ s: 'right-now', v: 2, n, k: '8a88e3dd7409f195', c: 'bukangi,niu-laiG,bukangi,la-peace,verity', h: 'Pair', x, t: n + 1 });
+    localStorage.setItem(key, JSON.stringify([row(2, 600), row(1, 900), row(0, 300)]));
+  }, { key: STORAGE_KEYS.HISTORY });
   await page.goto('./');
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
   await main.getByRole('button', { name: 'My cards', exact: true }).click();
@@ -63,7 +71,11 @@ test('Best pulls sorts best first and names the filter for Rankings', async ({ p
   const tabs = myCards.getByRole('tablist', { name: 'Sort packs', exact: true }).getByRole('tab');
   await expect(tabs).toHaveText(['Best', 'Newest', 'For Rankings · 0']);
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+  const scores = myCards.locator('.pulls-list .pull-row-score');
+  await expect(scores).toHaveText(['900', '600', '300']);
+  await tabs.nth(1).click();
+  await expect(scores).toHaveText(['600', '900', '300']);
   await tabs.nth(2).click();
-  await expect(myCards.locator('.pulls-note')).toContainText(/qualifies for Rankings\.$/);
+  await expect(myCards.locator('.pulls-panel .pulls-note')).toContainText(/qualifies for Rankings\.$/);
   expect(errors).toEqual([]);
 });
