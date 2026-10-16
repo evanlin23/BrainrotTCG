@@ -241,7 +241,8 @@ for (const { vector, entry } of cases) {
     await expect(pull.locator('.pull-viewer-cert')).toContainText(`Cert ${vector.fingerprint} ·`);
     await expect(pull.locator('.pull-viewer-cert')).toContainText(`#${vector.nonce}`);
     await expect(pull.locator('.score-panel-total')).toHaveText(vector.score.toLocaleString('en-US'));
-    await expect(pull.locator('.score-panel-math')).toContainText(vector.hand);
+    // The combo leads the pull headline (#339); the score panel keeps the math.
+    await expect(pull.locator('.pack-headline-combo')).toContainText(`${vector.hand} ×${vector.multiplier.toLocaleString('en-US')}`);
     await expect(pull.locator('.score-panel-math')).toContainText(`${vector.points.toLocaleString('en-US')} pts ×`);
     await expect(pull.locator('.score-panel-math strong')).toHaveText(vector.multiplier.toLocaleString('en-US'));
     const cards = pull.locator('.pack-viewer-cards > button');

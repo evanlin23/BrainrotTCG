@@ -13,13 +13,15 @@ export const qualifiesForHallOfFame = (score: PackScore): boolean =>
   score.hand.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER || score.score >= HALL_OF_FAME_MIN_SCORE;
 
 /**
- * The Hall of Fame keeps the best pulls by score, plus the first of each hand (Full House and up)
- * in each set: about 120 entries however many people play, so it costs the same to build, serve
- * and check at any size.
+ * The Hall of Fame keeps the best pulls by score, plus the best of the current and previous UTC
+ * day: at most `HALL_OF_FAME_MAX_ENTRIES` however many people play, so it costs the same to build,
+ * serve and check at any size.
  */
 export const HALL_OF_FAME_TOP = 100;
 /** The best pulls of one UTC day ("Today" in Rankings), on top of the all-time list. */
 export const HALL_OF_FAME_DAILY_TOP = 50;
+/** The most the published list can hold: the all-time top plus two days' daily tops. */
+export const HALL_OF_FAME_MAX_ENTRIES = HALL_OF_FAME_TOP + 2 * HALL_OF_FAME_DAILY_TOP;
 
 /** What the list needs to know about an entry. `id` is its pull id (one entry per pull). */
 export interface RankableEntry {
@@ -28,13 +30,12 @@ export interface RankableEntry {
   hand: string;
   multiplier: number;
   score: number;
-  /** When it was first verified (ISO time): earlier wins ties and "firsts". */
+  /** When it was first verified (ISO time): earlier wins ties. */
   submittedAt: string;
 }
 
 const byTime = <T extends RankableEntry>(a: T, b: T) => a.submittedAt.localeCompare(b.submittedAt);
 const byRank = <T extends RankableEntry>(a: T, b: T) => b.score - a.score || byTime(a, b);
-const firstKey = (e: Pick<RankableEntry, 'setId' | 'hand'>) => `${e.setId}|${e.hand}`;
 
 /** Each pull once (its earliest verification keeps the credit). */
 export const uniquePulls = <T extends RankableEntry>(entries: readonly T[]): T[] => {
@@ -44,12 +45,6 @@ export const uniquePulls = <T extends RankableEntry>(entries: readonly T[]): T[]
 
 /** The best `HALL_OF_FAME_TOP` pulls, best first (ties go to the earlier one). */
 export const topPulls = <T extends RankableEntry>(entries: readonly T[]): T[] => uniquePulls(entries).sort(byRank).slice(0, HALL_OF_FAME_TOP);
-
-/** The first verified pull of each hand (Full House and up) in each set, oldest first. */
-export const firstPulls = <T extends RankableEntry>(entries: readonly T[]): T[] => {
-  const seen = new Set<string>();
-  return uniquePulls(entries).filter((e) => e.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER && !seen.has(firstKey(e)) && !!seen.add(firstKey(e)));
-};
 
 /**
  * The UTC calendar day of an ISO time, as YYYY-MM-DD. Everyone shares the same day whatever their
@@ -81,22 +76,22 @@ export const dailyPulls = <T extends RankableEntry>(entries: readonly T[], day: 
     .slice(0, HALL_OF_FAME_DAILY_TOP);
 
 /**
- * Everything the Hall of Fame keeps: the top pulls, the firsts, and the daily top of each of `days`
- * (UTC, YYYY-MM-DD), each pull once. The daily entries only add to the list, so the top pulls and
- * firsts read from it are the same with or without them.
+ * Everything the Hall of Fame keeps: the top pulls and the daily top of each of `days` (UTC,
+ * YYYY-MM-DD), each pull once. The daily entries only add to the list, so the top pulls read from
+ * it are the same with or without them. Anything else in `entries` (such as the world firsts older
+ * lists kept) is dropped unless it ranks.
  */
 export const hallOfFameList = <T extends RankableEntry>(entries: readonly T[], days: readonly string[] = []): T[] => {
   const kept = new Map<string, T>();
-  for (const e of [...topPulls(entries), ...firstPulls(entries), ...days.flatMap((day) => dailyPulls(entries, day))]) if (!kept.has(e.id)) kept.set(e.id, e);
+  for (const e of [...topPulls(entries), ...days.flatMap((day) => dailyPulls(entries, day))]) if (!kept.has(e.id)) kept.set(e.id, e);
   return [...kept.values()];
 };
 
 /**
  * Why a pull verified now would join the list, or null if it wouldn't. It has to qualify and not be
- * listed already. 'all-time': it beats the lowest of the top pulls (or there's room), or it's the
- * first of its hand in its set. 'daily': it misses those but makes the top of `day` (UTC,
- * YYYY-MM-DD): there's room, or it beats the lowest (a tie goes to the earlier one). Without a day,
- * only the all-time list counts.
+ * listed already. 'all-time': it beats the lowest of the top pulls (or there's room). 'daily': it
+ * misses that but makes the top of `day` (UTC, YYYY-MM-DD): there's room, or it beats the lowest (a
+ * tie goes to the earlier one). Without a day, only the all-time list counts.
  */
 export const hallOfFameJoin = (
   pull: { id: string; setId: string; score: PackScore },
@@ -106,7 +101,6 @@ export const hallOfFameJoin = (
   if (!qualifiesForHallOfFame(pull.score) || list.some((e) => e.id === pull.id)) return null;
   const top = topPulls(list);
   if (top.length < HALL_OF_FAME_TOP || pull.score.score > top[top.length - 1].score) return 'all-time';
-  if (pull.score.hand.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER && !list.some((e) => firstKey(e) === firstKey({ setId: pull.setId, hand: pull.score.hand.name }))) return 'all-time';
   if (!day) return null;
   const today = dailyPulls(list, day);
   return today.length < HALL_OF_FAME_DAILY_TOP || pull.score.score > today[today.length - 1].score ? 'daily' : null;
@@ -115,3 +109,17 @@ export const hallOfFameJoin = (
 /** Whether a pull verified now would join the list, on the all-time list or `day`'s top (see `hallOfFameJoin`). */
 export const wouldJoinHallOfFame = (pull: { id: string; setId: string; score: PackScore }, list: readonly RankableEntry[], day?: string): boolean =>
   hallOfFameJoin(pull, list, day) !== null;
+
+/**
+ * The score a pull must beat to join the list on `day` (see `hallOfFameJoin`), or null while either
+ * board has room and any qualifying pull joins. Intake uses it to turn low pulls away before paying
+ * for their Argon2id derivation. It only rises as pulls join, except when moderation takes an entry
+ * down. Without a day, only the all-time list counts.
+ */
+export const hallOfFameFloor = (list: readonly RankableEntry[], day?: string): number | null => {
+  const top = topPulls(list);
+  if (top.length < HALL_OF_FAME_TOP) return null;
+  if (!day) return top[top.length - 1].score;
+  const today = dailyPulls(list, day);
+  return today.length < HALL_OF_FAME_DAILY_TOP ? null : Math.min(top[top.length - 1].score, today[today.length - 1].score);
+};

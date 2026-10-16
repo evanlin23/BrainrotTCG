@@ -47,6 +47,12 @@
   font-size: var(--text-sm);
 }
 
+.card-viewer-points {
+  margin: 0;
+  font-weight: 700;
+  color: var(--text);
+}
+
 .card-viewer-actions {
   display: flex;
   flex-wrap: wrap;

@@ -85,6 +85,7 @@ describe('Hall of Fame in the pack share sheet', () => {
   it('shows the pull as submitted once a relay takes it, without a relay count', async () => {
     const button = await clickSubmit();
     expect(submitToHallOfFame).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(submitToHallOfFame).mock.calls[0][2]).toBe(1000); // the score hint the inbox can skip on
     expect(button.textContent).toBe('Submitted');
     expect(button.disabled).toBe(true);
     const status = document.querySelector('.share-hof [role="status"]')!.textContent!;

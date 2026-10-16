@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import BrainrotScorePanel from './BrainrotScorePanel';
+import PackHeadline from '../pack/PackHeadline';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
 import type { CardWithMeta } from '../cards/Card';
@@ -53,13 +54,15 @@ const PackCardViewer = ({
     return (
         <div className={`pack-card-viewer ${className}`}>
             {showValue && (
-                <BrainrotScorePanel
-                    points={points}
-                    multiplier={pokerHand.multiplier}
-                    handName={pokerHand.name}
-                    score={score}
-                    setId={cards[0]?.setId}
-                />
+                <>
+                    <PackHeadline cards={cards} />
+                    <BrainrotScorePanel
+                        points={points}
+                        multiplier={pokerHand.multiplier}
+                        score={score}
+                        setId={cards[0]?.setId}
+                    />
+                </>
             )}
 
             <div className={`pack-viewer-cards pack-viewer-${displayMode}`}>
