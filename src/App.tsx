@@ -297,10 +297,11 @@ function App() {
 
   // Saved packs (IndexedDB) are read a page at a time while the app runs, aborted on unmount.
   useEffect(() => watchMyPacks(), []);
-  // Hear about another tab's import, player switch or clear before this one next writes (see samePlayer).
+  // Hear about another tab's import, player switch or clear before this one next writes (see samePlayer),
+  // and warn when storage refuses this tab's ticket count over another tab's lower one.
   useEffect(() => watchPlayer(() => {
     if (!samePlayer()) setStaleSave(true);
-  }), [samePlayer]);
+  }, () => setSaveFailed(true)), [samePlayer]);
   // And about another tab of this player storing progress (see progressCurrent), so packs stop opening here.
   useEffect(() => watchProgress(() => {
     if (progressCurrent()) return;

@@ -39,15 +39,30 @@ const getFrameMask = (): Promise<ImageData> => frameMask ??= loadImage(frameMask
   throw error;
 });
 
-const cache = new Map<string, Promise<string>>();
+// Keep the 16 most recent full-size renders (a lossless PNG each) for reuse; held ones never count as spare.
+export const MAX_CACHED_FINISHES = 16;
 
-/** One cached lossless image per card/finish, shared by every screen and the PNG exporter. */
-export const finishedCardImage = (src: string, finish?: Finish | null): Promise<string> => {
-  if (!finish) return Promise.resolve(src);
-  const key = `${finish}:${src}`;
-  const existing = cache.get(key);
-  if (existing) return existing;
-  const result = Promise.all([loadImage(src), getFrameMask()]).then(async ([image, mask]) => {
+interface CachedFinish {
+  image: Promise<string>;
+  url?: string;
+  /** Mounted images (or exports) still using this render; it is never revoked while above zero. */
+  holders: number;
+}
+
+const cache = new Map<string, CachedFinish>();
+
+/** Drop the least recently used renders nothing holds until the cache is back within its bound. */
+const trimCache = () => {
+  for (const [key, entry] of cache) {
+    if (cache.size <= MAX_CACHED_FINISHES) return;
+    if (entry.holders > 0) continue;
+    cache.delete(key);
+    if (entry.url) URL.revokeObjectURL(entry.url);
+  }
+};
+
+const renderFinish = (src: string, finish: Finish): Promise<string> =>
+  Promise.all([loadImage(src), getFrameMask()]).then(async ([image, mask]) => {
     const canvas = document.createElement('canvas');
     canvas.width = mask.width;
     canvas.height = mask.height;
@@ -70,10 +85,54 @@ export const finishedCardImage = (src: string, finish?: Finish | null): Promise<
       }
     });
     return URL.createObjectURL(blob);
-  }).catch((error) => {
-    cache.delete(key);
-    throw error;
   });
-  cache.set(key, result);
-  return result;
+
+export interface FinishedCardImageHold {
+  /** The finished image's URL (the plain `src` when there is no finish). */
+  image: Promise<string>;
+  /** Call once nothing displays the URL any more; the render may then be evicted and revoked. */
+  release: () => void;
+}
+
+const noop = () => {};
+
+/**
+ * One cached lossless image per card/finish, shared by every screen and the PNG exporter. The URL
+ * stays valid until `release`: call it only after the image showing it has unmounted or moved on.
+ */
+export const holdFinishedCardImage = (src: string, finish?: Finish | null): FinishedCardImageHold => {
+  if (!finish) return { image: Promise.resolve(src), release: noop };
+  const key = `${finish}:${src}`;
+  let entry = cache.get(key);
+  if (entry) {
+    // Most recently used goes last, so trimming reaches it last.
+    cache.delete(key);
+    cache.set(key, entry);
+  } else {
+    const created: CachedFinish = { image: Promise.resolve(''), holders: 0 };
+    created.image = renderFinish(src, finish).then((url) => {
+      created.url = url;
+      // Evicted while rendering, with nobody waiting: nothing will ever show it.
+      if (cache.get(key) !== created && created.holders === 0) URL.revokeObjectURL(url);
+      return url;
+    }, (error: unknown) => {
+      if (cache.get(key) === created) cache.delete(key);
+      throw error;
+    });
+    entry = created;
+    cache.set(key, entry);
+  }
+  const held = entry;
+  held.holders += 1;
+  trimCache();
+  let released = false;
+  return {
+    image: held.image,
+    release: () => {
+      if (released) return;
+      released = true;
+      held.holders -= 1;
+      if (held.holders === 0) trimCache();
+    },
+  };
 };

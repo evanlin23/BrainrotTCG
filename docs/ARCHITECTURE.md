@@ -278,21 +278,28 @@ migrations rebuild, and entries hydration hides for recovery) and best-pack card
 than v3 (checked as migrations and the profile read them), and a missing `brainrot-data-version`
 is stored as `1` so the save's migrations run; otherwise the result is `invalid` and nothing is
 written. Neither side's `brainrot-before-*` backups are handed over. Replacing a different
-player's progress asks first and copies the current save into `brainrot-before-move-v1`, or, while
-an earlier move's copy is there, into `brainrot-before-move-pending-v1`. A pending copy an earlier
-move left first replaces the one in `brainrot-before-move-v1` (one write, then it is removed), so the
-save being replaced is always copied and there are never more than these two copies; if either write
-fails, nothing is written and the result is `full` (storage quota) or `invalid`. The move then
-removes that save's keys (player and stamp first, so a tab still on it stops writing). Once moved,
-with or without progress to replace, a pending copy replaces the one in `brainrot-before-move-v1`
-the same way; if that fails, both stay until the next move. Into a browser without progress, keys
-the save doesn't carry stay and no copy is taken. A failed write removes what it wrote, restores the
-previous values and drops only the copy just taken (best effort, not a transaction), and the result
-is `full` (storage quota) or `invalid`. If the values can't all be restored, the result is `partial`
-and every copy is kept: the player is told this browser may hold parts of both saves, Save & restore then
-reloads so the page shows what
-storage holds (a partial file import does the same), and the move window stays open on any failure
-so its note can be read.
+player's progress asks first and keeps a copy of the current save. `brainrot-before-move-v1` and
+`brainrot-before-move-pending-v1` hold the two most recent distinct copies, never more:
+`brainrot-before-move-v1` the older one (or the only one), the pending key the newer. Before taking
+a copy, a move puts a pending copy in `brainrot-before-move-v1`'s place (one write, then it is
+removed; the oldest copy goes), then copies the save here into the pending key, or into
+`brainrot-before-move-v1` while there is no copy at all. So a copy is only ever written over by a
+newer one taking its place, never by the end of a move. If either write fails, the save here is
+unchanged (a pending copy already moved into place stays there) and the result is `full` (storage
+quota) or `invalid`. No copy is taken when the newest one already holds the save here (every key
+here matches that copy or the incoming save, or holds no progress, like a guest that opened no
+packs): after a `partial` move it is whole where the save here may not be. Only the newest copy
+counts, so two saves' keys are never taken for one, and a matching stamp or player alone isn't
+enough, since packs opened since would be in neither copy. The move then removes that save's keys
+(player and stamp first, so a tab still on it stops writing). After `saved` or `partial`, the newest
+copy holds the save this move replaced and the older one the save before that. Into a browser
+without progress, keys the save doesn't carry stay and no copy is taken. A failed write removes what
+it wrote, restores the previous values and drops only the copy just taken, as the save it holds is
+back in place (best effort, not a transaction), and the result is `full` (storage quota) or
+`invalid`. If the values can't all be restored, the result is `partial` and every copy is kept: the
+player is told this browser may hold parts of both saves, Save & restore then reloads so the page
+shows what storage holds (a partial file import does the same), and the move window stays open on
+any failure so its note can be read.
 
 ## Profiles and levels (no server)
 
@@ -348,7 +355,16 @@ to add. Packs it opened itself aren't put back: any the shelf took when they ope
 unless the other tab has taken and stored them, so putting them back could add them twice. If storage
 refuses the put-back, the save warning stays up and the next change or storage event tries again.
 Settings stay last-writer-wins.
-Limits: storage has no lock across tabs, so two tabs of one player writing in the same instant can
+Ticket numbers (`src/game/player.ts` `claimNonce`) are claimed under a Web Lock named for the
+player's public key and the number, so two tabs never spend one number even when one tab's storage
+read lags. A tab holds the lock of the highest number it took per key until it closes and lets the
+lower ones go; a claim skips any number below a lock another tab holds. Where Web Locks are missing
+or refuse (insecure pages, older browsers) a tab counts on its own, past any number it saw taken.
+A tab never hands out a number below its own count for the same key (exports carry that count too),
+rewrites the stored count while the app watches the player (`watchPlayer`) when another tab's lower
+one lands later, and shows the save warning when storage refuses the new count or that rewrite
+(after a reload that number could be handed out again).
+Limits: progress writes have no lock across tabs, so two tabs of one player writing in the same instant can
 both pass that check (the later write replaces the earlier, whose pack stays in the history; the
 earlier tab then hears the write and stops), and a tab that writes before an import's stamp reaches
 it can still overwrite an imported field (import with other tabs closed; the file and
@@ -434,7 +450,9 @@ platinum blue, diamond blue/violet), with glow on platinum and diamond; misprint
 stored compactly in the pack history (`src/game/cardCode.ts`: `sigma*G!` is a holo Gold misprint).
 
 `src/game/frameRecolor.ts` uses the shared frame's alpha mask to protect the meme artwork. Large
-card views and the PNG exporter use `src/game/finishImage.ts`, caching full-size results per card/finish.
+card views and the PNG exporter use `src/game/finishImage.ts`, caching full-size results per card/finish
+in a 16-entry LRU. Each view holds its render while mounted; an evicted render's blob URL is revoked
+only after its last holder lets go, so no mounted `<img>` loses its source.
 Collection tiles load pre-rendered 344px WebP finishes directly, with native lazy loading and no
 canvas recolouring or PNG encoding on first load. They use the same recolouring function before
 resizing. `npm run cards` rebuilds these thumbnails and the small lossless mask

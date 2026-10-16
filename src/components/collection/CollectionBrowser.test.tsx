@@ -8,9 +8,11 @@ import type { Finish, SetDefinition } from '../../engine';
 import type { CollectionItem } from '../../types';
 import CollectionBrowser from './CollectionBrowser';
 
-const { finishedCardImage } = vi.hoisted(() => ({ finishedCardImage: vi.fn(async (src: string) => `rendered:${src}`) }));
+const { holdFinishedCardImage } = vi.hoisted(() => ({
+  holdFinishedCardImage: vi.fn((src: string) => ({ image: Promise.resolve(`rendered:${src}`), release: () => {} })),
+}));
 // jsdom has no canvas; counting calls shows which tiles asked for finish work.
-vi.mock('../../game/finishImage', () => ({ finishedCardImage }));
+vi.mock('../../game/finishImage', () => ({ holdFinishedCardImage }));
 
 const FINISHES: Finish[] = ['SILVER', 'GOLD', 'PLATINUM', 'DIAMOND'];
 const RARITIES = ['COMMON', 'COMMON', 'UNCOMMON', 'RARE', 'EPIC', 'LEGENDARY'] as const;
@@ -53,7 +55,7 @@ beforeEach(() => {
   // jsdom has no ResizeObserver or matchMedia; the card viewer only use them for layout and tilt.
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
-  finishedCardImage.mockClear();
+  holdFinishedCardImage.mockClear();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -127,14 +129,14 @@ describe('bounded collection grid (#344)', () => {
     // Only the two open eras rendered finishes (their art has no thumbnails); the 38 collapsed did none.
     const opened = finishedTiles();
     expect(opened).toBeGreaterThan(0);
-    expect(finishedCardImage).toHaveBeenCalledTimes(opened);
+    expect(holdFinishedCardImage).toHaveBeenCalledTimes(opened);
 
     // Opening one more future era renders its own finishes, and only those.
     const oldest = headerOf('Future era 1');
     act(() => oldest.click());
     const added = finishedTiles(gridOf(oldest)!);
     expect(added).toBeGreaterThan(0);
-    expect(finishedCardImage).toHaveBeenCalledTimes(opened + added);
+    expect(holdFinishedCardImage).toHaveBeenCalledTimes(opened + added);
     expect(mountedPockets()).toBe(24 + 12);
   });
 

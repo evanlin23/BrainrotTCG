@@ -67,10 +67,16 @@ const current = (): StoredPlayer => {
   return memory;
 };
 
-const update = (change: (s: StoredPlayer) => StoredPlayer): StoredPlayer => {
-  memory = change(current());
-  write(memory);
-  return memory;
+/**
+ * The ticket count past the last number this tab took, and its key. A refused write, or another tab's
+ * late write of a lower count, can leave storage behind it; this tab never goes back below it.
+ */
+let taken: { secretKey: string; nextNonce: number } | null = null;
+
+/** current(), with the ticket counter past every number this tab took for the same key. */
+const forTickets = (): StoredPlayer => {
+  const record = current();
+  return taken?.secretKey === record.secretKey && taken.nextNonce > record.nextNonce ? { ...record, nextNonce: taken.nextNonce } : record;
 };
 
 let lastKey: { secretKeyHex: string; publicKey: Uint8Array } | null = null;
@@ -85,7 +91,7 @@ const toPlayer = (s: StoredPlayer): Player => {
 export const getPlayer = (): Player => toPlayer(current());
 
 /** The ticket number the next pack will use (without consuming it). */
-export const peekNonce = (): number => current().nextNonce;
+export const peekNonce = (): number => forTickets().nextNonce;
 
 /** The player and how many tickets it has used, read from one record so neither belongs to another key. */
 export const getPlayerTickets = (): { player: Player; nextNonce: number } => {
@@ -94,16 +100,119 @@ export const getPlayerTickets = (): { player: Player; nextNonce: number } => {
 };
 
 /**
- * Consume the next ticket number. Every opened pack uses a new one. Returns the player it belongs
- * to as well, read from the same record, so a pack never pairs one key with another key's nonce.
+ * A ticket number handed out, with the player it belongs to (read from the same record, so a pack
+ * never pairs one key with another key's nonce). `stored` is false when storage refused the new
+ * count: this tab won't hand the number out again, but after a reload it could be, so warn.
  */
-export const allocateNonce = (): { nonce: number; player: Player } => {
-  let nonce = 0;
-  const record = update((s) => {
-    nonce = s.nextNonce;
-    return { ...s, nextNonce: s.nextNonce + 1 };
-  });
-  return { nonce, player: toPlayer(record) };
+export interface NonceClaim {
+  nonce: number;
+  player: Player;
+  stored: boolean;
+}
+
+const take = (record: StoredPlayer, nonce: number): NonceClaim => {
+  const next = { ...record, nextNonce: nonce + 1 };
+  memory = next;
+  taken = { secretKey: next.secretKey, nextNonce: next.nextNonce };
+  return { nonce, player: toPlayer(next), stored: write(next) };
+};
+
+/** Consume the next ticket number from this tab's view of storage. Prefer claimNonce(). */
+export const allocateNonce = (): NonceClaim => {
+  const record = forTickets();
+  return take(record, record.nextNonce);
+};
+
+const CLAIM_TRIES = 1000;
+const LOCK_PREFIX = 'brainrot-ticket:';
+
+/**
+ * The lock this tab holds for the highest number it took under each key, and how to let it go. Only
+ * that one is kept: attempt() never takes a number below a held lock's, so it covers the ones before it.
+ */
+const heldLocks = new Map<string, { nonce: number; release: () => void }>();
+
+const keepLock = (key: string, nonce: number, release: () => void) => {
+  const top = heldLocks.get(key);
+  if (top && top.nonce > nonce) return release();
+  heldLocks.set(key, { nonce, release });
+  top?.release();
+};
+
+/** One past the highest number above `nonce` that any tab holds a lock for under `key`; `nonce` when none. */
+const pastHeldLocks = async (locks: LockManager, key: string, nonce: number): Promise<number> => {
+  const prefix = `${LOCK_PREFIX}${key}:`;
+  const { held = [] } = await locks.query();
+  let next = nonce;
+  for (const { name } of held) {
+    const other = name?.startsWith(prefix) ? Number(name.slice(prefix.length)) : NaN;
+    if (Number.isSafeInteger(other) && other > nonce) next = Math.max(next, other + 1);
+  }
+  return next;
+};
+
+/**
+ * Takes `nonce` if no tab holds its lock or a higher number's, and storage hasn't moved past it.
+ * Otherwise resolves with the next number worth trying.
+ */
+const attempt = (locks: LockManager, record: StoredPlayer, nonce: number) => new Promise<NonceClaim | number>((resolve, reject) => {
+  const key = toPlayer(record).publicKeyHex;
+  locks.request(`${LOCK_PREFIX}${key}:${nonce}`, { ifAvailable: true }, async (lock) => {
+    if (!lock) return resolve(nonce + 1);
+    let claim: NonceClaim;
+    try {
+      // Asked while holding this number's lock: a tab lets a lock go only once it holds a higher one.
+      const next = await pastHeldLocks(locks, key, nonce);
+      const now = forTickets();
+      if (now.secretKey !== record.secretKey || now.nextNonce > nonce || next > nonce) return resolve(Math.max(next, nonce + 1));
+      claim = take(now, nonce);
+    } catch (error) {
+      reject(error);
+      return undefined;
+    }
+    resolve(claim);
+    // Held until this tab takes a higher number for the key, or closes, so a tab whose storage view is
+    // behind can never take this number (or, through pastHeldLocks, one below it).
+    return new Promise<void>((release) => keepLock(key, nonce, () => release()));
+  }).catch(reject);
+});
+
+/**
+ * The unlocked fallback: the first number from `nonce` on that storage hasn't passed, so a number this
+ * claim already tried and saw taken is never handed out. Another key's record starts from its own count.
+ */
+const takeFrom = (record: StoredPlayer, nonce: number): NonceClaim => {
+  const now = forTickets();
+  return take(now, now.secretKey === record.secretKey ? Math.max(nonce, now.nextNonce) : now.nextNonce);
+};
+
+/**
+ * Consume the next ticket number, safely across tabs: each number is claimed under a Web Lock named
+ * for the key and number, because another tab's view of localStorage can lag behind. Each tab holds
+ * the lock of the highest number it took under a key for the life of the tab, and lets the lower ones
+ * go. Where Web Locks are missing or fail (insecure pages, old browsers) this counts on in this tab
+ * alone, from the number it reached.
+ */
+export const claimNonce = async (): Promise<NonceClaim> => {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  if (typeof locks?.request !== 'function') return allocateNonce();
+  let record = forTickets();
+  let nonce = record.nextNonce;
+  for (let tries = 0; tries < CLAIM_TRIES; tries++) {
+    let result: NonceClaim | number;
+    try {
+      result = await attempt(locks, record, nonce);
+    } catch (error) {
+      console.error('Could not hold a ticket number', error);
+      return takeFrom(record, nonce);
+    }
+    if (typeof result !== 'number') return result;
+    const now = forTickets();
+    // Another key was switched in: start from its counter, never mixing the two.
+    nonce = now.secretKey !== record.secretKey ? now.nextNonce : Math.max(result, now.nextNonce);
+    record = now;
+  }
+  return takeFrom(record, nonce);
 };
 
 /**
@@ -136,7 +245,7 @@ export const renamePlayer = (name: string, expectedKey: string): RenameResult =>
 };
 
 /** For save export/import. The secret key is what makes pulls yours, so treat the export as private. */
-export const exportPlayer = (): string => JSON.stringify(current());
+export const exportPlayer = (): string => JSON.stringify(forTickets());
 
 /** Parse an imported identity without creating or changing this browser's player. */
 export const parsePlayer = (raw: string): StoredPlayer | null => {
@@ -192,13 +301,27 @@ export const sameSave = (loaded: SaveMark, now: SaveMark): boolean =>
   loaded.key === now.key && loaded.stamp === now.stamp && (now.stored || !loaded.stored);
 
 /**
+ * Stores this tab's ticket count again when another tab's write left a lower one for the same key
+ * (two tabs' writes can land out of order), so the count outlasts this tab. Another key, or a removed
+ * record, is left alone. False when the count needed storing and storage refused it.
+ */
+const keepTicketCount = (): boolean => {
+  const fresh = read();
+  if (!fresh || !taken || fresh.secretKey !== taken.secretKey || fresh.nextNonce >= taken.nextNonce) return true;
+  return write({ ...fresh, nextNonce: taken.nextNonce });
+};
+
+/**
  * Calls `onChange` when another tab stores a player record (an import, a switch, a rename), imports a
  * save, or clears this browser's storage, so a tab can find out that its save changed before it next
  * writes. The storage event only reaches other tabs, and can arrive late: writers still compare
- * saveMark() themselves. Returns the unsubscribe.
+ * saveMark() themselves. While watching, it also keeps the stored ticket count from going below this
+ * tab's (see keepTicketCount), and calls `onCountRefused` when storage refuses that. Returns the
+ * unsubscribe.
  */
-export const watchPlayer = (onChange: () => void): (() => void) => {
+export const watchPlayer = (onChange: () => void, onCountRefused?: () => void): (() => void) => {
   const listener = (event: StorageEvent) => {
+    if (event.key === STORAGE_KEY && !keepTicketCount()) onCountRefused?.();
     if (event.key === null || event.key === STORAGE_KEY || event.key === SAVE_STAMP_KEY) onChange();
   };
   window.addEventListener('storage', listener);
