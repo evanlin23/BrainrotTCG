@@ -355,6 +355,8 @@
     pointer-events: none;
 }
 
+/* A press on the line warms it before the swipe has a direction, so the press is felt (#267). */
+.pack-shell.is-pressed .tear-guide,
 .pack-shell.is-cutting .tear-guide {
     border-top-color: rgba(255, 241, 188, 1);
     animation: none;

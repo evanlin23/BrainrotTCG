@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { SETS } from '../../content/sets';
 import PackCuttingUI from './PackCuttingUI';
 
-const render = (xs: number[]) =>
+const render = (xs: number[], { pressing = false, nudging = false } = {}) =>
   renderToStaticMarkup(
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()}
@@ -12,11 +12,28 @@ const render = (xs: number[]) =>
       set={SETS[0]}
       error={null}
       isCutting={xs.length > 1}
+      pressing={pressing}
+      nudging={nudging}
       isPackCut={false}
       cutPoints={xs.map((x) => ({ x, y: 19 }))}
       sparks={[]}
     />,
   );
+
+/** The pack shell's classes. */
+const shellClasses = (html: string) => (html.match(/class="(pack-shell [^"]*)"/)?.[1] ?? '').split(/\s+/).filter(Boolean);
+
+describe('the tear line under a press', () => {
+  it('lights up for a press on it before the swipe has a direction, in place of a nudge', () => {
+    expect(shellClasses(render([], { pressing: true, nudging: true }))).toEqual(['pack-shell', 'is-pressed']);
+    expect(shellClasses(render([], { nudging: true }))).toEqual(['pack-shell', 'is-nudged']);
+    expect(shellClasses(render([]))).toEqual(['pack-shell']);
+  });
+
+  it('hands over to the cut once the swipe draws', () => {
+    expect(shellClasses(render([20, 30], { pressing: true }))).toEqual(['pack-shell', 'is-cutting']);
+  });
+});
 
 describe('the drawn cut', () => {
   it('is a foil seam that fades behind the finger', () => {

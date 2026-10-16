@@ -12,6 +12,8 @@ interface PackCuttingUIProps {
   set: SetDefinition;
   error: string | null;
   isCutting: boolean;
+  /** A press landed on the tear line and hasn't gone across yet: light the line under it. */
+  pressing?: boolean;
   isPackCut: boolean;
   /** The pack can't be opened now (the app's banner says why). */
   blocked?: boolean;
@@ -29,6 +31,7 @@ const PackCuttingUI = ({
   set,
   error,
   isCutting,
+  pressing = false,
   isPackCut,
   blocked = false,
   waiting = false,
@@ -44,7 +47,7 @@ const PackCuttingUI = ({
         {/* Also a button for the keyboard: Enter or Space opens it, same as the swipe. */}
         <div
           ref={packRef}
-          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting ? 'is-nudged' : ''}`}
+          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''}`}
           style={{ '--pack-mask': `url("${packDesign}")` } as React.CSSProperties}
           role="button"
           tabIndex={isPackCut ? -1 : 0}

@@ -173,27 +173,52 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
-  it('never cuts from a press on the seam that sets off down, then swipes across', () => {
-    // 30px down is still inside the band, and 60% across would open mid-drag (#267).
+  it('never cuts after a clear scroll down from the seam, 40px down and under 10px across', () => {
+    // 40px down is still inside the band, and 60% across would open mid-drag (#267).
     down(at(0.3));
-    move(at(0.3, 30));
-    move(at(0.9, 30));
-    up(at(0.9, 30));
+    move(at(0.305, 10));
+    move(at(0.31, 20));
+    move(at(0.315, 30));
+    move(at(0.325, 40));
+    move(at(0.9, 40));
+    up(at(0.9, 40));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    expect(cutter.isPressing).toBe(false);
+  });
+
+  it('never cuts from a press on the seam that sets off clearly up, then swipes across', () => {
+    down(at(0.3));
+    move(at(0.32, -36));
+    move(at(0.9, -36));
+    up(at(0.9, -36));
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
-  it('never cuts from a press on the seam that sets off up, then swipes across', () => {
+  it('never cuts on a release whose coalesced points go clearly down before going across', () => {
     down(at(0.3));
-    move(at(0.32, -20));
-    move(at(0.9, -20));
-    up(at(0.9, -20));
+    up(at(0.9, 40), { getCoalescedEvents: () => [at(0.3, 40), at(0.9, 40)] as unknown as PointerEvent[] });
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
-  it('never cuts on a release whose coalesced points set off down before going across', () => {
+  it.each([8, 10, -10])('opens when a thumb settles %ipx up or down on the seam, then swipes across', (settle) => {
+    // The settle passes the 10px slop without deciding anything; the swipe then leads (#267).
     down(at(0.3));
-    up(at(0.9, 30), { getCoalescedEvents: () => [at(0.3, 30), at(0.9, 30)] as unknown as PointerEvent[] });
+    move(at(0.3, settle / 2));
+    move(at(0.3, settle));
+    move(at(0.4, settle));
+    move(at(0.55, settle));
     expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.55, settle));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens mid-drag when a thumb settles 10px down on the seam, then swipes 45% across', () => {
+    down(at(0.3));
+    move(at(0.3, 10));
+    move(at(0.5, 10));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    move(at(0.8, 10));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
   it('reads the direction only past the slop, so a wobble before a swipe still opens', () => {
@@ -434,8 +459,9 @@ describe('usePackCutter frame batching (#266)', () => {
 
   it('draws the moves between two frames in one update, keeping every point', () => {
     renderCounting(false);
-    commits = 0;
     down(at(0.3));
+    // The press only lights the seam (one commit); its moves wait for the frame.
+    commits = 0;
     // A press draws nothing until it goes across: 6.4px is still inside the slop (#267).
     move(at(0.32));
     expect(frames.size).toBe(0);
@@ -480,19 +506,46 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(cutter.sparks[burst].x).toBeCloseTo(0.42 * rect.width);
   });
 
-  it('draws nothing for a press on the seam that sets off down', () => {
+  it('draws nothing for a press on the seam that goes clearly down', () => {
     renderCounting(true);
     down(at(0.3));
     move(at(0.31, 4));
-    move(at(0.32, 30));
-    move(at(0.6, 30));
+    move(at(0.32, 40));
+    move(at(0.6, 40));
     expect(frames.size).toBe(0);
     runFrame();
     expect(cutter.cutPoints).toEqual([]);
     expect(cutter.isCutting).toBe(false);
+    expect(cutter.isPressing).toBe(false);
     expect(cutter.sparks).toHaveLength(0);
-    up(at(0.6, 30));
+    up(at(0.6, 40));
     expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('lights the seam on a press without cutting, then draws once a settled thumb goes across', () => {
+    renderCounting(false);
+    down(at(0.3));
+    expect(cutter.isPressing).toBe(true);
+    expect(cutter.isCutting).toBe(false);
+    move(at(0.3, 9));
+    expect(frames.size).toBe(0);
+    // 19.2px across leads the 9px settle.
+    move(at(0.36, 9));
+    expect(frames.size).toBe(1);
+    runFrame();
+    expect(cutter.isCutting).toBe(true);
+    expect(drawnX()).toEqual([30, 30, 36]);
+    up(at(0.36, 9));
+    expect(cutter.isPressing).toBe(false);
+    expect(cutter.isCutting).toBe(false);
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('does not light the seam for a press off it', () => {
+    down(at(0.3, 60));
+    expect(cutter.isPressing).toBe(false);
+    expect(onMiss).toHaveBeenCalledTimes(1);
+    up(at(0.3, 60));
   });
 
   it('draws nothing for a press off the seam, dragged onto it and across', () => {
