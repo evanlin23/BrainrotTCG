@@ -159,7 +159,7 @@ const migrateV3 = () => {
 };
 
 export const runMigrations = () => {
-  let version = 1;
+  let version: number;
   try {
     version = Number(localStorage.getItem(DATA_VERSION_KEY) ?? 1);
   } catch {

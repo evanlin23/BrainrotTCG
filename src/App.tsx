@@ -119,6 +119,7 @@ function App() {
     // Checked at every write, not only on the storage event (which can come late, or not at all):
     // packs given to the collection meanwhile stay on the pending shelf, under the player they opened as.
     if (!samePlayer()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the stored save is the external system here
       setStaleSave(true);
       return;
     }
@@ -194,7 +195,7 @@ function App() {
   const selectSet = useCallback((setId: string) => {
     setSelectedSetId(setId);
     saveSelectedSet(setId);
-  }, []);
+  }, [setSelectedSetId]);
 
   // Each page names the tab; back on the packs screen, focus returns to the top of it (the page's
   // own heading takes focus itself, see Page). Back over a pack, the chrome has stepped aside (on a
@@ -249,7 +250,8 @@ function App() {
   // that need no level apply, and the saved choice stays as it is for when the level is known.
   // After another tab switches player (see samePlayer) this tab keeps the level of the player it
   // loaded, as last read: the new player's packs are no level-up here, and unlock no rewards.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // samePlayer reads its latch ref here on purpose: the level must stop following storage once it does.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/refs
   const ownLevel = useMemo(() => (samePlayer() ? myStats()?.level ?? null : undefined), [stats.packsOpened, packCache, samePlayer]);
   const [mountedLevel, setMountedLevel] = useState(ownLevel ?? null);
   if (ownLevel !== undefined && ownLevel !== mountedLevel) setMountedLevel(ownLevel);
