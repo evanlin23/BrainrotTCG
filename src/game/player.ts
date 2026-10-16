@@ -122,6 +122,9 @@ export interface NonceClaim {
 }
 
 const take = (record: StoredPlayer, nonce: number): NonceClaim => {
+  // Checked before anything is written: a count past Number.MAX_SAFE_INTEGER would make the next read
+  // reject the record and make a new key in its place.
+  if (!Number.isSafeInteger(nonce + 1)) throw new RangeError('This player has no ticket numbers left');
   const next = { ...record, nextNonce: nonce + 1 };
   memory = next;
   taken = { secretKey: next.secretKey, nextNonce: next.nextNonce };
@@ -136,6 +139,8 @@ export const allocateNonce = (): NonceClaim => {
 
 const CLAIM_TRIES = 1000;
 const LOCK_PREFIX = 'brainrot-ticket:';
+/** How long a claim waits for the key's lock before counting on alone: a hung tab could hold it forever. */
+const LOCK_WAIT_MS = 5000;
 
 /**
  * The lock this tab holds for the highest number it took under each key, and how to let it go. Only
@@ -153,7 +158,8 @@ const keepLock = (key: string, nonce: number, release: () => void) => {
 /**
  * One past the highest number from `nonce` on that any tab holds a lock for under `key`; `nonce` when
  * none. Without query() (no browser with Web Locks lacks it, but a stand-in might), `nonce` as is: the
- * number locks alone then turn away a number another tab holds.
+ * number locks alone then turn a claim away only from the number each tab still holds (its highest), so
+ * a tab whose storage view lags could take a lower number that another tab took and has let go.
  */
 const pastHeldLocks = async (locks: LockManager, key: string, nonce: number): Promise<number> => {
   if (typeof locks.query !== 'function') return nonce;
@@ -162,7 +168,7 @@ const pastHeldLocks = async (locks: LockManager, key: string, nonce: number): Pr
   let next = nonce;
   for (const { name } of held) {
     const other = name?.startsWith(prefix) ? Number(name.slice(prefix.length)) : NaN;
-    if (Number.isSafeInteger(other) && other >= nonce) next = Math.max(next, other + 1);
+    if (Number.isSafeInteger(other + 1) && other >= nonce) next = Math.max(next, other + 1);
   }
   return next;
 };
@@ -173,16 +179,23 @@ const pastHeldLocks = async (locks: LockManager, key: string, nonce: number): Pr
  * ends unless the claim took it, so every number lock another claim sees held is a number some tab took:
  * skipping past it never leaves a number unused (an unused number would leave a gap in the history a
  * profile proof covers). Takes the number if no tab holds its lock and storage hasn't moved past it;
- * otherwise resolves with the next number worth trying.
+ * otherwise resolves with the next number worth trying. Rejects if the key's lock isn't granted within
+ * LOCK_WAIT_MS.
  */
 const attempt = (locks: LockManager, record: StoredPlayer, at: { nonce: number }) => {
   const key = toPlayer(record).publicKeyHex;
-  return locks.request(`${LOCK_PREFIX}${key}`, { mode: 'exclusive' }, async (): Promise<NonceClaim | number> => {
+  const wait = new AbortController(); // not AbortSignal.timeout(), which some browsers with Web Locks lack
+  const timer = setTimeout(() => wait.abort(), LOCK_WAIT_MS);
+  return locks.request(`${LOCK_PREFIX}${key}`, { mode: 'exclusive', signal: wait.signal }, async (): Promise<NonceClaim | number> => {
     const nonce = at.nonce = await pastHeldLocks(locks, key, at.nonce);
     let claim: NonceClaim | undefined;
     await new Promise<void>((resolve, reject) => {
       locks.request(`${LOCK_PREFIX}${key}:${nonce}`, { ifAvailable: true }, (lock) => {
         if (!lock) return undefined;
+        // Storage is checked again now that the number's lock is held, in the task it was granted in.
+        // Not query() again: that would wait with the lock held, and an older build's tab (which claims
+        // without the key's lock) turned away from this number meanwhile takes the next one, so skipping
+        // past that would leave this one unused.
         const now = forTickets();
         if (now.secretKey !== record.secretKey || now.nextNonce > nonce) return undefined;
         claim = take(now, nonce);
@@ -193,7 +206,7 @@ const attempt = (locks: LockManager, record: StoredPlayer, at: { nonce: number }
       }).then(() => resolve(), reject); // a lock not kept is let go first
     });
     return claim ?? nonce + 1;
-  });
+  }).finally(() => clearTimeout(timer));
 };
 
 /**
@@ -210,7 +223,8 @@ const takeFrom = (record: StoredPlayer, nonce: number): NonceClaim => {
  * for the key and number, because another tab's view of localStorage can lag behind, and claims for a
  * key take turns under a lock named for the key. Each tab holds the lock of the highest number it took
  * under a key for the life of the tab, and lets the lower ones go. Where Web Locks are missing or fail
- * (insecure pages, old browsers) this counts on in this tab alone, from the number it reached.
+ * (insecure pages, old browsers), or the key's lock stays held past LOCK_WAIT_MS, this counts on in this
+ * tab alone, from the number it reached.
  */
 export const claimNonce = async (): Promise<NonceClaim> => {
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
@@ -265,6 +279,15 @@ export const renamePlayer = (name: string, expectedKey: string): RenameResult =>
 
 /** For save export/import. The secret key is what makes pulls yours, so treat the export as private. */
 export const exportPlayer = (): string => JSON.stringify(forTickets());
+
+/**
+ * How many ticket numbers a stored player record (its raw value) has used, counting past every ticket
+ * the pack history records for its key, as claims do; null when it isn't a valid record.
+ */
+export const ticketCount = (raw: string): number | null => {
+  const record = parsePlayer(raw);
+  return record && pastRecorded(record).nextNonce;
+};
 
 /** Parse an imported identity without creating or changing this browser's player. */
 export const parsePlayer = (raw: string): StoredPlayer | null => {

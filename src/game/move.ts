@@ -16,7 +16,7 @@
  */
 import { STORAGE_KEYS } from '../constants';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
-import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
+import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY, ticketCount } from './player';
 import { isValidSaveValue } from './saveFile';
 
 const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
@@ -79,6 +79,7 @@ const parse = (key: string): unknown => {
  * a friend's pull) makes a player key with no packs, and that's not a save worth asking about.
  */
 export const hasProgress = (): boolean => {
+  // The raw counter, not ticketCount's floor: a ticket the history records makes the history non-empty below.
   if (((parse(PLAYER_KEY) as { nextNonce?: number } | null)?.nextNonce ?? 0) > 0) return true;
   if (((parse('brainrot-stats-v1') as { packsOpened?: number } | null)?.packsOpened ?? 0) > 0) return true;
   return ['brainrot-found-collection-v1', 'brainrot-history-v1', 'brainrot-achievements-v1'].some((k) => {
@@ -109,7 +110,8 @@ const holdsNothing = (value: unknown): boolean => value === null || value === 0 
 /** A value here that nothing is lost by dropping: a guest who opened no packs, an empty collection. */
 const holdsNoProgress = (key: string, raw: string | null): boolean => {
   if (raw === null || NO_PROGRESS_KEYS.has(key)) return true;
-  if (key === PLAYER_KEY) return parsePlayer(raw)?.nextNonce === 0;
+  // Floored by the history as the player's own reads are: a ticket recorded past a stale counter is progress.
+  if (key === PLAYER_KEY) return ticketCount(raw) === 0;
   try {
     return holdsNothing(JSON.parse(raw));
   } catch {

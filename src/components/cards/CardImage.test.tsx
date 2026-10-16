@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { StrictMode, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,12 +7,11 @@ import { ALL_CARDS } from '../../data/cards';
 import { cardFinishThumbUrl } from '../../content/art';
 import CardImage from './CardImage';
 
-const { holdFinishedCardImage, release } = vi.hoisted(() => {
+const { holdFinishedCardImage, release, renderedHold } = vi.hoisted(() => {
   const release = vi.fn();
-  return {
-    release,
-    holdFinishedCardImage: vi.fn((src: string, finish?: string | null) => ({ image: Promise.resolve(`rendered:${finish}:${src}`), release })),
-  };
+  const renderedHold = (src: string, finish?: string | null): { image: Promise<string>; release: () => void } =>
+    ({ image: Promise.resolve(`rendered:${finish}:${src}`), release });
+  return { release, renderedHold, holdFinishedCardImage: vi.fn(renderedHold) };
 });
 // jsdom has no canvas; the full-size renderer is stubbed to a recognisable URL.
 vi.mock('../../game/finishImage', () => ({ holdFinishedCardImage }));
@@ -199,6 +198,89 @@ describe('failure and retry', () => {
     expect(img.dataset.state).toBe('ready');
   });
 
+  it('hands focus back to Retry when a retry fails again, but never takes focus the player moved', async () => {
+    await act(async () => root.render(
+      <div className="dialog" tabIndex={-1}>
+        <button type="button" className="close">Close</button>
+        <CardImage src={card.image} finish="GOLD" alt={card.name} retry />
+      </div>,
+    ));
+    const img = container.querySelector('img')!;
+    const close = container.querySelector<HTMLButtonElement>('.close')!;
+    const retryButton = () => container.querySelector<HTMLButtonElement>('.card-image-retry');
+    close.focus();
+    await fire(img, 'error');
+    // A failure on its own leaves focus where it was.
+    expect(document.activeElement).toBe(close);
+
+    retryButton()!.focus();
+    await act(async () => retryButton()!.click());
+    expect(document.activeElement).toBe(container.querySelector('.dialog'));
+    await fire(img, 'error');
+    expect(img.dataset.state).toBe('failed');
+    expect(document.activeElement).toBe(retryButton());
+
+    // The player tabs away while the next attempt loads: the new failure does not pull focus back.
+    await act(async () => retryButton()!.click());
+    close.focus();
+    await fire(img, 'error');
+    expect(retryButton()).not.toBeNull();
+    expect(document.activeElement).toBe(close);
+  });
+
+  it('returns focus to Retry without a focusable container, when focus fell to the page', async () => {
+    await act(async () => root.render(<CardImage src={card.image} alt={card.name} retry />));
+    const img = container.querySelector('img')!;
+    await fire(img, 'error');
+    container.querySelector<HTMLButtonElement>('.card-image-retry')!.focus();
+    await act(async () => container.querySelector<HTMLButtonElement>('.card-image-retry')!.click());
+    await fire(img, 'error');
+    expect(document.activeElement).toBe(container.querySelector('.card-image-retry'));
+  });
+
+  it('starts afresh when the same card switches between its thumbnail and full-size view', async () => {
+    await act(async () => root.render(<CardImage src={card.image} finish="GOLD" alt="" />));
+    const img = container.querySelector('img')!;
+    await fire(img, 'error');
+    expect(img.dataset.state).toBe('failed');
+
+    // The ready-made thumbnail is a different download: an earlier full-size failure says nothing about it.
+    await act(async () => root.render(<CardImage src={card.image} finish="GOLD" thumbnail alt="" />));
+    expect(img.getAttribute('src')).toBe(cardFinishThumbUrl(card.image, 'GOLD'));
+    expect(img.dataset.state).toBe('loading');
+  });
+
+  it('marks a loading image scrolled out of view so its shimmer pauses, and stops watching once it settles', async () => {
+    const observed = new Set<Element>();
+    let notify: IntersectionObserverCallback | undefined;
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: IntersectionObserverCallback) { notify = callback; }
+      observe(element: Element) { observed.add(element); }
+      unobserve(element: Element) { observed.delete(element); }
+      disconnect() { observed.clear(); }
+    });
+    const scroll = (target: Element, isIntersecting: boolean) =>
+      act(() => notify!([{ target, isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver));
+
+    await act(async () => root.render(<CardImage src={card.image} alt="" />));
+    const img = container.querySelector('img')!;
+    expect(img.dataset.state).toBe('loading');
+    expect(observed.has(img)).toBe(true);
+    scroll(img, false);
+    expect(img.hasAttribute('data-offscreen')).toBe(true);
+    scroll(img, true);
+    expect(img.hasAttribute('data-offscreen')).toBe(false);
+
+    scroll(img, false);
+    await fire(img, 'load');
+    expect(img.dataset.state).toBe('ready');
+    expect(observed.has(img)).toBe(false);
+    expect(img.hasAttribute('data-offscreen')).toBe(false);
+    // An entry queued before it stopped watching changes nothing.
+    scroll(img, false);
+    expect(img.hasAttribute('data-offscreen')).toBe(false);
+  });
+
   it('recovers failed images without a control when any retry runs or the device comes back online', async () => {
     await act(async () => root.render(
       <>
@@ -227,5 +309,78 @@ describe('failure and retry', () => {
     expect(release).not.toHaveBeenCalled();
     await act(async () => root.render(<></>));
     expect(release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('finish render holds', () => {
+  let root: Root;
+  let container: HTMLElement;
+  const [first, second] = ALL_CARDS;
+
+  /** Counts live holds per render the way finishImage's LRU does, and every release beyond one per hold. */
+  const countHolds = () => {
+    const holders = new Map<string, number>();
+    const pending = new Map<string, (url: string) => void>();
+    let extraReleases = 0;
+    holdFinishedCardImage.mockImplementation((src: string, finish?: string | null) => {
+      const key = `${finish}:${src}`;
+      holders.set(key, (holders.get(key) ?? 0) + 1);
+      let held = true;
+      return {
+        image: new Promise<string>((resolve) => pending.set(key, resolve)),
+        release: () => {
+          if (!held) extraReleases += 1;
+          else holders.set(key, holders.get(key)! - 1);
+          held = false;
+        },
+      };
+    });
+    return { holders, pending, extraReleases: () => extraReleases };
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    holdFinishedCardImage.mockClear();
+    container = document.body.appendChild(document.createElement('div'));
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    holdFinishedCardImage.mockImplementation(renderedHold);
+    vi.unstubAllGlobals();
+  });
+
+  it('holds one render through a StrictMode double mount and lets it go once on unmount', async () => {
+    const holds = countHolds();
+    await act(async () => root.render(<StrictMode><CardImage src={first.image} finish="GOLD" alt="" /></StrictMode>));
+    expect(holds.holders.get(`GOLD:${first.image}`)).toBe(1);
+    await act(async () => holds.pending.get(`GOLD:${first.image}`)!('blob:gold'));
+    expect(container.querySelector('img')!.getAttribute('src')).toBe('blob:gold');
+
+    await act(async () => root.render(<StrictMode><></></StrictMode>));
+    expect(holds.holders.get(`GOLD:${first.image}`)).toBe(0);
+    expect(holds.extraReleases()).toBe(0);
+  });
+
+  it('lets go of the old card when the card changes while its render is still loading', async () => {
+    const holds = countHolds();
+    await act(async () => root.render(<CardImage src={first.image} finish="GOLD" alt="" />));
+    const img = container.querySelector('img')!;
+    expect(img.dataset.state).toBe('rendering');
+
+    await act(async () => root.render(<CardImage src={second.image} finish="GOLD" alt="" />));
+    expect(holds.holders.get(`GOLD:${first.image}`)).toBe(0);
+    expect(holds.holders.get(`GOLD:${second.image}`)).toBe(1);
+    // The old render finishing late never lands on the new card.
+    await act(async () => holds.pending.get(`GOLD:${first.image}`)!('blob:first'));
+    expect(img.getAttribute('src')).toMatch(PLACEHOLDER);
+    await act(async () => holds.pending.get(`GOLD:${second.image}`)!('blob:second'));
+    expect(img.getAttribute('src')).toBe('blob:second');
+
+    await act(async () => root.render(<></>));
+    expect(holds.holders.get(`GOLD:${second.image}`)).toBe(0);
+    expect(holds.extraReleases()).toBe(0);
   });
 });

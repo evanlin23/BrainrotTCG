@@ -17,7 +17,7 @@ import {
 } from '../engine';
 import { getSet } from '../content/sets';
 import { claimNonce, getPlayer, peekNonce } from './player';
-import { recordPack } from './history';
+import { recordPack, recordTicket } from './history';
 import { decodeCard, encodeCard, modifiersFor } from './cardCode';
 import { STORAGE_KEYS } from '../constants';
 import { previewOf, previewPath } from './previewLinks';
@@ -72,17 +72,23 @@ export const prefetchNextPack = (set: SetDefinition) => {
 
 /**
  * Open a pack: mine (or reuse) the next number's ticket, then consume the number, derive the cards and
- * record its mapping. The number is claimed only once its ticket is in hand, so the counter write and
- * the mapping write land in the same task: a tab closed or a miner failing mid-mine spends nothing.
+ * record its mapping. The number is claimed only once its ticket is in hand, so no mining sits between
+ * the counter write and the mapping write: a tab closed or a miner failing mid-mine spends nothing.
+ * Without Web Locks both writes land in one task; with them, the claim's lock release (a few lock-manager
+ * steps, no mining) sits between, and a tab closed right there leaves the number spent with no mapping.
  */
 export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
   const owner = getPlayer();
   const next = peekNonce();
   let ticket = await getTicket(setKey(set), owner.publicKey, next);
   const { nonce, player, stored } = await claimNonce();
-  // Another tab took that number (or switched the key) meanwhile: mine the one claimed. Only this
-  // rare path leaves a window where a claimed number has no mapping yet; a profile shows it unmapped.
-  if (nonce !== next || player.publicKeyHex !== owner.publicKeyHex) ticket = await getTicket(setKey(set), player.publicKey, nonce);
+  // Another tab took that number (or switched the key) meanwhile: mine the one claimed. Its mapping is
+  // recorded first, so a failed mine or a reload mid-mine leaves a ticket a profile can re-open rather
+  // than an unmapped one that blocks the profile link. Best effort: the pack's own record retries it.
+  if (nonce !== next || player.publicKeyHex !== owner.publicKeyHex) {
+    recordTicket(set.id, set.version, nonce, player.publicKeyHex, Date.now());
+    ticket = await getTicket(setKey(set), player.publicKey, nonce);
+  }
   const cards = toCardsWithMeta(generatePack(set, packSeedFromTicket(ticket)));
   prefetchTicket(setKey(set), player.publicKey, nonce + 1);
   const pack: OpenedPack = {

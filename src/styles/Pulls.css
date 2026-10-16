@@ -75,6 +75,10 @@
 
 .pull-row-thumbs img.holo {
   padding: 1.5px;
+}
+
+/* The foil ring yields to CardImage's failed slot (CardImage.css), so a failed holo thumb still reads as failed. */
+.pull-row-thumbs img.holo:not([data-state='failed']) {
   background: var(--foil);
 }
 
