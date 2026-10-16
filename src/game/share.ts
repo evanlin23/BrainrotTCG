@@ -1,5 +1,4 @@
 import type { Rarity, PackScore } from '../engine';
-import { REPO } from '../constants';
 
 /** Each rarity's square and initial, so the row reads without colour (C U R E L B are all different). */
 const RARITY_MARK: Record<Rarity, string> = {
@@ -19,10 +18,6 @@ export const bragText = (cards: { rarity: Rarity; isHolo: boolean }[], score: Pa
     `${score.hand.name}${score.hand.multiplier > 1 ? ` ×${score.hand.multiplier.toLocaleString('en-US')}` : ''} · 🧠 ${score.score.toLocaleString('en-US')} Brainrot Score`,
     `Verify it yourself: ${url}`,
   ].join('\n');
-
-/** Pre-filled GitHub issue for the global Hall of Fame (the form lives in .github/ISSUE_TEMPLATE). */
-export const hallOfFameSubmitUrl = (url: string, title: string) =>
-  `https://github.com/${REPO}/issues/new?template=hall-of-fame.yml&title=${encodeURIComponent(`[Hall of Fame] ${title}`)}&pull=${encodeURIComponent(url)}`;
 
 const SUBMITTED_KEY = 'brainrot-hof-submitted-v1';
 

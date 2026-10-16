@@ -52,17 +52,24 @@ describe('PackHeadline', () => {
 describe('PackHeadline on the results screen', () => {
   const common = pick('COMMON');
   const pair = [meta(common, 1), meta(common, 2), meta(pick('UNCOMMON'), 3), meta(pick('RARE'), 4), meta(pick('RARE', 1), 5)];
-  const results = (cards: CardWithMeta[], oneIn: number | null) =>
-    act(() => root.render(<PackHeadline cards={cards} headingRef={() => {}} oneIn={oneIn} />));
+  const results = (cards: CardWithMeta[], scoreChance: number | null) =>
+    act(() => root.render(<PackHeadline cards={cards} headingRef={() => {}} scoreChance={scoreChance} />));
   /** The headline as copied: one line per element, nothing hidden. */
   const lines = () => [...container.querySelector('.pack-headline')!.children].map((el) => el.textContent);
 
   it('heads with only the score, then the combo once with its odds and no multiplier', () => {
-    results(pair, 12.5);
+    results(pair, 0.08);
     const total = cardPoints('COMMON', false) * 2 + cardPoints('UNCOMMON', false) + cardPoints('RARE', false) * 2;
-    expect(lines()).toEqual([`${(total * 2).toLocaleString()} Brainrot Score`, 'Pair · about 1 in 13 packs']);
+    expect(lines()).toEqual([`${(total * 2).toLocaleString()} Brainrot Score`, 'Pair · 1 in 13 packs score this high']);
     expect(container.querySelector('h2')!.textContent).toBe(lines()[0]);
     expect(container.textContent).not.toMatch(/×|, |card points|Standout/);
+  });
+
+  it('says most packs score this high past even odds', () => {
+    results(pair, 0.51);
+    expect(lines().slice(1)).toEqual(['Pair · Most packs score this high']);
+    results(pair, 0.5);
+    expect(lines().slice(1)).toEqual(['Pair · 1 in 2.0 packs score this high']);
   });
 
   it('says just No Matches when the combo has no odds', () => {
