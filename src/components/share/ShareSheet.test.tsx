@@ -3,7 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pullId, wouldJoinHallOfFame, type PackScore } from '../../engine';
-import { DEFAULT_SET_ID } from '../../content/sets';
+import { DEFAULT_SET_ID, getSet } from '../../content/sets';
+import { getSetCards } from '../../data/cards';
+import type { CardWithMeta } from '../cards/Card';
+import { revealOrder } from '../../game/reveal';
 import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { hallOfFameEvent, publishUntilAccepted } from '../../game/nostrInbox';
 import ShareSheet from './ShareSheet';
@@ -73,6 +76,15 @@ describe('Hall of Fame in the pack share sheet', () => {
     expect(inOrder(['.share-actions-main', '.share-hof', '.share-preview', '.share-pack-cards'])).toBe(true);
   });
 
+  it('has no GitHub route for the submit: one button, no issue link', async () => {
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    const offer = document.querySelector('.share-hof')!;
+    expect(offer.querySelector('a')).toBeNull();
+    expect(offer.textContent).not.toMatch(/github/i);
+    expect(document.querySelector('a[href*="github.com"]')).toBeNull();
+    expect([...offer.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Submit']);
+  });
+
   it('puts the already-listed note in the same place', async () => {
     vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
@@ -104,7 +116,10 @@ describe('Hall of Fame in the pack share sheet', () => {
     const button = await clickSubmit();
     expect(button.textContent).toBe('Submit');
     expect(button.disabled).toBe(false);
-    expect(document.querySelector('.share-hof [role="status"]')!.textContent).toContain("Couldn't reach any relay");
+    const status = document.querySelector('.share-hof [role="status"]')!.textContent!;
+    expect(status).toContain("Couldn't reach any relay. Try again.");
+    expect(status).not.toMatch(/github/i);
+    expect(document.querySelector('.share-hof a')).toBeNull();
   });
 
   it('counts today’s top (UTC) when deciding whether to offer the submit', async () => {
@@ -116,5 +131,19 @@ describe('Hall of Fame in the pack share sheet', () => {
       vi.useRealTimers();
     }
     expect(vi.mocked(wouldJoinHallOfFame)).toHaveBeenLastCalledWith(expect.objectContaining({ id: `pull-${pull}` }), [], '2026-10-17');
+  });
+});
+
+describe('cards in this pack', () => {
+  it('shows a reopened pack in the order it was revealed, best last, not the order it was stored', async () => {
+    const set = getSet(DEFAULT_SET_ID, 1)!;
+    // Stored (engine) order: a Gold, a Holo, then plain cards, so revealing moves the extras to the end.
+    const stored = getSetCards(set.id).slice(0, 5).map((card, i) => ({
+      ...card, rarity: 'COMMON', uniqueId: i + 1, isRevealed: true, isHolo: i === 1, finish: i === 0 ? 'GOLD' : null,
+    }) as CardWithMeta);
+    await act(async () => root.render(<ShareSheet target={{ ...target, cards: stored }} onClose={() => {}} />));
+    const shown = [...document.querySelectorAll('.share-pack-cards .pack-viewer-card-grid')].map((el) => el.getAttribute('aria-label')!.replace(/ \(.*\)$/, ''));
+    expect(shown).toEqual(revealOrder(stored).map((card) => card.name));
+    expect(shown).not.toEqual(stored.map((card) => card.name));
   });
 });

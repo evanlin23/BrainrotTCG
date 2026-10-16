@@ -12,7 +12,8 @@ export interface Spark {
 }
 
 const MAX_SPARKS = 220;
-const SPARK_LIFETIME_MS = 620;
+/** How long a spark lives; PackCuttingUI hands it to the CSS as --spark-life. */
+export const SPARK_LIFETIME_MS = 620;
 const SPARK_THROTTLE_MS = 9;
 /**
  * Expired bursts leave together, at most once this often, so a swipe re-renders for expiry a few

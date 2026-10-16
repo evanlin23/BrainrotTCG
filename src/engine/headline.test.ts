@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { comboOneIn, packHeadline } from './headline';
-import { handOdds } from './odds';
+import { packHeadline } from './headline';
 import { POKER_HANDS } from './scoring';
-import { validateSet, type Finish, type Rarity } from './types';
+import type { Finish, Rarity } from './types';
 
 const card = (cardId: string, rarity: Rarity, extra: { isHolo?: boolean; finish?: Finish; misprint?: boolean; slot?: number } = {}) => ({
   cardId,
@@ -61,39 +60,5 @@ describe('packHeadline', () => {
 
   it('an empty pack has no standout', () => {
     expect(packHeadline([]).standout).toBeNull();
-  });
-});
-
-describe('comboOneIn', () => {
-  const set = validateSet({
-    id: 'one-in-test',
-    version: 1,
-    name: 'One In Test',
-    era: 'now',
-    releasedAt: '2026-10-12',
-    packSize: 5,
-    odds: { COMMON: 5000, UNCOMMON: 2500, RARE: 1500, EPIC: 700, LEGENDARY: 250, BRAINROT: 50 },
-    holoOdds: 500,
-    cards: [
-      { id: 'c1', name: 'C1', rarity: 'COMMON' },
-      { id: 'c2', name: 'C2', rarity: 'COMMON' },
-      { id: 'u1', name: 'U1', rarity: 'UNCOMMON' },
-      { id: 'r1', name: 'R1', rarity: 'RARE' },
-      { id: 'e1', name: 'E1', rarity: 'EPIC' },
-      { id: 'l1', name: 'L1', rarity: 'LEGENDARY' },
-      { id: 'b1', name: 'B1', rarity: 'BRAINROT' },
-    ],
-  });
-
-  it('is 1 / the exact chance of the combo, rarer combos higher', () => {
-    const odds = handOdds(set);
-    expect(comboOneIn(set, POKER_HANDS.PAIR)).toBeCloseTo(1 / odds.PAIR, 9);
-    expect(comboOneIn(set, POKER_HANDS.FIVE_OF_A_KIND)).toBeCloseTo(1 / odds.FIVE_OF_A_KIND, 3);
-    expect(comboOneIn(set, POKER_HANDS.FIVE_OF_A_KIND)!).toBeGreaterThan(comboOneIn(set, POKER_HANDS.TWO_PAIR)!);
-  });
-
-  it('is null for No Matches and for a hand outside POKER_HANDS', () => {
-    expect(comboOneIn(set, POKER_HANDS.NO_MATCH)).toBeNull();
-    expect(comboOneIn(set, { name: 'Pair', multiplier: 2 })).toBeNull();
   });
 });

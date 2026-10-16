@@ -25,7 +25,7 @@
   /* Each effect is its own shadow, so rarity, finish and holo all show together. */
   box-shadow: var(--ring), var(--finish-glow, 0 0 transparent), var(--holo-glow, 0 0 transparent), var(--shadow-3);
   transform-style: preserve-3d;
-  transition: transform 0.1s ease-out;
+  transition: transform var(--dur-fast) ease-out;
 }
 
 .card-viewer-card img {
@@ -89,7 +89,7 @@
     background: var(--holo-rainbow);
     opacity: 0.18;
     background-size: 400% 400%;
-    animation: cardViewerHoloRainbow 3s ease infinite;
+    animation: cardViewerHoloRainbow var(--dur-loop) ease infinite;
     pointer-events: none;
     border-radius: var(--radius-lg);
     mix-blend-mode: overlay;
@@ -113,7 +113,7 @@
     background: var(--shine);
     opacity: 0.7;
     transform: skewX(-20deg);
-    animation: cardViewerHoloShine 2.5s ease-in-out infinite;
+    animation: cardViewerHoloShine var(--dur-loop) ease-in-out infinite;
     pointer-events: none;
     /* Same layer as the foil (::before); as the last child it still draws over the foil and ghost. */
     z-index: 1;

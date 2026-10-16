@@ -3,8 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSet } from '../../content/sets';
-import { getSetCards } from '../../data/cards';
+import { getSetCards, scoreCards } from '../../data/cards';
+import { scoreAtLeastChance } from '../../engine';
 import type { CardWithMeta } from '../cards/Card';
+import { revealOrder } from '../../game/reveal';
 import PackSummaryUI from './PackSummaryUI';
 
 // The share sheet itself is tested on its own (CardShareSheet.test.tsx): here, what it was opened with.
@@ -56,21 +58,30 @@ describe('result first', () => {
     act(() => root.unmount());
     root = createRoot(container);
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} holdOptional />));
-    const [title, list, foot, actions] = ['.summary-title', '.summary-cards', '.summary-foot', '.summary-actions'].map((s) => container.querySelector(s)!);
-    expect(follows(title, foot) && follows(foot, list) && follows(list, actions)).toBe(true);
+    const [title, list, guideLine, actions] = ['.summary-title', '.summary-cards', '.summary-guide-line', '.summary-actions'].map((s) => container.querySelector(s)!);
+    expect(follows(title, guideLine) && follows(guideLine, list) && follows(list, actions)).toBe(true);
     expect(actions.nextElementSibling).toBeNull();
     expect(title.textContent).toMatch(/^[\d,]+ Brainrot Score$/);
     expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Open another pack']);
-    expect([...foot.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
+    expect([...guideLine.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
     // No per-pack breakdown and no level progress: the guide explains scoring, Profile holds progress.
     expect(text()).not.toMatch(/XP|Level \d|How this score works|pts ×/);
     expect(document.activeElement).toBe(title);
   });
 
-  it('says how rare the combo is', () => {
-    const pair = cards.map((card, i) => (i === 1 ? { ...cards[0], uniqueId: 9 } : card));
+  it('says how rare a score this high is, over the whole pack', () => {
+    // A holo pair: rarer than most packs.
+    const pair = cards.map((card, i) => ({ ...(i === 1 ? cards[0] : card), uniqueId: i + 1, isHolo: i < 2 }) as CardWithMeta);
     act(() => root.render(<PackSummaryUI openedCards={pair} set={set} onClose={() => {}} />));
-    expect(container.querySelector('.pack-headline-odds')?.textContent).toMatch(/^Pair · about 1 in [\d.,]+ packs$/);
+    const odds = () => container.querySelector('.pack-headline-odds')?.textContent;
+    const chance = scoreAtLeastChance(set, scoreCards(pair).score)!;
+    expect(chance).toBeLessThan(0.5);
+    const oneIn = 1 / chance;
+    expect(odds()).toBe(`Pair · 1 in ${oneIn < 10 ? oneIn.toFixed(1) : Math.round(oneIn).toLocaleString()} packs score this high`);
+    // Five plain Commons: most packs do at least that well.
+    const commons = cards.map((card) => ({ ...card, rarity: 'COMMON' }) as CardWithMeta);
+    act(() => root.render(<PackSummaryUI openedCards={commons} set={set} onClose={() => {}} />));
+    expect(odds()).toBe('No Matches · Most packs score this high');
   });
 
   it('hints that a card opens up close until one is opened', () => {
@@ -78,7 +89,7 @@ describe('result first', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     const caption = () => container.querySelector('.summary-caption')?.textContent;
-    expect(caption()).toBe('Tap a card to see it up close');
+    expect(caption()).toBe('Tap a card to view');
     const first = container.querySelector<HTMLButtonElement>('.summary-card')!;
     expect(first.getAttribute('aria-label')).toMatch(/^View .+ up close, /);
     act(() => first.click());
@@ -87,6 +98,18 @@ describe('result first', () => {
 
   it('leaves the keyboard where it is while a sheet covers the summary', () => {
     expect(document.activeElement).not.toBe(container.querySelector('.summary-title'));
+  });
+});
+
+describe('card order', () => {
+  it('keeps the order the cards were revealed in, best last, not best first', () => {
+    // Engine order puts the Gold first and the Holo second; the reveal deals them last.
+    const pack = cards.map((card, i) => ({ ...card, rarity: 'COMMON', isHolo: i === 1, finish: i === 0 ? 'GOLD' : null }) as CardWithMeta);
+    const revealed = revealOrder(pack);
+    act(() => root.render(<PackSummaryUI openedCards={revealed} set={set} onClose={() => {}} />));
+    const tiles = [...container.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label'));
+    expect(tiles.map((label) => revealed.findIndex((card) => label!.startsWith(`View ${card.name} up close`)))).toEqual([0, 1, 2, 3, 4]);
+    expect(revealed[revealed.length - 1].finish).toBe('GOLD');
   });
 });
 
@@ -103,45 +126,51 @@ describe('card guide', () => {
   });
 });
 
-describe('each card\'s own Share', () => {
+describe('sharing a card', () => {
   const pack = { setId: set.id, setVersion: set.version, nonce: 3, publicKeyHex: 'ab12' };
   // All Commons, so only the extras rank them: Gold (400) over Holo over plain, ties in pack order.
   const pulled = cards.map((card, i) => ({ ...card, rarity: 'COMMON', isHolo: i === 1, finish: i === 3 ? 'GOLD' : null }) as CardWithMeta);
-  const shareButtons = () => [...container.querySelectorAll<HTMLButtonElement>('.summary-card-share')];
+  const tile = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('.summary-card')]
+    .find((el) => el.getAttribute('aria-label')?.startsWith(`View ${name} up close`))!;
+  const shareCard = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Share card');
 
   beforeEach(() => {
     shareSheet.mockClear();
-    // The sheet's placeholder sizes itself while the share screen loads.
+    // The viewer and the sheet's placeholder size themselves; the viewer reads motion preferences.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     act(() => root.render(<PackSummaryUI openedCards={pulled} set={set} onClose={() => {}} pack={pack} />));
   });
 
-  it('lays the cards out best pull first, each with a Share or save for it', () => {
-    const order = [3, 1, 0, 2, 4].map((i) => pulled[i].name);
-    // The modifier is part of each button's name, so two copies of one card stay distinguishable.
-    const mods = ['Gold', 'Holo', null, null, null];
-    expect(shareButtons().map((b) => b.getAttribute('aria-label'))).toEqual(
-      order.map((name, k) => `Share or save ${name}${mods[k] ? `, ${mods[k]}` : ''}`),
-    );
-    expect([...container.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label')?.split(',')[0])).toEqual(order.map((name) => `View ${name} up close`));
-    expect(shareButtons().every((b) => b.textContent?.trim() === 'Share')).toBe(true);
+  it('has one hint above the cards and no Share under each tile', () => {
+    const caption = container.querySelector('.summary-caption')!;
+    expect(caption.textContent).toBe('Tap a card to view');
+    expect(!!(caption.compareDocumentPosition(container.querySelector('.summary-cards')!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(container.querySelectorAll('.summary-cards li button')).toHaveLength(5);
+    expect(container.querySelector('.summary-cards')!.textContent).not.toContain('Share');
   });
 
-  it('opens that card\'s image, linked to this pack', async () => {
-    act(() => shareButtons()[0].click());
+  it('opens a tapped card up close, whose Share makes that version\'s image, linked to this pack', async () => {
+    const gold = tile(pulled[3].name);
+    gold.focus();
+    act(() => gold.click());
+    const share = shareCard()!;
+    expect(share).toBeDefined();
+    share.focus();
+    act(() => share.click());
     await vi.waitFor(() => expect(shareSheet).toHaveBeenCalled());
     const props = shareSheet.mock.lastCall![0];
     expect(props.card.uniqueId).toBe(pulled[3].uniqueId);
     expect(props.version).toEqual({ isHolo: false, finish: 'GOLD', misprint: false });
     expect(props.from).toBe(pack);
-    expect(container.querySelector('[role="dialog"]')?.textContent).toBe(`Sharing ${pulled[3].name}`);
 
+    // Closing the share returns to the viewer, and closing the viewer returns to the tile.
     act(() => props.onClose());
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
-  });
-
-  it('has no per-card Share without the pull to link to', () => {
-    act(() => root.render(<PackSummaryUI openedCards={pulled} set={set} onClose={() => {}} />));
-    expect(shareButtons()).toEqual([]);
+    expect(document.body.textContent).not.toContain(`Sharing ${pulled[3].name}`);
+    await vi.waitFor(() => expect(document.activeElement).toBe(shareCard()));
+    const close = document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label^="Close"]')!;
+    act(() => close.click());
+    await vi.waitFor(() => expect(shareCard()).toBeUndefined());
+    await vi.waitFor(() => expect(document.activeElement).toBe(gold));
   });
 });

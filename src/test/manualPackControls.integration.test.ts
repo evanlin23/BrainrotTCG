@@ -36,9 +36,11 @@ async function reveal() {
   });
   await app!.until('Open pack reveals the spent pack', () => {
     expect(progress()).toBe('1');
-    // The top bar's count shows as the pack opens; the card follows once the torn pack has gone.
+    // The top bar's count shows as the pack opens; the card comes in as the torn pack flies off.
     expect($('.card-wrapper')).not.toBeNull();
   });
+  // The leaving pack drops its focused button at once, so focus goes on to the card, not the page.
+  expect(document.activeElement?.closest('.reveal-card')).not.toBeNull();
 }
 
 const pressA = () => app!.interact(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', key: 'a', bubbles: true })));
