@@ -257,8 +257,8 @@ last. The pack summary's `bestPullOrder` lists the earlier slot first instead; b
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
-| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
-| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | planned: Rankings page |
+| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | planned: Rankings page |
 | Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
 Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav

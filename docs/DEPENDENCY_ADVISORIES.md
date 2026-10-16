@@ -5,7 +5,7 @@ root and in `tools/wrangler` whenever a lockfile changes, and update this file.
 
 ## Current state
 
-Run on 2026-10-15 after a frozen `npm ci`. A finding is a package and can carry several advisories.
+Re-run on 2026-10-16 on main (7233d12) after a frozen `npm ci`; the counts below were taken on 2026-10-15. A finding is a package and can carry several advisories.
 
 | Lockfile | Before (main at bd55082) | After the lockfile refresh |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Run on 2026-10-15 after a frozen `npm ci`. A finding is a package and can carry 
 | Root, `npm audit --omit=dev` | 0 in 16 production packages | 0 |
 | `tools/wrangler`, both commands | 0 in 91 packages | 0 (unchanged) |
 
-Nothing remains open. The 34 findings quoted in #230 on 2026-10-13 were already gone by the first
+Nothing remains open: the 2026-10-16 re-run reports 0 for both commands at the root and in `tools/wrangler`. The 34 findings quoted in #230 on 2026-10-13 were already gone by the first
 triage (#413, at 9d806ff).
 
 ## Fixed findings
@@ -34,13 +34,12 @@ All 8 were dev dependencies: none is in the production bundle, and nothing in `s
 | @babel/core: GHSA-4x5r-pxfx-6jf8 | low | @vitejs/plugin-react, eslint-plugin-react-hooks | Build, dev server and lint; reads only our own source maps | 7.29.0 to 7.29.7 |
 | esbuild: GHSA-g7r4-m6w7-qqqr | low | vite | Build and dev server; covers esbuild's own dev server on Windows, which Vite doesn't use | 0.27.3 to 0.28.2, with Vite 7.3.5 to 7.3.7 |
 
-Every change stays in its declared range. The transitive packages moved with
-`npm update <name> --package-lock-only`, one name per call. Babel, browserslist and @humanfs/node
-pulled in-range updates of their own dependencies. `npm update vite` fails on npm 10.9.4 with "Cannot read
-properties of null (reading 'edgesOut')", so the Vite floor went from `^7.3.5` to `^7.3.7` with
-`npm install vite@^7.3.7 --package-lock-only`. Vite 7.3.6 and later accept esbuild `^0.28.0`, and a
-second `npm update esbuild --package-lock-only` moved Vite's copy to 0.28.2, which also dedupes the
-copy `tsx` had. No `overrides`, no `npm audit fix --force`.
+The fixes were in-range lockfile updates (`npm update <name> --package-lock-only`, one name per
+call), plus a Vite floor bump to `^7.3.7` so Vite's esbuild could reach 0.28.x. No `overrides`, no
+`npm audit fix --force`. Main has since moved to Vite 8 and ESLint 10 (`package.json`: `vite ^8.3.4`,
+`eslint ^10.12.0`), which replaced the vulnerable minimatch 3 and brace-expansion 1 paths; the table
+records what was fixed then, and the audit stays clean on the new tree (esbuild 0.28.2, browserslist
+4.29.3, flatted 3.4.4).
 
 ## Wrangler
 
@@ -51,8 +50,18 @@ job installs it with `npm ci --prefix tools/wrangler --ignore-scripts` and runs
 server, PR CI or the production bundle. `workers/hall-of-fame-cron/README.md` mentions
 `npx wrangler` only as an optional manual deploy path. Its lockfile reports 0 findings.
 
-## Not fixed here, and why
+## Decisions
 
-- Vite 8, TypeScript 7 and ESLint 10 (#390, #392, #397) are majors blocked upstream. None is needed
-  to clear an advisory. Revisit when their peers support them.
-- Escalate at once any finding that shows up in `--omit=dev` or in `tools/wrangler`.
+- **Dev-tool findings:** all 8 fixed (table above). None reached production.
+- **TypeScript 7 (#392):** closed by the owner. No advisory needs it; main stays on `^5.9.3`.
+- **Vite 8 and ESLint 10:** adopted on main; no open advisory.
+- **Production and `tools/wrangler`:** 0 findings. Escalate at once any finding that shows up in
+  `npm audit --omit=dev` or in `tools/wrangler`.
+
+## Update automation
+
+`.github/dependabot.yml` covers the root npm lockfile (grouped `dev-tooling` and `prod`, with
+`hash-wasm` and `@noble/*` as separate PRs), `tools/wrangler`, and GitHub Actions (grouped). Every
+`uses:` in `.github/workflows` is already pinned to a SHA, so nothing was added. Security advisories
+open Dependabot PRs on their own; each gets review and green CI before merging
+(docs/DEVELOPMENT.md).
