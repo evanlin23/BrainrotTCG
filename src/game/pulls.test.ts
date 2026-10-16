@@ -3,6 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import { encodeCard } from './cardCode';
 import { generatePack, packSeedFromTicket } from '../engine';
+import { getBestCards, resetBestCards } from './bestCards';
 import { recordTicket } from './history';
 import { getPlayer } from './player';
 import { clearPendingPack, openPack, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
@@ -463,6 +464,23 @@ describe('opening a pack', () => {
     data.delete(LIST);
     refuseWrite = (k) => k === LIST;
     expect((await openPack(SET)).unrecorded).toBe(true);
+    error.mockRestore();
+  });
+
+  it("ranks the pack among its player's best cards, and a refused best-cards write doesn't mark it unsaved", async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const best = () => JSON.parse(data.get(STORAGE_KEYS.BEST_CARDS) ?? '{}');
+    const me = getPlayer().publicKeyHex;
+    const first = await openPack(SET);
+    expect(best()[me].b.map((e: { n: number }) => e.n)).toEqual(Array(SET.packSize).fill(first.nonce));
+    refuseWrite = (k) => k === STORAGE_KEYS.BEST_CARDS;
+    const second = await openPack(SET);
+    expect(second.unrecorded).toBeUndefined();
+    const held = getBestCards(me, second.nonce + 1);
+    expect(held.unsaved).toBe(true);
+    expect(held.cards.filter((c) => c.nonce === second.nonce).length).toBeGreaterThan(0);
+    expect(best()[me].b.every((e: { n: number }) => e.n === first.nonce)).toBe(true);
+    resetBestCards();
     error.mockRestore();
   });
 
