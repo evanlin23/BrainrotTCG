@@ -139,6 +139,7 @@ describe('bringing a save over', () => {
     ['unreadable achievements', { 'brainrot-achievements-v1': '{not json' }],
     ['a newer data version', { 'brainrot-data-version': '4' }],
     ['a data version that is not a number', { 'brainrot-data-version': 'three' }],
+    ['a recovery archive with a negative let-go count', { 'brainrot-collection-recovery-v1': '{"raw":"opaque","player":null,"dropped":-1}' }],
   ])('refuses %s before asking or writing anything', (_name, bad) => {
     store.set('brainrot-player-v1', player('bb'));
     store.set('brainrot-stats-v1', '{"packsOpened":4}');
@@ -447,7 +448,7 @@ describe('bringing a save over', () => {
     expect(JSON.parse(store.get(BACKUP)!)).toEqual(moved);
   });
 
-  it('keeps the save from before a partial move, and the save left here, when a retry fails again', () => {
+  it('keeps both copies, and the save a partial move left here, when a retry fails again', () => {
     store.set('brainrot-player-v1', player('bb'));
     store.set('brainrot-found-collection-v1', '{"original":{"normalCount":2}}');
     const copy2 = Object.fromEntries(store);
@@ -463,15 +464,14 @@ describe('bringing a save over', () => {
     expect(JSON.parse(store.get(PENDING)!)).toEqual(copy2);
     const left = saveHere();
 
-    // The retry runs out of room too: the save from before the partial move takes the oldest copy's
-    // place, the retry's own copy goes again, and what the partial move left here stays.
+    // The retry runs out of room too, and changes nothing: both copies and what the partial move left here stay.
     expect(importSave(OLD, () => true)).toBe('full');
-    expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(copy2);
+    expect(store.get(BACKUP)).toBe('{"previous":"backup"}');
+    expect(JSON.parse(store.get(PENDING)!)).toEqual(copy2);
     expect(saveHere()).toEqual(left);
   });
 
-  it('keeps at most two copies through repeated partial moves: the saves from before the last two', () => {
+  it('keeps the whole save from before two partial moves in a row, never a copy of what they left, once a retry works', () => {
     const original = {
       'brainrot-player-v1': player('bb'),
       'brainrot-found-collection-v1': '{"original":{"normalCount":2}}',
@@ -482,7 +482,7 @@ describe('bringing a save over', () => {
     for (const [key, value] of Object.entries(original)) store.set(key, value);
     store.set(BACKUP, '{"previous":"backup"}');
     // Each attempt's incoming save runs out of room, and so does putting back one more key.
-    const lost = ['brainrot-history-v1', 'brainrot-achievements-v1', 'brainrot-stats-v1'];
+    const lost = ['brainrot-history-v1', 'brainrot-achievements-v1'];
     let attempt = 0;
     vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
       if (key === 'brainrot-found-collection-v1' || key === lost[attempt]) throw new DOMException('Injected quota failure', 'QuotaExceededError');
@@ -491,20 +491,57 @@ describe('bringing a save over', () => {
     const saveHere = () => Object.fromEntries([...store].filter(([key]) => !key.startsWith('brainrot-before-')));
 
     for (attempt = 0; attempt < lost.length; attempt++) {
-      const here = saveHere();
-      const earlier = store.get(PENDING) ?? store.get(BACKUP);
-      if (attempt === 0) expect(here).toEqual(original);
       expect(importSave(OLD, () => true)).toBe('partial');
+      expect(saveHere()).not.toHaveProperty(lost[attempt]);
+      // The earlier copy and the whole save from before the first partial move, unchanged by the second.
       expect(moveCopies()).toEqual([PENDING, BACKUP]);
-      expect(store.get(BACKUP)).toBe(earlier);
-      expect(JSON.parse(store.get(PENDING)!)).toEqual(here);
+      expect(store.get(BACKUP)).toBe('{"previous":"backup"}');
+      expect(JSON.parse(store.get(PENDING)!)).toEqual(original);
     }
 
     vi.restoreAllMocks();
-    const here = saveHere();
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
+    expect(moveCopies()).toEqual([BACKUP]);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(original);
+  });
+
+  it("knows the save a partial move left by its stamp when its player couldn't be put back", () => {
+    const original = { [SAVE_STAMP_KEY]: 'earlier import', 'brainrot-player-v1': player('bb'), 'brainrot-stats-v1': '{"packsOpened":4}' };
+    for (const [key, value] of Object.entries(original)) store.set(key, value);
+    store.set(BACKUP, '{"previous":"backup"}');
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'brainrot-player-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    expect(importSave(OLD, () => true)).toBe('partial');
+    expect(store.get(SAVE_STAMP_KEY)).toBe('earlier import');
+    expect(store.has('brainrot-player-v1')).toBe(false);
+    expect(JSON.parse(store.get(PENDING)!)).toEqual(original);
+
+    // The page reloads and makes a new guest, so only the stamp says this is what the move left.
+    vi.restoreAllMocks();
+    store.set('brainrot-player-v1', player('dd'));
     expect(importSave(OLD, () => true)).toBe('saved');
     expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(here);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(original);
+  });
+
+  it.each([
+    ['another player', player('cc'), 'moved'],
+    ['the same player, brought back by an import', player('bb'), 'imported'],
+  ])('still backs up the save here when the pending copy is of an earlier save: %s', (_name, here, stamp) => {
+    // A move that worked but couldn't move its copy into place, then play (or an import) since.
+    store.set(SAVE_STAMP_KEY, stamp);
+    store.set('brainrot-player-v1', here);
+    store.set('brainrot-stats-v1', '{"packsOpened":9}');
+    const saved = Object.fromEntries(store);
+    store.set(BACKUP, '{"previous":"backup"}');
+    store.set(PENDING, JSON.stringify({ [SAVE_STAMP_KEY]: 'earlier', 'brainrot-player-v1': player('bb'), 'brainrot-stats-v1': '{"packsOpened":4}' }));
+
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(moveCopies()).toEqual([BACKUP]);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(saved);
   });
 
   it('persists the complete replaced save before any key is removed', () => {
