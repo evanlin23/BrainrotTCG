@@ -6,6 +6,7 @@ import { getSet } from '../../content/sets';
 import { getSetCards, scoreCards } from '../../data/cards';
 import { scoreAtLeastChance } from '../../engine';
 import type { CardWithMeta } from '../cards/Card';
+import { formatOneIn } from '../../game/cardStats';
 import { revealOrder } from '../../game/reveal';
 import PackSummaryUI from './PackSummaryUI';
 
@@ -76,8 +77,7 @@ describe('result first', () => {
     const odds = () => container.querySelector('.pack-headline-odds')?.textContent;
     const chance = scoreAtLeastChance(set, scoreCards(pair).score)!;
     expect(chance).toBeLessThan(0.5);
-    const oneIn = 1 / chance;
-    expect(odds()).toBe(`Pair · 1 in ${oneIn < 10 ? oneIn.toFixed(1) : Math.round(oneIn).toLocaleString()} packs score this high`);
+    expect(odds()).toBe(`Pair · 1 in ${formatOneIn(1 / chance)} packs score this high`);
     // Five plain Commons: most packs do at least that well.
     const commons = cards.map((card) => ({ ...card, rarity: 'COMMON' }) as CardWithMeta);
     act(() => root.render(<PackSummaryUI openedCards={commons} set={set} onClose={() => {}} />));
