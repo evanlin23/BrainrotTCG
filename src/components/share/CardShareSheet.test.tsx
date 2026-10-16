@@ -8,11 +8,17 @@ import { findPackWithCard, type HistoryEntry } from '../../game/history';
 import { renderCardPoster } from '../../game/bragImage';
 import { getPlayer } from '../../game/player';
 import { proofFor, pullUrl, type PullRef } from '../../game/pulls';
+import { cardStats } from '../../game/cardStats';
+import { copyText } from '../../game/shareActions';
 import CardShareSheet from './CardShareSheet';
 
 vi.mock('../../game/history', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/history')>()),
   findPackWithCard: vi.fn(),
+}));
+vi.mock('../../game/shareActions', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/shareActions')>()),
+  copyText: vi.fn(async () => true),
 }));
 vi.mock('../../game/bragImage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/bragImage')>()),
@@ -91,5 +97,23 @@ describe('sharing a card from the pack summary', () => {
     await act(async () => root.render(<CardShareSheet card={card} version={{ isHolo: false }} from={other} onClose={() => {}} />));
 
     expect(findPackWithCard).toHaveBeenCalled();
+  });
+});
+
+describe('the per-card share text and poster', () => {
+  it('lead with the rarity mark, the version, the points and the pack odds', async () => {
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+    const card = getSetCards(DEFAULT_SET_ID)[0];
+    const version = { isHolo: true, finish: 'GOLD' as const, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} onClose={() => {}} />));
+
+    const stats = cardStats(card, version).line;
+    expect(vi.mocked(renderCardPoster).mock.calls[0][0].stats).toBe(stats);
+    const copy = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy text'))!;
+    await act(async () => copy.click());
+    const [first, second] = vi.mocked(copyText).mock.calls[0][0].split('\n');
+    expect(first).toMatch(new RegExp(`^\\S+ ${card.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · Gold Holo \\w+ · `));
+    expect(first.endsWith(` · ${stats}`)).toBe(true);
+    expect(second).toBe(`${getLatestSet(card.setId)!.name} in Brainrot TCG`);
   });
 });

@@ -5,10 +5,10 @@ import { fingerprint, generateKeypair, isValidName, normalizeName } from './iden
 import { createRng, generatePack } from './pack';
 import { decodeProof, derivePack, encodeProof, extractProof, signProof, verifyProof } from './proof';
 import { getPokerHand, POKER_HANDS, scorePack, type HandKey } from './scoring';
-import { handOdds, specialPackChance } from './odds';
+import { handOdds, specialPackChance, versionPackChance } from './odds';
 import { handFromCounts } from './scoring';
 import { computeTicket } from './ticket';
-import { validateSet, type SetDefinition } from './types';
+import { validateSet, type Finish, type SetDefinition } from './types';
 
 const TEST_SET: SetDefinition = validateSet({
   id: 'test-set',
@@ -127,6 +127,46 @@ describe('odds', () => {
       // About 4 standard errors; leaving out misprints alone would be off by about 0.009.
       expect(Math.abs(special / packs - specialPackChance(set)!)).toBeLessThan(0.006);
     }
+  });
+
+  it('gives the chance of a pack with an exact card version, matching generatePack', () => {
+    const packs = 100_000;
+    for (const set of [TEST_SET, { ...TEST_SET, modifiers: 1 as const }]) {
+      const seen = new Map<string, number>();
+      for (let i = 0; i < packs; i++) {
+        const keys = new Set(generatePack(set, sha256(utf8(`version-${i}`))).map((c) => `${c.cardId}|${c.isHolo}|${c.finish ?? ''}|${!!c.misprint}`));
+        for (const k of keys) seen.set(k, (seen.get(k) ?? 0) + 1);
+      }
+      let checked = 0;
+      for (const [k, n] of seen) {
+        const [cardId, holo, finish, misprint] = k.split('|');
+        const exact = versionPackChance(set, { cardId, isHolo: holo === 'true', finish: (finish || null) as Finish | null, misprint: misprint === 'true' })!;
+        // Every version seen at least ~500 times; the worst standard error is about 0.0016, so this is about 4.
+        if (exact < 0.005) continue;
+        expect(Math.abs(n / packs - exact)).toBeLessThan(0.006);
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(set.modifiers ? 10 : 8);
+    }
+  });
+
+  it('gives exact version chances at the edges', () => {
+    // One card, one slot: the slot's own chance.
+    const one = { ...TEST_SET, packSize: 1 };
+    expect(versionPackChance(one, { cardId: 'b1', isHolo: true })).toBeCloseTo(0.005 * 0.05, 12);
+    expect(versionPackChance(one, { cardId: 'c1', isHolo: false })).toBeCloseTo(0.25 * 0.95, 12);
+    // At least one of five slots.
+    expect(versionPackChance(TEST_SET, { cardId: 'c1', isHolo: false })).toBeCloseTo(1 - (1 - 0.25 * 0.95) ** 5, 12);
+    // Modifiers: Diamond 0.1%, no misprint 99.5%; plain means no finish (86.9%).
+    const mod = { ...one, modifiers: 1 as const };
+    expect(versionPackChance(mod, { cardId: 'b1', isHolo: true, finish: 'DIAMOND', misprint: true })).toBeCloseTo(0.005 * 0.05 * 0.001 * 0.005, 15);
+    expect(versionPackChance(mod, { cardId: 'u1', isHolo: false, finish: null, misprint: false })).toBeCloseTo(0.25 * 0.95 * 0.869 * 0.995, 12);
+    // What the set can't make.
+    expect(versionPackChance(TEST_SET, { cardId: 'nope', isHolo: false })).toBe(0);
+    expect(versionPackChance(TEST_SET, { cardId: 'c1', isHolo: false, finish: 'GOLD' })).toBe(0);
+    expect(versionPackChance(TEST_SET, { cardId: 'c1', isHolo: false, misprint: true })).toBe(0);
+    expect(versionPackChance({ ...TEST_SET, holoOdds: 0 }, { cardId: 'c1', isHolo: true })).toBe(0);
+    expect(versionPackChance({ ...TEST_SET, modifiers: 2 as unknown as 1 }, { cardId: 'c1', isHolo: false })).toBeNull();
   });
 
   it('has no special-card chance for a modifier table it does not know', () => {

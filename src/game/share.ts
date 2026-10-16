@@ -1,7 +1,7 @@
 import type { Rarity, PackScore } from '../engine';
 
 /** Each rarity's square and initial, so the row reads without colour (C U R E L B are all different). */
-const RARITY_MARK: Record<Rarity, string> = {
+export const RARITY_MARK: Record<Rarity, string> = {
   COMMON: '⬜C',
   UNCOMMON: '🟩U',
   RARE: '🟦R',
