@@ -71,19 +71,25 @@ export const createProgressWriter = (host: ProgressWriterHost): ProgressWriter =
   // game/progressGuard.ts): the later collection write then drops the earlier tab's packs, which are off
   // the shelf by then, so that tab puts them back once it hears of the write.
   let storedPacks: OpenedPack[] = [];
+  // The packs that came off the shelf at load already counted: the stats every tab of this player loaded
+  // count them, so one put back stays counted.
+  const arrivedCounted = new Set<number>();
 
   // A tab that stops for another tab's progress (see progressCurrent) puts these back on the shelf for the
   // next load, as they were (its count of them was never stored). Its other packs went on the shelf when
   // they opened, and the other tab may have taken and stored them since: one put back would be added
-  // twice. Packs it stored that the other tab's collection dropped go back uncounted too: the stats the
-  // other tab stored over this tab's never counted them. If storage refuses, they stay owed here with the
-  // save warning up, and the next change or another tab's write tries again.
+  // twice. Packs it opened and stored that the other tab's collection dropped go back uncounted: the stats
+  // the other tab stored over this tab's never counted them. One that came off the shelf counted stays
+  // counted: the other tab's stats count it too, as they did at load. If storage refuses, they stay owed
+  // here with the save warning up, and the next change or another tab's write tries again.
   // After another tab's import or player switch (see samePlayer) they stay here, as on every write: the
   // shelf then holds another save's packs, and onShelf matches a nonce, not a player.
   const putBack = () => {
     if (!host.samePlayer()) return;
     const dropped = storedPacks.length > 0 ? host.dropped(getPlayer().publicKeyHex, storedPacks.map((pack) => pack.nonce)) : [];
-    const lost = storedPacks.filter((pack) => dropped.includes(pack.nonce)).map(({ counted: _counted, legacy: _legacy, ...pack }) => pack);
+    const lost = storedPacks
+      .filter((pack) => dropped.includes(pack.nonce))
+      .map(({ counted, legacy: _legacy, ...pack }) => (counted && arrivedCounted.has(pack.nonce) ? { ...pack, counted } : pack));
     const owed = [...takenPacks, ...lost];
     if (owed.length === 0) return;
     savePendingPack(...owed);
@@ -175,7 +181,10 @@ export const createProgressWriter = (host: ProgressWriterHost): ProgressWriter =
   return {
     packAdded: (pack) => { unsavedPacks.push(pack); },
     // An older build's pack stays in its own entry until stored, so it was never taken off (see game/pulls.ts).
-    packsTaken: (packs) => { takenPacks = packs.filter((pack) => !pack.legacy); },
+    packsTaken: (packs) => {
+      takenPacks = packs.filter((pack) => !pack.legacy);
+      for (const pack of packs) if (pack.counted) arrivedCounted.add(pack.nonce);
+    },
     putBack,
     commit,
   };

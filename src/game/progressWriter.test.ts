@@ -309,22 +309,27 @@ describe('createProgressWriter', () => {
     expect(host.stamps).toEqual(['storing 3 as me']);
   });
 
-  it('once stale, puts back uncounted the packs it stored that another tab\'s collection dropped, and only those', () => {
+  it('once stale, puts back the packs it stored that another tab\'s collection dropped, and only those', () => {
     const w = writer();
     w.commit(loaded);
+    // 3 came off the shelf counted at load; 2 is this tab's own, marked counted by a refused write.
+    w.packsTaken([pack(3, { counted: true })]);
+    w.packAdded(pack(3, { counted: true }));
     w.packAdded(pack(1));
     w.packAdded(pack(2, { counted: true }));
     w.commit(withPack(loaded));
     storage.log.length = 0;
-    host.drop = [2];
+    host.drop = [2, 3];
     host.current = false;
     w.commit(withPack(withPack(loaded)));
-    expect(host.stamps).toEqual(['storing 1,2 as me', 'dropped? 1,2 as me']);
-    expect(storage.log).toEqual(['shelve 2']);
+    expect(host.stamps).toEqual(['storing 3,1,2 as me', 'dropped? 3,1,2 as me']);
+    // Its own goes back uncounted (the other tab's stats never counted it); the taken one stays counted
+    // (the stats both tabs loaded count it).
+    expect(storage.log).toEqual(['shelve 3*,2']);
     expect(host.calls).toEqual(['noted', 'stale']);
     // Back on the shelf, it is the next load's: no second put-back.
     w.putBack();
-    expect(storage.log).toEqual(['shelve 2']);
+    expect(storage.log).toEqual(['shelve 3*,2']);
   });
 
   it('keeps a dropped pack owed, and warns, while the shelf refuses it', () => {

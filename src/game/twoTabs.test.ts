@@ -18,8 +18,8 @@ vi.mock('./history', () => ({ recordMissing: () => true, recordPack: () => true,
 const cards = getSet('right-now', 2)!.cards;
 const stats = (packsOpened: number): Stats => ({ packsOpened, holoCards: {}, highestPackValue: 0, highestPackCards: [] });
 const loaded: HeldProgress = { collection: {}, achievements: {}, stats: stats(0), hallOfFame: {}, settings: {} as Settings };
-const pack = (nonce: number) =>
-  ({ setId: 'right-now', setVersion: 2, nonce, publicKeyHex: KEY, cards: [], score: {}, openedAt: 1 }) as unknown as OpenedPack;
+const pack = (nonce: number, extra: Partial<OpenedPack> = {}) =>
+  ({ setId: 'right-now', setVersion: 2, nonce, publicKeyHex: KEY, cards: [], score: {}, openedAt: 1, ...extra }) as unknown as OpenedPack;
 /** The progress a tab holds once it adds a pack: one card of its own, and one more pack counted. */
 const withPack = (from: HeldProgress, card: number): HeldProgress => {
   const item: CollectionItem = { card: cards[card] as unknown as CollectionItem['card'], normalCount: 1, holoCount: 0 };
@@ -85,6 +85,27 @@ describe('two tabs of one player opening packs at once', () => {
     // A's own pack is in the stored collection: it stays off the shelf.
     a.putBack();
     expect(onShelf(0)).toBe(false);
+  });
+
+  it('puts a pack taken off the shelf already counted back counted, so the next load doesn\'t count it twice', () => {
+    // The stored stats count pack 2 already (a refused collection write shelved it marked): both tabs load them.
+    localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(stats(1)));
+    savePendingPack(pack(2, { counted: true }));
+    const counted = { ...loaded, stats: stats(1) };
+    const a = tab();
+    const b = tab();
+    // B takes it at load and adds it uncounted (its stats already count it); A opens a pack of its own.
+    b.writer.packsTaken([pack(2, { counted: true })]);
+    b.writer.packAdded(pack(2, { counted: true }));
+    savePendingPack(pack(0));
+    a.writer.packAdded(pack(0));
+    a.state.beforeCheck = () => b.writer.commit({ ...withPack(counted, 2), stats: stats(1) });
+    a.writer.commit(withPack(counted, 0));
+    // A's stats count pack 2 (as loaded) and its own; its collection dropped pack 2.
+    expect(read(STORAGE_KEYS.STATS).packsOpened).toBe(2);
+    b.putBack();
+    expect(onShelf(2)).toBe(true);
+    expect(read(STORAGE_KEYS.PENDING_PACKS).find((p: { n: number }) => p.n === 2)).toHaveProperty('d', 1);
   });
 
   it('puts nothing back when the other tab stored after reading this tab\'s pack', () => {
