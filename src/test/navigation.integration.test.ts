@@ -65,6 +65,31 @@ it('shows a new player the set picker only once their first pack is saved, and n
   expect(packLabel()).toBe(first);
 }, 30_000);
 
+it('brings a new player the set picker and tabs as they leave a first pack whose ticket is still on its way, not when it lands (#464)', async () => {
+  app = await mountedApp({ ...PLAYER, [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }) },
+    { tickets: () => ({ delayMs: 4000 }) });
+  await app.mount();
+  await app.interact(() => {
+    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+  });
+  await app.until('the slow ticket says so', () => expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull());
+  expect(picker()).toBeNull();
+
+  await app.interact(() => button('Back to packs').click());
+  expect(document.querySelector('.app')!.classList).not.toContain('is-focus');
+  expect(localStorage.getItem(STORAGE_KEYS.STATS), 'the pack was saved before its ticket landed').toBeNull();
+  expect(picker(), 'the picker waited for the ticket').not.toBeNull();
+  expect(document.querySelector('.app-nav'), 'the tabs waited for the ticket').not.toBeNull();
+  expect(document.querySelector('.app')!.classList).not.toContain('no-nav');
+
+  await app.until('the late pack is recorded', () => expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS) ?? 'null')?.packsOpened).toBe(1));
+  expect(picker()).not.toBeNull();
+  expect(document.querySelector('.app-nav')).not.toBeNull();
+}, 30_000);
+
 it.each([['a saved pack', RETURNING], ['cards but no pack count', CARDS_ONLY]])('shows the set picker to a player with %s', async (_, save) => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...save });
   await app.mount();

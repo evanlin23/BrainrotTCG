@@ -1,4 +1,5 @@
 import { DEFAULT_SET_ID, getLatestSet } from '../../content/sets';
+import type { SetDefinition } from '../../engine';
 import CardGuideButton from './CardGuideButton';
 import '../../styles/Scoring.css';
 
@@ -8,12 +9,14 @@ interface BrainrotScorePanelProps {
   /** Left out where the hand's name is already the heading above the panel. */
   handName?: string;
   score: number;
-  /** Set whose odds the card guide should show. */
+  /** The set, at the version the pack came from, whose odds the card guide shows (#486). */
+  set?: SetDefinition;
+  /** Without `set`: the set whose latest version's odds the card guide shows. */
   setId?: string;
 }
 
-const BrainrotScorePanel = ({ points, multiplier, handName, score, setId }: BrainrotScorePanelProps) => {
-  const set = getLatestSet(setId ?? DEFAULT_SET_ID) ?? getLatestSet(DEFAULT_SET_ID);
+const BrainrotScorePanel = ({ points, multiplier, handName, score, set: packSet, setId }: BrainrotScorePanelProps) => {
+  const set = packSet ?? getLatestSet(setId ?? DEFAULT_SET_ID) ?? getLatestSet(DEFAULT_SET_ID);
   return (
     <div className="score-panel">
       <div className="score-panel-total">{score.toLocaleString()}</div>

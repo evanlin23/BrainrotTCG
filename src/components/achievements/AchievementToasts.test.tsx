@@ -4,16 +4,17 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AchievementToasts, { type ToastItem } from './AchievementToasts';
 
-// The app's own queue: dismissing removes ids, and re-rendering with `paused` pauses it as a big
-// pull's showcase does (the queue's state survives the re-render).
+// The app's own queue: dismissing removes ids, and re-rendering with `held` holds it as a big pull's
+// showcase does, or with `paused` as an open sheet does (the queue's state survives the re-render).
 const dismissed: string[][] = [];
-function Harness({ initial, paused = false }: { initial: ToastItem[]; paused?: boolean }) {
+const opened: string[] = [];
+function Harness({ initial, paused = false, held = false }: { initial: ToastItem[]; paused?: boolean; held?: boolean }) {
   const [queue, setQueue] = useState(initial);
   const onDismiss = useCallback((ids: string[]) => {
     dismissed.push(ids);
     setQueue((q) => q.filter((t) => !ids.includes(t.id)));
   }, []);
-  return <AchievementToasts queue={queue} onDismiss={onDismiss} onOpen={() => {}} paused={paused} />;
+  return <AchievementToasts queue={queue} onDismiss={onDismiss} onOpen={(target) => opened.push(target)} paused={paused} held={held} />;
 }
 
 const kept: ToastItem = { id: 'pack-kept-1', name: 'Pack kept', description: 'Its cards are in Cards', kicker: 'Pack kept', opens: 'collection' };
@@ -26,11 +27,14 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   dismissed.length = 0;
+  opened.length = 0;
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
 afterEach(() => {
   act(() => root.unmount());
+  // Let framer-motion's frame loop run out on the fake clock, or the next test's animations never start.
+  vi.advanceTimersByTime(100);
   container.remove();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -43,7 +47,7 @@ describe('notices during a big pull\'s showcase', () => {
 
     // Most of the way through its time on screen when the showcase starts.
     await act(() => vi.advanceTimersByTimeAsync(2500));
-    act(() => root.render(<Harness initial={[kept, levelUp]} paused />));
+    act(() => root.render(<Harness initial={[kept, levelUp]} held />));
     // Gone in the same frame, with no exit fade over the card.
     expect(document.querySelectorAll('.toast')).toHaveLength(0);
     // The region stays, so a held notice is still announced when it shows.
@@ -65,5 +69,28 @@ describe('notices during a big pull\'s showcase', () => {
     expect(toasts()).toEqual(['Level 2']);
     await act(() => vi.advanceTimersByTimeAsync(3000));
     expect(dismissed).toEqual([['pack-kept-1'], ['level-2']]);
+  });
+});
+
+describe('notices while a sheet or page is open', () => {
+  it('fades the toast on screen out instead of cutting it, and brings it back in full afterwards', async () => {
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    await act(() => vi.advanceTimersByTimeAsync(2500));
+    act(() => root.render(<Harness initial={[kept, levelUp]} paused />));
+    // Still there as it fades, but a tap on it no longer counts: it's back in the queue.
+    expect(toasts()).toEqual(['Pack kept']);
+    act(() => document.querySelector<HTMLElement>('.toast')!.click());
+    expect(opened).toEqual([]);
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    expect(document.querySelectorAll('.toast')).toHaveLength(0);
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(dismissed).toEqual([]);
+
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    expect(toasts()).toEqual(['Pack kept']);
+    act(() => document.querySelector<HTMLElement>('.toast')!.click());
+    expect(opened).toEqual(['collection']);
+    expect(dismissed).toEqual([['pack-kept-1']]);
   });
 });

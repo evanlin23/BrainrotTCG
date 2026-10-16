@@ -16,7 +16,7 @@ const CardGuideButton = ({ set, className = 'card-guide-link' }: CardGuideButton
   return (
     <>
       <button type="button" className={className} aria-haspopup="dialog" onClick={(e) => { e.stopPropagation(); setOpen(true); }}>
-        <Info aria-hidden="true" /> Card guide
+        <Info className="card-guide-icon" aria-hidden="true" /> Card guide
       </button>
       {open && <ScoringGuide set={set} onClose={() => setOpen(false)} />}
     </>

@@ -434,6 +434,25 @@
     }
 }
 
+/* A tap on the line that didn't swipe: the hint pulses, so it's clear the line wants a swipe (#485). */
+.pack-shell.is-tapped .swipe-hint {
+    animation: swipe-hint-tap 0.45s ease-in-out 2;
+}
+
+@keyframes swipe-hint-tap {
+    50% {
+        transform: translateX(-50%) scale(1.12);
+        box-shadow: 0 0 0 2px var(--brand), var(--shadow-1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pack-shell.is-tapped .swipe-hint {
+        animation: none;
+        box-shadow: 0 0 0 2px var(--brand), var(--shadow-1);
+    }
+}
+
 .pack-shell.is-cutting .swipe-hint,
 .pack-shell.is-cut .swipe-hint {
     opacity: 0;
@@ -541,8 +560,11 @@
     gap: var(--space-3);
     width: 100%;
     min-height: 0;
-    /* Clears the pack's top bar. */
-    padding: calc(var(--space-2) * 2 + var(--touch-target)) var(--gutter) var(--space-4);
+    /*
+     * Clears the pack's top bar, and a big pull's two-line ribbon in it, which outgrows a touch
+     * target at large text sizes.
+     */
+    padding: calc(var(--space-2) * 2 + max(var(--touch-target), var(--space-1) * 2 + (var(--text-xs) + var(--text-base)) * var(--leading-tight))) var(--gutter) var(--space-4);
     /* Rapid taps flip and advance cards; they must not select the rarity, counter or tips. */
     -webkit-user-select: none;
     user-select: none;
@@ -742,18 +764,28 @@
     inset: 0;
     z-index: -1;
     border-radius: var(--radius-lg);
-    box-shadow: 0 0 0 3px #ffe38a, 0 0 28px 6px #ffd23fb3, 0 0 80px 24px #ffd23f59;
+    box-shadow: 0 0 0 3px #ffe38a, 0 0 20px 4px #ffd23fb3;
     pointer-events: none;
     animation: showcase-halo var(--special-reveal-duration) ease-out both;
 }
 
-/* Rays fanning out from behind the card. */
+/*
+ * Rays fanning out from behind the card, over a wide glow. They are centred on it (it sits in the
+ * middle of the stage) and no bigger than the stage, and fade out by 90% of the way to their edge, so
+ * they're gone before the stage clips them, even with the card's celebration scale and the turn.
+ */
 .showcase-halo::before {
     content: '';
     position: absolute;
-    inset: -30%;
-    background: repeating-conic-gradient(from 0deg, #ffd23f40 0deg 8deg, transparent 8deg 24deg);
-    mask-image: radial-gradient(closest-side, transparent 45%, #000 70%, transparent 100%);
+    top: 50%;
+    left: 50%;
+    width: min(160%, 100cqw);
+    height: min(160%, 100cqh);
+    translate: -50% -50%;
+    background:
+        repeating-conic-gradient(from 0deg, #ffd23f40 0deg 8deg, transparent 8deg 24deg),
+        radial-gradient(closest-side, #ffd23f40 60%, transparent);
+    mask-image: radial-gradient(closest-side, transparent 45%, #000 65%, transparent 90%);
     animation: showcase-rays var(--special-reveal-duration) linear both;
 }
 
@@ -805,9 +837,10 @@
 }
 
 /* Where the card is from, for screenshots: one quiet line, or two on a narrow phone, and never cut
-   short. It wraps only between its three parts, so the set and number move down whole. Its text is the
-   same for every card of a pack (the number keeps its space until the flip), so its height never
-   changes mid-reveal and the card above doesn't move. */
+   short. It wraps between its three parts, so the set and number move down whole; a part wider than
+   the whole line (the address, at large text on a narrow phone) wraps inside instead of running off
+   the stage (#472). Its text is the same for every card of a pack (the number keeps its space until
+   the flip), so its height never changes mid-reveal and the card above doesn't move. */
 .reveal-provenance {
     width: 100%;
     max-width: 100%;
@@ -819,7 +852,9 @@
 }
 
 .reveal-provenance-part {
-    white-space: nowrap;
+    display: inline-block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 
 .reveal-provenance-mark {
@@ -969,11 +1004,14 @@
     box-shadow: var(--focus-ring), var(--shadow-2);
 }
 
-/* Each card's own Share: quiet under its label, the pack's Share stays the main one. */
+/* Each card's own Share: quiet under its label, the pack's Share stays the main one. Snug enough to
+   fit a third of a 320px phone (#472). */
 .summary-cards .summary-card-share {
     justify-self: center;
+    gap: var(--space-1);
+    max-width: 100%;
     min-height: var(--touch-target);
-    padding-inline: var(--space-3);
+    padding-inline: var(--space-2);
 }
 
 .summary-new {

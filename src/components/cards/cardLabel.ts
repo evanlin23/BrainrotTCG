@@ -6,7 +6,8 @@ type Labelled = Pick<CardWithMeta, 'name' | 'rarity' | 'isHolo'>;
 
 /**
  * A card face's accessible name: the card's name, rarity and holo, which the art shows only by colour
- * and shine. A finish or misprint is left out because the face's sticker already says it.
+ * and shine. A finish, misprint or New is left out: the reveal's announcement says it, and the face's
+ * stickers that show it are hidden from screen readers.
  */
 export const cardFaceLabel = (card: Labelled): string =>
   `${card.name}, ${card.isHolo ? 'Holo ' : ''}${CARD_RARITIES[card.rarity].name}`;

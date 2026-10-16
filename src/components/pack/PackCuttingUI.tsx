@@ -21,6 +21,8 @@ interface PackCuttingUIProps {
   waiting?: boolean;
   /** A press just missed the tear line: show where to swipe. */
   nudging?: boolean;
+  /** A tap on the tear line didn't swipe: the swipe hint pulses to show how. */
+  tapped?: boolean;
   cutPoints: CutPoint[];
   sparks: readonly Spark[];
 }
@@ -36,6 +38,7 @@ const PackCuttingUI = ({
   blocked = false,
   waiting = false,
   nudging = false,
+  tapped = false,
   cutPoints,
   sparks,
 }: PackCuttingUIProps) => {
@@ -47,7 +50,7 @@ const PackCuttingUI = ({
         {/* Also a button for the keyboard: Enter or Space opens it, same as the swipe. */}
         <div
           ref={packRef}
-          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''}`}
+          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${tapped && !isCutting && !pressing ? 'is-tapped' : ''}`}
           style={{ '--pack-mask': `url("${packDesign}")` } as React.CSSProperties}
           role="button"
           tabIndex={isPackCut ? -1 : 0}

@@ -38,7 +38,10 @@ interface PackOpenerProps {
   onBusyChange?: (busy: boolean) => void;
   /** True from the tear until the player leaves the pack (while its X shows): the app's focus mode. */
   onFocusChange?: (focus: boolean) => void;
-  /** True while a revealed big pull is being showcased (its ribbon and halo are up): the app holds its notices. */
+  /**
+   * True while a revealed big pull is being showcased (its ribbon and halo are up), or a skip is on
+   * its way to the next one: the app holds its notices.
+   */
   onShowcaseChange?: (showcase: boolean) => void;
   set: SetDefinition;
   disabled?: boolean;
@@ -145,14 +148,19 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
 
   // Mining taking a while: say so, rather than leave a torn pack sitting still.
   const [slowOpen, setSlowOpen] = useState(false);
-  /** A press on the pack just missed the tear line, so it shows where to swipe for a moment. */
-  const [nudging, setNudging] = useState(false);
+  /**
+   * A press on the pack just missed the tear line ('miss'), or tapped it without swiping ('tap'), so
+   * it shows where, or how, to swipe for a moment.
+   */
+  const [nudging, setNudging] = useState<false | 'miss' | 'tap'>(false);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nudge = useCallback(() => {
-    setNudging(true);
+  const nudge = useCallback((kind: 'miss' | 'tap') => {
+    setNudging(kind);
     if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     nudgeTimerRef.current = setTimeout(() => setNudging(false), 1800);
   }, []);
+  const nudgeMiss = useCallback(() => nudge('miss'), [nudge]);
+  const nudgeTap = useCallback(() => nudge('tap'), [nudge]);
   useEffect(() => {
     if (!isPackCut || isOpening) return;
     const timer = window.setTimeout(() => setSlowOpen(true), 1200);
@@ -202,7 +210,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     volume: effectsVolume,
     particlesEnabled: settings.particlesEnabled,
     disabled: disabled || openBlocked,
-    onMiss: nudge,
+    onMiss: nudgeMiss,
+    onSeamTap: nudgeTap,
   });
 
   useEffect(() => {
@@ -499,12 +508,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // The showcase lasts as long as the celebration: its timer, moving on, the X or the summary ends it.
   const showcase = isOpening && !showSummary && !!currentCard?.isRevealed
     && celebratingCardId === currentCard.uniqueId && isSpecialReveal(currentCard);
+  // A skip still heading for a big pull keeps the hold between showcases, so a notice can't flash
+  // in the frames it takes to reach the next one (#460).
+  const holdNotices = showcase || (skipping && pauseBigPulls && isOpening && !showSummary && nextSpecialRevealIndex(openedCards) !== -1);
   // Before paint, so a notice can't flash in the frame the ribbon first shows.
   useLayoutEffect(() => {
-    if (!showcase) return;
+    if (!holdNotices) return;
     onShowcaseChange?.(true);
     return () => onShowcaseChange?.(false);
-  }, [showcase, onShowcaseChange]);
+  }, [holdNotices, onShowcaseChange]);
 
   return (
     <div className="pack-opener-container">
@@ -541,7 +553,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               isPackCut={isPackCut && !leavingOpen}
               blocked={openBlocked}
               waiting={slowOpen && isPackCut && !isOpening && !leavingOpen}
-              nudging={nudging}
+              nudging={nudging === 'miss'}
+              tapped={nudging === 'tap'}
               cutPoints={cutPoints}
               sparks={sparks}
             />

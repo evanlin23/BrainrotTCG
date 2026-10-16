@@ -16,9 +16,9 @@ const INSET = 34;
 const isPhone = () => test.info().project.name.startsWith('mobile');
 
 /** Opens the fixture player's first pack and skips to its summary. */
-async function openSummary(page: Page, baseURL: string, { textZoom = 100 } = {}) {
+async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewport = isPhone() ? PHONE : DESKTOP } = {}) {
   const errors = await monitor(page, baseURL);
-  await page.setViewportSize(isPhone() ? PHONE : DESKTOP);
+  await page.setViewportSize(viewport);
   if (isPhone()) {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Emulation.setSafeAreaInsetsOverride', { insets: { bottom: INSET, bottomMax: INSET } });
@@ -196,6 +196,26 @@ for (const textZoom of [100, 200]) {
     expect(errors).toEqual([]);
   });
 }
+
+test('each card\'s Share fits inside its card, a third of a 320px phone (#472)', async ({ page, baseURL }) => {
+  test.setTimeout(90000);
+  const { errors } = await openSummary(page, baseURL!, { viewport: { width: 320, height: 640 } });
+  const shares = await page.locator('.summary-cards li').evaluateAll((cards) => cards.map((card) => {
+    const share = card.querySelector('.summary-card-share')!;
+    const [c, s] = [card.getBoundingClientRect(), share.getBoundingClientRect()];
+    return {
+      inside: s.left >= c.left - 0.5 && s.right <= c.right + 0.5,
+      clipped: share.scrollWidth > share.clientWidth,
+      height: Math.round(s.height),
+      width: Math.round(s.width),
+      card: Math.round(c.width),
+    };
+  }));
+  expect(shares).toHaveLength(5);
+  for (const share of shares) expect(share, JSON.stringify(share)).toMatchObject({ inside: true, clipped: false });
+  for (const share of shares) expect(share.height).toBeGreaterThanOrEqual(44);
+  expect(errors).toEqual([]);
+});
 
 test('card taps, swipes and empty space never leave the summary; the viewer closes from outside, not from a drag off its text, the X leaves', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);

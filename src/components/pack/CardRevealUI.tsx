@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type ComponentPropsWithRef } from 'react';
+import { Fragment, useCallback, useEffect, useRef, type ComponentPropsWithRef } from 'react';
 import { motion, AnimatePresence, useIsPresent, type PanInfo } from 'framer-motion';
 import { FastForward } from 'lucide-react';
 import Card from '../cards/Card';
@@ -13,6 +13,14 @@ import { siteLabel } from '../../game/pulls';
 import { cardNumber } from '../../data/cards';
 
 const Motion = motion;
+
+/** The site's address, with a break allowed after each slash: Chrome won't break an address there by itself (#472). */
+const SiteAddress = () => {
+  const pieces = siteLabel().split('/');
+  return pieces.map((piece, i) => (
+    <Fragment key={i}>{piece}{i < pieces.length - 1 && <>/<wbr /></>}</Fragment>
+  ));
+};
 
 /**
  * The card on top. One leaving keeps its last props for its exit, so it is inert until it has gone:
@@ -137,12 +145,12 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
         {revealed && currentCard.isNew && <span className="reveal-new">New</span>}
       </div>
       {/* Where this card is from, as a screenshot would show it. Its number waits for the flip like the
-          badge, but holds its space so nothing moves between cards. Three parts that never break inside
-          (game, site, set and number), so a narrow phone wraps the line after a dot and never cuts it. */}
+          badge, but holds its space so nothing moves between cards. Three parts (game, site, set and number)
+          that a narrow phone wraps after a dot; only a part wider than the whole line breaks inside (#472). */}
       {currentCard && (
         <p className="reveal-provenance" aria-hidden="true">
           <span className="reveal-provenance-part"><span className="reveal-provenance-mark">Brainrot TCG</span> ·</span>{' '}
-          <span className="reveal-provenance-part reveal-provenance-site">{siteLabel()} ·</span>{' '}
+          <span className="reveal-provenance-part reveal-provenance-site"><SiteAddress /> ·</span>{' '}
           <span className="reveal-provenance-part reveal-provenance-set">
             {setName ?? currentCard.setId}{' '}
             <span className={`reveal-provenance-number tabular ${revealed ? 'is-shown' : ''} ${slow ? 'is-slow' : ''}`}>{cardNumber(currentCard)}</span>

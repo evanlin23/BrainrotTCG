@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ALL_CARDS, cardNumber } from '../../data/cards';
 import { siteLabel } from '../../game/pulls';
@@ -81,13 +81,24 @@ describe('the provenance line under the card', () => {
     expect(line.textContent).toBe(`Brainrot TCG · ${siteLabel()} · Genesis ${cardNumber(card)}`);
     expect(cardNumber(card)).toMatch(/^001\/\d{3}$/);
     expect(siteLabel()).not.toMatch(/^https?:|\/$/);
-    // Three parts, wrapped between and never inside, so the set and its number move down together.
+    // Three parts, wrapped between them first, so the set and its number move down together.
     expect([...line.querySelectorAll('.reveal-provenance-part')].map((part) => part.textContent))
       .toEqual(['Brainrot TCG ·', `${siteLabel()} ·`, `Genesis ${cardNumber(card)}`]);
     expect(line.querySelector('.reveal-provenance-set > .reveal-provenance-number')).not.toBeNull();
     // The announcement already says the card; this line would only repeat it.
     expect(line.getAttribute('aria-hidden')).toBe('true');
     expect(line.querySelector('.reveal-provenance-number')!.classList).toContain('is-shown');
+  });
+
+  it('lets a long address break after a slash, which Chrome would not do by itself (#472)', () => {
+    vi.stubEnv('BASE_URL', '/BrainrotTCG/');
+    try {
+      const site = provenance(card)!.querySelector('.reveal-provenance-site')!;
+      expect(site.textContent).toBe(`${window.location.host}/BrainrotTCG ·`);
+      expect(site.innerHTML).toBe(`${window.location.host}/<wbr>BrainrotTCG ·`);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('keeps the number\'s space but hides it until the card is face up, so it can\'t spoil the flip', () => {

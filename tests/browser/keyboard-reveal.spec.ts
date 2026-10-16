@@ -130,8 +130,12 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
 const AS_BUILT = 'evanlin23.github.io/BrainrotTCG';
 
 /** How the provenance line under the card lays out with the built site's address (the test server's is shorter). */
-const provenance = (page: Page) => page.locator('.reveal-provenance').evaluate((line, site) => {
-  line.querySelector('.reveal-provenance-site')!.textContent = `${site} ·`;
+const provenance = (page: Page) => page.locator('.reveal-provenance').evaluate((line, host) => {
+  // Only the host changes, so the break the address allows after its slash stays.
+  const site = line.querySelector('.reveal-provenance-site')!;
+  const first = site.firstChild;
+  if (!(first instanceof Text)) throw new Error('the address starts with its host');
+  first.data = host;
   const box = (el: Element) => el.getBoundingClientRect();
   const within = (el: Element) => {
     const [r, l] = [box(el), box(line)];
@@ -146,6 +150,21 @@ const provenance = (page: Page) => page.locator('.reveal-provenance').evaluate((
   const number = line.querySelector('.reveal-provenance-number')!;
   const set = line.querySelector('.reveal-provenance-set')!;
   const stage = box(document.querySelector('.active-card-container')!);
+  // The address's text, row by row, as it wraps.
+  const siteRows = new Map<number, string>();
+  const walker = document.createTreeWalker(site, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+    for (let i = 0; i < node.data.length; i++) {
+      const range = document.createRange();
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      const rect = range.getClientRects()[0];
+      if (!rect || rect.width === 0) continue;
+      const top = Math.round(rect.top);
+      siteRows.set(top, (siteRows.get(top) ?? '') + node.data[i]);
+    }
+  }
+  const rowsOf = (el: Element) => Math.round(box(el).height / parseFloat(style.lineHeight));
   return {
     fitsOnOne: oneLine <= line.clientWidth,
     overflows: line.scrollWidth > line.clientWidth,
@@ -153,12 +172,16 @@ const provenance = (page: Page) => page.locator('.reveal-provenance').evaluate((
     lines: Math.round(box(line).height / parseFloat(style.lineHeight)),
     // The top of each part (game, address, set and number): the line breaks only between them.
     rows: Array.from(line.querySelectorAll('.reveal-provenance-part'), (part) => Math.round(box(part).top - box(line).top)),
-    setWhole: within(set) && within(number) && set.getClientRects().length === 1,
+    setWhole: within(set) && within(number) && rowsOf(set) === 1,
+    // Every part, and the number, inside the line and the screen: nothing runs off or is cut.
+    partsWithin: Array.from(line.querySelectorAll('.reveal-provenance-part'), within).every(Boolean) && within(number),
+    site: site.textContent,
+    siteRows: [...siteRows.values()].map((row) => row.trim()),
     set: set.textContent,
     numberShown: getComputedStyle(number).visibility === 'visible' && getComputedStyle(number).opacity === '1',
     stage: [stage.x, stage.y, stage.width, stage.height].map(Math.round),
   };
-}, AS_BUILT);
+}, AS_BUILT.split('/')[0]);
 
 test('keeps the provenance line whole on a 320px phone, wrapping the set and number under it without moving the card', async ({ page, baseURL }) => {
   test.setTimeout(60000);
@@ -175,7 +198,8 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
 
   // Too long for 288px: the game and the address, then the set and number, moved down whole.
   const faceDown = await provenance(page);
-  expect(faceDown).toMatchObject({ fitsOnOne: false, overflows: false, ellipsis: false, lines: 2, setWhole: true, numberShown: false });
+  expect(faceDown).toMatchObject({ site: `${AS_BUILT} ·`, fitsOnOne: false, overflows: false, ellipsis: false, lines: 2, setWhole: true, partsWithin: true, numberShown: false });
+  expect(faceDown.siteRows).toEqual([`${AS_BUILT} ·`]);
   expect(faceDown.rows[1]).toBe(faceDown.rows[0]);
   expect(faceDown.rows[2]).toBeGreaterThan(faceDown.rows[0]);
   expect(faceDown.set).toMatch(/^\S.* 001\/\d{3}$/);
@@ -194,8 +218,74 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
   for (const width of [390, 800]) {
     await page.setViewportSize({ width, height: 640 });
     const line = await provenance(page);
-    expect(line, `${width}px`).toMatchObject({ overflows: false, ellipsis: false, setWhole: true, lines: line.fitsOnOne ? 1 : 2 });
+    expect(line, `${width}px`).toMatchObject({ overflows: false, ellipsis: false, setWhole: true, partsWithin: true, lines: line.fitsOnOne ? 1 : 2 });
     if (width === 800) expect(line.fitsOnOne).toBe(true);
+  }
+  expect(errors).toEqual([]);
+});
+
+/** Opens the fixture pack by keyboard and waits for its first card, face down. */
+async function revealFirstCard(page: Page) {
+  await page.goto('./');
+  const pack = page.getByRole('button', { name: /^Open a .* pack$/ });
+  await expect(pack).toBeVisible();
+  await pack.focus();
+  await page.keyboard.press('Space');
+  const card = page.locator('.reveal-card:focus');
+  await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+  return card;
+}
+
+test('wraps the address after its slash at large text on a 320px phone, so nothing runs off the stage (#472)', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await seedNonce21(page, baseURL!);
+  const errors = await monitor(page, baseURL!);
+  await revealFirstCard(page);
+  const style = await page.addStyleTag({ content: 'html { font-size: 125% !important; }' });
+  const at125 = await provenance(page);
+  expect(at125, '125% text').toMatchObject({ site: `${AS_BUILT} ·`, overflows: false, ellipsis: false, setWhole: true, partsWithin: true });
+  // One part a row: the address still fits whole on its own.
+  expect(at125.siteRows).toEqual([`${AS_BUILT} ·`]);
+  expect(new Set(at125.rows).size).toBe(3);
+
+  await style.evaluate((tag) => { tag.textContent = 'html { font-size: 200% !important; }'; });
+  const at200 = await provenance(page);
+  expect(at200, '200% text').toMatchObject({ site: `${AS_BUILT} ·`, overflows: false, ellipsis: false, partsWithin: true });
+  // Wider than the line, the address breaks after its slash and nowhere else.
+  expect(at200.siteRows).toEqual(['evanlin23.github.io/', 'BrainrotTCG ·']);
+  expect(errors).toEqual([]);
+});
+
+test('levels a tilted card as soon as reduced motion turns on mid-reveal, and keeps it level', async ({ page, baseURL, hasTouch }) => {
+  test.setTimeout(60000);
+  await seedNonce21(page, baseURL!);
+  const errors = await monitor(page, baseURL!);
+  const card = await revealFirstCard(page);
+  await page.keyboard.press('Space');
+  await expect(card).toHaveAttribute('aria-label', /^Next card/, { timeout: 10000 });
+  const wrapper = card.locator('.card-wrapper');
+  const transform = () => wrapper.evaluate((el) => (el as HTMLElement).style.transform);
+  const LEVEL = 'perspective(1000px) rotateX(0deg) rotateY(0deg)';
+  const box = (await wrapper.boundingBox())!;
+
+  // A real mouse tilts the card toward it; a phone's taps never do.
+  await page.mouse.move(box.x + box.width, box.y + box.height);
+  if (hasTouch) expect(await transform()).toBe(LEVEL);
+  else await expect.poll(transform).not.toBe(LEVEL);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect.poll(transform).toBe(LEVEL);
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.move(box.x + box.width * 0.9, box.y + 4);
+  expect(await transform()).toBe(LEVEL);
+
+  // Turned back off, the card waits for the mouse instead of snapping to its old angle.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  expect(await transform()).toBe(LEVEL);
+  if (!hasTouch) {
+    await page.mouse.move(box.x + box.width, box.y + box.height);
+    await expect.poll(transform).not.toBe(LEVEL);
   }
   expect(errors).toEqual([]);
 });

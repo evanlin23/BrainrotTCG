@@ -40,6 +40,11 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
   const backToDiscard = useRef(false);
   const noteId = useId();
   const rootRef = useRef<HTMLSpanElement>(null);
+  // The latest handler, so a parent passing a new one each render doesn't re-run the cleanup below.
+  const onLeaveRef = useRef(onLeave);
+  useLayoutEffect(() => {
+    onLeaveRef.current = onLeave;
+  });
   // React runs this cleanup before it removes the buttons, while focus is still on one. Whatever should
   // take focus (Reload, say) may only be added later in the same commit, so the parent acts after it.
   useLayoutEffect(() => {
@@ -48,10 +53,10 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
       if (!root?.contains(document.activeElement)) return;
       queueMicrotask(() => {
         const active = document.activeElement;
-        if (!root.isConnected && (!active || active === document.body)) onLeave();
+        if (!root.isConnected && (!active || active === document.body)) onLeaveRef.current();
       });
     };
-  }, [onLeave]);
+  }, []);
   useEffect(() => {
     if (asked) keepRef.current?.focus();
     else if (backToDiscard.current) discardRef.current?.focus();
