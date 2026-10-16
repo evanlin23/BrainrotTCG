@@ -105,8 +105,9 @@
 }
 
 /*
- * The pack is huge on purpose: too big for the screen, held up from below. Its top (the set ribbon
- * and the tear line) always shows; the rest runs off the bottom of the space.
+ * The stage the whole sealed pack sits in. It is both the box the drop-in animation moves and the
+ * clip for the torn top strip, so the pack has to fit inside it (see --pack-fit below): a pack taller
+ * than the stage was cut off by this box's moving bottom edge on the way down.
  */
 .pack-display {
     position: relative;
@@ -123,15 +124,18 @@
 }
 
 /*
- * 80% of the screen across (wider than it on phones). The wrapper image is 1536:2752 with clear
- * space above the crimp, so it's pulled up by a tenth of its width to put the set ribbon just
- * under the picker; the tear line then sits about 0.24 widths down, and on short screens the
- * pack shrinks to keep it in view. Opening needs a drag from 18% to 82% of the width, so it never
- * gets wider than 1.5 screens. The Open pack button under it (.pack-actions) follows the same width.
+ * The whole pack fits the stage, so nothing needs scrolling or reaching. The wrapper image is
+ * 1536:2752 with clear space above the crimp, so it's pulled up by a tenth of its width to put the
+ * set ribbon just under the picker; the printed pack is then 1.7 widths tall, and --pack-fit is the
+ * width at which that height fills the stage less a space-4 gap above and below. The width is also
+ * capped at 80% of the screen (100% on phones, below), and never under 10rem so a very short
+ * landscape stage still gets a pack to tear, with its top and the tear line showing. Opening needs a
+ * drag from 18% to 82% of the width. The Open pack button under it (.pack-actions) follows the same width.
  */
 .pack-shell-wrap,
 .pack-actions {
-    --pack-w: min(80vw, 1600px, (100cqh - 7rem) * 4);
+    --pack-fit: calc((100cqh - var(--space-4) * 2) / 1.7);
+    --pack-w: max(10rem, min(80vw, 1600px, var(--pack-fit)));
 }
 
 .pack-shell-wrap {
@@ -145,8 +149,8 @@
 @media (max-width: 700px) {
     .pack-shell-wrap,
     .pack-actions {
-        /* The full width of the phone: big, without running off both sides. */
-        --pack-w: min(100vw, (100cqh - 7rem) * 4);
+        /* The full width of the phone when the height allows: big, without running off both sides. */
+        --pack-w: max(10rem, min(100vw, var(--pack-fit)));
     }
 }
 
@@ -475,12 +479,14 @@
 }
 
 /* Swipe hint */
-/* Sits just under the tear line as a pill, so it reads over any pack art. */
+/* Sits just under the tear line as a pill, so it reads over any pack art. On a small pack it wraps inside it. */
 .swipe-hint {
     position: absolute;
     top: calc(var(--tear-y) + 2.5%);
     left: 50%;
     transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(100% - var(--space-4));
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -496,6 +502,7 @@
 .swipe-hint-icon {
     width: 18px;
     height: 18px;
+    flex: none;
     color: var(--white);
     animation: swipeMotion 1.5s ease-in-out infinite;
 }
@@ -506,7 +513,6 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    white-space: nowrap;
 }
 
 @keyframes swipeMotion {
