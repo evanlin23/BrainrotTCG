@@ -5,12 +5,18 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-4);
+  /* On a short or landscape screen, or with large text, the lines under the card scroll; the card
+     keeps its size. Room at the sides so the scroll box doesn't clip the card's ring and glow. */
+  overflow-y: auto;
+  padding-inline: 32px;
 }
 
 .card-viewer-card {
   --r: var(--rarity-common);
   --ring: 0 0 0 3px var(--r);
   position: relative;
+  /* A flex item in a height-capped column; without this the card is squashed instead of scrolled. */
+  flex-shrink: 0;
   width: min(78vw, 46dvh, 24rem);
   aspect-ratio: var(--card-aspect);
   border-radius: var(--radius-md);
