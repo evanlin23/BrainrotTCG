@@ -758,7 +758,6 @@
     width: 100%;
     max-width: 100%;
     margin: 0;
-    padding-inline: var(--gutter);
     overflow: hidden;
     color: var(--text-subtle);
     font-size: var(--text-xs);

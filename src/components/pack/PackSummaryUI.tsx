@@ -92,7 +92,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
                     type="button"
                     className="btn btn--ghost btn--sm summary-card-share"
                     onClick={() => setSharing(card)}
-                    aria-label={`Share or save ${card.name}`}
+                    aria-label={`Share or save ${card.name}${modifierLabel(card) ? `, ${modifierLabel(card)}` : ''}`}
                   >
                     <Share2 aria-hidden="true" /> Share
                   </button>

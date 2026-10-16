@@ -114,7 +114,7 @@ describe('result first', () => {
 
 describe('each card\'s own Share', () => {
   const pack = { setId: set.id, setVersion: set.version, nonce: 3, publicKeyHex: 'ab12' };
-  // All Commons, so only the extras rank them: Gold (400) over Holo over plain, the later of a tie first.
+  // All Commons, so only the extras rank them: Gold (400) over Holo over plain, ties in pack order.
   const pulled = cards.map((card, i) => ({ ...card, rarity: 'COMMON', isHolo: i === 1, finish: i === 3 ? 'GOLD' : null }) as CardWithMeta);
   const shareButtons = () => [...container.querySelectorAll<HTMLButtonElement>('.summary-card-share')];
 
@@ -126,8 +126,12 @@ describe('each card\'s own Share', () => {
   });
 
   it('lays the cards out best pull first, each with a Share or save for it', () => {
-    const order = [3, 1, 4, 2, 0].map((i) => pulled[i].name);
-    expect(shareButtons().map((b) => b.getAttribute('aria-label'))).toEqual(order.map((name) => `Share or save ${name}`));
+    const order = [3, 1, 0, 2, 4].map((i) => pulled[i].name);
+    // The modifier is part of each button's name, so two copies of one card stay distinguishable.
+    const mods = ['Gold', 'Holo', null, null, null];
+    expect(shareButtons().map((b) => b.getAttribute('aria-label'))).toEqual(
+      order.map((name, k) => `Share or save ${name}${mods[k] ? `, ${mods[k]}` : ''}`),
+    );
     expect([...container.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label')?.split(',')[0])).toEqual(order);
     expect(shareButtons().every((b) => b.textContent?.trim() === 'Share')).toBe(true);
   });

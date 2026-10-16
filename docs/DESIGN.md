@@ -12,7 +12,7 @@ from a 390 px wide screen.
    pack; during a reveal it's the next card; in the summary it's opening another pack. Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is only the logo, the
    gear and the pack: the tabs and the era picker come once their first pack is saved and they leave it.
-   The summary lists the cards best pull first (the reveal reversed), each with a quiet Share that makes
+   The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
    an image of it linking to the pack; nothing is shared mid-reveal. Under the revealed card, one quiet
    line (game, site, set and card number) says where a screenshot came from.
 2. **Nothing overlaps the game.** Navigation is a bottom tab bar on phones (in the thumb zone) and a top

@@ -28,7 +28,7 @@ describe('reveal order', () => {
     expect(revealOrder(cards).map((c) => c.id)).toEqual(['plain', 'epic', 'gold', 'misprint', 'diamond']);
   });
 
-  it('lists the summary best pull first: the reveal reversed, ties included', () => {
+  it('lists the summary best pull first, ties in pack order', () => {
     const cards = [
       { id: 'rare1', rarity: 'RARE' as const, isHolo: false },
       { id: 'common', rarity: 'COMMON' as const, isHolo: false },
@@ -36,8 +36,7 @@ describe('reveal order', () => {
       { id: 'rare2', rarity: 'RARE' as const, isHolo: false },
       { id: 'epic', rarity: 'EPIC' as const, isHolo: false },
     ];
-    expect(bestPullOrder(cards).map((c) => c.id)).toEqual(['diamond', 'epic', 'rare2', 'rare1', 'common']);
-    expect(bestPullOrder(cards)).toEqual(revealOrder(cards).reverse());
+    expect(bestPullOrder(cards).map((c) => c.id)).toEqual(['diamond', 'epic', 'rare1', 'rare2', 'common']);
     expect(cards.map((c) => c.id)).toEqual(['rare1', 'common', 'diamond', 'rare2', 'epic']); // the pack itself is untouched
   });
 
