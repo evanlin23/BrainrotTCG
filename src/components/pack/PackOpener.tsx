@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type SyntheticEvent } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { CardWithMeta } from '../cards/Card';
 import type { Settings } from '../../types';
@@ -8,11 +8,13 @@ import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confetti
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
+import { usePackHistory } from '../../hooks/usePackHistory';
 import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import PackCuttingUI from './PackCuttingUI';
 import CardRevealUI from './CardRevealUI';
 import PackSummaryUI from './PackSummaryUI';
+import PackTopBar from './PackTopBar';
 import { packImageUrl } from '../../content/art';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
@@ -71,6 +73,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
   const skippingRef = useRef(false);
   /** Whether this pack has been handed to onOpen; a pack is recorded once, however it's finished. */
   const recordedRef = useRef(false);
+  /** The player left a torn pack while its ticket was still being worked out: keep it, don't show it. */
+  const leaveOpeningRef = useRef(false);
+  const [leavingOpen, setLeavingOpen] = useState(false);
+  /** What a ticket that lands after the player left needs, as of the latest render. */
+  const landingRef = useRef({ onOpen, onLeaveEarly, resetCutState: () => {} });
 
   const startOpening = useCallback(async () => {
     let pack: OpenedPack;
@@ -79,8 +86,28 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
       pack = await openPack(set);
     } catch (error) {
       console.error('Could not open pack', error);
-      setOpenError('This pack refused to open. Try again!');
       setIsPackCut(false);
+      if (leaveOpeningRef.current) {
+        // Already back on the packs screen: nothing was dealt, so there's nothing to say.
+        leaveOpeningRef.current = false;
+        setLeavingOpen(false);
+        landingRef.current.resetCutState();
+      } else {
+        setOpenError('This pack refused to open. Try again!');
+      }
+      return;
+    }
+    if (leaveOpeningRef.current) {
+      // The player left while it was on its way: the pack is recorded face up, as leaving a reveal
+      // early does, and the "Pack kept" notice says where its cards went.
+      leaveOpeningRef.current = false;
+      setLeavingOpen(false);
+      const { onOpen: record, onLeaveEarly: kept, resetCutState: reset } = landingRef.current;
+      const dealt: OpenedPack = { ...pack, cards: pack.cards.map((card) => ({ ...card, isRevealed: true })) };
+      record(dealt);
+      kept?.(dealt);
+      setIsPackCut(false);
+      reset();
       return;
     }
     const brainrotVoices = preloadAudio(BRAINROT_VOICES);
@@ -133,6 +160,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     }
     setOpenError(null);
     openTimeoutRef.current = window.setTimeout(() => {
+      // Started: from here the ticket is spent, so leaving keeps the pack rather than cancelling it.
+      openTimeoutRef.current = null;
       void startOpening();
     }, 460);
   }, [startOpening]);
@@ -157,6 +186,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     particlesEnabled: settings.particlesEnabled,
     disabled: disabled || openBlocked,
     onMiss: nudge,
+  });
+
+  useEffect(() => {
+    landingRef.current = { onOpen, onLeaveEarly, resetCutState };
   });
 
   // A pack that refused to open can be torn again, as its error asks.
@@ -221,25 +254,57 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     setSkipping(true);
   }, [disabled, pauseBigPulls, openedCards, recordPack]);
 
-  const leaveReveal = useCallback(() => {
-    // Like skipAll: an open sheet disables the opener, so a stray press behind it records nothing.
-    if (disabled || (pauseBigPulls && performance.now() < revealLockedUntilRef.current)) return;
-    const leftEarly = openedCards.some((card) => !card.isRevealed);
-    const pack = dealtPack();
-    recordPack();
-    finishPack();
-    if (leftEarly && pack) onLeaveEarly?.(pack);
-  }, [disabled, pauseBigPulls, openedCards, dealtPack, recordPack, finishPack, onLeaveEarly]);
-
-  // A press on the empty space around the card leaves the reveal. A fling that starts on the card and
-  // is released off it clicks their shared ancestor, so the press must start and end on empty space.
-  // A click with no pointer press (keyboard or assistive tech) can't be a drag.
-  const blankPressRef = useRef<boolean | null>(null);
-  const onBlank = (event: SyntheticEvent) => event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('active-card-container');
-
   const closeSummary = useCallback(() => {
     finishPack();
   }, [finishPack]);
+
+  /**
+   * Any stage of a pack, from the tear to the summary: the pack's X, Escape and browser Back. A torn
+   * pack the player left while its ticket is on its way already looks sealed again; it stays busy
+   * (isPackCut) until the ticket lands and is recorded.
+   */
+  const stageInPack = (isPackCut && !leavingOpen) || isOpening || !!openError;
+
+  /**
+   * Back to the packs screen from any stage, keeping whatever the pack already spent. It works during
+   * a big pull's pause too (ending its celebration): the pause holds the cards, not the player.
+   */
+  const leavePack = useCallback(() => {
+    if (isOpening && !showSummary) {
+      // Mid-reveal: the pack is recorded with every card, as finishing it would.
+      const leftEarly = openedCards.some((card) => !card.isRevealed);
+      const pack = dealtPack();
+      recordPack();
+      finishPack();
+      if (leftEarly && pack) onLeaveEarly?.(pack);
+    } else if (isOpening) {
+      // The summary: already recorded.
+      finishPack();
+    } else if (isPackCut) {
+      if (openTimeoutRef.current) {
+        // Torn, but its ticket isn't spent yet: put the pack back sealed.
+        window.clearTimeout(openTimeoutRef.current);
+        openTimeoutRef.current = null;
+        setIsPackCut(false);
+        resetCutState();
+      } else if (!leaveOpeningRef.current) {
+        // Its ticket is spent and still on its way: startOpening records it when it lands.
+        leaveOpeningRef.current = true;
+        setLeavingOpen(true);
+        resetCutState();
+      }
+    } else if (openError) {
+      setOpenError(null);
+      resetCutState();
+    }
+  }, [isOpening, showSummary, isPackCut, openError, openedCards, dealtPack, recordPack, finishPack, onLeaveEarly, resetCutState]);
+
+  // Like skipAll: an open sheet disables the opener, so a stray press or key behind it does nothing.
+  const leaveFromUi = useCallback(() => {
+    if (!disabled) leavePack();
+  }, [disabled, leavePack]);
+
+  usePackHistory(stageInPack, leavePack);
 
   const handleFlip = useCallback(() => {
     const currentCard = openedCards[currentIndex];
@@ -329,7 +394,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     onCloseSummary: closeSummary,
     onOpenPack: () => !isPackCut && !openBlocked && completeCut(),
     handleInteractionRef,
-    onLeave: leaveReveal,
+    inPack: stageInPack,
+    onLeave: leaveFromUi,
   });
 
   // Play "what kind of brainrot" when a new card appears
@@ -388,6 +454,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
 
   return (
     <div className="pack-opener-container">
+      {stageInPack && (
+        <PackTopBar
+          onLeave={leaveFromUi}
+          progress={isOpening && !showSummary ? { index: currentIndex, total: openedCards.length } : undefined}
+        />
+      )}
       <AnimatePresence mode="wait">
         {!isOpening ? (
           <Motion.div
@@ -410,9 +482,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
               set={set}
               error={openError}
               isCutting={isCutting}
-              isPackCut={isPackCut}
+              isPackCut={isPackCut && !leavingOpen}
               blocked={openBlocked}
-              waiting={slowOpen && isPackCut && !isOpening}
+              waiting={slowOpen && isPackCut && !isOpening && !leavingOpen}
               nudging={nudging}
               cutPoints={cutPoints}
               sparks={sparks}
@@ -424,14 +496,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2 }}
-            className={`card-reveal-area ${!showSummary && !disabled && !(revealLocked && pauseBigPulls) ? 'can-leave' : ''}`}
-            onPointerDownCapture={(event) => { blankPressRef.current = onBlank(event); }}
-            onPointerUpCapture={(event) => { blankPressRef.current = blankPressRef.current === true && onBlank(event); }}
-            onClick={(event) => {
-              const pressedBlank = blankPressRef.current;
-              blankPressRef.current = null;
-              if (!showSummary && pressedBlank !== false && onBlank(event)) leaveReveal();
-            }}
+            className="card-reveal-area"
           >
             {!showSummary ? (
               <CardRevealUI
@@ -442,7 +507,6 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
                 hasMovedMouse={hasMovedMouse}
                 onInteraction={handleInteraction}
                 onSkip={skipAll}
-                onLeave={leaveReveal}
                 revealLocked={revealLocked && pauseBigPulls}
                 celebrating={celebratingCardId === currentCard?.uniqueId}
                 skipping={skipping}

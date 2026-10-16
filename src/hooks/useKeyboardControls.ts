@@ -8,7 +8,9 @@ interface UseKeyboardControlsOptions {
   /** Open the pack on screen (the keyboard's version of the swipe). */
   onOpenPack: () => void;
   handleInteractionRef: MutableRefObject<() => void>;
-  /** Close the reveal, as its close button does (Escape). */
+  /** A pack is on screen, at any stage from the tear to the summary: Escape leaves it. */
+  inPack?: boolean;
+  /** Back to the packs screen, as the pack's X does (Escape). */
   onLeave?: () => void;
 }
 
@@ -17,8 +19,8 @@ const TEXT_FIELD = 'input, select, textarea, [contenteditable]:not([contentedita
 
 /**
  * Space or Enter does the next thing: open the pack, flip, next card, next pack. Holding Space runs
- * through the cards. Escape closes a reveal. The listeners are added once and read the latest state from a ref, so a
- * re-render can't cancel a held Space.
+ * through the cards. Escape leaves a pack at any stage. The listeners are added once and read the
+ * latest state from a ref, so a re-render can't cancel a held Space.
  */
 export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
   const latest = useRef(options);
@@ -38,7 +40,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const { isOpening, showSummary, disabled, onCloseSummary, onOpenPack, handleInteractionRef, onLeave } = latest.current;
+      const { isOpening, showSummary, disabled, onCloseSummary, onOpenPack, handleInteractionRef, inPack, onLeave } = latest.current;
       // Ignore if disabled, or if a sheet is open over the pack (its buttons need these keys), or if
       // focus is on a control that Space or Enter already activates.
       if (disabled) return;
@@ -46,7 +48,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       const target = e.target as HTMLElement | null;
       // Escape belongs to whatever is on top: a sheet closes itself first, and a text field keeps it.
       if (e.key === 'Escape') {
-        if (!isOpening || showSummary || !onLeave || e.defaultPrevented || e.repeat) return;
+        if (!inPack || !onLeave || e.defaultPrevented || e.repeat) return;
         if (target?.closest(TEXT_FIELD)) return;
         e.preventDefault();
         onLeave();

@@ -1,9 +1,51 @@
 .pack-opener-container {
+    position: relative;
     display: flex;
     flex: 1;
     flex-direction: column;
     width: 100%;
     min-height: 0;
+}
+
+/*
+ * One bar over every stage of a pack, from the tear to the summary: the X in the top corner, and the
+ * card count while the cards are dealt. It floats over the stage, so the pack doesn't jump when it
+ * appears; only the X takes presses.
+ */
+.pack-top-bar {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: var(--touch-target) minmax(0, 1fr) var(--touch-target);
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--gutter) 0;
+    pointer-events: none;
+}
+
+.pack-close {
+    pointer-events: auto;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.pack-top-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.pack-top-count {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: 700;
+}
+
+.pack-top-progress .reveal-progress {
+    padding: 0;
 }
 
 /*
@@ -404,24 +446,13 @@
     gap: var(--space-3);
     width: 100%;
     min-height: 0;
-    padding: var(--space-2) var(--gutter) var(--space-4);
+    /* Clears the pack's top bar. */
+    padding: calc(var(--space-2) * 2 + var(--touch-target)) var(--gutter) var(--space-4);
     /* Rapid taps flip and advance cards; they must not select the rarity, counter or tips. */
     -webkit-user-select: none;
     user-select: none;
     overflow-x: hidden;
     overflow-y: auto;
-}
-
-/* The empty space around the card leaves the reveal, so it shows the pointer. The text and progress
-   around the card and the stack sliver behind it don't leave, so they reset it; the card and buttons
-   keep their own. */
-.card-reveal-area.can-leave {
-    cursor: pointer;
-}
-
-:where(.card-reveal-area.can-leave) > :where(:not(.active-card-container)),
-:where(.card-reveal-area.can-leave) :where(.reveal-stack-card) {
-    cursor: auto;
 }
 
 .reveal-progress {
@@ -547,16 +578,15 @@
     }
 }
 
-/* ---- Reveal: progress, skip, the stack ---- */
+/* ---- Reveal: skip, the stack ---- */
 
-.reveal-top {
+/* Skip has its own row at the bottom, away from the X. */
+.reveal-bottom {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    flex-wrap: wrap;
+    justify-content: center;
     width: 100%;
     max-width: 36rem;
+    margin-top: calc(var(--space-3) * -1);
 }
 
 .reveal-skip {
@@ -575,41 +605,11 @@
     height: 16px;
 }
 
-/* Close sits in the top corner, a whole row's width from Skip, as a plain X in a ring. */
-.reveal-close {
-    flex: none;
-    border: 1px solid var(--border-strong);
-    background: var(--surface-2);
-    color: var(--text);
-}
-
-/* Narrow screens: Close and Skip take the top corners and the progress gets its own row under them.
-   Skip wraps its own label rather than reaching toward Close, so at 320px it stays on one row. */
-@media (max-width: 640px) {
-    .reveal-top {
-        row-gap: 0;
-    }
-
-    .reveal-progress {
-        order: 1;
-        flex-basis: 100%;
-        justify-content: center;
-    }
-
-    .reveal-skip {
-        flex: 0 1 auto;
-        margin-left: auto;
-        justify-content: flex-end;
-        text-align: end;
-    }
-}
-
 .reveal-skip:hover {
     color: var(--text);
 }
 
-.reveal-skip:disabled,
-.reveal-close:disabled {
+.reveal-skip:disabled {
     opacity: 0.35;
     cursor: default;
 }
