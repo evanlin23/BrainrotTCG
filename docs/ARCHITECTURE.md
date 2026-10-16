@@ -564,7 +564,7 @@ versioned generation rules. Its claims can be recomputed for the range in a veri
 - **Collection score**: the points of every card pulled, holos at holo points, with named milestones
   (Bronze 1,000 up to Brainrot 2,000,000).
 - **Sets**: each set is *Complete* with every card and *Master* with every card as a holo, shown on
-  the set picker and profiles, with an achievement for each.
+  the set picker, the Collection's set headers and profiles, with an achievement for each.
 - **Profile card** (`src/game/playerCard.ts`): a 9:16 image of all this plus the best pull, with a QR
   code for the profile link.
 
