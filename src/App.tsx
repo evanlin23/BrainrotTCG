@@ -632,13 +632,11 @@ function App() {
             className="app-logo app-logo--link"
             href={import.meta.env.BASE_URL}
             aria-label="Brainrot TCG, home"
-            aria-disabled={packBusy || undefined}
-            tabIndex={packBusy ? -1 : undefined}
             onClick={(e) => {
               // Let the browser handle modified clicks (new tab, window); a plain one is the Packs tab.
               if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
               e.preventDefault();
-              if (!packBusy) openPage('open');
+              openPage('open');
             }}
           >{logoMark}{logoChars}</a>
         ) : (

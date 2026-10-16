@@ -50,6 +50,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.doUnmock('../../game/nostrInbox');
 });
 
 const render = (props: Partial<Parameters<typeof ProfilePage>[0]> = {}) =>
@@ -255,7 +256,7 @@ describe('folded sections', () => {
 
 describe('Hall of Fame submitted badge', () => {
   const entry = (nonce: number, score: number, hand = 'Pair') =>
-    ({ setId: 'right-now', setVersion: 1, nonce, key: 'a'.repeat(16), cards: null, hand, score, openedAt: 1000 + nonce });
+    ({ setId: 'right-now', setVersion: 1, nonce, key: getPlayer().publicKeyHex.slice(0, 16), cards: null, hand, score, openedAt: 1000 + nonce });
   const badges = () => [...document.querySelectorAll('.pull-row-sent')].map((el) => el.textContent);
   const idOf = (nonce: number) => pullId({ setId: 'right-now', setVersion: 1, publicKey: getPlayer().publicKey, nonce });
 
@@ -279,5 +280,11 @@ describe('Hall of Fame submitted badge', () => {
     expect(badges()).toEqual(['Submitted']);
     expect(document.querySelector('.pull-row-sent')!.getAttribute('title')).toBe('Sent from this device');
     expect(document.querySelector('.pull-row-sent svg')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it("shows no badge on another player's pack, even with the same set and nonce", () => {
+    getHistory.mockReturnValue([{ ...entry(1, 1e9), key: 'b'.repeat(16) }]);
+    render();
+    expect(badges()).toEqual([]);
   });
 });

@@ -71,7 +71,7 @@ const timeAgo = (t: number) => {
 };
 
 /**
- * Whether this device has sent a Rankings-worthy pack to the Hall of Fame inbox. Per device (it reads
+ * Whether this device has sent a Rankings-worthy pack to the Hall of Fame inbox. Only for this player's own packs (other players on this device sign with other keys). Per device (it reads
  * the same record as the share sheet's Submit), so it says nothing about other devices; no network.
  */
 const SubmittedBadge = ({ entry }: { entry: HistoryEntry }) => {
@@ -353,7 +353,7 @@ const ProfilePage = ({
                                 <span className="sr-only">, qualifies for Rankings</span>
                               </>
                             )}
-                            {isHallOfFameWorthy(entry) && <SubmittedBadge entry={entry} />}
+                            {isHallOfFameWorthy(entry) && getPlayer().publicKeyHex.startsWith(entry.key) && <SubmittedBadge entry={entry} />}
                           </span>
                           <span className="pull-row-meta">
                             {set && <span className="set-code">{setCode(set)}</span>}

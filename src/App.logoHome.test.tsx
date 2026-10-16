@@ -60,10 +60,10 @@ it('goes to the Packs screen on a plain click, and leaves modified clicks to the
   expect(document.querySelectorAll('h1')).toHaveLength(1);
 });
 
-it('is inert while a pack is busy', async () => {
+it('stays a working link while a pack is busy, like the Packs tab', async () => {
   await act(async () => opener.onBusyChange?.(true));
-  expect(logo()!.getAttribute('aria-disabled')).toBe('true');
-  expect(logo()!.tabIndex).toBe(-1);
+  expect(logo()!.hasAttribute('aria-disabled')).toBe(false);
+  expect(logo()!.tabIndex).toBe(0);
   click();
-  expect(window.location.hash).toBe('#/settings');
+  expect(window.location.hash).not.toBe('#/settings');
 });
