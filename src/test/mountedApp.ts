@@ -19,7 +19,7 @@ export type TicketReply = { delayMs: number } | { error: string } | 'crash';
 /** jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. */
 /**
  * hallOfFame answers the published list's request with that list (a summary whose pull qualifies
- * asks for it); every other request still fails.
+ * asks for it), and relay sockets close unanswered; every other request still fails.
  */
 export async function mountedApp(storage: Record<string, string>,
   options: { tickets?: (request: TicketRequest) => TicketReply | undefined; hallOfFame?: unknown[] } = {}) {
@@ -54,7 +54,17 @@ export async function mountedApp(storage: Record<string, string>,
   const { hallOfFame } = options;
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) =>
     hallOfFame && String(input).endsWith('hall-of-fame.json') ? Promise.resolve(Response.json(hallOfFame)) : blocked('fetch')()));
-  vi.stubGlobal('WebSocket', class { constructor() { blocked('WebSocket')(); } });
+  // With a list, the summary also asks the relays for pending sends: each socket closes unanswered,
+  // so nothing is read or sent. Otherwise any socket is an error.
+  vi.stubGlobal('WebSocket', hallOfFame
+    ? class {
+      readyState = 3;
+      onclose: ((event: unknown) => void) | null = null;
+      constructor() { queueMicrotask(() => this.onclose?.({})); }
+      send() {}
+      close() {}
+    }
+    : class { constructor() { blocked('WebSocket')(); } });
   vi.spyOn(XMLHttpRequest.prototype, 'send').mockImplementation(blocked('XMLHttpRequest'));
   vi.stubGlobal('indexedDB', undefined);
   vi.stubGlobal('open', blocked('window.open'));

@@ -39,6 +39,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-1) var(--space-2);
+  /* The same height loading, empty or in any state, so the cards below never move. */
+  min-height: var(--touch-target);
   margin: var(--space-1) 0 0;
   color: var(--text-muted);
   font-size: var(--text-sm);

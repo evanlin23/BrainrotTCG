@@ -372,3 +372,48 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }
   expect(await page.evaluate(() => document.querySelector('.summary-content')!.scrollTop)).toBe(0);
   expect(errors).toEqual([]);
 });
+
+// The line keeps one height while the list loads and in every state after, so the cards below never
+// move. The relays are stand-ins on this page: a socket asking for pending sends closes, and a send
+// either fails (the socket closes) or waits for the test to accept it. Nothing leaves the browser.
+test('the Hall of Fame line never moves the cards below it', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  let release = () => {};
+  const listLoads = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/hall-of-fame.json', async (route) => {
+    await listLoads;
+    await route.fulfill({ json: [] });
+  });
+  let relays: 'refuse' | 'hold' = 'refuse';
+  const held: (() => void)[] = [];
+  await page.routeWebSocket(/.*/, (socket) => socket.onMessage((message) => {
+    const [type, event] = JSON.parse(String(message)) as [string, { id: string }];
+    if (type === 'EVENT' && relays === 'hold') held.push(() => socket.send(JSON.stringify(['OK', event.id, true, ''])));
+    else socket.close();
+  }));
+  const { errors } = await openSummary(page, baseURL!, { history: 10 });
+  const line = page.locator('.summary-hof');
+  const cardsTop = () => page.locator('.summary-cards').evaluate((cards) => cards.getBoundingClientRect().top);
+  const tops: Record<string, number> = {};
+
+  await expect(line).toHaveAttribute('aria-hidden', 'true');
+  tops.loading = await cardsTop();
+  release();
+  const submit = line.getByRole('button', { name: 'Submit to the Hall of Fame' });
+  await expect(submit).toBeVisible();
+  tops.offered = await cardsTop();
+  await submit.click();
+  await expect(line).toContainText("Couldn't submit");
+  tops.failed = await cardsTop();
+  relays = 'hold';
+  await line.getByRole('button', { name: 'Retry' }).click();
+  await expect(line).toContainText('Submitting…');
+  await expect.poll(() => held.length).toBeGreaterThan(0);
+  tops.sending = await cardsTop();
+  held[0]();
+  await expect(line).toContainText('Submitted · #1 today');
+  tops.sent = await cardsTop();
+
+  expect(tops, JSON.stringify(tops)).toEqual(Object.fromEntries(Object.keys(tops).map((state) => [state, tops.loading])));
+  expect(errors).toEqual([]);
+});

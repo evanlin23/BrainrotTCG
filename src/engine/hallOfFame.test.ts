@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allTimeRank,
   dailyPulls,
   dailyRank,
   HALL_OF_FAME_DAILY_TOP,
@@ -136,6 +137,16 @@ describe('daily board (UTC)', () => {
     expect(dailyRank(pull(101), full, now)).toBe(HALL_OF_FAME_DAILY_TOP);
     expect(dailyRank(pull(100), full, now)).toBeNull(); // a tie with the lowest goes to the earlier one
     expect(dailyRank(pull(999, 'd3'), full, now)).toBeNull(); // already in
+  });
+
+  it('places a pull on the all-time list whatever its day, or null when it misses or is listed', () => {
+    const now = '2026-10-16T18:00:00.000Z';
+    const pull = (points: number, id = 'x') => ({ id, setId: 'set-a', score: score(points) });
+    const old = Array.from({ length: HALL_OF_FAME_TOP }, (_, i) => at(`a${i}`, 1000 + i, '2026-01-01T00:00:00.000Z')); // 1000..1099
+    expect(allTimeRank(pull(50), [], now)).toBe(1);
+    expect(allTimeRank(pull(1050), old, now)).toBe(51); // below 1051..1099 and the earlier 1050
+    expect(allTimeRank(pull(1000), old, now)).toBeNull(); // a tie with the lowest goes to the earlier one
+    expect(allTimeRank(pull(2000, 'a3'), old, now)).toBeNull(); // already in
   });
 
   it('ranks pending entries with filed ones, and a filed pull keeps its credit over a pending copy', () => {

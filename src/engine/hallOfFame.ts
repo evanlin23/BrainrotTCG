@@ -122,6 +122,14 @@ export const dailyRank = (pull: { id: string; setId: string; score: PackScore },
   return at < 0 ? null : at + 1;
 };
 
+/** Where a pull verified at `now` would place on the all-time list, or null (see `dailyRank`). */
+export const allTimeRank = (pull: { id: string; setId: string; score: PackScore }, list: readonly RankableEntry[], now: string): number | null => {
+  if (list.some((e) => e.id === pull.id)) return null;
+  const entry: RankableEntry = { id: pull.id, setId: pull.setId, hand: pull.score.hand.name, multiplier: pull.score.hand.multiplier, score: pull.score.score, submittedAt: now };
+  const at = topPulls([...list, entry]).findIndex((e) => e.id === pull.id);
+  return at < 0 ? null : at + 1;
+};
+
 /**
  * The score a pull must beat to join the list on `day` (see `hallOfFameJoin`), or null while either
  * board has room and any qualifying pull joins. Intake uses it to turn low pulls away before paying
