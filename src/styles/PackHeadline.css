@@ -1,4 +1,4 @@
-/* A pack's headline: total, combo, standout card (components/pack/PackHeadline.tsx). */
+/* A pack's headline: total and combo (components/pack/PackHeadline.tsx). */
 
 .pack-headline {
   display: flex;
@@ -28,15 +28,4 @@ p.pack-headline-total {
 .pack-headline-combo {
   font-weight: 700;
   color: var(--text);
-}
-
-/* Long names and modifiers wrap on phones instead of pushing the page sideways. */
-.pack-headline-standout {
-  color: var(--text-muted);
-  overflow-wrap: anywhere;
-}
-
-.pack-headline-card {
-  color: var(--text);
-  font-weight: 700;
 }

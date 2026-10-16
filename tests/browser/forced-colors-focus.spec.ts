@@ -83,13 +83,20 @@ test('shows a visible focus outline inside a sheet and on the reveal card in for
   await expect(sheet).toHaveCount(0);
 
   // The reveal: the card is its one control, and keeps the outline while the ring is a pseudo-element.
+  // Space and Enter only drive the game, so they paint no outline (#529) as they paint no ring; an arrow
+  // key, which does nothing on the reveal, is navigation and brings the outline back on the focused card.
+  const expectQuiet = async () => expect(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle)).toBe('none');
   await tabTo(page, page.getByRole('button', { name: 'Open pack', exact: true }));
   await page.keyboard.press('Space');
   const card = page.locator('.reveal-card:focus');
   await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+  await expectQuiet();
+  await page.keyboard.press('ArrowRight');
   expect((await expectOutline(page))?.name).toMatch(/reveal-card/);
   await page.keyboard.press('Space');
   await expect(card).toHaveAttribute('aria-label', /^Next card\. Card 1 of 5: /, { timeout: 10000 });
+  await expectQuiet();
+  await page.keyboard.press('ArrowRight');
   expect((await expectOutline(page))?.name).toMatch(/reveal-card/);
   expect(errors).toEqual([]);
 });

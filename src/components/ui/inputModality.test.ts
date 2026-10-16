@@ -27,11 +27,39 @@ describe('trackInputModality', () => {
     expect(modality()).toBe('pointer');
   });
 
-  it.each(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Enter', ' ', 'Escape'])('switches to keyboard on %j', (k) => {
+  it.each(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Escape'])('switches to keyboard on %j', (k) => {
     stop = trackInputModality();
     press();
     key(k);
     expect(modality()).toBe('keyboard');
+  });
+
+  // Space and Enter drive the game; they must not ring whatever the app focuses next.
+  it.each(['Enter', ' '])('switches to press on %j', (k) => {
+    stop = trackInputModality();
+    expect(modality()).toBe('keyboard');
+    key(k);
+    expect(modality()).toBe('press');
+    press();
+    key(k);
+    expect(modality()).toBe('press');
+  });
+
+  it('navigation keys bring the keyboard back after a press, and a pointer press ends it', () => {
+    stop = trackInputModality();
+    key(' ');
+    key('Tab');
+    expect(modality()).toBe('keyboard');
+    key(' ');
+    press();
+    expect(modality()).toBe('pointer');
+  });
+
+  it.each(['Ctrl', 'Alt', 'Meta'])('ignores %s+Space', (name) => {
+    stop = trackInputModality();
+    press();
+    key(' ', document.body, { [`${name.toLowerCase()}Key`]: true });
+    expect(modality()).toBe('pointer');
   });
 
   it('counts Shift+Tab', () => {
@@ -64,10 +92,58 @@ describe('trackInputModality', () => {
     key('Tab');
     press();
     expect(modality()).toBe('pointer');
-    key('Enter');
+    key('Tab');
     expect(modality()).toBe('keyboard');
     key('Shift');
     expect(modality()).toBe('keyboard');
+  });
+
+  describe('focus a navigation key placed', () => {
+    const focusOn = (button: HTMLButtonElement) => { button.focus(); };
+    const kept = (button: Element) => button.hasAttribute('data-ring-kept');
+    const make = () => document.body.appendChild(document.createElement('button'));
+
+    it('is marked while Tab holds, and keeps its mark through Space', () => {
+      stop = trackInputModality();
+      const a = make();
+      key('Tab');
+      focusOn(a);
+      key(' ');
+      expect(modality()).toBe('press');
+      expect(kept(a)).toBe(true);
+      a.remove();
+    });
+
+    it('is not marked for focus a script moves after a press, and the mark leaves with focus', () => {
+      stop = trackInputModality();
+      const a = make();
+      const b = make();
+      key('Tab');
+      focusOn(a);
+      key('Enter');
+      focusOn(b);
+      expect(kept(a)).toBe(false);
+      expect(kept(b)).toBe(false);
+      a.remove();
+      b.remove();
+    });
+
+    it('is not marked once the key is released, or after a pointer press', () => {
+      stop = trackInputModality();
+      const a = make();
+      const b = make();
+      key('Tab');
+      document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', bubbles: true }));
+      focusOn(a);
+      expect(kept(a)).toBe(false);
+      key('ArrowRight');
+      focusOn(b);
+      expect(kept(b)).toBe(true);
+      press();
+      expect(kept(b)).toBe(false);
+      a.remove();
+      b.remove();
+    });
   });
 
   it('hears events a handler stops from bubbling', () => {

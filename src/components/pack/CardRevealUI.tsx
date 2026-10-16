@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, type ComponentPropsWithRef } from 'react';
-import { motion, AnimatePresence, useIsPresent, type PanInfo } from 'framer-motion';
+import { motion, AnimatePresence, useIsPresent } from 'framer-motion';
 import { FastForward } from 'lucide-react';
 import Card from '../cards/Card';
 import type { CardWithMeta } from '../cards/Card';
@@ -8,6 +8,7 @@ import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import cardBackImage from '../../assets/images/card_back.webp';
 import RarityBadge from '../ui/RarityBadge';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
+import { useCardSwipe, useSidewaysFlickGuard } from '../../hooks/useRevealGestures';
 import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import { siteLabel } from '../../game/pulls';
 import { cardNumber } from '../../data/cards';
@@ -51,10 +52,6 @@ interface CardRevealUIProps {
   setName?: string;
 }
 
-/** How far (px) or how fast (px/s) a flipped card has to be flung to move on. */
-const SWIPE_DISTANCE = 80;
-const SWIPE_SPEED = 500;
-
 /**
  * One card at a time off the top of the stack, rarest last. Big pulls light the back's edge before
  * the flip and get a spotlight after it; a flipped card can be swiped away or tapped.
@@ -76,46 +73,9 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
       ? 'Click or press Space for the next card'
       : 'Click or press Space to flip';
 
-  // A mouse drag ends with a click on the card it dragged; that click isn't a tap, so it mustn't advance
-  // again. Only that card's click: a swipe deals the next card at once, and a tap on it is a real tap.
-  const dragged = useRef<{ id?: CardWithMeta['uniqueId']; at: number }>({ at: 0 });
-  const onDragEnd = (_: unknown, info: PanInfo) => {
-    dragged.current = { id: currentCard?.uniqueId, at: performance.now() };
-    if (revealLocked) return;
-    if (Math.abs(info.offset.x) > SWIPE_DISTANCE || Math.abs(info.velocity.x) > SWIPE_SPEED) onInteraction();
-  };
-  const onTap = () => {
-    const justDragged = dragged.current.id === currentCard?.uniqueId && performance.now() - dragged.current.at <= 300;
-    if (!revealLocked && !justDragged) onInteraction();
-  };
-
-  // A sideways flick on the card is the card's own gesture, never the page's. The card lets the page pan
-  // only up and down (touch-action: pan-y), but Chromium still starts a fling from a sideways flick and
-  // then eats the next tap as the one that stops it: no click, so a tap on the card right after a flick
-  // did nothing (#504). Cancelling the sideways touchmoves keeps the flick from becoming a scroll at all.
-  // The swipe itself runs on pointer events, which this leaves alone; up and down still scroll the page,
-  // and two fingers still zoom. React's touch listeners are passive, so this one is the DOM's own.
+  const { onDragEnd, onTap } = useCardSwipe(currentCard?.uniqueId, revealLocked, onInteraction);
   const stageEl = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const stage = stageEl.current;
-    if (!stage) return;
-    let start: { x: number; y: number } | null = null;
-    const onTouchStart = (event: TouchEvent) => {
-      const touch = event.touches.length === 1 ? event.touches[0] : undefined;
-      start = touch && (event.target as Element).closest('.reveal-card') ? { x: touch.clientX, y: touch.clientY } : null;
-    };
-    const onTouchMove = (event: TouchEvent) => {
-      const touch = event.touches.length === 1 ? event.touches[0] : undefined;
-      if (!start || !touch || !event.cancelable) return;
-      if (Math.abs(touch.clientX - start.x) > Math.abs(touch.clientY - start.y)) event.preventDefault();
-    };
-    stage.addEventListener('touchstart', onTouchStart, { passive: true });
-    stage.addEventListener('touchmove', onTouchMove, { passive: false });
-    return () => {
-      stage.removeEventListener('touchstart', onTouchStart);
-      stage.removeEventListener('touchmove', onTouchMove);
-    };
-  }, []);
+  useSidewaysFlickGuard(stageEl, '.reveal-card');
 
   // The card is the reveal's button for the keyboard too: Space or Enter flips it, then moves on
   // (useKeyboardControls, which holds Space down to repeat). Each card is a new element, so focus follows

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allTimeRank,
   dailyPulls,
+  dailyRank,
   HALL_OF_FAME_DAILY_TOP,
   HALL_OF_FAME_MAX_ENTRIES,
   HALL_OF_FAME_TOP,
@@ -129,6 +131,29 @@ describe('daily board (UTC)', () => {
     expect(hallOfFameJoin({ ...low, id: 'd3' }, full, '2026-10-16')).toBeNull(); // already in
     expect(wouldJoinHallOfFame({ ...low, score: score(101) }, full, '2026-10-16')).toBe(true);
     expect(wouldJoinHallOfFame({ ...low, score: score(100) }, full, '2026-10-16')).toBe(false);
+  });
+
+  it("places a pull on today's top, below earlier ties, or null when it misses or is listed", () => {
+    const now = '2026-10-16T18:00:00.000Z';
+    const today = (n: number) => Array.from({ length: n }, (_, i) => at(`d${i}`, 100 + i, `2026-10-16T12:00:${String(i).padStart(2, '0')}.000Z`));
+    const pull = (points: number, id = 'x') => ({ id, setId: 'set-a', score: score(points) });
+    expect(dailyRank(pull(50), [], now)).toBe(1);
+    expect(dailyRank(pull(500), [...today(3), at('y', 900, '2026-10-15T12:00:00.000Z')], now)).toBe(1); // yesterday doesn't count
+    expect(dailyRank(pull(101), today(3), now)).toBe(3); // below 102, below the earlier 101
+    const full = today(HALL_OF_FAME_DAILY_TOP); // scores 100..149
+    expect(dailyRank(pull(101), full, now)).toBe(HALL_OF_FAME_DAILY_TOP);
+    expect(dailyRank(pull(100), full, now)).toBeNull(); // a tie with the lowest goes to the earlier one
+    expect(dailyRank(pull(999, 'd3'), full, now)).toBeNull(); // already in
+  });
+
+  it('places a pull on the all-time list whatever its day, or null when it misses or is listed', () => {
+    const now = '2026-10-16T18:00:00.000Z';
+    const pull = (points: number, id = 'x') => ({ id, setId: 'set-a', score: score(points) });
+    const old = Array.from({ length: HALL_OF_FAME_TOP }, (_, i) => at(`a${i}`, 1000 + i, '2026-01-01T00:00:00.000Z')); // 1000..1099
+    expect(allTimeRank(pull(50), [], now)).toBe(1);
+    expect(allTimeRank(pull(1050), old, now)).toBe(51); // below 1051..1099 and the earlier 1050
+    expect(allTimeRank(pull(1000), old, now)).toBeNull(); // a tie with the lowest goes to the earlier one
+    expect(allTimeRank(pull(2000, 'a3'), old, now)).toBeNull(); // already in
   });
 
   it('ranks pending entries with filed ones, and a filed pull keeps its credit over a pending copy', () => {
