@@ -85,9 +85,10 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
     if (extra) item.modifierPoints = (item.modifierPoints ?? 0) + extra;
   }
   expect(read(STORAGE_KEYS.COLLECTION)).toEqual(expected);
+  // Best pull first, the reveal's order reversed (the copy flagged new was revealed first, so it's last).
   expect([...document.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label'))).toEqual([
-    'Bukangi, Common, new', 'Bukangi, Common', 'La Peace, Uncommon, new',
-    'Verity, Epic, new', 'Niu Lai, Common, Gold, new',
+    'Niu Lai, Common, Gold, new', 'Verity, Epic, new', 'La Peace, Uncommon, new',
+    'Bukangi, Common', 'Bukangi, Common, new',
   ]);
 
   const before = snapshot();

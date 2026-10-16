@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as engine from '../engine';
-import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder } from './reveal';
+import { bestPullOrder, isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder } from './reveal';
 
 describe('reveal order', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -26,6 +26,19 @@ describe('reveal order', () => {
     ];
     // 10, 70 (Epic), 400 (Gold), 2,000 (misprint), 10,000 (Diamond)
     expect(revealOrder(cards).map((c) => c.id)).toEqual(['plain', 'epic', 'gold', 'misprint', 'diamond']);
+  });
+
+  it('lists the summary best pull first: the reveal reversed, ties included', () => {
+    const cards = [
+      { id: 'rare1', rarity: 'RARE' as const, isHolo: false },
+      { id: 'common', rarity: 'COMMON' as const, isHolo: false },
+      { id: 'diamond', rarity: 'COMMON' as const, isHolo: false, finish: 'DIAMOND' as const },
+      { id: 'rare2', rarity: 'RARE' as const, isHolo: false },
+      { id: 'epic', rarity: 'EPIC' as const, isHolo: false },
+    ];
+    expect(bestPullOrder(cards).map((c) => c.id)).toEqual(['diamond', 'epic', 'rare2', 'rare1', 'common']);
+    expect(bestPullOrder(cards)).toEqual(revealOrder(cards).reverse());
+    expect(cards.map((c) => c.id)).toEqual(['rare1', 'common', 'diamond', 'rare2', 'epic']); // the pack itself is untouched
   });
 
   it('counts finishes and misprints as big pulls', () => {

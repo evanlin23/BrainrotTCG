@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { CardWithMeta } from '../cards/Card';
 import type { Settings } from '../../types';
 import type { SetDefinition } from '../../engine';
-import { openPack, prefetchNextPack, type OpenedPack } from '../../game/pulls';
+import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../../game/pulls';
 import { holdLive } from '../../game/admission';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
 import { buzz } from '../../utils/motion';
@@ -249,6 +249,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     resetCutState();
   }, [resetCutState, preloadedAssets, cleanupAudio]);
 
+  // What the summary's per-card Share links to: this pull (one object, so its proof is signed once).
+  const pullRef = useMemo((): PullRef | undefined => openedPack
+    ? { setId: openedPack.setId, setVersion: openedPack.setVersion, nonce: openedPack.nonce, publicKeyHex: openedPack.publicKeyHex }
+    : undefined, [openedPack]);
   /** The pack as the engine dealt it, face up: what's recorded and shared (the reveal order is only for show). */
   const dealtPack = useCallback((): OpenedPack | null => (openedPack ? { ...openedPack, cards: openedPack.cards.map((card) => ({ ...card, isRevealed: true })) } : null), [openedPack]);
 
@@ -554,6 +558,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 revealLocked={revealLocked && pauseBigPulls}
                 celebrating={celebratingCardId === currentCard?.uniqueId}
                 skipping={skipping}
+                setName={set.name}
               />
             ) : (
               <PackSummaryUI
@@ -561,6 +566,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 set={set}
                 onClose={closeSummary}
                 onShare={openedPack ? () => onShare(dealtPack()!) : undefined}
+                pack={pullRef}
                 holdOptional={!disabled}
               />
             )}

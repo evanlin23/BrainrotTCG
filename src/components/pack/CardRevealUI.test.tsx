@@ -1,6 +1,8 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ALL_CARDS } from '../../data/cards';
+import { ALL_CARDS, cardNumber } from '../../data/cards';
+import { siteLabel } from '../../game/pulls';
 import CardRevealUI from './CardRevealUI';
 import type { CardWithMeta } from '../cards/Card';
 
@@ -61,5 +63,32 @@ describe('the reveal\'s controls', () => {
   it('puts Skip in its own bottom row, below the hint', () => {
     const html = render(false);
     expect(html).toMatch(/<p class="tip-text">[^<]*<\/p><div class="reveal-bottom"><button[^>]*class="reveal-skip"/);
+  });
+});
+
+describe('the provenance line under the card', () => {
+  const provenance = (currentCard: CardWithMeta) => {
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <CardRevealUI currentCard={currentCard} currentIndex={0} totalCards={5} hasMovedMouse
+        onInteraction={() => {}} onSkip={() => {}} setName="Genesis" />,
+    );
+    return host.querySelector('.reveal-provenance');
+  };
+
+  it('names the game, the site and the set, with the card\'s number, for screenshots only', () => {
+    const line = provenance(card)!;
+    expect(line.textContent).toBe(`Brainrot TCG · ${siteLabel()} · Genesis ${cardNumber(card)}`);
+    expect(cardNumber(card)).toMatch(/^001\/\d{3}$/);
+    expect(siteLabel()).not.toMatch(/^https?:|\/$/);
+    // The announcement already says the card; this line would only repeat it.
+    expect(line.getAttribute('aria-hidden')).toBe('true');
+    expect(line.querySelector('.reveal-provenance-number')!.classList).toContain('is-shown');
+  });
+
+  it('keeps the number\'s space but hides it until the card is face up, so it can\'t spoil the flip', () => {
+    const number = provenance({ ...card, isRevealed: false })!.querySelector('.reveal-provenance-number')!;
+    expect(number.classList).not.toContain('is-shown');
+    expect(number.textContent).toBe(cardNumber(card));
   });
 });

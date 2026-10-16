@@ -21,6 +21,15 @@ vi.mock('../../game/profiles', async (importOriginal) => ({
   },
 }));
 
+// The share sheet itself is tested on its own (CardShareSheet.test.tsx): here, what it was opened with.
+const { shareSheet } = vi.hoisted(() => ({ shareSheet: vi.fn() }));
+vi.mock('../share/CardShareSheet', () => ({
+  default: (props: { card: { name: string } }) => {
+    shareSheet(props);
+    return <div role="dialog">Sharing {props.card.name}</div>;
+  },
+}));
+
 const setCache = (state: string) => {
   cache.state = state;
   cache.version += 1;
@@ -100,5 +109,44 @@ describe('result first', () => {
 
   it('leaves the keyboard where it is while a sheet covers the summary', () => {
     expect(document.activeElement).not.toBe(container.querySelector('.summary-title'));
+  });
+});
+
+describe('each card\'s own Share', () => {
+  const pack = { setId: set.id, setVersion: set.version, nonce: 3, publicKeyHex: 'ab12' };
+  // All Commons, so only the extras rank them: Gold (400) over Holo over plain, the later of a tie first.
+  const pulled = cards.map((card, i) => ({ ...card, rarity: 'COMMON', isHolo: i === 1, finish: i === 3 ? 'GOLD' : null }) as CardWithMeta);
+  const shareButtons = () => [...container.querySelectorAll<HTMLButtonElement>('.summary-card-share')];
+
+  beforeEach(() => {
+    shareSheet.mockClear();
+    // The sheet's placeholder sizes itself while the share screen loads.
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    act(() => root.render(<PackSummaryUI openedCards={pulled} set={set} onClose={() => {}} pack={pack} />));
+  });
+
+  it('lays the cards out best pull first, each with a Share or save for it', () => {
+    const order = [3, 1, 4, 2, 0].map((i) => pulled[i].name);
+    expect(shareButtons().map((b) => b.getAttribute('aria-label'))).toEqual(order.map((name) => `Share or save ${name}`));
+    expect([...container.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label')?.split(',')[0])).toEqual(order);
+    expect(shareButtons().every((b) => b.textContent?.trim() === 'Share')).toBe(true);
+  });
+
+  it('opens that card\'s image, linked to this pack', async () => {
+    act(() => shareButtons()[0].click());
+    await vi.waitFor(() => expect(shareSheet).toHaveBeenCalled());
+    const props = shareSheet.mock.lastCall![0];
+    expect(props.card.uniqueId).toBe(pulled[3].uniqueId);
+    expect(props.version).toEqual({ isHolo: false, finish: 'GOLD', misprint: false });
+    expect(props.from).toBe(pack);
+    expect(container.querySelector('[role="dialog"]')?.textContent).toBe(`Sharing ${pulled[3].name}`);
+
+    act(() => props.onClose());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('has no per-card Share without the pull to link to', () => {
+    act(() => root.render(<PackSummaryUI openedCards={pulled} set={set} onClose={() => {}} />));
+    expect(shareButtons()).toEqual([]);
   });
 });

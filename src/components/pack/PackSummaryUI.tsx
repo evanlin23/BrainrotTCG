@@ -4,34 +4,46 @@ import { RotateCcw, Share2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
+import DeferredSheet from '../ui/DeferredSheet';
+import { sheetLoader } from '../ui/sheetEntry';
 import BrainrotScorePanel from '../ui/BrainrotScorePanel';
 import { modifierLabel, modifierThumb, specialCardsLine } from '../../game/modifiers';
-import { CARD_RARITIES, getSetCards, scoreCards } from '../../data/cards';
+import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import { myProgress } from '../../game/profiles';
+import type { PullRef } from '../../game/pulls';
+import { bestPullOrder } from '../../game/reveal';
+import { versionOf } from '../../game/versions';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackCacheNote from '../profile/PackCacheNote';
 import '../../styles/CollectionLabel.css';
 
 const Motion = motion;
+const loadCardShare = sheetLoader(() => import('../share/CardShareSheet'));
 
 interface PackSummaryUIProps {
   openedCards: CardWithMeta[];
   set: SetDefinition;
   onClose: () => void;
   onShare?: () => void;
+  /** The pull these cards came from: each card can then be shared or saved as an image that links to it. */
+  pack?: PullRef;
   /** Keep optional work waiting until these cards have decoded (off while a sheet covers them). */
   holdOptional?: boolean;
 }
 
 /**
  * After the last card, result first: the hand as the headline, then the five cards laid out like a
- * pack's contents on a table (each with its collector number, rarity and a NEW sticker if it's new),
- * then the score and level, with the actions in their own row below.
+ * pack's contents on a table, best pull first (each with its collector number, rarity, a NEW sticker
+ * if it's new, and its own Share for an image of it that links to this pack), then the score and
+ * level, with the actions in their own row below. Sharing starts here, never mid-reveal: the link
+ * carries the whole pack, so it would spoil the cards still face down.
  */
-const PackSummaryUI = ({ openedCards, set, onClose, onShare, holdOptional = false }: PackSummaryUIProps) => {
+const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
+  const [sharing, setSharing] = useState<CardWithMeta | null>(null);
+  const shown = useMemo(() => bestPullOrder(openedCards), [openedCards]);
   const cardsRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   useHoldUntilDecoded(cardsRef, holdOptional);
@@ -42,11 +54,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, holdOptional = fals
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const { points, hand, score } = scoreCards(openedCards);
-  const setCards = getSetCards(set.id);
-  const numberOf = (card: CardWithMeta) => {
-    const i = setCards.findIndex((c) => c.key === card.key);
-    return `${String(i + 1).padStart(3, '0')}/${String(setCards.length).padStart(3, '0')}`;
-  };
   const newCount = openedCards.filter((c) => c.isNew).length;
   const special = specialCardsLine(openedCards);
   // What this pack did for your level: shown here so progress isn't hidden away in the profile.
@@ -63,7 +70,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, holdOptional = fals
         <div className="summary-details">
           <h2 className="summary-title" ref={headingRef} tabIndex={-1}>{hand.name}</h2>
           <ul className="summary-cards" ref={cardsRef}>
-            {openedCards.map((card) => (
+            {shown.map((card) => (
               <li key={card.uniqueId}>
                 <button
                   type="button"
@@ -77,9 +84,19 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, holdOptional = fals
                   {modifierLabel(card, false) && <span className="mod-label">{modifierLabel(card, false)}</span>}
                 </button>
                 <span className="collection-label tabular" aria-hidden="true">
-                  {numberOf(card)}{' '}
+                  {cardNumber(card)}{' '}
                   <span className={`collection-label-rarity ${card.rarity.toLowerCase()}`}>{CARD_RARITIES[card.rarity].symbol}</span>
                 </span>
+                {pack && (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm summary-card-share"
+                    onClick={() => setSharing(card)}
+                    aria-label={`Share or save ${card.name}`}
+                  >
+                    <Share2 aria-hidden="true" /> Share
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -123,6 +140,14 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, holdOptional = fals
           card={selected}
           onClose={() => setSelected(null)}
           canShare
+          pack={pack}
+        />
+      )}
+      {sharing && pack && (
+        <DeferredSheet
+          load={loadCardShare}
+          title={`Share ${sharing.name}`}
+          screenProps={{ card: sharing, version: versionOf(sharing), from: pack, onClose: () => setSharing(null) }}
         />
       )}
     </Motion.div>
