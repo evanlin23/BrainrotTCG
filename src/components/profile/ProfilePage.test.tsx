@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ProfilePage from './ProfilePage';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
+import { ACHIEVEMENTS } from '../../data/achievements';
 
 const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks } = vi.hoisted(() => ({
   myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(),
@@ -130,7 +131,7 @@ describe('saved packs still being read', () => {
     myStats.mockReturnValue(null);
     myPackCacheState.mockReturnValue('loading');
     render();
-    expect(document.querySelector('[role="status"]')?.textContent).toContain('Reading your saved packs');
+    expect(document.querySelector('.pulls-note [role="status"]')?.textContent).toContain('Reading your saved packs');
     expect(document.querySelector('.profile-summary')).toBeNull();
     expect(document.body.textContent).not.toContain("don't have their cards on this device");
 
@@ -181,14 +182,19 @@ describe('pack list order and Rankings wording', () => {
 
 describe('the page', () => {
   it('holds the player, Achievements and the pack list under one heading level', () => {
+    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: 'cd'.repeat(32), name: 'Original Player', nextNonce: 4, createdAt: 1 }));
     render();
     const headings = [...document.querySelectorAll('h2')].map((el) => el.textContent);
-    expect(headings).toEqual(expect.arrayContaining(['Level and stats', 'Name and rewards', 'Achievements']));
+    expect(headings).toEqual(expect.arrayContaining(['Level and stats', 'Achievements', 'Card back and foil']));
+    // The name heads the page, once: no subtitle repeats it.
+    expect(headings[0]).toBe('Original Player');
+    expect(document.querySelector('.page-subtitle')).toBeNull();
+    expect(headings.indexOf('Achievements')).toBeLessThan(headings.indexOf('Card back and foil'));
     expect(document.querySelector('h3#achievements-title, h1')).toBeNull();
     expect(document.getElementById('achievements')).not.toBeNull();
   });
 
-  it('sends the empty profile to the packs screen and the save note to Save & backup', () => {
+  it('sends the empty profile to the packs screen and the closing footnote to Save & backup', () => {
     myProfileInfo.mockReturnValue(null);
     myStats.mockReturnValue(null);
     const onOpenPacks = vi.fn();
@@ -196,7 +202,50 @@ describe('the page', () => {
     render({ onOpenPacks, onOpenSave });
     act(() => button('Open your first pack').click());
     expect(onOpenPacks).toHaveBeenCalledTimes(1);
-    act(() => button('Save & backup').click());
+    const note = document.querySelector('.profile-page')!.lastElementChild!;
+    expect(note.textContent).toBe('Saved in this browser ·Back up');
+    act(() => note.querySelector('button')!.click());
     expect(onOpenSave).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain('Back up your save');
+  });
+});
+
+describe('folded sections', () => {
+  const unlocked = Object.fromEntries(ACHIEVEMENTS.slice(0, 5).map((a, i) => [a.id, 1000 + i]));
+  const all = () => document.querySelector<HTMLDetailsElement>('#achievements details')!;
+  const rewards = () => document.querySelector<HTMLDetailsElement>('#rewards details')!;
+  const names = (el: Element) => [...el.querySelectorAll('.achievement-name')].map((n) => n.textContent);
+
+  it('shows the three newest achievements, with the rest folded under "Show all"', () => {
+    render({ unlockedAchievements: unlocked });
+    const section = document.getElementById('achievements')!;
+    expect(section.querySelector('.achievements-count')!.textContent).toContain(`5/${ACHIEVEMENTS.length} unlocked`);
+    const recent = section.querySelector('.achievements-group')!;
+    expect(names(recent)).toEqual(ACHIEVEMENTS.slice(2, 5).map((a) => a.name).reverse());
+    expect(all().open).toBe(false);
+    expect(all().querySelector('summary')!.textContent).toBe(`Show all achievements (${ACHIEVEMENTS.length})`);
+    expect(names(all())).toEqual(expect.arrayContaining(ACHIEVEMENTS.slice(0, 2).map((a) => a.name)));
+  });
+
+  it('opens Show all when a link or toast asks for #achievements, and again for a later request', () => {
+    render({ unlockedAchievements: unlocked, section: { id: 'achievements', n: 1 } });
+    expect(all().open).toBe(true);
+    expect(rewards().open).toBe(false);
+    act(() => {
+      all().open = false;
+      all().dispatchEvent(new Event('toggle'));
+    });
+    render({ unlockedAchievements: unlocked, section: { id: 'achievements', n: 2 } });
+    expect(all().open).toBe(true);
+  });
+
+  it('keeps the card backs and foils folded, with a summary of what is unlocked, until asked for', () => {
+    render();
+    expect(rewards().open).toBe(false);
+    expect(rewards().querySelector('summary')!.textContent).toMatch(/^\d+ of \d+ unlocked$/);
+    render({ level: 99 });
+    expect(rewards().querySelector('summary')!.textContent).toBe('Every reward unlocked');
+    render({ section: { id: 'rewards', n: 1 } });
+    expect(rewards().open).toBe(true);
   });
 });

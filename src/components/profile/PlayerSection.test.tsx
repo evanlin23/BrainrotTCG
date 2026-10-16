@@ -2,7 +2,6 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PlayerSection from './PlayerSection';
 
 const PLAYER_KEY = 'brainrot-player-v1';
@@ -12,13 +11,9 @@ const storedName = () => JSON.parse(localStorage.getItem(PLAYER_KEY)!).name as s
 let root: Root;
 let container: HTMLElement;
 let setItem: MockInstance<Storage['setItem']>;
-let onOpenSave: ReturnType<typeof vi.fn<() => void>>;
 let canSave: ReturnType<typeof vi.fn<() => boolean>>;
 let onSaveFailed: ReturnType<typeof vi.fn<() => void>>;
-const section = (level: number | null) => (
-  <PlayerSection level={level} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onOpenSave={onOpenSave}
-    canSave={canSave} onSaveFailed={onSaveFailed} />
-);
+let onRenamed: ReturnType<typeof vi.fn<(player: { name: string }) => void>>;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -26,12 +21,12 @@ beforeEach(() => {
   localStorage.clear();
   localStorage.setItem(PLAYER_KEY, JSON.stringify(stored));
   setItem = vi.spyOn(Storage.prototype, 'setItem');
-  onOpenSave = vi.fn<() => void>();
   canSave = vi.fn(() => true);
   onSaveFailed = vi.fn<() => void>();
+  onRenamed = vi.fn();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
-  act(() => root.render(section(1)));
+  act(() => root.render(<PlayerSection onRenamed={onRenamed} canSave={canSave} onSaveFailed={onSaveFailed} />));
 });
 
 afterEach(() => {
@@ -41,16 +36,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent === name);
 const input = () => document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]')!;
-const status = () => document.querySelector<HTMLElement>('.settings-group [role="status"]')!.textContent;
-const type = (value: string) => act(() => {
-  input().focus();
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), value);
-  input().dispatchEvent(new Event('input', { bubbles: true }));
-});
-const clickSave = () => act(() => {
-  [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent === 'Save name')!.click();
-});
+const status = () => document.querySelector<HTMLElement>('#player [role="status"]')!.textContent;
+const heading = () => document.querySelector('#player h2')!.textContent;
+const edit = () => act(() => button('Edit name')!.click());
+/** Open the field (if it isn't) and type into it. */
+const type = (value: string) => {
+  if (!document.querySelector('input[autocomplete="nickname"]')) edit();
+  act(() => {
+    input().focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), value);
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+  });
+};
+const clickSave = () => {
+  if (!document.querySelector('input[autocomplete="nickname"]')) edit();
+  act(() => button('Save')!.click());
+};
 const failWrites = () => setItem.mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
 const SAVE_FAILED = "Couldn't save your name in this browser. Try again.";
 const SAVE_STALE = "Your name wasn't saved: this save changed in another tab. Reload to continue with that save.";
@@ -61,9 +64,70 @@ const otherTabStores = (record: object) => {
 };
 const theirs = { secretKey: 'ef'.repeat(32), name: 'Their Player', nextNonce: 9, createdAt: 2 };
 const playerWrites = () => setItem.mock.calls.filter(([key]) => key === PLAYER_KEY);
-const statusNode = () => document.querySelector('.settings-group [role="status"]')!.firstChild;
+const statusNode = () => document.querySelector('#player [role="status"]')!.firstChild;
 /** Leaving the Profile page (a tab, Back or its close button) unmounts the section. */
 const leave = () => act(() => root.render(<p>Another page</p>));
+
+describe('the identity header', () => {
+  it('shows the name and Player ID once, with the field closed and an empty live region', () => {
+    expect(heading()).toBe('Original Player');
+    expect(document.querySelector('#player')!.textContent).toMatch(/Player ID #\w+/);
+    expect(document.querySelectorAll('#player h2')).toHaveLength(1);
+    expect(document.querySelector('input')).toBeNull();
+    expect(status()).toBe('');
+  });
+
+  it('opens the field in place, labelled and focused', () => {
+    edit();
+    expect(button('Edit name')).toBeUndefined();
+    expect(document.activeElement).toBe(input());
+    expect(input().value).toBe('Original Player');
+    expect(input().labels![0].textContent).toBe('Name shown on shared pulls');
+    expect(status()).toBe('');
+  });
+
+  it('saves with the form (Enter or Save), closes, and returns focus to Edit name', () => {
+    type('Saved Name');
+    // Enter in the field submits its form, as the Save button does.
+    act(() => input().form!.requestSubmit());
+    expect(storedName()).toBe('Saved Name');
+    expect(heading()).toBe('Saved Name');
+    expect(status()).toBe('Display name saved.');
+    expect(onRenamed).toHaveBeenCalledWith(expect.objectContaining({ name: 'Saved Name' }));
+    expect(document.querySelector('input')).toBeNull();
+    expect(document.activeElement).toBe(button('Edit name'));
+  });
+
+  it('cancels without writing, puts the name back and returns focus to Edit name', () => {
+    type('Not Kept');
+    act(() => button('Cancel')!.click());
+    expect(document.querySelector('input')).toBeNull();
+    expect(document.activeElement).toBe(button('Edit name'));
+    expect(playerWrites()).toEqual([]);
+    edit();
+    expect(input().value).toBe('Original Player');
+  });
+
+  it('cancels on Escape without the key reaching the page behind it', () => {
+    const behind = vi.fn();
+    document.addEventListener('keydown', behind);
+    type('Not Kept');
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    act(() => { input().dispatchEvent(escape); });
+    document.removeEventListener('keydown', behind);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(behind).not.toHaveBeenCalled();
+    expect(document.querySelector('input')).toBeNull();
+    expect(document.activeElement).toBe(button('Edit name'));
+    expect(playerWrites()).toEqual([]);
+    expect(heading()).toBe('Original Player');
+  });
+
+  it('has no links to the other pages', () => {
+    expect(document.querySelector('.personal-nav')).toBeNull();
+    expect([...document.querySelectorAll('button')].map((el) => el.textContent)).not.toContain('Achievements');
+  });
+});
 
 describe('saving the display name', () => {
   it.each([
@@ -73,84 +137,40 @@ describe('saving the display name', () => {
     setItem.mockImplementation(() => { throw error; });
     type('New Name');
     clickSave();
-    expect(status()).toBe("Couldn't save your name in this browser. Try again.");
+    expect(status()).toBe(SAVE_FAILED);
     expect(document.body.textContent).not.toContain('Display name saved.');
     expect(storedName()).toBe('Original Player');
-    // The draft stays so the player can retry.
+    expect(heading()).toBe('Original Player');
+    // The field stays open with the draft so the player can retry.
     expect(input().value).toBe('New Name');
   });
 
-  it('does not claim a save for an unchanged name', () => {
-    clickSave();
+  it('does not claim a save for an unchanged name, and just closes', () => {
     type(' Original  Player ');
     clickSave();
     expect(status()).toBe('');
-    expect(input().value).toBe('Original Player');
+    expect(document.querySelector('input')).toBeNull();
     expect(playerWrites()).toEqual([]);
   });
 
   it('keeps the current name for a blank one, without claiming a save', () => {
     type('   ');
-    act(() => input().blur());
-    // Leaving a blank field keeps the draft so the player can keep typing; nothing is written.
-    expect(input().value).toBe('   ');
-    expect(status()).toBe('');
     clickSave();
     expect(status()).toBe("A name can't be blank, so your current name stays.");
     expect(input().value).toBe('Original Player');
     expect(playerWrites()).toEqual([]);
     expect(storedName()).toBe('Original Player');
   });
-
-  it('saves a valid changed name when the field loses focus, and only once', () => {
-    type('Blurred Name');
-    act(() => input().blur());
-    expect(storedName()).toBe('Blurred Name');
-    expect(status()).toBe('Display name saved.');
-    // Clicking Save right after (the click is what blurred the field) writes nothing more and keeps the message.
-    clickSave();
-    expect(status()).toBe('Display name saved.');
-    expect(playerWrites()).toHaveLength(1);
-    expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toEqual({ ...stored, name: 'Blurred Name' });
-  });
-
-  it('writes and announces a failed save once when a pointer press on Save name blurs the field first', () => {
-    failWrites();
-    type('Unsaved Name');
-    const save = [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent === 'Save name')!;
-    // A real pointer press: pointerdown, then focus moves (blurring the field), then a counted click.
-    const pointerDown = () => act(() => save.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })));
-    const click = () => act(() => save.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })));
-    pointerDown();
-    act(() => save.focus());
-    expect(playerWrites()).toHaveLength(1);
-    expect(status()).toBe(SAVE_FAILED);
-    const announced = statusNode();
-    click();
-    // The click reused the blur's result rather than writing and remounting the live region text again.
-    expect(playerWrites()).toHaveLength(1);
-    expect(statusNode()).toBe(announced);
-    // The next press has no blur of its own, so it is the retry the message asks for.
-    pointerDown();
-    click();
-    expect(playerWrites()).toHaveLength(2);
-    expect(statusNode()).not.toBe(announced);
-    expect(status()).toBe(SAVE_FAILED);
-  });
 });
 
 describe('the status line', () => {
-  it('opens with an empty live region and shows the player ID outside it', () => {
-    expect(status()).toBe('');
-    expect(document.querySelector('.settings-group')!.textContent).toMatch(/Player ID #\w+/);
-  });
-
   it('only changes for a new save result, not for typing or an unchanged save', () => {
     type('Typed Name');
     expect(status()).toBe('');
     clickSave();
     expect(status()).toBe('Display name saved.');
     // Saving the same name again writes nothing, so the live region keeps the same message.
+    expect(document.activeElement).toBe(button('Edit name'));
     clickSave();
     expect(status()).toBe('Display name saved.');
     expect(playerWrites()).toHaveLength(1);
@@ -160,11 +180,11 @@ describe('the status line', () => {
     failWrites();
     type('New Name');
     clickSave();
-    const shown = document.querySelector('.settings-group [role="status"]')!.firstChild;
+    const shown = statusNode();
     clickSave();
     expect(status()).toBe(SAVE_FAILED);
     // Same text, new node inside the live region, so screen readers hear the second failure too.
-    expect(document.querySelector('.settings-group [role="status"]')!.firstChild).not.toBe(shown);
+    expect(statusNode()).not.toBe(shown);
   });
 
   it.each([
@@ -244,7 +264,7 @@ describe('leaving the page with an unsaved draft', () => {
   it('does not write again a draft whose save just failed, but still reports it on the way out', () => {
     failWrites();
     type('Unsaved Name');
-    act(() => input().blur());
+    clickSave();
     expect(status()).toBe(SAVE_FAILED);
     expect(playerWrites()).toHaveLength(1);
     expect(onSaveFailed).not.toHaveBeenCalled();
@@ -258,7 +278,7 @@ describe('leaving the page with an unsaved draft', () => {
   it('does not report a draft refused as stale on the way out, which already shows its banner', () => {
     canSave.mockReturnValue(false);
     type('Unsaved Name');
-    act(() => input().blur());
+    clickSave();
     expect(status()).toBe(SAVE_STALE);
     leave();
     expect(playerWrites()).toEqual([]);
@@ -270,7 +290,7 @@ describe('leaving the page with an unsaved draft', () => {
     type('Unsaved Name');
     // Another tab stores a different player, so the rename itself (not canSave) finds the save stale.
     otherTabStores(theirs);
-    act(() => input().blur());
+    clickSave();
     expect(canSave).toHaveBeenCalled();
     expect(status()).toBe(SAVE_STALE);
     expect(playerWrites()).toEqual([]);
@@ -288,32 +308,5 @@ describe('leaving the page with an unsaved draft', () => {
     setItem.mockRestore();
     leave();
     expect(storedName()).toBe('Edited Again');
-  });
-});
-
-describe('the save note', () => {
-  it('links to Settings, Save & backup', () => {
-    const link = [...document.querySelectorAll<HTMLButtonElement>('.share-note button')].find((el) => el.textContent === 'Save & backup')!;
-    act(() => link.click());
-    expect(onOpenSave).toHaveBeenCalledTimes(1);
-  });
-
-  it('has no links to the other pages', () => {
-    expect(document.querySelector('.personal-nav')).toBeNull();
-    expect([...document.querySelectorAll('button')].map((el) => el.textContent)).not.toContain('Achievements');
-  });
-});
-
-describe('while the level is unknown', () => {
-  const rerender = (level: number | null) => act(() => root.render(section(level)));
-
-  it('shows a loading note instead of the rewards, then the rewards once the level is known', () => {
-    rerender(null);
-    expect(document.querySelector('.rewards')).toBeNull();
-    expect(document.body.textContent).toContain('Reading your saved packs… Your level and rewards will show once they\'re in.');
-    expect(document.body.textContent).not.toMatch(/Level \d/);
-    rerender(1);
-    expect(document.querySelector('.rewards')).not.toBeNull();
-    expect(document.body.textContent).not.toContain('Reading your saved packs');
   });
 });

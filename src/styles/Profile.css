@@ -9,6 +9,17 @@
   margin-bottom: var(--space-2);
 }
 
+/* Best pulls and Collection: the grid's gap plus this is the page's section spacing (--space-6). */
+.profile-block {
+  margin-top: calc(var(--space-6) - var(--space-5));
+}
+
+/* Row lists bleed into the gutter by their own padding, so their content lines up with the headings. */
+.profile-summary .pulls-list,
+.profile-page .pulls-list {
+  margin-inline: calc(-1 * var(--space-2));
+}
+
 .profile-level {
   display: grid;
   gap: var(--space-2);
@@ -55,7 +66,7 @@
   font-size: var(--text-lg);
 }
 
-.profile-collection {
+.profile-collection-score {
   display: grid;
   gap: var(--space-2);
 }
@@ -77,7 +88,7 @@
   font-family: var(--font-display);
 }
 
-.profile-collection .progress {
+.profile-collection-score .progress {
   height: 6px;
 }
 
@@ -115,37 +126,48 @@
   font-weight: 700;
 }
 
+/* One line per set: name (and badge), its bar, the count. A capped name column keeps the bars in line
+   and leaves a phone room for the whole name. */
 .profile-sets {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
-  gap: var(--space-3) var(--space-5);
+  gap: var(--space-2);
+  max-width: 36rem;
+  margin-top: var(--space-4);
   list-style: none;
 }
 
 .profile-sets li {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 4px var(--space-3);
+  grid-template-columns: minmax(0, 11rem) minmax(4rem, 1fr) 4rem;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .profile-set-name {
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  min-width: 0;
   font-size: var(--text-sm);
   font-weight: 600;
+}
+
+.profile-set-title {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.profile-set-name .set-badge {
+  flex: none;
+}
+
 .profile-set-count {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-sm);
+  text-align: right;
 }
 
 .profile-set-bar {
-  grid-column: 1 / -1;
   height: 4px;
   overflow: hidden;
   border-radius: var(--radius-pill);
@@ -249,10 +271,6 @@
   gap: var(--space-3);
 }
 
-.rewards .profile-heading {
-  margin-bottom: 0;
-}
-
 .rewards-next {
   color: var(--text-muted);
   font-size: var(--text-sm);
@@ -353,5 +371,117 @@
 }
 
 .profile-sets-key {
-  margin: calc(-1 * var(--space-1)) 0 var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* Your profile's header (PlayerSection.tsx): name and Player ID, with the name field opening in place. */
+
+.profile-identity-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.profile-identity-text {
+  min-width: 0;
+}
+
+.profile-identity-name {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.profile-identity-id {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.profile-identity-fp {
+  font-family: var(--font-mono);
+}
+
+.profile-name-form {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.profile-name-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* Save and Cancel sit beside the field when there's room, under it otherwise. */
+.profile-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.profile-name-input.settings-input {
+  flex: 1 1 14rem;
+  max-width: 22rem;
+  margin: 0;
+}
+
+.profile-name-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.profile-name-hint {
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+}
+
+.profile-name-status {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.profile-name-status > span:not(:empty) {
+  display: block;
+  margin-top: var(--space-2);
+}
+
+/* The level, stats and everything under it start a section's distance below the header. */
+.profile-identity {
+  margin-bottom: var(--space-6);
+}
+
+/* A section's "show more" (achievements, card back and foil): native details, with a touch-sized summary. */
+.profile-disclosure > summary {
+  width: fit-content;
+  min-height: var(--touch-target);
+  padding-block: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profile-disclosure[open] > summary {
+  margin-bottom: var(--space-3);
+}
+
+/* Last line of your profile: where it's kept, and the way to back it up. */
+.profile-save-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-1);
+  margin-top: var(--space-6);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+}
+
+/* Keeps its touch height; baseline alignment keeps its text on the sentence's line. */
+.profile-save-note .link-btn {
+  color: var(--text-muted);
+  font-size: inherit;
 }

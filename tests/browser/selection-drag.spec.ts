@@ -238,6 +238,7 @@ test('inputs, copyable text and links keep selection and activation', async ({ p
   await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'Profile', exact: true }).click();
   const player = page.getByRole('main', { name: 'Profile', exact: true });
 
+  await player.getByRole('button', { name: 'Edit name', exact: true }).click();
   const name = player.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true });
   await expect(name).toHaveValue('Browser smoke fixture');
   await name.click({ clickCount: 3 });

@@ -25,6 +25,16 @@
   list-style: none;
 }
 
+/* Rows bleed into the gutter by their padding, so their text lines up with the headings. */
+.achievements .achievement-list {
+  margin-inline: calc(-1 * var(--space-3));
+}
+
+/* "Show all achievements": under the newest unlocks, and its groups under its summary. */
+.achievements-group + .achievements-all {
+  margin-top: var(--space-3);
+}
+
 .achievement {
   display: grid;
   grid-template-columns: auto 1fr auto;

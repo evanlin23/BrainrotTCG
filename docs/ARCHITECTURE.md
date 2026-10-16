@@ -39,8 +39,9 @@ flowchart LR
 
 GitHub keeps verified submission issues used to build the Hall of Fame list; public Nostr relays
 carry submissions from players without a GitHub account. Either can omit or delay submissions. The build verifies issues
-(or reuses cached verification), while the Hall of Fame UI re-checks entries in the current top 30
-one at a time; it does not re-verify the whole published list. Opening a pull link verifies its proof.
+(or reuses cached verification). The Rankings page doesn't re-derive published entries again: each
+row links to its pull, and opening a pull link verifies its proof. Relay submissions not filed yet
+are re-derived on the device before they show.
 `spec/verify_pull.py` independently implements the proof spec with different libraries, and CI
 checks both implementations against both sets of test vectors.
 
@@ -136,7 +137,8 @@ hardware-fairness guarantee.
 
 Known limits: a proof cannot establish how many tickets someone searched, that they used the
 browser or that a human opened a pack. "Verified" means *these cards derive from the signed ticket
-inputs*. Hall of Fame "world firsts" use the bot's verification time, not a witnessed opening time.
+inputs*. Hall of Fame order between equal scores uses the bot's verification time, not a witnessed
+opening time.
 
 Strict key/signature validation and canonical encoding rules are specified in `spec/PULL_SPEC.md`
 section 7 and covered by the vectors, including small-order key and malleable-encoding cases.
@@ -157,9 +159,9 @@ player ─► Share ─► "on GitHub" ─► GitHub issue form (pull link; need
                     scripts/hall-of-fame.ts verify-issue  ─► comment + labels (+ redeploy)
                                    │
                     .github/workflows/deploy.yml
-                    scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + firsts)
+                    scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + two days' daily top 50)
                                    │
-                    Hall of Fame page checks current top 30; pull links verify individually
+                    Rankings page shows it as published; pull links verify individually
 ```
 
 **Without an account** (`src/game/nostrInbox.ts`): the game wraps the pull proof in a Nostr event
@@ -190,22 +192,48 @@ what a valid ticket derives; server/build verification and the UI checks describ
 those proof rules, rather than delivery or mining fairness. A maintainer can drop an entry using
 its issue's `rejected` label.
 
-**Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score plus the first Full
-House, 4 of a Kind and 5 of a Kind in each set. The output is bounded by 100 plus three firsts per set,
-with overlapping entries deduplicated; it grows with the number of sets. The rules
-live in `src/engine/hallOfFame.ts`. The share sheet and intake test whether a qualifying pull would
-join the available published snapshot; when it cannot be loaded, they fall back to qualification.
+**Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score. The published file also
+keeps the best 50 pulls filed on the build's UTC day and the day before (`dailyPulls`, by
+`submittedAt`), which Rankings' Today tab and its "yesterday's best" read. So it holds at most
+`HALL_OF_FAME_MAX_ENTRIES` (200) entries, however many sets or submissions there are: the page loads
+it whole on every visit. Per-set world firsts were dropped (the page no longer shows them, and they
+grew the file with every set); older files that still carry them, or entries without an `id`, read
+as before. The rules live in `src/engine/hallOfFame.ts`. The share sheet, intake and the page's
+pending check test whether a qualifying pull would join the available published snapshot
+(`hallOfFameJoin`): beat the 100th place or make the top 50 of the current UTC day. When the snapshot cannot be loaded,
+they fall back to qualification. A pull that joins only through the daily top gets the `daily` label
+instead of `verified` (both workflows create the label if it's missing); intake refusals name the
+lowest of those bars. The proof checks are the same for both labels: `verifyProof` at intake, the
+bot's marker comment, and the re-check in the build.
+
+**Score floor.** Once both boards are full, `hallOfFameFloor` is the lower of the 100th place and
+the day's 50th; a pull at or below it can't join. Re-deriving a pack is the expensive step, so the
+relay inbox reads the score the sender's event claims and skips (marks seen, logs, spends no budget
+on) any event claiming the floor or less. The claim is untrusted: one claiming more is fully verified
+and refused if its real score doesn't join, so lying only costs the liar a check. An event with no
+claim is verified as before. Issue intake has no claim to read and low volume, so it verifies first
+and then refuses below the floor.
 The deploy writes the ranked list. Workflows attempt to close verified issues, and the build reads
-both open and closed states. Deploys keep each verified issue's result
+both open and closed states. It lists every `verified` issue, but `daily` issues only when updated
+since 00:00 UTC the day before (`since=`), and keeps a daily-only entry only when its `submittedAt`
+falls on the build's day or the day before, so old daily issues cost nothing. The inbox lists
+`verified` issues plus any `hall-of-fame` issue updated in the last eight days. So that a daily-only
+pull counts on one day's top only, intake and the inbox turn it down while another `daily` issue
+updated in the last eight days carries it; proofs carry no signed time, so one filed again after that
+can count again. The page's pending check counts a daily-only relay pull only when its event was sent
+on the current UTC day. Each listing stops at
+100 pages of 100 issues; past that, the build and the inbox fail instead of publishing or filing
+against part of the list. Deploys keep each verified issue's result
 in the Actions cache, keyed on the engine, the sets and the script. Unchanged issues can reuse their
 verification result, but the build still lists verified issues across open and closed states; cache
 misses, changed inputs and API failures affect work and freshness.
 
 Issue text is untrusted: it's only parsed by the script, never put into a shell command, and only
-echoed back through a sanitiser. The submitter's GitHub username comes from GitHub. "World first"
-order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
+echoed back through a sanitiser. The submitter's GitHub username comes from GitHub.
+Tie order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
 the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
-counts once, however many times it's submitted or re-signed. A maintainer can drop an entry by adding
+counts once in the top 100, however many times it's submitted or re-signed (the daily
+tops follow the eight-day rule above). A maintainer can drop an entry by adding
 the `rejected` label to its issue.
 
 ### Ranking boards (`src/engine/rankings.ts`)
@@ -256,8 +284,8 @@ destinations. Best versions of this card opens from a card's details.
   multiplier is never below 1), so every card worth `HALL_OF_FAME_MIN_SCORE` or more sits in a
   pack that qualified. That bound holds only over every filed issue, not over the pruned
   `hallOfFameList`. It also holds only while the top 100 has room: once it fills, intake refuses
-  packs that don't beat the 100th place, so the bound rises to just above the highest 100th-place
-  score intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
+  packs that beat neither the 100th place nor that UTC day's 50th, so the bound rises to just above
+  the highest such bar (the lower of the two) intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
   (`below-intake-minimum`). So the card board lists only cards worth at least 20,000 and stays
   partial until intake has filed enough of them to fill it.
 - **Daily boards** come later.
@@ -508,7 +536,7 @@ Current progression is derived from packs (`src/game/progression.ts`) and does n
 versioned generation rules. Its claims can be recomputed for the range in a verified profile:
 
 - **Levels** unlock a title (shown next to the level), card backs and pack foils (cosmetic, picked
-  under Profile → Level rewards; applied as `data-card-back` / `data-pack-foil` on `<html>`).
+  under Profile → Card back and foil; applied as `data-card-back` / `data-pack-foil` on `<html>`).
 - **Collection score**: the points of every card pulled, holos at holo points, with named milestones
   (Bronze 1,000 up to Brainrot 2,000,000).
 - **Sets**: each set is *Complete* with every card and *Master* with every card as a holo, shown on

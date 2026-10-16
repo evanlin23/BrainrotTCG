@@ -10,9 +10,9 @@ from a 390 px wide screen.
 
 1. **The pack is the hero.** Each screen has one primary action: on the home screen it's opening the
    pack; during a reveal it's the next card; in the summary it's opening another pack. Everything else
-   steps back (smaller, quieter, or out of the way). A new player's home screen is the logo, the gear,
-   the pack and the quiet Card guide link under it: the tabs and the era picker come once their first
-   pack is saved and they leave it.
+   steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
+   and wordmark), the gear, the pack and the quiet Card guide link under it: the tabs and the era
+   picker come once their first pack is saved and they leave it.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
    The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
@@ -32,8 +32,10 @@ from a 390 px wide screen.
    a shared pull or profile, the broken-link notice and confirms. Every sheet is the same: a bottom
    sheet on phones, a centred dialog on wide screens, with the same header, close button, Escape key,
    focus handling and backdrop.
-5. **Readable before flashy.** Rubik Glitch is for the logo only. Headings and big numbers use Lilita
-   One; everything else is Archivo, whose condensed widths set labels like a grading slab. Numbers are tabular.
+5. **Readable before flashy.** Rubik Glitch is for the logo's wordmark only. The mark beside it
+   (nine squares, `src/styles/logoMark.ts`) is one path drawn everywhere: header, icons, pack
+   wrappers, share and link images. Headings and big numbers use Lilita One; everything else is
+   Archivo, whose condensed widths set labels like a grading slab. Numbers are tabular.
 6. **Colour carries meaning.** Surfaces are a binder-black ramp with card-stock white text. There is
    one accent, price-sticker yellow, and it only marks the thing to do next (primary buttons,
    progress, the "New" set). Foil (`--foil`) only marks holo: holo cards, holo copies and the Master
@@ -144,7 +146,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   (rows for Rankings, blocks otherwise), never a sheet, and a failed load offers Reload and Retry.
   Opened from inside the app, focus moves to the `h1`; the document title becomes "Cards - Brainrot
   TCG" and so on. Escape doesn't close a page; Back and Close do. Each view has one `h1`: the page's
-  title on a page, the logo on Open (on a page the logo is a named image, not a heading).
+  title on a page, the logo on Open (on a page the logo is a named image, not a heading). Either way its
+  name is "Brainrot TCG" and the mark is hidden from assistive tech.
 - **Sheet** (`ui/Sheet.tsx`): a panel over the current place. A bottom sheet on phones, a centred
   dialog from 720px. Title, optional subtitle and sticky footer, close button, Escape, focus trap,
   scroll lock, focus returns to the opener. Sheets stack (a card opened from the collection sits on
@@ -162,19 +165,28 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   opens something), not cards in a grid. Sound & display uses grouped rows with `.switch` toggles.
 - **App nav** (`ui/AppNav.tsx`): Open, Cards, Rankings and Profile, each an icon plus a label, the
   current one marked `aria-current="page"`. A fixed bottom bar on phones (under 900px, with
-  safe-area padding) and part of the header from 900px; 44px targets. It stays hidden for a new
+  safe-area padding) and part of the header from 900px, where the logo scales from 36px to 52px
+  (by about 1060px) so it never runs into the tabs; 44px targets. It stays hidden for a new
   player until their first pack is saved (#222) and while a pack is open. The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem).
-- **Profile** (`profile/ProfilePage.tsx`): name and the save note ("Name and rewards"), level and
-  stats, best pulls, then the Achievements section (`#achievements`), which achievement toasts link
-  to. Its shareable image is the "Profile card"; "Player ID" stays the name of the key's fingerprint,
-  as on proofs. Leaving Profile saves a changed name, unless saving that same name just failed.
-- **Rankings** (`pages/HallOfFamePage.tsx`): tabs All-time, Today and Archive. All-time is the
-  published top 100 by Brainrot Score, 20 rows at a time. Today ranks the published pulls (top 100
-  and world firsts) filed today on the player's own calendar, plus just-submitted ones not filed yet;
-  it comes second because on a quiet day it is empty. Archive holds what isn't ranked, each under a heading that says why: world
-  firsts (dated, not numbered) and the hackathon legends (screenshots from before proofs).
+- **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit
+  name" opening the field in place (Enter saves, Escape cancels and returns focus to the button);
+  level and stats; best pulls; the collection score and sets; Achievements (`#achievements`, the
+  three newest with "Show all achievements" folded below; achievement toasts link here and open it);
+  "Card back and foil" (`#rewards`, a closed `<details>` whose summary counts what is unlocked;
+  level-up toasts open it); All packs; then a one-line "Saved in this browser · Back up" footnote.
+  Sections share one left edge and `--space-6` between them. Its shareable image is the "Profile
+  card"; "Player ID" stays the name of the key's fingerprint, as on proofs. Leaving Profile saves a
+  changed name, unless saving that same name just failed.
+- **Rankings** (`pages/HallOfFamePage.tsx`): tabs Today (the default) and All-time, 20 rows at a
+  time. Today ranks the best 50 pulls filed on the current UTC day, the same day for everyone, plus
+  just-submitted ones not filed yet. It resets at 00:00 UTC (the note gives that time in the
+  player's own clock) and rolls over while the page is open. On an empty day it says "No pulls filed
+  today yet", shows up to 3 of yesterday's best and how to submit. All-time is the published top 100
+  by Brainrot Score. Rows aren't re-checked on the page: each links to its pull, which re-derives it.
+  A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
+  before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest

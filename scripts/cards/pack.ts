@@ -1,24 +1,24 @@
 /**
  * Booster pack wrapper for a set, built from the set itself: its colours, the
- * logo and its three rarest cards. Written to `src/content/sets/<set>/pack.webp`, with a small
+ * logo mark (src/styles/logoMark.ts) and its three rarest cards. Written to `src/content/sets/<set>/pack.webp`, with a small
  * `pack-thumb.webp` for the pack picker.
  *
  * Layout (768x1376, same shape as the pack opener): crimped foil edges, the
  * flap above the tear line (19%) is left clear for the set ribbon the app
- * draws, then the logo, a fan of cards and the era.
+ * draws, then the mark, a fan of cards and the era.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import sharp, { type OverlayOptions } from 'sharp';
 import { RARITIES_RAREST_FIRST, type SetDefinition } from '../../src/engine/index.ts';
-import { ROOT, SETS_DIR } from './lib.ts';
+import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../../src/styles/logoMark.ts';
+import { SETS_DIR } from './lib.ts';
 import { bodyFont, centredText, fitSize, titleFont } from './text.ts';
 
 export const PACK_WIDTH = 768;
 export const PACK_HEIGHT = 1376;
-const LOGO = `${ROOT}src/assets/images/logo.png`;
 /** Bump when the design changes, so `npm run cards` rebuilds every pack. */
-const DESIGN_VERSION = 4;
+const DESIGN_VERSION = 5;
 
 const W = PACK_WIDTH;
 const H = PACK_HEIGHT;
@@ -131,9 +131,21 @@ const cardLayer = async (path: string, height: number, angle: number) => {
     .toBuffer({ resolveWithObject: true });
 };
 
+/** The logo slot under the ribbon, where the old badge sat. */
+const LOGO_SLOT = { size: 280, top: 278 };
+
+/**
+ * The mark filling the slot, white outlined in the era text's ink so it reads on every set's
+ * colours. (The black favicon tile read too, but sat on the foil as a heavy block.)
+ */
+const logoSvg = () =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${LOGO_SLOT.size}" height="${LOGO_SLOT.size}" viewBox="-4 -4 ${LOGO_MARK_SIZE + 8} ${LOGO_MARK_SIZE + 8}">` +
+  `<path d="${LOGO_MARK_PATH}" fill="#fff" stroke="#12002a" stroke-width="3.6" stroke-linejoin="round" paint-order="stroke"/></svg>`;
+
 const inputHash = (set: SetDefinition, cardFiles: string[]) => {
   const h = createHash('sha256').update(JSON.stringify({ DESIGN_VERSION, palette: set.palette, era: set.era, packSize: set.packSize }));
-  for (const f of [...cardFiles, LOGO]) h.update(readFileSync(f));
+  h.update(logoSvg());
+  for (const f of cardFiles) h.update(readFileSync(f));
   return h.digest('hex');
 };
 
@@ -159,8 +171,7 @@ export const buildSetPack = async (set: SetDefinition, manifest: Record<string, 
   }
 
   const layers: OverlayOptions[] = [];
-  const logo = await sharp(LOGO).resize(280, 280).png().toBuffer();
-  layers.push({ input: logo, left: Math.round(W / 2 - 140), top: 278 });
+  layers.push({ input: Buffer.from(logoSvg()), left: Math.round(W / 2 - LOGO_SLOT.size / 2), top: LOGO_SLOT.top });
   // Fan: sides first, rarest card last so it sits on top in the middle.
   const fan = [
     { file: cards[1], dx: -200, top: 610, angle: -10, height: 470 },

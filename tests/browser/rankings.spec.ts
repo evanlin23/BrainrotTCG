@@ -3,8 +3,8 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { monitor } from './support';
 
 // Rankings pages its rows, and Profile's best pulls lead with the best packs. The leaderboard is a synthetic
-// list served in place of hall-of-fame.json: its proofs are fake, so each row fails the page's own
-// re-check, which changes nothing about paging. Nothing here fetches real data or submits anything.
+// list served in place of hall-of-fame.json: its proofs are fake, and the page never re-derives a
+// published pull (each row links to its proof instead). Nothing here fetches real data or submits anything.
 
 const entries = Array.from({ length: 45 }, (_, i) => ({
   id: `fixture-${i}`,
@@ -29,9 +29,12 @@ test('Rankings shows 20 rows, and each Show more adds 20 from the keyboard', asy
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
   await main.getByRole('button', { name: 'Rankings', exact: true }).click();
   const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+  // Every fixture was filed on 1 Oct 2026, so they rank on All-time.
+  await rankings.getByRole('tab', { name: 'All-time', exact: true }).click();
   const rows = rankings.locator('.hof-list .hof-entry');
   await expect(rows).toHaveCount(20);
   await expect(rows.first()).toHaveAttribute('aria-label', /^Number 1: /);
+  await expect(rows.first()).toHaveAttribute('href', '#/pull/fixture-proof-0');
 
   const more = rankings.getByRole('button', { name: 'Show more', exact: true });
   await more.scrollIntoViewIfNeeded();
@@ -55,7 +58,7 @@ test('Rankings shows 20 rows, and each Show more adds 20 from the keyboard', asy
 test.describe('at 320px with 200% text and reduced motion', () => {
   test.use({ reducedMotion: 'reduce', viewport: { width: 320, height: 640 } });
 
-  test('Rankings tabs move by arrow key, keep 44px targets and split the archive from the rankings', async ({ page, baseURL }) => {
+  test('Rankings opens on Today, moves to All-time by arrow key, and keeps the legends in a sheet', async ({ page, baseURL }) => {
     // 320px is an emulated phone width; 200% text doubles the root size the rem tokens use. Every
     // fixture was filed on 1 Oct 2026, so Today is empty and nothing reaches it from a relay.
     const errors = await monitor(page, baseURL!, 0, { returning: true });
@@ -63,10 +66,14 @@ test.describe('at 320px with 200% text and reduced motion', () => {
     await page.goto('./#/rankings');
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
     const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
-    await expect(rankings.locator('.hof-list .hof-entry')).toHaveCount(20);
+    const panel = rankings.getByRole('tabpanel');
+    await expect(panel).toContainText('No pulls filed today yet.');
+    await expect(panel).toContainText('Resets at 00:00 UTC');
+    await expect(rankings.locator('.hof-list')).toHaveCount(0);
+    await expect(rankings).not.toContainText('World firsts');
 
     const tabs = rankings.getByRole('tablist', { name: 'Rankings lists', exact: true }).getByRole('tab');
-    await expect(tabs).toHaveText(['All-time', 'Today', 'Archive']);
+    await expect(tabs).toHaveText(['Today', 'All-time']);
     await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
     for (const box of await Promise.all((await tabs.all()).map((tab) => tab.boundingBox()))) {
       expect(box!.height).toBeGreaterThanOrEqual(44);
@@ -81,18 +88,27 @@ test.describe('at 320px with 200% text and reduced motion', () => {
     await expect(tabs.nth(1)).toBeFocused();
     await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
     await expect(tabs.first()).toHaveAttribute('tabindex', '-1');
-    await expect(rankings.getByRole('tabpanel')).toContainText('Nothing new today yet.');
-    await expect(rankings.locator('.hof-list')).toHaveCount(0);
-
-    await page.keyboard.press('ArrowRight');
-    await expect(tabs.nth(2)).toBeFocused();
-    await expect(rankings.getByRole('heading', { level: 2 })).toHaveText(['World firsts', 'Hackathon legends']);
-    await expect(rankings.getByRole('region', { name: 'World firsts', exact: true })).toBeVisible();
+    await expect(rankings.locator('.hof-list .hof-entry')).toHaveCount(20);
     expect(await sideScroll()).toEqual([]);
 
+    // Where it started: the hackathon's screenshots, opened from a quiet button below the lists.
+    const origins = rankings.getByRole('button', { name: 'Where it started', exact: true });
+    await origins.scrollIntoViewIfNeeded();
+    expect((await origins.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await origins.focus();
+    await page.keyboard.press('Enter');
+    const sheet = page.getByRole('dialog', { name: 'Where it started', exact: true });
+    await expect(sheet).toContainText("Screenshots from the hackathon, before pulls could be verified, so they aren't ranked.");
+    await expect(sheet.locator('.hof-legend img')).toHaveCount(3);
+    expect(await sideScroll()).toEqual([]);
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+    await expect(origins).toBeFocused();
+
+    await tabs.nth(1).focus();
     await page.keyboard.press('Home');
     await expect(tabs.first()).toBeFocused();
-    await expect(rankings.locator('.hof-list .hof-entry')).toHaveCount(20);
+    await expect(panel).toContainText('No pulls filed today yet.');
     expect(errors).toEqual([]);
   });
 });

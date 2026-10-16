@@ -2,9 +2,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PackScore } from '../../engine';
+import { wouldJoinHallOfFame, type PackScore } from '../../engine';
 import { DEFAULT_SET_ID } from '../../content/sets';
 import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
+import { submitToHallOfFame } from '../../game/share';
 import ShareSheet from './ShareSheet';
 
 // The proof and the list are stand-ins: this checks where the Hall of Fame offer sits in the sheet.
@@ -26,6 +27,7 @@ vi.mock('../../game/share', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/share')>()),
   bragText: vi.fn(() => 'Look at this pull'),
   wasSubmitted: vi.fn(() => false),
+  submitToHallOfFame: vi.fn(async () => true),
 }));
 vi.mock('../../game/bragImage', () => ({ renderPoster: vi.fn(async () => new Blob(['poster'], { type: 'image/png' })) }));
 
@@ -71,5 +73,42 @@ describe('Hall of Fame in the pack share sheet', () => {
     expect(document.querySelector('.share-hof')).toBeNull();
     const listed = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('in the Hall of Fame'));
     expect(inOrder(['.share-actions-main', listed, '.share-preview', '.share-pack-cards'])).toBe(true);
+  });
+
+  const clickSubmit = async () => {
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    const button = [...document.querySelectorAll<HTMLButtonElement>('.share-hof button')].find((b) => b.textContent === 'Submit')!;
+    await act(async () => button.click());
+    return button;
+  };
+
+  it('shows the pull as submitted once a relay takes it, without a relay count', async () => {
+    const button = await clickSubmit();
+    expect(submitToHallOfFame).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(submitToHallOfFame).mock.calls[0][2]).toBe(1000); // the score hint the inbox can skip on
+    expect(button.textContent).toBe('Submitted');
+    expect(button.disabled).toBe(true);
+    const status = document.querySelector('.share-hof [role="status"]')!.textContent!;
+    expect(status).toContain('It shows in the Hall of Fame now');
+    expect(status).not.toMatch(/relays?\b/);
+  });
+
+  it('offers a retry when no relay takes it', async () => {
+    vi.mocked(submitToHallOfFame).mockResolvedValueOnce(false);
+    const button = await clickSubmit();
+    expect(button.textContent).toBe('Submit');
+    expect(button.disabled).toBe(false);
+    expect(document.querySelector('.share-hof [role="status"]')!.textContent).toContain("Couldn't reach any relay");
+  });
+
+  it('counts today’s top (UTC) when deciding whether to offer the submit', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-16T23:30:00-05:00'));
+    try {
+      await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(vi.mocked(wouldJoinHallOfFame)).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'pull-1' }), [], '2026-10-17');
   });
 });
