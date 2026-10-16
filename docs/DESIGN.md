@@ -174,11 +174,15 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   stats, best pulls, then the Achievements section (`#achievements`), which achievement toasts link
   to. Its shareable image is the "Profile card"; "Player ID" stays the name of the key's fingerprint,
   as on proofs. Leaving Profile saves a changed name, unless saving that same name just failed.
-- **Rankings** (`pages/HallOfFamePage.tsx`): tabs All-time, Today and Archive. All-time is the
-  published top 100 by Brainrot Score, 20 rows at a time. Today ranks the published pulls (top 100
-  and world firsts) filed today on the player's own calendar, plus just-submitted ones not filed yet;
-  it comes second because on a quiet day it is empty. Archive holds what isn't ranked, each under a heading that says why: world
-  firsts (dated, not numbered) and the hackathon legends (screenshots from before proofs).
+- **Rankings** (`pages/HallOfFamePage.tsx`): tabs Today (the default) and All-time, 20 rows at a
+  time. Today ranks the best 50 pulls filed on the current UTC day, the same day for everyone, plus
+  just-submitted ones not filed yet. It resets at 00:00 UTC (the note gives that time in the
+  player's own clock) and rolls over while the page is open. On an empty day it says "No pulls filed
+  today yet", shows up to 3 of yesterday's best and how to submit. All-time is the published top 100
+  by Brainrot Score. Rows aren't re-checked on the page: each links to its pull, which re-derives it.
+  A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
+  before pulls were verifiable, so unranked) in a sheet. World firsts stay in the published data but
+  have no section.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest

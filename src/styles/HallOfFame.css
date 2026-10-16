@@ -1,7 +1,7 @@
-/* Hall of Fame sheet (HallOfFamePage.tsx). */
+/* Rankings page (HallOfFamePage.tsx). */
 
 .hall-of-fame .tabs {
-  flex-wrap: wrap; /* three tabs outgrow 320px at 200% text; wrap them rather than scroll the page sideways */
+  flex-wrap: wrap; /* at 320px and 200% text, wrap the tabs rather than scroll the page sideways */
   margin-bottom: var(--space-4);
 }
 
@@ -69,11 +69,6 @@
   transition: background-color var(--dur) var(--ease-out);
 }
 
-/* World firsts have no rank column. */
-.hof-entry:not(:has(.hof-rank)) {
-  grid-template-columns: auto 1fr auto;
-}
-
 .hof-entry:hover {
   background: var(--tint-hover);
 }
@@ -81,10 +76,6 @@
 .hof-list li + li .hof-entry {
   border-top: 1px solid var(--border);
   border-radius: 0;
-}
-
-.hof-entry.is-failed {
-  opacity: 0.5;
 }
 
 .hof-rank {
@@ -168,39 +159,25 @@
   white-space: nowrap;
 }
 
-.hof-check {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-subtle);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-}
-
-.hof-check svg {
-  width: 13px;
-  height: 13px;
-}
-
-.hof-check.is-verified {
-  color: var(--success);
-}
-
-.hof-check.is-failed {
-  color: var(--danger);
-}
-
-/* Archive: world firsts, then the hackathon legends, each under its own heading. */
-
-.hof-archive + .hof-archive {
-  margin-top: var(--space-6);
-}
-
-.hof-archive .section-title {
+/* Today, when nothing has been filed yet: yesterday's best under the empty state. */
+.hof-yesterday .section-title {
   margin-bottom: var(--space-2);
 }
 
-/* Legends */
+/* "Where it started": a quiet way into the hackathon legends, below the rankings. */
+.hof-origins {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-6);
+}
+
+/* With large text on a narrow phone the label wraps instead of pushing the page sideways. */
+.hof-origins .btn {
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* Legends, in the "Where it started" sheet */
 
 .hof-legends {
   display: grid;

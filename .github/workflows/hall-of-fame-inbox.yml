@@ -71,6 +71,7 @@ jobs:
         run: |
           gh label create hall-of-fame --color FF3DF2 --description "Hall of Fame submission" 2>/dev/null || true
           gh label create verified --color 2BFF6A --description "Pull verified" 2>/dev/null || true
+          gh label create daily --color 2BD9FF --description "Pull verified for the daily top" 2>/dev/null || true
       # Event ids already handled, so junk isn't re-checked on every run.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
