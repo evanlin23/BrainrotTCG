@@ -98,6 +98,10 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Focus.** One ring for every control: `:focus-visible` draws `--focus-ring` as a box-shadow over
   the transparent `--focus-outline`, which forced colours paint instead. No control sets its own ring
   or `outline: none`; one with its own box-shadow appends `var(--focus-shadow)`, empty until focused.
+  Focus the app moves by script (next card, result, dialog) shows no ring once a mouse, pen or touch
+  press was the last input (`data-input="pointer"`, `components/ui/inputModality.ts`); Tab or an app
+  key brings it back. Covers `[tabindex=-1]` and `.quiet-focus` targets; mark such a control
+  `.quiet-focus` and draw its ring with `var(--focus-shadow)`.
 - **Disabled.** `--opacity-disabled` with `cursor: not-allowed` and a dashed edge (the border, or an
   inset dashed outline on a borderless button), so colour is never the only cue.
 - **Size.** `.btn--sm` keeps the 44 px `--touch-target`. Text never goes under 12 px (`--text-xs`);
@@ -153,9 +157,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   scroll lock, focus returns to the opener. Sheets stack (a card opened from the collection sits on
   top of it). Sizes: `sm` (the scoring guide, short notices such as an invalid link, Report a
   problem), `md` (one pull, share previews, the pack behind an achievement), `lg` (shared profiles,
-  pack shelf), `full` (full-viewport variant, unused for now); `bare` for a single big card (the card
-  viewer), which also closes on a tap on its empty space or the backdrop, never on the card or its
-  text (a press must start and end there, so selecting the text never closes it).
+  pack shelf), `full` (full-viewport variant, unused for now). The `bare` prop drops the panel for a
+  single big card (the card viewer), which also closes on a tap on its empty space or the backdrop,
+  never on the card or its text (a press must start and end there, so selecting the text never
+  closes it).
 - **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one page holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.
@@ -277,29 +282,35 @@ matrix (interruption and UI states) remains in #337.
 
 **Shipped** on the results screen, owned and public pack detail (`PackCardViewer`, so profile packs
 and shared pulls) and card detail. A consistent pack headline, not a dominance threshold:
-**Pack total: [score]**, then **[true combo] ×[multiplier]**, then **Standout card: [finish] [Holo]
-[Misprint] [name] · [card points]** (omit absent modifiers). Card surfaces lead with identity/modifiers
-and Card points. The labels "Pack total", "Standout card" and "Card points" were accepted on #339.
-Individual points exclude the pack multiplier; neither title
-claims record rarity. Select maximum original-version `cardPoints`; on ties take the **higher** slot
-(the last of the tied cards in engine pack order). That is the shipped best-card rule: `revealOrder`
+**Pack total: [score]**, then **[true combo] ×[multiplier]**. No surface shows a standout line: the
+engine's standout only orders cards (best pull first) and picks previews. Card surfaces lead with
+identity/modifiers and Card points, which exclude the pack multiplier. The standout is the maximum
+original-version `cardPoints`; on ties take the **higher** slot (the last of the tied cards in engine
+pack order). That is the shipped best-card rule: `revealOrder`
 (`src/game/reveal.ts`) sorts by `cardPoints` ascending and keeps pack order on ties, and `previewOf`
 (`src/game/previewLinks.ts`, called from `previewFor` in `src/game/pulls.ts`) takes its last card
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
 
-On the results screen the heading is **[combo] ×[multiplier], [score] Brainrot Score** (the score
-big), then the standout card, then **[combo]: about 1 in [n] packs** from `comboOneIn`
-(`src/engine/headline.ts`), the share of all packs of the set with that combo.
+On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · about
+1 in [n] packs** from `comboOneIn` (`src/engine/headline.ts`), the share of all packs of the set with
+that combo (just **No Matches** when it has no odds), then the Hall of Fame line when the pull
+qualifies. The combo is named once and no multiplier shows: the Card guide (one tap, no fold) has
+points per rarity, the holo, finish and misprint bonuses, the combo multipliers, and Score = card
+points added up × combo multiplier. There is no per-pack breakdown.
 
 ### One-screen summary rule (#339)
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
-no horizontal scroll): the headline, the five cards in one compact row (each a button that opens the
-card up close, with a ⤢ corner, best pull first, its own Share), then the actions: **Open another
-pack** primary, **Share** secondary, stuck to the bottom of the summary's scroller above the safe
-area. Keyboard focus is scrolled clear of the stuck actions. New cards, the XP row and a folded "How
-this score works" (the math and the card guide) sit below them. Focus starts on the heading.
+no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
+Fame line), the tap hint and the **Card guide** link, the five cards in one compact row (each a
+button that opens the card up close, with a ⤢ corner, best pull first, its own Share; new and
+special cards carry the tile's own New sticker and modifier label, never a line of text), then the
+actions: **Open another pack** primary, **Share** secondary, stuck to the bottom of the summary's
+scroller above the safe area. The cards are the last content: only the actions sit below them,
+nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
+or level here: level-ups toast and progress lives on Profile. Keyboard focus is scrolled clear of
+the stuck actions, whose faded strip passes taps through. Focus starts on the heading.
 
 Arithmetic presentation fixtures below are not claimed mined proofs. Different letters are
 separate card ids; names and modifiers must come from actual reconstruction in implementation.
@@ -315,14 +326,14 @@ separate card ids; names and modifiers must come from actual reconstruction in i
 
 `packHeadline` (`src/engine/headline.ts`) returns structured total/combo/standout fields from
 `scorePack`, without a second scorer; `PackHeadline` (`src/components/pack/PackHeadline.tsx`) renders
-them. Results and owned/public pack detail show all fields above cards, and on results the total is
-the focused heading; card detail shows Card points. **Not shipped yet:** personal/global pack rows
-show total, combo and concise standout, opening that detail. Card rows/detail show card identity/points
+them. Results and owned/public pack detail show the total and combo above cards, and on results the total
+is the focused heading; card detail shows Card points. **Not shipped yet:** personal/global pack rows
+show total and combo, opening that detail. Card rows/detail show card identity/points
 and labeled original-pack context. Exact-pull captions/posters use the same fields and proof link.
 Static previews cannot read proof fragments: keep generic hand/card descriptions, stable paths and
 old images; do not imply they depict exact modifiers or regenerate history solely for new titles.
 
-At narrow/short widths, wrap the standout and keep actions reachable. Compact 40M formatting needs
+At narrow/short widths, wrap long lines and keep actions reachable. Compact 40M formatting needs
 exact accessible points and full details; rankings use exact values (shipped surfaces show exact
 values). Scoring, generators, selectors, public proof URLs and animations do not change. Pack rows,
 card-row original-pack context and exact-pull captions and posters remain in #339. Figma authoring (#312) remains deferred.

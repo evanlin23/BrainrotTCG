@@ -1,8 +1,8 @@
 version: 2
 updates:
   # Minor and patch updates arrive as one PR per group, so each gets one review and one CI run.
-  # Majors stay one PR per package: they need their own review (the Vite 8, TypeScript 7 and
-  # ESLint 10 majors, #390, #392, #397, are blocked upstream).
+  # Majors stay one PR per package: they need their own review (Vite 8 and ESLint 10 are adopted,
+  # #463; TypeScript 7, #392, stays on 5.x).
   - package-ecosystem: npm
     directory: /
     schedule:
