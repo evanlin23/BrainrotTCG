@@ -463,6 +463,9 @@ function App() {
   // not a new player's. A pack is saved in focus mode (which hides both) or as the player leaves it, so
   // neither appears mid-reveal. A torn pack left while its ticket is on its way (busy, out of focus mode)
   // is theirs already: both come back with the chrome then, not later under the player when it lands.
+  // A pack whose save failed still counts in memory, so its cards stay reachable this session. If the
+  // pending shelf kept it, the next load restores and counts it, so the tabs show at once; only a total
+  // storage refusal makes the next load a new player's.
   const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0 || (packBusy && !packFocus);
   const onPage = route !== 'open';
   const logoMark = (
