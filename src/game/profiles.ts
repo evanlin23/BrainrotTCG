@@ -362,6 +362,15 @@ export const myProfileProof = async (onProgress?: (done: number, total: number) 
  */
 const REOPEN_PENDING_KEY = 'brainrot-reopen-pending-v1';
 const SAVE_BATCH = 25;
+/*
+ * When re-opened packs couldn't be saved (storage full), the next visit would mine them all again
+ * only to fail the same way. So an automatic resume waits: 5 minutes after the first failure,
+ * doubling each time up to a day. Asking to re-open (reopenMyPacks) never waits.
+ */
+const REOPEN_BACKOFF_KEY = 'brainrot-reopen-backoff-v1';
+const BACKOFF_FIRST_MS = 5 * 60_000;
+const BACKOFF_MAX_MS = 24 * 60 * 60_000;
+const BACKOFF_MAX_FAILURES = 16;
 
 export interface ReopenStatus {
   done: number;
@@ -385,9 +394,36 @@ export const onReopenProgress = (listener: (status: ReopenStatus) => void): (() 
 const setPending = (publicKeyHex: string | null) => {
   try {
     if (publicKeyHex) localStorage.setItem(REOPEN_PENDING_KEY, publicKeyHex);
-    else localStorage.removeItem(REOPEN_PENDING_KEY);
+    else {
+      localStorage.removeItem(REOPEN_PENDING_KEY);
+      localStorage.removeItem(REOPEN_BACKOFF_KEY);
+    }
   } catch {
     // Storage unavailable: it just won't resume on the next visit.
+  }
+};
+
+/** Failed saves so far and when an automatic resume may try again, for this player only. */
+const readBackoff = (publicKeyHex: string): { failures: number; retryAt: number } | null => {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(REOPEN_BACKOFF_KEY) ?? 'null');
+    if (typeof value !== 'object' || value === null) return null;
+    const { publicKeyHex: owner, failures, retryAt } = value as Record<string, unknown>;
+    if (owner !== publicKeyHex || !Number.isInteger(failures) || (failures as number) < 1 || typeof retryAt !== 'number' || !Number.isFinite(retryAt)) return null;
+    return { failures: failures as number, retryAt };
+  } catch {
+    return null;
+  }
+};
+
+const backOff = (publicKeyHex: string) => {
+  const failures = Math.min((readBackoff(publicKeyHex)?.failures ?? 0) + 1, BACKOFF_MAX_FAILURES);
+  const retryAt = Date.now() + Math.min(BACKOFF_FIRST_MS * 2 ** (failures - 1), BACKOFF_MAX_MS);
+  try {
+    localStorage.setItem(REOPEN_BACKOFF_KEY, JSON.stringify({ publicKeyHex, failures, retryAt }));
+  } catch {
+    // Can't even note the wait: stop resuming on its own rather than mine everything every visit.
+    setPending(null);
   }
 };
 
@@ -475,8 +511,9 @@ const reopen = async (snapshot: PlayerTickets, auto = false): Promise<void> => {
       pool.close();
       save();
       await saving;
-      // Not until every pack is on disk: otherwise the next visit carries on.
+      // Not until every pack is on disk: otherwise the next visit carries on, after a wait if saving failed.
       if (complete && onDisk) setPending(null);
+      else if (!onDisk) backOff(player.publicKeyHex);
       status.running = false;
       emit(true);
     }
@@ -485,8 +522,11 @@ const reopen = async (snapshot: PlayerTickets, auto = false): Promise<void> => {
   return promise;
 };
 
-/** On load: carry on re-opening if a run was left unfinished (the tab was closed) for this player. */
-export const resumeReopening = () => {
+/**
+ * On load: carry on re-opening if a run was left unfinished (the tab was closed) for this player,
+ * unless it's still waiting after packs couldn't be saved. Returns the run it started, if any.
+ */
+export const resumeReopening = (): Promise<void> | undefined => {
   let pending: string | null = null;
   try {
     pending = localStorage.getItem(REOPEN_PENDING_KEY);
@@ -494,8 +534,13 @@ export const resumeReopening = () => {
     return;
   }
   if (!pending) return;
-  if (pending !== getPlayer().publicKeyHex) return setPending(null);
-  reopen(getPlayerTickets(), true).catch((error) => console.error('Re-opening packs failed', error));
+  if (pending !== getPlayer().publicKeyHex) {
+    setPending(null);
+    return;
+  }
+  const backoff = readBackoff(pending);
+  if (backoff && Date.now() < backoff.retryAt) return;
+  return reopen(getPlayerTickets(), true).catch((error) => console.error('Re-opening packs failed', error));
 };
 
 /**

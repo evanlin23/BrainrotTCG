@@ -140,6 +140,19 @@ recorded revision, never against the deployed site. `npx vitest run tests/perfor
 checks the report schema, and this must exit nonzero with zero timing samples:
 `PERF_INJECT_FUNCTIONAL_FAILURE=1 npm run test:performance -- --grep 'first-cold / 1' --output=test-results/performance-failure --max-failures=1`.
 
+### Optional work (opt-in)
+
+`npm run test:performance:optional-work` (report-only, in no check or CI job) times the same
+throttled opening with optional work idle and active (#342): 24 synthetic records, then the same
+records without their cards and an unfinished re-open, so the app re-mines them in the background.
+It presses once the live ticket is ready, so both time the same opening; it records press to summary
+(when optional work is held) and to decoded summary, plus the live ticket's mining time. Ticket jobs
+per worker, workers created and peak busy are counted in the page; the Argon2 figure is peak busy ×
+`TICKET_PARAMS.memorySize`, an estimate kept apart from the measured main-target heap. Reports go to
+`test-results/performance-optional-work/`. It's **desktop-Chromium emulation, not real-device
+evidence** (#8): CDP's CPU slowdown doesn't throttle workers, and the pool size follows the emulated
+navigator. `npx vitest run tests/performance/optional-work.test.ts` checks its report.
+
 ## Dependency audit
 
 When the lockfile changes, run `npm audit` and `npm audit --omit=dev`. The findings, their exposure

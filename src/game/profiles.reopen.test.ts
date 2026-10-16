@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
-import { holdLive } from './admission';
+import { holdLive, waitingOptional } from './admission';
 import { putStoredPacks, resetPackStore, type StoredPack } from './packStore';
 import { getPlayer } from './player';
-import { reopenMyPacks, resumeReopening } from './profiles';
+import { reopenMyPacks, reopenStatus, resumeReopening } from './profiles';
 import { createTicketPool } from './ticketPool';
 
 // Re-opening as optional work: tickets come from a pool the test answers by hand, and writes to
@@ -27,6 +27,7 @@ vi.stubGlobal('localStorage', {
 vi.stubGlobal('navigator', { hardwareConcurrency: 8 }); // two optional tickets at once
 
 const PENDING = 'brainrot-reopen-pending-v1';
+const BACKOFF = 'brainrot-reopen-backoff-v1';
 const SET = getSet('right-now', 2)!;
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -62,6 +63,10 @@ beforeEach(() => {
     new Promise<boolean>((resolve) => void writes.push({ packs: [...packs], done: resolve })));
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 /** Answer every ticket the run asks for until it has asked for `total`. */
 const mineAll = async (total: number) => {
   for (let answered = 0; answered < total;) {
@@ -95,7 +100,8 @@ describe('re-opening as optional work', () => {
   it('starts no ticket while a pack is being opened', async () => {
     const release = holdLive();
     const run = reopenMyPacks();
-    await vi.waitFor(() => expect(createTicketPool).toHaveBeenCalled());
+    // Both loops have asked for a slot and are held back.
+    await vi.waitFor(() => expect(waitingOptional()).toBe(2));
     await flush();
     expect(mining).toHaveLength(0);
     release();
@@ -128,5 +134,93 @@ describe('re-opening as optional work', () => {
     expect(data.get(PENDING)).toBe(before);
     resumeReopening();
     expect(data.has(PENDING)).toBe(false);
+  });
+});
+
+describe('re-opening after packs could not be saved', () => {
+  const NOW = Date.UTC(2026, 9, 16);
+  const MINUTE = 60_000;
+  const backoff = () => JSON.parse(data.get(BACKOFF)!) as { publicKeyHex: string; failures: number; retryAt: number };
+  const reopenKeys = () => [...data.keys()].filter((k) => k.startsWith('brainrot-reopen')).sort();
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+
+  /**
+   * One run (asked for or resumed) that mines all three packs and can't write them. Returns when it
+   * failed: vi.waitFor moves the fake clock along while it polls.
+   */
+  const failedRun = async (run: () => Promise<void> | undefined): Promise<number> => {
+    mining = [];
+    writes = [];
+    const done = run();
+    expect(done).toBeDefined();
+    await mineAll(3);
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0].packs.map((p) => p.nonce).sort()).toEqual([0, 1, 2]);
+    writes[0].done(false);
+    await done;
+    expect(reopenStatus()?.running).toBe(false);
+    return Date.now();
+  };
+
+  it('waits longer after each failed save before resuming on its own, up to a day', async () => {
+    const me = getPlayer().publicKeyHex;
+    const first = await failedRun(reopenMyPacks);
+    expect(backoff()).toEqual({ publicKeyHex: me, failures: 1, retryAt: first + 5 * MINUTE });
+
+    // Too soon: nothing starts, so there's no ticket to mine on every visit.
+    vi.setSystemTime(first + 5 * MINUTE - 1);
+    mining = [];
+    expect(resumeReopening()).toBeUndefined();
+    expect(mining).toHaveLength(0);
+
+    vi.setSystemTime(first + 5 * MINUTE);
+    const second = await failedRun(resumeReopening);
+    expect(backoff()).toEqual({ publicKeyHex: me, failures: 2, retryAt: second + 10 * MINUTE });
+
+    // However many failures, the wait stops growing at a day.
+    data.set(BACKOFF, JSON.stringify({ publicKeyHex: me, failures: 16, retryAt: second }));
+    const last = await failedRun(resumeReopening);
+    expect(backoff()).toEqual({ publicKeyHex: me, failures: 16, retryAt: last + 24 * 60 * MINUTE });
+
+    // One flag and one wait, each overwritten in place.
+    expect(reopenKeys()).toEqual([BACKOFF, PENDING]);
+    expect(data.get(PENDING)).toBe(me);
+  });
+
+  it('asking re-opens at once, and saving every pack ends the wait', async () => {
+    const me = getPlayer().publicKeyHex;
+    data.set(PENDING, me);
+    data.set(BACKOFF, JSON.stringify({ publicKeyHex: me, failures: 3, retryAt: NOW + MINUTE }));
+    expect(resumeReopening()).toBeUndefined();
+
+    const run = reopenMyPacks();
+    await mineAll(3);
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    writes[0].done(true);
+    await run;
+    expect(reopenKeys()).toEqual([]);
+  });
+
+  it("ignores another player's wait", async () => {
+    data.set(PENDING, getPlayer().publicKeyHex);
+    data.set(BACKOFF, JSON.stringify({ publicKeyHex: '02'.repeat(32), failures: 3, retryAt: NOW + MINUTE }));
+    await failedRun(resumeReopening);
+    expect(backoff().failures).toBe(1);
+  });
+
+  it('stops resuming on its own when the wait itself cannot be stored', async () => {
+    const setItem = localStorage.setItem;
+    vi.spyOn(localStorage, 'setItem').mockImplementation((k: string, v: string) => {
+      if (k === BACKOFF) throw new DOMException('Storage full', 'QuotaExceededError');
+      setItem(k, v);
+    });
+    await failedRun(reopenMyPacks);
+    expect(reopenKeys()).toEqual([]);
+    expect(resumeReopening()).toBeUndefined();
+    vi.mocked(localStorage.setItem).mockRestore();
   });
 });
