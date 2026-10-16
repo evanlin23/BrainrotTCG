@@ -115,14 +115,6 @@
   font-size: var(--text-sm);
 }
 
-.share-hof a {
-  width: fit-content;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
-
 /* Pull viewer */
 
 .pull-viewer-checking {

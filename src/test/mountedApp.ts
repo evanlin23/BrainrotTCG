@@ -16,9 +16,8 @@ const onFakeFrame = (callback: FrameRequestCallback) => fakeFrame(callback);
  */
 export type TicketReply = { delayMs: number } | { error: string } | 'crash';
 
-/** jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. */
 /**
- * hallOfFame answers the published list's request with that list (a summary whose pull qualifies
+ * jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. hallOfFame answers the published list's request with that list (a summary whose pull qualifies
  * asks for it), and relay sockets close unanswered; every other request still fails.
  */
 export async function mountedApp(storage: Record<string, string>,
