@@ -47,6 +47,13 @@
   font-size: var(--text-sm);
 }
 
+.card-viewer-version {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 800;
+  color: var(--text);
+}
+
 .card-viewer-points {
   margin: 0;
   font-weight: 700;

@@ -56,3 +56,41 @@ export const specialPackChance = (set: Pick<SetDefinition, 'holoOdds' | 'packSiz
 
 /** "1 in N" for display. */
 export const oneIn = (chance: number): number => (chance > 0 ? 1 / chance : Infinity);
+
+/** One exact version of a card: the card plus its holo, finish and misprint. */
+export interface CardVersionKey {
+  cardId: string;
+  isHolo: boolean;
+  finish?: Finish | null;
+  misprint?: boolean;
+}
+
+/**
+ * Exact chance that one pack of a set has at least one copy of this exact version (same card, holo,
+ * finish and misprint), from generatePack's rules: every slot rolls rarity, card, holo and (with
+ * modifiers) finish and misprint independently, so a slot hits with the product of those chances and
+ * a pack misses only when every slot does. 0 for a card or modifier the set can't produce; null for a
+ * modifier table this build doesn't know.
+ */
+export const versionPackChance = (
+  set: Pick<SetDefinition, 'cards' | 'odds' | 'holoOdds' | 'packSize' | 'modifiers'>,
+  version: CardVersionKey,
+): number | null => {
+  const card = set.cards.find((c) => c.id === version.cardId);
+  if (!card) return 0;
+  const pool = set.cards.filter((c) => c.rarity === card.rarity).length;
+  const holo = set.holoOdds / ODDS_TOTAL;
+  let slot = set.odds[card.rarity] / ODDS_TOTAL / pool * (version.isHolo ? holo : 1 - holo);
+  const finish = version.finish ?? null;
+  if (set.modifiers === undefined) {
+    if (finish || version.misprint) return 0;
+  } else {
+    const table = MODIFIER_TABLES[set.modifiers];
+    if (!table) return null;
+    const finished = Object.values(table.finishOdds).reduce((a, b) => a + b, 0);
+    const misprint = table.misprintOdds / ODDS_TOTAL;
+    slot *= (finish ? table.finishOdds[finish] : ODDS_TOTAL - finished) / ODDS_TOTAL;
+    slot *= version.misprint ? misprint : 1 - misprint;
+  }
+  return 1 - (1 - slot) ** set.packSize;
+};
