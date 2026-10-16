@@ -56,6 +56,8 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [oldSaveNote, setOldSaveNote] = useState('Played at the old address? Bring that save here.');
     const [oldSave, setOldSave] = useState<{ save: unknown } | null>(null);
     const keepRef = useRef<HTMLButtonElement>(null);
+    // Leaving the page drops a preview still waiting to play.
+    useEffect(() => () => clearTimeout(samplePending), []);
     useEffect(() => {
         if (oldSave) keepRef.current?.focus();
     }, [oldSave]);

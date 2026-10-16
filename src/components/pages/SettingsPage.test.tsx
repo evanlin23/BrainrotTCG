@@ -65,6 +65,7 @@ afterEach(() => {
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   localStorage.clear();
 });
 
@@ -143,6 +144,23 @@ describe('Settings: effects volume preview', () => {
     expect(played).toHaveLength(2);
     expect(played[1].src).toBe(VINE_BOOM_SRC);
     expect(played[1].volume).toBeCloseTo(level * soundGain(VINE_BOOM_SRC));
-    vi.useRealTimers();
+  });
+
+  it('drops the pending vine boom when the page closes', () => {
+    vi.useFakeTimers();
+    const played: string[] = [];
+    vi.stubGlobal('Audio', class {
+      volume = 1;
+      constructor(public src: string) {}
+      play() { played.push(this.src); return Promise.resolve(); }
+    });
+    const slider = [...document.body.querySelectorAll<HTMLInputElement>('input[type="range"]')]
+      .find((el) => el.labels?.[0]?.textContent === 'Sound effects')!;
+    slider.value = '50';
+    act(() => void slider.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true })));
+    expect(played).toEqual([CARD_FLIP_SRC]);
+    act(() => root.render(<div />));
+    vi.advanceTimersByTime(EFFECT_DELAY_MS * 2);
+    expect(played).toEqual([CARD_FLIP_SRC]);
   });
 });

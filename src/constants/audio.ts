@@ -42,5 +42,8 @@ const SOUND_GAINS = new Map<string, number>([
 /** The gain for a sound by its imported src; 1 for one it doesn't know. */
 export const soundGain = (src: string | null | undefined): number => (src ? SOUND_GAINS.get(src) ?? 1 : 1);
 
-/** The element volume for a sound at an effects level. */
-export const soundVolume = (src: string | null | undefined, level: number): number => level * soundGain(src);
+/** The element volume for a sound at an effects level, kept in [0, 1] (HTMLMediaElement.volume throws outside it or on NaN). */
+export const soundVolume = (src: string | null | undefined, level: number): number => {
+  const volume = level * soundGain(src);
+  return Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 0;
+};

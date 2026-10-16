@@ -321,6 +321,15 @@ describe('the random effect after a flip', () => {
     expect(plays).toHaveLength(2);
   });
 
+  it('drops an effect still waiting when the pack is closed', async () => {
+    const plays = await deal();
+    flip();
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    act(() => document.querySelector<HTMLButtonElement>('.pack-close')!.click());
+    await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+    expect(plays).toEqual([CARD_FLIP_SRC]);
+  });
+
   it('drops an effect still waiting when the opener unmounts', async () => {
     const plays = await deal();
     flip();
