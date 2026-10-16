@@ -151,8 +151,8 @@ export const parsePlayer = (raw: string): StoredPlayer | null => {
 export const isCurrentPlayer = (secretKey: string): boolean => (read() ?? memory)?.secretKey === secretKey;
 
 /**
- * Changed by every save-file import, before it writes anything else, so a tab that loaded the save
- * from before can tell even when the import brings back the same player.
+ * Changed by every save-file import and move, before either writes an incoming value, so a tab that
+ * loaded the save from before can tell even when the same player comes back.
  */
 export const SAVE_STAMP_KEY = 'brainrot-save-stamp-v1';
 
