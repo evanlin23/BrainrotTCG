@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import type { CollectionItem, Stats } from '../types';
-import { NO_ROOM_FOR_COPY_NOTE, PARTIAL_IMPORT_NOTE } from '../game/saveFile';
+import { FILE_TOO_BIG_NOTE, NO_ROOM_FOR_COPY_NOTE, PARTIAL_IMPORT_NOTE } from '../game/saveFile';
 
 // Interrupted, slow and failed openings, and a failed restore, through the real App and real tickets.
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
@@ -227,7 +227,7 @@ it("restores this player's save when storage fills mid-import, then keeps openin
   expect(Object.fromEntries(Object.entries(localStorage))).toEqual(before);
   await app.interact(() => button('Replace without a copy')!.click());
   await app.until('the failure is explained', () => expect(document.body.textContent)
-    .toContain("This browser's storage has no room for this file. Your previous save data was restored."));
+    .toContain(FILE_TOO_BIG_NOTE));
   expect(Object.fromEntries(Object.entries(localStorage))).toEqual(before);
   expect(button('Import')).toBeDefined();
 

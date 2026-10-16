@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
-import { exportSaveFile, importSaveFile, NO_ROOM_FOR_COPY_NOTE } from './saveFile';
+import { exportSaveFile, FILE_TOO_BIG_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE } from './saveFile';
 import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY } from './player';
 import { recordPack } from './history';
@@ -419,13 +419,51 @@ describe('a nearly full browser storage', () => {
     expect(store.has('brainrot-before-import-v1')).toBe(false);
   });
 
-  it('keeps the old save intact when the file alone is larger than the storage', () => {
+  it('imports a file whose first field grows while a later one shrinks, removing replaced values before writing', () => {
+    const save = { ...fixture(), collection: bigCollection() };
+    const entry = JSON.parse(save.history)[0];
+    const bigHistory = JSON.stringify(Array.from({ length: Math.ceil(save.collection.length / JSON.stringify(entry).length) }, () => entry));
+    store.set(STORAGE_KEYS.COLLECTION, fixture().collection);
+    store.set(STORAGE_KEYS.HISTORY, bigHistory);
+    // Old and new together are over the limit; the file in place of the old save fits.
+    quota(bytes() + save.collection.length / 2);
+    expect(importSaveFile(JSON.stringify(save))).toBe(NO_ROOM_FOR_COPY_NOTE);
+    expect(store.get(STORAGE_KEYS.HISTORY)).toBe(bigHistory);
+    expect(importSaveFile(JSON.stringify(save), { keepCopy: false })).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(save.collection);
+    expect(store.get(STORAGE_KEYS.HISTORY)).toBe(save.history);
+    expect(exportPlayer()).toBe(save.player);
+  });
+
+  it('says a file larger than the storage is too big, keeping the old save', () => {
     const save = { ...fixture(), collection: bigCollection() };
     quota(bytes() * 3); // room for a copy of the old save, not for the file
     const before = new Map(store);
+    // The copy's room keeps the first refusal from proving the file can't fit; without a copy it does.
     expect(importSaveFile(JSON.stringify(save))).toBe(NO_ROOM_FOR_COPY_NOTE);
     expect(store).toEqual(before);
-    expect(importSaveFile(JSON.stringify(save), { keepCopy: false })).toBe(NO_ROOM);
+    expect(importSaveFile(JSON.stringify(save), { keepCopy: false })).toBe(FILE_TOO_BIG_NOTE);
+    expect(store).toEqual(before);
+  });
+
+  it('says so when the copy itself is refused and the file could not fit anyway', () => {
+    const save = { ...fixture(), collection: bigCollection() };
+    quota(bytes() + 10); // not even room for the copy
+    const before = new Map(store);
+    expect(importSaveFile(JSON.stringify(save))).toBe(FILE_TOO_BIG_NOTE);
+    expect(store).toEqual(before);
+  });
+
+  it('gives the no-room answer, naming earlier copies, when the identity write is what storage refuses', () => {
+    store.set('brainrot-before-import-v1', '{"earlier":"copy"}');
+    const before = new Map(store);
+    const save = fixture();
+    write.mockImplementation((key, value) => {
+      if (key === 'brainrot-player-v1') throw new DOMException('full', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    expect(importSaveFile(JSON.stringify(save), { keepCopy: false }))
+      .toBe(`${NO_ROOM} Copies of earlier saves, kept from past imports or moves, take room in it too.`);
     expect(store).toEqual(before);
   });
 
@@ -437,7 +475,8 @@ describe('a nearly full browser storage', () => {
       if (key === STORAGE_KEYS.HISTORY && value === save.history) throw new DOMException('full', 'QuotaExceededError');
       store.set(key, value);
     });
-    expect(importSaveFile(JSON.stringify(save), { keepCopy })).toBe(keepCopy ? NO_ROOM_FOR_COPY_NOTE : NO_ROOM);
+    // Replaced values are removed before any is written, so a refusal without a copy proves the file can't fit.
+    expect(importSaveFile(JSON.stringify(save), { keepCopy })).toBe(keepCopy ? NO_ROOM_FOR_COPY_NOTE : FILE_TOO_BIG_NOTE);
     expect(store).toEqual(before);
     expect(write.mock.calls.some(([key, value]) => key === STORAGE_KEYS.STATS && value === save.stats)).toBe(true); // it got partway
   });

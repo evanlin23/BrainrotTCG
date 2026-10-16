@@ -362,7 +362,10 @@ key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, r
 import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; a failed
 import keeps it). If the copy can't be stored, or storage fills while it is there, everything is put back
 (the earlier copy too) and Settings offers "Replace without a copy", which imports with `keepCopy: false`
-after telling the player to export first. Fields the file omits keep their stored values, except that a
+after telling the player to export first. A storage refusal proves the quota is below what that write
+asked for; when the save with the file in place (no new copy) would need at least that, the answer is
+instead that the file is too big for this browser, and nothing is offered. Without a copy, App downloads
+the save from before on request if the import is left half done. Fields the file omits keep their stored values, except that a
 different player's save clears this browser's player fields (recovery archive included), which then
 stay only in that backup. It clears those fields, writes a new `brainrot-save-stamp-v1` before any imported field, clears
 them again (even ones that were absent, which a tab still on the old save may have just written), removes

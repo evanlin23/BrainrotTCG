@@ -12,7 +12,7 @@ import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import KeptAsideActions from '../ui/KeptAsideActions';
 import '../../styles/Settings.css';
-import { exportSaveFile, NO_ROOM_FOR_COPY_NOTE } from '../../game/saveFile';
+import { downloadSaveFile, NO_ROOM_FOR_COPY_NOTE } from '../../game/saveFile';
 
 interface SettingsPageProps {
     settings: Settings;
@@ -38,17 +38,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const handleExportSave = () => {
-        const blob = new Blob([exportSaveFile()], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `brainrot-tcg-save-${new Date().toISOString().split('T')[0]}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
+    const handleExportSave = () => downloadSaveFile();
 
     // After the site moved: fetch the save from the old address (game/move.ts). Replacing a different
     // save here is asked in this row, not in a browser dialog, which can open behind the old address's
@@ -98,6 +88,8 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [importNote, setImportNote] = useState('Load a backup file');
     /** Storage has no room for the file and a copy of the current save, so "Replace" would go ahead without the copy. */
     const [withoutCopy, setWithoutCopy] = useState(false);
+    /** "this browser's save (X) with the file's (Y)" while the player is asked to replace a save. */
+    const [replacing, setReplacing] = useState<string | null>(null);
 
     /** "Name, 14 packs" for a save's player and stats (as stored, or as in a backup file). */
     const describe = (player: string | null | undefined, stats: string | null | undefined) => {
@@ -115,12 +107,12 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         setWithoutCopy(false);
         const error = onImportSave(content, keepCopy);
         if (!error) return;
-        setImportNote(error);
         // Nothing changed; the player may export first, then choose to replace without the copy.
         if (keepCopy && error === NO_ROOM_FOR_COPY_NOTE) {
+            setImportNote(replacing ? `${error} Replace ${replacing} without keeping a copy?` : error);
             setPendingImport(content);
             setWithoutCopy(true);
-        }
+        } else setImportNote(error);
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -146,12 +138,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                 }
             })();
             if (!hasProgress() || (sameKey && describe(here, localStorage.getItem(STORAGE_KEYS.STATS)) === describe(incoming.player, incoming.stats))) {
+                setReplacing(null);
                 return runImport(content);
             }
+            const saves = `this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(incoming.player, incoming.stats)})`;
+            setReplacing(saves);
             setPendingImport(content);
-            setImportNote(
-                `Replace this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(incoming.player, incoming.stats)})? Yours is kept as a backup.`,
-            );
+            setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
         };
         reader.readAsText(file);
 
