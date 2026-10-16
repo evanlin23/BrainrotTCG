@@ -7,7 +7,7 @@ import { getStoredPack, putStoredPacks, resetPackStore } from './packStore';
 import { getHistory, recordPack } from './history';
 import type { OpenedPack } from './pulls';
 import { getPlayer } from './player';
-import { hydrateMyPacks, myProfileInfo, myProfileProof, myStats, onReopenProgress, reopenMyPacks, resumeReopening } from './profiles';
+import { hydrateMyPacks, myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, resumeReopening } from './profiles';
 
 // No Worker or IndexedDB here: tickets are mined on this thread and the pack store stays in memory.
 const data = new Map<string, string>();
@@ -222,4 +222,24 @@ it('keeps mixed-set mappings and refuses whole-profile signing after severe quot
   await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
   expect(data.get(STORAGE_KEYS.HISTORY)).toBe(original);
   error.mockRestore();
+});
+
+it('links a profile under the site address, with or without a base path', () => {
+  // Only this test needs a window; the localStorage stub above stays for the rest of the file.
+  const g = globalThis as { window?: unknown };
+  const before = g.window;
+  g.window = { location: { origin: 'https://example.github.io' } };
+  try {
+    for (const [base, url] of [
+      ['/BrainrotTCG/', 'https://example.github.io/BrainrotTCG/#/profile/abc'],
+      ['/', 'https://example.github.io/#/profile/abc'],
+    ]) {
+      vi.stubEnv('BASE_URL', base);
+      expect(profileUrl('abc')).toBe(url);
+    }
+  } finally {
+    vi.unstubAllEnvs();
+    if (before === undefined) delete g.window;
+    else g.window = before;
+  }
 });

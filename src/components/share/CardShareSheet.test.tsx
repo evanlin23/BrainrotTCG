@@ -7,6 +7,7 @@ import { getSetCards } from '../../data/cards';
 import { findPackWithCard, type HistoryEntry } from '../../game/history';
 import { renderCardPoster } from '../../game/bragImage';
 import { getPlayer } from '../../game/player';
+import { proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import CardShareSheet from './CardShareSheet';
 
 vi.mock('../../game/history', async (importOriginal) => ({
@@ -66,5 +67,29 @@ describe('sharing a card from the first ticket', () => {
     expect(poster.url).toContain('#/pull/');
     expect(document.body.textContent).toContain('(ticket #0)');
     expect([...document.querySelectorAll('button')].some((el) => el.textContent?.includes('Copy link'))).toBe(true);
+  });
+});
+
+describe('sharing a card from the pack summary', () => {
+  const card = getSetCards(DEFAULT_SET_ID)[1];
+  const from = (): PullRef => ({ setId: card.setId, setVersion: getLatestSet(card.setId)!.version, nonce: 7, publicKeyHex: getPlayer().publicKeyHex });
+
+  it('links the pack it came in, with the same link as that pack\'s Share', async () => {
+    const pack = from();
+    await act(async () => root.render(<CardShareSheet card={card} version={{ isHolo: false }} from={pack} onClose={() => {}} />));
+
+    expect(findPackWithCard).not.toHaveBeenCalled();
+    const poster = vi.mocked(renderCardPoster).mock.calls[0][0];
+    expect(poster.url).toBe(pullUrl(proofFor(pack)));
+    expect(poster.cert).toMatch(/ #7$/);
+    expect(document.body.textContent).toContain('(ticket #7)');
+  });
+
+  it('looks the card up in the history when that pack was opened with another key', async () => {
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+    const other = { ...from(), publicKeyHex: 'ff'.repeat(32) };
+    await act(async () => root.render(<CardShareSheet card={card} version={{ isHolo: false }} from={other} onClose={() => {}} />));
+
+    expect(findPackWithCard).toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ import type { Card } from '../../data/cards';
 import { cardPoints } from '../../data/cards';
 import { FINISH_INFO, modifierClasses, modifierLabel } from '../../game/modifiers';
 import { sameVersion, versionOf, type CardVersion, type OwnedVersion } from '../../game/versions';
+import type { PullRef } from '../../game/pulls';
 import RarityBadge from '../ui/RarityBadge';
 import Sheet from '../ui/Sheet';
 import CardImage from './CardImage';
@@ -19,6 +20,8 @@ interface CardViewerModalProps {
   onClose: () => void;
   /** Only for cards the player owns (not someone else's shared pull). */
   canShare?: boolean;
+  /** The pack this card came in (the pack summary): sharing it links to that pack. */
+  pack?: PullRef;
 }
 
 const MAX_TILT = 12;
@@ -27,7 +30,7 @@ const loadCardShare = sheetLoader(() => import('../share/CardShareSheet'));
 const versionName = (v: CardVersion) => modifierLabel(v) || 'Plain';
 
 /** One card, big, tilting with the pointer. */
-const CardViewerModal = ({ card, versions, onClose, canShare = false }: CardViewerModalProps) => {
+const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: CardViewerModalProps) => {
   const [shown, setShown] = useState<CardVersion>(() => versions?.[0]?.version ?? versionOf(card));
   const { isHolo, finish, misprint } = shown;
   const label = modifierLabel(shown, false);
@@ -92,7 +95,7 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false }: CardView
           )}
         </div>
       </div>
-      {sharing && <DeferredSheet load={loadCardShare} title={`Share ${card.name}`} screenProps={{ card, version: shown, onClose: () => setSharing(false) }} />}
+      {sharing && <DeferredSheet load={loadCardShare} title={`Share ${card.name}`} screenProps={{ card, version: shown, from: pack, onClose: () => setSharing(false) }} />}
     </Sheet>
   );
 };

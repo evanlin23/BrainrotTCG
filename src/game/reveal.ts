@@ -25,6 +25,13 @@ export const revealOrder = <T extends Revealable>(cards: readonly T[]): T[] =>
     .sort((a, b) => rank(a.card) - rank(b.card) || a.i - b.i)
     .map(({ card }) => card);
 
+/** The pack summary's order: the best pull first; ties keep pack order (the earlier card first). */
+export const bestPullOrder = <T extends Revealable>(cards: readonly T[]): T[] =>
+  cards
+    .map((card, i) => ({ card, i }))
+    .sort((a, b) => rank(b.card) - rank(a.card) || a.i - b.i)
+    .map(({ card }) => card);
+
 /** Flag the first copy of each card the player didn't own before this pack. */
 export const markNew = <T extends { key: string }>(cards: readonly T[], owned: (key: string) => boolean): (T & { isNew: boolean })[] => {
   const seen = new Set<string>();
