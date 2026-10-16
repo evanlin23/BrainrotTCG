@@ -42,12 +42,13 @@ const read = (): StoredPlayer | null => {
   }
 };
 
-const write = (stored: StoredPlayer) => {
+const write = (stored: StoredPlayer, onError?: (error: unknown) => void) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     return true;
   } catch (error) {
     console.error('Could not save player identity', error);
+    onError?.(error);
     return false;
   }
 };
@@ -375,7 +376,8 @@ export const watchPlayer = (onChange: () => void, onCountRefused?: () => void): 
   return () => window.removeEventListener('storage', listener);
 };
 
-export const importPlayer = (raw: string): boolean => {
+/** `onWriteError` hears why storage refused the identity (a full storage, say), when it did. */
+export const importPlayer = (raw: string, onWriteError?: (error: unknown) => void): boolean => {
   const incoming = parsePlayer(raw);
   if (!incoming) return false;
   try {
@@ -387,7 +389,7 @@ export const importPlayer = (raw: string): boolean => {
       // Never move the ticket counter backwards for the same key (that would replay old packs).
       nextNonce: existing?.secretKey === incoming.secretKey ? Math.max(existing.nextNonce, incoming.nextNonce) : incoming.nextNonce,
     };
-    if (!write(next)) return false;
+    if (!write(next, onWriteError)) return false;
     memory = next;
     return true;
   } catch {
