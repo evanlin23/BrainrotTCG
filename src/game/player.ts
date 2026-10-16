@@ -150,6 +150,20 @@ export const parsePlayer = (raw: string): StoredPlayer | null => {
 /** Whether `secretKey` is this browser's player, without creating one. */
 export const isCurrentPlayer = (secretKey: string): boolean => (read() ?? memory)?.secretKey === secretKey;
 
+/**
+ * Calls `onChange` when another tab stores a player record (an import, a switch, a rename) or clears
+ * this browser's storage, so a tab can find out that its player changed before it next writes. The
+ * storage event only reaches other tabs, and can arrive late: writers still compare getPlayer()
+ * themselves. Returns the unsubscribe.
+ */
+export const watchPlayer = (onChange: () => void): (() => void) => {
+  const listener = (event: StorageEvent) => {
+    if (event.key === null || event.key === STORAGE_KEY) onChange();
+  };
+  window.addEventListener('storage', listener);
+  return () => window.removeEventListener('storage', listener);
+};
+
 export const importPlayer = (raw: string): boolean => {
   const incoming = parsePlayer(raw);
   if (!incoming) return false;

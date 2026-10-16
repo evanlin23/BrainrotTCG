@@ -23,7 +23,8 @@ import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progr
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory, recordMissing } from './game/history';
-import { getPlayer } from './game/player';
+import { getPlayer, watchPlayer } from './game/player';
+import { reloadPage } from './game/reload';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import {
@@ -51,6 +52,7 @@ const loadPull = () => import('./components/share/PullViewerPage');
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
+const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
 const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. To recover it, open Player, then Save & restore, and export a backup.';
 /** What adding a pack changes, so several packs can be added before React renders. */
 type PackProgress = { stats: Stats; collection: Record<string, CollectionItem>; hallOfFame: HallOfFameData };
@@ -63,24 +65,31 @@ function App() {
 
   const [settings, setSettings] = useState<Settings>(() => readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)));
   const [saveFailed, setSaveFailed] = useState(false);
+  const [staleSave, setStaleSave] = useState(false);
   const [collectionArchived, setCollectionArchived] = useState(hasCollectionRecovery);
   // The player can hide the kept-aside note from the banner until something new is kept aside;
   // Settings keeps showing it.
   const [recoveryNoteHidden, setRecoveryNoteHidden] = useState(collectionRecoveryDismissed);
   const showRecoveryNote = collectionArchived && !recoveryNoteHidden;
   // One warning for every storage problem, in the banner and in Settings.
-  const saveWarning = [saveFailed && SAVE_WARNING, collectionArchived && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
-  const bannerWarning = [saveFailed && SAVE_WARNING, showRecoveryNote && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
+  const saveWarning = [staleSave && STALE_SAVE_WARNING, saveFailed && SAVE_WARNING, collectionArchived && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
+  const bannerWarning = [staleSave && STALE_SAVE_WARNING, saveFailed && SAVE_WARNING, showRecoveryNote && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
   const hideRecoveryNote = useCallback(() => {
     dismissCollectionRecovery();
     setRecoveryNoteHidden(true);
   }, []);
   const achievementsRef = useRef(achievements);
   // The player this tab loaded. Another tab can import a save or switch player while this one stays
-  // open: from then on these achievements are the old player's, so nothing here unlocks them from
-  // the new player's history or stores them over the new save (a reload picks that save up).
+  // open: from then on everything held here is the old player's, so nothing here unlocks achievements
+  // from the new player's history or stores progress over the new save (a reload picks that save up).
+  // Once the stored player differs it stays changed for this tab, even if the old one comes back:
+  // that tab may have written the old player's progress meanwhile.
   const [mountedPlayer] = useState(() => getPlayer().publicKeyHex);
-  const samePlayer = useCallback(() => getPlayer().publicKeyHex === mountedPlayer, [mountedPlayer]);
+  const playerChanged = useRef(false);
+  const samePlayer = useCallback(() => {
+    if (!playerChanged.current && getPlayer().publicKeyHex !== mountedPlayer) playerChanged.current = true;
+    return !playerChanged.current;
+  }, [mountedPlayer]);
   const previousProgress = useRef<Map<string, unknown> | null>(null);
   // Packs given to the collection that it hasn't stored yet: each stays on the pending shelf till then.
   const unsavedPacks = useRef<OpenedPack[]>([]);
@@ -95,6 +104,12 @@ function App() {
     const previous = previousProgress.current;
     previousProgress.current = new Map([[STORAGE_KEYS.COLLECTION, collection], ...fields]);
     if (!previous) return;
+    // Checked at every write, not only on the storage event (which can come late, or not at all):
+    // packs given to the collection meanwhile stay on the pending shelf, under the player they opened as.
+    if (!samePlayer()) {
+      setStaleSave(true);
+      return;
+    }
     let statsHandled = false;
     // The collection archives stored entries it couldn't read before replacing them (or keeps them).
     if (previous.get(STORAGE_KEYS.COLLECTION) !== collection) {
@@ -140,9 +155,7 @@ function App() {
     for (const [key, value] of fields) {
       if (key === STORAGE_KEYS.STATS && statsHandled) continue;
       if (previous.get(key) === value) continue;
-      // Never the old player's achievements over another player's save (see samePlayer).
-      if (key === STORAGE_KEYS.ACHIEVEMENTS && !samePlayer()) setSaveFailed(true);
-      else if (!setStoredData(key, value)) setSaveFailed(true);
+      if (!setStoredData(key, value)) setSaveFailed(true);
     }
   }, [collection, achievements, stats, hallOfFame, settings, samePlayer]);
 
@@ -218,6 +231,10 @@ function App() {
 
   // Saved packs (IndexedDB) are read a page at a time while the app runs, aborted on unmount.
   useEffect(() => watchMyPacks(), []);
+  // Hear about another tab's player switch before this one next writes (see samePlayer).
+  useEffect(() => watchPlayer(() => {
+    if (!samePlayer()) setStaleSave(true);
+  }), [samePlayer]);
   const packCache = usePackCacheVersion();
   // Level rewards in use (game/progression.ts), checked against the level this save has reached.
   // Re-read after every pack (myStats reads the pack history, which each pack adds to), and when
@@ -574,7 +591,8 @@ function App() {
       {bannerWarning && !isSettingsOpen && (
         <p role="alert" className="save-warning">
           {bannerWarning}
-          {showRecoveryNote && <button type="button" className="link-btn save-warning-hide" onClick={hideRecoveryNote}>Hide note</button>}
+          {staleSave && <button type="button" className="link-btn save-warning-action" onClick={() => reloadPage()}>Reload</button>}
+          {showRecoveryNote && <button type="button" className="link-btn save-warning-action" onClick={hideRecoveryNote}>Hide note</button>}
         </p>
       )}
       <header className="app-header">
@@ -613,6 +631,7 @@ function App() {
           onBusyChange={setPackBusy}
           set={selectedSet}
           disabled={isAnyModalOpen}
+          openBlocked={staleSave}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
@@ -682,6 +701,7 @@ function App() {
           onClose: () => setIsSettingsOpen(false),
           onImportSave: handleImportSave,
           saveWarning,
+          onReload: staleSave ? () => reloadPage() : undefined,
         }} />
       )}
     </div>
