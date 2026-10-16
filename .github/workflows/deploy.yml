@@ -46,7 +46,7 @@ jobs:
       - run: npm run check
       # Verify Hall of Fame issues and bake the list into the site. Results for issues unchanged
       # since the last deploy are cached; the key covers everything that decides a result.
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: hof-build-cache.json
           key: hof-build-${{ hashFiles('src/engine/**', 'src/content/sets/**/*.json', 'src/content/sets/index.ts', 'scripts/hall-of-fame.ts') }}-${{ github.run_id }}
