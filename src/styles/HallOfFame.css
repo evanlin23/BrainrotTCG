@@ -243,3 +243,8 @@
   color: var(--brand);
   font-weight: 600;
 }
+
+.hof-more {
+  min-height: var(--touch-target);
+  margin-top: var(--space-3);
+}

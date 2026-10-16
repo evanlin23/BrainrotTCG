@@ -16,6 +16,12 @@ vi.mock('../../game/profiles', async (importOriginal) => ({
   hydrateMyPacks,
 }));
 const actual = await vi.importActual<typeof import('../../game/profiles')>('../../game/profiles');
+const { getHistory } = vi.hoisted(() => ({ getHistory: vi.fn() }));
+vi.mock('../../game/history', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/history')>()),
+  getHistory,
+}));
+const actualHistory = await vi.importActual<typeof import('../../game/history')>('../../game/history');
 
 let root: Root;
 let container: HTMLElement;
@@ -30,6 +36,7 @@ beforeEach(() => {
   myStats.mockReset().mockImplementation(actual.myStats);
   myPackCacheState.mockReset().mockReturnValue('ready');
   hydrateMyPacks.mockReset().mockResolvedValue('ready');
+  getHistory.mockReset().mockImplementation(actualHistory.getHistory);
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -107,5 +114,37 @@ describe('saved packs still being read', () => {
     act(() => button('Try again').click());
     expect(hydrateMyPacks).toHaveBeenCalledTimes(1);
     expect(button('Re-open the packs instead').disabled).toBe(false);
+  });
+});
+
+describe('pack list order and Rankings wording', () => {
+  const entry = (hand: string, score: number, openedAt: number) => ({
+    setId: 'genesis', setVersion: 1, nonce: openedAt, key: 'abcdef0123456789', cards: null, hand, score, openedAt,
+  });
+  const hands = () => [...document.querySelectorAll('.pull-row-hand')].map((el) => el.firstChild?.textContent);
+  const tab = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((el) => el.textContent?.startsWith(label))!;
+
+  it('lists the best packs first, then newest on request, and names the Rankings filter plainly', () => {
+    // Stored newest first: the oldest pack is the best one.
+    getHistory.mockReturnValue([entry('Pair', 100, 3000), entry('Two Pair', 300, 2000), entry('Full House', 900, 1000)]);
+    render();
+    expect([...document.querySelectorAll('[role="tab"]')].map((el) => el.textContent)).toEqual(['Best', 'Newest', 'For Rankings · 1']);
+    expect(tab('Best').getAttribute('aria-selected')).toBe('true');
+    expect(hands()).toEqual(['Full House', 'Two Pair', 'Pair']);
+    expect(document.querySelector('.pull-row-hand .sr-only')?.textContent).toBe(', qualifies for Rankings');
+
+    act(() => tab('Newest').click());
+    expect(hands()).toEqual(['Pair', 'Two Pair', 'Full House']);
+
+    act(() => tab('For Rankings').click());
+    expect(hands()).toEqual(['Full House']);
+    expect(document.querySelector('.pulls-note')?.textContent).toBe('These qualify for Rankings, the public Hall of Fame. Open one to share it or submit it.');
+  });
+
+  it('says what qualifies for Rankings when nothing does yet', () => {
+    getHistory.mockReturnValue([entry('Pair', 100, 3000)]);
+    render();
+    act(() => tab('For Rankings').click());
+    expect(document.querySelector('.pulls-note')?.textContent).toMatch(/^None yet: a Full House or better, or a Brainrot Score of [\d,]+\+, qualifies for Rankings\.$/);
   });
 });

@@ -91,7 +91,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   opens something), not cards in a grid. Sound & display uses grouped rows with `.switch` toggles.
 - **App nav** (`ui/AppNav.tsx`): Open packs, My cards, Rankings, each an icon plus a label. My cards
   switches between Cards and Best pulls with its own small nav. The header keeps the player utilities:
-  Player (display name, rewards, Goals & rewards, Save & restore) and a Sound & display gear.
+  Player (display name, rewards, Achievements, Save & restore) and a Sound & display gear.
   Closing Player (Escape, Close or backdrop) saves a changed name; if that fails it stays open once.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The sheet always

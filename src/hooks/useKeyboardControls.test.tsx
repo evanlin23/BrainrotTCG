@@ -104,3 +104,42 @@ describe('Escape during a reveal', () => {
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('modifier keys', () => {
+  const press = (code: string, init: KeyboardEventInit = {}) => {
+    const key = code === 'Space' ? ' ' : code === 'Escape' ? 'Escape' : 'Enter';
+    const event = new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true, ...init });
+    act(() => { document.body.dispatchEvent(event); });
+    act(() => { document.body.dispatchEvent(new KeyboardEvent('keyup', { key, code, bubbles: true })); });
+    return event;
+  };
+  const modifiers: KeyboardEventInit[] = [{ ctrlKey: true }, { metaKey: true }, { altKey: true }];
+
+  it('never opens, flips, closes or leaves a pack with Ctrl, Cmd or Alt held', () => {
+    const onOpenPack = vi.fn();
+    const onCloseSummary = vi.fn();
+    const interact = vi.fn();
+    for (const state of [{ isOpening: false }, { isOpening: true }, { showSummary: true }]) {
+      render({ ...state, onOpenPack, onCloseSummary, handleInteractionRef: { current: interact } });
+      for (const init of modifiers) {
+        for (const code of ['Space', 'Enter', 'NumpadEnter', 'Escape']) {
+          expect(press(code, init).defaultPrevented, `${code} with ${Object.keys(init)[0]}`).toBe(false);
+        }
+      }
+    }
+    expect(onOpenPack).not.toHaveBeenCalled();
+    expect(interact).not.toHaveBeenCalled();
+    expect(onCloseSummary).not.toHaveBeenCalled();
+    expect(onLeave).not.toHaveBeenCalled();
+
+    // The same keys without a modifier still work.
+    render({ isOpening: false, onOpenPack });
+    press('Space');
+    expect(onOpenPack).toHaveBeenCalledTimes(1);
+    render({ isOpening: true, handleInteractionRef: { current: interact } });
+    press('Enter');
+    expect(interact).toHaveBeenCalledTimes(1);
+    press('Escape');
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+});

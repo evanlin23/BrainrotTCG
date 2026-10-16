@@ -130,7 +130,7 @@ const proofState = async (page: Page) => ({
 /**
  * Back on the opener, reaches every destination through the real navigation: the main nav (Open
  * packs, My cards, Rankings), the personal nav inside My cards (Cards, Best pulls), and the header
- * utilities (Player, with Goals & rewards and Save & restore, and the Sound & display gear). Each one
+ * utilities (Player, with Achievements and Save & restore, and the Sound & display gear). Each one
  * must render and give the opener back when it closes. Nothing here saves, imports, exports or submits.
  */
 async function walkDestinations(page: Page) {
@@ -184,8 +184,8 @@ async function walkDestinations(page: Page) {
   let player = dialog('Player');
   await expect(player.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true })).toHaveValue('Browser smoke fixture');
   await expect(player.getByText(/^Player ID #/)).toBeVisible();
-  await player.getByRole('button', { name: 'Goals & rewards', exact: true }).click();
-  const goals = dialog('Goals & rewards');
+  await player.getByRole('button', { name: 'Achievements', exact: true }).click();
+  const goals = dialog('Achievements');
   await expect(goals).toBeVisible();
   await expect(player).toHaveCount(0);
   await close(goals);

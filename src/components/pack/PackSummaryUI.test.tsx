@@ -75,3 +75,12 @@ describe('level progress while saved packs are read', () => {
     expect(hydrateMyPacks).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('special cards line', () => {
+  it('says how many cards are special and which kinds, and is absent for a plain pack', () => {
+    expect(text()).not.toContain('special');
+    const special = cards.map((card, i) => ({ ...card, isHolo: i === 0, finish: i === 1 ? 'GOLD' : null, misprint: i === 1 }) as CardWithMeta);
+    act(() => root.render(<PackSummaryUI openedCards={special} set={set} onClose={() => {}} />));
+    expect(container.querySelector('.summary-cards + .summary-new')?.textContent).toBe('2 special cards · Gold, Holo, Misprint');
+  });
+});

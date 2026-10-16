@@ -68,7 +68,7 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
     return result.status;
   };
   /**
-   * Escape, the backdrop, Close and the Goals and Save links keep the draft the same way leaving the
+   * Escape, the backdrop, Close and the Achievements and Save links keep the draft the same way leaving the
    * field does: save it. If that save fails, stay once so the player sees the error with their draft
    * still there. A pointer press blurs the field first, and that blur already saved (and announced)
    * the draft, so a draft that just failed is not written or announced a second time.
@@ -113,7 +113,7 @@ export default function PlayerPage({ level, settings, onSettingsChange, onClose,
       <p role="status"><span key={failures}>{nameStatus}</span></p>
     </section>
     <div className="personal-nav">
-      <button type="button" className="btn btn--secondary" onClick={() => leave(onOpenGoals)}>Goals & rewards</button>
+      <button type="button" className="btn btn--secondary" onClick={() => leave(onOpenGoals)}>Achievements</button>
       <button type="button" className="btn btn--secondary" onClick={() => leave(onOpenSave)}>Save & restore</button>
     </div>
     {level === null ? (
