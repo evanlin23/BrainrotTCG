@@ -4,6 +4,7 @@ import {
   firstPulls,
   HALL_OF_FAME_DAILY_TOP,
   HALL_OF_FAME_TOP,
+  hallOfFameJoin,
   hallOfFameList,
   previousUtcDay,
   topPulls,
@@ -95,6 +96,24 @@ describe('daily board (UTC)', () => {
     expect(today).toHaveLength(HALL_OF_FAME_DAILY_TOP);
     expect(today[0].id).toBe(`d${HALL_OF_FAME_DAILY_TOP + 9}`);
     expect(today[today.length - 1].id).toBe('d10');
+  });
+
+  it("lets a qualifying pull outside the all-time list join today's top", () => {
+    const top = Array.from({ length: HALL_OF_FAME_TOP }, (_, i) => entry(`p${i}`, 1000 + i)); // full, Oct 1
+    const today = (n: number) => Array.from({ length: n }, (_, i) => at(`d${i}`, 100 + i, `2026-10-16T12:00:${String(i).padStart(2, '0')}.000Z`));
+    const low = { id: 'x', setId: 'set-a', score: score(120) };
+    expect(hallOfFameJoin(low, top)).toBeNull(); // no day: only the all-time list counts
+    expect(hallOfFameJoin(low, top, '2026-10-16')).toBe('daily'); // room on today's board
+    expect(hallOfFameJoin({ ...low, score: score(1001) }, top, '2026-10-16')).toBe('all-time');
+    expect(hallOfFameJoin({ ...low, setId: 'set-b' }, top, '2026-10-16')).toBe('all-time'); // a first stays all-time
+    const full = [...top, ...today(HALL_OF_FAME_DAILY_TOP)]; // today's 50th scores 100
+    expect(hallOfFameJoin({ ...low, score: score(101) }, full, '2026-10-16')).toBe('daily'); // beats today's lowest
+    expect(hallOfFameJoin({ ...low, score: score(100) }, full, '2026-10-16')).toBeNull(); // a tie goes to the earlier one
+    expect(hallOfFameJoin({ ...low, score: score(101) }, full, '2026-10-17')).toBe('daily'); // a new day starts empty
+    expect(hallOfFameJoin({ ...low, score: score(900, 'PAIR') }, top, '2026-10-16')).toBeNull(); // doesn't qualify
+    expect(hallOfFameJoin({ ...low, id: 'd3' }, full, '2026-10-16')).toBeNull(); // already in
+    expect(wouldJoinHallOfFame({ ...low, score: score(101) }, full, '2026-10-16')).toBe(true);
+    expect(wouldJoinHallOfFame({ ...low, score: score(100) }, full, '2026-10-16')).toBe(false);
   });
 
   it('ranks pending entries with filed ones, and a filed pull keeps its credit over a pending copy', () => {

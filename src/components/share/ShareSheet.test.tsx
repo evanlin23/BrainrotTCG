@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PackScore } from '../../engine';
+import { wouldJoinHallOfFame, type PackScore } from '../../engine';
 import { DEFAULT_SET_ID } from '../../content/sets';
 import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
 import ShareSheet from './ShareSheet';
@@ -71,5 +71,16 @@ describe('Hall of Fame in the pack share sheet', () => {
     expect(document.querySelector('.share-hof')).toBeNull();
     const listed = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('in the Hall of Fame'));
     expect(inOrder(['.share-actions-main', listed, '.share-preview', '.share-pack-cards'])).toBe(true);
+  });
+
+  it('counts today’s top (UTC) when deciding whether to offer the submit', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-16T23:30:00-05:00'));
+    try {
+      await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(vi.mocked(wouldJoinHallOfFame)).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'pull-1' }), [], '2026-10-17');
   });
 });

@@ -193,7 +193,7 @@ const HallOfFamePage = () => {
       Pull a Full House or better (or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+), share it, and submit it from the share sheet.
     </>
   );
-  const proofNote = 'Every pull here was re-derived from its proof when it was filed; open one to check it yourself.';
+  const proofNote = 'Filed pulls were re-derived from their proofs when they were filed, and “Just submitted” ones on this device. Open one to check it yourself.';
 
   return (
     <div className="hall-of-fame">

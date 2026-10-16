@@ -196,13 +196,20 @@ House, 4 of a Kind and 5 of a Kind in each set. The published file also keeps th
 on the build's UTC day and the day before (`dailyPulls`, by `submittedAt`), which Rankings' Today tab
 and its "yesterday's best" read. The output is bounded by 100, plus three firsts per set, plus 100
 daily entries, with overlapping entries deduplicated; it grows with the number of sets. The rules
-live in `src/engine/hallOfFame.ts`. The share sheet and intake test whether a qualifying pull would
-join the available published snapshot; when it cannot be loaded, they fall back to qualification.
-They rank against the top 100 and firsts only, so the daily entries never change who qualifies.
-Intake still files only pulls that would join the top 100 or be a first, so once the top 100 is
-full, Today shows those pulls rather than every qualifying pull of the day.
+live in `src/engine/hallOfFame.ts`. The share sheet, intake and the page's pending check test whether
+a qualifying pull would join the available published snapshot (`hallOfFameJoin`): beat the 100th
+place, be a first, or make the top 50 of the current UTC day. When the snapshot cannot be loaded,
+they fall back to qualification. A pull that joins only through the daily top gets the `daily` label
+instead of `verified` (both workflows create the label if it's missing); intake refusals name the
+lowest of those bars. The proof checks are the same for both labels: `verifyProof` at intake, the
+bot's marker comment, and the re-check in the build.
 The deploy writes the ranked list. Workflows attempt to close verified issues, and the build reads
-both open and closed states. Deploys keep each verified issue's result
+both open and closed states. It lists every `verified` issue, but `daily` issues only when updated
+since 00:00 UTC the day before (`since=`), and keeps a daily-only entry only when its `submittedAt`
+falls on the build's day or the day before, so old daily issues cost nothing. The inbox lists
+`verified` issues plus any `hall-of-fame` issue updated in the last eight days. Each listing stops at
+100 pages of 100 issues; past that, the build and the inbox fail instead of publishing or filing
+against part of the list. Deploys keep each verified issue's result
 in the Actions cache, keyed on the engine, the sets and the script. Unchanged issues can reuse their
 verification result, but the build still lists verified issues across open and closed states; cache
 misses, changed inputs and API failures affect work and freshness.
@@ -262,8 +269,8 @@ destinations. Best versions of this card opens from a card's details.
   multiplier is never below 1), so every card worth `HALL_OF_FAME_MIN_SCORE` or more sits in a
   pack that qualified. That bound holds only over every filed issue, not over the pruned
   `hallOfFameList`. It also holds only while the top 100 has room: once it fills, intake refuses
-  packs that don't beat the 100th place, so the bound rises to just above the highest 100th-place
-  score intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
+  packs that beat neither the 100th place nor that UTC day's 50th, so the bound rises to just above
+  the highest such bar (the lower of the two) intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
   (`below-intake-minimum`). So the card board lists only cards worth at least 20,000 and stays
   partial until intake has filed enough of them to fill it.
 - **Daily boards** come later.

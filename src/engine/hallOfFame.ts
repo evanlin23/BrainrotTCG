@@ -89,16 +89,26 @@ export const hallOfFameList = <T extends RankableEntry>(entries: readonly T[], d
 };
 
 /**
- * Whether a pull verified now would join the list: it qualifies, and it either beats the lowest of
- * the top pulls (or there's room), or it's the first of its hand in its set. A pull already listed
- * doesn't join again.
+ * Why a pull verified now would join the list, or null if it wouldn't. It has to qualify and not be
+ * listed already. 'all-time': it beats the lowest of the top pulls (or there's room), or it's the
+ * first of its hand in its set. 'daily': it misses those but makes the top of `day` (UTC,
+ * YYYY-MM-DD): there's room, or it beats the lowest (a tie goes to the earlier one). Without a day,
+ * only the all-time list counts.
  */
-export const wouldJoinHallOfFame = (
+export const hallOfFameJoin = (
   pull: { id: string; setId: string; score: PackScore },
   list: readonly RankableEntry[],
-): boolean => {
-  if (!qualifiesForHallOfFame(pull.score) || list.some((e) => e.id === pull.id)) return false;
+  day?: string,
+): 'all-time' | 'daily' | null => {
+  if (!qualifiesForHallOfFame(pull.score) || list.some((e) => e.id === pull.id)) return null;
   const top = topPulls(list);
-  if (top.length < HALL_OF_FAME_TOP || pull.score.score > top[top.length - 1].score) return true;
-  return pull.score.hand.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER && !list.some((e) => firstKey(e) === firstKey({ setId: pull.setId, hand: pull.score.hand.name }));
+  if (top.length < HALL_OF_FAME_TOP || pull.score.score > top[top.length - 1].score) return 'all-time';
+  if (pull.score.hand.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER && !list.some((e) => firstKey(e) === firstKey({ setId: pull.setId, hand: pull.score.hand.name }))) return 'all-time';
+  if (!day) return null;
+  const today = dailyPulls(list, day);
+  return today.length < HALL_OF_FAME_DAILY_TOP || pull.score.score > today[today.length - 1].score ? 'daily' : null;
 };
+
+/** Whether a pull verified now would join the list, on the all-time list or `day`'s top (see `hallOfFameJoin`). */
+export const wouldJoinHallOfFame = (pull: { id: string; setId: string; score: PackScore }, list: readonly RankableEntry[], day?: string): boolean =>
+  hallOfFameJoin(pull, list, day) !== null;

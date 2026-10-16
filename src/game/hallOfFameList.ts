@@ -2,7 +2,7 @@
  * The published Hall of Fame (public/hall-of-fame.json, built by scripts/hall-of-fame.ts during
  * deploy): the top pulls and each set's firsts. Nothing in it is trusted; the page re-checks entries.
  */
-import { decodeProof, pullId, wouldJoinHallOfFame, type Finish, type RankableEntry } from '../engine';
+import { decodeProof, pullId, utcDay, wouldJoinHallOfFame, type Finish, type RankableEntry } from '../engine';
 import { checkPull } from './pulls';
 import { wasSubmitted } from './share';
 
@@ -91,7 +91,8 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
     if (signal.aborted) return;
     try {
       const pull = await checkPull(proof, signal);
-      if (!wouldJoinHallOfFame({ id, setId: pull.set.id, score: pull.score }, list)) continue;
+      // The same test the inbox applies before filing it: the top pulls, a first, or today's top (UTC).
+      if (!wouldJoinHallOfFame({ id, setId: pull.set.id, score: pull.score }, list, utcDay(new Date().toISOString()))) continue;
       const entry: HallOfFameEntry = {
         id,
         proof,

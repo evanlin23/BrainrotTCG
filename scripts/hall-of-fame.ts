@@ -4,8 +4,10 @@
  *
  *   npx tsx scripts/hall-of-fame.ts verify-issue   (Actions, on an issue event)
  *     Reads the issue from $GITHUB_EVENT_PATH, verifies its pull link and writes
- *     hof-comment.md plus `verified`, `changed` to $GITHUB_OUTPUT. A verified
- *     comment carries a marker with the pull id.
+ *     hof-comment.md plus `verified`, `changed` and `label` to $GITHUB_OUTPUT. A
+ *     verified comment carries a marker with the pull id. `label` is `verified`
+ *     for a pull that makes the all-time list (top pulls or a first), or `daily`
+ *     for one that only makes the day's top (see "Labels" below).
  *
  *   npx tsx scripts/hall-of-fame.ts inbox           (Actions, on a schedule)
  *     Reads submissions sent without a GitHub account through public Nostr relays
@@ -16,7 +18,8 @@
  *     (cached between runs) so junk isn't re-checked every time.
  *
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
- *     Lists verified Hall of Fame issues, verifies each proof, and writes the
+ *     Lists verified Hall of Fame issues (and `daily` ones from the day before
+ *     on), verifies each proof, and writes the
  *     list (the top pulls, each set's firsts, and the daily top of the build's
  *     UTC day and the day before; src/engine/hallOfFame.ts) to
  *     public/hall-of-fame.json. Results are kept in hof-build-cache.json (cached
@@ -26,6 +29,12 @@
  *
  * The inbox and the issue verifier only add a pull that would join the list, so
  * the number of entries stays about the same however many people play.
+ *
+ * Labels: a pull that makes the top pulls or is a first is labelled `verified`
+ * and is listed by every deploy. One that only makes its UTC day's top (up to
+ * 50 a day) is labelled `daily`, and deploys only list those updated since the
+ * day before, so the issues a deploy reads don't grow with the daily ones.
+ * Every issue listing reads all its pages, and fails rather than stop short.
  *
  * "World first" order uses the time the bot first verified that exact pull on
  * the issue (its marker comment), not the issue's creation date: otherwise
@@ -40,9 +49,12 @@ import { getSet } from '../src/content/sets/index.ts';
 import {
   decodeProof,
   extractProof,
+  dailyPulls,
+  HALL_OF_FAME_DAILY_TOP,
   HALL_OF_FAME_MIN_MULTIPLIER,
   HALL_OF_FAME_MIN_SCORE,
   HALL_OF_FAME_TOP,
+  hallOfFameJoin,
   hallOfFameList,
   previousUtcDay,
   pullId,
@@ -50,7 +62,6 @@ import {
   topPulls,
   utcDay,
   verifyProof,
-  wouldJoinHallOfFame,
   type RankableEntry,
   type VerifiedPull,
   type Finish,
@@ -96,6 +107,10 @@ interface Issue {
 }
 
 const labelNames = (issue: Issue) => issue.labels.map((l) => (typeof l === 'string' ? l : l.name ?? ''));
+/** Accepted only for its day's top (see "Labels" above). */
+const isDailyOnly = (issue: Issue) => labelNames(issue).includes('daily') && !labelNames(issue).includes('verified');
+/** The UTC day now (YYYY-MM-DD), for the daily top. */
+const today = () => utcDay(new Date().toISOString());
 
 /** Plain text for markdown: no formatting, mentions, issue references or links. */
 const safe = (text: string) =>
@@ -163,8 +178,11 @@ const firstVerifiedAt = async (issue: number, id: string, token: string): Promis
     const batch = await github<Comment[]>(`/repos/${REPO}/issues/${issue}/comments?per_page=100&page=${page}`, token);
     const hit = batch.find((c) => c.user?.login === BOT && c.body?.includes(markerFor(id)));
     if (hit) return hit.created_at;
-    if (batch.length < 100) break;
+    if (batch.length < 100) return null;
   }
+  // Not silent: past this many comments the marker isn't looked for. Not an error either, since
+  // anyone can comment, and one busy issue mustn't stop every deploy.
+  console.warn(`#${issue}: more than ${19 * 100} comments; stopped looking for the verified marker`);
   return null;
 };
 
@@ -199,14 +217,21 @@ const publishedList = async (): Promise<RankableEntry[] | null> => {
   }
 };
 
-/** Why a verified pull doesn't join the list, or null if it does. */
-const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[]): string | null => {
-  const candidate = { id: pullId(pull.proof), setId: pull.set.id, score: pull.score };
-  if (wouldJoinHallOfFame(candidate, list)) return null;
+const candidateOf = (pull: VerifiedPull) => ({ id: pullId(pull.proof), setId: pull.set.id, score: pull.score });
+
+/** The label for a pull joining the list today (`verified` when the published list can't be read). */
+const joinLabel = (pull: VerifiedPull, list: readonly RankableEntry[] | null, day = today()): 'verified' | 'daily' =>
+  list && hallOfFameJoin(candidateOf(pull), list, day) === 'daily' ? 'daily' : 'verified';
+
+/** Why a verified pull doesn't join the list (all-time or `day`'s top), or null if it does. */
+const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day = today()): string | null => {
+  const candidate = candidateOf(pull);
+  if (hallOfFameJoin(candidate, list, day)) return null;
   if (list.some((e) => e.id === candidate.id)) return 'This pull is already in the Hall of Fame.';
-  const lowest = topPulls(list).at(-1)?.score ?? 0;
+  // Turned down, so the top pulls and the day's top are both full: either bar lets it in.
+  const lowest = Math.min(topPulls(list).at(-1)?.score ?? 0, dailyPulls(list, day).at(-1)?.score ?? 0);
   const first = pull.score.hand.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER ? `, or be the first ${pull.score.hand.name} in ${safe(pull.set.name)}` : '';
-  return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP} and the first of each hand in each set. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}${first}.`;
+  return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP}, the first of each hand in each set, and the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}${first}.`;
 };
 
 export const verifyIssue = async () => {
@@ -222,28 +247,54 @@ export const verifyIssue = async () => {
       console.warn(`Could not read earlier comments; treating this as a new verification. ${error}`);
     }
   }
-  // A new verification only goes in if it would join the list (the top pulls, or a first).
+  // A new verification only goes in if it would join the list (the top pulls, a first, or today's
+  // top). The same pull verified again keeps the label it has.
+  let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
   if (result.ok && !already) {
     const list = await publishedList();
-    const reason = list && joinRefusal(result.pull, list);
+    const day = today();
+    const reason = list && joinRefusal(result.pull, list, day);
     if (reason) result = { ok: false, reason };
+    else label = joinLabel(result.pull, list, day);
   }
   const body = result.ok ? verifiedComment(result.entry, result.pull) : `❌ **Not added.** ${result.reason}${FOOTER}`;
   writeFileSync('hof-comment.md', body);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `verified=${result.ok}\nchanged=${!already}\n`);
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `verified=${result.ok}\nchanged=${!already}\nlabel=${label}\n`);
   console.log(already ? 'Already verified this pull on this issue; nothing to do.' : body);
 };
 
-/** Issues the bot has verified (it adds both labels; submitters can't add labels themselves). */
-const listVerifiedIssues = async (token: string): Promise<Issue[]> => {
+/** Pages one issue listing may read (100 issues each). */
+export const ISSUE_PAGES = 100;
+/** A listing with more issues than it may read: failing beats publishing or deduping against part of it. */
+class TooManyIssues extends Error {}
+
+/**
+ * Every issue (not pull request) an issue listing returns, all pages. If the last page it may read is
+ * still full, it fails rather than leave issues out without a word.
+ */
+const listIssues = async (query: string, token: string): Promise<Issue[]> => {
   const issues: Issue[] = [];
-  for (let page = 1; page < 100; page++) {
-    const batch = await github<Issue[]>(`/repos/${REPO}/issues?state=all&labels=hall-of-fame,verified&per_page=100&page=${page}`, token);
+  for (let page = 1; page <= ISSUE_PAGES; page++) {
+    const batch = await github<Issue[]>(`/repos/${REPO}/issues?state=all&${query}&per_page=100&page=${page}`, token);
     issues.push(...batch.filter((i) => !i.pull_request));
-    if (batch.length < 100) break;
+    if (batch.length < 100) return issues;
   }
-  return issues;
+  throw new TooManyIssues(`More than ${ISSUE_PAGES * 100} issues match "${query}"; not reading a partial list`);
 };
+
+/** Each issue once, by number. */
+const byNumber = (issues: readonly Issue[]) => [...new Map(issues.map((i) => [i.number, i])).values()];
+
+/**
+ * Issues the bot has verified (it adds the labels; submitters can't add labels themselves): every
+ * `verified` one, and the `daily` ones changed since the start of the day before `day` (only those
+ * can make the daily tops `build` publishes).
+ */
+const listVerifiedIssues = async (token: string, day: string): Promise<Issue[]> =>
+  byNumber([
+    ...(await listIssues('labels=hall-of-fame,verified', token)),
+    ...(await listIssues(`labels=hall-of-fame,daily&since=${previousUtcDay(day)}T00:00:00Z`, token)),
+  ]);
 
 /** Each verified issue's result as of its last change (see `build`). */
 const BUILD_CACHE = 'hof-build-cache.json';
@@ -261,6 +312,8 @@ export const listToPublish = <T extends RankableEntry>(verified: readonly T[], n
 };
 
 export const build = async (output = OUTPUT) => {
+  const now = new Date();
+  const day = utcDay(now.toISOString());
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     if (!existsSync(output)) writeFileSync(output, '[]\n');
@@ -269,8 +322,9 @@ export const build = async (output = OUTPUT) => {
   }
   let issues: Issue[];
   try {
-    issues = (await listVerifiedIssues(token)).filter((i) => !labelNames(i).includes('rejected'));
+    issues = (await listVerifiedIssues(token, day)).filter((i) => !labelNames(i).includes('rejected'));
   } catch (error) {
+    if (error instanceof TooManyIssues) throw error; // fail the deploy rather than drop entries
     // Don't block a deploy on the Issues API: the committed file is still a verified snapshot.
     if (!existsSync(output)) writeFileSync(output, '[]\n');
     console.warn(`Could not list Hall of Fame issues; keeping the existing hall-of-fame.json. ${error}`);
@@ -308,7 +362,12 @@ export const build = async (output = OUTPUT) => {
     verified.push(entry);
   }
   writeFileSync(BUILD_CACHE, JSON.stringify(next));
-  const entries = listToPublish(verified);
+  // A `daily` pull only counts on the day it was verified (an older one listed because it changed
+  // since yesterday stays out).
+  const days = [day, previousUtcDay(day)];
+  const dailyOnly = new Set(issues.filter(isDailyOnly).map((i) => i.number));
+  const counted = verified.filter((e) => !dailyOnly.has(e.issue) || days.includes(utcDay(e.submittedAt)));
+  const entries = listToPublish(counted, now);
   for (const e of entries) console.log(`#${e.issue}: ${e.hand} (${e.score}), verified ${e.submittedAt}`);
   writeFileSync(output, JSON.stringify(entries, null, 1) + '\n');
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);
@@ -341,26 +400,26 @@ export const inbox = async () => {
   const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES);
   for (const r of perRelay) console.log(relayReadLine(r));
 
-  // Pulls already in the Hall of Fame: only verified issues count, so an issue that never verified
-  // (wrong title, a failed run, or a copy someone opened to block it) can't keep a pull out.
+  // Pulls already in the Hall of Fame: only verified issues count (`verified`, or `daily`), so an
+  // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't
+  // keep a pull out. Every `verified` issue is read; for the rest, the ones changed within the relay
+  // window and a day: a `daily` pull or an unfinished issue from the events read now is among them.
   const filed = new Set<string>();
   // Issues this job opened but didn't finish (it stopped before labelling them): finished next.
   const unfinished = new Map<string, Issue>();
-  for (let page = 1; page < 100; page++) {
-    const batch = await github<Issue[]>(`/repos/${REPO}/issues?state=all&labels=hall-of-fame&per_page=100&page=${page}`, token);
-    for (const issue of batch) {
-      const proof = extractProof(issue.body ?? '');
-      if (!proof || issue.pull_request) continue;
-      let id: string;
-      try {
-        id = pullId(decodeProof(proof));
-      } catch {
-        continue; // not a valid proof; nothing to dedupe against
-      }
-      if (labelNames(issue).includes('verified')) filed.add(id);
-      else if (issue.user?.login === BOT && !unfinished.has(id)) unfinished.set(id, issue);
+  const recent = new Date((since - 24 * 60 * 60) * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
+  const listed = byNumber([...(await listIssues('labels=hall-of-fame,verified', token)), ...(await listIssues(`labels=hall-of-fame&since=${recent}`, token))]);
+  for (const issue of listed) {
+    const proof = extractProof(issue.body ?? '');
+    if (!proof) continue;
+    let id: string;
+    try {
+      id = pullId(decodeProof(proof));
+    } catch {
+      continue; // not a valid proof; nothing to dedupe against
     }
-    if (batch.length < 100) break;
+    if (labelNames(issue).includes('verified') || labelNames(issue).includes('daily')) filed.add(id);
+    else if (issue.user?.login === BOT && !unfinished.has(id)) unfinished.set(id, issue);
   }
 
   // Only pulls that would join the list are filed; each one filed raises the bar for the next.
@@ -377,8 +436,8 @@ export const inbox = async () => {
     log: console.log,
     // Filed by the bot, so the issue-opened workflow doesn't run on it again; the marker comment is
     // the "first verified" time, exactly as for issues people open themselves. The marker goes on
-    // before the `verified` label (`build` only reads labelled issues), and a run that stops between
-    // steps finishes the same issue next time rather than opening another.
+    // before the `verified` (or `daily`) label (`build` only reads labelled issues), and a run that
+    // stops between steps finishes the same issue next time rather than opening another.
     file: async (proof, pull, event) => {
       const id = pullId(pull.proof);
       const earlier = unfinished.get(id);
@@ -393,7 +452,7 @@ export const inbox = async () => {
       if (!earlier || !(await firstVerifiedAt(issue.number, id, token))) {
         await github(`/repos/${REPO}/issues/${issue.number}/comments`, token, { body: verifiedComment(entry, pull) });
       }
-      await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: ['verified'] });
+      await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: [joinLabel(pull, list)] });
       unfinished.delete(id);
       // Done: closed issues stay in the Hall of Fame (the deploy reads every state); this keeps the
       // issue list for things that need attention.

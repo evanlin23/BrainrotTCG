@@ -160,7 +160,7 @@ describe('Hall of Fame loading', () => {
 
     expect(checkPull).not.toHaveBeenCalled();
     expect(rows().map((a) => a.getAttribute('href'))).toEqual(list.map((e) => `#/pull/${e.proof}`));
-    expect(document.querySelector('.hof-panel .hof-note')?.textContent).toContain('Every pull here was re-derived from its proof when it was filed; open one to check it yourself.');
+    expect(document.querySelector('.hof-panel .hof-note')?.textContent).toContain('Filed pulls were re-derived from their proofs when they were filed, and “Just submitted” ones on this device. Open one to check it yourself.');
     expect(document.body.textContent).not.toMatch(/Checking|Failed|re-checked on your device/);
   });
 });
@@ -262,7 +262,7 @@ describe('Rankings tabs', () => {
     const note = document.querySelector('.hof-panel .hof-note')?.textContent;
     const reset = new Date(Date.UTC(2026, 9, 17)).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     expect(note).toContain(`Resets at 00:00 UTC (${reset} your time).`);
-    expect(note).toContain('Every pull here was re-derived from its proof when it was filed; open one to check it yourself.');
+    expect(note).toContain('Filed pulls were re-derived from their proofs when they were filed, and “Just submitted” ones on this device. Open one to check it yourself.');
 
     await select('All-time');
     expect(rows()).toHaveLength(5);
