@@ -101,12 +101,12 @@ afterEach(() => {
 });
 
 describe('usePackCutter short swipes (#312)', () => {
-  it('opens on release after a 30% swipe along the tear line, not before', () => {
+  it('opens on release after a 25% swipe along the tear line, not before', () => {
     down(at(0.35));
     move(at(0.5));
-    move(at(0.65));
+    move(at(0.6));
     expect(onCutComplete).not.toHaveBeenCalled();
-    up(at(0.65));
+    up(at(0.6));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
@@ -130,13 +130,13 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
-  it('opens mid-drag once the stroke spans 45%, with no edge to reach', () => {
+  it('opens mid-drag once the stroke spans 30%, with no edge to reach', () => {
     down(at(0.3));
     move(at(0.5));
     expect(onCutComplete).not.toHaveBeenCalled();
-    move(at(0.76));
+    move(at(0.6));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
-    up(at(0.76));
+    up(at(0.6));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
@@ -216,7 +216,7 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('opens mid-drag when a thumb settles 10px down on the seam, then swipes 45% across', () => {
+  it('opens mid-drag when a thumb settles 10px down on the seam, then swipes 30% across', () => {
     down(at(0.3));
     move(at(0.3, 10));
     move(at(0.5, 10));
@@ -229,9 +229,9 @@ describe('usePackCutter short swipes (#312)', () => {
     // 6px down is a finger settling, not a scroll.
     down(at(0.3));
     move(at(0.3, 6));
-    move(at(0.6, 6));
+    move(at(0.55, 6));
     expect(onCutComplete).not.toHaveBeenCalled();
-    up(at(0.6, 6));
+    up(at(0.55, 6));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
@@ -278,7 +278,7 @@ describe('usePackCutter short swipes (#312)', () => {
   });
 
   it('does not open mid-drag on a 50% stroke that goes further down than across', () => {
-    // 160px across is past the 144px (45%) that opens mid-drag, but it's 200px down.
+    // 160px across is past the 96px (30%) that opens mid-drag, but it's 200px down.
     down(at(0.2));
     move(at(0.7, 200));
     expect(onCutComplete).not.toHaveBeenCalled();
@@ -302,9 +302,9 @@ describe('usePackCutter short swipes (#312)', () => {
 
   it('does not open on release once a sheet has opened over the pack mid-stroke', () => {
     down(at(0.3));
-    move(at(0.6));
+    move(at(0.55));
     render(true);
-    expect(() => up(at(0.6))).not.toThrow();
+    expect(() => up(at(0.55))).not.toThrow();
     expect(onCutComplete).not.toHaveBeenCalled();
     // Nothing is left half-done: once the sheet closes, the next stroke opens as usual.
     render();
@@ -314,8 +314,8 @@ describe('usePackCutter short swipes (#312)', () => {
 
   it('does not open when the browser cancels the stroke', () => {
     down(at(0.3));
-    move(at(0.6));
-    act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.6))));
+    move(at(0.55));
+    act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.55))));
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 });
@@ -593,7 +593,7 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(frames.size).toBe(0);
   });
 
-  it('opens mid-drag on the move that reaches 45%, and drops its frame', () => {
+  it('opens mid-drag on the move that reaches 30%, and drops its frame', () => {
     renderCounting(true);
     down(at(0.2));
     move(at(0.4));
