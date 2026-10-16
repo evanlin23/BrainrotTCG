@@ -259,7 +259,7 @@ last. The pack summary's `bestPullOrder` lists the earlier slot first instead; b
 | --- | --- | --- | --- | --- |
 | Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
 | Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
-| Best versions of this card (#224) | one card's instances | `pullId#slot` | - | card details |
+| Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
 Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
 destinations. Best versions of this card opens from a card's details.
@@ -270,6 +270,14 @@ destinations. Best versions of this card opens from a card's details.
   modifiers, set id and version, proof and slot.
 - **Independent cutoffs.** One proof can feed both boards. A weak pack with one great card makes
   Best cards without making Best packs.
+- **Best versions.** `cardVersionBoards` builds one all-time board per card, keyed by `cardKey`
+  (`setId/cardId`, as the collection, combos and card pages key it), so every version of a set holds
+  one board and another set's card of the same id stays apart. Each board has its own cutoff, ties
+  and completeness: an other-era instance makes only its card's board partial. A `through` bound
+  certifies one board, so it is refused here; rebuild a card's board with `rebuildBoard`. These boards
+  are complete only with coverage `all`: under the pack intake minimum, a card worth less than it has
+  an empty, partial (`below-intake-minimum`) board. Daily card boards and the card-details view come
+  later.
 - **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
   pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
   until they are re-derived from their proofs.
