@@ -345,3 +345,13 @@
   line-height: 1.1;
   font-weight: 700;
 }
+
+/* The chosen pack's own link, under the shelf. */
+.pack-shelf-share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-5) 0 0;
+  color: var(--text-muted);
+}

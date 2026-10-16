@@ -6,8 +6,12 @@
  * - every page's link-preview tags point at SITE_URL (og:url, when a page has one, at that page's
  *   own address), and the picture they name is in the build, decodes as a JPEG, and has the size
  *   its og:image:width/height tags give (both are required);
+ * - every page has og:title, og:image, twitter:image and a summary_large_image twitter:card;
  * - every share and set page scripts/preview-pages.ts writes for the set registry is there and
- *   forwards to BASE_PATH.
+ *   forwards to BASE_PATH (a set's page to #/set/<set id> there);
+ * - the cache contract (docs/HOSTING.md): everything in assets/ has a content hash in its name, pages
+ *   load their code and styles from there, every other file sits at the top or in p/ or s/, and a
+ *   _headers file, if there is one, marks only assets/ immutable.
  *
  *   npm run build && npm run check:site                      (GitHub Pages, /BrainrotTCG/)
  *   BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/ npm run build    (Cloudflare Pages)
@@ -23,6 +27,7 @@ import path from 'node:path';
 import { checkAssets, type AssetCheck, type AssetValidationError } from './check-card-assets.ts';
 import { isMainModule } from './main-module.ts';
 import { generatePreviews, optionsFromEnv, type PreviewOptions } from './preview-pages.ts';
+import { setLinkHash } from '../src/game/route.ts';
 
 export type SiteCheckOptions = Pick<PreviewOptions, 'outDir' | 'base' | 'site' | 'versions' | 'sets'>;
 
@@ -56,6 +61,57 @@ export const pageUrl = (site: string, file: string): string =>
 export const forwardTarget = (html: string): string | undefined => {
   const match = /location\.replace\(("(?:[^"\\]|\\.)*")/.exec(html);
   return match ? (JSON.parse(match[1]) as string) : undefined;
+};
+
+/** Where in the app a preview page opens when its link carries no pull ('' for Open). */
+export const forwardLanding = (html: string): string => {
+  const match = /location\.replace\(.*: ("(?:[^"\\]|\\.)*")\)\);/.exec(html);
+  return match ? (JSON.parse(match[1]) as string) : '';
+};
+
+/** Where a page in the build should open in the app: a set's page (s/<set id>/) on that set. */
+const expectedLanding = (file: string): string => {
+  const set = /^s\/([^/]+)\/index\.html$/.exec(file);
+  return set ? setLinkHash(set[1]) : '';
+};
+
+/**
+ * The cache contract (docs/HOSTING.md): Vite names everything in assets/ by a hash of its content,
+ * so a host may keep those forever; everything else keeps its name between deploys and must
+ * revalidate. A file that keeps its name can only be at the top (public/ and index.html) or in the
+ * preview pages' p/ and s/.
+ */
+export const HASHED_ASSET = /^assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/;
+const REVALIDATED = /^(?:[^/]+|[ps]\/.+)$/;
+
+/** Problems with a build's file names, and its _headers file if it has one, against the cache contract. */
+export const checkCacheContract = (files: readonly string[], base: string, headers?: string): AssetValidationError[] => {
+  const errors: AssetValidationError[] = [];
+  for (const file of files) {
+    if (file === '_headers') continue;
+    if (file.startsWith('assets/')) {
+      if (!HASHED_ASSET.test(file)) errors.push({ path: file, error: "Has no content hash in its name, but assets/ is cached as if it never changes" });
+    } else if (!REVALIDATED.test(file)) {
+      errors.push({ path: file, error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' });
+    }
+  }
+  if (headers === undefined) return errors;
+  // Netlify/Cloudflare Pages _headers: a path line, then indented "Name: value" lines.
+  let rule = '';
+  let assetsImmutable = false;
+  for (const line of headers.split(/\r?\n/)) {
+    if (!line.trim() || line.trim().startsWith('#')) continue;
+    if (!/^\s/.test(line)) {
+      rule = line.trim();
+      continue;
+    }
+    const [name, ...value] = line.trim().split(':');
+    if (name.trim().toLowerCase() !== 'cache-control' || !/immutable/i.test(value.join(':'))) continue;
+    if (rule === `${base}assets/*`) assetsImmutable = true;
+    else errors.push({ path: '_headers', error: `Marks ${rule} immutable; only ${base}assets/* is hashed` });
+  }
+  if (!assetsImmutable) errors.push({ path: '_headers', error: `Doesn't mark ${base}assets/* immutable` });
+  return errors;
 };
 
 // The build draws every link-preview picture as a JPEG (scripts/preview-pages.ts, public/og-image.jpg).
@@ -118,13 +174,23 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   for (const file of htmlPages) {
     const html = readFileSync(path.join(outDir, file), 'utf8');
     for (const [, link] of html.matchAll(/\s(?:src|href)="([^"]*)"/g)) checkLink(file, unescape(link));
+    // The page's own code and styles are hashed (the cache contract), and so stay under assets/.
+    for (const [, tag] of html.matchAll(/(<script\b[^>]*\bsrc="[^"]*"[^>]*>|<link\b[^>]*\brel="(?:stylesheet|modulepreload)"[^>]*>)/g)) {
+      const link = unescape(/\b(?:src|href)="([^"]*)"/.exec(tag)?.[1] ?? '');
+      if (link.startsWith('/') && !link.startsWith(`${base}assets/`)) fail(file, `Loads ${link}, outside ${base}assets/, so it isn't hashed`);
+    }
     const forward = forwardTarget(html);
     if (forward !== undefined) {
       if (forward !== base) fail(file, `Forwards to ${forward}, not BASE_PATH ${base}`);
-      checkLink(file, forward);
+      const landing = forwardLanding(html);
+      if (landing !== expectedLanding(file)) fail(file, `Opens the app at '${landing}', not '${expectedLanding(file)}'`);
+      checkLink(file, forward + landing);
     }
 
     const meta = metaTags(html);
+    // Every page is one a link can point at, so every page previews as a large picture.
+    for (const key of ['og:title', 'og:image', 'twitter:image']) if (!meta.get(key)) fail(file, `Has no ${key}`);
+    if (meta.get('twitter:card') !== 'summary_large_image') fail(file, `twitter:card is ${meta.get('twitter:card') ?? 'missing'}, not summary_large_image`);
     const url = meta.get('og:url');
     if (url !== undefined && url !== pageUrl(site, file)) fail(file, `og:url is ${url}, not ${pageUrl(site, file)}`);
     for (const key of ['og:image', 'twitter:image']) {
@@ -163,6 +229,9 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   for (const [page, what] of expected) {
     if (!present.has(page)) fail(page, `Missing: the preview page for ${what}`);
   }
+
+  const headersFile = path.join(outDir, '_headers');
+  errors.push(...checkCacheContract(files, base, existsSync(headersFile) ? readFileSync(headersFile, 'utf8') : undefined));
 
   const decoded = await checkAssets([...images.values()], concurrency, outDir);
   errors.push(...decoded.errors.map(({ path: file, error }) => ({ path: file.split(path.sep).join('/'), error })));

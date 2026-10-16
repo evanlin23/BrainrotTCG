@@ -25,6 +25,12 @@ jobs:
           key: previews-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp') }}
           restore-keys: previews-
       - run: npm run test:browser
+      # The deploy also builds for the root on Cloudflare Pages (docs/HOSTING.md): smoke that build too.
+      - name: Smoke the build for the root path
+        env:
+          BASE_PATH: /
+          SITE_URL: https://brainrottcg.pages.dev/
+        run: npx playwright test tests/browser/built-site.spec.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

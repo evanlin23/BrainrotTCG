@@ -5,6 +5,9 @@ import { isNewSet, setCode } from '../../content/sets';
 import { packThumbUrl } from '../../content/art';
 import type { CollectionItem } from '../../types';
 import { setProgress } from '../../game/progression';
+import { siteUrl } from '../../game/pulls';
+import { setPagePath } from '../../game/previewLinks';
+import { copyText } from '../../game/shareActions';
 import Sheet from '../ui/Sheet';
 import SetBadge from './SetBadge';
 import '../../styles/Sets.css';
@@ -36,6 +39,7 @@ const palette = (set: SetDefinition) => {
  */
 const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }: SetPickerProps) => {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   if (sets.length < 2) return null;
 
   const index = Math.max(0, sets.findIndex((s) => s.id === selectedId));
@@ -45,6 +49,13 @@ const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }:
   const { owned, size, done } = progressOf(set, collection);
   // A new drop while you're on another era: a dot on the button that lists them.
   const newElsewhere = sets.some((s) => s.id !== set.id && isNewSet(s));
+  // A released set's own link previews as that set in chat apps and opens the packs screen on it.
+  const copySetLink = async () => {
+    if (await copyText(`${siteUrl()}${setPagePath(set.id)}`)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }
+  };
 
   return (
     <nav className="set-picker" aria-label="Choose a pack">
@@ -141,6 +152,14 @@ const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }:
               );
             })}
           </ul>
+          {!set.draft && (
+            <p className="pack-shelf-share">
+              <button type="button" className="btn btn--secondary btn--sm" onClick={copySetLink}>
+                Copy link to {set.name}
+              </button>
+              <span role="status">{copied ? 'Link copied' : ''}</span>
+            </p>
+          )}
         </Sheet>
       )}
     </nav>

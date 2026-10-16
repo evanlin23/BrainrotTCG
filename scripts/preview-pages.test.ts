@@ -7,6 +7,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { SETS } from '../src/content/sets/index.ts';
 import { RARITIES_RAREST_FIRST, type SetDefinition } from '../src/engine/index.ts';
 import { cardPreviewPath, previewPath } from '../src/game/previewLinks.ts';
+import { setIdFromHash } from '../src/game/route.ts';
 import { generatePreviews, optionsFromEnv, page, setStubs } from './preview-pages.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -16,6 +17,8 @@ const INDEX_HTML = readFileSync(`${ROOT}index.html`, 'utf8');
 const tags = (html: string): Map<string, string> =>
   new Map([...html.matchAll(/<meta (?:property|name)="((?:og|twitter):[^"]+)" content="([^"]*)"/g)].map((m) => [m[1], m[2]]));
 const redirectTarget = (html: string) => JSON.parse(/location\.replace\(("[^"]*")/.exec(html)![1]) as string;
+/** Where a page goes when its link carries no pull. */
+const landingOf = (html: string) => JSON.parse(/: ("[^"]*")\)\);<\/script>/.exec(html)![1]) as string;
 
 // The two hosts (docs/HOSTING.md), and the old GitHub Pages address after a move, whose pages
 // forward through its redirect page and show pictures from the new address.
@@ -58,6 +61,8 @@ describe('setStubs', () => {
       expect(stub.path).toBe(`s/${stub.setId}/index.html`);
       expect(stub.url).toBe(`s/${stub.setId}/`);
       expect(stub.imagePath).toBe(`s/${stub.setId}/preview.jpg`);
+      expect(stub.landing).toBe(`#/set/${stub.setId}`);
+      expect(setIdFromHash(stub.landing)).toBe(stub.setId);
     }
   });
 
@@ -105,6 +110,23 @@ describe('page', () => {
     const html = page({ title: 't', description: 'd', image: 'https://example.test/i.jpg' }, base);
     expect(redirectTarget(html)).toBe(base);
     expect(html).toContain(`<a href="${base}">Open Brainrot TCG</a>`);
+    expect(landingOf(html)).toBe('');
+  });
+
+  it.each(HOSTS)("opens a set's page on that set on $name, unless its link carries a pull", ({ base }) => {
+    const html = page({ title: 't', description: 'd', image: 'https://example.test/i.jpg', landing: '#/set/genesis' }, base);
+    expect(redirectTarget(html)).toBe(base);
+    expect(landingOf(html)).toBe('#/set/genesis');
+    expect(html).toContain(`<a href="${base}#/set/genesis">Open Brainrot TCG</a>`);
+    const forward = /<script>(location\.replace\(.*\);)<\/script>/.exec(html)![1];
+    const run = (hash: string) => {
+      let target = '';
+      new Function('location', forward)({ hash, replace: (to: string) => { target = to; } });
+      return target;
+    };
+    expect(run('')).toBe(`${base}#/set/genesis`);
+    expect(run('#/pull/abc')).toBe(`${base}#/pull/abc`);
+    expect(run('#/other')).toBe(`${base}#/set/genesis`);
   });
 });
 
@@ -146,7 +168,9 @@ describe('generatePreviews (pages only)', () => {
         const id = file.split('/')[1];
         expect(relative).toBe(`s/${id}/preview.jpg`);
         expect(meta.get('og:url')).toBe(`${site}s/${id}/`);
+        expect(landingOf(html)).toBe(`#/set/${id}`);
       } else {
+        expect(landingOf(html)).toBe('');
         expect(relative).toMatch(/^p\/img\/[a-z0-9-]+\/([a-z-]+\/)?[a-z0-9_-]+\.jpg$/);
         expect(meta.has('og:url')).toBe(false);
       }
