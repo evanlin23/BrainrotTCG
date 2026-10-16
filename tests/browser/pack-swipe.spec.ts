@@ -109,24 +109,25 @@ test.describe('at a phone size', () => {
     expect(errors).toEqual([]);
   });
 
-  test('a drag that starts on the art neither cuts nor draws, even along the tear line', async ({ page, baseURL, hasTouch }) => {
+  test('a swipe that starts off the tear line neither cuts nor draws, even when it reaches it', async ({ page, baseURL, hasTouch }) => {
     test.setTimeout(60000);
     const errors = await monitor(page, baseURL!);
     const packShell = await sealedPack(page);
     const box = (await packShell.boundingBox())!;
     const xAt = (fraction: number) => box.x + box.width * fraction;
     const tearY = box.y + box.height * 0.19;
-    const artY = box.y + box.height * 0.6;
-    const onPack = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.pack-shell'), [xAt(0.2), artY]);
-    expect(onPack, 'the drag starts on the pack').toBe(true);
+    // Further below the tear line than its widest tolerance (52px), on the art.
+    const startY = tearY + 80;
+    const onPack = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.pack-shell'), [xAt(0.15), startY]);
+    expect(onPack, 'the swipe starts on the pack').toBe(true);
     await watchForCut(packShell);
 
     const finger = await fingerFor(page, hasTouch);
-    await finger.press(xAt(0.2), artY);
+    await finger.press(xAt(0.15), startY);
     // The press missed the seam, so the pack shows where to swipe.
     await expect(packShell).toHaveClass(/\bis-nudged\b/);
-    for (let step = 1; step <= 6; step++) await finger.move(xAt(0.2), artY + ((tearY - artY) * step) / 6);
-    for (let step = 1; step <= 6; step++) await finger.move(xAt(0.2 + (0.6 * step) / 6), tearY);
+    // Plainly across, rising onto the tear line by the end.
+    for (let step = 1; step <= 8; step++) await finger.move(xAt(0.15 + (0.7 * step) / 8), startY + ((tearY - startY) * step) / 8);
     await finger.release();
     await expectNoCut(page, packShell);
 
