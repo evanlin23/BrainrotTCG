@@ -92,7 +92,11 @@
 }
 
 @media (min-width: 900px) {
+  /* The nav sits in the header here, so the header (rings included) layers over the page below it.
+     Not on phones: a z-index there would trap the fixed bottom nav inside the header. */
   .app-header {
+    position: relative;
+    z-index: var(--z-header);
     justify-content: space-between;
     padding-top: var(--space-4);
   }

@@ -15,7 +15,8 @@
 .pack-top-bar {
     position: absolute;
     inset: 0 0 auto;
-    z-index: 1;
+    /* Above the dealt cards and hints, so the X always takes the press. */
+    z-index: var(--z-hud);
     display: grid;
     grid-template-columns: var(--touch-target) minmax(0, 1fr) var(--touch-target);
     align-items: center;
@@ -198,7 +199,7 @@
     -webkit-user-select: none;
     user-select: none;
     touch-action: none;
-    box-shadow: none;
+    /* Its layers (halves, strip, guide, cut line, hint, sparks) stack locally, in that order. */
     isolation: isolate;
 }
 
@@ -309,7 +310,7 @@
     opacity: 0;
     transform-origin: 50% var(--tear-y);
     transition: transform 0.46s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
-    z-index: 3;
+    z-index: 1;
 }
 
 .pack-shell.is-cutting .pack-half-top,
@@ -326,7 +327,7 @@
 .pack-top-piece {
     position: absolute;
     inset: 0;
-    z-index: 4;
+    z-index: 2;
     pointer-events: none;
     transform-origin: 50% var(--tear-y);
     transition: transform 0.46s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
@@ -351,7 +352,7 @@
     /* A printed perforation: steady, so the only thing moving is the finger showing the gesture. */
     border-top: 4px dashed rgba(255, 255, 255, 0.95);
     filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8));
-    z-index: 4;
+    z-index: 2;
     pointer-events: none;
 }
 
@@ -401,7 +402,7 @@
     background: rgba(12, 8, 24, 0.72);
     backdrop-filter: blur(6px);
     box-shadow: var(--shadow-1);
-    z-index: 6;
+    z-index: var(--z-stage-fx);
     pointer-events: none;
 }
 
@@ -444,7 +445,7 @@
     inset: 0;
     width: 100%;
     height: 100%;
-    z-index: 5;
+    z-index: 3;
     pointer-events: none;
     overflow: visible;
 }
@@ -498,7 +499,8 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    z-index: 8;
+    /* After the swipe hint in the DOM, so the sparks still draw over it. */
+    z-index: var(--z-stage-fx);
     overflow: visible;
 }
 
@@ -713,8 +715,10 @@
 }
 
 .reveal-skip:disabled {
-    opacity: 0.35;
-    cursor: default;
+    opacity: var(--opacity-disabled);
+    cursor: not-allowed;
+    outline: 1px dashed currentColor;
+    outline-offset: -1px;
 }
 
 /* The current card and the stack behind it share one grid cell. */
@@ -979,13 +983,8 @@
     font-weight: 600;
 }
 
-/* The pack is also a button for the keyboard. */
-.pack-shell:focus-visible {
-    outline: 3px solid var(--brand);
-    outline-offset: 6px;
-}
-
-/* The pack's edges can sit off screen or under the stage's clip, so the hint on it rings too. */
+/* The pack is also a button for the keyboard and takes the shared ring. Its edges can sit off screen
+   or under the stage's clip, so the hint on it rings too. */
 .pack-shell:focus-visible .swipe-hint {
     box-shadow: var(--focus-ring), var(--shadow-1);
 }
