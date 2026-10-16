@@ -150,9 +150,7 @@ describe('the controls under the pack (#312)', () => {
     await act(async () => {});
   };
 
-  beforeEach(async () => {
-    // A test that unmounts mid-pack steps browser history back; let that land before this one starts.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   });
   afterEach(() => vi.useRealTimers());
@@ -227,8 +225,6 @@ describe('the controls under the pack (#312)', () => {
 describe('the reveal sounds on a first pack', () => {
   // Opens a pack and returns which sounds started downloading, before and after the page goes idle.
   const openAndIdle = async (settings = DEFAULT_SETTINGS) => {
-    // A test that unmounts mid-pack steps browser history back; let that land before this one starts.
-    await new Promise((resolve) => setTimeout(resolve, 0));
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const idle: (() => void)[] = [];
     vi.stubGlobal('requestIdleCallback', (task: () => void) => idle.push(task));

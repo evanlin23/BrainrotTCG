@@ -89,3 +89,24 @@ describe('usePackHistory on a page loaded on a stale pack entry', () => {
     await packStillTakesBack();
   });
 });
+
+describe('usePackHistory after an opener unmounts mid-pack', () => {
+  it("doesn't read the old opener's step back as the player's Back when a new pack starts first", async () => {
+    history.pushState({}, '', '/BrainrotTCG/');
+    mount();
+    act(() => enter(true));
+    expect(onPackEntry()).toBe(true);
+    act(() => root?.unmount());
+    // The new opener's pack starts before the old one's step back has landed.
+    mount();
+    act(() => enter(true));
+    // Let the old step back land, then add the new pack's own entry.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(backs).toBe(0);
+    expect(onPackEntry()).toBe(true);
+    // It holds an entry of its own, so Back still closes it.
+    history.back();
+    await settle(() => backs === 1);
+    expect(onPackEntry()).toBe(false);
+  });
+});

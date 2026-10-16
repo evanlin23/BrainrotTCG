@@ -34,6 +34,21 @@ const unmarkEntry = () => {
 let loadChecked = false;
 
 /**
+ * An unmounted opener's step back is still on its way. Until it lands, the entry it leaves is current and
+ * still marked, so a new opener would reuse it and then read that step back as the player's Back.
+ */
+let strayBack = false;
+const strayLanded = new Set<() => void>();
+const stepBackAfterUnmount = () => {
+  strayBack = true;
+  window.addEventListener('popstate', () => {
+    strayBack = false;
+    strayLanded.forEach((landed) => landed());
+  }, { once: true });
+  history.back();
+};
+
+/**
  * Browser Back inside a pack goes back to the packs screen instead of leaving the site.
  *
  * Entering a pack (`inPack` turning true) adds one history entry (or reuses the current one when
@@ -74,7 +89,7 @@ export const usePackHistory = (inPack: boolean, onBack: () => void) => {
   }, []);
 
   useEffect(() => {
-    if (inPack && !heldRef.current && !poppingRef.current) {
+    if (inPack && !heldRef.current && !poppingRef.current && !strayBack) {
       if (!onPackEntry()) {
         history.pushState({ [PACK_ENTRY]: true }, '');
         window.dispatchEvent(new Event(HISTORY_ENTRY_EVENT));
@@ -106,13 +121,17 @@ export const usePackHistory = (inPack: boolean, onBack: () => void) => {
       rerender();
     };
     window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
+    strayLanded.add(rerender);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      strayLanded.delete(rerender);
+    };
   }, []);
 
   // Unmounted with the entry still held (the set changed under the summary): drop it.
   useEffect(() => () => {
     if (!heldRef.current) return;
     heldRef.current = false;
-    if (stillOnEntry(hrefRef.current)) history.back();
+    if (stillOnEntry(hrefRef.current)) stepBackAfterUnmount();
   }, []);
 };
