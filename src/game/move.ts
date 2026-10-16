@@ -22,15 +22,7 @@ const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
 const OLD_SITE_URL: string = import.meta.env.VITE_OLD_SITE_URL || '';
 const PLAYER_KEY = 'brainrot-player-v1';
 const BACKUP_KEY = 'brainrot-before-move-v1';
-/**
- * While an earlier move's copy is under BACKUP_KEY, a new move's copy waits here and takes BACKUP_KEY's
- * place in one write once the move succeeds. One still here (a move that couldn't be undone, or whose
- * copy couldn't take BACKUP_KEY's place) holds the save from before that move: later moves take no new
- * copy while it's here, and the first to succeed moves it into BACKUP_KEY. So there are never more than
- * these two copies.
- */
-const PENDING_KEY = 'brainrot-before-move-pending-v1';
-/** These and the file import's backup (saveFile.ts): never handed over. */
+/** This one and the file import's backup (saveFile.ts): never handed over. Each move that replaces progress overwrites this one. */
 const isBackupKey = (k: string) => k.startsWith('brainrot-before-');
 /** What makes a save worth keeping: replacing any of these asks first. */
 const PROGRESS_KEYS = [PLAYER_KEY, 'brainrot-found-collection-v1', 'brainrot-history-v1', 'brainrot-stats-v1', 'brainrot-achievements-v1'];
@@ -92,7 +84,7 @@ const restoreKeys = (previous: Map<string, string | null>): boolean => {
   }
   for (const [k, v] of previous) {
     if (v === null) continue;
-    try { localStorage.setItem(k, v); } catch { /* A replaced save is still in the copy just taken. */ }
+    try { localStorage.setItem(k, v); } catch { /* A replaced save is still under BACKUP_KEY. */ }
   }
   return [...previous].every(([k, v]) => {
     try { return localStorage.getItem(k) === v; } catch { return false; }
@@ -102,7 +94,7 @@ const restoreKeys = (previous: Map<string, string | null>): boolean => {
 /**
  * Write a handed-over save into this address's storage. If there's already progress here that isn't
  * the same player, `replace` decides (by asking, unless told otherwise) and the replaced save is kept
- * as a backup (see PENDING_KEY). An earlier move's copy is only replaced once the handover has succeeded.
+ * under BACKUP_KEY.
  */
 export const importSave = (save: unknown, replace: () => boolean = askToReplace): MoveResult => {
   if (!save || typeof save !== 'object') return 'invalid';
@@ -122,20 +114,15 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   if (progress && !replace()) return 'kept';
   // What the incoming writes replace (null: absent), put back if the incoming save doesn't fit.
   const previous = new Map(Object.keys(incoming).map((k): [string, string | null] => [k, localStorage.getItem(k)]));
-  // At most BACKUP_KEY and PENDING_KEY: a copy already pending holds the save from before the move
-  // that left it, so none is taken now. Neither is written over or removed until a move succeeds.
-  let staged: string | null = null;
+  const earlierBackup = localStorage.getItem(BACKUP_KEY);
   let replaced: string[] = [];
   if (progress) {
     const backup = Object.fromEntries(brainrotKeys().filter((k) => !isBackupKey(k)).map((k) => [k, localStorage.getItem(k)]));
-    if (localStorage.getItem(PENDING_KEY) === null) {
-      staged = localStorage.getItem(BACKUP_KEY) === null ? BACKUP_KEY : PENDING_KEY;
-      // A full or unavailable storage area must not cost the player the save being replaced.
-      try {
-        localStorage.setItem(staged, JSON.stringify(backup));
-      } catch (e) {
-        return isQuotaError(e) ? 'full' : 'invalid';
-      }
+    // A full or unavailable storage area must not cost the player the save being replaced.
+    try {
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
+    } catch (e) {
+      return isQuotaError(e) ? 'full' : 'invalid';
     }
     replaced = Object.keys(backup);
     for (const k of replaced) previous.set(k, backup[k]);
@@ -144,24 +131,18 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     for (const k of replaced) localStorage.removeItem(k);
     for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
   } catch (e) {
-    // The copies (the one just taken, or the one already pending) are untouched, so a failed restore
-    // keeps them all; Save & restore then reloads ('partial').
+    // BACKUP_KEY now holds the save that was here (the values `previous` puts back), so a failed
+    // restore leaves that copy; Save & restore then reloads ('partial').
     if (!restoreKeys(previous)) return 'partial';
-    // All back as it was, so the copy just taken goes (removing never needs room).
-    if (staged !== null) {
-      try { localStorage.removeItem(staged); } catch { /* It matches what's back in place. */ }
+    // All back as it was, so an earlier move's backup returns too (if it can't, the copy stays).
+    if (progress) {
+      try {
+        if (earlierBackup === null) localStorage.removeItem(BACKUP_KEY);
+        else localStorage.setItem(BACKUP_KEY, earlierBackup);
+      } catch { /* The copy just taken matches what's back in place. */ }
     }
     return isQuotaError(e) ? 'full' : 'invalid';
   }
-  // Moved (with or without progress here): a pending copy, this move's or one an earlier move left,
-  // takes BACKUP_KEY's place in one write. If that write fails, both stay until a later move succeeds.
-  try {
-    const pending = localStorage.getItem(PENDING_KEY);
-    if (pending !== null) {
-      localStorage.setItem(BACKUP_KEY, pending);
-      localStorage.removeItem(PENDING_KEY);
-    }
-  } catch { /* Both copies stay. */ }
   return 'saved';
 };
 
