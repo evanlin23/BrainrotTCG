@@ -653,7 +653,7 @@ function App() {
       <AchievementToasts
         queue={visibleNotifications}
         onDismiss={dismissNotifications}
-        onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'player'))}
+        onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
         paused={isAnyModalOpen || onPage}
         held={packShowcase}
       />
@@ -711,6 +711,7 @@ function App() {
           onOpenPacks: () => openPage('open'),
           canSave: canWriteSave,
           onSaveFailed: () => setSaveFailed(true),
+          section,
         }} />
       )}
 

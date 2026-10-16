@@ -173,10 +173,10 @@ async function walkDestinations(page: Page, baseURL: string) {
   await navItem('Profile').click();
   await arrive('Profile', '#/profile');
   const profile = pageNamed('Profile');
-  await expect(profile.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true })).toHaveValue('Browser smoke fixture');
+  await expect(profile.getByRole('heading', { level: 2, name: 'Browser smoke fixture', exact: true })).toBeVisible();
   await expect(profile.getByText(/^Player ID #/)).toBeVisible();
   await expect(profile.getByRole('heading', { name: 'Achievements', exact: true })).toBeVisible();
-  await profile.getByRole('button', { name: 'Save & backup', exact: true }).click();
+  await profile.getByRole('button', { name: 'Back up', exact: true }).click();
   const settings = pageNamed('Settings');
   await expect(page).toHaveURL(`${baseURL}#/settings`);
   await expect(settings.getByRole('heading', { name: 'Save & backup', exact: true })).toBeFocused();

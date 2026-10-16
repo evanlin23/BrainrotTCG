@@ -157,7 +157,7 @@ it('keeps actual App pages working without changing the selected pack', async ()
   app = await mountedApp({ ...PLAYER('Pages fixture'), ...RETURNING });
   await app.mount();
   const pack = document.querySelector('.pack-set-name')?.textContent;
-  for (const [target, content] of [['Cards', '.collection'], ['Profile', 'input[autocomplete="nickname"]'], ['Settings', '.settings-group']]) {
+  for (const [target, content] of [['Cards', '.collection'], ['Profile', '#player'], ['Settings', '.settings-group']]) {
     await app.interact(() => { button(target).focus(); button(target).click(); });
     await app.until(`${target} loads its production controls`, () => {
       expect(document.querySelector(`main.page ${content}`)).not.toBeNull();
