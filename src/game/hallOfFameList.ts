@@ -1,7 +1,7 @@
 /**
  * The published Hall of Fame (public/hall-of-fame.json, built by scripts/hall-of-fame.ts during
- * deploy): the top pulls, each set's firsts and the daily tops. The page shows the published entries
- * as built, and re-checks only the pending ones it reads from the relays (`loadPending`).
+ * deploy): the top pulls and the daily tops of the last two UTC days. The page shows the published
+ * entries as built, and re-checks only the pending ones it reads from the relays (`loadPending`).
  */
 import { decodeProof, hallOfFameJoin, pullId, utcDay, type Finish, type RankableEntry } from '../engine';
 import { checkPull } from './pulls';
@@ -96,7 +96,7 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
     if (signal.aborted) return;
     try {
       const pull = await checkPull(proof, signal);
-      // The same test the inbox applies before filing it: the top pulls, a first, or today's top (UTC).
+      // The same test the inbox applies before filing it: the top pulls or today's top (UTC).
       const join = hallOfFameJoin({ id, setId: pull.set.id, score: pull.score }, list, today);
       if (!join || (join === 'daily' && event.created_at < todayStart)) continue;
       const entry: HallOfFameEntry = {

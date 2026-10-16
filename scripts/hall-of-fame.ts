@@ -6,7 +6,7 @@
  *     Reads the issue from $GITHUB_EVENT_PATH, verifies its pull link and writes
  *     hof-comment.md plus `verified`, `changed` and `label` to $GITHUB_OUTPUT. A
  *     verified comment carries a marker with the pull id. `label` is `verified`
- *     for a pull that makes the all-time list (top pulls or a first), or `daily`
+ *     for a pull that makes the all-time top pulls, or `daily`
  *     for one that only makes the day's top (see "Labels" below).
  *
  *   npx tsx scripts/hall-of-fame.ts inbox           (Actions, on a schedule)
@@ -20,8 +20,8 @@
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
  *     Lists verified Hall of Fame issues (and `daily` ones from the day before
  *     on), verifies each proof, and writes the
- *     list (the top pulls, each set's firsts, and the daily top of the build's
- *     UTC day and the day before; src/engine/hallOfFame.ts) to
+ *     list (the top pulls and the daily top of the build's UTC day and the day
+ *     before, at most HALL_OF_FAME_MAX_ENTRIES; src/engine/hallOfFame.ts) to
  *     public/hall-of-fame.json. Results are kept in hof-build-cache.json (cached
  *     between deploys): an issue unchanged since the last deploy isn't checked
  *     again, so a deploy's cost grows with new submissions, not with all of them.
@@ -30,7 +30,7 @@
  * The inbox and the issue verifier only add a pull that would join the list, so
  * the number of entries stays about the same however many people play.
  *
- * Labels: a pull that makes the top pulls or is a first is labelled `verified`
+ * Labels: a pull that makes the top pulls is labelled `verified`
  * and is listed by every deploy. One that only makes its UTC day's top (up to
  * 50 a day) is labelled `daily`, and deploys only list those updated since the
  * day before, so the issues a deploy reads don't grow with the daily ones. So
@@ -39,9 +39,9 @@
  * `daily` (`recentIssuesSince`); one filed again after that can count again.
  * Every issue listing reads all its pages, and fails rather than stop short.
  *
- * "World first" order uses the time the bot first verified that exact pull on
- * the issue (its marker comment), not the issue's creation date: otherwise
- * anyone could open a placeholder issue early and edit a pull in later.
+ * Ties (and a pull's UTC day) use the time the bot first verified that exact
+ * pull on the issue (its marker comment), not the issue's creation date:
+ * otherwise anyone could open a placeholder issue early and edit a pull in later.
  *
  * Security: issue bodies are untrusted input. They are only ever parsed here,
  * never interpolated into a shell command, and echoed only through safe().
@@ -52,17 +52,15 @@ import { getSet } from '../src/content/sets/index.ts';
 import {
   decodeProof,
   extractProof,
-  dailyPulls,
   HALL_OF_FAME_DAILY_TOP,
-  HALL_OF_FAME_MIN_MULTIPLIER,
   HALL_OF_FAME_MIN_SCORE,
   HALL_OF_FAME_TOP,
+  hallOfFameFloor,
   hallOfFameJoin,
   hallOfFameList,
   previousUtcDay,
   pullId,
   qualifiesForHallOfFame,
-  topPulls,
   utcDay,
   verifyProof,
   type RankableEntry,
@@ -223,18 +221,17 @@ const publishedList = async (): Promise<RankableEntry[] | null> => {
 const candidateOf = (pull: VerifiedPull) => ({ id: pullId(pull.proof), setId: pull.set.id, score: pull.score });
 
 /** The label for a pull joining the list today (`verified` when the published list can't be read). */
-const joinLabel = (pull: VerifiedPull, list: readonly RankableEntry[] | null, day = today()): 'verified' | 'daily' =>
+const joinLabel = (pull: VerifiedPull, list: readonly RankableEntry[] | null, day: string): 'verified' | 'daily' =>
   list && hallOfFameJoin(candidateOf(pull), list, day) === 'daily' ? 'daily' : 'verified';
 
 /** Why a verified pull doesn't join the list (all-time or `day`'s top), or null if it does. */
-const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day = today()): string | null => {
+const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day: string): string | null => {
   const candidate = candidateOf(pull);
   if (hallOfFameJoin(candidate, list, day)) return null;
   if (list.some((e) => e.id === candidate.id)) return 'This pull is already in the Hall of Fame.';
   // Turned down, so the top pulls and the day's top are both full: either bar lets it in.
-  const lowest = Math.min(topPulls(list).at(-1)?.score ?? 0, dailyPulls(list, day).at(-1)?.score ?? 0);
-  const first = pull.score.hand.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER ? `, or be the first ${pull.score.hand.name} in ${safe(pull.set.name)}` : '';
-  return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP}, the first of each hand in each set, and the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}${first}.`;
+  const lowest = hallOfFameFloor(list, day) ?? 0;
+  return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP} and the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}.`;
 };
 
 export const verifyIssue = async () => {
@@ -250,7 +247,7 @@ export const verifyIssue = async () => {
       console.warn(`Could not read earlier comments; treating this as a new verification. ${error}`);
     }
   }
-  // A new verification only goes in if it would join the list (the top pulls, a first, or today's
+  // A new verification only goes in if it would join the list (the top pulls or today's
   // top), and one that only makes today's top only if it isn't already on an earlier day's. The same
   // pull verified again keeps the label it has.
   let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
@@ -337,10 +334,10 @@ const BUILD_CACHE = 'hof-build-cache.json';
 type BuildCache = Record<string, { updatedAt: string; entry: HallOfFameEntry | null; reason?: string }>;
 
 /**
- * What `build` publishes: the top pulls, each set's firsts, and the daily top of the build's UTC day
- * and the day before (Rankings' "Today", and yesterday's best just after midnight). The first
- * verification of a pull keeps the credit. Daily entries only add to the list, so intake
- * (wouldJoinHallOfFame) and older clients read the same top pulls and firsts as before.
+ * What `build` publishes: the top pulls and the daily top of the build's UTC day and the day before
+ * (Rankings' "Today", and yesterday's best just after midnight), at most HALL_OF_FAME_MAX_ENTRIES.
+ * The first verification of a pull keeps the credit. Daily entries only add to the list, so intake
+ * (wouldJoinHallOfFame) and older clients read the same top pulls as before.
  */
 export const listToPublish = <T extends RankableEntry>(verified: readonly T[], now = new Date()): T[] => {
   const today = utcDay(now.toISOString());
@@ -457,14 +454,17 @@ export const inbox = async () => {
     else if (issue.user?.login === BOT && !unfinished.has(id)) unfinished.set(id, issue);
   }
 
-  // Only pulls that would join the list are filed; each one filed raises the bar for the next.
+  // Only pulls that would join the list are filed; each one filed raises the bar for the next. One
+  // UTC day for the whole run, so a run that crosses midnight judges every pull by the same day's top.
   const list = await publishedList();
+  const day = today();
   if (!list) console.log("Couldn't read the published list; filing every qualifying pull");
 
   const { added, deferred } = await processInbox(events, {
     seen,
     filed,
-    accepts: (pull) => (list ? joinRefusal(pull, list) === null : qualifiesForHallOfFame(pull.score)),
+    accepts: (pull) => (list ? joinRefusal(pull, list, day) === null : qualifiesForHallOfFame(pull.score)),
+    floor: list ? hallOfFameFloor(list, day) : null,
     budget: INBOX_BUDGET,
     maxFiled: INBOX_MAX_FILED,
     lookup: getSet,
@@ -487,7 +487,7 @@ export const inbox = async () => {
       if (!earlier || !(await firstVerifiedAt(issue.number, id, token))) {
         await github(`/repos/${REPO}/issues/${issue.number}/comments`, token, { body: verifiedComment(entry, pull) });
       }
-      await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: [joinLabel(pull, list)] });
+      await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: [joinLabel(pull, list, day)] });
       unfinished.delete(id);
       // Done: closed issues stay in the Hall of Fame (the deploy reads every state); this keeps the
       // issue list for things that need attention.

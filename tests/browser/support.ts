@@ -147,7 +147,7 @@ export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1
   })));
   // Reveals sort by rarity; compare the displayed multiset without changing ticket card order.
   const labels = await page.locator('.summary-card').evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')));
-  expect(labels.map((label) => cards.find((card) => label?.startsWith(`${card.name},`))?.key).sort())
+  expect(labels.map((label) => cards.find((card) => label?.startsWith(`View ${card.name} up close,`))?.key).sort())
     .toEqual(cards.map((card) => card.key).sort());
 
   return before;

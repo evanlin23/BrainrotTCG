@@ -37,8 +37,8 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
   const url = proof ? pullUrl(proof) : '';
   const link = proof ? pullUrl(proof, previewFor(target.cards)) : '';
   const id = useMemo(() => (proof ? pullId(decodeProof(proof)) : ''), [proof]);
-  // Submit only what would make the list (the top pulls, a first, or today's top in UTC); until it
-  // loads, anything that qualifies.
+  // Submit only what would make the list (the top pulls or today's top in UTC); until it loads,
+  // anything that qualifies.
   const [list, setList] = useState<HallOfFameEntry[] | null>(null);
   useEffect(() => {
     if (qualifiesForHallOfFame(target.score)) loadHallOfFame().then(setList);
@@ -87,7 +87,7 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
             <Crown aria-hidden="true" /> This pull is in the Hall of Fame.
           </p>
         ) : (
-          joins && <HallOfFameSubmit proof={proof} id={id} githubUrl={hallOfFameSubmitUrl(url, `${target.score.hand.name} in ${setName}`)} />
+          joins && <HallOfFameSubmit proof={proof} id={id} score={target.score.score} githubUrl={hallOfFameSubmitUrl(url, `${target.score.hand.name} in ${setName}`)} />
         )
       }
     >
@@ -110,16 +110,13 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'failed';
  * One tap, no account: the pull goes to public relays and a GitHub Action adds it within about 15
  * minutes. The GitHub issue form stays as a fallback.
  */
-const HallOfFameSubmit = ({ proof, id, githubUrl }: { proof: string; id: string; githubUrl: string }) => {
+const HallOfFameSubmit = ({ proof, id, score, githubUrl }: { proof: string; id: string; score: number; githubUrl: string }) => {
   const [state, setState] = useState<SubmitState>(() => (wasSubmitted(id) ? 'sent' : 'idle'));
-  const [detail, setDetail] = useState('');
 
   const submit = async () => {
     setState('sending');
     try {
-      const { accepted, total } = await submitToHallOfFame(proof, id);
-      setState(accepted > 0 ? 'sent' : 'failed');
-      setDetail(accepted > 0 ? `Sent to ${accepted} of ${total} relays.` : '');
+      setState((await submitToHallOfFame(proof, id, score)) ? 'sent' : 'failed');
     } catch {
       setState('failed');
     }
@@ -127,7 +124,7 @@ const HallOfFameSubmit = ({ proof, id, githubUrl }: { proof: string; id: string;
 
   const note =
     state === 'sent'
-      ? `${detail ? `${detail} ` : ''}It shows in the Hall of Fame now, checked on each visitor's device, and is filed for good within the hour.`
+      ? `It shows in the Hall of Fame now, checked on each visitor's device, and is filed for good within the hour.`
       : state === 'failed'
         ? "Couldn't reach any relay. Try again, or submit on GitHub."
         : 'No account needed. It shows in the Hall of Fame right away.';

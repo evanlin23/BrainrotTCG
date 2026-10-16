@@ -115,9 +115,11 @@
     width: 100%;
     container-type: size;
     overflow: hidden;
-    /* The pack is a gesture surface: taps, cuts and double taps must not highlight its labels. */
+    /* The pack is a gesture surface: taps, cuts and double taps must not highlight its labels, and a
+       long press must not open the phone's text or image menu. */
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
 }
 
 /*
@@ -650,9 +652,11 @@
      * target at large text sizes.
      */
     padding: calc(var(--space-2) * 2 + max(var(--touch-target), var(--space-1) * 2 + (var(--text-xs) + var(--text-base)) * var(--leading-tight))) var(--gutter) var(--space-4);
-    /* Rapid taps flip and advance cards; they must not select the rarity, counter or tips. */
+    /* Rapid taps flip and advance cards; they must not select the rarity, counter or tips, and a long
+       press must not open the phone's text or image menu. */
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
     overflow-x: hidden;
     overflow-y: auto;
 }
@@ -1055,16 +1059,20 @@ button.reveal-card {
     padding: 0;
     border-radius: var(--radius-sm);
     overflow: hidden;
-    box-shadow: 0 0 0 2px var(--r), var(--shadow-2);
     transition: transform var(--dur-fast) var(--ease-out);
+    /* A long press on a card opens it, never the phone's image menu. */
+    -webkit-touch-callout: none;
+}
+
+/* The rarity edge, then the ring when focused. Named with :focus-visible too, to outrank base.css's
+   :focus-visible box-shadow (as specific as .summary-card) whichever sheet comes last. */
+.summary-card,
+.summary-card:focus-visible {
+    box-shadow: 0 0 0 2px var(--r), var(--focus-shadow), var(--shadow-2);
 }
 
 .summary-card:hover {
     transform: translateY(-3px);
-}
-
-.summary-card:focus-visible {
-    box-shadow: 0 0 0 2px var(--r), var(--focus-ring), var(--shadow-2);
 }
 
 .summary-card img {
@@ -1084,7 +1092,7 @@ button.reveal-card {
 .summary-card.holo {
     padding: 2px;
     background: var(--foil);
-    box-shadow: var(--shadow-2);
+    box-shadow: var(--focus-shadow), var(--shadow-2);
 }
 
 .summary-card.holo img {
@@ -1098,10 +1106,6 @@ button.reveal-card {
     padding: 1px 5px;
     border-radius: 0 var(--radius-sm) 0 var(--radius-sm);
     font-size: var(--text-xs);
-}
-
-.summary-card.holo:focus-visible {
-    box-shadow: var(--focus-ring), var(--shadow-2);
 }
 
 /* Each card's own Share: quiet under its label, the pack's Share stays the main one. Snug enough to
@@ -1133,7 +1137,8 @@ button.reveal-card {
     inset: 0;
     z-index: 3;
     border-radius: var(--radius-lg);
-    box-shadow: var(--focus-ring);
+    /* The card's own --focus-shadow: the ring, or nothing when a tap led here (base.css). */
+    box-shadow: var(--focus-shadow);
     pointer-events: none;
 }
 

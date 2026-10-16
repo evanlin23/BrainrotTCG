@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { toHex } from '../engine/bytes';
-import { fetchEvents, hallOfFameEvent, HOF_KIND, HOF_TAG, proofFromEvent, publishEvent, signEvent, verifyEvent, type Filter, type NostrEvent, type SocketFactory } from './nostrInbox';
+import { fetchEvents, hallOfFameEvent, HOF_KIND, HOF_TAG, proofFromEvent, publishEvent, publishUntilAccepted, scoreHintFromEvent, signEvent, verifyEvent, type Filter, type NostrEvent, type SocketFactory } from './nostrInbox';
 
 /** Shaped like a pull link's proof (base64url, 100–400 characters); these tests don't decode it. */
 const PROOF = `AQ${'abcXYZ09_-'.repeat(13)}`;
@@ -105,6 +105,18 @@ describe('nostr inbox', () => {
     expect(proofFromEvent(event)).toBe(PROOF);
   });
 
+  it('carries an optional score hint that leaves the proof readable', () => {
+    const hinted = hallOfFameEvent(PROOF, 'x', 1_700_000_000_000, 4200);
+    expect(verifyEvent(hinted)).toBe(true);
+    expect(proofFromEvent(hinted)).toBe(PROOF);
+    expect(scoreHintFromEvent(hinted)).toBe(4200);
+    const plain = hallOfFameEvent(PROOF, 'x');
+    expect(JSON.parse(plain.content)).toEqual({ v: 1, proof: PROOF }); // older submissions look exactly like this
+    expect(scoreHintFromEvent(plain)).toBeNull();
+    for (const score of [-1, 1.5, '4200', null, Number.MAX_SAFE_INTEGER + 1]) expect(scoreHintFromEvent({ ...plain, content: JSON.stringify({ v: 1, proof: PROOF, score }) })).toBeNull();
+    expect(scoreHintFromEvent({ ...plain, content: 'not json' })).toBeNull();
+  });
+
   it('uses a fresh key for every submission', () => {
     expect(hallOfFameEvent(PROOF, 'x').pubkey).not.toBe(hallOfFameEvent(PROOF, 'x').pubkey);
   });
@@ -148,6 +160,37 @@ describe('nostr inbox', () => {
       ['wss://d', false],
     ]);
     expect(results[2].message).toBe('timed out');
+  });
+
+  it('returns on the first relay that accepts while the others are still sending', async () => {
+    const event = hallOfFameEvent(PROOF, 'x');
+    const relays = ['wss://a', 'wss://b', 'wss://c'];
+    let allSettled = false;
+    const { accepted, all } = await publishUntilAccepted(event, relays, 200, fakeRelays({ 'wss://a': 'silent', 'wss://b': 'accept', 'wss://c': 'silent' }));
+    void all.then(() => (allSettled = true));
+    await Promise.resolve();
+    expect(accepted).toEqual({ relay: 'wss://b', ok: true, message: '' });
+    expect(allSettled).toBe(false);
+  });
+
+  it('lets the other relays finish in the background', async () => {
+    const event = hallOfFameEvent(PROOF, 'x');
+    const relays = ['wss://a', 'wss://b', 'wss://c'];
+    const { accepted, all } = await publishUntilAccepted(event, relays, 200, fakeRelays({ 'wss://a': 'accept', 'wss://b': 'silent', 'wss://c': 'refuse' }));
+    expect(accepted?.relay).toBe('wss://a');
+    expect((await all).map((r) => [r.relay, r.ok, r.message])).toEqual([
+      ['wss://a', true, ''],
+      ['wss://b', false, 'timed out'],
+      ['wss://c', false, 'blocked: no'],
+    ]);
+  });
+
+  it('fails only when no relay accepts', async () => {
+    const event = hallOfFameEvent(PROOF, 'x');
+    const relays = ['wss://a', 'wss://b', 'wss://c'];
+    const { accepted, all } = await publishUntilAccepted(event, relays, 200, fakeRelays({ 'wss://a': 'refuse', 'wss://b': 'silent', 'wss://c': 'fail' }));
+    expect(accepted).toBeNull();
+    expect((await all).map((r) => r.ok)).toEqual([false, false, false]);
   });
 
   it('merges what every relay returns, once per event', async () => {

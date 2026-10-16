@@ -89,6 +89,27 @@ describe('the card as the reveal\'s button', () => {
     expect(cardButton().hasAttribute('data-pack-keys')).toBe(true);
   });
 
+  it('keeps a sideways flick on the card from the page, so Chromium has no fling to eat the next tap with', () => {
+    render(meta());
+    // jsdom has no Touch, so the events carry plain points.
+    const touch = (type: string, target: Element, ...points: [number, number][]) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'touches', { value: points.map(([clientX, clientY]) => ({ clientX, clientY })) });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    const card = cardButton();
+    touch('touchstart', card, [100, 100]);
+    expect(touch('touchmove', card, [130, 104]), 'sideways').toBe(true);
+    touch('touchstart', card, [100, 100]);
+    expect(touch('touchmove', card, [104, 140]), 'up and down still scrolls the page').toBe(false);
+    touch('touchstart', card, [100, 100], [200, 100]);
+    expect(touch('touchmove', card, [130, 100], [240, 100]), 'two fingers still zoom').toBe(false);
+    const stage = card.closest('.active-card-container')!;
+    touch('touchstart', stage, [100, 100]);
+    expect(touch('touchmove', stage, [130, 100]), 'off the card').toBe(false);
+  });
+
   it('is marked disabled while a big pull holds the reveal', () => {
     render(meta({ ...legendary, isRevealed: true, finish: 'DIAMOND' }), 4, { celebrating: true, revealLocked: true });
     expect(cardButton().getAttribute('aria-disabled')).toBe('true');

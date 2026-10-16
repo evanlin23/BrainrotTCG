@@ -132,9 +132,11 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   await page.locator('button.reveal-skip').dblclick({ timeout: 15000 });
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
   expect(await selectedText(page)).toBe('');
-  await tryDrag(page, page.locator('.summary-cards img').first(), 30, 30);
+  // Short enough to end on the same compact card (#339), so the press is also a click, which opens the
+  // card viewer over the summary.
+  await tryDrag(page, page.locator('.summary-cards img').first(), 12, 12);
   expect(await dragStarts()).toBe(0);
-  // That press is also a click, which opens the card viewer over the summary.
+  await expect(page.getByRole('dialog')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expectSummaryScrolls(page, async (x, y, down) => {

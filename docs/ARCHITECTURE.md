@@ -137,7 +137,8 @@ hardware-fairness guarantee.
 
 Known limits: a proof cannot establish how many tickets someone searched, that they used the
 browser or that a human opened a pack. "Verified" means *these cards derive from the signed ticket
-inputs*. Hall of Fame "world firsts" use the bot's verification time, not a witnessed opening time.
+inputs*. Hall of Fame order between equal scores uses the bot's verification time, not a witnessed
+opening time.
 
 Strict key/signature validation and canonical encoding rules are specified in `spec/PULL_SPEC.md`
 section 7 and covered by the vectors, including small-order key and malleable-encoding cases.
@@ -158,7 +159,7 @@ player ─► Share ─► "on GitHub" ─► GitHub issue form (pull link; need
                     scripts/hall-of-fame.ts verify-issue  ─► comment + labels (+ redeploy)
                                    │
                     .github/workflows/deploy.yml
-                    scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + firsts + daily top 50)
+                    scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + two days' daily top 50)
                                    │
                     Rankings page shows it as published; pull links verify individually
 ```
@@ -191,18 +192,27 @@ what a valid ticket derives; server/build verification and the UI checks describ
 those proof rules, rather than delivery or mining fairness. A maintainer can drop an entry using
 its issue's `rejected` label.
 
-**Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score plus the first Full
-House, 4 of a Kind and 5 of a Kind in each set. The published file also keeps the best 50 pulls filed
-on the build's UTC day and the day before (`dailyPulls`, by `submittedAt`), which Rankings' Today tab
-and its "yesterday's best" read. The output is bounded by 100, plus three firsts per set, plus 100
-daily entries, with overlapping entries deduplicated; it grows with the number of sets. The rules
-live in `src/engine/hallOfFame.ts`. The share sheet, intake and the page's pending check test whether
-a qualifying pull would join the available published snapshot (`hallOfFameJoin`): beat the 100th
-place, be a first, or make the top 50 of the current UTC day. When the snapshot cannot be loaded,
+**Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score. The published file also
+keeps the best 50 pulls filed on the build's UTC day and the day before (`dailyPulls`, by
+`submittedAt`), which Rankings' Today tab and its "yesterday's best" read. So it holds at most
+`HALL_OF_FAME_MAX_ENTRIES` (200) entries, however many sets or submissions there are: the page loads
+it whole on every visit. Per-set world firsts were dropped (the page no longer shows them, and they
+grew the file with every set); older files that still carry them, or entries without an `id`, read
+as before. The rules live in `src/engine/hallOfFame.ts`. The share sheet, intake and the page's
+pending check test whether a qualifying pull would join the available published snapshot
+(`hallOfFameJoin`): beat the 100th place or make the top 50 of the current UTC day. When the snapshot cannot be loaded,
 they fall back to qualification. A pull that joins only through the daily top gets the `daily` label
 instead of `verified` (both workflows create the label if it's missing); intake refusals name the
 lowest of those bars. The proof checks are the same for both labels: `verifyProof` at intake, the
 bot's marker comment, and the re-check in the build.
+
+**Score floor.** Once both boards are full, `hallOfFameFloor` is the lower of the 100th place and
+the day's 50th; a pull at or below it can't join. Re-deriving a pack is the expensive step, so the
+relay inbox reads the score the sender's event claims and skips (marks seen, logs, spends no budget
+on) any event claiming the floor or less. The claim is untrusted: one claiming more is fully verified
+and refused if its real score doesn't join, so lying only costs the liar a check. An event with no
+claim is verified as before. Issue intake has no claim to read and low volume, so it verifies first
+and then refuses below the floor.
 The deploy writes the ranked list. Workflows attempt to close verified issues, and the build reads
 both open and closed states. It lists every `verified` issue, but `daily` issues only when updated
 since 00:00 UTC the day before (`since=`), and keeps a daily-only entry only when its `submittedAt`
@@ -219,10 +229,10 @@ verification result, but the build still lists verified issues across open and c
 misses, changed inputs and API failures affect work and freshness.
 
 Issue text is untrusted: it's only parsed by the script, never put into a shell command, and only
-echoed back through a sanitiser. The submitter's GitHub username comes from GitHub. "World first"
-order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
+echoed back through a sanitiser. The submitter's GitHub username comes from GitHub.
+Tie order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
 the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
-counts once in the top 100 and the firsts, however many times it's submitted or re-signed (the daily
+counts once in the top 100, however many times it's submitted or re-signed (the daily
 tops follow the eight-day rule above). A maintainer can drop an entry by adding
 the `rejected` label to its issue.
 
@@ -249,7 +259,7 @@ last. The pack summary's `bestPullOrder` lists the earlier slot first instead; b
 | --- | --- | --- | --- | --- |
 | Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
 | Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
-| Best versions of this card (#224) | one card's instances | `pullId#slot` | - | card details |
+| Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
 Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
 destinations. Best versions of this card opens from a card's details.
@@ -260,6 +270,14 @@ destinations. Best versions of this card opens from a card's details.
   modifiers, set id and version, proof and slot.
 - **Independent cutoffs.** One proof can feed both boards. A weak pack with one great card makes
   Best cards without making Best packs.
+- **Best versions.** `cardVersionBoards` builds one all-time board per card, keyed by `cardKey`
+  (`setId/cardId`, as the collection, combos and card pages key it), so every version of a set holds
+  one board and another set's card of the same id stays apart. Each board has its own cutoff, ties
+  and completeness: an other-era instance makes only its card's board partial. A `through` bound
+  certifies one board, so it is refused here; rebuild a card's board with `rebuildBoard`. These boards
+  are complete only with coverage `all`: under the pack intake minimum, a card worth less than it has
+  an empty, partial (`below-intake-minimum`) board. Daily card boards and the card-details view come
+  later.
 - **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
   pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
   until they are re-derived from their proofs.

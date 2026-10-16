@@ -2,7 +2,7 @@
 // API, the deployed list and the Nostr relays are all faked, and files go to a temporary folder.
 // Nothing here reaches the network or writes public/hall-of-fame.json.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
-import { dailyPulls, decodeProof, firstPulls, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, topPulls, verifyProof, type RankableEntry } from '../src/engine/index.ts';
+import { dailyPulls, decodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, topPulls, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
 import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
@@ -31,7 +31,7 @@ const clockAt = (time: string) => {
 };
 /**
  * A published list the 4 of a Kind (15,000 in lockdown-lore) can only join through `day`'s top: the
- * top 100 sits far above it, its first is taken, and `day` already has `todays` pulls above it.
+ * top 100 sits far above it (an older list's world first doesn't help), and `day` already has `todays` pulls above it.
  */
 const dailyOnlyBoard = (day: string, todays: number): RankableEntry[] => [
   ...Array.from({ length: HALL_OF_FAME_TOP }, (_, i) => ({ id: `top-${i}`, setId: 'other-set', hand: 'Full House', multiplier: 150, score: 100_000 + i, submittedAt: '2026-10-01T00:00:00.000Z' })),
@@ -298,16 +298,15 @@ describe('published list', () => {
   const day = (date: string, n: number, base = 10) =>
     Array.from({ length: n }, (_, i) => pull(`${date}-${i}`, base + i, `${date}T${String(i % 24).padStart(2, '0')}:${String(Math.floor(i / 24)).padStart(2, '0')}:00.000Z`));
 
-  it("keeps the build's UTC day and the day before on top of the all-time list and firsts", () => {
+  it("keeps the build's UTC day and the day before on top of the all-time list", () => {
     const allTime = day('2026-10-01', HALL_OF_FAME_TOP + 10, 100_000); // fill the top 100 well above the daily pulls
     const verified = [...allTime, ...day('2026-10-14', 4), ...day('2026-10-15', 6), ...day('2026-10-16', HALL_OF_FAME_DAILY_TOP + 5)];
     const now = new Date('2026-10-16T00:30:00.000Z'); // just after midnight: yesterday is still kept
     const list = listToPublish(verified, now);
     const plain = hallOfFameList(verified);
-    // Top 100 and firsts are unchanged; only extra entries follow them.
+    // The top 100 is unchanged; only extra entries follow it.
     expect(list.slice(0, plain.length)).toEqual(plain);
     expect(topPulls(list)).toEqual(topPulls(verified));
-    expect(firstPulls(list)).toEqual(firstPulls(verified));
     const extra = list.slice(plain.length);
     expect(extra.filter((e) => e.submittedAt.startsWith('2026-10-16'))).toHaveLength(HALL_OF_FAME_DAILY_TOP);
     expect(extra.filter((e) => e.submittedAt.startsWith('2026-10-15'))).toHaveLength(6);
@@ -507,6 +506,76 @@ describe('inbox (scheduled workflow)', () => {
     const gh = fakeGitHub({ issues: [] });
     await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
     expect(gh.requests).toEqual([]);
+  });
+});
+
+describe('retention and intake contracts (offline)', () => {
+  beforeEach(() => clockAt('2026-10-16T12:00:00Z'));
+  const hinted = (proof: string, score: number, at: number) => hallOfFameEvent(proof, idOf(proof), at, score);
+  const logged = () => vi.mocked(console.log).mock.calls.map((c) => String(c[0]));
+
+  it('reads a list published before this change: no ids, a world first, and an unreadable entry', async () => {
+    // As older builds wrote it: entries carry their proof but no id, and a set's first sits below the top.
+    const old = dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP).map((e) => (e.id === 'first' ? { ...e, id: undefined, proof: fourOfAKind } : e));
+    const published = [...old, { setId: 'x', score: 1, submittedAt: '2026-01-01T00:00:00.000Z', proof: 'not a proof' }];
+    const gh = fakeGitHub({ issues: [], published });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+    await inbox();
+    // Its id comes from the proof, so the pull counts as listed and isn't filed again.
+    expect(gh.writes()).toEqual([]);
+    expect(outputs()).toEqual({ added: '0' });
+
+    writeFileSync('event.json', JSON.stringify({ issue: issue(7, fourOfAKind, { labels: [] }) }));
+    await verifyIssue();
+    expect(readFileSync('hof-comment.md', 'utf8')).toContain('already in the Hall of Fame');
+  });
+
+  it('turns away a pull whose claimed score is at or below the floor without checking it', async () => {
+    // Both boards full: the floor is the day's 50th (20,000), below the all-time 100th.
+    const gh = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP) });
+    const low = hinted(fourOfAKind, 20_000, 1_000_000);
+    const lying = hinted(fourOfAKind, 1e9, 1_001_000);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [low, lying], perRelay: [] });
+    await inbox();
+    expect(logged()).toContain(`${low.id}: claims 20000, at or below the floor of 20000; not checked`);
+    // A higher claim is only a reason to check: the real score (15,000) still doesn't join.
+    expect(logged().some((l) => l.startsWith(`${lying.id}:`) && l.includes('not checked'))).toBe(false);
+    expect(gh.writes()).toEqual([]);
+    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(expect.arrayContaining([low.id, lying.id]));
+  });
+
+  it('judges a run that crosses UTC midnight by the day it started on', async () => {
+    // The 16th's top is full; the 17th's would be empty, so judging the 4 of a Kind by the new day would file it.
+    clockAt('2026-10-16T23:59:59Z');
+    const gh = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP) });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(pair, idOf(pair), 1_000_000), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_001_000)], perRelay: [] });
+    // The first line logged (turning the pair away) comes after the run picked its day: midnight passes there.
+    vi.mocked(console.log).mockImplementation(() => vi.setSystemTime(new Date('2026-10-17T00:00:05Z')));
+    await inbox();
+    expect(logged().some((l) => l.includes("15000 doesn't make the Hall of Fame"))).toBe(true);
+    expect(gh.writes()).toEqual([]);
+    expect(outputs()).toEqual({ added: '0' });
+  });
+
+  it('keeps only the published list and the run caches, and never writes to public/', async () => {
+    const tracked = path.join(home, 'public', 'hall-of-fame.json');
+    const before = existsSync(tracked) ? readFileSync(tracked, 'utf8') : null;
+    const gh = fakeGitHub({
+      issues: [issue(1, fourOfAKind), issue(2, pair), issue(3, forged), issue(4, fourOfAKind, { labels: ['hall-of-fame', 'verified', 'rejected'] })],
+      comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')], 2: [comment(BOT, marker(pair), '2026-10-02T00:00:00Z')], 3: [comment(BOT, marker(forged), '2026-10-02T00:00:00Z')] },
+      published: [],
+    });
+    await build(path.join(dir, 'hall-of-fame.json'));
+    // Kept: the qualifying pull. Discarded: one that doesn't qualify, a forgery and a rejected issue.
+    const list = JSON.parse(readFileSync('hall-of-fame.json', 'utf8')) as { issue: number }[];
+    expect(list.map((e) => e.issue)).toEqual([1]);
+    expect(readdirSync(dir).sort()).toEqual(['hall-of-fame.json', 'hof-build-cache.json']);
+
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
+    await inbox();
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-seen.json']);
+    expect(gh.writes()).toEqual([]);
+    expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });
 });
 
