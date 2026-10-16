@@ -56,6 +56,7 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
+  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors
 
 src/content/       Set data, art and registry; existing schemas use the existing engine.
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
@@ -204,6 +205,47 @@ order uses the time the bot first verified that exact pull on the issue (a marke
 the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
 counts once, however many times it's submitted or re-signed. A maintainer can drop an entry by adding
 the `rejected` label to its issue.
+
+### Ranking boards (`src/engine/rankings.ts`)
+
+This is an engine contract only (#223, #338). Nothing publishes or shows these boards yet, and the
+Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with these fields:
+
+- the schema version, scope and capacity;
+- the `SCORING_ERA` its scores came from;
+- completeness: complete, or partial with a reason;
+- freshness: `generatedAt`, the latest first receipt, and source counts for candidates,
+  duplicates, other eras and uncertain entries.
+
+All boards use one order: score, then the earlier trusted first receipt, then pull id. Within a
+pack, the later slot wins, as the pack reveal picks a best card.
+
+| Board | Ranks | Identity | Size | Where |
+| --- | --- | --- | --- | --- |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
+| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
+| Best versions of this card (#224) | one card's instances | `pullId#slot` | - | card details |
+
+Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
+destinations. Best versions of this card opens from a card's details.
+
+- **Evidence.** Inputs are verified pack reconstructions (`packEvidence` from `verifyProof`), never
+  a client's score.
+- **Card entries.** A card scores `cardPoints` before the combo multiplier. It carries its exact
+  modifiers, set id and version, proof and slot.
+- **Independent cutoffs.** One proof can feed both boards. A weak pack with one great card makes
+  Best cards without making Best packs.
+- **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
+  pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
+  until they are re-derived from their proofs.
+- **Rebuilds.** `rebuildBoard` rebuilds from retained evidence after removals:
+  - Exact when every candidate was kept.
+  - With a winners-only cache, the board certifies only places at or above the previous last
+    entry. It comes back shorter and partial (`runners-up-not-retained`) rather than promoting
+    runners-up it never kept.
+- **Intake minimum.** A board built from filed issues is certified only down to
+  `HALL_OF_FAME_MIN_SCORE` (coverage `min-score`, partial `below-intake-minimum` past it).
+- **Daily boards** come later.
 
 ## Sharing and link previews
 

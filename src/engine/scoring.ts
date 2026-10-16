@@ -49,6 +49,13 @@ export const POKER_HANDS = {
 
 export type HandKey = keyof typeof POKER_HANDS;
 
+/**
+ * Which scoring rules a score came from. Bump it whenever a change to the tables above, cardPoints or
+ * scorePack would give any existing pull different points, so ranking boards never compare scores
+ * made under different rules (see rankings.ts).
+ */
+export const SCORING_ERA = 1;
+
 export const cardPoints = (rarity: Rarity, isHolo: boolean, finish?: Finish | null, misprint?: boolean): number =>
   (RARITY_POINTS[rarity] ?? 0) * (isHolo ? HOLO_MULTIPLIER : 1) * (finish ? FINISH_MULTIPLIER[finish] : 1) * (misprint ? MISPRINT_MULTIPLIER : 1);
 
