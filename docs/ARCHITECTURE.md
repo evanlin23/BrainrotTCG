@@ -469,14 +469,22 @@ submit controls, so sharing tasks may stop at that boundary. It writes a sanitiz
 `test-results/agent-audit.json` and never posts, merges or deploys. Agent outcomes are not human
 evidence. No real agent task run has been recorded yet (unrun). Refs #239.
 
-## Proposed display-name/publication policy (#348)
+## Proposals (not shipped)
 
-**Owner decisions pending; no matcher/enforcement installed.** Names are nonunique labels beside a
-key fingerprint. Retain released 24-code-point/fixed-character proof rules (spec §7.2); verify the
-original signed bytes, never a normalized substitute. Legacy empty names remain valid. Format,
-cryptographic validity and permitted publication are separate; React escaping is not moderation.
-Entry UI should preview normalization, explain rejected/truncated input and count code points;
-a grapheme or UTF-16 `maxLength` is not that count. Require nonblank new local choices only.
+These await the owner's decision and describe nothing the app does today.
+
+### Display-name and publication policy (#348)
+
+Status: proposed, awaiting owner (#348).
+
+No matcher or enforcement is installed. Names are nonunique labels beside a key fingerprint (spec
+section 9). Retain released 24-code-point/fixed-character proof rules (spec section 7, rule 2); verify
+the original signed bytes, never a normalized substitute. Legacy empty names remain valid (viewers
+show "Anonymous"). Format, cryptographic validity and permitted publication are separate; React
+escaping and the bot's Markdown sanitiser are not moderation. Today the name field already counts
+code points (it cuts input at 24, silently) and a rename to a blank name is refused; entry UI should
+also preview normalization and explain rejected or truncated input. A grapheme or UTF-16
+`maxLength` is not that count.
 
 | Owner decision | Recommendation for review |
 | --- | --- |
@@ -506,16 +514,21 @@ input work; retain existing proof-decoder limits. Full boundary/removal fixtures
 after approval split entry feedback, shared matcher and trusted publication/display implementation.
 No signed name bytes, released proof rules or generator versions change in this proposal.
 
-## Proposed scalable-profile decision (#323)
+### Scalable-profile decision (#323)
+
+Status: proposed, awaiting owner (#323).
 
 **For review: defer production aggregate formats; proceed with one bounded feasibility prototype.**
 A minimal input ledger is interim provenance protection, not the owner's final history-free design.
-Current profile v1 signs assignments for tickets 0..N−1 as runs, XP and five best-pack claims.
-The bounds below come from `engine/profile.ts` (spec §11).
+Current profile v1 signs assignments for tickets 0..N−1 as runs, XP and up to five best-pack claims
+(min(5, N)). The bounds below (N ≤ 100,000, at most 64 set entries) come from
+`src/engine/profile.ts` (spec section 11). Today `history.ts` already keeps every recorded assignment
+as JSON in localStorage (`brainrot-history-v1`): quota recovery drops only cached cards, and an
+unrecorded assignment stays unknown and blocks the profile link (see Profiles and levels).
 
 | Route | State / verification | Decision boundary |
 | --- | --- | --- |
-| Minimal original-assignment ledger | O(N) worst-case assignments and cold regeneration; cards/images are caches | Near-term correctness/storage mitigation, not scalable aggregate verification |
+| Minimal original-assignment ledger | O(N) worst-case assignments and cold regeneration; cards/images are caches | Near-term storage mitigation (a compact form of today's history), not scalable aggregate verification |
 | Recursive aggregate proof / IVC | Updatable proof/prover state plus current aggregates; succinct verification can avoid historical replay | Candidate long-term route; Argon2id proving/browser feasibility unmeasured |
 | Trusted verified checkpoint | Bounded job replays a range and signs aggregate state | Optional trusted service (#243), even if built on Actions/Workers |
 
@@ -523,8 +536,8 @@ Six bits per assignment at 64 set entries gives 75,000 raw bytes for 100,000 tic
 identity/table/encoding/database overhead; runs compress long sessions. This arithmetic bound is
 not a measured save size. Public v1 remains run-based with worst-case long links. IndexedDB can
 exceed localStorage's common roughly 5MiB limit but still faces quota, denial, eviction and clearing.
-Migrate known assignments or valid same-key profile runs only; missing history stays
-incomplete, never guessed. Save-schema changes do not require changed generator odds; a new public
+A migration keeps today's rule: known assignments or valid same-key profile runs only; missing
+history stays unknown, never guessed. Save-schema changes do not require changed generator odds; a new public
 proof format requires separate version/spec/vectors and an independent verifier.
 
 An IVC step must bind initial identity, monotonic nonce, original allowed rules and every aggregate
