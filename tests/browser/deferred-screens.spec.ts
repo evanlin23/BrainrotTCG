@@ -199,11 +199,13 @@ test.describe('sheets', () => {
       await expect(page.locator('.sheet--deferred')).toHaveCount(0);
       await expect(loaded(page)).toBeVisible({ timeout: 15000 });
       expect(chunk.served).toBeGreaterThan(0);
-      // The loaded screen keeps the same trap, and Escape closes it back to its opener.
-      const screen = page.getByRole('dialog').last();
-      await expectFocusTrapped(page, screen);
+      // The loaded screen keeps the same trap, and Escape closes it back to its opener. A card's share sheet
+      // sits over the card viewer and the pull, so count dialogs: `.last()` would re-resolve to the viewer.
+      const dialogs = page.getByRole('dialog');
+      const shown = await dialogs.count();
+      await expectFocusTrapped(page, dialogs.last());
       await page.keyboard.press('Escape');
-      await expect(screen).toHaveCount(0);
+      await expect(dialogs).toHaveCount(shown - 1);
       if (opener) await expect(opener).toBeFocused();
       expect(unexpected(errors, chunk.url)).toEqual([]);
     });
