@@ -27,11 +27,39 @@ describe('trackInputModality', () => {
     expect(modality()).toBe('pointer');
   });
 
-  it.each(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Enter', ' ', 'Escape'])('switches to keyboard on %j', (k) => {
+  it.each(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Escape'])('switches to keyboard on %j', (k) => {
     stop = trackInputModality();
     press();
     key(k);
     expect(modality()).toBe('keyboard');
+  });
+
+  // Space and Enter drive the game; they must not ring whatever the app focuses next.
+  it.each(['Enter', ' '])('switches to press on %j', (k) => {
+    stop = trackInputModality();
+    expect(modality()).toBe('keyboard');
+    key(k);
+    expect(modality()).toBe('press');
+    press();
+    key(k);
+    expect(modality()).toBe('press');
+  });
+
+  it('navigation keys bring the keyboard back after a press, and a pointer press ends it', () => {
+    stop = trackInputModality();
+    key(' ');
+    key('Tab');
+    expect(modality()).toBe('keyboard');
+    key(' ');
+    press();
+    expect(modality()).toBe('pointer');
+  });
+
+  it.each(['Ctrl', 'Alt', 'Meta'])('ignores %s+Space', (name) => {
+    stop = trackInputModality();
+    press();
+    key(' ', document.body, { [`${name.toLowerCase()}Key`]: true });
+    expect(modality()).toBe('pointer');
   });
 
   it('counts Shift+Tab', () => {
@@ -64,7 +92,7 @@ describe('trackInputModality', () => {
     key('Tab');
     press();
     expect(modality()).toBe('pointer');
-    key('Enter');
+    key('Tab');
     expect(modality()).toBe('keyboard');
     key('Shift');
     expect(modality()).toBe('keyboard');
