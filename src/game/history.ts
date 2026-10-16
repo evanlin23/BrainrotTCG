@@ -174,6 +174,14 @@ const toStored = (pack: OpenedPack): Stored => encode({
  */
 const fillStandIn = (stub: Stored, entry: Stored): Stored => ({ ...entry, t: stub.t });
 
+/**
+ * The history with the stand-in at `stub` filled by `entry`, and any other record of the same assignment
+ * (a full entry an imported backup carried alongside the stand-in) dropped, so the pack is listed once.
+ * Another set on the same ticket is a different assignment and stays.
+ */
+const replaceStandIn = (current: readonly Stored[], stub: number, entry: Stored): Stored[] =>
+  current.flatMap((e, i) => (i === stub ? [fillStandIn(e, entry)] : sameAssignment(e, entry) ? [] : [e]));
+
 export const recordPack = (pack: OpenedPack): boolean => {
   const current = readValid();
   if (!current) return false;
@@ -185,7 +193,7 @@ export const recordPack = (pack: OpenedPack): boolean => {
    * winning; a profile admits one of them by a fixed rule (game/profiles.ts, firstOpened).
    */
   const stub = current.findIndex((e) => sameAssignment(e, entry) && isTicketOnly(e));
-  if (stub >= 0) return write(current.map((e, i) => (i === stub ? fillStandIn(e, entry) : e)));
+  if (stub >= 0) return write(replaceStandIn(current, stub, entry));
   return write([entry, ...current.filter((e) => !sameAssignment(e, entry))]);
 };
 
@@ -212,14 +220,14 @@ export const recordTicket = (setId: string, setVersion: number, nonce: number, p
 export const recordMissing = (packs: readonly OpenedPack[], publicKeyHex: string): boolean => {
   const mine = packs.filter((pack) => pack.publicKeyHex === publicKeyHex);
   if (mine.length === 0) return true;
-  const current = readValid();
+  let current = readValid();
   if (!current) return false;
   let added = false;
   for (const pack of mine) {
     const entry = toStored(pack);
     const stub = current.findIndex((e) => sameAssignment(e, entry) && isTicketOnly(e));
     if (stub >= 0) {
-      current[stub] = fillStandIn(current[stub], entry);
+      current = replaceStandIn(current, stub, entry);
       added = true;
       continue;
     }

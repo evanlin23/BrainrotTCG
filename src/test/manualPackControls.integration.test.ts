@@ -311,6 +311,49 @@ it('holds the last pack\'s notices while a big pull is on show, and shows them a
   await app.until('the held notice shows', () => expect(toasts()).toBe(before));
 }, 30_000);
 
+it('keeps notices held between two big pulls that Skip shows back to back (#460)', async () => {
+  // Nonce 973 leaves a notice behind; nonce 974 deals two big pulls, the last two cards.
+  app = await mountedApp(preferences({ nextNonce: 973, pauseBigPulls: true }));
+  await app.mount();
+  await reveal();
+  await escape();
+  await app.until('the first pack is kept', () => expect(toasts()).toContain('Pack kept'));
+  await app.until('a fresh pack is ready', () => expect(sealed()).not.toBeNull());
+  await reveal();
+  // Every change to the ribbon and the notices, so a frame-long flash is caught.
+  const frames: { ribbon: boolean; toast: string }[] = [];
+  const observer = new MutationObserver(() => {
+    const frame = { ribbon: !!$('.showcase-ribbon'), toast: toasts() };
+    const last = frames[frames.length - 1];
+    if (!last || last.ribbon !== frame.ribbon || last.toast !== frame.toast) frames.push(frame);
+  });
+  observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+  await app.interact(() => button('Skip opening animation').click());
+  await app.until('the summary shows', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+  observer.disconnect();
+
+  const showcases = frames.filter((frame, i) => frame.ribbon && !frames[i - 1]?.ribbon);
+  expect(showcases, 'Skip showed both big pulls').toHaveLength(2);
+  const first = frames.findIndex((frame) => frame.ribbon);
+  const last = frames.length - 1 - [...frames].reverse().findIndex((frame) => frame.ribbon);
+  expect(frames.slice(first, last + 1).filter((frame) => frame.toast), 'a notice showed between the showcases').toEqual([]);
+  // The held notice comes back once they are over.
+  await app.until('the held notice shows', () => expect(toasts()).toContain('Pack kept'));
+}, 60_000);
+
+it('still shows the save warning at once over a big pull, since it needs action (#460)', async () => {
+  app = await mountedApp(preferences({ nextNonce: 22, pauseBigPulls: true }));
+  await app.mount();
+  await reveal();
+  await app.interact(() => button('Skip opening animation').click());
+  await app.until('the big pull is on show', () => expect($('.showcase-ribbon')).not.toBeNull());
+  // Another tab saves a different player, as a browser tells the tabs that didn't write.
+  localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '02'.repeat(32), name: 'Other tab', nextNonce: 0, createdAt: 1 }));
+  await app.interact(() => window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' })));
+  expect($('.showcase-ribbon'), 'the showcase ended').not.toBeNull();
+  expect($('.app > p[role="alert"].save-warning')?.textContent).toContain('This save changed in another tab');
+}, 30_000);
+
 it('leaves the summary with Escape, as Open another pack does, without recording it again', async () => {
   app = await mountedApp(preferences());
   await app.mount();

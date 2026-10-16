@@ -127,16 +127,20 @@ test('shows a big pull with its ribbon clear of the card, and holds notices unti
   const end = recorded.length - 1 - [...recorded].reverse().findIndex((f) => f.ribbon);
   expect(start, 'the showcase was never recorded').toBeGreaterThan(0);
   expect(recorded.slice(start, end + 1).filter((f) => f.toast), 'a notice showed over the showcase').toEqual([]);
-  const held = recorded[start - 1];
-  expect(held.toast, 'no notice was up when the showcase began').toBeTruthy();
+  // The hold begins at the skip, a few frames before the ribbon (#460), so the notice it held is the
+  // last one up before the showcase, and it left in the frame after.
+  const before = recorded.slice(0, start);
+  const heldIndex = before.length - 1 - [...before].reverse().findIndex((f) => f.toast);
+  expect(heldIndex, 'no notice was up when the skip began').toBeLessThan(before.length);
+  const held = recorded[heldIndex];
   // A notice still on its own time was held; one already timing out may have left first.
-  const stillUp = recorded[start].at - held.at < 2900;
+  const stillUp = recorded[heldIndex + 1].at - held.at < 2900;
   await expect.poll(async () => (await frames()).slice(end + 1).find((f) => f.toast)?.toast ?? null, { timeout: 5000 })
     .toEqual(stillUp ? held.toast : expect.any(String));
   expect(errors).toEqual([]);
 });
 
-test('keeps the halo still and the ribbon unscaled when motion is reduced', async ({ page, baseURL }) => {
+test('keeps the halo still and the ribbon unscaled when motion is reduced, with the rays inside the stage', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const origin = new URL(baseURL!).origin;
@@ -150,7 +154,7 @@ test('keeps the halo still and the ribbon unscaled when motion is reduced', asyn
   await tear(page);
   await page.getByRole('button', { name: 'Skip opening animation' }).click();
   // Read in the page as soon as the showcase is on screen.
-  const motion = await (await page.waitForFunction(() => {
+  const motion = (await (await page.waitForFunction(() => {
     const ribbon = document.querySelector('.showcase-ribbon');
     const halo = document.querySelector('.showcase-halo');
     if (!ribbon || !halo) return null;
@@ -159,8 +163,57 @@ test('keeps the halo still and the ribbon unscaled when motion is reduced', asyn
       ribbonScale: getComputedStyle(ribbon).transform,
       halo: getComputedStyle(halo).animationName,
       rays: getComputedStyle(halo, '::before').animationName,
+      // The rays' box, centred on the card, against the stage that clips them (#460).
+      raysBox: (() => {
+        const card = halo.getBoundingClientRect();
+        const rays = getComputedStyle(halo, '::before');
+        const [width, height] = [parseFloat(rays.width), parseFloat(rays.height)];
+        const [x, y] = [card.left + card.width / 2 - width / 2, card.top + card.height / 2 - height / 2];
+        return { x, y, width, height };
+      })(),
+      stage: (() => {
+        const { x, y, width, height } = document.querySelector('.active-card-container')!.getBoundingClientRect();
+        return { x, y, width, height };
+      })(),
     };
-  }, undefined, { timeout: 10000 })).jsonValue();
-  expect(motion).toEqual({ ribbon: 'none', ribbonScale: 'none', halo: 'none', rays: 'none' });
+  }, undefined, { timeout: 10000 })).jsonValue())!;
+  const { raysBox, stage, ...still } = motion;
+  expect(still).toEqual({ ribbon: 'none', ribbonScale: 'none', halo: 'none', rays: 'none' });
+  // The rays fade out inside their box, so a box inside the stage is never cut off at its edge.
+  expect(raysBox.x, 'the rays run past the stage on the left').toBeGreaterThanOrEqual(stage.x - 1);
+  expect(raysBox.y, 'the rays run past the top of the stage').toBeGreaterThanOrEqual(stage.y - 1);
+  expect(raysBox.x + raysBox.width, 'the rays run past the stage on the right').toBeLessThanOrEqual(stage.x + stage.width + 1);
+  expect(raysBox.y + raysBox.height, 'the rays run past the bottom of the stage').toBeLessThanOrEqual(stage.y + stage.height + 1);
+  expect(errors).toEqual([]);
+});
+
+test('keeps the ribbon a full touch target, and clear of the card, at 200% text (#460)', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Still, so the ribbon is measured at its resting size.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const origin = new URL(baseURL!).origin;
+  await page.addInitScript((origin) => {
+    if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
+    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 22, createdAt: 1 }));
+    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+  }, origin);
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+  await tear(page);
+  await page.getByRole('button', { name: 'Skip opening animation' }).click();
+  const boxes = (await (await page.waitForFunction(() => {
+    const ribbon = document.querySelector('.pack-top-bar .showcase-ribbon');
+    const card = document.querySelector('.reveal-card.is-celebrating');
+    if (!ribbon || !card) return null;
+    const rect = (el: Element) => {
+      const { x, y, width, height } = el.getBoundingClientRect();
+      return { x, y, width, height };
+    };
+    return { ribbon: rect(ribbon), card: rect(card) };
+  }, undefined, { timeout: 10000 })).jsonValue())!;
+  expect(boxes.ribbon.height, 'the ribbon is shorter than a touch target').toBeGreaterThanOrEqual(44);
+  expect(overlaps(boxes.ribbon, boxes.card), 'the ribbon covers the card').toBe(false);
   expect(errors).toEqual([]);
 });

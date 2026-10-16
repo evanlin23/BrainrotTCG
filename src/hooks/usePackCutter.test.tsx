@@ -33,6 +33,7 @@ let container: HTMLDivElement;
 let cutter: Cutter;
 let onCutComplete: ReturnType<typeof vi.fn<() => void>>;
 let onMiss: ReturnType<typeof vi.fn<() => void>>;
+let onSeamTap: ReturnType<typeof vi.fn<() => void>>;
 
 interface ProbeProps {
   hold: (cutter: Cutter) => void;
@@ -43,7 +44,7 @@ interface ProbeProps {
 }
 
 const Probe = ({ hold, disabled = false, isOpening = false, isPackCut = false, particles = false }: ProbeProps) => {
-  const latest = usePackCutter({ onCutComplete, onMiss, isOpening, isPackCut, volume: 0, particlesEnabled: particles, disabled });
+  const latest = usePackCutter({ onCutComplete, onMiss, onSeamTap, isOpening, isPackCut, volume: 0, particlesEnabled: particles, disabled });
   const { packRef } = latest;
   useEffect(() => hold(latest));
   return <div ref={packRef} />;
@@ -87,6 +88,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   onCutComplete = vi.fn<() => void>();
   onMiss = vi.fn<() => void>();
+  onSeamTap = vi.fn<() => void>();
   mount();
 });
 
@@ -683,5 +685,126 @@ describe('usePackCutter frame batching (#266)', () => {
     act(() => root.unmount());
     root = createRoot(container);
     expect(removed.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(['resize', 'scroll']));
+  });
+});
+
+describe('usePackCutter direction thresholds (#485)', () => {
+  /** Frames requested and not yet run or cancelled. */
+  let frames: Map<number, FrameRequestCallback>;
+  const runFrame = () => act(() => {
+    const queued = [...frames.values()];
+    frames.clear();
+    for (const callback of queued) callback(0);
+  });
+  /** A point `dx` px across and `dy` px down from a press on the tear line, 30% over the pack. */
+  const from = (dx: number, dy: number): Point => ({ clientX: at(0.3).clientX + dx, clientY: tearClientY + dy });
+
+  beforeEach(() => {
+    frames = new Map();
+    let nextFrame = 0;
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      nextFrame += 1;
+      frames.set(nextFrame, callback);
+      return nextFrame;
+    });
+    vi.stubGlobal('cancelAnimationFrame', (frame: number) => { frames.delete(frame); });
+  });
+
+  it('opens from a press that goes 30px down before it goes across', () => {
+    down(from(0, 0));
+    move(from(0, 15));
+    move(from(0, 30));
+    // 30px is short of the 32px that makes a press a scroll, so the seam stays lit.
+    expect(cutter.isPressing).toBe(true);
+    move(from(32, 30));
+    move(from(80, 30));
+    up(from(80, 30));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops a press that goes 32px straight down, so a swipe after it cannot open', () => {
+    down(from(0, 0));
+    move(from(0, 16));
+    move(from(0, 32));
+    expect(cutter.isPressing).toBe(false);
+    move(from(120, 32));
+    up(from(120, 32));
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('leaves a press 28px down and 12px across undecided: nothing draws, and it can still go across', () => {
+    down(from(0, 0));
+    move(from(12, 28));
+    expect(frames.size).toBe(0);
+    runFrame();
+    expect(cutter.cutPoints).toEqual([]);
+    expect(cutter.isCutting).toBe(false);
+    expect(cutter.isPressing).toBe(true);
+    move(from(70, 28));
+    expect(frames.size).toBe(1);
+    up(from(70, 28));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops a press only once it goes twice as far down as across', () => {
+    // 40px down and 25px across is less than twice as far down: still undecided.
+    down(from(0, 0));
+    move(from(25, 40));
+    expect(cutter.isPressing).toBe(true);
+    move(from(90, 40));
+    up(from(90, 40));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+    // 32px down and 15px across is more than twice as far down: a scroll.
+    down(at(0.3));
+    move(from(15, 32));
+    expect(cutter.isPressing).toBe(false);
+  });
+
+  it('counts a press as going across once it goes as far across as down', () => {
+    down(from(0, 0));
+    move(from(20, 20));
+    expect(frames.size).toBe(1);
+    runFrame();
+    expect(cutter.isCutting).toBe(true);
+  });
+
+  it('still opens a short swipe along the seam, wobble and all', () => {
+    // 21% of the pack, just past the 20% a release needs.
+    swipe(at(0.4), at(0.5, 4), at(0.61, 6));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('still opens a short swipe over and back', () => {
+    swipe(at(0.4), at(0.52, -3), at(0.62), at(0.5, 3), at(0.41));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('usePackCutter seam taps (#485)', () => {
+  it('shows the swipe for a tap on the seam, without counting it as a miss', () => {
+    swipe(at(0.5), at(0.5));
+    expect(onSeamTap).toHaveBeenCalledTimes(1);
+    expect(onMiss).not.toHaveBeenCalled();
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a swipe that opens', () => swipe(at(0.3), at(0.5), at(0.65))],
+    ['a swipe too short to open', () => swipe(at(0.4), at(0.5), at(0.59))],
+    ['a scroll down from the seam', () => swipe(at(0.5), at(0.5, 20), at(0.5, 40))],
+    ['a press off the seam', () => swipe(at(0.5, 200), at(0.5, 200))],
+    ['a cancelled press', () => {
+      down(at(0.5));
+      act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.5))));
+    }],
+  ])('does not show it for %s', (_, gesture) => {
+    gesture();
+    expect(onSeamTap).not.toHaveBeenCalled();
+  });
+
+  it('does not show it while a sheet is open over the pack', () => {
+    render(true);
+    swipe(at(0.5), at(0.5));
+    expect(onSeamTap).not.toHaveBeenCalled();
   });
 });

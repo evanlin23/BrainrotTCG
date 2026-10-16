@@ -55,6 +55,21 @@ test('a swipe that goes over and comes back opens the pack on release', async ({
   expect(errors).toEqual([]);
 });
 
+test('a tap on the tear line pulses the swipe hint, then a swipe still opens (#485)', async ({ page, baseURL, hasTouch }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!);
+  const packShell = await sealedPack(page);
+  const box = (await packShell.boundingBox())!;
+  const finger = await fingerFor(page, hasTouch);
+  await finger.press(box.x + box.width / 2, box.y + box.height * 0.19);
+  await finger.release();
+  await expect(packShell).toHaveClass(/\bis-tapped\b/);
+  await expect(packShell).not.toHaveClass(/\bis-cut\b/);
+  await swipeTearLine(page, packShell, finger, 0.35, 0.65);
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  expect(errors).toEqual([]);
+});
+
 interface SeamSeen { cutting: boolean; line: boolean; spark: boolean }
 type SeamWindow = Window & { seamSeen?: SeamSeen };
 

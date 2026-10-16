@@ -102,7 +102,9 @@
   text-underline-offset: 0.2em;
 }
 
-.card-guide-link svg {
+/* 16px as a link or as a button: `.btn svg` would otherwise size it to the button's text (#486). */
+.card-guide-link svg,
+.btn svg.card-guide-icon {
   width: 16px;
   height: 16px;
 }

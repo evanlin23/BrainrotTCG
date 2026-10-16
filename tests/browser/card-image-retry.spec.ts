@@ -21,8 +21,10 @@ const VIEWER_TIMEOUT = 20000;
 test('Retry sits above a holo card\'s foil and shine, and gets focus back when the retry fails again', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
-  // Page routes run before monitor's context route: the holo card's art never arrives.
-  const art = new RegExp(`/assets/${holo.cardId}-[\\w-]{8}\\.webp$`);
+  // Page routes run before monitor's context route: the holo card's art never arrives, nor any finish
+  // thumbnail of it (`<card>.gold-<hash>.webp`), so the route and the errors filter below still agree
+  // if the card has a finish.
+  const art = new RegExp(`/assets/${holo.cardId}(?:\\.[a-z]+)?-[\\w-]{8}\\.webp$`);
   let attempts = 0;
   await page.route(art, (route) => {
     attempts += 1;

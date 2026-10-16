@@ -63,7 +63,11 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, [reducedMotion]);
-    const shownTilt = reducedMotion ? { rotateX: 0, rotateY: 0 } : tilt;
+    // Turning reduced motion on mid-pack levels the card and forgets the angle, so turning it back
+    // off doesn't snap the card to where the mouse last was.
+    if (reducedMotion && (tilt.rotateX !== 0 || tilt.rotateY !== 0)) {
+        setTilt({ rotateX: 0, rotateY: 0 });
+    }
 
     // Trigger shine animation once, the first time a holo card is flipped
     if (isFlipped && card.isHolo && !hasShined) {
@@ -87,7 +91,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
             className={cardClasses}
             onContextMenu={(e) => e.preventDefault()}
             style={{
-                transform: `perspective(1000px) rotateX(${shownTilt.rotateX}deg) rotateY(${shownTilt.rotateY}deg)`,
+                transform: `perspective(1000px) rotateX(${tilt.rotateX}deg) rotateY(${tilt.rotateY}deg)`,
                 ...(card.finish ? { '--finish-tell': FINISH_INFO[card.finish].color } : {}),
                 transition: 'transform 0.15s ease-out'
             }}
@@ -103,9 +107,10 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
                 }}
                 onClick={onFlip}
             >
-                {/* Card Back. Only the face that shows is read out, so the front can't spoil the flip. */}
+                {/* Card Back. Only the face that shows is read out, so the front can't spoil the flip. The
+                    flip button already says which card this is, so the back image is decoration. */}
                 <div className="card-face card-back" aria-hidden={isFlipped}>
-                    <img src={cardBackImage} alt="Card back" className="card-back-image" draggable="false" />
+                    <img src={cardBackImage} alt="" className="card-back-image" draggable="false" />
                 </div>
 
                 {/* Card Front */}
@@ -114,8 +119,9 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
                     {card.misprint && <CardImage src={card.image} finish={card.finish} alt="" aria-hidden="true" className="misprint-ghost" draggable="false" />}
                     {card.isHolo && <div className="holo-shine-overlay"></div>}
                     <div className="holo-overlay"></div>
-                    {card.isNew && <span className="new-sticker">New</span>}
-                    {modifierLabel(card, false) && <span className="modifier-sticker">{modifierLabel(card, false)}</span>}
+                    {/* The reveal's announcement already says New and the finish, so the stickers stay silent. */}
+                    {card.isNew && <span className="new-sticker" aria-hidden="true">New</span>}
+                    {modifierLabel(card, false) && <span className="modifier-sticker" aria-hidden="true">{modifierLabel(card, false)}</span>}
                 </div>
             </motion.div>
         </div>

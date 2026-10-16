@@ -45,10 +45,18 @@ describe('card faces for screen readers', () => {
     expect(back().getAttribute('aria-hidden')).toBe('true');
   });
 
-  it('leaves holo out for a plain card, and the finish to the sticker that already says it', () => {
-    render(meta({ finish: 'GOLD', misprint: true }), true);
+  it('leaves holo out for a plain card, and the finish to the announcement, so the stickers stay silent', () => {
+    render(meta({ finish: 'GOLD', misprint: true, isNew: true }), true);
     expect(front().querySelector('img.card-full-image')!.getAttribute('alt')).toBe(`${legendary.name}, Legendary`);
-    expect(front().querySelector('.modifier-sticker')!.textContent).toBe('Gold · Misprint');
+    const sticker = front().querySelector('.modifier-sticker')!;
+    expect(sticker.textContent).toBe('Gold · Misprint');
+    expect(sticker.getAttribute('aria-hidden')).toBe('true');
+    expect(front().querySelector('.new-sticker')!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('leaves the back image unnamed, since the flip button already says which card it is', () => {
+    render(meta(), false);
+    expect(back().querySelector('img')!.getAttribute('alt')).toBe('');
   });
 
   it('hides the front before the flip, so its name and rarity cannot spoil it', () => {
@@ -92,6 +100,15 @@ describe('card tilt', () => {
     expect(wrapper.style.transform).toBe('perspective(1000px) rotateX(0deg) rotateY(0deg)');
     act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 0, clientY: 0 })); });
     expect(wrapper.style.transform).toBe('perspective(1000px) rotateX(0deg) rotateY(0deg)');
+
+    // Turning it back off doesn't snap the card to the old angle: it stays level until the mouse moves.
+    act(() => {
+      reduce = false;
+      listeners.forEach((listener) => listener());
+    });
+    expect(wrapper.style.transform).toBe('perspective(1000px) rotateX(0deg) rotateY(0deg)');
+    act(() => { window.dispatchEvent(new MouseEvent('mousemove', { clientX: 100, clientY: 100 })); });
+    expect(wrapper.style.transform).not.toContain('rotateX(0deg)');
     removeEventListener.mockRestore();
   });
 });

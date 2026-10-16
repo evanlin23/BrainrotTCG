@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { SETS } from '../../content/sets';
 import PackCuttingUI from './PackCuttingUI';
 
-const render = (xs: number[], { pressing = false, nudging = false } = {}) =>
+const render = (xs: number[], { pressing = false, nudging = false, tapped = false } = {}) =>
   renderToStaticMarkup(
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()}
@@ -14,6 +14,7 @@ const render = (xs: number[], { pressing = false, nudging = false } = {}) =>
       isCutting={xs.length > 1}
       pressing={pressing}
       nudging={nudging}
+      tapped={tapped}
       isPackCut={false}
       cutPoints={xs.map((x) => ({ x, y: 19 }))}
       sparks={[]}
@@ -28,6 +29,12 @@ describe('the tear line under a press', () => {
     expect(shellClasses(render([], { pressing: true, nudging: true }))).toEqual(['pack-shell', 'is-pressed']);
     expect(shellClasses(render([], { nudging: true }))).toEqual(['pack-shell', 'is-nudged']);
     expect(shellClasses(render([]))).toEqual(['pack-shell']);
+  });
+
+  it('pulses the swipe hint after a tap on the seam, until the next press (#485)', () => {
+    expect(shellClasses(render([], { tapped: true }))).toEqual(['pack-shell', 'is-tapped']);
+    expect(shellClasses(render([], { tapped: true, pressing: true }))).toEqual(['pack-shell', 'is-pressed']);
+    expect(shellClasses(render([20, 30], { tapped: true }))).toEqual(['pack-shell', 'is-cutting']);
   });
 
   it('hands over to the cut once the swipe draws', () => {

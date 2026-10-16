@@ -112,6 +112,19 @@ describe('result first', () => {
   });
 });
 
+describe('card guide', () => {
+  it('shows the odds of the set version the pack came from, not the latest one (#486)', () => {
+    // Web Ancients v1 is from before card modifiers; its latest version has them.
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    const first = getSet('web-ancients', 1)!;
+    const firstCards = getSetCards(first.id).slice(0, 5).map((card, i) => ({ ...card, uniqueId: i + 1, isRevealed: true, isHolo: false }) as CardWithMeta);
+    act(() => root.render(<PackSummaryUI openedCards={firstCards} set={first} onClose={() => {}} />));
+    const guide = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Card guide')!;
+    act(() => guide.click());
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain(`${first.name} has no finishes or misprints`);
+  });
+});
+
 describe('each card\'s own Share', () => {
   const pack = { setId: set.id, setVersion: set.version, nonce: 3, publicKeyHex: 'ab12' };
   // All Commons, so only the extras rank them: Gold (400) over Holo over plain, ties in pack order.

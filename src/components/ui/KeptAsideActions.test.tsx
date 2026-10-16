@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../../constants';
@@ -222,6 +223,22 @@ describe('KeptAsideActions leaving with focus inside', () => {
     expect(onLeave).toHaveBeenCalledOnce();
     expect(document.activeElement).toBe(target === 'Reload' ? button('Reload') : container.querySelector('h2'));
     expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(ARCHIVE);
+  });
+
+  it('calls only the latest onLeave once, even when the parent passed a new one just before they left (#470)', async () => {
+    const earlier = vi.fn();
+    const latest = vi.fn();
+    const at = (leave: () => void) => <KeptAsideActions variant="settings" canAct={canAct} onGone={onGone} onChanged={onChanged} onLeave={leave} />;
+    await act(() => root.render(at(earlier)));
+    button('Discard').focus();
+    // A re-render with a new handler, then the controls leave, before any microtask runs.
+    act(() => {
+      flushSync(() => root.render(at(latest)));
+      flushSync(() => root.render(null));
+    });
+    await Promise.resolve();
+    expect(earlier).not.toHaveBeenCalled();
+    expect(latest).toHaveBeenCalledOnce();
   });
 
   it('leaves focus alone when it was elsewhere', async () => {

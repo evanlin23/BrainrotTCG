@@ -169,8 +169,11 @@ it('lets the player hide the kept-aside note until something new is kept aside; 
   await app.mount();
   expect(warnings()).toEqual([expect.stringMatching(/kept aside/)]);
 
+  // Focus goes to the logo, not the page body, as the note and its buttons leave (#470).
+  button('Hide note').focus();
   await app.interact(() => button('Hide note').click());
   expect(warnings()).toEqual([]);
+  expect(document.activeElement).toBe(document.querySelector('h1.app-logo'));
   await app.interact(() => button('Settings').click());
   await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
   expect(warnings()).toEqual([]);

@@ -13,9 +13,11 @@ import {
   packEvidence,
   RANKING_SCHEMA_VERSION,
   rebuildBoard,
+  receiptTime,
   selectBoard,
   type CardInstance,
   type PackEvidence,
+  type RankKey,
 } from './rankings';
 import { cardPoints, POKER_HANDS, SCORING_ERA } from './scoring';
 import { ticketPreimage } from './ticket';
@@ -320,5 +322,71 @@ describe('Evidence from a signed proof', () => {
       expect(e).toMatchObject({ id: `${pullId(pull.proof)}#${e.slot}`, cardId: pulled.cardId, proof: proofA });
       expect(e.score).toBe(cardPoints(pulled.rarity, pulled.isHolo, pulled.finish, pulled.misprint));
     }
+  });
+});
+
+describe('Receipt times', () => {
+  it('takes only an ISO 8601 UTC time ending in Z, with or without milliseconds', () => {
+    expect(receiptTime('2026-10-01T12:00:07Z')).toBe('2026-10-01T12:00:07.000Z');
+    expect(receiptTime('2026-10-01T12:00:07.123Z')).toBe('2026-10-01T12:00:07.123Z');
+    expect(receiptTime('2028-02-29T23:59:59.999Z')).toBe('2028-02-29T23:59:59.999Z');
+    for (const t of [
+      'yesterday',
+      'Thu Oct 01 2026 12:00:07 GMT+0000',
+      '2026-10-01',
+      '2026-10-01T12:00:07',
+      '2026-10-01T12:00Z',
+      '2026-10-01 12:00:07Z',
+      '2026-10-01T12:00:07+00:00',
+      '2026-10-01T12:00:07.12Z',
+      '2026-10-01T12:00:07.1234Z',
+      '2026-10-01t12:00:07z',
+      '+002026-10-01T12:00:07.000Z',
+      '2026-02-30T00:00:00Z',
+      '2026-10-01T24:00:00Z',
+      '2026-10-01T12:60:00Z',
+      ' 2026-10-01T12:00:07Z',
+    ]) {
+      expect(() => receiptTime(t), t).toThrow(RangeError);
+    }
+  });
+
+  type Tagged = RankKey & { tag: string };
+  const key = (id: string, firstReceivedAt: string, tag = id): Tagged => ({ id, pullId: id, score: 100, firstReceivedAt, scoringEra: SCORING_ERA, tag });
+  // Plain strings would put "…07.100Z" before "…07Z", 100 ms earlier.
+  const a = key('a', '2026-10-01T12:00:07.100Z');
+  const b = key('b', '2026-10-01T12:00:07Z');
+  const c = key('c', '2026-10-01T12:00:06.900Z');
+
+  it('are compared by instant when a board is selected, whatever form the candidates carry', () => {
+    const later = key('b', '2026-10-01T12:00:07.050Z', 'b-later');
+    const same = key('b', '2026-10-01T12:00:07.000Z', 'b-same');
+    const board = selectBoard([a, later, b, same, c], { scope: 'packs', capacity: 5, generatedAt: NOW });
+    expect(board.entries.map((e) => [e.id, e.firstReceivedAt, e.tag])).toEqual([
+      ['c', '2026-10-01T12:00:06.900Z', 'c'],
+      // b's earliest receipt, and the first given of two at that instant.
+      ['b', '2026-10-01T12:00:07.000Z', 'b'],
+      ['a', '2026-10-01T12:00:07.100Z', 'a'],
+    ]);
+    expect(board.latestReceivedAt).toBe('2026-10-01T12:00:07.100Z');
+    expect(board.sources).toEqual({ candidates: 5, duplicates: 2, otherEra: 0, uncertain: 0 });
+    expect(() => selectBoard([key('x', '2026-10-01 12:00:07Z')], { scope: 'packs', capacity: 1, generatedAt: NOW })).toThrow(RangeError);
+  });
+
+  it('are compared by instant against a coverage bound, in selectBoard and rebuildBoard', () => {
+    // Everything at or above b is known; a, 100 ms after b on the same score, is not.
+    const bound = { kind: 'through', last: b } as const;
+    const board = selectBoard([a, b, c], { scope: 'packs', capacity: 5, generatedAt: NOW, coverage: bound });
+    expect(ids(board.entries)).toEqual(['c', 'b']);
+    expect(board.sources.uncertain).toBe(1);
+    expect(board.completeness).toEqual({ status: 'partial', reason: 'runners-up-not-retained' });
+    expect(board.certifiedThrough).toEqual({ kind: 'through', last: { ...b, firstReceivedAt: '2026-10-01T12:00:07.000Z' } });
+
+    // A previous board whose bound carries GitHub's form rebuilds the same way.
+    const previous = { ...board, certifiedThrough: bound };
+    const rebuilt = rebuildBoard(previous, [a, b, c], { generatedAt: NOW });
+    expect(ids(rebuilt.entries)).toEqual(['c', 'b']);
+    expect(rebuilt.sources.uncertain).toBe(1);
+    expect(() => rebuildBoard(previous, [a, b, c], { generatedAt: NOW, coverage: { kind: 'through', last: key('b', 'soon') } })).toThrow(RangeError);
   });
 });

@@ -82,9 +82,11 @@ interface UsePackCutterOptions {
   disabled?: boolean;
   /** A press on the pack away from the tear line (a tap, or a swipe across the art): time for a nudge. */
   onMiss?: () => void;
+  /** A press on the tear line let go without swiping across (a tap): time to show the swipe. */
+  onSeamTap?: () => void;
 }
 
-export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss }: UsePackCutterOptions) => {
+export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss, onSeamTap }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
   /** A press landed on the seam and hasn't been released or ruled out: the seam lights up under it. */
   const [isPressing, setIsPressing] = useState(false);
@@ -391,9 +393,12 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       const width = measurePack()?.rect.width;
       const stroke = strokeRef.current;
       if (width !== undefined && stroke && strokeCuts(stroke, width, RELEASE_CUT_RATIO)) completeCut();
+      // A tap on the seam (it never went across, nor up or down far enough to be a scroll) cuts
+      // nothing, so the pack shows the swipe instead (#485).
+      else if (stroke && !stroke.across) onSeamTap?.();
     }
     endCutAttempt();
-  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt]);
+  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onSeamTap]);
 
   const cleanup = useCallback(() => {
     if (fairyDustRef.current) {

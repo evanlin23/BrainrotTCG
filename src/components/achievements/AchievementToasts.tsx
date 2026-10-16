@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Award, ChevronsUp, Layers } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
@@ -22,10 +22,15 @@ interface AchievementToastsProps {
   onOpen: (target: ToastTarget) => void;
   /**
    * Hold the toasts, in order, until this clears: while a sheet or page is open, so they never cover
-   * its title or close button, and while a big pull is on show, so none lands in its screenshot. A
-   * toast already up leaves at once (no fade) and comes back in full afterwards; none is dropped.
+   * its title or close button. A toast already up fades out and comes back in full afterwards; none
+   * is dropped.
    */
   paused?: boolean;
+  /**
+   * Hold them the same way while a big pull is on show, so none lands in its screenshot. Here a toast
+   * already up leaves at once, with no fade over the card.
+   */
+  held?: boolean;
 }
 
 /** At this many waiting unlocks, show one grouped toast instead of a long run of single ones. */
@@ -35,12 +40,17 @@ const GROUP_AT = 3;
  * Achievement unlocks, one small toast at a time at the top of the screen. A burst (one lucky pack
  * can unlock seven) becomes a single "N achievements" toast rather than a wall over the game.
  */
-const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false }: AchievementToastsProps) => {
+const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = false }: AchievementToastsProps) => {
   // Level-ups and the like go one at a time; a run of achievements at the front can be grouped.
   const leadingAchievements = queue.findIndex((t) => t.kicker) === -1 ? queue : queue.slice(0, queue.findIndex((t) => t.kicker));
   const grouped = leadingAchievements.length >= GROUP_AT;
   const shown = grouped ? leadingAchievements : queue.slice(0, 1);
-  const key = paused ? '' : shown.map((a) => a.id).join('|');
+  const key = paused || held ? '' : shown.map((a) => a.id).join('|');
+  // A toast fading out has already been put back in the queue, so a tap on it does nothing.
+  const liveKey = useRef(key);
+  useEffect(() => {
+    liveKey.current = key;
+  }, [key]);
 
   useEffect(() => {
     if (!key) return;
@@ -50,8 +60,8 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false }: Achieve
 
   return (
     <div className="toast-region" role="status" aria-live="polite">
-      {/* Unmounted while paused, so a toast on screen goes at once instead of fading over the showcase. */}
-      {!paused && (
+      {/* Unmounted while held, so a toast on screen goes at once instead of fading over the showcase. */}
+      {!held && (
         <AnimatePresence mode="wait">
           {key && (
             <motion.button
@@ -59,6 +69,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false }: Achieve
               type="button"
               className={`toast ${!grouped && shown[0].kicker ? 'toast--detail' : ''}`}
               onClick={() => {
+                if (liveKey.current !== key) return;
                 onDismiss(shown.map((a) => a.id));
                 onOpen(shown[0].opens ?? 'achievements');
               }}
