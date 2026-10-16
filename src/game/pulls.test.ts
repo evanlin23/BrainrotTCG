@@ -454,4 +454,18 @@ describe('opening a pack', () => {
     expect((await openPack(SET)).unrecorded).toBe(true);
     error.mockRestore();
   });
+
+  it('never reuses a ticket number when storage refuses the ticket counter, and warns', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const before = await openPack(SET);
+    expect(before.unrecorded).toBeUndefined();
+    refuseWrite = (k) => k === 'brainrot-player-v1';
+    const opened = [await openPack(SET), await openPack(SET)];
+    expect(opened.map((p) => p.nonce)).toEqual([before.nonce + 1, before.nonce + 2]);
+    expect(opened.map((p) => p.unrecorded)).toEqual([true, true]);
+    // Both are still kept for the next load and recorded: only the counter was refused.
+    expect(shelved().map((e: { n: number }) => e.n)).toEqual([before.nonce, before.nonce + 1, before.nonce + 2]);
+    expect(JSON.parse(data.get('brainrot-player-v1')!).nextNonce).toBe(before.nonce + 1);
+    error.mockRestore();
+  });
 });
