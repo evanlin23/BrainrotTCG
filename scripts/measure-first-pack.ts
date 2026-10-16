@@ -1,14 +1,54 @@
 /**
  * Time from first load to first pack revealed, for a brand-new player, in Chromium with phone
  * emulation (390x844, 4x CPU throttle, Fast 4G). Chromium emulation, not a real phone.
- * Needs a server: `npm run build && npx vite preview --port 4173`, then
- * `npx tsx scripts/measure-first-pack.ts [runs] [--waterfall]`.
+ * `npm run build`, then `npx tsx scripts/measure-first-pack.ts [runs] [--waterfall] [--preview]`.
+ * By default it serves dist/ the way GitHub Pages does (max-age=600, gzip, ETags); --preview uses
+ * a running `npx vite preview --port 4173` instead (no-cache, so reused files are revalidated).
  */
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { extname, join, normalize } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { chromium } from '@playwright/test';
 
-const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:4173/BrainrotTCG/';
-const RUNS = Number(process.argv[2] ?? 7);
+const RUNS = Number(process.argv.find((arg) => /^\d+$/.test(arg)) ?? 7);
 const WATERFALL = process.argv.includes('--waterfall');
+const PREVIEW = process.argv.includes('--preview');
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
+  '.wasm': 'application/wasm', '.webp': 'image/webp', '.png': 'image/png', '.mp3': 'audio/mpeg', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json',
+};
+
+/** Serve dist/ under /BrainrotTCG/ with GitHub Pages' headers. */
+const servePagesLike = async (): Promise<string> => {
+  const root = join(process.cwd(), 'dist');
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    if (!url.pathname.startsWith('/BrainrotTCG/')) { res.writeHead(404).end(); return; }
+    let path = normalize(decodeURIComponent(url.pathname.slice('/BrainrotTCG/'.length)));
+    if (path.startsWith('..')) { res.writeHead(404).end(); return; }
+    if (path === '.' || path.endsWith('/')) path = join(path, 'index.html');
+    let body: Buffer;
+    try { body = await readFile(join(root, path)); } catch { res.writeHead(404).end(); return; }
+    const type = TYPES[extname(path)] ?? 'application/octet-stream';
+    const etag = `"${createHash('sha1').update(body).digest('hex')}"`;
+    const headers: Record<string, string> = { 'content-type': type, 'cache-control': 'max-age=600', etag };
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers).end(); return; }
+    if (/^(text\/|application\/(json|wasm|manifest)|image\/svg)/.test(type) && /gzip/.test(String(req.headers['accept-encoding']))) {
+      body = gzipSync(body);
+      headers['content-encoding'] = 'gzip';
+    }
+    res.writeHead(200, headers).end(body);
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  server.unref();
+  const { port } = server.address() as { port: number };
+  return `http://127.0.0.1:${port}/BrainrotTCG/`;
+};
+
+const BASE = process.env.BASE_URL ?? (PREVIEW ? 'http://127.0.0.1:4173/BrainrotTCG/' : await servePagesLike());
 // Chrome DevTools' "Fast 4G" preset.
 const FAST_4G = { offline: false, latency: 165, downloadThroughput: (9 * 1024 * 1024) / 8, uploadThroughput: (1.5 * 1024 * 1024) / 8 };
 
