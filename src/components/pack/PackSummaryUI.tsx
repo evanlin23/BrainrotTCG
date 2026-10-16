@@ -58,7 +58,8 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
       <div className="summary-content">
         <div className="summary-details">
           <h2 className="summary-title">{hand.name}</h2>
-          <BrainrotScorePanel points={points} multiplier={hand.multiplier} handName={hand.name} score={score} setId={set.id} />
+          {/* The hand's name is the heading just above, so the panel doesn't repeat it. */}
+          <BrainrotScorePanel points={points} multiplier={hand.multiplier} score={score} setId={set.id} />
           {progress ? (
             <div className="summary-xp">
               <span className="summary-xp-text tabular">

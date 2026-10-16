@@ -7,7 +7,8 @@ import '../../styles/Scoring.css';
 interface BrainrotScorePanelProps {
   points: number;
   multiplier: number;
-  handName: string;
+  /** Left out where the hand's name is already the heading above the panel. */
+  handName?: string;
   score: number;
   /** Set whose odds the "how it works" guide should show. */
   setId?: string;
@@ -23,10 +24,11 @@ const BrainrotScorePanel = ({ points, multiplier, handName, score, setId }: Brai
         Brainrot Score
         {multiplier > 1 ? (
           <>
-            {' '}· {points.toLocaleString()} pts × <strong>{multiplier.toLocaleString()}</strong> for {handName}
+            {' '}· {points.toLocaleString()} pts × <strong>{multiplier.toLocaleString()}</strong>
+            {handName && <> for {handName}</>}
           </>
         ) : (
-          <> · {handName}</>
+          handName && <> · {handName}</>
         )}
       </div>
       {set && (

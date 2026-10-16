@@ -306,8 +306,9 @@ Collection, stats and achievements normally receive a pack when its reveal finis
 opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
 on the next load, but writes can fail. It is always a list (up to 50), so an owed pack is never
 replaced by a newer one; past the cap (or if storage refuses the write), the new pack shows the save
-warning and isn't kept for the next load: it still reaches the collection when its reveal finishes in
-this tab, but a tab closed first leaves it only in the history (if that write went through). Load
+warning and isn't on the shelf while it reveals: it still reaches the collection when its reveal
+finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but a tab
+closed before that leaves it only in the history (if that write went through). Load
 takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
 so none is added twice) and holds them until a collection holding them is stored. If that collection
 write is blocked, they stay owed by this tab and go into its next collection write; a copy also goes

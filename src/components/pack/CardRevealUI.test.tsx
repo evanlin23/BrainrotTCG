@@ -39,3 +39,20 @@ describe('good-pull reveal', () => {
     expect(render(false, { ...card, isRevealed: false })).not.toContain('special-reveal-celebration');
   });
 });
+
+describe('closing a reveal', () => {
+  const closeButton = (revealLocked: boolean) => {
+    const html = renderToStaticMarkup(
+      <CardRevealUI currentCard={card} currentIndex={0} totalCards={5} hasMovedMouse
+        onInteraction={() => {}} onSkip={() => {}} onLeave={() => {}} celebrating={false} revealLocked={revealLocked} />,
+    );
+    return html.match(/<button[^>]*aria-label="Close pack"[^>]*>/)?.[0];
+  };
+
+  it('is an icon button named Close pack, disabled with Skip during the protected celebration', () => {
+    expect(closeButton(false)).toContain('class="icon-btn reveal-close"');
+    expect(closeButton(false)).not.toContain('disabled');
+    expect(closeButton(true)).toContain('disabled=""');
+    expect(render(false)).not.toContain('Close pack');
+  });
+});

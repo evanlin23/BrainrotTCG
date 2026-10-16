@@ -1,11 +1,14 @@
 .toast-region {
-  position: fixed;
-  /* In the header strip: it's chrome, so it never covers the game (a pack's result especially). */
-  top: calc(var(--safe-top) + 6px);
-  left: 50%;
+  /* A zero-height row in the app column, right after the header (and the save warning above it), so
+     a toast hangs just under whatever the header's real height is and never covers the logo or the
+     Player and settings buttons. */
+  position: relative;
+  top: var(--space-1);
   z-index: var(--z-toast);
+  flex: none;
   width: min(92vw, 24rem);
-  transform: translateX(-50%);
+  height: 0;
+  margin: 0 auto;
   pointer-events: none;
 }
 
@@ -76,9 +79,6 @@
 /* Wide screens: top right, under the nav so it never covers a tab, and clear of the logo. */
 @media (min-width: 900px) {
   .toast-region {
-    top: calc(var(--safe-top) + 5.5rem);
-    left: auto;
-    right: var(--gutter);
-    transform: none;
+    margin: 0 var(--gutter) 0 auto;
   }
 }

@@ -44,7 +44,7 @@ img.finish-diamond {
   border-radius: 3px;
   background: rgba(18, 17, 20, 0.9);
   color: var(--finish, #fff);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.03em;
   line-height: 1.25;

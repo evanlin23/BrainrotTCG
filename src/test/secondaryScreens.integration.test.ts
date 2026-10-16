@@ -3,6 +3,10 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ComponentType, ReactNode } from 'react';
 import { mountedApp } from './mountedApp';
+import { STORAGE_KEYS } from '../constants/config';
+import { getSetCards } from '../data/cards';
+import { isOpenable, SETS } from '../content/sets';
+import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
 afterEach(async () => {
@@ -104,6 +108,33 @@ it('keeps actual App secondary navigation working without changing the selected 
     expect(document.activeElement).toBe(button(target));
     expect(document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label')).toBe(pack);
   }
+});
+
+it('opens the era of the selected pack first in My cards', async () => {
+  // One card each of the oldest openable era (the selected pack) and the two newest, from the registry
+  // the app reads, so a new set moves the fixture with it. Without the selected era, the collection
+  // would open the two newest and leave the selected one collapsed.
+  const openable = SETS.filter(isOpenable);
+  const [selected, secondNewest, newest] = [openable[0], ...openable.slice(-2)];
+  expect(new Set([selected.id, secondNewest.id, newest.id]).size).toBe(3);
+  // The 24-pocket budget the sheet opens with fits the selected and newest eras, not a third.
+  const pockets = (set: { id: string }) => getSetCards(set.id).length;
+  expect(pockets(selected) + pockets(newest)).toBeLessThanOrEqual(24);
+  expect(pockets(selected) + pockets(newest) + pockets(secondNewest)).toBeGreaterThan(24);
+  const cards = [selected, secondNewest, newest].map((set) => getSetCards(set.id)[0]);
+  app = await mountedApp({
+    'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Selected era fixture', nextNonce: 0, createdAt: 1 }),
+    'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+    [STORAGE_KEYS.SELECTED_SET]: selected.id,
+    [STORAGE_KEYS.COLLECTION]: JSON.stringify(Object.fromEntries(cards.map((card) => [card.key, { card, normalCount: 1, holoCount: 0 }]))),
+    [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
+  });
+  await app.mount();
+  const headers = () => [...document.querySelectorAll('[role="dialog"].collection .collection-set-toggle')];
+  await app.interact(() => button('My cards').click());
+  await app.until('the real collection loads under My cards', () => expect(headers()).toHaveLength(3));
+  const open = headers().filter((h) => h.getAttribute('aria-expanded') === 'true').map((h) => h.querySelector('.collection-set-name')?.textContent);
+  expect(open).toEqual([selected.name, newest.name]);
 });
 
 // The App's own Rankings, Best pulls (titled "My cards", like the collection) and Share sheets, through

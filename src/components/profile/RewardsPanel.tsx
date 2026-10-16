@@ -3,6 +3,7 @@ import { Lock } from 'lucide-react';
 import cardBackImage from '../../assets/images/card_back.webp';
 import { CARD_BACKS, PACK_FOILS, nextReward, usable, type Reward } from '../../game/progression';
 import type { Settings } from '../../types';
+import '../../styles/Profile.css';
 
 interface RewardsPanelProps {
   level: number;
