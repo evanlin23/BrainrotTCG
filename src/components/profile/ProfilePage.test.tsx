@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ProfilePage from './ProfilePage';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import { ACHIEVEMENTS } from '../../data/achievements';
+import { pullId } from '../../engine';
+import { getPlayer } from '../../game/player';
+import { submitToHallOfFame } from '../../game/share';
 
 const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks } = vi.hoisted(() => ({
   myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(),
@@ -247,5 +250,34 @@ describe('folded sections', () => {
     expect(rewards().querySelector('summary')!.textContent).toBe('Every reward unlocked');
     render({ section: { id: 'rewards', n: 1 } });
     expect(rewards().open).toBe(true);
+  });
+});
+
+describe('Hall of Fame submitted badge', () => {
+  const entry = (nonce: number, score: number, hand = 'Pair') =>
+    ({ setId: 'right-now', setVersion: 1, nonce, key: 'a'.repeat(16), cards: null, hand, score, openedAt: 1000 + nonce });
+  const badges = () => [...document.querySelectorAll('.pull-row-sent')].map((el) => el.textContent);
+  const idOf = (nonce: number) => pullId({ setId: 'right-now', setVersion: 1, publicKey: getPlayer().publicKey, nonce });
+
+  it('shows Not submitted, Sending… and Submitted live, and nothing on packs that cannot qualify', async () => {
+    let resolve!: (v: { accepted: string | null }) => void;
+    const accepted = { promise: new Promise<{ accepted: string | null }>((r) => { resolve = r; }), resolve: (v: { accepted: string | null }) => resolve(v) };
+    vi.doMock('../../game/nostrInbox', () => ({
+      hallOfFameEvent: () => ({}),
+      publishUntilAccepted: () => accepted.promise,
+    }));
+    getHistory.mockReturnValue([entry(1, 1e9), entry(2, 1)]);
+    render();
+    expect(badges()).toEqual(['Not submitted']);
+
+    let sent!: Promise<boolean>;
+    act(() => { sent = submitToHallOfFame('proof', idOf(1)); });
+    await vi.waitFor(() => expect(badges()).toEqual(['Sending…']));
+
+    accepted.resolve({ accepted: 'wss://relay' });
+    await act(async () => { await sent; });
+    expect(badges()).toEqual(['Submitted']);
+    expect(document.querySelector('.pull-row-sent')!.getAttribute('title')).toBe('Sent from this device');
+    expect(document.querySelector('.pull-row-sent svg')?.getAttribute('aria-hidden')).toBe('true');
   });
 });
