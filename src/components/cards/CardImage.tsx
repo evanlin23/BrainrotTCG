@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, type ImgHTMLAttributes, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ImgHTMLAttributes, type MouseEvent } from 'react';
 import type { Finish } from '../../engine';
 import { holdFinishedCardImage } from '../../game/finishImage';
 import { cardFinishThumbUrl } from '../../content/art';
@@ -33,8 +33,27 @@ const subscribeRetry = (listener: () => void) => {
 };
 const getRetryRound = () => retryRound;
 
+// One observer marks loading images scrolled out of view, so their shimmer pauses (CardImage.css).
+let offscreenObserver: IntersectionObserver | undefined;
+const watchedOffscreen = new Set<Element>();
+const watchOffscreen = (element: Element) => {
+  if (typeof IntersectionObserver === 'undefined') return undefined;
+  offscreenObserver ??= new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (watchedOffscreen.has(entry.target)) entry.target.toggleAttribute('data-offscreen', !entry.isIntersecting);
+    }
+  });
+  watchedOffscreen.add(element);
+  offscreenObserver.observe(element);
+  return () => {
+    watchedOffscreen.delete(element);
+    offscreenObserver?.unobserve(element);
+    element.removeAttribute('data-offscreen');
+  };
+};
+
 interface ImageStatus {
-  /** Card, finish and attempt this status belongs to; any change starts from a fresh status. */
+  /** Card, finish, variant and attempt this status belongs to; any change starts from a fresh status. */
   id: string;
   thumbFailed?: boolean;
   /** The finished image's URL, or the plain art when the finish could not be rendered. */
@@ -55,7 +74,7 @@ const CardImage = ({
 }: CardImageProps) => {
   const round = useSyncExternalStore(subscribeRetry, getRetryRound, getRetryRound);
   const [attempt, setAttempt] = useState(0);
-  const id = `${finish ?? ''}:${src}#${attempt}`;
+  const id = `${finish ?? ''}:${src}:${thumbnail ? 'thumb' : 'full'}#${attempt}`;
   const [stored, setStored] = useState<ImageStatus>({ id });
   const status = stored.id === id ? stored : { id };
   const update = (patch: Omit<ImageStatus, 'id'>) =>
@@ -84,23 +103,42 @@ const CardImage = ({
       cancelled = true;
       finished.release();
     };
-    // `id` covers src, finish and attempt; `update` only closes over `id`.
+    // `id` covers src, finish, thumbnail and attempt; `update` only closes over `id`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, needsRender]);
+
+  const imageRef = useRef<HTMLImageElement>(null);
+  const shimmering = state === 'rendering' || state === 'loading';
+  useEffect(() => (shimmering && imageRef.current ? watchOffscreen(imageRef.current) : undefined), [shimmering]);
 
   // A retry round after the failure starts a fresh attempt (adjusting state while rendering, as React suggests).
   if (failed && round > status.failedIn!) setAttempt(attempt + 1);
 
+  const retryButton = useRef<HTMLButtonElement>(null);
+  /** Where this image's Retry press parked focus while the button is gone, until the attempt settles. */
+  const parkedFocus = useRef<Element | null>(null);
   const retryNow = (event: MouseEvent<HTMLButtonElement>) => {
     // The button goes away while the image reloads: keep focus in the surrounding dialog or card.
-    event.currentTarget.parentElement?.closest<HTMLElement>('[tabindex]')?.focus({ preventScroll: true });
+    const holder = event.currentTarget.parentElement?.closest<HTMLElement>('[tabindex]');
+    holder?.focus({ preventScroll: true });
+    parkedFocus.current = holder ?? document.body;
     retryFailedCardImages();
   };
+  useEffect(() => {
+    if (state !== 'ready' && state !== 'failed') return;
+    const parked = parkedFocus.current;
+    parkedFocus.current = null;
+    // Failed again: hand focus back to the new Retry button, unless the player has moved it meanwhile.
+    if (state === 'failed' && parked && (document.activeElement ?? document.body) === parked) {
+      retryButton.current?.focus({ preventScroll: true });
+    }
+  }, [state]);
 
   const image = (
     <img
       draggable={draggable}
       {...props}
+      ref={imageRef}
       className={className ? `card-image ${className}` : 'card-image'}
       style={style}
       src={failed || !shown ? BLANK : shown}
@@ -122,6 +160,7 @@ const CardImage = ({
     <>
       {image}
       <button
+        ref={retryButton}
         type="button"
         className="btn btn--secondary card-image-retry"
         aria-label={`Retry loading ${props.alt || 'card image'}`}

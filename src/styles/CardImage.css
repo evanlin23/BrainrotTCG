@@ -27,6 +27,12 @@
   .card-image[data-state='loading'] {
     animation: card-image-shimmer 1.4s ease-in-out infinite;
   }
+
+  /* CardImage marks a loading image that is scrolled out of view; the ghost pass has nothing to shimmer. */
+  .card-image[data-state][data-offscreen],
+  .card-image.misprint-ghost[data-state] {
+    animation-play-state: paused;
+  }
 }
 
 @keyframes card-image-shimmer {
@@ -42,7 +48,8 @@
 .card-image-retry {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  /* Above the holo foil and shine (CardViewer.css, 1 and 2) and the modifier sticker (Card.css, 3). */
+  z-index: 4;
   width: fit-content;
   height: fit-content;
   margin: auto;

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ALL_CARDS, type Card } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { hydrateCard, hydrateCollection, runMigrations } from '../utils/migrations';
+import { fromHex, publicKeyFromSecret, toHex } from '../engine';
 import { importSave } from './move';
 import { SAVE_STAMP_KEY } from './player';
 
@@ -585,6 +586,19 @@ describe('bringing a save over', () => {
     partialWithoutPlayer(original, previousBackup);
     // Every other key here is the copy's or the incoming save's: only the guest's next nonce is new.
     store.set('brainrot-player-v1', playerAt('dd', 1));
+    const here = currentSave();
+
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(keptCopies()).toEqual([original, here]);
+  });
+
+  it.each([false, true])('backs up a guest whose stored counter lags a ticket the history records for it (earlier backup: %s)', (previousBackup) => {
+    // The history kept here records ticket 0 for dd, whose counter write was refused: dd's own reads count it.
+    const dd = toHex(publicKeyFromSecret(fromHex('dd'.repeat(32))));
+    const history = JSON.stringify([{ s: 'genesis', v: 1, n: 0, k: dd.slice(0, 16), h: '', x: 0, t: 1 }]);
+    const original = { [SAVE_STAMP_KEY]: 'earlier import', 'brainrot-player-v1': player('bb'), 'brainrot-history-v1': history };
+    partialWithoutPlayer(original, previousBackup);
+    store.set('brainrot-player-v1', playerAt('dd', 0));
     const here = currentSave();
 
     expect(importSave(OLD, () => true)).toBe('saved');

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
-import { byBest, findPackByCards, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, type HistoryEntry } from './history';
+import { byBest, findPackByCards, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, recordTicket, type HistoryEntry } from './history';
 import { HALL_OF_FAME_MIN_SCORE } from '../engine';
 import type { OpenedPack } from './pulls';
 
@@ -149,6 +149,17 @@ describe('recording the ticket mappings a full storage refused', () => {
     expect(getHistory()).toHaveLength(2);
   });
 
+  it("puts a pack in its ticket's stand-in, and never in place of another set's record", () => {
+    installStorage();
+    expect(recordTicket('right-now', 1, 1, KEY, 500)).toBe(true);
+    expect(recordTicket('other-set', 1, 2, KEY, 600)).toBe(true);
+    recordPack(pack(2, { setId: 'other-set', openedAt: 700 }));
+    expect(recordMissing([pack(1), pack(2)], KEY)).toBe(true);
+    const history = getHistory();
+    expect(history.map((e) => [e.setId, e.nonce, e.hand, e.openedAt])).toEqual([['right-now', 2, 'Pair', 1_002], ['right-now', 1, 'Pair', 1_001], ['other-set', 2, 'Pair', 700]]);
+    expect(history[1].cards).toHaveLength(5);
+  });
+
   it('writes nothing when nothing is missing', () => {
     const data = installStorage();
     recordPack(pack(0));
@@ -165,6 +176,34 @@ describe('recording the ticket mappings a full storage refused', () => {
     const data = installStorage();
     data.set(STORAGE_KEYS.HISTORY, '[null]');
     expect(recordMissing([pack(0)], KEY)).toBe(false);
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe('[null]');
+  });
+});
+
+describe('recording a ticket before its pack is in hand', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('maps the ticket to its set with no cards or hand, once, until the pack replaces it', () => {
+    installStorage();
+    expect(recordTicket('right-now', 1, 4, KEY, 1_004)).toBe(true);
+    expect(recordTicket('right-now', 1, 4, KEY, 2_000)).toBe(true);
+    expect(historyForKey(KEY).map((e) => [e.setId, e.setVersion, e.nonce, e.cards, e.hand, e.score, e.openedAt])).toEqual([['right-now', 1, 4, null, '', 0, 1_004]]);
+    recordPack(pack(4));
+    expect(historyForKey(KEY)).toHaveLength(1);
+    expect(historyForKey(KEY)[0]).toMatchObject({ hand: 'Pair', score: 100 });
+    // A recorded pack is never replaced by a stand-in.
+    expect(recordTicket('right-now', 1, 4, KEY, 3_000)).toBe(true);
+    expect(historyForKey(KEY)[0].cards).toHaveLength(5);
+  });
+
+  it('reports a history it could not read or write', () => {
+    installStorage(10);
+    expect(recordTicket('right-now', 1, 0, KEY, 1)).toBe(false);
+    const data = installStorage();
+    data.set(STORAGE_KEYS.HISTORY, '[null]');
+    expect(recordTicket('right-now', 1, 0, KEY, 1)).toBe(false);
     expect(data.get(STORAGE_KEYS.HISTORY)).toBe('[null]');
   });
 });
