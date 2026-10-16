@@ -887,6 +887,27 @@
     outline-offset: 6px;
 }
 
+/* The pack's edges can sit off screen or under the stage's clip, so the hint on it rings too. */
+.pack-shell:focus-visible .swipe-hint {
+    box-shadow: var(--focus-ring), var(--shadow-1);
+}
+
+/* The card is the reveal's button (flip, then next). Its ring is drawn over the big-pull halo, which
+   paints under the card, and follows the card's corners. */
+.reveal-card:focus-visible {
+    box-shadow: none;
+}
+
+.reveal-card:focus-visible::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: 8px;
+    box-shadow: var(--focus-ring);
+    pointer-events: none;
+}
+
 /* Phones: the card at about five sixths of the width, the summary a size down. (Last in the file so
    it wins over the rules above.) */
 @media (max-width: 700px) {
