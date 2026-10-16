@@ -65,13 +65,17 @@ async function onOpen(page: Page, baseURL: string) {
   await expect(page.locator('.app-logo')).toBeFocused();
 }
 
-/** Opens a pack and skips to its summary. The tabs and the gear are out of the way while it opens. */
+/**
+ * Opens a pack and skips to its summary. The tabs and the gear are out of the way while it opens: on a
+ * phone the header goes with them (focus mode, #312), and from 900px the gear stays in view, disabled.
+ */
 async function openPackSummary(page: Page) {
   await opener(page).focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   await expect(nav(page)).toBeHidden();
-  await expect(gear(page)).toBeDisabled();
+  if ((page.viewportSize()?.width ?? 0) < 900) await expect(page.locator('.app-header')).toBeHidden();
+  else await expect(gear(page)).toBeDisabled();
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 15000 });
 }
@@ -156,8 +160,12 @@ test('a new player sees no tabs until their first pack is saved', async ({ page,
   await expect(nav(page)).toHaveCount(0);
   await expect(gear(page)).toBeVisible();
   await openPackSummary(page);
-  await expect(tab(page, 'Cards')).toBeVisible();
   await expect.poll(async () => (await snapshot(page)).stats?.packsOpened).toBe(1);
+  // The tabs exist once the pack is saved, but focus mode keeps them aside until the player leaves it (#312).
+  await expect(page.locator('.app-nav')).toHaveCount(1);
+  await expect(page.locator('.app-nav')).toBeHidden();
+  await page.getByRole('button', { name: 'Open another pack', exact: true }).click();
+  await expect(tab(page, 'Cards')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -195,8 +203,9 @@ test('Back from a page opened over a pack returns to the pack, and the next Back
   await openPackSummary(page);
   const cards = await page.locator('.pack-summary').innerText();
 
-  await tab(page, 'Cards').click();
-  await onPage(page, baseURL!, PAGES[0], true);
+  // Focus mode hides the tabs for the whole pack (#312), so a page reaches a pack's summary by its address.
+  await page.evaluate(() => { location.hash = '#/cards'; });
+  await onPage(page, baseURL!, PAGES[0], false);
   await tab(page, 'Rankings').click();
   await onPage(page, baseURL!, PAGES[1], true);
   await page.goBack();
@@ -210,8 +219,8 @@ test('Back from a page opened over a pack returns to the pack, and the next Back
 
   // Closing a page opened over a pack steps back onto the pack too.
   await openPackSummary(page);
-  await tab(page, 'Profile').click();
-  await onPage(page, baseURL!, PAGES[2], true);
+  await page.evaluate(() => { location.hash = '#/profile'; });
+  await onPage(page, baseURL!, PAGES[2], false);
   await pageNamed(page, 'Profile').getByRole('button', { name: 'Close Profile', exact: true }).click();
   await expect(page.locator('.pack-summary')).toBeVisible();
   expect(page.url()).toBe(start);

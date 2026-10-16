@@ -84,3 +84,21 @@ describe('special cards line', () => {
     expect(container.querySelector('.summary-cards + .summary-new')?.textContent).toBe('2 special cards · Gold, Holo, Misprint');
   });
 });
+
+describe('result first', () => {
+  const follows = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it('puts the heading, the cards and the score before the actions, and the keyboard on the heading', () => {
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} holdOptional />));
+    const [title, list, score, actions] = ['.summary-title', '.summary-cards', '.score-panel', '.summary-actions'].map((s) => container.querySelector(s)!);
+    expect(follows(title, list) && follows(list, score) && follows(score, actions)).toBe(true);
+    expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Open another pack']);
+    expect(document.activeElement).toBe(title);
+  });
+
+  it('leaves the keyboard where it is while a sheet covers the summary', () => {
+    expect(document.activeElement).not.toBe(container.querySelector('.summary-title'));
+  });
+});

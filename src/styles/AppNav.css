@@ -68,7 +68,7 @@
   white-space: nowrap;
 }
 
-/* Focus mode (a pack is being opened): get out of the way, for the keyboard too (hidden after the fade). */
+/* Focus mode (a pack is open, summary included): get out of the way, for the keyboard too (hidden after the fade). */
 .app.is-focus .app-nav {
   transform: translateY(110%);
   opacity: 0;

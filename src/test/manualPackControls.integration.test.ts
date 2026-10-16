@@ -50,6 +50,22 @@ const toasts = () => [...document.querySelectorAll('.toast')].map((el) => el.tex
 // The tabs are hidden while a pack is open, but an address typed or followed still opens a page or a link.
 const go = (hash: string) => app!.interact(() => { location.hash = hash; });
 const pageTitle = () => document.querySelector('main.page h1')?.textContent ?? null;
+// Focus mode: the app's chrome (tabs, set picker, and the header on phones) is hidden around a pack.
+const focusMode = () => $('.app')!.classList.contains('is-focus');
+const mockPoster = async () => {
+  const graphics = await import('../game/bragImage');
+  vi.spyOn(graphics, 'renderPoster').mockResolvedValue(new Blob(['pack'], { type: 'image/png' }));
+  // Graphics/URL boundary only: jsdom can't draw the poster.
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL() { return 'blob:mounted-fixture'; }
+    static revokeObjectURL() {}
+  });
+  return import('../App');
+};
+const summary = async () => {
+  await app!.interact(() => button('Skip opening animation').click());
+  await app!.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+};
 
 it('ignores the old auto-open key on the sealed pack and during a reveal', async () => {
   app = await mountedApp(preferences());
@@ -194,23 +210,17 @@ it('lets Escape close a sheet over the reveal without closing the reveal', async
   expect(stats()?.packsOpened).toBe(1);
 }, 30_000);
 
-it('shares from the summary, which puts its actions above the cards', async () => {
+it('shares from the summary, which leads with the result and puts its actions after the cards', async () => {
   app = await mountedApp(preferences());
-  await app.mount(async () => {
-    const graphics = await import('../game/bragImage');
-    vi.spyOn(graphics, 'renderPoster').mockResolvedValue(new Blob(['pack'], { type: 'image/png' }));
-    // Graphics/URL boundary only: jsdom can't draw the poster.
-    vi.stubGlobal('URL', class extends URL {
-      static createObjectURL() { return 'blob:mounted-fixture'; }
-      static revokeObjectURL() {}
-    });
-    return import('../App');
-  });
+  await app.mount(mockPoster);
   await reveal();
-  await app.interact(() => button('Skip opening animation').click());
-  await app.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
-  const actions = $('.summary-actions')!;
-  expect(actions.compareDocumentPosition($('.summary-cards')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await summary();
+  const cards = $('.summary-cards')!;
+  expect(cards.compareDocumentPosition($('.summary-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the actions came before the cards').toBeTruthy();
+  expect($('.summary-title')!.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(cards.compareDocumentPosition($('.pack-summary .score-panel')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the score came before the cards').toBeTruthy();
+  // Keyboard focus starts at the result, not on a button below it.
+  expect(document.activeElement).toBe($('.summary-title'));
   expect(button('Open another pack')).toBeDefined();
   expect(stats()?.packsOpened).toBe(1);
   expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
@@ -219,6 +229,22 @@ it('shares from the summary, which puts its actions above the cards', async () =
   await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
   expect([...document.querySelectorAll('[role="dialog"]')].some((dialog) => dialog.textContent?.includes('Share your pull'))).toBe(true);
   expect(stats()?.packsOpened).toBe(1);
+}, 30_000);
+
+it('hides the app chrome from the tear through the summary, and brings it back when the pack is left', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  expect(focusMode()).toBe(false);
+  await reveal();
+  expect(focusMode(), 'the reveal showed the chrome').toBe(true);
+  expect(button('Settings').disabled, 'the reveal enabled Settings').toBe(true);
+  await summary();
+  expect(focusMode(), 'the summary brought the chrome back').toBe(true);
+  // Focus mode is not "busy": the summary still leaves Settings and the set picker usable.
+  expect(button('Settings').disabled).toBe(false);
+  await app.interact(() => button('Open another pack').click());
+  await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
+  expect(focusMode(), 'the packs screen kept the chrome hidden').toBe(false);
 }, 30_000);
 
 it('lets the X end a big pull\'s hold and leave, recording the pack once; nothing else gets past the hold', async () => {
@@ -304,8 +330,10 @@ it('leaves a torn pack whose ticket is on its way at once, and records it once, 
     shell.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
   });
   await app.until('the slow ticket says so', () => expect($('.pack-hint.is-waiting')).not.toBeNull());
+  expect(focusMode()).toBe(true);
   await app.interact(() => button('Back to packs').click());
   expect(button('Back to packs'), 'the X stayed after leaving').toBeUndefined();
+  expect(focusMode(), 'the packs screen kept the chrome hidden while the ticket mined').toBe(false);
   expect($('.pack-hint.is-waiting'), 'the pack still said it was opening').toBeNull();
   expect($('.pack-shell.is-cut'), 'the pack still looked torn').toBeNull();
   await app.until('leaving steps back over the pack\'s history entry', () =>
@@ -379,7 +407,55 @@ describe('browser Back in a pack', () => {
       await app.until(`${leave} returns to the packs screen`, () => expect(sealed()).not.toBeNull());
       await app.until(`${leave} steps back over the pack's entry`, () => expect(packEntry()).toBe(false));
       expect(history.length, `${leave} stacked history`).toBe(length);
+      expect(focusMode(), `${leave} kept the chrome hidden`).toBe(false);
     }
     expect(stats()?.packsOpened).toBe(3);
+  }, 30_000);
+
+  it('does not leave the summary from under its share sheet, as the summary\'s own buttons don\'t', async () => {
+    app = await mountedApp(preferences());
+    await app.mount(mockPoster);
+    await reveal();
+    const length = history.length;
+    await summary();
+    await app.interact(() => button('Share').click());
+    await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
+    await back();
+    await app.until('the pack takes its entry back', () => expect(packEntry()).toBe(true));
+    expect(history.length).toBe(length);
+    expect(document.querySelectorAll('.summary-card'), 'Back left the summary under the sheet').toHaveLength(5);
+    expect(sealed()).toBeNull();
+    expect(focusMode()).toBe(true);
+
+    // With the sheet closed, Back leaves the summary as before.
+    await escape();
+    await app.until('Escape closes the sheet', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+    expect(document.querySelectorAll('.summary-card')).toHaveLength(5);
+    await back();
+    await app.until('Back leaves the summary', () => expect(sealed()).not.toBeNull());
+    expect(focusMode()).toBe(false);
+    expect(stats()?.packsOpened).toBe(1);
+  }, 30_000);
+
+  it('steps back over a pack\'s entry the page was loaded on, so the first Back leaves the page', async () => {
+    app = await mountedApp(preferences());
+    // A reload while a pack was open: the page comes back on the pack's entry, with no pack.
+    history.replaceState({ below: true }, '');
+    history.pushState({ brainrotPack: true }, '');
+    const length = history.length;
+    await app.mount();
+    await app.until('the load steps back over the old entry', () => expect(history.state).toEqual({ below: true }));
+    expect(history.length).toBe(length);
+    expect(sealed()).not.toBeNull();
+    expect(focusMode()).toBe(false);
+
+    // The next pack adds its own entry in the old one's place, and Back from it leaves it.
+    await reveal();
+    expect(packEntry()).toBe(true);
+    expect(history.length, 'the pack stacked history over the old entry').toBe(length);
+    await back();
+    await app.until('Back returns to the packs screen', () => expect(sealed()).not.toBeNull());
+    await app.until('Back lands below the pack', () => expect(history.state).toEqual({ below: true }));
+    expect(stats()?.packsOpened).toBe(1);
   }, 30_000);
 });

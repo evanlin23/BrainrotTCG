@@ -184,6 +184,8 @@ function App() {
   const [notificationQueue, setNotificationQueue] = useState<ToastItem[]>([]);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [packBusy, setPackBusy] = useState(false);
+  /** A pack is open, from the tear to leaving it: the chrome steps aside (see index.css). Not busy: it disables nothing. */
+  const [packFocus, setPackFocus] = useState(false);
 
   const playableSets = SETS.filter((s) => !s.archivedAt && (!s.draft || settings.showDraftSets));
   const [selectedSetId, setSelectedSetId] = useState<string>(readSelectedSet);
@@ -600,7 +602,7 @@ function App() {
   );
 
   return (
-    <div className={`app${packBusy ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
+    <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
       {bannerWarning && route !== 'settings' && (
         <p role="alert" className="save-warning">
           {bannerWarning}
@@ -648,6 +650,7 @@ function App() {
           onOpen={handlePackOpened}
           onShare={sharePack}
           onBusyChange={setPackBusy}
+          onFocusChange={setPackFocus}
           set={selectedSet}
           disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}
