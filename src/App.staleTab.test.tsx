@@ -7,6 +7,7 @@ import { scoreCards } from './data/cards';
 import { allocateNonce, getPlayer } from './game/player';
 import { savePendingPack, toCardsWithMeta, type OpenedPack } from './game/pulls';
 import { STORAGE_KEYS } from './constants';
+import { shelfKeys, shelvedPacks } from './test/pendingShelf';
 import App from './App';
 
 // Another tab's writes, made after this tab read the save and before it stores its own.
@@ -38,7 +39,7 @@ const owedPack = (nonce: number, cardId = set.cards[0].id): OpenedPack => {
   const cards = toCardsWithMeta([{ setId: set.id, cardId, isHolo: false }]);
   return { setId: set.id, setVersion: set.version, nonce, publicKeyHex: getPlayer().publicKeyHex, cards, score: scoreCards(cards), openedAt: 1 };
 };
-const shelfNonces = (): number[] => (JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS) ?? '[]') as { n: number }[]).map((p) => p.n);
+const shelfNonces = (): number[] => shelvedPacks().map((p) => p.n);
 const normalCount = (cardId: string): number =>
   (JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION) ?? '{}') as Record<string, { normalCount: number }>)[`${set.id}/${cardId}`]?.normalCount ?? 0;
 const packsOpened = (): number => (JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS) ?? '{}') as { packsOpened: number }).packsOpened;
@@ -59,7 +60,7 @@ const recordInOtherTab = () => {
 };
 // Another tab loads: it takes this player's packs off the shelf and stores them (only uncounted ones count).
 const loadInOtherTab = (cardIds: string[], opened: number) => {
-  localStorage.removeItem(STORAGE_KEYS.PENDING_PACKS);
+  for (const key of shelfKeys()) localStorage.removeItem(key);
   localStorage.setItem(STORAGE_KEYS.COLLECTION, JSON.stringify(Object.fromEntries(cardIds.map(stored))));
   localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify({ packsOpened: opened, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
   window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.STATS }));
@@ -215,7 +216,7 @@ describe('a tab whose save another tab of the same player has written since', ()
     savePendingPack(owedPack(7));
     const realSetItem = Storage.prototype.setItem;
     const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-      if (key === STORAGE_KEYS.PENDING_PACKS) throw new DOMException('full', 'QuotaExceededError');
+      if (key.startsWith(STORAGE_KEYS.PENDING_PACK_PREFIX)) throw new DOMException('full', 'QuotaExceededError');
       realSetItem.call(this, key, value);
     });
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -241,7 +242,7 @@ describe('a tab whose save another tab of the same player has written since', ()
     savePendingPack(owedPack(7));
     const realSetItem = Storage.prototype.setItem;
     const refuse = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-      if (key === STORAGE_KEYS.PENDING_PACKS) throw new DOMException('full', 'QuotaExceededError');
+      if (key.startsWith(STORAGE_KEYS.PENDING_PACK_PREFIX)) throw new DOMException('full', 'QuotaExceededError');
       realSetItem.call(this, key, value);
     });
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -252,11 +253,11 @@ describe('a tab whose save another tab of the same player has written since', ()
     // Another tab switches to player B, who has a pack of the same nonce on the shelf.
     localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: 'bb'.repeat(32), name: 'B', nextNonce: 8, createdAt: 1 }));
     savePendingPack(owedPack(7, set.cards[2].id));
-    const shelf = localStorage.getItem(STORAGE_KEYS.PENDING_PACKS);
+    const shelf = Object.fromEntries(shelfKeys().map((k) => [k, localStorage.getItem(k)]));
     const before = error.mock.calls.length;
     await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.STATS })));
-    // Player A's pack stays in this tab: on B's shelf it would replace B's pack 7.
-    expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).toBe(shelf);
+    // Player A's pack stays in this tab: the shelf is as player B's tab left it.
+    expect(Object.fromEntries(shelfKeys().map((k) => [k, localStorage.getItem(k)]))).toEqual(shelf);
     expect(error.mock.calls.slice(before).flat().join(' ')).not.toMatch(/couldn't be put back/);
     expect(container.textContent).toContain(STALE);
   });

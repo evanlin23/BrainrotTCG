@@ -1,5 +1,6 @@
 import type { ReactNode, Ref } from 'react';
 import { packHeadline } from '../../engine';
+import { formatOneIn } from '../../game/cardStats';
 import type { CardWithMeta } from '../cards/Card';
 import '../../styles/PackHeadline.css';
 
@@ -18,8 +19,6 @@ interface PackHeadlineProps {
   children?: ReactNode;
   className?: string;
 }
-
-const formatOneIn = (n: number) => (n < 10 ? n.toFixed(1) : Math.round(n).toLocaleString());
 
 /** "1 in 13 packs score this high", or "Most packs score this high" for a better-than-even chance. */
 const scoreOdds = (chance: number) =>
