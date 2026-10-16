@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, lazy, Suspense } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setBrowserDiagnosticCapture } from '../../game/diagnostics';
 import AppErrorBoundary from './AppErrorBoundary';
 
-const diagnosticsFault = vi.hoisted(() => ({ throws: false }));
+const diagnosticsFault = vi.hoisted(() => ({ throws: false, reportThrows: false }));
 vi.mock('../../game/diagnostics', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../game/diagnostics')>();
   return {
@@ -13,6 +13,10 @@ vi.mock('../../game/diagnostics', async (importOriginal) => {
     recordDiagnostic: (...args: Parameters<typeof actual.recordDiagnostic>) => {
       if (diagnosticsFault.throws) throw new Error('diagnostics broke');
       actual.recordDiagnostic(...args);
+    },
+    browserDiagnostics: () => {
+      if (diagnosticsFault.reportThrows) throw new Error('report broke PRIVATE_CRASH_DETAIL');
+      return actual.browserDiagnostics();
     },
   };
 });
@@ -45,6 +49,8 @@ describe('app error boundary', () => {
     container.remove();
     setBrowserDiagnosticCapture(false);
     diagnosticsFault.throws = false;
+    diagnosticsFault.reportThrows = false;
+    history.replaceState(null, '', '/');
     consoleError.mockRestore();
     Reflect.deleteProperty(navigator, 'clipboard');
     vi.unstubAllGlobals();
@@ -90,6 +96,43 @@ describe('app error boundary', () => {
     const link = container.querySelector('a')!;
     expect(link.href).toMatch(/^https:\/\/github\.com\/.+\/issues\/new\?template=bug\.yml$/);
     expect(link.rel).toBe('noopener noreferrer');
+    expect(link.closest('details')!.textContent).toContain('Posting requires a GitHub account.');
+  });
+
+  it('keeps secrets in the address and storage out of the report', () => {
+    localStorage.setItem('brainrot-player-v1', 'PRIVATE_KEY_NEVER_SHARE');
+    sessionStorage.setItem('brainrot-draft', 'PRIVATE_SAVE_NEVER_SHARE');
+    history.replaceState(null, '', '/?token=PRIVATE_QUERY_NEVER_SHARE#/pull/PRIVATE_PROOF_NEVER_SHARE');
+    setBrowserDiagnosticCapture(true);
+    crash();
+    const text = container.querySelector<HTMLTextAreaElement>('#app-crash-report-text')!.value;
+    expect(JSON.parse(text).route).toBe('shared-pull');
+    expect(container.innerHTML).not.toMatch(/PRIVATE_|token=/);
+  });
+
+  it('keeps Reload and a minimal copyable report when building the report throws', async () => {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    diagnosticsFault.reportThrows = true;
+    crash();
+    expect(container.querySelector('h1')!.textContent).toBe('Something went wrong');
+    const text = container.querySelector<HTMLTextAreaElement>('#app-crash-report-text')!.value;
+    expect(JSON.parse(text)).toEqual({ format: 1 });
+    expect(container.innerHTML).not.toContain('PRIVATE_CRASH_DETAIL');
+    await act(async () => button('Copy report').click());
+    expect(writeText).toHaveBeenCalledWith(text);
+    act(() => button('Reload').click());
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers from a lazy chunk that fails to load without showing its address', async () => {
+    const Missing = lazy(() => Promise.reject(new TypeError('Failed to fetch dynamically imported module: https://example.invalid/assets/PRIVATE_CHUNK.js?key=PRIVATE_CRASH_DETAIL')));
+    await act(async () => root.render(<AppErrorBoundary reload={reload}><Suspense fallback={<p>Loading</p>}><Missing /></Suspense></AppErrorBoundary>));
+    expect(container.querySelector('h1')!.textContent).toBe('Something went wrong');
+    expect(JSON.parse(container.querySelector<HTMLTextAreaElement>('#app-crash-report-text')!.value).format).toBe(1);
+    expect(container.innerHTML).not.toMatch(/PRIVATE_|example\.invalid|dynamically imported/);
+    act(() => button('Reload').click());
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it('shows and copies the render-error category only when capture is opted in', async () => {

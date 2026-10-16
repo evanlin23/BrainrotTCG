@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import '../../styles/Card.css';
 import cardBackImage from '../../assets/images/card_back.webp';
-import type { Card as CardType } from '../../data/cards';
+import { CARD_RARITIES, type Card as CardType } from '../../data/cards';
 import type { Finish } from '../../engine';
 import { FINISH_INFO, modifierClasses, modifierLabel } from '../../game/modifiers';
 import CardImage from './CardImage';
+import { prefersReducedMotion } from '../../utils/motion';
 
 export interface CardWithMeta extends CardType {
     uniqueId: number;
@@ -26,6 +27,13 @@ interface CardProps {
     /** Before the flip, light the back's edge in the card's rarity colour (rare and up). */
     tell?: boolean;
 }
+
+/**
+ * The face's accessible name: the card's name, rarity and holo, which the art shows only by colour and
+ * shine. A finish or misprint is left out because the face's sticker already says it.
+ */
+const cardFaceLabel = (card: Pick<CardWithMeta, 'name' | 'rarity' | 'isHolo'>): string =>
+    `${card.name}, ${card.isHolo ? 'Holo ' : ''}${CARD_RARITIES[card.rarity].name}`;
 
 const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardProps) => {
     const cardRef = useRef<HTMLDivElement>(null);
@@ -54,8 +62,8 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
         };
 
         // Tilt follows a real mouse only: phones send a mousemove with every tap, which would leave
-        // the card stuck at an angle.
-        if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+        // the card stuck at an angle. No tilt under reduced motion either.
+        if (prefersReducedMotion() || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, []);
@@ -98,14 +106,14 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
                 }}
                 onClick={onFlip}
             >
-                {/* Card Back */}
-                <div className="card-face card-back">
+                {/* Card Back. Only the face that shows is read out, so the front can't spoil the flip. */}
+                <div className="card-face card-back" aria-hidden={isFlipped}>
                     <img src={cardBackImage} alt="Card back" className="card-back-image" draggable="false" />
                 </div>
 
                 {/* Card Front */}
-                <div className={`card-face card-front ${modifierClasses(card)}`}>
-                    <CardImage src={card.image} finish={card.finish} alt={card.name} className="card-full-image" draggable="false" />
+                <div className={`card-face card-front ${modifierClasses(card)}`} aria-hidden={!isFlipped}>
+                    <CardImage src={card.image} finish={card.finish} alt={cardFaceLabel(card)} className="card-full-image" draggable="false" />
                     {card.misprint && <CardImage src={card.image} finish={card.finish} alt="" aria-hidden="true" className="misprint-ghost" draggable="false" />}
                     {card.isHolo && <div className="holo-shine-overlay"></div>}
                     <div className="holo-overlay"></div>
