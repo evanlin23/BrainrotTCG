@@ -22,6 +22,7 @@ const render = (overrides: Partial<Options> = {}) => act(() => {
       onCloseSummary={() => {}}
       onOpenPack={() => {}}
       handleInteractionRef={{ current: () => {} }}
+      inPack
       onLeave={onLeave}
       {...overrides}
     />,
@@ -46,8 +47,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Escape during a reveal', () => {
-  it('closes the reveal once, as its Close pack button does', () => {
+describe('Escape in a pack', () => {
+  it('leaves the reveal once, as the pack\'s Back to packs button does', () => {
     render();
     const event = escape();
     expect(onLeave).toHaveBeenCalledTimes(1);
@@ -56,12 +57,20 @@ describe('Escape during a reveal', () => {
     expect(onLeave, 'a held Escape closed again').toHaveBeenCalledTimes(1);
   });
 
-  it('does nothing without a reveal on screen, on the summary, or while the pack is disabled', () => {
-    for (const state of [{ isOpening: false }, { showSummary: true }, { disabled: true }, { onLeave: undefined }]) {
+  it('does nothing without a pack on screen, or while the pack is disabled', () => {
+    for (const state of [{ inPack: false, isOpening: false }, { inPack: undefined }, { disabled: true }, { onLeave: undefined }]) {
       render(state);
       escape();
     }
     expect(onLeave).not.toHaveBeenCalled();
+  });
+
+  it('leaves from every stage: the torn pack, the reveal and the summary', () => {
+    for (const state of [{ isOpening: false }, {}, { showSummary: true }]) {
+      render(state);
+      escape();
+    }
+    expect(onLeave).toHaveBeenCalledTimes(3);
   });
 
   it('leaves Escape to an open dialog above the reveal', () => {

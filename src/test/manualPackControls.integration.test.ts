@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import type { Stats } from '../types';
@@ -35,7 +35,11 @@ async function reveal() {
     shell.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
     shell.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
   });
-  await app!.until('manual Enter reveals the spent pack', () => expect(progress()).toBe('1'));
+  await app!.until('manual Enter reveals the spent pack', () => {
+    expect(progress()).toBe('1');
+    // The top bar's count shows as the pack opens; the card follows once the torn pack has gone.
+    expect($('.card-wrapper')).not.toBeNull();
+  });
 }
 
 const pressA = () => app!.interact(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', key: 'a', bubbles: true })));
@@ -62,30 +66,28 @@ it('ignores the old auto-open key on the sealed pack and during a reveal', async
   expect(stats()?.packsOpened ?? 0).toBe(0);
 }, 30_000);
 
-it('leaves a spent reveal by its button or empty space exactly once, but not after a fling off the card', async () => {
+it('leaves a spent reveal only by its Back to packs button, exactly once: empty space and flings stay', async () => {
   app = await mountedApp(preferences());
   await app.mount();
-  for (const [index, exit] of ['Close pack', 'click on empty space', 'press on empty space'].entries()) {
+  for (const index of [0, 1]) {
     await reveal();
     await app.interact(() => $('.card-wrapper')!.click());
     const area = $('.card-reveal-area')!;
-    expect(area.classList).toContain('can-leave');
-    // A fling that starts on the card and ends off it, or the reverse, clicks the area: neither leaves.
+    // A fling between the card and empty space, and a tap or click on empty space, don't leave.
     await app.interact(() => press($('.card-wrapper')!, area, area));
     await app.interact(() => press(area, $('.card-wrapper')!, area));
+    await app.interact(() => area.click());
+    await app.interact(() => press($('.active-card-container')!, area, area));
+    await app.interact(() => press(area, area, area));
     await app.settle(400);
-    const round = `round ${index + 1} (${exit})`;
-    expect(sealed(), `a fling between the card and empty space left the reveal in ${round}`).toBeNull();
-    expect(button('Close pack'), `the reveal lost its Close pack button after a fling in ${round}`).toBeDefined();
-    expect(stats()?.packsOpened ?? 0, `a fling between the card and empty space recorded the pack in ${round}`).toBe(index);
+    const round = `round ${index + 1}`;
+    expect(sealed(), `empty space or a fling left the reveal in ${round}`).toBeNull();
+    expect(progress(), `empty space or a fling moved the reveal on in ${round}`).toBe('1');
+    expect(stats()?.packsOpened ?? 0, `empty space or a fling recorded the pack in ${round}`).toBe(index);
 
-    await app.interact(() => {
-      if (exit === 'Close pack') button('Close pack').click();
-      // A click with no pointer press, as from assistive tech.
-      else if (exit === 'click on empty space') area.click();
-      else press($('.active-card-container')!, area, area);
-    });
+    await app.interact(() => button('Back to packs').click());
     await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
+    expect(button('Back to packs'), 'the packs screen kept the pack\'s X').toBeUndefined();
     expect(stats()?.packsOpened).toBe(index + 1);
     expect(stats()?.highestPackCards).toHaveLength(5);
     await app.interact(() => {
@@ -105,24 +107,20 @@ it('does not leave or record a reveal from behind an open sheet', async () => {
   await app.mount();
   await reveal();
   await app.interact(() => $('.card-wrapper')!.click());
-  const area = $('.card-reveal-area')!;
-  expect(area.classList).toContain('can-leave');
-  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent === 'My cards')!.click());
+  await openMyCards();
   await app.until('a sheet opens over the reveal', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
-  expect(area.classList, 'the area still offers leaving while a sheet covers it').not.toContain('can-leave');
-  await app.interact(() => button('Close pack').click());
-  await app.interact(() => area.click());
+  await app.interact(() => button('Back to packs').click());
   await app.settle(400);
   expect(sealed(), 'a press behind the sheet left the reveal').toBeNull();
   expect(stats()?.packsOpened ?? 0, 'a press behind the sheet recorded the pack').toBe(0);
   await app.interact(() => button('Close').click());
   await app.until('the sheet closes', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
-  await app.interact(() => button('Close pack').click());
+  await app.interact(() => button('Back to packs').click());
   await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
   expect(stats()?.packsOpened).toBe(1);
 }, 30_000);
 
-it('closes a reveal with Escape as Close pack does, and says the face-down cards were kept', async () => {
+it('leaves a reveal with Escape as Back to packs does, and says the face-down cards were kept', async () => {
   app = await mountedApp(preferences());
   await app.mount();
   await reveal();
@@ -212,30 +210,165 @@ it('shares from the summary, which puts its actions above the cards', async () =
   expect(stats()?.packsOpened).toBe(1);
 }, 30_000);
 
-it('blocks every way out while a big pull holds the reveal', async () => {
+it('lets the X end a big pull\'s hold and leave, recording the pack once; nothing else gets past the hold', async () => {
   app = await mountedApp(preferences({ nextNonce: 22, pauseBigPulls: true }));
   await app.mount();
   await reveal();
   await app.interact(() => button('Skip opening animation').click());
   await app.until('skip stops on the big pull', () => expect($('.active-card-container')?.getAttribute('aria-busy')).toBe('true'));
+  expect($('.special-reveal-celebration')).not.toBeNull();
   const area = $('.card-reveal-area')!;
-  expect(button('Close pack').disabled).toBe(true);
-  expect(area.classList).not.toContain('can-leave');
+  const card = progress();
   await app.interact(() => {
-    button('Close pack').click();
     area.click();
     press(area, area, area);
     press($('.active-card-container')!, area, area);
+    $('.card-wrapper')!.click();
   });
-  await escape();
   expect($('.active-card-container')?.getAttribute('aria-busy')).toBe('true');
+  expect(progress(), 'a press got past the hold').toBe(card);
   expect(sealed()).toBeNull();
   expect(stats()?.packsOpened ?? 0).toBe(0);
 
-  await app.until('skip finishes after the hold', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+  expect(button('Back to packs').disabled, 'the X is disabled during the hold').toBe(false);
+  await app.interact(() => button('Back to packs').click());
+  await app.until('the X leaves during the hold', () => expect(sealed()).not.toBeNull());
+  expect($('.special-reveal-celebration'), 'the celebration outlived the pack').toBeNull();
+  expect($('.active-card-container')).toBeNull();
+  expect(stats()?.packsOpened).toBe(1);
+  expect(stats()?.highestPackCards).toHaveLength(5);
+  // The hold's timers don't bring the pack back or record it again.
+  await app.settle(4000);
+  expect(sealed()).not.toBeNull();
+  expect(document.querySelectorAll('.summary-card')).toHaveLength(0);
   expect(stats()?.packsOpened).toBe(1);
   const before = localStorage.getItem(STORAGE_KEYS.STATS);
   await app.reload();
   expect(localStorage.getItem(STORAGE_KEYS.STATS)).toBe(before);
   expect(sealed()).not.toBeNull();
 }, 30_000);
+
+it('leaves the summary with Escape, as Open another pack does, without recording it again', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  await reveal();
+  await app.interact(() => button('Skip opening animation').click());
+  await app.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+  expect(button('Back to packs'), 'the summary has the pack\'s X').toBeDefined();
+  expect($('.reveal-progress'), 'the summary shows a card count').toBeNull();
+  await escape();
+  await app.until('Escape leaves the summary', () => expect(sealed()).not.toBeNull());
+  await app.settle(1000);
+  expect(stats()?.packsOpened).toBe(1);
+  expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
+}, 30_000);
+
+it('puts a torn pack back sealed when it is left before its ticket is spent', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  await app.interact(() => {
+    const shell = sealed()!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+  });
+  expect(button('Back to packs'), 'the torn pack has the pack\'s X').toBeDefined();
+  await app.interact(() => button('Back to packs').click());
+  await app.settle(2000);
+  expect(sealed()).not.toBeNull();
+  expect(button('Back to packs')).toBeUndefined();
+  expect($('.reveal-progress')).toBeNull();
+  expect(stats()?.packsOpened ?? 0).toBe(0);
+  expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).nextNonce, 'leaving before the tear landed spent a ticket').toBe(0);
+  await reveal();
+}, 30_000);
+
+it('leaves a torn pack whose ticket is on its way at once, and records it once, face up, when it lands', async () => {
+  app = await mountedApp(preferences(), { tickets: () => ({ delayMs: 4000 }) });
+  await app.mount();
+  await app.interact(() => {
+    const shell = sealed()!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+  });
+  await app.until('the slow ticket says so', () => expect($('.pack-hint.is-waiting')).not.toBeNull());
+  await app.interact(() => button('Back to packs').click());
+  expect(button('Back to packs'), 'the X stayed after leaving').toBeUndefined();
+  expect($('.pack-hint.is-waiting'), 'the pack still said it was opening').toBeNull();
+  expect($('.pack-shell.is-cut'), 'the pack still looked torn').toBeNull();
+  await app.until('leaving steps back over the pack\'s history entry', () =>
+    expect((history.state as { brainrotPack?: boolean } | null)?.brainrotPack ?? false).toBe(false));
+  // A second press, or Escape, while it lands does nothing more.
+  await escape();
+  expect(stats()?.packsOpened ?? 0).toBe(0);
+
+  await app.until('the late pack is recorded', () => expect(stats()?.packsOpened).toBe(1));
+  await app.until('the kept notice shows', () => expect(toasts()).toContain('Pack kept'));
+  await app.settle(2000);
+  expect(stats()?.packsOpened, 'the late pack was recorded twice').toBe(1);
+  expect($('.reveal-progress'), 'the late pack opened over the packs screen').toBeNull();
+  expect(sealed()).not.toBeNull();
+}, 30_000);
+
+describe('browser Back in a pack', () => {
+  const packEntry = () => (history.state as { brainrotPack?: boolean } | null)?.brainrotPack === true;
+  const back = () => app!.interact(() => history.back());
+
+  it('leaves a reveal as the X does, and keeps one entry per pack', async () => {
+    app = await mountedApp(preferences());
+    const href = location.href;
+    // jsdom keeps history across a file's tests, so the length is measured at the first pack.
+    let length = 0;
+    const pushes = vi.spyOn(history, 'pushState');
+    await app.mount();
+    expect(pushes, 'the packs screen added history').not.toHaveBeenCalled();
+
+    for (const index of [0, 1]) {
+      await reveal();
+      expect(packEntry(), `pack ${index + 1} has no history entry`).toBe(true);
+      if (index === 0) length = history.length;
+      expect(history.length, `pack ${index + 1} stacked history`).toBe(length);
+      expect(location.href, 'a pack changed the address').toBe(href);
+      await app.interact(() => $('.card-wrapper')!.click());
+      await back();
+      await app.until('Back returns to the packs screen', () => expect(sealed()).not.toBeNull());
+      expect(stats()?.packsOpened).toBe(index + 1);
+      expect(stats()?.highestPackCards).toHaveLength(5);
+      expect(packEntry()).toBe(false);
+      expect(location.href).toBe(href);
+    }
+    expect(pushes).toHaveBeenCalledTimes(2);
+    await app.until('the kept notice shows', () => expect(toasts()).toContain('Pack kept'));
+
+    // Forward onto an old pack's entry reopens nothing.
+    await app.interact(() => history.forward());
+    await app.settle(1000);
+    expect(sealed()).not.toBeNull();
+    expect($('.reveal-progress')).toBeNull();
+    expect(stats()?.packsOpened).toBe(2);
+  }, 30_000);
+
+  it('steps back over the entry when the X, Escape or the summary leaves, so Back then leaves the page', async () => {
+    app = await mountedApp(preferences());
+    let length = 0;
+    await app.mount();
+    for (const leave of ['X', 'Escape', 'Open another pack']) {
+      await reveal();
+      expect(packEntry()).toBe(true);
+      if (leave === 'X') length = history.length;
+      expect(history.length, `the pack before ${leave} stacked history`).toBe(length);
+      if (leave === 'X') await app.interact(() => button('Back to packs').click());
+      else if (leave === 'Escape') await escape();
+      else {
+        await app.interact(() => button('Skip opening animation').click());
+        await app.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+        await app.interact(() => button('Open another pack').click());
+      }
+      await app.until(`${leave} returns to the packs screen`, () => expect(sealed()).not.toBeNull());
+      await app.until(`${leave} steps back over the pack's entry`, () => expect(packEntry()).toBe(false));
+      expect(history.length, `${leave} stacked history`).toBe(length);
+    }
+    expect(stats()?.packsOpened).toBe(3);
+  }, 30_000);
+});

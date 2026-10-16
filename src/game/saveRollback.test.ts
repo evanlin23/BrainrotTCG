@@ -11,7 +11,7 @@ const setItem = vi.fn((key: string, value: string) => { store.set(key, value); }
 const removeItem = vi.fn((key: string) => { store.delete(key); });
 let importSaveFile: typeof import('./saveFile').importSaveFile;
 let player: typeof import('./player');
-let backUpSave: typeof import('./move').backUpSave;
+let backUpSave: typeof import('./saveFile').backUpSave;
 
 const fixture = () => ({
   version: 2, dataVersion: 3, exportedAt: '2026-10-14T00:00:00Z',
@@ -43,9 +43,8 @@ beforeEach(async () => {
   store.set(STORAGE_KEYS.STATS, '{"packsOpened":8,"holoCards":{}}');
   store.set(STORAGE_KEYS.SETTINGS, '{"musicVolume":0.1}');
   store.set(VERSION_KEY, '1');
-  ({ importSaveFile } = await import('./saveFile'));
+  ({ importSaveFile, backUpSave } = await import('./saveFile'));
   player = await import('./player');
-  ({ backUpSave } = await import('./move'));
 });
 afterEach(() => {
   vi.restoreAllMocks();
