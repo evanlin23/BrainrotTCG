@@ -106,8 +106,10 @@
 
 /*
  * The stage the whole sealed pack sits in. It is both the box the drop-in animation moves and the
- * clip for the torn top strip, so the pack has to fit inside it (see --pack-fit below): a pack taller
- * than the stage was cut off by this box's moving bottom edge on the way down.
+ * clip for the torn top strip. On a phone the pack fits inside it (see --pack-fit below): a pack
+ * taller than the stage was cut off by this box's moving bottom edge on the way down. On a desktop
+ * window the pack is bigger than the stage and the stage scrolls (the block at the end of this
+ * section), so it still clips here, and never sideways.
  */
 .pack-display {
     position: relative;
@@ -124,7 +126,7 @@
 }
 
 /*
- * The whole pack fits the stage, so nothing needs scrolling or reaching. The wrapper image is
+ * The whole pack fits the stage, so on a phone nothing needs scrolling or reaching. The wrapper image is
  * 1536:2752 with clear space above the crimp, so it's pulled up by a tenth of its width to put the
  * set ribbon just under the picker; the printed pack is then 1.7 widths tall, and --pack-fit is the
  * width at which that height fills the stage less a gap above and below. The gap is a space-4, and at
@@ -159,33 +161,31 @@
 
 /*
  * A desktop window is wide enough that the whole pack at the stage's height is small (a third of the
- * screen, #536), and the owner wants the big pack back. So here the pack is sized to the part of it
- * a player needs to see, and its bottom runs on past the stage: --pack-share is the share of the
- * printed pack, from the crimp down, that is on the stage at rest. The wrapper art's printed pack
- * starts 0.184 widths down its box (0.084 below --pack-fit's top, after the pull-up above) and is
- * 1.575 widths tall; half of it shows the crimp, the set ribbon, the tear line, the logo and the top of
- * the cards, and the rest is what the fade below hides. --pack-fit stays the floor, so the pack is
- * never smaller than the whole of it on the stage. The 80% and 1600px caps still apply.
+ * screen, #536), and the owner wants the big pack back, wide and tall enough to scroll down. So here
+ * the pack is sized to the part of it a player needs to see, and its bottom runs on past the stage:
+ * --pack-share is the share of the printed pack, from the crimp down, that is on the stage at rest.
+ * The wrapper art's printed pack starts 0.184 widths down its box (0.084 below --pack-fit's top, after
+ * the pull-up above) and is 1.575 widths tall; half of it shows the crimp, the set ribbon, the tear
+ * line, the logo and the top of the cards, and the rest is a wheel, trackpad or key press away.
+ * --pack-fit stays the floor, so the pack is never smaller than the whole of it on the stage. The 80%
+ * and 1600px caps still apply.
  *
- * The cut-off bottom fades out (a mask on the stage, which is also its clip) instead of ending on a
- * hard edge, and the stage can't be scrolled to the rest of the pack (overflow: clip, which even a
- * script or a focus can't scroll), so the page stays one screen. The tear line, the hint and the Open
- * pack button all sit in the top of the pack, well above the fade. Phones and a phone on its side (under
- * 900px wide or 600px tall) keep the fit above.
+ * The stage itself scrolls (not the page, so the app header and nav stay put): the wrapper is
+ * positioned inside it, and a positioned box's bottom edge is part of its scrollable overflow. There
+ * is no fade or crop at the bottom. The pack never scrolls sideways (overflow-x), and a thin scrollbar
+ * is enough of a cue. overscroll-behavior keeps the wheel from chaining to the page once the stage is
+ * at either end. The tear line, the hint and the Open pack button all sit in the top of the pack, so
+ * at rest (scrollTop 0) the screen is the same as it would be without scrolling. PackOpener.tsx puts
+ * the stage back at the top when the cards come in. Phones and a phone on its side (under 900px wide
+ * or 600px tall) keep the fit above, with nothing to scroll.
  */
 @media (min-width: 900px) and (min-height: 600px) {
     .pack-display {
-        --pack-fade: min(22%, 9rem);
-        overflow: hidden;
-        overflow: clip;
-        /* Only the alpha matters to a mask; the stops come from --black so no raw colour lands here. */
-        --pack-fade-mask: linear-gradient(to bottom,
-                var(--black) calc(100% - var(--pack-fade)),
-                color-mix(in srgb, var(--black) 55%, transparent) calc(100% - var(--pack-fade) * 0.55),
-                color-mix(in srgb, var(--black) 15%, transparent) calc(100% - var(--pack-fade) * 0.2),
-                transparent);
-        -webkit-mask-image: var(--pack-fade-mask);
-        mask-image: var(--pack-fade-mask);
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-strong) transparent;
     }
 
     .pack-shell-wrap,

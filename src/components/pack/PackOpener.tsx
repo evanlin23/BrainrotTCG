@@ -287,6 +287,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     focusOpenRef.current = true;
     handleOpen();
   }, [refusal, handleOpen]);
+  /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
+  const stageRef = useRef<HTMLDivElement>(null);
+  // The stage is on its way out when the cards come in, and the reveal must not inherit anything it
+  // scrolled to: it goes back to the top as opening starts.
+  useLayoutEffect(() => {
+    if (isOpening && stageRef.current) stageRef.current.scrollTop = 0;
+  }, [isOpening]);
   const openButtonEl = useRef<HTMLButtonElement | null>(null);
   const openButtonRef = useCallback((el: HTMLButtonElement | null) => {
     openButtonEl.current = el;
@@ -635,6 +642,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         {!isOpening ? (
           <Motion.div
             key="pack"
+            ref={stageRef}
             initial={{ y: '-100vh', opacity: 0, rotate: -10 }}
             animate={{ y: 0, opacity: 1, rotate: 0 }}
             // Quick, on its own timing: the drop-in spring's long tail left the screen blank before the reveal.

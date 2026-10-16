@@ -6,15 +6,16 @@ import { monitor, expectDecoded, expectStill, fingerFor } from './support';
 // pack fits the stage: it used to be taller than the stage it sits in, so it needed scrolling to see
 // in full, and the stage's own (moving) bottom edge cut it off on the way down; on a short landscape
 // window a width floor kept it taller than the stage. On a desktop window the pack is big instead, and
-// its bottom runs past the stage and fades out: that crop is intended (#536 made it small by fitting
-// the whole pack in), but the stage never scrolls and the top, the tear line and the buttons stay on
-// screen. Phone and desktop results here are emulation: a Chromium window of that size, not a device.
+// its bottom runs past the stage: that is intended (#536 made it small by fitting the whole pack in).
+// The stage scrolls to the rest of it, with no fade or crop, and the page itself never scrolls; at
+// rest the top, the tear line and the buttons are on screen. Phone and desktop results here are
+// emulation: a Chromium window of that size, not a device.
 
 /** The pack art starts this share of the pack's width below the top of its box (the crimp's margin). */
 const ART_TOP = 0.1;
 /**
  * The printed pack inside the wrapper art's box, as shares of the box's height (the alpha bounding box
- * of the 768x1376 webp: rows 141 to 1350). On a desktop window the stage cuts the pack off part way down.
+ * of the 768x1376 webp: rows 141 to 1350). On a desktop window the pack runs on past the stage at rest.
  */
 const PRINT_TOP = 141 / 1376;
 const PRINT_BOTTOM = 1350 / 1376;
@@ -34,15 +35,15 @@ interface Drop { frames: Frame[]; done: boolean }
  * the pack's box sits inside the stage, and hit-tests seven points on the pack (3px in from its
  * edges): a point of the pack that a clipping ancestor (the stage, the shell) cuts off is not hit,
  * wherever the stage is turned or moved to. A point outside the window (or in its outermost pixel) is
- * not tested (`hit: null`): the pack starts a screen above it. When the stage crops the pack's bottom
- * on purpose (`cropped`, a desktop window), the points along the bottom edge are moved up to 45% of
- * the box's height and the middle ones to 30%, all above where the stage ends.
+ * not tested (`hit: null`): the pack starts a screen above it. When the pack's bottom runs past the
+ * stage at rest (`tall`, a desktop window, where the stage scrolls to it), the points along the bottom
+ * edge are moved up to 45% of the box's height and the middle ones to 30%, all above where the stage ends.
  * The markers are placed in `cqw` and `%` of the shell. `.pack-shell` is itself an inline-size
  * container (Sets.css), so `cqw` on its children is a hundredth of the PACK's width, not the
  * stage's. The art starts a tenth of that width below the top of the box (`artTop`).
  * It stops once the stage has held still for 20 frames, or after 10 seconds.
  */
-async function sampleDropIn(page: Page, artTop: number, cropped: boolean) {
+async function sampleDropIn(page: Page, artTop: number, tall: boolean) {
   await page.addInitScript(({ artTopShare, crop }) => {
     const drop: Drop = { frames: [], done: false };
     (window as unknown as { __drop: Drop }).__drop = drop;
@@ -96,7 +97,7 @@ async function sampleDropIn(page: Page, artTop: number, cropped: boolean) {
       else requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  }, { artTopShare: artTop, crop: cropped });
+  }, { artTopShare: artTop, crop: tall });
 }
 
 // Phones upright, a phone on its side (740x360, and the shortest, 568x320) and desktop windows.
@@ -129,12 +130,12 @@ async function expectHintClearOfButton(page: Page, what: string) {
 for (const size of SIZES) {
   test.describe(`${size.width}x${size.height}`, () => {
     test.use({ viewport: size, reducedMotion: 'no-preference' });
-    // The window PackOpener.css gives the big, cropped pack to: not a phone, not a phone on its side.
+    // The windows PackOpener.css gives the big, scrolling pack to: not a phone, not a phone on its side.
     const desktop = size.width >= 900 && size.height >= 600;
 
     for (const returning of [false, true]) {
       const title = desktop
-        ? `big sealed pack, its bottom faded out, falls in uncut at the top and sides`
+        ? `big sealed pack falls in uncut at the top and sides, and its stage scrolls to the bottom`
         : `sealed pack fits the screen and falls in uncut`;
       test(`${returning ? 'a returning' : 'a new'} player's ${title}`, async ({ page, baseURL }, testInfo) => {
         test.skip(testInfo.project.name !== size.project, `A ${size.width}px window check; the ${size.project} project runs it.`);
@@ -160,14 +161,14 @@ for (const size of SIZES) {
         expect(cut, 'points of the pack that something clipped').toEqual([]);
         // Every frame, from the first drop to the landing: the pack's box is inside the stage, whose
         // clip is what cuts a pack off, top and bottom. On a desktop window only the top has to be: the
-        // pack's bottom is meant to run past the stage (the crop; the stage's fade hides it).
+        // pack's bottom is meant to run past the stage, which scrolls to it.
         expect(frames.filter((frame) => !frame.layout).length, 'frames where the pack was not laid out in the stage').toBe(0);
         const outside = frames.flatMap((frame, index) => {
           const { artTop, bottom, stageHeight } = frame.layout!;
           const cutOff = desktop ? artTop < -0.5 || bottom <= stageHeight : artTop < -0.5 || bottom > stageHeight + 0.5;
           return cutOff ? [`frame ${index}: art ${artTop.toFixed(1)} to ${bottom.toFixed(1)} in a stage ${stageHeight}px tall`] : [];
         });
-        expect(outside, desktop ? 'frames where the pack was cut off at the top, or was not cropped at the bottom' : 'frames where the pack stuck out of the stage').toEqual([]);
+        expect(outside, desktop ? 'frames where the pack was cut off at the top, or did not run past the bottom' : 'frames where the pack stuck out of the stage').toEqual([]);
 
         // Landed: every point is on screen and was tested, and the pack's box is inside the stage and the window.
         expect(rest.points.map((point) => point.hit)).toEqual(rest.points.map(() => true));
@@ -183,8 +184,8 @@ for (const size of SIZES) {
         expectNear(rest.points[0].x, box.x + 3, 'top left marker, x');
         expectNear(rest.points[0].y, art.top + 3, 'top left marker, y');
         if (desktop) {
-          // The crop is intended: the box runs on below the stage (and the window), which clips it.
-          expect(art.bottom, 'bottom of the pack against the bottom of the stage: the crop').toBeGreaterThan(stage.y + stage.height + 0.5);
+          // The box runs on below the stage at rest: the stage scrolls to the rest of it (below).
+          expect(art.bottom, 'bottom of the pack against the bottom of the stage at rest').toBeGreaterThan(stage.y + stage.height + 0.5);
           expect(stage.y + stage.height, 'bottom of the stage in the window').toBeLessThanOrEqual(size.height + 0.5);
           expectNear(rest.points[3].x, box.x + box.width - 3, 'right marker, x');
           expectNear(rest.points[3].y, box.y + box.height * 0.45 + 3, 'right marker, y');
@@ -195,7 +196,7 @@ for (const size of SIZES) {
           const minShare = MIN_WIDTH_SHARE[returning ? 'returning' : 'new'];
           expect(box.width / size.width, `pack width ${Math.round(box.width)}px in a ${size.width}px window`).toBeGreaterThanOrEqual(minShare);
           expect(box.width, 'pack width against the 80vw and 1600px caps').toBeLessThanOrEqual(Math.min(size.width * 0.8, 1600) + 0.5);
-          // Cropped, not sliced: the top of the printed pack down to the crop is about half to two thirds of it.
+          // The top of the printed pack down to the bottom of the stage is about half to two thirds of it.
           const printed = { top: box.y + box.height * PRINT_TOP, bottom: box.y + box.height * PRINT_BOTTOM };
           const visible = (Math.min(printed.bottom, stage.y + stage.height) - printed.top) / (printed.bottom - printed.top);
           expect(visible, `share of the printed pack on the stage at rest (${Math.round(visible * 100)}%)`).toBeGreaterThanOrEqual(VISIBLE_SHARE.min);
@@ -226,41 +227,77 @@ for (const size of SIZES) {
         await expectHintClearOfButton(page, 'at rest');
 
         if (desktop) {
-          // The tear line, the hint and the whole button sit above the fade, so the crop only ever takes
-          // pack art: the fade is the lower part of the stage, 22% of it up to 9rem.
-          const rem = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
-          const fadeFrom = stage.y + stage.height - Math.min(stage.height * 0.22, 9 * rem);
+          // At rest the tear line, the hint and the whole button are on the stage, as they were before
+          // it scrolled: nothing below them is needed to open the pack.
+          const stageBottom = stage.y + stage.height;
           const tear = (await page.locator('.tear-guide').boundingBox())!;
           const button = (await page.getByRole('button', { name: 'Open pack', exact: true }).boundingBox())!;
-          expect(tear.y + tear.height, 'bottom of the tear line against the fade').toBeLessThanOrEqual(fadeFrom);
-          expect(button.y + button.height, 'bottom of the Open pack button against the fade').toBeLessThanOrEqual(fadeFrom);
+          expect(tear.y + tear.height, 'bottom of the tear line against the bottom of the stage').toBeLessThanOrEqual(stageBottom);
+          expect(button.y + button.height, 'bottom of the Open pack button against the bottom of the stage').toBeLessThanOrEqual(stageBottom + 0.5);
           const hint = page.locator('.swipe-hint');
           if (Number(await hint.evaluate((element) => getComputedStyle(element).opacity)) > 0) {
             const pill = (await hint.boundingBox())!;
             expect(pill.y, 'the hint starts below the tear line').toBeGreaterThanOrEqual(tear.y + tear.height - 0.5);
-            expect(pill.y + pill.height, 'bottom of the hint against the fade').toBeLessThanOrEqual(fadeFrom);
+            expect(pill.y + pill.height, 'bottom of the hint against the bottom of the stage').toBeLessThanOrEqual(stageBottom);
           }
-          // The stage clips and fades the pack and can't be scrolled to the rest of it.
-          const crop = await page.locator('.pack-display').evaluate((element) => {
+
+          // The stage scrolls to the rest of the pack: no fade, no clip that a script or the wheel can't pass.
+          const stageEl = page.locator('.pack-display');
+          const state = await stageEl.evaluate((element) => {
             const style = getComputedStyle(element);
-            const before = element.scrollTop;
-            element.scrollTop = 40;
-            const moved = element.scrollTop !== before;
-            element.scrollTop = before;
-            return { overflow: style.overflowY, mask: style.maskImage || style.webkitMaskImage, moved };
+            return {
+              overflowX: style.overflowX, overflowY: style.overflowY, mask: style.maskImage || style.webkitMaskImage || 'none',
+              scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+              scrollWidth: element.scrollWidth, clientWidth: element.clientWidth,
+            };
           });
-          expect(crop.overflow, 'the stage clips the pack').toMatch(/^(clip|hidden)$/);
-          expect(crop.mask, 'the stage fades its bottom out').toContain('linear-gradient');
-          expect(crop.moved, 'a script can scroll the stage to the rest of the pack').toBe(false);
+          expect(state.overflowY, 'the stage scrolls vertically').toMatch(/^(auto|scroll)$/);
+          expect(state.overflowX, 'the stage does not scroll sideways').not.toMatch(/^(auto|scroll)$/);
+          expect(state.mask, 'no fade on the stage').toBe('none');
+          expect(state.scrollTop, 'the stage rests at the top').toBe(0);
+          expect(state.scrollHeight, 'the stage has more pack below than it shows').toBeGreaterThan(state.clientHeight + 1);
+          expect(state.scrollWidth, 'nothing to scroll to sideways').toBeLessThanOrEqual(state.clientWidth + 1);
+
+          // The wheel over the pack scrolls the stage (nothing swallows it), not the page, and the app
+          // header and nav stay where they are.
+          const headerTop = (await page.locator('.app-logo').boundingBox())!.y;
+          await page.mouse.move(box.x + box.width / 2, stage.y + stage.height / 2);
+          await page.mouse.wheel(0, 240);
+          await expect.poll(() => stageEl.evaluate((element) => element.scrollTop), { message: 'the wheel scrolling the stage' }).toBeGreaterThan(0);
+          expect(await page.evaluate(() => window.scrollY), 'the page does not scroll with the wheel').toBe(0);
+          expect((await page.locator('.app-logo').boundingBox())!.y, 'the app header stays put').toBe(headerTop);
+
+          // Keys scroll it too, from the Open pack button's focus.
+          await stageEl.evaluate((element) => { element.scrollTop = 0; });
+          await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+          await page.keyboard.press('PageDown');
+          await expect.poll(() => stageEl.evaluate((element) => element.scrollTop), { message: 'PageDown scrolling the stage' }).toBeGreaterThan(0);
+
+          // All the way down: the pack's bottom edge is inside the stage and the window, its top has
+          // scrolled out of the stage, and the page still hasn't moved.
+          await stageEl.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+          await expectStill(packShell, 'the stage to settle at the bottom');
+          const scrolled = (await packShell.boundingBox())!;
+          const scrolledStage = (await stageEl.boundingBox())!;
+          expect(scrolled.y + scrolled.height, 'bottom of the pack against the bottom of the stage, scrolled down').toBeLessThanOrEqual(scrolledStage.y + scrolledStage.height + 0.5);
+          expect(scrolled.y + scrolled.height, 'bottom of the pack in the window, scrolled down').toBeLessThanOrEqual(size.height + 0.5);
+          expect(scrolled.y + scrolled.height, 'the bottom of the pack is on screen, not above the stage').toBeGreaterThan(scrolledStage.y);
+          expect(scrolled.y, 'the top of the pack has scrolled up past the stage').toBeLessThan(scrolledStage.y);
+          expect(await page.evaluate(() => window.scrollY), 'the page does not scroll with the stage').toBe(0);
+          // And back to rest for the checks below.
+          await stageEl.evaluate((element) => { element.scrollTop = 0; });
+          await expectStill(packShell, 'the stage to settle at the top');
         }
 
-        // Nothing to scroll to: no ancestor of the stage, up to the page, has more below than it shows.
-        // The desktop stage itself holds the rest of the pack past its edge (clipped, and tested above).
-        const scrollable = await page.evaluate((skipStage) => {
+        // Nothing else to scroll to: no ancestor of the stage, up to the page, has more below than it shows.
+        // The desktop stage itself scrolls to the rest of the pack (tested above), and on a desktop
+        // window nothing scrolls sideways, the stage included.
+        const scrollable = await page.evaluate((isDesktop) => {
           const out: string[] = [];
           const stageElement = document.querySelector('.pack-display')!;
-          for (let element: Element | null = skipStage ? stageElement.parentElement : stageElement; element; element = element.parentElement) {
-            if (element.scrollHeight > element.clientHeight + 1) out.push(`${element.tagName}.${element.className}: ${element.scrollHeight} > ${element.clientHeight}`);
+          for (let element: Element | null = stageElement; element; element = element.parentElement) {
+            if (element.scrollHeight > element.clientHeight + 1 && !(isDesktop && element === stageElement)) out.push(`${element.tagName}.${element.className}: ${element.scrollHeight} > ${element.clientHeight}`);
+            if (isDesktop && element.scrollWidth > element.clientWidth + 1) out.push(`${element.tagName}.${element.className}: ${element.scrollWidth} wide in ${element.clientWidth}`);
           }
           const root = document.scrollingElement!;
           if (root.scrollHeight > innerHeight + 1 || root.scrollWidth > innerWidth + 1) out.push(`page: ${root.scrollWidth}x${root.scrollHeight} in a ${innerWidth}x${innerHeight} window`);
@@ -272,6 +309,85 @@ for (const size of SIZES) {
     }
   });
 }
+
+// The stage scrolls on a desktop window, and a scroll is not in the way of opening the pack: a mouse
+// drag along the tear line still cuts it with the stage scrolled down a little, and the reveal that
+// follows starts from the top, with no scroll offset (or extra scroll height) carried over from the stage.
+test.describe('1280x800, scrolled', () => {
+  test.use({ viewport: { width: 1280, height: 800 }, reducedMotion: 'no-preference' });
+
+  test('a mouse drag along the tear line opens the pack with the stage scrolled down a little', async ({ page, baseURL }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-chromium', 'A desktop window check; the desktop-chromium project runs it.');
+    test.setTimeout(60000);
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await page.goto('./');
+    await expect(page.locator('.app-logo')).toBeVisible();
+    const packShell = page.locator('.pack-shell');
+    const stageEl = page.locator('.pack-display');
+    await expectDecoded(packShell.locator('img'), 2);
+    await expectStill(packShell, 'the pack to land');
+
+    // A little way down with the wheel over the pack: the stage moves, the page does not.
+    const rest = (await packShell.boundingBox())!;
+    const stage = (await stageEl.boundingBox())!;
+    await page.mouse.move(rest.x + rest.width / 2, stage.y + stage.height / 2);
+    await page.mouse.wheel(0, 100);
+    await expect.poll(() => stageEl.evaluate((element) => element.scrollTop), { message: 'the wheel scrolling the stage' }).toBeGreaterThan(0);
+    await expectStill(packShell, 'the stage to settle');
+    expect(await page.evaluate(() => window.scrollY), 'the page does not scroll with the wheel').toBe(0);
+    const scrollTop = await stageEl.evaluate((element) => element.scrollTop);
+
+    // Note the stage's scroll offset at the moment the cards come in: the stage is on its way out then.
+    await page.evaluate(() => {
+      const seen = { stageScrollTops: [] as number[], revealed: false };
+      (window as unknown as { __reveal: typeof seen }).__reveal = seen;
+      new MutationObserver((_records, observer) => {
+        if (!document.querySelector('.card-reveal-area')) return;
+        seen.revealed = true;
+        seen.stageScrollTops = Array.from(document.querySelectorAll('.pack-display')).map((element) => element.scrollTop);
+        observer.disconnect();
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+
+    // The tear line is still on the stage, under the pointer, and the press lands on the pack.
+    const box = (await packShell.boundingBox())!;
+    const stageNow = (await stageEl.boundingBox())!;
+    const y = box.y + box.height * 0.19;
+    expect(y, 'the tear line is below the top of the stage').toBeGreaterThan(stageNow.y + 4);
+    expect(y, 'the tear line is above the bottom of the stage').toBeLessThan(stageNow.y + stageNow.height - 4);
+    const xAt = (fraction: number) => box.x + box.width * fraction;
+    const onPack = await page.evaluate(([x, py]) => !!document.elementFromPoint(x, py)?.closest('.pack-shell'), [xAt(0.375), y]);
+    expect(onPack, 'the drag starts on the pack').toBe(true);
+
+    const finger = await fingerFor(page, false);
+    await finger.press(xAt(0.375), y);
+    for (let step = 1; step <= 6; step++) await finger.move(xAt(0.375 + (0.25 * step) / 6), y);
+    await expect(packShell).toHaveClass(/\bis-cutting\b/);
+    await expect(packShell).not.toHaveClass(/\bis-cut\b/);
+    await finger.release();
+    await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+
+    const seen = await page.evaluate(() => (window as unknown as { __reveal: { stageScrollTops: number[]; revealed: boolean } }).__reveal);
+    expect(seen.revealed, 'the reveal was seen coming in').toBe(true);
+    expect(scrollTop, 'the stage was scrolled before the drag').toBeGreaterThan(0);
+    expect(seen.stageScrollTops, 'the stage went back to the top before the cards came in').toEqual(seen.stageScrollTops.map(() => 0));
+    // No scroll offset or extra scroll height in the reveal, and the page still sits at the top.
+    const after = await page.evaluate(() => {
+      const reveal = document.querySelector('.card-reveal-area')!;
+      const root = document.scrollingElement!;
+      return {
+        scrollY: window.scrollY, revealTop: reveal.scrollTop, revealOverflow: reveal.scrollHeight - reveal.clientHeight,
+        pageOverflow: root.scrollHeight - innerHeight, stageTops: Array.from(document.querySelectorAll('.pack-display')).map((element) => element.scrollTop),
+      };
+    });
+    expect(after.scrollY, 'the page at the top').toBe(0);
+    expect(after.revealTop, 'the reveal at the top').toBe(0);
+    expect(after.revealOverflow, 'the reveal has nothing to scroll to').toBeLessThanOrEqual(1);
+    expect(after.pageOverflow, 'the page has nothing to scroll to').toBeLessThanOrEqual(1);
+    expect(after.stageTops, 'no stage left scrolled').toEqual(after.stageTops.map(() => 0));
+    expect(errors).toEqual([]);
+  });
+});
 
 // The hint changes its words once a swipe misses the tear line, and on a narrow pack it wraps to two
 // lines under the dotted line. Those lines end above the Open pack button, as the plain wording does.
