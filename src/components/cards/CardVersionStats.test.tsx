@@ -32,9 +32,9 @@ describe('CardVersionStats', () => {
     expect(container.querySelector('.card-viewer-points')!.textContent).toBe(cardStats(card, version).line);
   });
 
-  it('adds no label for a plain card', () => {
+  it('names a plain card "Plain", as the version chips do', () => {
     act(() => root.render(<CardVersionStats card={card} version={{ isHolo: false }} />));
-    expect(container.querySelector('.card-viewer-version')).toBeNull();
+    expect(container.querySelector('.card-viewer-version')!.textContent).toBe('Plain');
     expect(container.querySelector('.card-viewer-points')!.textContent).toMatch(/ pts/);
   });
 });
