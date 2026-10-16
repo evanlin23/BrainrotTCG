@@ -236,8 +236,9 @@ localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainro
 (identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1`,
 `brainrot-reopen-backoff-v1` (how long an automatic resume waits after re-opened packs couldn't be
 saved) and `brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions),
-`brainrot-save-stamp-v1` (changed by every import and move, so other open tabs can tell) and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups (kept for recovery by hand: the
-app never restores a save from them). IndexedDB holds one database,
+`brainrot-save-stamp-v1` (changed by every import and move, so other open tabs can tell) and the
+`brainrot-before-import-v1`, `brainrot-before-move-v1` and `brainrot-before-move-pending-v1` backups
+(kept for recovery by hand: the app never restores a save from them). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
 replaced, unreadable entries are archived byte for byte, with the identity snapshot they belonged to,
@@ -277,16 +278,18 @@ migrations rebuild, and entries hydration hides for recovery) and best-pack card
 than v3 (checked as migrations and the profile read them), and a missing `brainrot-data-version`
 is stored as `1` so the save's migrations run; otherwise the result is `invalid` and nothing is
 written. Neither side's `brainrot-before-*` backups are handed over. Replacing a different
-player's progress asks first and copies the current save into `brainrot-before-move-v1`, overwriting
-an earlier move's copy, then removes that save's keys (player and stamp first, so a tab still on it
-stops writing); if that copy can't be stored, nothing is written and the result is `full`
-(storage quota) or `invalid`. Into a browser without progress, keys the save doesn't carry stay and
-no copy is taken. A failed write removes what it wrote and restores the previous values, then puts
-the earlier move's copy back, or removes the new one if there was none (best effort, not a
-transaction; if that last step fails, the new copy, which matches the restored save, stays instead),
-and the result is `full` (storage quota) or `invalid`. If the values can't all be restored, the
-result is `partial`, and a save with progress that was here stays in `brainrot-before-move-v1`,
-replacing an earlier move's copy: the player is told this browser may hold parts of both saves, Save & restore then
+player's progress asks first and copies the current save into `brainrot-before-move-v1`, or, while
+an earlier move's copy is there, into `brainrot-before-move-pending-v1`. A pending copy an earlier
+move left first replaces the one in `brainrot-before-move-v1` (one write, then it is removed), so the
+save being replaced is always copied and there are never more than these two copies; if either write
+fails, nothing is written and the result is `full` (storage quota) or `invalid`. The move then
+removes that save's keys (player and stamp first, so a tab still on it stops writing). Once moved,
+with or without progress to replace, a pending copy replaces the one in `brainrot-before-move-v1`
+the same way; if that fails, both stay until the next move. Into a browser without progress, keys
+the save doesn't carry stay and no copy is taken. A failed write removes what it wrote, restores the
+previous values and drops only the copy just taken (best effort, not a transaction), and the result
+is `full` (storage quota) or `invalid`. If the values can't all be restored, the result is `partial`
+and every copy is kept: the player is told this browser may hold parts of both saves, Save & restore then
 reloads so the page shows what
 storage holds (a partial file import does the same), and the move window stays open on any failure
 so its note can be read.
