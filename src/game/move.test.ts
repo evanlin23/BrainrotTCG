@@ -202,6 +202,16 @@ describe('bringing a save over', () => {
     expect(backup['brainrot-stats-v1']).toBe('{"packsOpened":4}');
   });
 
+  it('removes the replaced player and stamp before its other keys', () => {
+    store.set('brainrot-stats-v1', '{"packsOpened":4}');
+    store.set(SAVE_STAMP_KEY, 'earlier import');
+    store.set('brainrot-player-v1', player('bb'));
+    const removed: string[] = [];
+    vi.spyOn(localStorage, 'removeItem').mockImplementation((key) => { removed.push(key); store.delete(key); });
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(removed).toEqual(['brainrot-player-v1', SAVE_STAMP_KEY, 'brainrot-stats-v1']);
+  });
+
   it("doesn't ask when this browser only visited (a player key with no packs)", () => {
     store.set('brainrot-player-v1', JSON.stringify({ secretKey: 'cc', name: 'Visitor', nextNonce: 0, createdAt: 2 }));
     store.set('brainrot-stats-v1', '{"packsOpened":0,"holoCards":{}}');

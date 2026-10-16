@@ -127,7 +127,9 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     } catch (e) {
       return isQuotaError(e) ? 'full' : 'invalid';
     }
-    replaced = Object.keys(backup);
+    // Identity first, so a tab still on the save here stops writing before its other keys go (see saveMark).
+    const identity = [PLAYER_KEY, SAVE_STAMP_KEY].filter((k) => k in backup);
+    replaced = [...identity, ...Object.keys(backup).filter((k) => !identity.includes(k))];
     for (const k of replaced) previous.set(k, backup[k]);
   }
   try {
