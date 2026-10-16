@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { ALL_SET_VERSIONS, SETS } from '../src/content/sets/index.ts';
+import { ALL_SET_VERSIONS, isOpenable, SETS } from '../src/content/sets/index.ts';
 import { POKER_HANDS, RARITIES_RAREST_FIRST, type HandKey, type SetDefinition } from '../src/engine/index.ts';
 import { cardPreviewPath, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
 import { setLinkHash } from '../src/game/route.ts';
@@ -129,10 +129,13 @@ export interface SetStub {
   cardIds: string[];
 }
 
-/** A page for each released set (drafts have none): s/<set id>/, showing its rarest cards. */
+/**
+ * A page for each set a player can open (drafts and archived sets have none, since the app wouldn't
+ * open on them): s/<set id>/, showing its rarest cards.
+ */
 export const setStubs = (sets: readonly SetDefinition[] = SETS): SetStub[] =>
   sets
-    .filter((set) => !set.draft)
+    .filter(isOpenable)
     .map((set) => ({
       setId: set.id,
       path: `${setPagePath(set.id)}index.html`,

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SETS } from '../src/content/sets/index.ts';
+import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { checkCacheContract, checkSite, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
 import { generatePreviews } from './preview-pages.ts';
 
@@ -18,7 +18,8 @@ const GITHUB: Host = { name: 'GitHub Pages', base: '/BrainrotTCG/', site: 'https
 const CLOUDFLARE: Host = { name: 'Cloudflare Pages', base: '/', site: 'https://brainrottcg.pages.dev/' };
 
 // Two cards of one set: 19 share pages and a set page, and no card art drawn.
-const SET = { ...SETS[0], cards: SETS[0].cards.slice(0, 2) };
+const OPENABLE = SETS.find(isOpenable)!;
+const SET = { ...OPENABLE, cards: OPENABLE.cards.slice(0, 2) };
 
 const picture = (width = 1200, height = 630) => sharp({ create: { width, height, channels: 3, background: '#121114' } });
 let JPEG: Buffer;
@@ -198,7 +199,7 @@ describe('checkSite', () => {
     const { errors } = await checkSite(options);
     expect(errors).toEqual(
       expect.arrayContaining([
-        { path: share, error: expect.stringMatching(/^Missing: the preview page for genesis\//) },
+        { path: share, error: expect.stringMatching(new RegExp(`^Missing: the preview page for ${SET.id}/`)) },
         { path: setPage, error: `Missing: the preview page for set ${SET.id}` },
       ]),
     );
@@ -239,12 +240,14 @@ describe('checkSite', () => {
   it('fails code or styles a page loads from outside assets/, and unhashed files that would be cached forever', async () => {
     const { options, outDir } = await build(GITHUB);
     const file = `${outDir}index.html`;
-    writeFileSync(file, readFileSync(file, 'utf8').replace('</head>', '<script src="/BrainrotTCG/app.js"></script></head>'));
+    writeFileSync(file, readFileSync(file, 'utf8').replace('</head>', '<script src="/BrainrotTCG/app.js"></script><script type="module" src="assets/index-AbCd1234.js"></script><link rel="stylesheet" href="https://cdn.example/x.css"></head>'));
     write(`${outDir}app.js`, 'app');
     write(`${outDir}assets/logo.png`, 'logo');
     write(`${outDir}cards/a.webp`, 'card');
     expect((await checkSite(options)).errors).toEqual([
       { path: 'index.html', error: "Loads /BrainrotTCG/app.js, outside /BrainrotTCG/assets/, so it isn't hashed" },
+      { path: 'index.html', error: "Loads assets/index-AbCd1234.js, outside /BrainrotTCG/assets/, so it isn't hashed" },
+      { path: 'index.html', error: "Loads https://cdn.example/x.css, outside /BrainrotTCG/assets/, so it isn't hashed" },
       { path: 'assets/logo.png', error: "Has no content hash in its name, but assets/ is cached as if it never changes" },
       { path: 'cards/a.webp', error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' },
     ]);
@@ -296,7 +299,28 @@ describe('checkCacheContract', () => {
   it('fails a _headers that keeps a renamable file forever, or leaves assets/ out', () => {
     expect(checkCacheContract(files, '/BrainrotTCG/', '/BrainrotTCG/*\n  Cache-Control: max-age=31536000, immutable\n')).toEqual([
       { path: '_headers', error: 'Marks /BrainrotTCG/* immutable; only /BrainrotTCG/assets/* is hashed' },
+      { path: '_headers', error: 'Caches /BrainrotTCG/* for 31536000s; only /BrainrotTCG/assets/* is hashed, so the rest must revalidate within 86400s' },
       { path: '_headers', error: "Doesn't mark /BrainrotTCG/assets/* immutable" },
     ]);
+  });
+
+  it('fails a _headers that caches a renamable file for longer than a day, even without immutable', () => {
+    const assets = '/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n';
+    expect(checkCacheContract(files, '/', `${assets}/*\n  Cache-Control: max-age=31536000\n`)).toEqual([
+      { path: '_headers', error: 'Caches /* for 31536000s; only /assets/* is hashed, so the rest must revalidate within 86400s' },
+    ]);
+    expect(checkCacheContract(files, '/', `${assets}/index.html\n  Cache-Control: public, max-age=3600, s-maxage=604800\n`)).toEqual([
+      { path: '_headers', error: 'Caches /index.html for 604800s; only /assets/* is hashed, so the rest must revalidate within 86400s' },
+    ]);
+    expect(checkCacheContract(files, '/', `${assets}/*\n  Cache-Control: public, max-age=3600\n/s/*\n  Cache-Control: max-age=86400\n`)).toEqual([]);
+  });
+
+  it("fails a name in assets/ that only looks hashed, because it's a source file's own name", () => {
+    const words = ['assets/finish-rainbows.webp', 'assets/cards/x/card-backside.webp'];
+    expect(checkCacheContract([...files, ...words], '/', undefined, new Set(['finish-rainbows.webp', 'card-backside.webp']))).toEqual(
+      words.map((path) => ({ path, error: 'Has no content hash in its name, but assets/ is cached as if it never changes' })),
+    );
+    // The same shape that isn't any source file's name is Vite's: an all-lowercase hash is one.
+    expect(checkCacheContract(['assets/finish-rainbowz.webp'], '/', undefined, new Set(['finish-rainbows.webp']))).toEqual([]);
   });
 });

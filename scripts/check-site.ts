@@ -24,6 +24,7 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { checkAssets, type AssetCheck, type AssetValidationError } from './check-card-assets.ts';
 import { isMainModule } from './main-module.ts';
 import { generatePreviews, optionsFromEnv, type PreviewOptions } from './preview-pages.ts';
@@ -38,6 +39,9 @@ export interface SiteCheckResult {
   images: number;
   errors: AssetValidationError[];
 }
+
+/** The repository, whose src/ and public/ a build is made from. */
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
 
 const unescape = (text: string) => text.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
@@ -75,22 +79,41 @@ const expectedLanding = (file: string): string => {
   return set ? setLinkHash(set[1]) : '';
 };
 
+/** Every file under dir, relative to it with '/' separators. */
+const filesIn = (dir: string): string[] =>
+  readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'));
+
 /**
  * The cache contract (docs/HOSTING.md): Vite names everything in assets/ by a hash of its content,
  * so a host may keep those forever; everything else keeps its name between deploys and must
  * revalidate. A file that keeps its name can only be at the top (public/ and index.html) or in the
  * preview pages' p/ and s/.
+ *
+ * Vite's names are `<source name>-<8 base64url characters>.<ext>`. The shape alone can't tell a hash
+ * from a word (`finish-rainbows.webp`), and a hash can be all lowercase letters too, so a name in
+ * assets/ that is also a source file's name (in src/ or public/) is one copied there as it was.
  */
 export const HASHED_ASSET = /^assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/;
 const REVALIDATED = /^(?:[^/]+|[ps]\/.+)$/;
+/** The longest a file that keeps its name may be cached without revalidating: a day. */
+export const MAX_REVALIDATED_AGE = 86400;
 
-/** Problems with a build's file names, and its _headers file if it has one, against the cache contract. */
-export const checkCacheContract = (files: readonly string[], base: string, headers?: string): AssetValidationError[] => {
+/** The names of the files a build is made from (in src/ and public/), which no hashed name can be. */
+export const sourceNames = (root = ROOT): Set<string> =>
+  new Set(['src', 'public'].flatMap((dir) => (existsSync(path.join(root, dir)) ? filesIn(path.join(root, dir)).map((file) => path.posix.basename(file)) : [])));
+
+/**
+ * Problems with a build's file names, and its _headers file if it has one, against the cache contract.
+ * `sources` holds the names of the files the build is made from (see sourceNames).
+ */
+export const checkCacheContract = (files: readonly string[], base: string, headers?: string, sources: ReadonlySet<string> = new Set()): AssetValidationError[] => {
   const errors: AssetValidationError[] = [];
   for (const file of files) {
     if (file === '_headers') continue;
     if (file.startsWith('assets/')) {
-      if (!HASHED_ASSET.test(file)) errors.push({ path: file, error: "Has no content hash in its name, but assets/ is cached as if it never changes" });
+      if (!HASHED_ASSET.test(file) || sources.has(path.posix.basename(file))) errors.push({ path: file, error: "Has no content hash in its name, but assets/ is cached as if it never changes" });
     } else if (!REVALIDATED.test(file)) {
       errors.push({ path: file, error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' });
     }
@@ -105,10 +128,18 @@ export const checkCacheContract = (files: readonly string[], base: string, heade
       rule = line.trim();
       continue;
     }
-    const [name, ...value] = line.trim().split(':');
-    if (name.trim().toLowerCase() !== 'cache-control' || !/immutable/i.test(value.join(':'))) continue;
-    if (rule === `${base}assets/*`) assetsImmutable = true;
-    else errors.push({ path: '_headers', error: `Marks ${rule} immutable; only ${base}assets/* is hashed` });
+    const [name, ...rest] = line.trim().split(':');
+    if (name.trim().toLowerCase() !== 'cache-control') continue;
+    const value = rest.join(':');
+    const immutable = /\bimmutable\b/i.test(value);
+    if (rule === `${base}assets/*`) {
+      if (immutable) assetsImmutable = true;
+      continue;
+    }
+    if (rule.startsWith(`${base}assets/`)) continue;
+    if (immutable) errors.push({ path: '_headers', error: `Marks ${rule} immutable; only ${base}assets/* is hashed` });
+    const age = Math.max(-1, ...[...value.matchAll(/\b(?:max-age|s-maxage)\s*=\s*(\d+)/gi)].map((m) => Number(m[1])));
+    if (age > MAX_REVALIDATED_AGE) errors.push({ path: '_headers', error: `Caches ${rule} for ${age}s; only ${base}assets/* is hashed, so the rest must revalidate within ${MAX_REVALIDATED_AGE}s` });
   }
   if (!assetsImmutable) errors.push({ path: '_headers', error: `Doesn't mark ${base}assets/* immutable` });
   return errors;
@@ -116,12 +147,6 @@ export const checkCacheContract = (files: readonly string[], base: string, heade
 
 // The build draws every link-preview picture as a JPEG (scripts/preview-pages.ts, public/og-image.jpg).
 const IMAGE_FORMATS: Record<string, AssetCheck['format']> = { '.jpg': 'jpeg', '.jpeg': 'jpeg' };
-
-/** Every file under dir, relative to it with '/' separators. */
-const filesIn = (dir: string): string[] =>
-  readdirSync(dir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join('/'));
 
 /** The share and set pages scripts/preview-pages.ts writes for these sets, written aside and thrown away. */
 const expectedPreviewPages = async ({ base, site, versions, sets }: SiteCheckOptions): Promise<Map<string, string>> => {
@@ -174,10 +199,12 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   for (const file of htmlPages) {
     const html = readFileSync(path.join(outDir, file), 'utf8');
     for (const [, link] of html.matchAll(/\s(?:src|href)="([^"]*)"/g)) checkLink(file, unescape(link));
-    // The page's own code and styles are hashed (the cache contract), and so stay under assets/.
+    // The page's own code and styles are hashed (the cache contract), and so come from this site's
+    // assets/: not another site, which this build can't hash, nor a relative path, which breaks
+    // under p/ and s/.
     for (const [, tag] of html.matchAll(/(<script\b[^>]*\bsrc="[^"]*"[^>]*>|<link\b[^>]*\brel="(?:stylesheet|modulepreload)"[^>]*>)/g)) {
       const link = unescape(/\b(?:src|href)="([^"]*)"/.exec(tag)?.[1] ?? '');
-      if (link.startsWith('/') && !link.startsWith(`${base}assets/`)) fail(file, `Loads ${link}, outside ${base}assets/, so it isn't hashed`);
+      if (!link.startsWith(`${base}assets/`)) fail(file, `Loads ${link}, outside ${base}assets/, so it isn't hashed`);
     }
     const forward = forwardTarget(html);
     if (forward !== undefined) {
@@ -231,7 +258,7 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   }
 
   const headersFile = path.join(outDir, '_headers');
-  errors.push(...checkCacheContract(files, base, existsSync(headersFile) ? readFileSync(headersFile, 'utf8') : undefined));
+  errors.push(...checkCacheContract(files, base, existsSync(headersFile) ? readFileSync(headersFile, 'utf8') : undefined, sourceNames()));
 
   const decoded = await checkAssets([...images.values()], concurrency, outDir);
   errors.push(...decoded.errors.map(({ path: file, error }) => ({ path: file.split(path.sep).join('/'), error })));

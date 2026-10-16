@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import { SETS } from '../src/content/sets/index.ts';
+import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { RARITIES_RAREST_FIRST, type SetDefinition } from '../src/engine/index.ts';
 import { cardPreviewPath, previewPath } from '../src/game/previewLinks.ts';
 import { setIdFromHash } from '../src/game/route.ts';
@@ -29,6 +29,8 @@ const HOSTS = [
 ];
 
 const draft = (set: SetDefinition): SetDefinition => ({ ...set, id: `${set.id}-draft`, draft: true });
+const archived = (set: SetDefinition): SetDefinition => ({ ...set, id: `${set.id}-archived`, archivedAt: '2020-01-01' });
+const OPENABLE = SETS.find(isOpenable)!;
 
 describe('optionsFromEnv', () => {
   it('defaults to the GitHub Pages address, like vite.config.ts', () => {
@@ -54,9 +56,9 @@ describe('optionsFromEnv', () => {
 });
 
 describe('setStubs', () => {
-  it('has a page for each released set, from the set registry', () => {
+  it('has a page for each set a player can open, from the set registry', () => {
     const stubs = setStubs();
-    expect(stubs.map((s) => s.setId)).toEqual(SETS.filter((s) => !s.draft).map((s) => s.id));
+    expect(stubs.map((s) => s.setId)).toEqual(SETS.filter((s) => !s.draft && !s.archivedAt).map((s) => s.id));
     for (const stub of stubs) {
       expect(stub.path).toBe(`s/${stub.setId}/index.html`);
       expect(stub.url).toBe(`s/${stub.setId}/`);
@@ -66,10 +68,10 @@ describe('setStubs', () => {
     }
   });
 
-  it('leaves draft sets out', () => {
-    const withDraft = [...SETS, draft(SETS[SETS.length - 1])];
-    expect(setStubs(withDraft).map((s) => s.setId)).toEqual(setStubs(SETS).map((s) => s.setId));
-    expect(setStubs([draft(SETS[0])])).toEqual([]);
+  it('leaves draft and archived sets out, which the app would not open on', () => {
+    const withClosed = [...SETS, draft(SETS[SETS.length - 1]), archived(OPENABLE)];
+    expect(setStubs(withClosed).map((s) => s.setId)).toEqual(setStubs(SETS).map((s) => s.setId));
+    expect(setStubs([draft(OPENABLE), archived(OPENABLE)])).toEqual([]);
   });
 
   it("shows up to five of the set's rarest cards and describes the set", () => {
@@ -178,12 +180,12 @@ describe('generatePreviews (pages only)', () => {
     expect(files.filter((f) => f.startsWith('s/'))).toEqual(setStubs().map((s) => s.path).sort());
   });
 
-  it('writes no page for a draft set', async () => {
+  it('writes no page for a draft or archived set', async () => {
     const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'preview-pages-'))}/`;
     dirs.push(outDir);
-    const set = draft(SETS[SETS.length - 1]);
-    const { pages } = await generatePreviews({ outDir, pagesOnly: true, base: '/', site: 'https://example.test/', versions: [SETS[0]], sets: [SETS[0], set] });
-    expect([...pages.keys()].filter((p) => p.startsWith('s/'))).toEqual([`s/${SETS[0].id}/index.html`]);
+    const sets = [OPENABLE, draft(SETS[SETS.length - 1]), archived(OPENABLE)];
+    const { pages } = await generatePreviews({ outDir, pagesOnly: true, base: '/', site: 'https://example.test/', versions: [OPENABLE], sets });
+    expect([...pages.keys()].filter((p) => p.startsWith('s/'))).toEqual([`s/${OPENABLE.id}/index.html`]);
   });
 });
 

@@ -29,8 +29,9 @@ import { getHistory } from './game/history';
 import { sameSave, saveMark, watchPlayer } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
-import { PAGE_TITLES, setIdFromHash, type Page } from './game/route';
+import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
+import { useSetLink } from './hooks/useSetLink';
 import { useProgressWriter } from './hooks/useProgressWriter';
 import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
@@ -172,24 +173,8 @@ function App() {
     setSelectedSetId(setId);
     saveSelectedSet(setId);
   }, [setSelectedSetId]);
-  // A set's link (s/<set id>/ forwards to #/set/<set id>) opens the packs screen on that set, unless
-  // a pack is open. The hash only carries the choice: it's dropped, leaving the plain Open address.
-  const setLink = useRef({ playableSets, packBusy, selectSet });
-  useEffect(() => {
-    setLink.current = { playableSets, packBusy, selectSet };
-  });
-  useEffect(() => {
-    const follow = () => {
-      const setId = setIdFromHash(location.hash);
-      if (!setId) return;
-      const { playableSets, packBusy, selectSet } = setLink.current;
-      if (!packBusy && playableSets.some((s) => s.id === setId)) selectSet(setId);
-      history.replaceState(history.state, '', location.pathname + location.search);
-    };
-    follow();
-    window.addEventListener('hashchange', follow);
-    return () => window.removeEventListener('hashchange', follow);
-  }, []);
+  // A set's link opens the packs screen on that set (see useSetLink).
+  useSetLink(playableSets, packBusy, selectSet);
 
   // Each page names the tab; back on the packs screen, focus returns to the top of it (the page's
   // own heading takes focus itself, see Page). Back over a pack, the chrome has stepped aside (on a
