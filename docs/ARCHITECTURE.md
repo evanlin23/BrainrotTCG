@@ -223,8 +223,8 @@ picks the preview; the pull is still re-derived from the proof when it's opened.
 
 localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainrot-player-v1`
 (identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1` and
-`brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions)
-and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups (kept for recovery by hand: the
+`brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions),
+`brainrot-save-stamp-v1` (changed by every import, so other open tabs can tell) and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups (kept for recovery by hand: the
 app never restores a save from them). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
@@ -233,9 +233,10 @@ replaced, unreadable entries are archived byte for byte in `brainrot-collection-
 that archive. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
-import's copy (if that copy can't be stored, nothing is imported; a failed import keeps it). Fields the file omits keep their stored values, except that a
+import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; if the
+copy can't be stored, nothing is imported; a failed import keeps it). Fields the file omits keep their stored values, except that a
 different player's save clears this browser's player fields (recovery archive included), which then
-stay only in that backup. It writes the identity last and, on failure, removes what it wrote and
+stay only in that backup. It writes a new `brainrot-save-stamp-v1` first and the identity last and, on failure, removes what it wrote and
 restores the previous values. That is structural validation and best-effort rollback, not a
 transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
@@ -267,8 +268,8 @@ no copy is taken. A failed write removes what it wrote and restores the previous
 the earlier move's copy back, or removes the new one if there was none (best effort, not a
 transaction; if that last step fails, the new copy, which matches the restored save, stays instead),
 and the result is `full` (storage quota) or `invalid`. If the values can't all be restored, the
-result is `partial` and `brainrot-before-move-v1` keeps the save that was here (an earlier move's
-copy is gone): the player is told this browser may hold parts of both saves, Save & restore then
+result is `partial`, and a save with progress that was here stays in `brainrot-before-move-v1`,
+replacing an earlier move's copy: the player is told this browser may hold parts of both saves, Save & restore then
 reloads so the page shows what
 storage holds (a partial file import does the same), and the move window stays open on any failure
 so its note can be read.
@@ -311,11 +312,18 @@ failed read keeps what was shown, and a resumed re-open waits for a successful r
 earned from the history and from card modifiers are worked out only once every history pack's
 cards are in, so each is credited to the pack and date that earned it; if only other players'
 packs fail to read, those count by hand and score alone rather than holding back your own. A tab
-whose player another tab switched or imported neither unlocks achievements nor stores any progress
-(collection, stats, Hall of Fame, achievements, settings): every write compares the stored player
-with the one the tab loaded, and the banner asks for a reload. Once the tab knows, it opens no new
-pack; one opened before then waits on the pending shelf under the player it opened as, and other
-players' packs stay there when this one's change. IndexedDB
+whose save another tab replaced (a player switch or move, any file import, even of the same player, or
+clearing this site's storage) neither unlocks achievements nor stores any progress (collection,
+stats, Hall of Fame, achievements, settings): every write compares the stored player, whether its
+record is still stored, and `brainrot-save-stamp-v1` with what the tab loaded, and the banner asks
+for a reload. Once the tab knows, it opens no new pack (one torn open in the moment before goes back
+sealed, with no ticket spent); one opened before then waits on the pending shelf under the player it
+opened as, and other players' packs stay there when this one's change. Limits: storage has no lock
+across tabs, so a tab that writes before an import's stamp reaches it can still overwrite an imported
+field (import with other tabs closed; the file and `brainrot-before-import-v1` remain). A tab stopped
+by an import that then failed and was undone stays stopped until it reloads. Storage cleared with no
+storage event (a browser's clear-site-data) is noticed at the next write, but a pack opened first
+stores this tab's player again, and if that save had no stamp the tab then writes its progress back. IndexedDB
 errors can leave only memory results; writes resolve without a durable-success signal, and the pending flag
 is cleared before the final save completes. Resumption and cache retention are best effort (#87).
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
@@ -324,7 +332,9 @@ Collection, stats and achievements normally receive a pack when its reveal finis
 opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
 on the next load, but writes can fail. It is always a list (up to 50, other players' packs included,
 and none of theirs is dropped to make room), so an owed pack is never
-replaced by a newer one; past the cap (or if storage refuses the write), the new pack shows the save
+replaced by a newer one. Other players' packs don't expire either: one can be the only copy of a pack
+owed to that player's collection, which this browser can't check, and they come only from a tab that
+opened a pack before it knew another tab had changed the save; past the cap (or if storage refuses the write), the new pack shows the save
 warning and isn't on the shelf while it reveals: it still reaches the collection when its reveal
 finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but a tab
 closed before that leaves it only in the history (if that write went through). Load
@@ -332,7 +342,10 @@ takes every listed pack off the shelf before adding any (if the shelf can't be e
 so none is added twice) and holds them until a collection holding them is stored. Taking packs off
 rewrites the shelf in place; if storage refuses, it removes the shelf and writes it again, then
 keeps only other players' packs (this player's other owed packs drop; the history has them), then puts
-the shelf back as it was. Only if all of that is refused do other players' packs go, with an error logged. If that collection
+the shelf back as it was: load then adds none and leaves them listed, while a pack taken off after its
+reveal stays listed and the next load may add it again (an error is logged). If even that is refused,
+the shelf is gone and this tab holds other players' packs, writing them back with its next shelf
+write; they are lost only if it closes first (an error is logged). If that collection
 write is blocked, they stay owed by this tab and go into its next collection write; a copy also goes
 back on the shelf for the next load, if the shelf takes it. A tab closed before that write leaves the
 shelf copy for the next load or, if the shelf refused it, the pack only in the history. After each

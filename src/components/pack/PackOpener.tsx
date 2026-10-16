@@ -79,6 +79,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
   const [leavingOpen, setLeavingOpen] = useState(false);
   /** What a ticket that lands after the player left needs, as of the latest render. */
   const landingRef = useRef({ onOpen, onLeaveEarly, resetCutState: () => {} });
+  /** Whether a tear may still spend its ticket, as of the latest render (see handleCutComplete). */
+  const openBlockedRef = useRef(openBlocked);
 
   const startOpening = useCallback(async () => {
     let pack: OpenedPack;
@@ -161,8 +163,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     }
     setOpenError(null);
     openTimeoutRef.current = window.setTimeout(() => {
-      // Started: from here the ticket is spent, so leaving keeps the pack rather than cancelling it.
       openTimeoutRef.current = null;
+      if (openBlockedRef.current) {
+        // Another tab changed the save since the tear: put the pack back sealed rather than spend a
+        // ticket this tab can't store.
+        setIsPackCut(false);
+        landingRef.current.resetCutState();
+        return;
+      }
+      // Started: from here the ticket is spent, so leaving keeps the pack rather than cancelling it.
       void startOpening();
     }, 460);
   }, [startOpening]);
@@ -191,6 +200,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
 
   useEffect(() => {
     landingRef.current = { onOpen, onLeaveEarly, resetCutState };
+  });
+
+  useEffect(() => {
+    openBlockedRef.current = openBlocked;
   });
 
   // From the first swipe until the summary, re-opening and checking other pulls start no new ticket
