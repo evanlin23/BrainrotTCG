@@ -2,8 +2,9 @@ import { STORAGE_KEYS } from '../constants';
 
 /**
  * The progress a tab reads once when it loads and later stores whole: the collection, stats, Hall
- * of Fame and achievements. Settings stay last-writer-wins, and the history and the pending shelf
- * are re-read before every write (game/history.ts, game/pulls.ts), so they need no guard.
+ * of Fame and achievements. Settings stay last-writer-wins, the history is re-read before every
+ * write (game/history.ts), and each pack on the pending shelf has an entry of its own that only the
+ * tab adding or storing that pack writes (game/pulls.ts), so they need no guard.
  */
 export const GUARDED_PROGRESS: readonly string[] = [
   STORAGE_KEYS.COLLECTION, STORAGE_KEYS.STATS, STORAGE_KEYS.HALL_OF_FAME, STORAGE_KEYS.ACHIEVEMENTS,
