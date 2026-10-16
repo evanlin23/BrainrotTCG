@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { trackInputModality } from './inputModality';
 
 const modality = () => document.documentElement.dataset.input;
-const key = (k: string, target: EventTarget = document.body) =>
-  target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+const key = (k: string, target: EventTarget = document.body, init: KeyboardEventInit = {}) =>
+  target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...init }));
 const press = (target: EventTarget = document.body) => target.dispatchEvent(new Event('pointerdown', { bubbles: true }));
 
 let stop: (() => void) | undefined;
@@ -15,20 +15,47 @@ afterEach(() => {
 });
 
 describe('trackInputModality', () => {
-  it('starts as pointer', () => {
+  // A screen reader, switch or voice control can move focus with no key heard here: until a press, ring it.
+  it('starts as keyboard, before any input', () => {
     stop = trackInputModality();
+    expect(modality()).toBe('keyboard');
+  });
+
+  it('a pointer press switches to pointer', () => {
+    stop = trackInputModality();
+    press();
     expect(modality()).toBe('pointer');
   });
 
-  it.each(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Escape'])('switches to keyboard on %j', (k) => {
+  it.each(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Enter', ' ', 'Escape'])('switches to keyboard on %j', (k) => {
     stop = trackInputModality();
+    press();
     key(k);
+    expect(modality()).toBe('keyboard');
+  });
+
+  it('counts Shift+Tab', () => {
+    stop = trackInputModality();
+    press();
+    key('Tab', document.body, { shiftKey: true });
     expect(modality()).toBe('keyboard');
   });
 
   it('ignores bare modifiers and typed characters', () => {
     stop = trackInputModality();
+    press();
     for (const k of ['Shift', 'Control', 'Alt', 'Meta', 'a', 'CapsLock']) key(k);
+    expect(modality()).toBe('pointer');
+  });
+
+  it.each([
+    ['Ctrl', { ctrlKey: true }],
+    ['Alt', { altKey: true }],
+    ['Meta', { metaKey: true }],
+  ] as const)('ignores %s chords on navigation keys', (_, init) => {
+    stop = trackInputModality();
+    press();
+    for (const k of ['Tab', 'ArrowLeft', 'Home', 'PageDown', 'Enter']) key(k, document.body, init);
     expect(modality()).toBe('pointer');
   });
 
@@ -47,6 +74,9 @@ describe('trackInputModality', () => {
     stop = trackInputModality();
     const button = document.body.appendChild(document.createElement('button'));
     button.addEventListener('keydown', (event) => event.stopPropagation());
+    button.addEventListener('pointerdown', (event) => event.stopPropagation());
+    press(button);
+    expect(modality()).toBe('pointer');
     key('Tab', button);
     expect(modality()).toBe('keyboard');
     button.remove();
@@ -54,7 +84,7 @@ describe('trackInputModality', () => {
 
   it('stops listening once stopped', () => {
     trackInputModality()();
-    key('Tab');
-    expect(modality()).toBe('pointer');
+    press();
+    expect(modality()).toBe('keyboard');
   });
 });

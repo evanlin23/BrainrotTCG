@@ -1059,10 +1059,16 @@ button.reveal-card {
     padding: 0;
     border-radius: var(--radius-sm);
     overflow: hidden;
-    box-shadow: 0 0 0 2px var(--r), var(--focus-shadow), var(--shadow-2);
     transition: transform var(--dur-fast) var(--ease-out);
     /* A long press on a card opens it, never the phone's image menu. */
     -webkit-touch-callout: none;
+}
+
+/* The rarity edge, then the ring when focused. Named with :focus-visible too, to outrank base.css's
+   :focus-visible box-shadow (as specific as .summary-card) whichever sheet comes last. */
+.summary-card,
+.summary-card:focus-visible {
+    box-shadow: 0 0 0 2px var(--r), var(--focus-shadow), var(--shadow-2);
 }
 
 .summary-card:hover {

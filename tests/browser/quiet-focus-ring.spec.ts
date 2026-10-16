@@ -6,7 +6,8 @@ import { monitor, expectDecoded, expectStill, fingerFor, type Finger } from './s
  * script focus that no click put there, and a phone's taps rarely focus anything, so a player opening
  * by touch or mouse saw a yellow ring round each card and took it for a selection (#312). The ring
  * stays for keyboard players: Tab and the keys that drive the reveal set data-input="keyboard"
- * (components/ui/inputModality.ts), and a keyboard open rings every target focus moves to.
+ * (components/ui/inputModality.ts), and a keyboard open rings every target focus moves to. Before any
+ * press it rings too, for a screen reader or switch that moves focus with no key the page hears.
  * The phone check is Chromium's touch emulation at a 390px phone size, not a real phone.
  */
 
@@ -39,6 +40,18 @@ async function expectRing(target: Locator, what: string) {
 }
 
 const selectedText = (page: Page) => page.evaluate(() => document.getSelection()?.toString() ?? '');
+
+/**
+ * Before any input the page counts as keyboard, so script focus would ring; on the first-pack screen
+ * nothing has focus yet, so no ring shows until the first press quiets it.
+ */
+async function expectNothingRingedAtBoot(page: Page) {
+  expect(await page.evaluate(() => ({
+    input: document.documentElement.dataset.input,
+    focused: document.activeElement === document.body ? 'nothing' : document.activeElement?.outerHTML.slice(0, 80),
+    ringed: document.querySelectorAll(':focus-visible').length,
+  }))).toEqual({ input: 'keyboard', focused: 'nothing', ringed: 0 });
+}
 
 /** The fixture player at nonce 21, which deals no big pull to hold the reveal. Before monitor's own seed. */
 const seedNonce21 = (page: Page, baseURL: string) => page.addInitScript((origin) => {
@@ -121,9 +134,9 @@ test.describe('opened by touch, 390px phone emulation', () => {
     test.setTimeout(90000);
     const { errors, packShell } = await sealedPack(page, baseURL!);
     const finger = await fingerFor(page, true);
-    await expectNoRing(packShell, 'the pack');
-    await expectNoRing(page.getByRole('button', { name: 'Open pack', exact: true }), 'Open pack');
+    await expectNothingRingedAtBoot(page);
 
+    // The swipe is the first press: from it on the page counts as pointer, and card 1's script focus is quiet.
     await swipeOpen(packShell, finger);
     const card = page.locator('.reveal-card:focus');
     await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
@@ -149,8 +162,7 @@ test('opened by mouse: no ring on the cards, the pack or the result, and a drag 
   test.setTimeout(90000);
   const { errors, packShell } = await sealedPack(page, baseURL!);
   const finger = await fingerFor(page, false);
-  await expectNoRing(packShell, 'the pack');
-  await expectNoRing(page.getByRole('button', { name: 'Open pack', exact: true }), 'Open pack');
+  await expectNothingRingedAtBoot(page);
 
   await swipeOpen(packShell, finger);
   const card = page.locator('.reveal-card:focus');
@@ -186,12 +198,30 @@ test('opened by keyboard: every target focus moves to keeps its ring, until a cl
   await expect(title).toBeFocused();
   await expectRing(title, 'the result');
   const summaryCard = page.locator('.summary-card').first();
+  // The ring goes between the card's rarity edge and its shadow; neither is lost to base.css's ring rule.
+  const ownShadow = (target: Locator) => target.evaluate((el) => getComputedStyle(el).boxShadow);
+  const ringShadow = await ownShadow(title);
+  const restingShadow = await ownShadow(summaryCard);
+  expect(restingShadow).toContain('rgba(0, 0, 0, 0) 0px 0px 0px 0px');
   await scriptFocus(summaryCard);
   await expectRing(summaryCard, 'a summary card');
+  expect(await ownShadow(summaryCard)).toBe(restingShadow.replace('rgba(0, 0, 0, 0) 0px 0px 0px 0px', ringShadow));
 
   // A click anywhere hands the page back to the pointer, and the same script focus goes quiet.
   await page.locator('.summary-title').click();
   await scriptFocus(summaryCard);
   await expectNoRing(summaryCard, 'a summary card after a click');
+  expect(errors).toEqual([]);
+});
+
+test('before any input, focus the app moves keeps its ring', async ({ page, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'One check is enough; the desktop project runs it.');
+  test.setTimeout(60000);
+  const { errors } = await sealedPack(page, baseURL!);
+  await expectNothingRingedAtBoot(page);
+  // A screen reader, switch or voice control can move focus with no key or press the page hears.
+  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  await scriptFocus(pack);
+  await expectRing(pack, 'Open pack, focused before any input');
   expect(errors).toEqual([]);
 });
