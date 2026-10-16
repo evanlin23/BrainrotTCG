@@ -421,10 +421,10 @@ const bar = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, fra
   ctx.fill();
 };
 
-/** A player card: level and title, the numbers, set progress, the best pull, and a QR to the profile. */
+/** A profile card: level and title, the numbers, set progress, the best pull, and a QR to the profile. */
 export const renderProfilePoster = async (input: ProfilePosterInput): Promise<Blob> => {
   const { canvas, ctx } = await newCanvas();
-  drawHeader(ctx, 'Player card', '');
+  drawHeader(ctx, 'Profile card', '');
   const x = 70;
   const w = W - 140;
   const fmt = (n: number) => n.toLocaleString('en-US');

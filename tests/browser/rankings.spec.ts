@@ -52,6 +52,51 @@ test('Rankings shows 20 rows, and each Show more adds 20 from the keyboard', asy
   expect(errors).toEqual([]);
 });
 
+test.describe('at 320px with 200% text and reduced motion', () => {
+  test.use({ reducedMotion: 'reduce', viewport: { width: 320, height: 640 } });
+
+  test('Rankings tabs move by arrow key, keep 44px targets and split the archive from the rankings', async ({ page, baseURL }) => {
+    // 320px is an emulated phone width; 200% text doubles the root size the rem tokens use. Every
+    // fixture was filed on 1 Oct 2026, so Today is empty and nothing reaches it from a relay.
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: entries }));
+    await page.goto('./#/rankings');
+    await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+    const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+    await expect(rankings.locator('.hof-list .hof-entry')).toHaveCount(20);
+
+    const tabs = rankings.getByRole('tablist', { name: 'Rankings lists', exact: true }).getByRole('tab');
+    await expect(tabs).toHaveText(['All-time', 'Today', 'Archive']);
+    await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+    for (const box of await Promise.all((await tabs.all()).map((tab) => tab.boundingBox()))) {
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+    }
+    const sideScroll = () => page.evaluate(() => [document.documentElement, ...Array.from(document.querySelectorAll('main.page'))]
+      .filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.className || el.tagName));
+    expect(await sideScroll()).toEqual([]);
+
+    await tabs.first().focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(tabs.nth(1)).toBeFocused();
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.first()).toHaveAttribute('tabindex', '-1');
+    await expect(rankings.getByRole('tabpanel')).toContainText('Nothing new today yet.');
+    await expect(rankings.locator('.hof-list')).toHaveCount(0);
+
+    await page.keyboard.press('ArrowRight');
+    await expect(tabs.nth(2)).toBeFocused();
+    await expect(rankings.getByRole('heading', { level: 2 })).toHaveText(['World firsts', 'Hackathon legends']);
+    await expect(rankings.getByRole('region', { name: 'World firsts', exact: true })).toBeVisible();
+    expect(await sideScroll()).toEqual([]);
+
+    await page.keyboard.press('Home');
+    await expect(tabs.first()).toBeFocused();
+    await expect(rankings.locator('.hof-list .hof-entry')).toHaveCount(20);
+    expect(errors).toEqual([]);
+  });
+});
+
 test('Profile sorts best pulls first and names the filter for Rankings', async ({ page, baseURL }) => {
   // Three synthetic history rows, the same shape the performance runs use; never verified or sent.
   // They're stored newest first with the best in the middle, so Best and Newest differ.

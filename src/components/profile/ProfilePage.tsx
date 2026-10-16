@@ -165,7 +165,7 @@ const ProfilePage = ({
     else await send(link.url);
   };
 
-  /** The player card: an image with the profile link's QR code, then copy the image or the link. */
+  /** The profile card: an image with the profile link's QR code, then copy the image or the link. */
   const [cardUrl, setCardUrl] = useState<string | null>(null);
   const shareCard = async () => {
     const link = readyUrl ? { url: readyUrl } : await makeLink();
@@ -212,7 +212,7 @@ const ProfilePage = ({
                   {preparing ?? (copied ? 'Link copied' : readyUrl ? 'Copy link now' : 'Copy profile link')}
                 </button>
                 <button type="button" className="btn btn--secondary btn--sm" onClick={shareCard} disabled={!!preparing || !!mine?.filled}>
-                  <IdCard aria-hidden="true" /> Player card
+                  <IdCard aria-hidden="true" /> Profile card
                 </button>
               </>
             }
@@ -237,7 +237,7 @@ const ProfilePage = ({
         {mine && mine.filled > 0 && (
           <p className="pulls-note">
             Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
-            These local totals are partial. A complete profile link or player card cannot be created from this save. Keep a private export
+            These local totals are partial. A complete profile link or card cannot be created from this save. Keep a private export
             (open Settings, then Save & backup); if you have an older complete backup, it may contain the missing records.
           </p>
         )}
@@ -349,12 +349,12 @@ const ProfilePage = ({
       </div>
       {cardUrl && summary && (
         <SharePreviewSheet
-          title="Your player card"
+          title="Your profile card"
           subtitle="Level, title, sets and best pull, with a QR code that re-checks every pack."
           makeImage={() => renderPlayerCard(summary, player, cardUrl)}
-          imageName="brainrot-player-card.png"
+          imageName="brainrot-profile-card.png"
           url={cardUrl}
-          text={`${player.name}'s Brainrot TCG player card\n${cardUrl}`}
+          text={`${player.name}'s Brainrot TCG profile card\n${cardUrl}`}
           onClose={() => setCardUrl(null)}
         />
       )}
