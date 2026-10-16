@@ -345,7 +345,7 @@ describe('bringing a save over', () => {
     if (previousBackup) expect(store.get(BACKUP)).toBe('{"previous":"backup"}');
   });
 
-  it('moves a pending copy into place before backing up a later save with progress, never holding more than two', () => {
+  it('moves a pending copy into place before backing up a later save with progress, then keeps both, never more than two', () => {
     store.set('brainrot-player-v1', player('bb'));
     store.set('brainrot-stats-v1', '{"packsOpened":9}'); // played on since the move that left a copy pending
     const here = JSON.stringify(Object.fromEntries(store));
@@ -369,11 +369,12 @@ describe('bringing a save over', () => {
     expect(importSave(OLD, () => true)).toBe('saved');
     expect(events).toEqual([
       `${BACKUP} = {"copy":2}`, `drop ${PENDING}`, // the pending copy takes the oldest one's place
-      `${PENDING} = here`, // so this save is backed up too
-      `${BACKUP} = here`, `drop ${PENDING}`, // and, once moved, takes the earlier one's place
+      `${PENDING} = here`, // so this save is backed up too, and stays pending once moved, not over that copy
     ]);
     expect(most).toBe(2);
-    expect(moveCopies()).toEqual([BACKUP]);
+    expect(moveCopies()).toEqual([PENDING, BACKUP]);
+    expect(store.get(BACKUP)).toBe('{"copy":2}');
+    expect(store.get(PENDING)).toBe(here);
     expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
     expect(store.has('brainrot-stats-v1')).toBe(false);
   });
@@ -443,13 +444,15 @@ describe('bringing a save over', () => {
     expect(importSave({ ...OLD, 'brainrot-player-v1': player('cc') }, () => true)).toBe('full');
     expect(store).toEqual(afterMove);
 
-    // With room again it backs up the save it replaces, and keeps only that copy once moved.
+    // With room again the pending copy takes the oldest one's place and the save it replaces is backed up
+    // too; that copy stays pending once moved, so neither save is written over.
     vi.restoreAllMocks();
     const moved = Object.fromEntries([...store].filter(([key]) => !key.startsWith('brainrot-before-')));
     expect(importSave({ ...OLD, 'brainrot-player-v1': player('cc') }, () => true)).toBe('saved');
     expect(store.get('brainrot-player-v1')).toBe(player('cc'));
-    expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(moved);
+    expect(moveCopies()).toEqual([PENDING, BACKUP]);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(here);
+    expect(JSON.parse(store.get(PENDING)!)).toEqual(moved);
   });
 
   it('keeps both copies, and the save a partial move left here, when a retry fails again', () => {
@@ -553,24 +556,44 @@ describe('bringing a save over', () => {
     expect(JSON.parse(store.get(BACKUP)!)).toEqual(original);
   });
 
-  it("backs up a pack the guest made since a partial move opened, though the stamp it put back matches the copy", () => {
-    partialWithoutPlayer({ [SAVE_STAMP_KEY]: 'earlier import', 'brainrot-player-v1': player('bb'), 'brainrot-stats-v1': '{"packsOpened":4}' });
+  it.each([
+    ['with', { [SAVE_STAMP_KEY]: 'earlier import' }],
+    ['without', {}],
+  ])("keeps the player a partial move couldn't put back and a pack the guest made since opened, %s a stamp", (_name, stamp) => {
+    const original = { ...stamp, 'brainrot-player-v1': player('bb'), 'brainrot-stats-v1': '{"packsOpened":4}' };
+    partialWithoutPlayer(original);
     // The reload made a new guest, who opens a pack before the retry.
     store.set('brainrot-player-v1', playerAt('dd', 1));
     store.set('brainrot-history-v1', '[{"nonce":0}]');
     store.set('brainrot-stats-v1', '{"packsOpened":5}');
     const here = currentSave();
 
-    // As with any copy pending: the save here is copied, and that copy is the one kept once moved.
+    // As with any copy pending: it takes the oldest one's place and the save here is copied too. Both
+    // stay once moved: bb's secret and stats, and the guest's pack.
     expect(importSave(OLD, () => true)).toBe('saved');
-    expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(here);
+    expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
+    expect(moveCopies()).toEqual([PENDING, BACKUP]);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(original);
+    expect(JSON.parse(store.get(PENDING)!)).toEqual(here);
+  });
+
+  it('backs up a guest made since a partial move whose player alone shows a pack drawn', () => {
+    const original = { [SAVE_STAMP_KEY]: 'earlier import', 'brainrot-player-v1': player('bb'), 'brainrot-stats-v1': '{"packsOpened":4}' };
+    partialWithoutPlayer(original);
+    // Every other key here is the copy's or the incoming save's: only the guest's next nonce is new.
+    store.set('brainrot-player-v1', playerAt('dd', 1));
+    const here = currentSave();
+
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(moveCopies()).toEqual([PENDING, BACKUP]);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(original);
+    expect(JSON.parse(store.get(PENDING)!)).toEqual(here);
   });
 
   it.each([
     ['with', { [SAVE_STAMP_KEY]: 'earlier import' }],
     ['without', {}],
-  ])('backs up packs opened since a partial move put the player back, %s a stamp', (_name, stamp) => {
+  ])("keeps the collection a partial move couldn't put back and packs opened since it put the player back, %s a stamp", (_name, stamp) => {
     const original = {
       ...stamp,
       'brainrot-player-v1': player('bb'),
@@ -586,6 +609,7 @@ describe('bringing a save over', () => {
     });
     expect(importSave(OLD, () => true)).toBe('partial');
     expect(store.get('brainrot-player-v1')).toBe(player('bb'));
+    expect(store.has('brainrot-found-collection-v1')).toBe(false);
     expect(JSON.parse(store.get(PENDING)!)).toEqual(original);
     vi.restoreAllMocks();
 
@@ -595,9 +619,11 @@ describe('bringing a save over', () => {
     store.set('brainrot-stats-v1', '{"packsOpened":4}');
     const here = currentSave();
 
+    // Both stay once moved: bb's collection in the copy taken before the partial move, the pack in this one.
     expect(importSave(OLD, () => true)).toBe('saved');
-    expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(here);
+    expect(moveCopies()).toEqual([PENDING, BACKUP]);
+    expect(JSON.parse(store.get(BACKUP)!)).toEqual(original);
+    expect(JSON.parse(store.get(PENDING)!)).toEqual(here);
   });
 
   it.each([
@@ -611,25 +637,28 @@ describe('bringing a save over', () => {
     store.set(PENDING, pending);
 
     expect(importSave(OLD, () => true)).toBe('saved');
-    expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(here);
+    expect(moveCopies()).toEqual([PENDING, BACKUP]);
+    expect(store.get(BACKUP)).toBe(pending);
+    expect(JSON.parse(store.get(PENDING)!)).toEqual(here);
   });
 
   it.each([
     ['another player', player('cc'), 'moved'],
     ['the same player, brought back by an import', player('bb'), 'imported'],
-  ])('still backs up the save here when the pending copy is of an earlier save: %s', (_name, here, stamp) => {
+  ])('still backs up the save here, keeping the pending copy too, when it is of an earlier save: %s', (_name, here, stamp) => {
     // A move that worked but couldn't move its copy into place, then play (or an import) since.
     store.set(SAVE_STAMP_KEY, stamp);
     store.set('brainrot-player-v1', here);
     store.set('brainrot-stats-v1', '{"packsOpened":9}');
     const saved = Object.fromEntries(store);
     store.set(BACKUP, '{"previous":"backup"}');
-    store.set(PENDING, JSON.stringify({ [SAVE_STAMP_KEY]: 'earlier', 'brainrot-player-v1': player('bb'), 'brainrot-stats-v1': '{"packsOpened":4}' }));
+    const earlier = JSON.stringify({ [SAVE_STAMP_KEY]: 'earlier', 'brainrot-player-v1': player('bb'), 'brainrot-stats-v1': '{"packsOpened":4}' });
+    store.set(PENDING, earlier);
 
     expect(importSave(OLD, () => true)).toBe('saved');
-    expect(moveCopies()).toEqual([BACKUP]);
-    expect(JSON.parse(store.get(BACKUP)!)).toEqual(saved);
+    expect(moveCopies()).toEqual([PENDING, BACKUP]);
+    expect(store.get(BACKUP)).toBe(earlier);
+    expect(JSON.parse(store.get(PENDING)!)).toEqual(saved);
   });
 
   it('persists the complete replaced save before any key is removed', () => {

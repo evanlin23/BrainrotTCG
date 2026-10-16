@@ -28,7 +28,8 @@ const BACKUP_KEY = 'brainrot-before-move-v1';
  * place in one write once the move succeeds. One still here (a move that couldn't be undone, or whose
  * copy couldn't take BACKUP_KEY's place) holds the save from before that move, so the next move moves
  * it into BACKUP_KEY before taking its own copy, unless it already holds the save here (see pendingHolds).
- * So there are never more than these two copies.
+ * That move's copy then stays here once it succeeds, so the earlier one isn't written over: BACKUP_KEY
+ * holds the older save, this key the one that move replaced. So there are never more than these two copies.
  */
 const PENDING_KEY = 'brainrot-before-move-pending-v1';
 /** These and the file import's backup (saveFile.ts): never handed over. */
@@ -81,12 +82,13 @@ export const hasProgress = (): boolean => {
   });
 };
 
-/** A pending copy takes BACKUP_KEY's place in one write, then goes. Throws if storage refuses. */
-const promotePending = () => {
+/** A pending copy takes BACKUP_KEY's place in one write, then goes. True if there was one; throws if storage refuses. */
+const promotePending = (): boolean => {
   const pending = localStorage.getItem(PENDING_KEY);
-  if (pending === null) return;
+  if (pending === null) return false;
   localStorage.setItem(BACKUP_KEY, pending);
   localStorage.removeItem(PENDING_KEY);
+  return true;
 };
 
 /** Never progress: what marks a save, this device's preferences, and caches it can rebuild. */
@@ -118,7 +120,6 @@ const pendingHolds = (save: Record<string, string | null>, incoming: Record<stri
   const copy = parse(PENDING_KEY);
   if (!copy || typeof copy !== 'object' || Array.isArray(copy)) return false;
   const kept = copy as Record<string, unknown>;
-  if (!Object.values(kept).every((v) => v === null || typeof v === 'string')) return false;
   return Object.entries(save).every(([k, v]) => v === kept[k] || v === incoming[k] || holdsNoProgress(k, v));
 };
 
@@ -171,6 +172,9 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   // The copy this move takes (BACKUP_KEY or PENDING_KEY), the only one a failed move removes.
   let staged: string | null = null;
   let replaced: string[] = [];
+  // An earlier move's pending copy went into BACKUP_KEY to make room for this move's copy: then this
+  // move's copy stays pending once it succeeds, or it would write over that earlier one.
+  let keepPending = false;
   if (progress) {
     const backup = Object.fromEntries(brainrotKeys().filter((k) => !isBackupKey(k)).map((k) => [k, localStorage.getItem(k)]));
     // A full or unavailable storage area must not cost the player the save being replaced, so if
@@ -179,7 +183,7 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     // copy that holds everything here is whole where the save here may not be, so it stays this move's copy.
     if (!pendingHolds(backup, incoming)) {
       try {
-        promotePending();
+        keepPending = promotePending();
         const slot = localStorage.getItem(BACKUP_KEY) === null ? BACKUP_KEY : PENDING_KEY;
         localStorage.setItem(slot, JSON.stringify(backup));
         staged = slot;
@@ -204,9 +208,12 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     }
     return isQuotaError(e) ? 'full' : 'invalid';
   }
-  // Moved (with or without progress here): a pending copy, this move's or one an earlier move left,
-  // takes BACKUP_KEY's place. If that write fails, both stay until the next move.
-  try { promotePending(); } catch { /* Both copies stay. */ }
+  // Moved. A pending copy (this move's, or one an earlier move left) takes BACKUP_KEY's place, unless an
+  // earlier one already took it above: then BACKUP_KEY keeps the save from before that earlier move and
+  // PENDING_KEY the save this move replaced. If the write fails, both stay until the next move.
+  if (!keepPending) {
+    try { promotePending(); } catch { /* Both copies stay. */ }
+  }
   return 'saved';
 };
 
