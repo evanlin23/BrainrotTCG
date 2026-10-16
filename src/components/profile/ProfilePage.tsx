@@ -353,7 +353,7 @@ const ProfilePage = ({
                                 <span className="sr-only">, qualifies for Rankings</span>
                               </>
                             )}
-                            {isHallOfFameWorthy(entry) && getPlayer().publicKeyHex.startsWith(entry.key) && <SubmittedBadge entry={entry} />}
+                            {isHallOfFameWorthy(entry) && entry.key === getPlayer().publicKeyHex.slice(0, 16) && <SubmittedBadge entry={entry} />}
                           </span>
                           <span className="pull-row-meta">
                             {set && <span className="set-code">{setCode(set)}</span>}

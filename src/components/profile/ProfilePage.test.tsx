@@ -287,4 +287,10 @@ describe('Hall of Fame submitted badge', () => {
     render();
     expect(badges()).toEqual([]);
   });
+
+  it('shows no badge on a pack with no recorded key', () => {
+    getHistory.mockReturnValue([{ ...entry(1, 1e9), key: '' }]);
+    render();
+    expect(badges()).toEqual([]);
+  });
 });
