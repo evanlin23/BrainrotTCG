@@ -303,7 +303,7 @@ describe('claiming the next ticket number', () => {
     expect(stored().nextNonce).toBe(14);
   });
 
-  it('still takes turns and never repeats a number where Web Locks lack query(), falling back from the last number tried', async () => {
+  it('still takes turns where Web Locks lack query(), past numbers other tabs still hold, falling back from the last number tried', async () => {
     store.set(PLAYER_KEY, JSON.stringify(original));
     const locks = fakeLocks();
     const lock = (nonce: number) => `brainrot-ticket:${ORIGINAL_KEY}:${nonce}`;
@@ -324,6 +324,31 @@ describe('claiming the next ticket number', () => {
     expect((await player.claimNonce()).nonce).toBe(18);
     expect(console.error).toHaveBeenCalledWith('Could not hold a ticket number', expect.any(DOMException));
     expect(stored().nextNonce).toBe(19);
+  });
+
+  it("counts on alone when the key's lock stays held past its wait, as a hung tab would hold it", async () => {
+    vi.useFakeTimers();
+    try {
+      store.set(PLAYER_KEY, JSON.stringify(original));
+      const locks = fakeLocks();
+      // Another tab holds the key's lock and never lets go: the request waits until its signal aborts it.
+      const request = vi.fn((name: string, options: { ifAvailable?: boolean; signal?: AbortSignal }, callback: (lock: { name: string } | null) => unknown) =>
+        name === `brainrot-ticket:${ORIGINAL_KEY}`
+          ? new Promise((_resolve, reject) => options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))))
+          : locks.request(name, options, callback));
+      vi.stubGlobal('navigator', { locks: { request, query: locks.query } });
+      let settled = false;
+      const claim = player.claimNonce().finally(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await claim).toMatchObject({ nonce: 12, stored: true });
+      expect(stored().nextNonce).toBe(13);
+      // Logged only: opening goes on, with no error shown.
+      expect(console.error).toHaveBeenCalledWith('Could not hold a ticket number', expect.any(DOMException));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('moves past a number another tab stored while this one waited for its lock', async () => {
@@ -479,5 +504,64 @@ describe('claiming the next ticket number', () => {
     store.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 2, n: 3, k: ORIGINAL_KEY.slice(0, 16), h: 'High Card', x: 1, t: 1 }]));
     expect(player.allocateNonce().nonce).toBe(12);
     expect(stored().nextNonce).toBe(13);
+  });
+
+  it.each([['with Web Locks', true], ['without them', false]])(
+    'refuses a number with no safe successor before writing anything, rather than store a count a read would reject (%s)',
+    async (_label, withLocks) => {
+      vi.stubGlobal('navigator', withLocks ? { locks: fakeLocks() } : {});
+      const last = Number.MAX_SAFE_INTEGER - 1;
+      store.set(PLAYER_KEY, JSON.stringify({ ...original, nextNonce: last }));
+      expect(await player.claimNonce()).toMatchObject({ nonce: last, stored: true });
+      expect(stored().nextNonce).toBe(Number.MAX_SAFE_INTEGER);
+      setItem.mockClear();
+      await expect(player.claimNonce()).rejects.toThrow(RangeError);
+      expect(setItem).not.toHaveBeenCalled();
+      expect(player.getPlayer().publicKeyHex).toBe(ORIGINAL_KEY);
+
+      // A corrupt mapping that high in the history: the same, with the stored record untouched.
+      store.set(PLAYER_KEY, JSON.stringify(original));
+      store.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 2, n: last, k: ORIGINAL_KEY.slice(0, 16), h: 'High Card', x: 1, t: 1 }]));
+      vi.resetModules();
+      const fresh = await import('./player');
+      expect(fresh.peekNonce()).toBe(Number.MAX_SAFE_INTEGER);
+      setItem.mockClear();
+      await expect(fresh.claimNonce()).rejects.toThrow(RangeError);
+      expect(setItem).not.toHaveBeenCalled();
+      expect(stored()).toEqual(original);
+    },
+  );
+
+  it('ignores a mapping or a held lock with no safe successor', async () => {
+    const locks = fakeLocks();
+    locks.held.add(`brainrot-ticket:${ORIGINAL_KEY}:${Number.MAX_SAFE_INTEGER}`);
+    vi.stubGlobal('navigator', { locks });
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    store.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 2, n: Number.MAX_SAFE_INTEGER, k: ORIGINAL_KEY.slice(0, 16), h: 'High Card', x: 1, t: 1 }]));
+    expect(player.peekNonce()).toBe(12);
+    expect((await player.claimNonce()).nonce).toBe(12);
+  });
+
+  it("reads the history once per change, and sees another tab's write at once", () => {
+    const parse = vi.spyOn(JSON, 'parse');
+    const mapping = (n: number) => ({ s: 'right-now', v: 2, n, k: ORIGINAL_KEY.slice(0, 16), h: 'High Card', x: 1, t: n });
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    store.set(STORAGE_KEYS.HISTORY, JSON.stringify([mapping(20)]));
+    const historyParses = () => parse.mock.calls.filter(([raw]) => raw === store.get(STORAGE_KEYS.HISTORY)).length;
+    for (let i = 0; i < 3; i++) expect(player.peekNonce()).toBe(21);
+    expect(historyParses()).toBe(1);
+    // Another tab records a later ticket: the next read counts it, with no storage event needed.
+    store.set(STORAGE_KEYS.HISTORY, JSON.stringify([mapping(30), mapping(20)]));
+    expect(player.peekNonce()).toBe(31);
+    expect(player.peekNonce()).toBe(31);
+    expect(historyParses()).toBe(1);
+  });
+
+  it("counts a stored record's tickets past the ones its history records, as claims do", () => {
+    expect(player.ticketCount(JSON.stringify(original))).toBe(12);
+    store.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 2, n: 13, k: ORIGINAL_KEY.slice(0, 16), h: 'High Card', x: 1, t: 1 }]));
+    expect(player.ticketCount(JSON.stringify(original))).toBe(14);
+    expect(player.ticketCount(JSON.stringify({ ...original, nextNonce: 20 }))).toBe(20);
+    expect(player.ticketCount('{not json')).toBeNull();
   });
 });

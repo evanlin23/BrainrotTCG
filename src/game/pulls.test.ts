@@ -3,6 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import { encodeCard } from './cardCode';
 import { generatePack, packSeedFromTicket } from '../engine';
+import { recordTicket } from './history';
 import { getPlayer } from './player';
 import { clearPendingPack, openPack, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
 
@@ -544,6 +545,26 @@ describe('opening a pack', () => {
     expect(pack.cards.map((c) => c.key)).toEqual(generatePack(SET, packSeedFromTicket(ticketFor(before.nonce + 2))).map((c) => `${c.setId}/${c.cardId}`));
     expect(recorded()[0]).toMatchObject({ n: before.nonce + 2, s: SET.id, v: SET.version });
     expect(counter()).toBe(before.nonce + 3);
+  });
+
+  it('maps the number it claimed before mining it again, so a failed mine leaves a ticket to re-open, not a gap', async () => {
+    const { myProfileInfo } = await import('./profiles');
+    const before = await openPack(SET);
+    const was = myProfileInfo()!;
+    const mining = slowMiner();
+    const opening = openPack(SET);
+    await nextTask();
+    // Another tab claims and maps the number this one mined.
+    data.set(PLAYER, JSON.stringify({ ...JSON.parse(data.get(PLAYER)!), nextNonce: before.nonce + 2 }));
+    recordTicket(SET.id, SET.version, before.nonce + 1, getPlayer().publicKeyHex, 1);
+    // The second mine fails, as a crashed worker's (or a reload's) would.
+    miner.mine = () => Promise.reject(new Error('miner crashed'));
+    mining.release();
+    await expect(opening).rejects.toThrow('miner crashed');
+    expect(counter()).toBe(before.nonce + 3);
+    expect(recorded()[0]).toEqual({ s: SET.id, v: SET.version, n: before.nonce + 2, k: expect.any(String), h: '', x: 0, t: expect.any(Number) });
+    // Both new numbers have their set, so the profile link waits on re-opening them, not on a lost mapping.
+    expect(myProfileInfo()).toMatchObject({ packs: was.packs + 2, filled: was.filled, missing: was.missing + 2 });
   });
 
   it('never hands out a recorded ticket number again after a reload, even when storage refused its counter', async () => {
