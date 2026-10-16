@@ -6,6 +6,7 @@ import type { SetDefinition } from '../../engine';
 import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../../game/pulls';
 import { holdLive } from '../../game/admission';
 import { reloadPage } from '../../game/reload';
+import { whenIdle } from '../../game/idle';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
 import { buzz } from '../../utils/motion';
 import { usePackCutter } from '../../hooks/usePackCutter';
@@ -87,7 +88,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const effectsVolume = effectsLevel(settings.effectsVolume);
   const pauseBigPulls = settings.pauseBigPulls !== false;
 
-  const { playAndCleanup, preloadAudio, cleanupAudio, playRandom } = useAudio();
+  const { playAndCleanup, preloadAudio, loadDeferred, cleanupAudio, playRandom } = useAudio();
 
   const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleInteractionRef = useRef<() => void>(() => {});
@@ -136,9 +137,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       reset();
       return;
     }
-    const brainrotVoices = preloadAudio(BRAINROT_VOICES);
-    const cardFlip = preloadAudio([CARD_FLIP_SRC])[0];
-    const effects = preloadAudio(EFFECT_SOUNDS);
+    // Fetched once the reveal is on screen (below), so they don't hold up its card backs.
+    const brainrotVoices = preloadAudio(BRAINROT_VOICES, { defer: true });
+    const cardFlip = preloadAudio([CARD_FLIP_SRC], { defer: true })[0];
+    const effects = preloadAudio(EFFECT_SOUNDS, { defer: true });
 
     setPreloadedAssets({ brainrotVoices, cardFlip, effects });
     recordedRef.current = false;
@@ -149,6 +151,14 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setCurrentIndex(0);
     setIsOpening(true);
   }, [set, preloadAudio, isOwned]);
+
+  // The reveal's sounds download once it has been drawn and the page is idle, and not at all while
+  // effects are muted (each one only plays when effectsVolume > 0).
+  const effectsOn = effectsVolume > 0;
+  useEffect(() => {
+    if (!isOpening || !preloadedAssets || !effectsOn) return;
+    return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
+  }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
 
   // Mine the next pack's ticket while this one is on screen.
   useEffect(() => {

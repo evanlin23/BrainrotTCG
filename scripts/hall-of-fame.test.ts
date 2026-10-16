@@ -123,8 +123,9 @@ const fakeGitHub = (fixture: Fixture) => {
           number: next++,
           title: String(body!.title),
           body: String(body!.body),
-          created_at: '2026-10-15T12:00:00Z',
-          updated_at: '2026-10-15T12:00:00Z',
+          // Stamped by the (fake) clock, as GitHub stamps a new issue.
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
           user: { login: BOT },
           labels: (body!.labels as string[]).map((name) => ({ name })),
           state: 'open',
@@ -135,7 +136,7 @@ const fakeGitHub = (fixture: Fixture) => {
       const sub = /^\/issues\/(\d+)(\/comments|\/labels)?$/.exec(route);
       if (sub && sub[2] === '/comments' && method === 'GET') return json(firstPage ? (comments[Number(sub[1])] ?? []) : []);
       if (sub && sub[2] === '/comments' && method === 'POST') {
-        const added = comment(BOT, String(body!.body), '2026-10-15T12:00:01Z');
+        const added = comment(BOT, String(body!.body), new Date().toISOString());
         (comments[Number(sub[1])] ??= []).push(added);
         return json(added, 201);
       }
@@ -415,7 +416,7 @@ describe('inbox (scheduled workflow)', () => {
     return events;
   };
   const FILED = ['POST /issues', 'POST /issues/100/comments', 'POST /issues/100/labels', 'PATCH /issues/100'];
-  // The day after the fake GitHub opens its issues (2026-10-15T12:00:00Z), well inside the relay window.
+  // Well inside the relay window; the fake GitHub stamps the issues it opens with this clock.
   beforeEach(() => clockAt('2026-10-16T12:00:00Z'));
 
   it('files a qualifying pull as a bot issue: open, marker comment, verified label, close', async () => {
@@ -542,6 +543,56 @@ describe('retention and intake contracts (offline)', () => {
     expect(logged().some((l) => l.startsWith(`${lying.id}:`) && l.includes('not checked'))).toBe(false);
     expect(gh.writes()).toEqual([]);
     expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(expect.arrayContaining([low.id, lying.id]));
+  });
+
+  it('judges each pull by the day its entry is stamped with, so a run that crosses UTC midnight moves to the new day', async () => {
+    // The 16th's top is full; the 17th's has one place left, so the 4 of a Kind only joins once midnight passes.
+    clockAt('2026-10-16T23:59:59Z');
+    const tomorrow = dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP - 1).filter((e) => e.id.startsWith('today-'));
+    const published = [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP), ...tomorrow.map((e) => ({ ...e, id: `tomorrow-${e.id}` }))];
+    const gh = fakeGitHub({ issues: [], published });
+    // Filing it fills the 17th's top, which raises the floor to its 15,000 for the events after it.
+    const after = hinted(pair, 15_000, 1_002_000);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(pair, idOf(pair), 1_000_000), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_001_000), after], perRelay: [] });
+    // The first line logged (turning the pair away) comes after the run read the list: midnight passes there.
+    vi.mocked(console.log).mockImplementation(() => vi.setSystemTime(new Date('2026-10-17T00:00:05Z')));
+    await inbox();
+    expect(gh.writes()).toEqual(['POST /issues', 'POST /issues/100/comments', 'POST /issues/100/labels', 'PATCH /issues/100']);
+    expect(gh.requests.find((r) => r.path === '/issues/100/labels')!.body).toEqual({ labels: ['daily'] });
+    expect(logged()).toContain(`${after.id}: claims 15000, at or below the floor of 15000; not checked`);
+    expect(outputs()).toEqual({ added: '1' });
+  });
+
+  describe("an issue a stopped run left unlabelled on the 16th, finished on the 17th", () => {
+    // The 16th's top has one place left and the 17th's is full: the entry is stamped the 16th, so it joins there.
+    const stamped = '2026-10-16T23:00:00Z';
+    const unfinishedRun = () => {
+      clockAt('2026-10-17T12:00:00Z');
+      const seventeenth = dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP).filter((e) => e.id.startsWith('today-')).map((e) => ({ ...e, id: `17-${e.id}` }));
+      const left = { ...issue(5, fourOfAKind, { labels: ['hall-of-fame'], login: BOT, updated: stamped }), created_at: stamped };
+      return fakeGitHub({ issues: [left], published: [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1), ...seventeenth] });
+    };
+    const FINISHED = ['POST /issues/5/comments', 'POST /issues/5/labels', 'PATCH /issues/5'];
+
+    it("is judged and labelled by the 16th's top", async () => {
+      const gh = unfinishedRun();
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+      await inbox();
+      expect(gh.writes()).toEqual(FINISHED);
+      expect(gh.requests.find((r) => r.path === '/issues/5/labels')!.body).toEqual({ labels: ['daily'] });
+      expect(outputs()).toEqual({ added: '1' });
+    });
+
+    it("isn't turned away by today's floor", async () => {
+      // Today's floor is the 17th's 50th (20,000); the claim of 15,000 is at or below it.
+      const gh = unfinishedRun();
+      const event = hinted(fourOfAKind, 15_000, 1_000_000);
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
+      await inbox();
+      expect(logged().some((l) => l.startsWith(`${event.id}:`) && l.includes('not checked'))).toBe(false);
+      expect(gh.writes()).toEqual(FINISHED);
+      expect(outputs()).toEqual({ added: '1' });
+    });
   });
 
   it('keeps only the published list and the run caches, and never writes to public/', async () => {

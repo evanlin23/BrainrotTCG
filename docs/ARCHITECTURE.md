@@ -259,7 +259,7 @@ last. The pack summary's `bestPullOrder` lists the earlier slot first instead; b
 | --- | --- | --- | --- | --- |
 | Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
 | Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
-| Best versions of this card (#224) | one card's instances | `pullId#slot` | - | card details |
+| Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
 Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
 destinations. Best versions of this card opens from a card's details.
@@ -270,6 +270,19 @@ destinations. Best versions of this card opens from a card's details.
   modifiers, set id and version, proof and slot.
 - **Independent cutoffs.** One proof can feed both boards. A weak pack with one great card makes
   Best cards without making Best packs.
+- **Best versions.** `cardVersionBoards` builds one all-time board per card, keyed by `cardKey`
+  (`setId/cardId`, as the collection, combos and card pages key it), so every version of a set holds
+  one board and another set's card of the same id stays apart. Each board has its own cutoff, ties
+  and completeness: an other-era instance makes only its card's board partial. A `through` bound
+  certifies one board, so it is refused here; rebuild a card's board with `rebuildBoard`. A card's
+  board takes only that card's instances: `selectBoard` and `rebuildBoard` throw on another card's.
+  Each pull holds at most one place on a card's board, its best copy of that card; the pull's other
+  copies count as duplicates. One instance received twice at the same instant with different proofs
+  keeps the lower proof, so the result doesn't depend on input order. These boards are complete only
+  with coverage `all`. Under `min-score` coverage (the pack intake minimum), a card missing from the
+  Map means unknown, not empty: none of its instances may have been filed, so it has no board at all,
+  and a card worth less than the bound that is present has a partial (`below-intake-minimum`) board.
+  Daily card boards and the card-details view come later.
 - **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
   pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
   until they are re-derived from their proofs.

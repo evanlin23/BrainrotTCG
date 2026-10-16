@@ -54,6 +54,13 @@ describe('Hall of Fame list', () => {
     expect(hallOfFameList(list, ['2026-10-16', '2026-10-15'])).toEqual(list); // rebuilding from the published list keeps it
   });
 
+  it('orders exact ties (same score and time) by pull id, whatever order they come in', () => {
+    const at = '2026-10-01T00:00:00.000Z';
+    const tied = ['c', 'a', 'b'].map((id) => ({ ...entry(id, 500), submittedAt: at }));
+    expect(topPulls(tied).map((e) => e.id)).toEqual(['a', 'b', 'c']);
+    expect(topPulls([...tied].reverse()).map((e) => e.id)).toEqual(['a', 'b', 'c']);
+  });
+
   it('says whether a new pull would join', () => {
     const full = Array.from({ length: HALL_OF_FAME_TOP }, (_, i) => entry(`p${i}`, 1000 + i));
     expect(wouldJoinHallOfFame({ id: 'x', setId: 'set-a', score: score(500) }, full.slice(0, 10))).toBe(true); // room

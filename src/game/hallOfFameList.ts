@@ -96,7 +96,7 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
     if (signal.aborted) return;
     try {
       const pull = await checkPull(proof, signal);
-      // The same test the inbox applies before filing it: the top pulls, a first, or today's top (UTC).
+      // The same test the inbox applies before filing it: the top pulls or today's top (UTC).
       const join = hallOfFameJoin({ id, setId: pull.set.id, score: pull.score }, list, today);
       if (!join || (join === 'daily' && event.created_at < todayStart)) continue;
       const entry: HallOfFameEntry = {
