@@ -17,7 +17,7 @@
   overflow-wrap: anywhere;
 }
 
-/* "[combo] · about 1 in [n] packs", or just the combo when it has no odds (No Matches). */
+/* "[combo] · 1 in [n] packs score this high" ("Most packs score this high" past even odds), or just the combo without odds. */
 .pack-summary .pack-headline-odds {
   color: var(--text-muted);
   font-size: var(--text-lg);
@@ -54,7 +54,7 @@
 
 /*
  * One row of five at default text on every width: smaller gaps on phones so each card stays as big as
- * it can. A card is still never narrower than its Share, so at large text the row wraps.
+ * it can.
  */
 .pack-summary .summary-cards {
   gap: var(--space-2);
@@ -95,7 +95,7 @@
 }
 
 /* Above the cards, under the headline: the tap hint and the Card guide on one line, wrapping on narrow screens. */
-.summary-foot {
+.summary-guide-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -106,7 +106,8 @@
 
 .summary-caption {
   margin: 0;
-  color: var(--text-subtle);
+  /* Muted, not subtle: the summary can sit on a lighter surface, where subtle falls under 4.5:1. */
+  color: var(--text-muted);
   font-size: var(--text-sm);
 }
 
@@ -141,22 +142,5 @@
 
   .pack-summary .summary-actions .btn--primary {
     flex: 1 1 auto;
-  }
-}
-
-/* A fifth of a phone holds the icon only; the button keeps its full name for screen readers. */
-@media (max-width: 639px) {
-  .pack-summary .summary-cards .summary-card-share {
-    padding-inline: 0;
-    min-width: var(--touch-target);
-  }
-
-  .summary-card-share-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 }

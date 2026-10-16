@@ -19,8 +19,8 @@ from a 390 px wide screen.
    and back counts by its span), three tenths while still moving; a vertical drag never does.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
-   The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
-   an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
+   The summary lists the cards in the order they were revealed (best last), each opening up close, where
+   its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
    revealed card, one quiet line (game, site, set and card number) says where a screenshot came from; a
    narrow phone wraps the set and number onto a second line, never cutting them off.
@@ -288,7 +288,8 @@ matrix (interruption and UI states) remains in #337.
 **Shipped** on the results screen, owned and public pack detail (`PackCardViewer`, so profile packs
 and shared pulls) and card detail. A consistent pack headline, not a dominance threshold:
 **Pack total: [score]**, then **[true combo] ×[multiplier]**. No surface shows a standout line: the
-engine's standout only orders cards (best pull first) and picks previews. Card surfaces lead with
+engine's standout only picks previews; the summary and a reopened profile pack show cards in reveal
+order (best last), shared pulls in engine order. Card surfaces lead with
 identity/modifiers and Card points, which exclude the pack multiplier. The standout is the maximum
 original-version `cardPoints`; on ties take the **higher** slot (the last of the tied cards in engine
 pack order). That is the shipped best-card rule: `revealOrder`
@@ -297,9 +298,11 @@ pack order). That is the shipped best-card rule: `revealOrder`
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
 
-On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · about
-1 in [n] packs** from `comboOneIn` (`src/engine/headline.ts`), the share of all packs of the set with
-that combo (just **No Matches** when it has no odds), then the Hall of Fame line when the pull
+On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · 1 in
+[n] packs score this high** from `scoreAtLeastChance` (`src/engine/odds.ts`), the exact share of all
+packs of the set that score at least this much over the whole pack (rarity, holo, finish, misprint and
+combo). Past even odds it reads **[combo] · Most packs score this high**, and it is just the combo
+when the set's modifier table is unknown. Then the Hall of Fame line when the pull
 qualifies. The combo is named once and no multiplier shows: the Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers, and Score = card
 points added up × combo multiplier. There is no per-pack breakdown.
@@ -308,9 +311,9 @@ points added up × combo multiplier. There is no per-pack breakdown.
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
 no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
-Fame line), the tap hint and the **Card guide** link, the five cards in one compact row (each a
-button that opens the card up close, with a ⤢ corner, best pull first, its own Share; new and
-special cards carry the tile's own New sticker and modifier label, never a line of text), then the
+Fame line), the tap hint (**Tap a card to view**) and the **Card guide** link, the five cards in one
+compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
+shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
 actions: **Open another pack** primary, **Share** secondary, stuck to the bottom of the summary's
 scroller above the safe area. The cards are the last content: only the actions sit below them,
 nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP

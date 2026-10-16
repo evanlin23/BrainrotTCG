@@ -1074,7 +1074,7 @@ button.reveal-card {
     gap: 6px;
     /* Three across on phones (then two), five across from tablets. */
     width: min(8.5rem, calc((100% - 2 * var(--space-3)) / 3));
-    /* Never narrower than its Share: at large text the row holds fewer cards, down to one. */
+    /* Never narrower than its contents: at large text the row holds fewer cards, down to one. */
     min-width: min-content;
 }
 
@@ -1140,16 +1140,6 @@ button.reveal-card {
     padding: 1px 5px;
     border-radius: 0 var(--radius-sm) 0 var(--radius-sm);
     font-size: var(--text-xs);
-}
-
-/* Each card's own Share: quiet under its label, the pack's Share stays the main one. Snug enough to
-   fit a third of a 320px phone (#472). */
-.summary-cards .summary-card-share {
-    justify-self: center;
-    gap: var(--space-1);
-    max-width: 100%;
-    min-height: var(--touch-target);
-    padding-inline: var(--space-2);
 }
 
 /* The card is the reveal's button (flip, then next). Its ring is drawn over the big-pull halo, which

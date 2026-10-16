@@ -329,7 +329,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     focusOpenRef.current = true;
   }, [resetCutState, preloadedAssets, cleanupAudio, clearEffectTimers]);
 
-  // What the summary's per-card Share links to: this pull (one object, so its proof is signed once).
+  // What a card shared from the summary links to: this pull (one object, so its proof is signed once).
   const pullRef = useMemo((): PullRef | undefined => openedPack
     ? { setId: openedPack.setId, setVersion: openedPack.setVersion, nonce: openedPack.nonce, publicKeyHex: openedPack.publicKeyHex }
     : undefined, [openedPack]);
