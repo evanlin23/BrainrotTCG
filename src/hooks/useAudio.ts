@@ -48,8 +48,8 @@ export const useAudio = () => {
   const loadDeferred = useCallback((audioElements: HTMLAudioElement[]) => {
     audioElements.forEach(audio => {
       if (!audio.getAttribute('src') || audio.preload === 'auto') return;
+      // Raising preload starts the deferred download in place; load() would abort and refetch it.
       audio.preload = 'auto';
-      audio.load();
     });
   }, []);
 

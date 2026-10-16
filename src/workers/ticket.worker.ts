@@ -10,16 +10,21 @@ export interface TicketRequest {
   nonce: number;
 }
 
-/** Compile the Argon2 WASM before the first ticket is asked for. Gets no reply. */
+/** Compile the Argon2 WASM before the first ticket is asked for. Answered with `{ warmedUp: true }`. */
 export interface WarmUpRequest {
   warmUp: true;
 }
 
 export type TicketResponse = { id: number; ticket: Uint8Array } | { id: number; error: string };
 
+export interface WarmUpResponse {
+  warmedUp: true;
+}
+
 self.onmessage = async (event: MessageEvent<TicketRequest | WarmUpRequest>) => {
   if ('warmUp' in event.data) {
     await warmUpArgon2().catch(() => undefined); // the first ticket compiles it instead
+    (self as DedicatedWorkerGlobalScope).postMessage({ warmedUp: true } satisfies WarmUpResponse);
     return;
   }
   const { id, setKey, publicKeyHex, nonce } = event.data;

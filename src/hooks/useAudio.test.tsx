@@ -32,7 +32,7 @@ describe('preloading sounds', () => {
     expect(load).toHaveBeenCalledOnce();
   });
 
-  it('with defer, downloads nothing until loadDeferred, once each, skipping cleaned-up sounds', () => {
+  it('with defer, downloads nothing until loadDeferred raises preload, skipping cleaned-up sounds', () => {
     const sounds = audio.preloadAudio(['/a.mp3', '/b.mp3', '/c.mp3'], { defer: true });
     expect(sounds.map((s) => s.preload)).toEqual(['none', 'none', 'none']);
     expect(load).not.toHaveBeenCalled();
@@ -40,7 +40,8 @@ describe('preloading sounds', () => {
     audio.cleanupAudio([sounds[2]]);
     audio.loadDeferred(sounds);
     audio.loadDeferred(sounds);
-    expect(load.mock.contexts).toEqual([sounds[0], sounds[1]]);
+    // Raising preload resumes the deferred download; load() would abort it and fetch again.
+    expect(load).not.toHaveBeenCalled();
     expect(sounds.map((s) => s.preload)).toEqual(['auto', 'auto', 'none']);
   });
 });

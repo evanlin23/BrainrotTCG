@@ -233,6 +233,9 @@ describe('the reveal sounds on a first pack', () => {
     vi.stubGlobal('requestIdleCallback', (task: () => void) => idle.push(task));
     vi.stubGlobal('cancelIdleCallback', () => {});
     const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    // Raising preload is what starts a deferred download, so track which sounds asked for one.
+    const preload = vi.spyOn(HTMLMediaElement.prototype, 'preload', 'set');
+    const downloading = () => new Set(preload.mock.calls.flatMap(([value], i) => (value === 'auto' ? [preload.mock.contexts[i]] : [])));
     const set = SETS[0];
     const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
     vi.mocked(openPack).mockResolvedValue({
@@ -248,13 +251,15 @@ describe('the reveal sounds on a first pack', () => {
       expect(openPack).toHaveBeenCalledOnce();
       expect(idle.length).toBeGreaterThan(0);
       expect(load).not.toHaveBeenCalled();
+      expect(downloading().size).toBe(0);
 
       act(() => idle.splice(0).forEach((task) => task()));
-      expect(load).toHaveBeenCalled();
-      const loaded = load.mock.contexts as HTMLAudioElement[];
-      expect(loaded.every((el) => el.preload === 'auto')).toBe(true);
-      expect(new Set(loaded).size).toBe(loaded.length);
+      expect(downloading().size).toBeGreaterThan(0);
+      // Each starts once, in place: load() would abort the download and fetch it again.
+      expect(preload.mock.calls.filter(([value]) => value === 'auto')).toHaveLength(downloading().size);
+      expect(load).not.toHaveBeenCalled();
     } finally {
+      preload.mockRestore();
       load.mockRestore();
       vi.useRealTimers();
     }

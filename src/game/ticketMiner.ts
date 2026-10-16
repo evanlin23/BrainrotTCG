@@ -6,7 +6,7 @@
  * push out the next pack's ticket.
  */
 import { computeTicket, toHex } from '../engine';
-import type { TicketRequest, TicketResponse, WarmUpRequest } from '../workers/ticket.worker';
+import type { TicketRequest, TicketResponse, WarmUpRequest, WarmUpResponse } from '../workers/ticket.worker';
 import { holdLive, requestSlot, stopped } from './admission';
 
 type Pending = { resolve: (t: Uint8Array) => void; reject: (e: Error) => void; setKey: string; publicKey: Uint8Array; nonce: number };
@@ -19,7 +19,8 @@ const getWorker = (): Worker | null => {
   if (worker !== undefined) return worker;
   try {
     worker = new Worker(new URL('../workers/ticket.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (event: MessageEvent<TicketResponse>) => {
+    worker.onmessage = (event: MessageEvent<TicketResponse | WarmUpResponse>) => {
+      if ('warmedUp' in event.data) return;
       const job = pending.get(event.data.id);
       if (!job) return;
       pending.delete(event.data.id);

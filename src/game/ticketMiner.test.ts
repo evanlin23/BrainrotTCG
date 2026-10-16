@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TicketRequest, TicketResponse, WarmUpRequest } from '../workers/ticket.worker';
+import type { TicketRequest, TicketResponse, WarmUpRequest, WarmUpResponse } from '../workers/ticket.worker';
 
 vi.mock('../engine', async (importOriginal) => ({
   ...await importOriginal<typeof import('../engine')>(),
@@ -9,7 +9,7 @@ vi.mock('../engine', async (importOriginal) => ({
 /** The miner's one worker: it answers only when the test says so. */
 class ControlledWorker {
   static instances: ControlledWorker[] = [];
-  onmessage: ((event: MessageEvent<TicketResponse>) => void) | null = null;
+  onmessage: ((event: MessageEvent<TicketResponse | WarmUpResponse>) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   requests: TicketRequest[] = [];
   terminate = vi.fn();
@@ -169,11 +169,16 @@ describe('warming up the miner', () => {
     miner.warmUpMiner();
     expect(ControlledWorker.instances).toHaveLength(1);
     expect(worker().postMessage.mock.calls).toEqual([[{ warmUp: true } satisfies WarmUpRequest]]);
-    // The warm-up gets no reply; the first ticket still goes to the same worker.
+    // The first ticket still goes to the same worker, and the warm-up's answer settles no ticket.
     const pack = live(3);
     await flush();
     expect(ControlledWorker.instances).toHaveLength(1);
     expect(nonces()).toEqual([undefined, 3]); // the warm-up, then the ticket
+    let settled = false;
+    void pack.then(() => { settled = true; });
+    worker().onmessage?.({ data: { warmedUp: true } } as MessageEvent<WarmUpResponse>);
+    await flush();
+    expect(settled).toBe(false);
     worker().reply();
     expect(await pack).toEqual(Uint8Array.of(3));
     expect(computeTicket).not.toHaveBeenCalled();
