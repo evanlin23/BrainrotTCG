@@ -187,15 +187,15 @@ for (const textZoom of [200]) {
     await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
 
-    // Focus order is the page's: the heading, the Card guide, every card and its Share, then the actions.
+    // Focus order is the page's: the heading, the Card guide, every card, then the actions.
     // Each stop is on screen and not under anything, the stuck actions included.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = 0; });
     await page.locator('.summary-title').focus();
     const expected = await page.locator('.pack-summary').evaluate((summary) => Array.from(summary.querySelectorAll<HTMLElement>(
       'button:not([disabled]), a[href], input, select, textarea, details > summary, [tabindex]:not([tabindex="-1"])',
     )).filter((element) => element.checkVisibility()).map((element) => element.outerHTML));
-    await expect(page.locator('.summary-card-share')).toHaveCount(5);
-    expect(expected.length).toBeGreaterThanOrEqual(13);
+    await expect(page.locator('.summary-card')).toHaveCount(5);
+    expect(expected.length).toBeGreaterThanOrEqual(8);
     const visited: string[] = [];
     for (let stop = 0; stop < expected.length; stop++) {
       await page.keyboard.press('Tab');
@@ -236,25 +236,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
   expect(errors).toEqual([]);
 });
 
-// At 100% a card is a third of the phone; at 200% (on a 320x568 phone) the row holds fewer cards, so
-// each card stays as wide as its Share, and the pack's own Share still fits its row (#312).
-for (const [textZoom, viewport] of [[100, { width: 320, height: 640 }], [200, { width: 320, height: 568 }]] as const) test(`each card's Share fits inside its card on a 320px phone at ${textZoom}% text (#472)`, async ({ page, baseURL }) => {
+// On a 320px phone at 100% and 200% text, the pack's own Share still fits its row and nothing
+// scrolls sideways (#312, #472). Each card shares from its up-close view, not from the summary.
+for (const [textZoom, viewport] of [[100, { width: 320, height: 640 }], [200, { width: 320, height: 568 }]] as const) test(`the pack's actions fit a 320px phone at ${textZoom}% text (#472)`, async ({ page, baseURL }) => {
   test.setTimeout(90000);
   const { errors } = await openSummary(page, baseURL!, { textZoom, viewport });
-  const shares = await page.locator('.summary-cards li').evaluateAll((cards) => cards.map((card) => {
-    const share = card.querySelector('.summary-card-share')!;
-    const [c, s] = [card.getBoundingClientRect(), share.getBoundingClientRect()];
-    return {
-      inside: s.left >= c.left - 0.5 && s.right <= c.right + 0.5,
-      clipped: share.scrollWidth > share.clientWidth,
-      height: Math.round(s.height),
-      width: Math.round(s.width),
-      card: Math.round(c.width),
-    };
-  }));
-  expect(shares).toHaveLength(5);
-  for (const share of shares) expect(share, JSON.stringify(share)).toMatchObject({ inside: true, clipped: false });
-  for (const share of shares) expect(share.height).toBeGreaterThanOrEqual(44);
+  await expect(page.locator('.summary-card')).toHaveCount(5);
   const actions = await page.locator('.summary-actions .btn').evaluateAll((buttons) => buttons.map((button) => {
     const [b, row] = [button.getBoundingClientRect(), button.parentElement!.getBoundingClientRect()];
     return {

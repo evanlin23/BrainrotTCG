@@ -12,11 +12,15 @@ from a 390 px wide screen.
    pack; during a reveal it's the next card; in the summary it's opening another pack. Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
    and wordmark), the gear, the pack and the quiet Card guide link under it: the tabs and the era
-   picker come once their first pack is saved and they leave it.
+   picker come once their first pack is saved and they leave it. There the Open pack button is brand
+   filled, the one obvious action (#80); once the nav is in it steps back to secondary under the swipe.
+   The tear line is the wrapper's seam (#267): a white perforation over a soft brand-and-foil band, with
+   a brand arrowhead at each end. A swipe along it covering a fifth of the pack opens it on release (over
+   and back counts by its span), three tenths while still moving; a vertical drag never does.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
-   The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
-   an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
+   The summary lists the cards in the order they were revealed (best last), each opening up close, where
+   its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
    revealed card, one quiet line (game, site, set and card number) says where a screenshot came from; a
    narrow phone wraps the set and number onto a second line, never cutting them off.
@@ -87,7 +91,8 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | Shape | `--radius-sm` (4 px), `--radius-md` (6), `--radius-lg` (10), `--radius-xl` (14), `--radius-pill` | the only radii, besides `0`, `50%` and `inherit` |
 | Card | `--card-aspect` (687 / 1024, the art's own shape), `--card-tall` (its inverse) | every card face and slot uses these |
 | Depth | `--shadow-1` … `--shadow-3` | `--glow-brand` is `none` |
-| Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--ease-out`, `--ease-spring` | zero under reduced motion |
+| Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--dur-reveal` (450 ms), `--dur-celebrate` (1200), `--dur-loop` (3000), `--dur-spin` (900), `--ease-out`, `--ease-spring` | zero under reduced motion, except loops and spinners, which reduced motion stops outright; new CSS uses these, not raw durations |
+| Breakpoints | 380 px (small phone), 720 px (dialogs), 900 px (nav in the header), 1024 px (desktop) | variables can't go in a media query, so use these widths as `min-width` (or one pixel under as `max-width`) |
 | Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` | the page runs under the notch (`viewport-fit=cover`), so anything fixed to a screen edge pads by these; `theme-color` matches `--bg` |
 | States | `--focus-ring`, `--focus-outline`, `--opacity-disabled` | see the rules below |
 | Layers | `--z-stage-fx` (5), `--z-header` (40), `--z-nav` (50), `--z-hud` (60), `--z-sheet` (100), `--z-toast` (200) | the only z-index values above 3 |
@@ -172,7 +177,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
 - **App nav** (`ui/AppNav.tsx`): Open, Cards, Rankings and Profile, each an icon plus a label, the
   current one marked `aria-current="page"`. A fixed bottom bar on phones (under 900px, with
   safe-area padding) and part of the header from 900px, where the logo scales from 36px to 52px
-  (by about 1060px) so it never runs into the tabs; 44px targets. It stays hidden for a new
+  (by about 1060px, all in rem so a larger root font only moves the ramp) so it never runs into the tabs; 44px targets. It stays hidden for a new
   player until their first pack is saved (#222) and while a pack is open. The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem).
@@ -284,7 +289,8 @@ matrix (interruption and UI states) remains in #337.
 **Shipped** on the results screen, owned and public pack detail (`PackCardViewer`, so profile packs
 and shared pulls) and card detail. A consistent pack headline, not a dominance threshold:
 **Pack total: [score]**, then **[true combo] ×[multiplier]**. No surface shows a standout line: the
-engine's standout only orders cards (best pull first) and picks previews. Card surfaces lead with
+engine's standout only picks previews; the summary and a reopened profile pack show cards in reveal
+order (best last), shared pulls in engine order. Card surfaces lead with
 identity/modifiers and Card points, which exclude the pack multiplier. The standout is the maximum
 original-version `cardPoints`; on ties take the **higher** slot (the last of the tied cards in engine
 pack order). That is the shipped best-card rule: `revealOrder`
@@ -306,9 +312,9 @@ points added up × combo multiplier. There is no per-pack breakdown.
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
 no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
-Fame line), the tap hint and the **Card guide** link, the five cards in one compact row (each a
-button that opens the card up close, with a ⤢ corner, best pull first, its own Share; new and
-special cards carry the tile's own New sticker and modifier label, never a line of text), then the
+Fame line), the tap hint (**Tap a card to view**) and the **Card guide** link, the five cards in one
+compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
+shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
 actions: **Open another pack** primary, **Share** secondary, stuck to the bottom of the summary's
 scroller above the safe area. The cards are the last content: only the actions sit below them,
 nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
