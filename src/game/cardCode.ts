@@ -18,8 +18,14 @@ export interface StoredCard {
 export const encodeCard = (card: StoredCard): string =>
   card.id + (card.holo ? '*' : '') + (card.finish ? LETTERS[card.finish] : '') + (card.misprint ? '!' : '');
 
+/** A code's parts. `.` stops at line breaks, so a code holding one has none. */
+const CODE = /^(.*?)(\*?)([SGPD]?)(!?)$/;
+
+/** Whether `text` is a card code decodeCard reads: an id, no line break, and no comma (codes are stored comma-joined). */
+export const isCardCode = (text: string): boolean => !text.includes(',') && !!CODE.exec(text)?.[1];
+
 export const decodeCard = (text: string): StoredCard => {
-  const [, id, holo, letter, misprint] = /^(.*?)(\*?)([SGPD]?)(!?)$/.exec(text)!;
+  const [, id, holo, letter, misprint] = CODE.exec(text)!;
   return { id, holo: holo === '*', ...(letter ? { finish: FINISH_OF[letter] } : {}), ...(misprint ? { misprint: true } : {}) };
 };
 
