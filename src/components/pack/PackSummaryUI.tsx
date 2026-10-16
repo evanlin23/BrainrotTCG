@@ -11,6 +11,7 @@ import type { SetDefinition } from '../../engine';
 import { myProgress } from '../../game/profiles';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
 import PackCacheNote from '../profile/PackCacheNote';
+import '../../styles/CollectionLabel.css';
 
 const Motion = motion;
 

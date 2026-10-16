@@ -1,0 +1,166 @@
+/* The big single-card viewer (CardViewerModal.tsx), a bare sheet. */
+
+.card-viewer .sheet-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.card-viewer-card {
+  --r: var(--rarity-common);
+  --ring: 0 0 0 3px var(--r);
+  position: relative;
+  width: min(78vw, 46dvh, 24rem);
+  aspect-ratio: 687 / 1024;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  /* Each effect is its own shadow, so rarity, finish and holo all show together. */
+  box-shadow: var(--ring), var(--finish-glow, 0 0 #0000), var(--holo-glow, 0 0 #0000), var(--shadow-3);
+  transform-style: preserve-3d;
+  transition: transform 0.1s ease-out;
+}
+
+.card-viewer-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card-viewer-card.uncommon { --r: var(--rarity-uncommon); }
+.card-viewer-card.rare { --r: var(--rarity-rare); }
+.card-viewer-card.epic { --r: var(--rarity-epic); }
+.card-viewer-card.legendary { --r: var(--rarity-legendary); }
+.card-viewer-card.brainrot { --ring: 0 0 0 3px #ffe14d, 0 0 30px rgba(255, 225, 77, 0.5); }
+
+.card-viewer-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 24rem;
+  text-align: center;
+}
+
+.card-viewer-flavor {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.card-viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.card-viewer-card.holo {
+    --holo-glow: 0 0 30px rgba(255, 0, 255, 0.3), 0 0 60px rgba(0, 255, 255, 0.2);
+}
+
+/* Rainbow shimmer for card viewer */
+.card-viewer-card.holo::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        45deg,
+        rgba(255, 0, 0, 0.18) 0%,
+        rgba(255, 127, 0, 0.18) 14%,
+        rgba(255, 255, 0, 0.18) 28%,
+        rgba(0, 255, 0, 0.18) 42%,
+        rgba(0, 0, 255, 0.18) 56%,
+        rgba(75, 0, 130, 0.18) 70%,
+        rgba(148, 0, 211, 0.18) 84%,
+        rgba(255, 0, 0, 0.18) 100%
+    );
+    background-size: 400% 400%;
+    animation: cardViewerHoloRainbow 3s ease infinite;
+    pointer-events: none;
+    border-radius: 10px;
+    mix-blend-mode: overlay;
+    z-index: 1;
+}
+
+@keyframes cardViewerHoloRainbow {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Shine sweep overlay */
+.card-viewer-card.holo::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(
+        120deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0) 30%,
+        rgba(255, 255, 255, 0.7) 50%,
+        rgba(255, 255, 255, 0) 70%,
+        transparent 100%
+    );
+    transform: skewX(-20deg);
+    animation: cardViewerHoloShine 2.5s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 2;
+}
+
+@keyframes cardViewerHoloShine {
+    0% { left: -100%; }
+    50% { left: 150%; }
+    100% { left: 150%; }
+}
+
+/* Finish and misprint versions you own, in the card close-up (CardViewerModal.tsx) */
+.card-viewer-versions {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+}
+
+.card-viewer-versions-label {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.card-viewer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.version-chip {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--finish, var(--border-strong));
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--finish, var(--text));
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.version-chip[aria-pressed='true'] {
+  background: var(--finish, var(--text));
+  color: var(--brand-ink);
+}
+
+.misprint-chip {
+  text-shadow: 1.5px 0 rgba(255, 0, 90, 0.7), -1.5px 0 rgba(0, 230, 255, 0.7);
+}
+
+.misprint-chip[aria-pressed='true'] {
+  text-shadow: none;
+}
