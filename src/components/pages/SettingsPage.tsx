@@ -3,7 +3,7 @@ import { Download, History, Upload } from 'lucide-react';
 import { STORAGE_KEYS } from '../../constants';
 import { canBringOldSave, fetchOldSave, FULL_MOVE_NOTE, hasProgress, importSave, PARTIAL_MOVE_NOTE, type MoveResult } from '../../game/move';
 import { reloadPage } from '../../game/reload';
-import { CARD_FLIP_SRC } from '../../constants/audio';
+import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundVolume } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import type { Settings } from '../../types';
@@ -56,6 +56,8 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [oldSaveNote, setOldSaveNote] = useState('Played at the old address? Bring that save here.');
     const [oldSave, setOldSave] = useState<{ save: unknown } | null>(null);
     const keepRef = useRef<HTMLButtonElement>(null);
+    // Leaving the page drops a preview still waiting to play.
+    useEffect(() => () => clearTimeout(samplePending), []);
     useEffect(() => {
         if (oldSave) keepRef.current?.focus();
     }, [oldSave]);
@@ -284,12 +286,20 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     );
 };
 
-/** A card flip at the effects volume just chosen, so you hear what you picked. */
+let samplePending: ReturnType<typeof setTimeout> | undefined;
+
+/** A reveal at the effects volume just chosen (the flip, then a vine boom), so you hear what you picked. */
 const playSample = (value: number) => {
+    clearTimeout(samplePending);
     if (value === 0) return;
-    const sample = new Audio(CARD_FLIP_SRC);
-    sample.volume = effectsLevel(value);
-    sample.play().catch(() => {});
+    const level = effectsLevel(value);
+    const play = (src: string) => {
+        const sample = new Audio(src);
+        sample.volume = soundVolume(src, level);
+        sample.play().catch(() => {});
+    };
+    play(CARD_FLIP_SRC);
+    samplePending = setTimeout(() => play(VINE_BOOM_SRC), EFFECT_DELAY_MS);
 };
 
 /** A volume slider in steps of 5%; all the way left is off. */

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  getStoredPack, hydratePackStore, putStoredPacks, resetPackStore, readStoredPacks, PACK_READ_PAGE, type StoredPackRef,
+  getStoredPack, hydratePackStore, packStoreVersion, putStoredPacks, resetPackStore, readStoredPacks, PACK_READ_PAGE, type StoredPackRef,
 } from './packStore';
 
 // Control only the asynchronous request boundary: tests still exercise the exported cache API. With
@@ -314,6 +314,20 @@ describe('paged hydration', () => {
     stored.reads[0].oncomplete?.();
     expect(await hydrating).toBe(true);
     expect(packs.map(cached)).toEqual(['fresh-0', 'fresh-1', 'cards-2']);
+  });
+
+  it('moves the store version when a read adds packs, and only then', async () => {
+    const packs = refs(2);
+    const stored = database([[keyFor(packs[0]), 'cards-0']]);
+    const before = packStoreVersion();
+    const hydrating = hydratePackStore(packs);
+    succeed(requests[0], stored);
+    expect(await hydrating).toBe(true);
+    const after = packStoreVersion();
+    expect(after).not.toBe(before);
+    // Nothing new: pack 0 is in memory and pack 1 is missing from the store.
+    expect(await hydratePackStore(packs)).toBe(true);
+    expect(packStoreVersion()).toBe(after);
   });
 
   it('has nothing to read without IndexedDB', async () => {

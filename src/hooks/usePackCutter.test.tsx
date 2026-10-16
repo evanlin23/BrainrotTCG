@@ -2,6 +2,7 @@
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FAIRY_DUST_SRC, WOOSH_SRC, soundGain } from '../constants/audio';
 import { usePackCutter } from './usePackCutter';
 
 // A 320 x 573 pack, 100px right and 50px down the viewport. Its tear line sits at 19% of its
@@ -41,17 +42,18 @@ interface ProbeProps {
   isOpening?: boolean;
   isPackCut?: boolean;
   particles?: boolean;
+  volume?: number;
 }
 
-const Probe = ({ hold, disabled = false, isOpening = false, isPackCut = false, particles = false }: ProbeProps) => {
-  const latest = usePackCutter({ onCutComplete, onMiss, onSeamTap, isOpening, isPackCut, volume: 0, particlesEnabled: particles, disabled });
+const Probe = ({ hold, disabled = false, isOpening = false, isPackCut = false, particles = false, volume = 0 }: ProbeProps) => {
+  const latest = usePackCutter({ onCutComplete, onMiss, onSeamTap, isOpening, isPackCut, volume, particlesEnabled: particles, disabled });
   const { packRef } = latest;
   useEffect(() => hold(latest));
   return <div ref={packRef} />;
 };
 
 /** Renders the probe, or re-renders it with a sheet open over the pack (`disabled`). */
-const render = (disabled = false) => act(() => root.render(<Probe hold={(latest) => { cutter = latest; }} disabled={disabled} />));
+const render = (disabled = false, volume = 0) => act(() => root.render(<Probe hold={(latest) => { cutter = latest; }} disabled={disabled} volume={volume} />));
 
 /** Gives the pack the on-screen box `rect`, or `rect` narrowed to `width` px from the same left edge. */
 const sizePack = (width = rect.width) => {
@@ -806,5 +808,31 @@ describe('usePackCutter seam taps (#485)', () => {
     render(true);
     swipe(at(0.5), at(0.5));
     expect(onSeamTap).not.toHaveBeenCalled();
+  });
+});
+
+describe('usePackCutter sound gains', () => {
+  it('plays the fairy dust and the woosh at their gain on the effects level', () => {
+    const played: { src: string; volume: number }[] = [];
+    vi.stubGlobal('Audio', class {
+      volume = 1;
+      currentTime = 0;
+      onended: (() => void) | null = null;
+      constructor(public src: string) {}
+      pause() {}
+      play() { played.push({ src: this.src, volume: this.volume }); return Promise.resolve(); }
+    });
+    render(false, 0.5);
+    down(at(0.3));
+    move(at(0.45));
+    const fairy = played.find((p) => p.src === FAIRY_DUST_SRC)!;
+    expect(fairy).toBeDefined();
+    expect(fairy.volume).toBeCloseTo(0.5 * soundGain(FAIRY_DUST_SRC));
+    move(at(0.65));
+    up(at(0.65));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+    const woosh = played.find((p) => p.src === WOOSH_SRC)!;
+    expect(woosh).toBeDefined();
+    expect(woosh.volume).toBeCloseTo(0.5 * soundGain(WOOSH_SRC));
   });
 });

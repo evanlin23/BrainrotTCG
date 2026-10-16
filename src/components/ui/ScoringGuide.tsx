@@ -87,7 +87,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
 
         <h3>Brainrot Score</h3>
         <p className="scoring-formula">
-          Brainrot Score = <strong>card points</strong> × <strong>combo multiplier</strong>
+          Brainrot Score = <strong>card points</strong> added up × <strong>combo multiplier</strong>
         </p>
         <p className="scoring-note">Rarer always pays more: every number comes from the odds. Odds below are exact for {set.name}.</p>
 

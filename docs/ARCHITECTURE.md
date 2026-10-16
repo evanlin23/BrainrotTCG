@@ -57,7 +57,8 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
-  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors
+  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors,
+                     `cardVersionBoards`
 
 src/content/       Set data, art and registry; existing schemas use the existing engine.
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
@@ -257,8 +258,8 @@ last. The pack summary's `bestPullOrder` lists the earlier slot first instead; b
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
-| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
-| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | planned: Rankings page |
+| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | planned: Rankings page |
 | Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
 Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
@@ -274,10 +275,15 @@ destinations. Best versions of this card opens from a card's details.
   (`setId/cardId`, as the collection, combos and card pages key it), so every version of a set holds
   one board and another set's card of the same id stays apart. Each board has its own cutoff, ties
   and completeness: an other-era instance makes only its card's board partial. A `through` bound
-  certifies one board, so it is refused here; rebuild a card's board with `rebuildBoard`. These boards
-  are complete only with coverage `all`: under the pack intake minimum, a card worth less than it has
-  an empty, partial (`below-intake-minimum`) board. Daily card boards and the card-details view come
-  later.
+  certifies one board, so it is refused here; rebuild a card's board with `rebuildBoard`. A card's
+  board takes only that card's instances: `selectBoard` and `rebuildBoard` throw on another card's.
+  Each pull holds at most one place on a card's board, its best copy of that card; the pull's other
+  copies count as duplicates. One instance received twice at the same instant with different proofs
+  keeps the lower proof, so the result doesn't depend on input order. These boards are complete only
+  with coverage `all`. Under `min-score` coverage (the pack intake minimum), a card missing from the
+  Map means unknown, not empty: none of its instances may have been filed, so it has no board at all,
+  and a card worth less than the bound that is present has a partial (`below-intake-minimum`) board.
+  Daily card boards and the card-details view come later.
 - **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
   pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
   until they are re-derived from their proofs.
