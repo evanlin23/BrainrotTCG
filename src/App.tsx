@@ -4,6 +4,7 @@ import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
 import AchievementToasts, { type ToastItem } from './components/achievements/AchievementToasts';
 import AppNav from './components/ui/AppNav';
+import KeptAsideActions from './components/ui/KeptAsideActions';
 import AppPage, { type PageSection } from './components/ui/Page';
 import DeferredSheet from './components/ui/DeferredSheet';
 import { sheetLoader } from './components/ui/sheetEntry';
@@ -18,7 +19,7 @@ import { clearPendingPack, onShelf, savePendingPack, takePendingPacks, type Open
 import { importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
 import { getStoredData, setStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
-import { collectionRecoveryDismissed, dismissCollectionRecovery, hasCollectionRecovery, persistCollection } from './game/collectionRecovery';
+import { COLLECTION_RECOVERY_NOTES, collectionRecoveryDismissed, collectionRecoveryState, dismissCollectionRecovery, persistCollection } from './game/collectionRecovery';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
@@ -60,7 +61,6 @@ const OPEN_TITLE = document.title;
 
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
 const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
-const COLLECTION_RECOVERY_NOTE = 'Unreadable collection data was kept aside in this browser. To recover it, open Settings, then Save & backup, and export a backup.';
 /** What adding a pack changes, so several packs can be added before React renders. */
 type PackProgress = { stats: Stats; collection: Record<string, CollectionItem>; hallOfFame: HallOfFameData };
 
@@ -73,18 +73,22 @@ function App() {
   const [settings, setSettings] = useState<Settings>(() => readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)));
   const [saveFailed, setSaveFailed] = useState(false);
   const [staleSave, setStaleSave] = useState(false);
-  const [collectionArchived, setCollectionArchived] = useState(hasCollectionRecovery);
+  // Unreadable collection data kept aside (game/collectionRecovery), with Download and Discard beside
+  // the note: in the banner, and in Settings > Save & backup.
+  const [recovery, setRecovery] = useState(collectionRecoveryState);
+  const recoveryNote = recovery === 'none' ? undefined : COLLECTION_RECOVERY_NOTES[recovery];
   // The player can hide the kept-aside note from the banner until something new is kept aside;
   // Settings keeps showing it.
   const [recoveryNoteHidden, setRecoveryNoteHidden] = useState(collectionRecoveryDismissed);
-  const showRecoveryNote = collectionArchived && !recoveryNoteHidden;
-  // One warning for every storage problem, in the banner and in Settings.
-  const saveWarning = [staleSave && STALE_SAVE_WARNING, saveFailed && SAVE_WARNING, collectionArchived && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
-  const bannerWarning = [staleSave && STALE_SAVE_WARNING, saveFailed && SAVE_WARNING, showRecoveryNote && COLLECTION_RECOVERY_NOTE].filter(Boolean).join(' ') || undefined;
+  const showRecoveryNote = !!recoveryNote && !recoveryNoteHidden;
+  // One warning for every storage problem in the banner; Settings shows the kept-aside note in Save & backup.
+  const saveWarning = [staleSave && STALE_SAVE_WARNING, saveFailed && SAVE_WARNING].filter(Boolean).join(' ') || undefined;
+  const bannerWarning = [saveWarning, showRecoveryNote && recoveryNote].filter(Boolean).join(' ') || undefined;
   const hideRecoveryNote = useCallback(() => {
     dismissCollectionRecovery();
     setRecoveryNoteHidden(true);
   }, []);
+  const recoveryChanged = useCallback(() => setRecovery(collectionRecoveryState()), []);
   const achievementsRef = useRef(achievements);
   // The save this tab loaded. Another tab can import a save (even the same player's), switch player
   // or clear storage while this one stays open: from then on everything held here is the old save's,
@@ -125,14 +129,16 @@ function App() {
   // they opened, and the other tab may have taken and stored them since: one put back would be added
   // twice. If storage refuses, they stay owed here with the save warning up, and the next change or
   // another tab's write tries again.
+  // After another tab's import or player switch (see samePlayer) they stay here, as on every write: the
+  // shelf then holds another save's packs, and onShelf matches a nonce, not a player.
   const putBackTaken = useCallback(() => {
-    if (takenPacks.current.length === 0) return;
+    if (takenPacks.current.length === 0 || !samePlayer()) return;
     savePendingPack(...takenPacks.current);
     takenPacks.current = takenPacks.current.filter((pack) => !onShelf(pack.nonce));
     if (takenPacks.current.length === 0) return;
     setSaveFailed(true);
     console.error(`${takenPacks.current.length} pack(s) couldn't be put back on the pending shelf: only this tab has them, and newer progress from another tab is stored.`);
-  }, []);
+  }, [samePlayer]);
 
   // Persist committed state, never during a React updater (which can be replayed).
   // Skip the initial snapshot and do not retry automatically or imply a multi-field commit.
@@ -197,8 +203,8 @@ function App() {
       // A ticket mapping the history couldn't take when its pack opened goes in once this save is done.
       if (packs.length > 0 && !recordMissing(packs, getPlayer().publicKeyHex)) setSaveFailed(true);
       // The archive can be written even when the collection then can't be.
-      if (result !== 'saved' && hasCollectionRecovery()) {
-        setCollectionArchived(true);
+      if (result !== 'saved' && collectionRecoveryState() !== 'none') {
+        setRecovery(collectionRecoveryState());
         setRecoveryNoteHidden(collectionRecoveryDismissed());
       }
     }
@@ -666,7 +672,16 @@ function App() {
         <p role="alert" className="save-warning">
           {bannerWarning}
           {staleSave && <button type="button" className="link-btn save-warning-action" onClick={() => reloadPage()}>Reload</button>}
-          {showRecoveryNote && <button type="button" className="link-btn save-warning-action" onClick={hideRecoveryNote}>Hide note</button>}
+          {showRecoveryNote && (
+            <>
+              <KeptAsideActions variant="banner" onGone={() => {
+                recoveryChanged();
+                // The note and its buttons leave: focus goes to the open page's heading, or the logo.
+                (document.querySelector<HTMLElement>('.page-title') ?? logoRef.current)?.focus();
+              }} />
+              <button type="button" className="link-btn save-warning-action" onClick={hideRecoveryNote}>Hide note</button>
+            </>
+          )}
         </p>
       )}
       <header className="app-header">
@@ -758,6 +773,8 @@ function App() {
           onImportSave: handleImportSave,
           saveWarning,
           onReload: staleSave ? () => reloadPage() : undefined,
+          recovery: recovery === 'none' ? undefined : recovery,
+          onRecoveryGone: recoveryChanged,
         }} />
       )}
 
