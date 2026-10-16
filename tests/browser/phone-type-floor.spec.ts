@@ -25,9 +25,11 @@ const textUnder = (page: Page, floor: number) => page.evaluate((floor) => {
 
 test('keeps pack-screen text at 12 px and form fields at 16 px on a 360 px phone', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
-  const errors = await monitor(page, baseURL!);
+  // A returning player's pack screen: a new player's has no set picker or tabs to measure.
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Choose a pack', exact: true })).toBeVisible();
   const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
   await expect(packShell).toBeVisible();
   await expectDecoded(packShell.locator('img'), 2);

@@ -332,9 +332,20 @@ stats, Hall of Fame, achievements, settings): every write compares the stored pl
 record is still stored, and `brainrot-save-stamp-v1` with what the tab loaded, and the banner asks
 for a reload. Once the tab knows, it opens no new pack (one torn open in the moment before goes back
 sealed, with no ticket spent); one opened before then waits on the pending shelf under the player it
-opened as, and other players' packs stay there when this one's change. Limits: storage has no lock
-across tabs, so a tab that writes before an import's stamp reaches it can still overwrite an imported
-field (import with other tabs closed; the file and `brainrot-before-import-v1` remain). A tab stopped
+opened as, and other players' packs stay there when this one's change. Two tabs of the same player
+(no import or switch, so the stamp can't tell) are guarded too: every write also compares the stored
+collection, stats, Hall of Fame and achievements with what the tab last read or stored
+(`src/game/progressGuard.ts`, plus a storage listener), and a tab another tab has written past stops
+the same way instead of storing its older copy over that tab's packs. Packs it took off the pending
+shelf at load and hasn't stored or shelved since go back on it for the next load to add; packs it
+opened itself are already on the shelf, where the other tab may have taken and stored them, so they
+aren't put back twice. If storage refuses the put-back, the save warning stays up and the next change
+or storage event tries again. Settings stay last-writer-wins.
+Limits: storage has no lock across tabs, so two tabs of one player writing in the same instant can
+both pass that check (the later write replaces the earlier, whose pack stays in the history; the
+earlier tab then hears the write and stops), and a tab that writes before an import's stamp reaches
+it can still overwrite an imported field (import with other tabs closed; the file and
+`brainrot-before-import-v1` remain). A tab stopped
 by an import that then failed and was undone stays stopped until it reloads. Storage cleared with no
 storage event (a browser's clear-site-data) is noticed at the next write, but a pack opened first
 stores this tab's player again, and if that save had no stamp the tab then writes its progress back. IndexedDB
@@ -468,3 +479,90 @@ WebSockets, POSTs, service workers, clipboard, native share, downloads and expor
 submit controls, so sharing tasks may stop at that boundary. It writes a sanitized
 `test-results/agent-audit.json` and never posts, merges or deploys. Agent outcomes are not human
 evidence. No real agent task run has been recorded yet (unrun). Refs #239.
+
+## Proposals (not shipped)
+
+These await the owner's decision and describe nothing the app does today.
+
+### Display-name and publication policy (#348)
+
+Status: proposed, awaiting owner (#348).
+
+No matcher or enforcement is installed. Names are nonunique labels beside a key fingerprint (spec
+section 9). Retain released 24-code-point/fixed-character proof rules (spec section 7, rule 2); verify
+the original signed bytes, never a normalized substitute. Legacy empty names remain valid (viewers
+show "Anonymous"). Format, cryptographic validity and permitted publication are separate; React
+escaping and the bot's Markdown sanitiser are not moderation. Today the name field already counts
+code points (it cuts input at 24, silently) and a rename to a blank name is refused; entry UI should
+also preview normalization and explain rejected or truncated input. A grapheme or UTF-16
+`maxLength` is not that count.
+
+| Owner decision | Recommendation for review |
+| --- | --- |
+| Languages/content | Explicit English scope; disallow targeted slurs/harassment, explicit sexual names, spam/links and false official affiliation |
+| Ordinary slang/swearing | Allow meme slang; owner sets swearing threshold before selecting a preset |
+| Disallowed name in valid existing proof | Keep verification; show “Name hidden” plus fingerprint, with separate policy explanation |
+| New public submission | Reject publication with actionable feedback; retain original signed evidence |
+| Appeals/overrides/removal | Owner chooses contact/process; versioned allowlist and review; rejected-issue removal/rebuild |
+
+Apply one policy version at editable UI and trusted issue/relay intake, including bypassed clients.
+Mask pending/direct pull/profile views, captions/posters and accessible text consistently; private
+backups preserve raw signed evidence. Old external images cannot be recalled. A matcher cannot
+reliably identify impersonation or establish human identity; retain key fingerprints without that claim.
+
+Official READMEs reviewed October 15, 2026: [Obscenity](https://github.com/jo3-l/obscenity) offers an
+English preset, configurable transformations/boundaries and whitelist (MIT); [@2toad/profanity](https://github.com/2Toad/Profanity)
+offers multiple languages, whole-word and Unicode-boundary options (default boundaries are ASCII-
+oriented). Both need explicit false-positive exceptions. A small audited matcher avoids a package
+but makes evasions/boundaries our maintenance responsibility. Evaluate Obscenity first for an
+English policy, without adopting its preset wholesale. Before selection, inspect pinned dependency/
+license data and measure compressed client bytes and short-name cost; benchmarks remain **unrun**.
+
+Planned fixtures include 24/25 code points, astral emoji, combining sequences, empty/space/control/
+bidi input, links, mixed-script/leet evasions, and legitimate substrings such as Scunthorpe/Arsenic.
+Expected moderation outcomes require the approved policy; these are not library pass claims. Bound
+input work; retain existing proof-decoder limits. Full boundary/removal fixtures stay in #348/#21;
+after approval split entry feedback, shared matcher and trusted publication/display implementation.
+No signed name bytes, released proof rules or generator versions change in this proposal.
+
+### Scalable-profile decision (#323)
+
+Status: proposed, awaiting owner (#323).
+
+**For review: defer production aggregate formats; proceed with one bounded feasibility prototype.**
+A minimal input ledger is interim provenance protection, not the owner's final history-free design.
+Current profile v1 signs assignments for tickets 0..N−1 as runs, XP and up to five best-pack claims
+(min(5, N)). The bounds below (N ≤ 100,000, at most 64 set entries) come from
+`src/engine/profile.ts` (spec section 11). Today `history.ts` already keeps every recorded assignment
+as JSON in localStorage (`brainrot-history-v1`): quota recovery drops only cached cards, and an
+unrecorded assignment stays unknown and blocks the profile link (see Profiles and levels).
+
+| Route | State / verification | Decision boundary |
+| --- | --- | --- |
+| Minimal original-assignment ledger | O(N) worst-case assignments and cold regeneration; cards/images are caches | Near-term storage mitigation (a compact form of today's history), not scalable aggregate verification |
+| Recursive aggregate proof / IVC | Updatable proof/prover state plus current aggregates; succinct verification can avoid historical replay | Candidate long-term route; Argon2id proving/browser feasibility unmeasured |
+| Trusted verified checkpoint | Bounded job replays a range and signs aggregate state | Optional trusted service (#243), even if built on Actions/Workers |
+
+Six bits per assignment at 64 set entries gives 75,000 raw bytes for 100,000 tickets, excluding
+identity/table/encoding/database overhead; runs compress long sessions. This arithmetic bound is
+not a measured save size. Public v1 remains run-based with worst-case long links. IndexedDB can
+exceed localStorage's common roughly 5MiB limit but still faces quota, denial, eviction and clearing.
+A migration keeps today's rule: known assignments or valid same-key profile runs only; missing
+history stays unknown, never guessed. Save-schema changes do not require changed generator odds; a new public
+proof format requires separate version/spec/vectors and an independent verifier.
+
+An IVC step must bind initial identity, monotonic nonce, original allowed rules and every aggregate
+update. Collection/variant state and prover parameters need not be constant-sized. Bootstrap from
+intact inputs; lost assignments cannot be retroactively certified. A compact verification proof may
+omit state needed to continue proving after restore. [Nova](https://github.com/microsoft/Nova)
+establishes IVC/compression primitives, not practical browser proving for 32MiB/two-iteration Argon2id;
+parameter/setup trust needs separate review. Checkpoints instead require named verifier key/rules,
+range commitment, budgets, availability, rollback/key-rotation and owner acceptance of service trust.
+
+Next prototype stays outside production builds/formats: one exact released derivation/aggregate
+step in one selected circuit/zkVM, engine fixture equality and altered-input rejection. Measure
+prover time/peak memory, parameters/download bytes, proof versus resumable-state bytes, verification,
+browser/WASM feasibility and export/restore/continue; all benchmarks are **unrun**. Compare bounded
+checkpoint replay budgets without deployment, then choose proceed/defer. Full acceptance stays in
+#323. Neither route witnesses human play, animation completion, wall-clock time or undeclared lifetime
+mining; self-signed totals/Merkle roots alone do not prove aggregate correctness.
