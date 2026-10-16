@@ -17,8 +17,12 @@ const onFakeFrame = (callback: FrameRequestCallback) => fakeFrame(callback);
 export type TicketReply = { delayMs: number } | { error: string } | 'crash';
 
 /** jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. */
+/**
+ * hallOfFame answers the published list's request with that list (a summary whose pull qualifies
+ * asks for it); every other request still fails.
+ */
 export async function mountedApp(storage: Record<string, string>,
-  options: { tickets?: (request: TicketRequest) => TicketReply | undefined } = {}) {
+  options: { tickets?: (request: TicketRequest) => TicketReply | undefined; hallOfFame?: unknown[] } = {}) {
   const errors: string[] = [];
   const jobs = new Set<Promise<unknown>>();
   const track = (job: Promise<unknown>) => {
@@ -47,7 +51,9 @@ export async function mountedApp(storage: Record<string, string>,
     errors.push(error);
     throw new Error(error);
   };
-  vi.stubGlobal('fetch', vi.fn(blocked('fetch')));
+  const { hallOfFame } = options;
+  vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) =>
+    hallOfFame && String(input).endsWith('hall-of-fame.json') ? Promise.resolve(Response.json(hallOfFame)) : blocked('fetch')()));
   vi.stubGlobal('WebSocket', class { constructor() { blocked('WebSocket')(); } });
   vi.spyOn(XMLHttpRequest.prototype, 'send').mockImplementation(blocked('XMLHttpRequest'));
   vi.stubGlobal('indexedDB', undefined);

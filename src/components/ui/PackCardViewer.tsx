@@ -55,7 +55,7 @@ const PackCardViewer = ({
         <div className={`pack-card-viewer ${className}`}>
             {showValue && (
                 <>
-                    <PackHeadline cards={cards} />
+                    <PackHeadline cards={cards} showTotal={false} />
                     <BrainrotScorePanel
                         points={points}
                         multiplier={pokerHand.multiplier}

@@ -18,6 +18,7 @@ import { usePackCacheVersion } from '../../hooks/usePackCache';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackCacheNote from '../profile/PackCacheNote';
 import PackHeadline from './PackHeadline';
+import SummaryHallOfFame from './SummaryHallOfFame';
 import '../../styles/CollectionLabel.css';
 import '../../styles/PackSummary.css';
 
@@ -71,9 +72,10 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
     const before = actions.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_PRECEDING;
     event.currentTarget.scrollBy({ top: before ? box.bottom - stuck.top + 8 : box.top - stuck.bottom - 8 });
   };
-  const { points, hand, score } = scoreCards(openedCards);
-  // Enumerates every pack of the set, so once per set and combo.
-  const oneIn = useMemo(() => comboOneIn(set, scoreCards(openedCards).hand), [set, openedCards]);
+  const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
+  const { points, hand, score } = packScore;
+  // Enumerates every pack of the set, so once per set and combo (not again on each render).
+  const oneIn = useMemo(() => comboOneIn(set, hand), [set, hand]);
   const newCount = openedCards.filter((c) => c.isNew).length;
   const special = specialCardsLine(openedCards);
   // What this pack did for your level: shown here so progress isn't hidden away in the profile.
@@ -89,7 +91,9 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
       <div className="summary-content" onFocus={clearActions}>
         <div className="summary-details">
           {/* openedCards are in reveal order, which keeps pack order on ties, so the standout's tie rule holds. */}
-          <PackHeadline cards={openedCards} headingRef={headingRef} oneIn={oneIn} />
+          <PackHeadline cards={openedCards} headingRef={headingRef} oneIn={oneIn}>
+            {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
+          </PackHeadline>
           <ul className="summary-cards" ref={cardsRef}>
             {shown.map((card) => (
               <li key={card.uniqueId}>

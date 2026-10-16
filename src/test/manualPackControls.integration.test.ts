@@ -289,7 +289,7 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
 
 it('holds the last pack\'s notices while a big pull is on show, and shows them all once it ends', async () => {
   // Nonce 21 has no big pull; the next pack, nonce 22, does.
-  app = await mountedApp(preferences({ nextNonce: 21, pauseBigPulls: true }));
+  app = await mountedApp(preferences({ nextNonce: 21, pauseBigPulls: true }), { hallOfFame: [] });
   await app.mount();
   await reveal();
   await escape();
@@ -312,7 +312,7 @@ it('holds the last pack\'s notices while a big pull is on show, and shows them a
 
 it('keeps notices held between two big pulls that Skip shows back to back (#460)', async () => {
   // Nonce 973 leaves a notice behind; nonce 974 deals two big pulls, the last two cards.
-  app = await mountedApp(preferences({ nextNonce: 973, pauseBigPulls: true }));
+  app = await mountedApp(preferences({ nextNonce: 973, pauseBigPulls: true }), { hallOfFame: [] });
   await app.mount();
   await reveal();
   await escape();

@@ -111,6 +111,18 @@ export const wouldJoinHallOfFame = (pull: { id: string; setId: string; score: Pa
   hallOfFameJoin(pull, list, day) !== null;
 
 /**
+ * Where a pull verified at `now` (ISO time) would place on `now`'s daily top (1 is the best), or null
+ * if it wouldn't make it or is listed already. A tie goes to the earlier entry, so it ranks below
+ * pulls with the same score.
+ */
+export const dailyRank = (pull: { id: string; setId: string; score: PackScore }, list: readonly RankableEntry[], now: string): number | null => {
+  if (list.some((e) => e.id === pull.id)) return null;
+  const entry: RankableEntry = { id: pull.id, setId: pull.setId, hand: pull.score.hand.name, multiplier: pull.score.hand.multiplier, score: pull.score.score, submittedAt: now };
+  const at = dailyPulls([...list, entry], utcDay(now)).findIndex((e) => e.id === pull.id);
+  return at < 0 ? null : at + 1;
+};
+
+/**
  * The score a pull must beat to join the list on `day` (see `hallOfFameJoin`), or null while either
  * board has room and any qualifying pull joins. Intake uses it to turn low pulls away before paying
  * for their Argon2id derivation. It only rises as pulls join, except when moderation takes an entry

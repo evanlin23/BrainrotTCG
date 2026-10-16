@@ -15,9 +15,12 @@ const INSET = 34;
 
 const isPhone = () => test.info().project.name.startsWith('mobile');
 
-/** Opens the fixture player's first pack and skips to its summary. */
-async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewport = isPhone() ? PHONE : DESKTOP } = {}) {
-  const errors = await monitor(page, baseURL);
+/**
+ * Opens the fixture player's first pack and skips to its summary. `history` seeds that many synthetic
+ * packs first, so the pack opened is the fixture's ticket with that nonce.
+ */
+async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewport = isPhone() ? PHONE : DESKTOP, history = 0 } = {}) {
+  const errors = await monitor(page, baseURL, history);
   await page.setViewportSize(viewport);
   if (isPhone()) {
     const cdp = await page.context().newCDPSession(page);
@@ -286,11 +289,14 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
   // Swipes across the cards, sideways and up, flick or drag: they scroll or select, never dismiss.
   const first = (await page.locator('.summary-card').first().boundingBox())!;
   const last = (await page.locator('.summary-card').last().boundingBox())!;
-  // The long drag runs right to left across the whole row: a level left-to-right drag is the browser's
-  // own swipe-back in Chromium's touch emulation (history.back, which no page CSS stops there), not
-  // the summary dismissing itself.
+  // The long drag runs right to left across the whole row with touch: a level left-to-right drag is
+  // the browser's own swipe-back in Chromium's touch emulation (history.back, which no page CSS stops
+  // there), not the summary dismissing itself.
+  // Without touch there's no swipe-back, so the mouse run drags it left to right.
+  const across = [last.x + last.width / 2, first.x + first.width / 2];
+  const [from, to] = hasTouch ? across : across.reverse();
   const strokes = [
-    [last.x + last.width / 2, last.y + last.height / 2, first.x + first.width / 2, last.y + last.height / 2],
+    [from, last.y + last.height / 2, to, last.y + last.height / 2],
     [first.x + first.width * 0.8, first.y + first.height / 2, Math.max(4, first.x - 120), first.y + first.height / 2],
     [first.x + first.width / 2, first.y + first.height * 0.8, first.x + first.width / 2, Math.max(8, first.y - 160)],
   ];
@@ -340,5 +346,29 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
   await expect(packShell).toBeVisible({ timeout: 15000 });
   await expect(summary).toHaveCount(0);
   expect(await recorded()).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+// The fixture's ticket 10 is a Two Pair worth 20,900, over the Hall of Fame's score bar. The list is an
+// empty stand-in, so it makes today's Rankings; the relays stay blocked and nothing is submitted.
+for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }]) test(`a pull that makes today's Rankings says so above the fold with the actions at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [] }));
+  const { errors } = await openSummary(page, baseURL!, { viewport, history: 10 });
+  const line = page.locator('.summary-hof');
+  await expect(line).toContainText("Makes today's Rankings");
+  await expect(line.getByRole('button', { name: 'Submit to the Hall of Fame' })).toBeVisible();
+  const boxes = await page.evaluate(() => Array.from(document.querySelectorAll('.summary-hof, .summary-actions .btn'), (element) => {
+    const { top, bottom, left, right } = element.getBoundingClientRect();
+    const actions = document.querySelector('.summary-actions')!.getBoundingClientRect();
+    return {
+      what: element.textContent!.trim(),
+      onScreen: top >= 0 && bottom <= innerHeight && left >= 0 && right <= innerWidth,
+      clearOfActions: element.closest('.summary-actions') !== null || bottom <= actions.top,
+    };
+  }));
+  expect(boxes.length).toBeGreaterThanOrEqual(3);
+  for (const box of boxes) expect(box, JSON.stringify(box)).toMatchObject({ onScreen: true, clearOfActions: true });
+  expect(await page.evaluate(() => document.querySelector('.summary-content')!.scrollTop)).toBe(0);
   expect(errors).toEqual([]);
 });

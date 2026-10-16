@@ -39,6 +39,12 @@ describe('PackHeadline', () => {
     );
   });
 
+  it('leaves the total out when a score panel shows it', () => {
+    act(() => root.render(<PackHeadline cards={[meta(pick('COMMON'), 1), meta(pick('RARE'), 2)]} showTotal={false} />));
+    expect(container.querySelector('.pack-headline-total')).toBeNull();
+    expect(container.querySelector('.pack-headline-combo')).not.toBeNull();
+  });
+
   it('keeps No Matches visible and gives a tie to the later card', () => {
     const [a, b] = [pick('RARE', 0), pick('RARE', 1)];
     render([meta(a, 1), meta(b, 2), meta(pick('COMMON', 0), 3), meta(pick('UNCOMMON'), 4), meta(pick('COMMON', 1), 5)]);

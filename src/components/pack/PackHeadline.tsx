@@ -1,4 +1,4 @@
-import type { Ref } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { packHeadline } from '../../engine';
 import { FINISH_INFO } from '../../game/modifiers';
 import type { CardWithMeta } from '../cards/Card';
@@ -13,6 +13,10 @@ interface PackHeadlineProps {
   headingRef?: Ref<HTMLHeadingElement>;
   /** Results screen only: how rare the combo is in this set, a line under the standout card. */
   oneIn?: number | null;
+  /** Off where a score panel next to it already shows the total (the pack viewer). */
+  showTotal?: boolean;
+  /** A last line, such as the results screen's Hall of Fame line. */
+  children?: ReactNode;
   className?: string;
 }
 
@@ -27,7 +31,7 @@ const standoutName = (card: CardWithMeta) =>
  * its standout card with that card's own points (no pack multiplier). Display only: the numbers come
  * from the engine's scoring, never a second scorer.
  */
-const PackHeadline = ({ cards, headingRef, oneIn, className = '' }: PackHeadlineProps) => {
+const PackHeadline = ({ cards, headingRef, oneIn, showTotal = true, children, className = '' }: PackHeadlineProps) => {
   const { total, combo, standout } = packHeadline(cards.map((card) => ({ ...card, cardId: card.key, card })));
   const comboText = `${combo.name} ×${combo.multiplier.toLocaleString()}`;
   return (
@@ -42,7 +46,7 @@ const PackHeadline = ({ cards, headingRef, oneIn, className = '' }: PackHeadline
         </h2>
       ) : (
         <>
-          <p className="pack-headline-total">Pack total: <span className="tabular">{total.toLocaleString()}</span></p>
+          {showTotal && <p className="pack-headline-total">Pack total: <span className="tabular">{total.toLocaleString()}</span></p>}
           <p className="pack-headline-combo tabular">{comboText}</p>
         </>
       )}
@@ -58,6 +62,7 @@ const PackHeadline = ({ cards, headingRef, oneIn, className = '' }: PackHeadline
           {combo.name}: about 1 in {formatOneIn(oneIn)} packs
         </p>
       )}
+      {children}
     </div>
   );
 };
