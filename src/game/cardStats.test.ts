@@ -3,7 +3,17 @@ import { cardPoints, versionPackChance } from '../engine';
 import { DEFAULT_SET_ID, getLatestSet } from '../content/sets';
 import { getSetCards } from '../data/cards';
 import { FINISH_COLORS } from '../styles/palette';
-import { cardStats, packOddsText } from './cardStats';
+import { cardStats, formatOneIn, packOddsText } from './cardStats';
+
+describe('formatOneIn', () => {
+  it('is the one "1 in N" number: two significant figures, separators, one decimal under 10', () => {
+    expect(formatOneIn(2437)).toBe('2,400');
+    expect(formatOneIn(1234.5)).toBe('1,200');
+    expect(formatOneIn(13.4)).toBe('13');
+    expect(formatOneIn(3.33)).toBe('3.3');
+    expect(formatOneIn(3)).toBe('3');
+  });
+});
 
 describe('packOddsText', () => {
   it('rounds to two significant figures with thousands separators', () => {

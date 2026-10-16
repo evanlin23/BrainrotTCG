@@ -15,6 +15,7 @@ import {
   type SetDefinition,
 } from '../../engine';
 import { CARD_RARITIES } from '../../data/cards';
+import { formatOneIn } from '../../game/cardStats';
 import { FINISH_INFO } from '../../game/modifiers';
 import RarityBadge from './RarityBadge';
 import Sheet from './Sheet';
@@ -27,7 +28,6 @@ interface ScoringGuideProps {
 
 const HAND_ORDER: HandKey[] = ['PAIR', 'TWO_PAIR', 'THREE_OF_A_KIND', 'FULL_HOUSE', 'FOUR_OF_A_KIND', 'FIVE_OF_A_KIND'];
 
-const formatOneIn = (n: number) => (n < 10 ? n.toFixed(1) : Math.round(n).toLocaleString());
 
 /** "Silver up to Diamond": the commonest finish to the rarest. */
 const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.length - 1]].name} up to ${FINISH_INFO[FINISHES_RAREST_FIRST[0]].name}`;
