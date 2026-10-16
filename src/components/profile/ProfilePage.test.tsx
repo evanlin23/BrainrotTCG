@@ -29,7 +29,7 @@ let container: HTMLElement;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  // jsdom has no ResizeObserver; the player card's Sheet only uses it to track overflow.
+  // jsdom has no ResizeObserver; the profile card's Sheet only uses it to track overflow.
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   localStorage.clear();
   myProfileInfo.mockReset().mockReturnValue({ packs: 3, filled: 0, missing: 0, cache: 'ready' });
@@ -71,7 +71,7 @@ const button = (label: string) =>
 const alert = () => document.querySelector<HTMLElement>('[role="alert"]');
 
 describe('profile link failures', () => {
-  it.each(['Copy profile link', 'Player card'])('shows why %s failed when another tab changed the save, and can retry', async (label) => {
+  it.each(['Copy profile link', 'Profile card'])('shows why %s failed when another tab changed the save, and can retry', async (label) => {
     myProfileProof.mockRejectedValueOnce(new Error('Your save changed while the profile link was being prepared. Try again.'));
     render();
     await act(async () => button(label).click());
@@ -112,12 +112,12 @@ describe('profile link failures', () => {
     expect(document.body.textContent).not.toContain('missing or unavailable');
   });
 
-  it('refuses only the link and player card when a ticket has no original mapping', () => {
+  it('refuses only the link and profile card when a ticket has no original mapping', () => {
     myProfileInfo.mockReturnValue({ packs: 3, filled: 1, missing: 2, cache: 'ready' });
     render();
     expect(button('Copy profile link').disabled).toBe(true);
-    expect(button('Player card').disabled).toBe(true);
-    expect(document.body.textContent).toContain('A complete profile link or player card cannot be created from this save.');
+    expect(button('Profile card').disabled).toBe(true);
+    expect(document.body.textContent).toContain('A complete profile link or card cannot be created from this save.');
     expect(document.body.textContent).toContain('Keep a private export (open Settings, then Save & backup)');
     expect(document.body.textContent).not.toMatch(/from Settings/);
     expect(button('Re-open them').disabled).toBe(false);
@@ -183,7 +183,7 @@ describe('the page', () => {
   it('holds the player, Achievements and the pack list under one heading level', () => {
     render();
     const headings = [...document.querySelectorAll('h2')].map((el) => el.textContent);
-    expect(headings).toEqual(expect.arrayContaining(['Level and stats', 'Player', 'Achievements']));
+    expect(headings).toEqual(expect.arrayContaining(['Level and stats', 'Name and rewards', 'Achievements']));
     expect(document.querySelector('h3#achievements-title, h1')).toBeNull();
     expect(document.getElementById('achievements')).not.toBeNull();
   });

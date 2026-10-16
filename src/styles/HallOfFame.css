@@ -1,6 +1,7 @@
 /* Hall of Fame sheet (HallOfFamePage.tsx). */
 
 .hall-of-fame .tabs {
+  flex-wrap: wrap; /* three tabs outgrow 320px at 200% text; wrap them rather than scroll the page sideways */
   margin-bottom: var(--space-4);
 }
 
@@ -189,6 +190,16 @@
   color: var(--danger);
 }
 
+/* Archive: world firsts, then the hackathon legends, each under its own heading. */
+
+.hof-archive + .hof-archive {
+  margin-top: var(--space-6);
+}
+
+.hof-archive .section-title {
+  margin-bottom: var(--space-2);
+}
+
 /* Legends */
 
 .hof-legends {
@@ -216,6 +227,7 @@
 .hof-legend-info {
   display: grid;
   padding: var(--space-3) var(--space-4);
+  overflow-wrap: anywhere; /* long handles wrap at 200% text instead of being clipped by the card */
 }
 
 .hof-legend-info span {
