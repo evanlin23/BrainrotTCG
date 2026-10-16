@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { monitor, snapshot } from './support';
+import { fingerFor, monitor, snapshot } from './support';
 
 // Cards, Rankings, Profile and Settings are hash-routed pages over the packs screen (#312). Each one
 // is reached by its address, by its tab and by Back, at a phone and a desktop size; packs and shared
@@ -181,7 +181,7 @@ test('a new player sees no tabs until their first pack is saved', async ({ page,
   expect(errors).toEqual([]);
 });
 
-test('the card guide link fits a 320 px phone at 200% text, under the pack it leaves alone', async ({ page, baseURL }, testInfo) => {
+test('the card guide link fits a 320 px phone at 200% text, under the pack it leaves alone', async ({ page, baseURL, hasTouch }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
   await page.setViewportSize({ width: 320, height: 568 });
   const errors = await monitor(page, baseURL!);
@@ -201,6 +201,31 @@ test('the card guide link fits a 320 px phone at 200% text, under the pack it le
   await expect(page.getByRole('dialog', { name: 'Card guide', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(opener(page)).toBeVisible();
+  // The pack is still on screen and still opens with a swipe along its tear line (#486).
+  const pack = opener(page);
+  await pack.scrollIntoViewIfNeeded();
+  await expect(pack).toBeInViewport();
+  const packBox = (await pack.boundingBox())!;
+  const tearY = packBox.y + packBox.height * 0.19;
+  const xAt = (fraction: number) => packBox.x + packBox.width * fraction;
+  const finger = await fingerFor(page, hasTouch);
+  await finger.press(xAt(0.3), tearY);
+  for (let step = 1; step <= 6; step++) await finger.move(xAt(0.3 + (0.4 * step) / 6), tearY);
+  await finger.release();
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  expect(errors).toEqual([]);
+});
+
+test('the card guide icon is 16 px as a Settings button too, as it is under the pack (#486)', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  await page.goto('./#/settings');
+  const guide = pageNamed(page, 'Settings').getByRole('button', { name: 'Card guide', exact: true });
+  await expect(guide).toBeVisible();
+  const size = await guide.locator('svg').evaluate((icon) => {
+    const { width, height } = icon.getBoundingClientRect();
+    return { width, height };
+  });
+  expect(size).toEqual({ width: 16, height: 16 });
   expect(errors).toEqual([]);
 });
 

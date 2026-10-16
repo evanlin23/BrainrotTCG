@@ -666,8 +666,9 @@ function App() {
   // A new player sees only the logo and the pack until their first pack is saved (#222, #312): no tabs,
   // no set picker. A save with cards but no pack count (an old one, or stats that couldn't be read) is
   // not a new player's. A pack is saved in focus mode (which hides both) or as the player leaves it, so
-  // neither appears mid-reveal.
-  const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0;
+  // neither appears mid-reveal. A torn pack left while its ticket is on its way (busy, out of focus mode)
+  // is theirs already: both come back with the chrome then, not later under the player when it lands.
+  const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0 || (packBusy && !packFocus);
   const onPage = route !== 'open';
   const logoChars = 'Brainrot TCG'.split('').map((char, i) =>
     char === ' ' ? (
@@ -728,7 +729,8 @@ function App() {
         queue={visibleNotifications}
         onDismiss={dismissNotifications}
         onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'player'))}
-        paused={isAnyModalOpen || onPage || packShowcase}
+        paused={isAnyModalOpen || onPage}
+        held={packShowcase}
       />
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}

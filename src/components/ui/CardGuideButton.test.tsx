@@ -40,6 +40,8 @@ it('is a labelled button that opens the guide for its set as a modal dialog', ()
 it('closes with Escape or Close and hands focus back to the button', () => {
   act(() => root.render(<CardGuideButton set={set} className="btn btn--secondary" />));
   expect(button().className).toBe('btn btn--secondary');
+  // As a button the icon keeps the link's 16px size, which `.btn svg` would otherwise override (#486).
+  expect(button().querySelector('svg')!.getAttribute('class')).toContain('card-guide-icon');
   for (const close of [
     () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
     () => document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label="Close"]')!.click(),
