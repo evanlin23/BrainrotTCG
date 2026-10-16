@@ -253,7 +253,9 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
   await reveal();
   await app.interact(() => button('Skip opening animation').click());
   await app.until('skip stops on the big pull', () => expect($('.active-card-container')?.getAttribute('aria-busy')).toBe('true'));
-  expect($('.special-reveal-celebration')).not.toBeNull();
+  // The showcase: a ribbon in the top bar, above the card, and a halo behind it.
+  expect($('.pack-top-bar .showcase-ribbon[role="status"]')?.textContent).toMatch(/Big pull!.*points/);
+  expect($('.reveal-card .showcase-halo')).not.toBeNull();
   const area = $('.card-reveal-area')!;
   const card = progress();
   await app.interact(() => {
@@ -270,7 +272,8 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
   expect(button('Back to packs').disabled, 'the X is disabled during the hold').toBe(false);
   await app.interact(() => button('Back to packs').click());
   await app.until('the X leaves during the hold', () => expect(sealed()).not.toBeNull());
-  expect($('.special-reveal-celebration'), 'the celebration outlived the pack').toBeNull();
+  expect($('.showcase-ribbon'), 'the celebration outlived the pack').toBeNull();
+  expect($('.showcase-halo'), 'the celebration outlived the pack').toBeNull();
   expect($('.active-card-container')).toBeNull();
   expect(stats()?.packsOpened).toBe(1);
   expect(stats()?.highestPackCards).toHaveLength(5);
@@ -283,6 +286,29 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
   await app.reload();
   expect(localStorage.getItem(STORAGE_KEYS.STATS)).toBe(before);
   expect(sealed()).not.toBeNull();
+}, 30_000);
+
+it('holds the last pack\'s notices while a big pull is on show, and shows them all once it ends', async () => {
+  // Nonce 21 has no big pull; the next pack, nonce 22, does.
+  app = await mountedApp(preferences({ nextNonce: 21, pauseBigPulls: true }));
+  await app.mount();
+  await reveal();
+  await escape();
+  await app.until('the first pack is kept', () => expect(toasts()).toContain('Pack kept'));
+  await app.until('a fresh pack is ready', () => expect(sealed()).not.toBeNull());
+  await reveal();
+  const before = toasts();
+  expect(before, 'a notice is up when the big pull lands').not.toBe('');
+  await app.interact(() => button('Skip opening animation').click());
+  await app.until('the big pull is on show', () => expect($('.showcase-ribbon')).not.toBeNull());
+  // Gone the frame the ribbon shows, and nothing new shows over the showcase.
+  expect(toasts()).toBe('');
+  await app.settle(1500);
+  expect($('.showcase-ribbon')).not.toBeNull();
+  expect(toasts()).toBe('');
+  // When it ends, the held notice comes back first, in full.
+  await app.until('the showcase ends', () => expect($('.showcase-ribbon')).toBeNull());
+  await app.until('the held notice shows', () => expect(toasts()).toBe(before));
 }, 30_000);
 
 it('leaves the summary with Escape, as Open another pack does, without recording it again', async () => {

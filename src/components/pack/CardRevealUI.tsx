@@ -7,7 +7,6 @@ import cardBackImage from '../../assets/images/card_back.webp';
 import RarityBadge from '../ui/RarityBadge';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
-import { cardPoints } from '../../engine';
 
 const Motion = motion;
 
@@ -87,19 +86,13 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
               dragElastic={0.6}
               onDragEnd={onDragEnd}
             >
+              {/* The halo glows behind the card (it paints under it), so the art stays clear for a screenshot.
+                  The pull is announced once, by the ribbon in the top bar (PackOpener's ShowcaseRibbon). */}
+              {celebration && <div className="showcase-halo" aria-hidden="true" />}
               <Card card={currentCard} isFlipped={currentCard.isRevealed} onFlip={onTap} tell={big} slowFlip={slow} />
             </Motion.div>
           )}
         </AnimatePresence>
-        {celebration && currentCard && (
-          <div key={currentCard.uniqueId} className="special-reveal-celebration" role="status">
-            <div className="special-reveal-rays" aria-hidden="true" />
-            <div className="special-reveal-banner">
-              <span>Big pull!</span>
-              <strong>{cardPoints(currentCard.rarity, currentCard.isHolo, currentCard.finish, currentCard.misprint).toLocaleString()} points</strong>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Waits for the flip to land (longer for the slow Legendary and Brainrot flips), so it can't spoil it. */}

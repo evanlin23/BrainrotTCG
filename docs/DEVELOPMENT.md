@@ -29,12 +29,12 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 | While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
 | Before pushing | `npm run check` (lint, typecheck, all tests within the test budgets, set locks, card assets), once |
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
-| Changed the build | also `npm run build` |
+| Changed the build or link previews | also `npm run build && npm run check:site`, and the same with `BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
 
-CI runs `npm run check`, `npm run build`, the Python verifier, the browser smoke and actionlint on
+CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke and actionlint on
 every pull request and on pushes to branches other than main. The deploy workflow runs the verifier
 and `npm run check` again before deploying main.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
@@ -45,6 +45,12 @@ generated geometry. It covers openable pack wrappers/thumbnails, retained pack a
 finish thumbnails declared by the generator manifest (or present for registered cards), the
 shared alpha frame mask and card back. Missing undeclared finish variants retain the existing
 full-size fallback. Preview outputs and built hosting paths are outside this check.
+
+The site check (`npm run check:site`, after a build, about 30 s) reads `dist/` with the build's
+`BASE_PATH` and `SITE_URL`. Every page's local links and stylesheet `url()`s must stay under
+`BASE_PATH` and be in the build, every share and set page the set registry gets must be there and
+forward to `BASE_PATH`, and each page's `og:image` must be under `SITE_URL` and decode as a JPEG of
+its `og:image:width`x`og:image:height`. `scripts/check-site.test.ts` covers it offline with fixtures.
 
 Two fixture suites in `npm run check` cover the hosting and Hall of Fame contracts without a build,
 a token or the network. `scripts/preview-pages.test.ts` writes the share pages (`p/`) and set pages
