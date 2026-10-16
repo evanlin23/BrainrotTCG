@@ -185,6 +185,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const {
     packRef,
     isCutting,
+    isPressing,
     cutPoints,
     sparks,
     resetCutState,
@@ -536,6 +537,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               set={set}
               error={openError}
               isCutting={isCutting}
+              pressing={isPressing}
               isPackCut={isPackCut && !leavingOpen}
               blocked={openBlocked}
               waiting={slowOpen && isPackCut && !isOpening && !leavingOpen}

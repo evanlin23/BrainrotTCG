@@ -12,6 +12,17 @@ const RELEASE_CUT_RATIO = 0.2;
 /** Nor less than this, in CSS pixels, however small the pack. */
 const MIN_CUT_PX = 32;
 const MAX_CUT_POINTS = 64;
+/**
+ * How far, in CSS pixels, a press on the seam must move across before it can count as a swipe. Under
+ * this it's a tap or a wobble (#267).
+ */
+const GESTURE_SLOP_PX = 10;
+/**
+ * A press that has moved this far up or down, and at least twice as far as across, is a scroll or a
+ * drag down the art and never cuts. A thumb that settles a few pixels before swiping stays undecided,
+ * so it still opens (#267).
+ */
+const VERTICAL_REJECT_PX = MIN_CUT_PX;
 const DRAWN_CUT_OFFSET_RATIO = 0.000;
 const CUT_LINE_RATIO = TEAR_LINE_RATIO + DRAWN_CUT_OFFSET_RATIO;
 
@@ -20,12 +31,18 @@ export interface CutPoint {
   y: number;
 }
 
-/** The extent, in pack bounding-box pixels, of a stroke that started on the tear line. */
+/** A stroke that started on the seam, in pack bounding-box pixels. */
 interface CutStroke {
+  /** Its extent so far, from where the press landed. */
   minX: number;
   maxX: number;
   minY: number;
   maxY: number;
+  /**
+   * It has gone at least GESTURE_SLOP_PX across, and as far across as up or down: a swipe along the
+   * seam. Until then it neither draws nor cuts.
+   */
+  across: boolean;
 }
 
 /**
@@ -37,7 +54,7 @@ interface CutStroke {
  */
 const strokeCuts = (stroke: CutStroke, packWidth: number, ratio: number) => {
   const across = stroke.maxX - stroke.minX;
-  return across >= Math.max(MIN_CUT_PX, packWidth * ratio) && across >= stroke.maxY - stroke.minY;
+  return stroke.across && across >= Math.max(MIN_CUT_PX, packWidth * ratio) && across >= stroke.maxY - stroke.minY;
 };
 
 /** The event's points in order, including any the browser coalesced into it, so a fast flick counts. */
@@ -69,12 +86,14 @@ interface UsePackCutterOptions {
 
 export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
+  /** A press landed on the seam and hasn't been released or ruled out: the seam lights up under it. */
+  const [isPressing, setIsPressing] = useState(false);
   const [cutPoints, setCutPoints] = useState<CutPoint[]>([]);
 
   const { sparks, emitSpark, clearSparks } = useSparks(particlesEnabled);
 
   const packRef = useRef<HTMLDivElement>(null);
-  /** The stroke on the tear line so far, or null until a press reaches it. */
+  /** The stroke from a press on the seam, or null. */
   const strokeRef = useRef<CutStroke | null>(null);
   const cutCompletedRef = useRef(false);
   const isPointerDownRef = useRef(false);
@@ -86,8 +105,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   /** The owner's pointerType. Only read while there is an owner. */
   const ownerTypeRef = useRef<string | null>(null);
   /**
-   * This press started over something else (an open sheet) or beside the pack, so it can't cut until
-   * it's released.
+   * This press started over something else (an open sheet), beside the pack or off the seam, or set off
+   * up or down, so it can't cut until it's released.
    */
   const blockedRef = useRef(false);
   const fairyDustRef = useRef<HTMLAudioElement | null>(null);
@@ -99,15 +118,19 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   /**
    * Moves only extend the stroke (which decides the cut) right away. The points they add to the cut
    * line and the spark at the latest one wait here for the next animation frame, which draws them in
-   * one batched update however many moves arrived since the last (#266).
+   * one batched update however many moves arrived since the last (#266). The press's own point waits
+   * too, and nothing draws until the stroke is known to go across (#267).
    */
   const frameRef = useRef<number | null>(null);
   const pendingCutsRef = useRef<CutPoint[]>([]);
   const pendingSparkRef = useRef<CutPoint | null>(null);
   const emitSparkRef = useRef(emitSpark);
+  /** Whether the pack takes a cut now, as of the last render, for a frame to check before it draws. */
+  const closedRef = useRef(disabled || isOpening || isPackCut);
   useLayoutEffect(() => {
     emitSparkRef.current = emitSpark;
-  }, [emitSpark]);
+    closedRef.current = disabled || isOpening || isPackCut;
+  }, [emitSpark, disabled, isOpening, isPackCut]);
 
   /** Drop a frame that hasn't drawn yet, and what it would have drawn. */
   const cancelFrame = useCallback(() => {
@@ -123,7 +146,9 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     const spark = pendingSparkRef.current;
     pendingCutsRef.current = [];
     pendingSparkRef.current = null;
-    if (cutCompletedRef.current || !strokeRef.current || cuts.length === 0) return;
+    // A sheet, the opening or the cut can arrive between the move and its frame: then it draws nothing.
+    if (cutCompletedRef.current || closedRef.current || !strokeRef.current?.across || cuts.length === 0) return;
+    setIsCutting(true);
     setCutPoints((prev) => {
       const next = prev.concat(cuts);
       return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
@@ -131,15 +156,21 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     if (spark) emitSparkRef.current(spark.x, spark.y);
   }, []);
 
-  // A resize or a scroll can move the pack under a press: measure it again at the next point.
-  // Unmounting drops a frame that hasn't drawn.
+  // A resize or a scroll can move the pack under a press: measure it again at the next point. So can
+  // a pinch zoom or an on-screen keyboard, which move only the visual viewport. Unmounting drops a
+  // frame that hasn't drawn.
   useEffect(() => {
     const remeasure = () => { measureRef.current = null; };
+    const viewport = window.visualViewport;
     window.addEventListener('resize', remeasure);
     window.addEventListener('scroll', remeasure, { capture: true, passive: true });
+    viewport?.addEventListener('resize', remeasure);
+    viewport?.addEventListener('scroll', remeasure, { passive: true });
     return () => {
       window.removeEventListener('resize', remeasure);
       window.removeEventListener('scroll', remeasure, { capture: true });
+      viewport?.removeEventListener('resize', remeasure);
+      viewport?.removeEventListener('scroll', remeasure);
       cancelFrame();
     };
   }, [cancelFrame]);
@@ -148,6 +179,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     cancelFrame();
     measureRef.current = null;
     setIsCutting(false);
+    setIsPressing(false);
     setCutPoints([]);
     clearSparks();
     strokeRef.current = null;
@@ -185,6 +217,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     cancelFrame();
     cutCompletedRef.current = true;
     setIsCutting(false);
+    setIsPressing(false);
     setCutPoints([]);
     clearSparks();
 
@@ -200,40 +233,49 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   }, [onCutComplete, clearSparks, cancelFrame, volume]);
 
   /**
-   * Follow one pointer position. A stroke starts where a press reaches the tear line; after that,
-   * any point over the pack's height counts (x past an edge counts as that edge), so a slanted swipe
-   * still cuts and drifting off the line doesn't end it. A release point is only measured (`draw`
-   * false): the cut line and sparks end with the press. A stroke's start draws at once; its later
-   * points count toward the cut at once and are drawn at the next frame.
+   * Follow one pointer position of a press that landed on the seam. Its direction stays undecided
+   * until it's clear (#267): once it has gone GESTURE_SLOP_PX across and as far across as up or down,
+   * it's a swipe; once it has gone VERTICAL_REJECT_PX up or down and twice as far as across, it's a
+   * scroll or a drag down the art, and the press can't cut until it's released. A small settle up or
+   * down before swiping decides neither. Any point over the pack's height counts (x past an edge
+   * counts as that edge), so a slanted swipe still cuts and drifting off the line doesn't end it. A
+   * release point is only measured (`draw` false): the cut line and sparks end with the press. Points
+   * count toward the cut at once; the next frame draws them, once the stroke goes across.
    */
   const trackPoint = useCallback((clientX: number, clientY: number, draw = true) => {
-    if (cutCompletedRef.current || isOpening || isPackCut) return;
+    const stroke = strokeRef.current;
+    if (!stroke || cutCompletedRef.current || isOpening || isPackCut) return;
 
     const point = getLocalPoint(clientX, clientY);
     if (!point) return;
-
-    const offLine = Math.abs(point.y - point.tearY);
     const { clampedX, cut, spark } = point;
-    const stroke = strokeRef.current;
 
-    if (!stroke) {
-      if (offLine > point.tolerance || !draw) return;
-      strokeRef.current = { minX: clampedX, maxX: clampedX, minY: point.y, maxY: point.y };
-      setIsCutting(true);
-      setCutPoints([cut]);
-      emitSpark(spark.x, spark.y);
-
-      // Play fairy dust sound when cutting starts
-      if (volume > 0) {
-        if (fairyDustRef.current) {
-          fairyDustRef.current.pause();
-          fairyDustRef.current.currentTime = 0;
-        }
-        fairyDustRef.current = new Audio(FAIRY_DUST_SRC);
-        fairyDustRef.current.volume = volume;
-        fairyDustRef.current.play().catch(() => { });
+    if (!stroke.across) {
+      // Read from everything the press has covered, this point included even past the pack's top or
+      // bottom, so a settle and a swipe add up rather than the first few pixels deciding.
+      const spanX = Math.max(stroke.maxX, clampedX) - Math.min(stroke.minX, clampedX);
+      const spanY = Math.max(stroke.maxY, point.y) - Math.min(stroke.minY, point.y);
+      if (spanY >= VERTICAL_REJECT_PX && spanY >= 2 * spanX) {
+        // Clearly up or down: nothing has drawn, so there's nothing to clear but what was waiting.
+        cancelFrame();
+        strokeRef.current = null;
+        blockedRef.current = true;
+        setIsPressing(false);
+        return;
       }
-      return;
+      if (spanX >= GESTURE_SLOP_PX && spanX >= spanY) {
+        stroke.across = true;
+        // Play fairy dust sound when cutting starts
+        if (draw && volume > 0) {
+          if (fairyDustRef.current) {
+            fairyDustRef.current.pause();
+            fairyDustRef.current.currentTime = 0;
+          }
+          fairyDustRef.current = new Audio(FAIRY_DUST_SRC);
+          fairyDustRef.current.volume = volume;
+          fairyDustRef.current.play().catch(() => { });
+        }
+      }
     }
 
     if (point.y < 0 || point.y > point.height) return;
@@ -253,13 +295,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     pending.push(cut);
     if (pending.length > MAX_CUT_POINTS) pending.shift();
     pendingSparkRef.current = spark;
-    if (frameRef.current === null) frameRef.current = requestAnimationFrame(drawFrame);
-  }, [isOpening, isPackCut, getLocalPoint, emitSpark, completeCut, drawFrame, volume]);
+    if (stroke.across && frameRef.current === null) frameRef.current = requestAnimationFrame(drawFrame);
+  }, [isOpening, isPackCut, getLocalPoint, cancelFrame, completeCut, drawFrame, volume]);
 
   const endCutAttempt = useCallback(() => {
     cancelFrame();
     measureRef.current = null;
     setIsCutting(false);
+    setIsPressing(false);
     isPointerDownRef.current = false;
     ownerRef.current = null;
     clearSparks();
@@ -304,9 +347,27 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       return;
     }
     isPointerDownRef.current = true;
-    if (Math.abs(point.y - point.tearY) > point.tolerance && !isOpening && !isPackCut) onMiss?.();
-    trackPoint(event.clientX, event.clientY);
-  }, [trackPoint, endCutAttempt, disabled, getLocalPoint, isOpening, isPackCut, onMiss]);
+    if (isOpening || isPackCut) return;
+    // Only a press on the seam can cut. One on the art (a tap, or a swipe or scroll from there) gets a
+    // nudge, even if it's dragged onto the seam later (#267).
+    if (Math.abs(point.y - point.tearY) > point.tolerance) {
+      blockedRef.current = true;
+      onMiss?.();
+      return;
+    }
+    if (cutCompletedRef.current) return;
+    // Nothing draws until the stroke is known to go across; its first point waits for that frame.
+    strokeRef.current = {
+      minX: point.clampedX,
+      maxX: point.clampedX,
+      minY: point.y,
+      maxY: point.y,
+      across: false,
+    };
+    pendingCutsRef.current = [point.cut];
+    pendingSparkRef.current = null;
+    setIsPressing(true);
+  }, [endCutAttempt, disabled, getLocalPoint, isOpening, isPackCut, onMiss]);
 
   const handlePointerMove = useCallback((event: PointerEvent) => {
     if (blockedRef.current || disabled || cutCompletedRef.current || isOpening || isPackCut) return;
@@ -314,7 +375,11 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     for (const { clientX, clientY } of pointsOf(event)) trackPoint(clientX, clientY);
   }, [trackPoint, disabled, isOpening, isPackCut]);
 
-  /** On release, a stroke that started on the tear line and is wide enough finishes the cut. */
+  /**
+   * On release, a stroke that started on the seam, went across and is wide enough finishes the cut.
+   * The release's points are read for direction too, so a flick with no moves before it is judged
+   * like any other swipe.
+   */
   const handlePointerEnd = useCallback((event?: PointerEvent) => {
     if (event && ownerRef.current !== null && event.pointerId !== ownerRef.current) return;
     blockedRef.current = false;
@@ -342,6 +407,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   return {
     packRef,
     isCutting,
+    isPressing,
     cutPoints,
     sparks,
     resetCutState,
