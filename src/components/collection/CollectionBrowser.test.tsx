@@ -277,3 +277,40 @@ describe('every owned card stays reachable', () => {
     expect(page().querySelectorAll('.collection-later li')).toHaveLength(SETS.filter(isOpenable).length);
   });
 });
+
+describe('completed sets', () => {
+  const set = () => SETS.find(isOpenable)!;
+  const cardsOf = () => getSetCards(set().id);
+  const tag = () => headerOf(set().name).querySelector('.collection-set-done')?.textContent ?? null;
+  /** Every card owned, as holos only when `holo` says so. */
+  const ownAll = (holo: (index: number) => boolean) =>
+    Object.fromEntries(cardsOf().map((card, i) => [card.key, { card, normalCount: 1, holoCount: holo(i) ? 1 : 0 } satisfies CollectionItem]));
+
+  it('shows no tag while a card is missing', () => {
+    render(own(cardsOf(), (i) => i === 0));
+    expect(tag()).toBeNull();
+  });
+
+  it('says Complete once every card is owned in any version', () => {
+    render(ownAll((i) => i === 0));
+    expect(tag()).toBe('Complete');
+    expect(headerOf(set().name).textContent).toContain('Complete');
+  });
+
+  it('says Master once every card is owned as a holo', () => {
+    render(ownAll(() => true));
+    expect(tag()).toBe('Master');
+    expect(headerOf(set().name).textContent).not.toContain('Complete');
+  });
+
+  it('still toggles from the header with the tag in it', () => {
+    render(ownAll(() => true));
+    const header = headerOf(set().name);
+    const was = header.getAttribute('aria-expanded');
+    header.focus();
+    act(() => header.click());
+    expect(header.getAttribute('aria-expanded')).not.toBe(was);
+    expect(document.activeElement).toBe(header);
+    expect(tag()).toBe('Master');
+  });
+});

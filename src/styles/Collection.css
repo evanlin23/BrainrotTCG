@@ -72,6 +72,11 @@
   text-transform: uppercase;
 }
 
+.collection-set-done {
+  border-color: var(--success);
+  color: var(--success);
+}
+
 .collection-set-count {
   grid-area: count;
   align-self: center;

@@ -41,6 +41,12 @@ const initiallyOpen = (started: { set: { id: string }; pockets: number }[], rece
   }));
 };
 
+/** "Master" when every card of the set is owned as a holo, "Complete" when every card is owned in any version. */
+const completion = (cards: Card[], owned: Map<string, Owned>): 'Master' | 'Complete' | null => {
+  if (cards.length === 0 || !cards.every((c) => owned.has(c.key))) return null;
+  return cards.every((c) => (owned.get(c.key)?.holoCount ?? 0) > 0) ? 'Master' : 'Complete';
+};
+
 /**
  * Eras you've started, in timeline order, with every card (the missing ones as empty slots), each
  * header a button that shows or hides its grid; then the eras you haven't started, one line each.
@@ -116,6 +122,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
                     <span className="collection-set-era">
                       {set.era}
                       {set.archivedAt && <span className="collection-set-archived">Archived</span>}
+                      {completion(cards, owned) && <span className="collection-set-archived collection-set-done">{completion(cards, owned)}</span>}
                     </span>
                     <span className="collection-set-count tabular">
                       {have}/{cards.length}
