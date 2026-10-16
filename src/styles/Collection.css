@@ -284,7 +284,7 @@
     background: var(--shine);
     opacity: 0.6;
     transform: skewX(-20deg);
-    animation: collectionItemHoloShine 4s ease-in-out infinite;
+    animation: collectionItemHoloShine var(--dur-loop) ease-in-out infinite;
     pointer-events: none;
     z-index: 2;
 }

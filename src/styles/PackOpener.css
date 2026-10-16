@@ -142,7 +142,7 @@
     width: var(--pack-w);
 }
 
-@media (max-width: 700px) {
+@media (max-width: 719px) {
     .pack-shell-wrap,
     .pack-actions {
         /* The full width of the phone: big, without running off both sides. */
@@ -195,6 +195,20 @@
     box-shadow: var(--focus-shadow), var(--shadow-1);
 }
 
+/*
+ * A first visit (no nav yet) has nothing else to do, so the button is the one obvious action: brand
+ * filled, like any primary (#80). Once a pack is opened the nav comes in and it steps back to secondary.
+ */
+.app.no-nav .pack-open-button {
+    border-color: transparent;
+    background: var(--brand);
+    color: var(--brand-ink);
+}
+
+.app.no-nav .pack-open-button:hover:not([aria-disabled="true"]) {
+    background: var(--brand-strong);
+}
+
 /* Torn and waiting for its cards: still focused, so it stays put, but plainly done. */
 .pack-open-button[aria-disabled="true"] {
     cursor: default;
@@ -242,7 +256,7 @@
     background: var(--chip-bg);
     color: var(--text);
     font-weight: 700;
-    animation: pack-waiting 1.2s ease-in-out infinite alternate;
+    animation: pack-waiting var(--dur-pulse) ease-in-out infinite alternate;
 }
 
 @keyframes pack-waiting {
@@ -287,8 +301,8 @@
     opacity: var(--pack-foil-opacity, 1);
     -webkit-mask: var(--pack-mask) center / 100% 100% no-repeat;
     mask: var(--pack-mask) center / 100% 100% no-repeat;
-    animation: pack-foil 4.5s ease-in-out infinite alternate;
-    transition: opacity 0.2s ease;
+    animation: pack-foil var(--dur-drift) ease-in-out infinite alternate;
+    transition: opacity var(--dur) ease;
 }
 
 .foil-standard {
@@ -385,7 +399,7 @@
 
 .pack-half-bottom {
     clip-path: inset(0 0 0 0);
-    transition: clip-path 0.38s cubic-bezier(0.25, 0.9, 0.3, 1);
+    transition: clip-path var(--dur-slow) cubic-bezier(0.25, 0.9, 0.3, 1);
 }
 
 .pack-shell.is-cut .pack-half-bottom {
@@ -396,7 +410,7 @@
     clip-path: inset(0 0 calc(100% - var(--tear-y)) 0);
     opacity: 0;
     transform-origin: 50% var(--tear-y);
-    transition: transform 0.46s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
+    transition: transform var(--dur-reveal) cubic-bezier(0.25, 0.9, 0.3, 1), opacity var(--dur) ease;
     z-index: 1;
 }
 
@@ -417,7 +431,7 @@
     z-index: 2;
     pointer-events: none;
     transform-origin: 50% var(--tear-y);
-    transition: transform 0.46s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
+    transition: transform var(--dur-reveal) cubic-bezier(0.25, 0.9, 0.3, 1), opacity var(--dur) ease;
 }
 
 /* Once torn, the top flies up past the pack's edge (the stage still clips it). */
@@ -443,6 +457,40 @@
     pointer-events: none;
 }
 
+/*
+ * The wrapper's seam, so the line reads as the place to tear and not as art (#267): a soft foil band
+ * in the brand accent behind the perforation, and a brand arrowhead at each end, so the line itself says
+ * "across", like the hint's icon.
+ * Static, so reduced motion needs nothing; it fades with the line once the pack is cut.
+ */
+.tear-guide::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -9px;
+    height: 14px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg,
+            transparent,
+            var(--seam-glow-brand) 12%,
+            var(--seam-glow-pink) 40%,
+            var(--seam-glow-mint) 65%,
+            var(--seam-glow-brand) 88%,
+            transparent);
+    z-index: -1;
+}
+
+.tear-guide::after {
+    content: '';
+    position: absolute;
+    inset: -8px -2px auto;
+    height: 12px;
+    background:
+        conic-gradient(from 45deg at 0 50%, var(--brand) 0 90deg, transparent 0) left / 8px 100% no-repeat,
+        conic-gradient(from 225deg at 100% 50%, var(--brand) 0 90deg, transparent 0) right / 8px 100% no-repeat;
+}
+
 /* A press on the line warms it before the swipe has a direction, so the press is felt (#267). */
 .pack-shell.is-pressed .tear-guide,
 .pack-shell.is-cutting .tear-guide {
@@ -457,7 +505,7 @@
 
 /* A press that missed the line: the line pulses so it's clear where to swipe. */
 .pack-shell.is-nudged .tear-guide {
-    animation: tear-nudge 0.45s ease-in-out 3;
+    animation: tear-nudge var(--dur-reveal) ease-in-out 3;
 }
 
 @keyframes tear-nudge {
@@ -497,7 +545,7 @@
     width: 18px;
     height: 18px;
     color: var(--white);
-    animation: swipeMotion 1.5s ease-in-out infinite;
+    animation: swipeMotion var(--dur-shimmer) ease-in-out infinite;
 }
 
 .swipe-hint-text {
@@ -523,7 +571,7 @@
 
 /* A tap on the line that didn't swipe: the hint pulses, so it's clear the line wants a swipe (#485). */
 .pack-shell.is-tapped .swipe-hint {
-    animation: swipe-hint-tap 0.45s ease-in-out 2;
+    animation: swipe-hint-tap var(--dur-reveal) ease-in-out 2;
 }
 
 @keyframes swipe-hint-tap {
@@ -543,7 +591,7 @@
 .pack-shell.is-cutting .swipe-hint,
 .pack-shell.is-cut .swipe-hint {
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity var(--dur-slow) ease;
 }
 
 .cut-line-svg {
@@ -560,7 +608,7 @@
    It keeps the same width whatever the pack's size (#267). */
 .cut-line {
     filter: drop-shadow(0 1px 1px var(--shade-70)) drop-shadow(0 0 3px var(--glint));
-    animation: seam-shimmer 1.6s ease-in-out infinite alternate;
+    animation: seam-shimmer var(--dur-shimmer) ease-in-out infinite alternate;
 }
 
 .cut-line polyline {
@@ -623,7 +671,7 @@
         0 0 50px hsl(var(--hue) 100% 55% / 0.95),
         0 0 80px var(--spark-glow);
     transform: translate(-50%, -50%);
-    animation: sparkPop 0.62s ease-out forwards;
+    animation: sparkPop var(--spark-life) ease-out forwards;
     mix-blend-mode: screen;
 }
 
@@ -971,11 +1019,11 @@ button.reveal-card {
 
 .reveal-provenance-number.is-shown {
     visibility: visible;
-    animation: reveal-badge-in var(--dur) var(--ease-out) 0.35s both;
+    animation: reveal-badge-in var(--dur) var(--ease-out) var(--dur-slow) both;
 }
 
 .reveal-provenance-number.is-shown.is-slow {
-    animation-delay: 1.1s;
+    animation-delay: var(--dur-celebrate);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1113,7 +1161,7 @@ button.reveal-card {
 
 /* Phones: the card at about five sixths of the width, the summary a size down. (Last in the file so
    it wins over the rules above.) */
-@media (max-width: 700px) {
+@media (max-width: 719px) {
     .active-card-container .card-wrapper,
     .reveal-stack-card {
         height: min((100cqh - 28px) / 1.055, 46rem, 100cqw * 0.84 * var(--card-tall));
