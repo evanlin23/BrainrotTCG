@@ -235,3 +235,9 @@
     opacity: 0;
   }
 }
+
+/* A loaded screen taking over from its loading placeholder (DeferredSheet) is already on screen. */
+.sheet-root--settled .sheet-backdrop,
+.sheet-root--settled .sheet {
+  animation: none;
+}
