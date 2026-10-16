@@ -103,7 +103,7 @@ describe('result first', () => {
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} holdOptional />));
     const [title, list, actions, how] = ['.summary-title', '.summary-cards', '.summary-actions', 'details.summary-how'].map((s) => container.querySelector(s)!);
     expect(follows(title, list) && follows(list, actions) && follows(actions, how)).toBe(true);
-    expect(title.textContent).toMatch(/[\d,]+ Brainrot Score$/);
+    expect(title.textContent).toMatch(/^[\d,]+ Brainrot Score$/);
     expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Open another pack']);
     // The breakdown and the card guide are folded away, not gone.
     expect(how.hasAttribute('open')).toBe(false);
@@ -115,7 +115,7 @@ describe('result first', () => {
   it('says how rare the combo is', () => {
     const pair = cards.map((card, i) => (i === 1 ? { ...cards[0], uniqueId: 9 } : card));
     act(() => root.render(<PackSummaryUI openedCards={pair} set={set} onClose={() => {}} />));
-    expect(container.querySelector('.pack-headline-odds')?.textContent).toMatch(/^Pair: about 1 in [\d.,]+ packs$/);
+    expect(container.querySelector('.pack-headline-odds')?.textContent).toMatch(/^Pair · about 1 in [\d.,]+ packs$/);
   });
 
   it('hints that a card opens up close until one is opened', () => {

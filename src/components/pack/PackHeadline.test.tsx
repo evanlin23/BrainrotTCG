@@ -28,15 +28,13 @@ afterEach(() => {
 });
 
 describe('PackHeadline', () => {
-  it('shows the total, the combo and a modified standout with its own points', () => {
+  it('shows the total and the combo with its multiplier, and no standout line', () => {
     const common = pick('COMMON');
     const big = meta(common, 1, { isHolo: true, finish: 'DIAMOND', misprint: true });
     render([big, meta(common, 2), meta(pick('UNCOMMON'), 3), meta(pick('UNCOMMON'), 4), meta(pick('RARE'), 5)]);
     expect(container.querySelector('.pack-headline-total')!.textContent).toBe('Pack total: 400,000,850');
     expect(container.querySelector('.pack-headline-combo')!.textContent).toBe('Two Pair ×10');
-    expect(container.querySelector('.pack-headline-standout')!.textContent).toBe(
-      `Standout card: Diamond Holo Misprint ${common.name} · 40,000,000 card points`,
-    );
+    expect(container.textContent).not.toMatch(/Standout|card points/);
   });
 
   it('leaves the total out when a score panel shows it', () => {
@@ -45,12 +43,30 @@ describe('PackHeadline', () => {
     expect(container.querySelector('.pack-headline-combo')).not.toBeNull();
   });
 
-  it('keeps No Matches visible and gives a tie to the later card', () => {
-    const [a, b] = [pick('RARE', 0), pick('RARE', 1)];
-    render([meta(a, 1), meta(b, 2), meta(pick('COMMON', 0), 3), meta(pick('UNCOMMON'), 4), meta(pick('COMMON', 1), 5)]);
+  it('keeps No Matches visible', () => {
+    render([meta(pick('RARE', 0), 1), meta(pick('RARE', 1), 2), meta(pick('COMMON', 0), 3), meta(pick('UNCOMMON'), 4), meta(pick('COMMON', 1), 5)]);
     expect(container.querySelector('.pack-headline-combo')!.textContent).toBe('No Matches ×1');
-    expect(container.querySelector('.pack-headline-standout')!.textContent).toBe(
-      `Standout card: ${b.name} · ${cardPoints('RARE', false).toLocaleString()} card points`,
-    );
+  });
+});
+
+describe('PackHeadline on the results screen', () => {
+  const common = pick('COMMON');
+  const pair = [meta(common, 1), meta(common, 2), meta(pick('UNCOMMON'), 3), meta(pick('RARE'), 4), meta(pick('RARE', 1), 5)];
+  const results = (cards: CardWithMeta[], oneIn: number | null) =>
+    act(() => root.render(<PackHeadline cards={cards} headingRef={() => {}} oneIn={oneIn} />));
+  /** The headline as copied: one line per element, nothing hidden. */
+  const lines = () => [...container.querySelector('.pack-headline')!.children].map((el) => el.textContent);
+
+  it('heads with only the score, then the combo once with its odds and no multiplier', () => {
+    results(pair, 12.5);
+    const total = cardPoints('COMMON', false) * 2 + cardPoints('UNCOMMON', false) + cardPoints('RARE', false) * 2;
+    expect(lines()).toEqual([`${(total * 2).toLocaleString()} Brainrot Score`, 'Pair · about 1 in 13 packs']);
+    expect(container.querySelector('h2')!.textContent).toBe(lines()[0]);
+    expect(container.textContent).not.toMatch(/×|, |card points|Standout/);
+  });
+
+  it('says just No Matches when the combo has no odds', () => {
+    results([meta(pick('RARE', 0), 1), meta(pick('RARE', 1), 2), meta(common, 3), meta(pick('UNCOMMON'), 4), meta(pick('COMMON', 1), 5)], null);
+    expect(lines().slice(1)).toEqual(['No Matches']);
   });
 });

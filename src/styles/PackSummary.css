@@ -10,26 +10,19 @@
 }
 
 .pack-summary .pack-headline-heading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   margin: 0;
   line-height: 1.15;
-}
-
-.pack-summary .pack-headline-heading .pack-headline-combo {
-  font-size: var(--text-lg);
-  color: var(--text-muted);
-}
-
-.pack-summary .pack-headline-heading .pack-headline-total {
   font-size: var(--text-3xl);
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
-.pack-headline-odds {
-  color: var(--text-subtle);
-  font-size: var(--text-sm);
+/* "[combo] · about 1 in [n] packs", or just the combo when it has no odds (No Matches). */
+.pack-summary .pack-headline-odds {
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 /* One line, only for a pull that makes today's Rankings: "🏆 Makes today's Rankings · Submit". */

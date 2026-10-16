@@ -25,9 +25,9 @@ export interface PackHeadline<T extends HeadlineCard> {
 }
 
 /**
- * The pull headline (docs/DESIGN.md, #339): Pack total, then the combo, then the Standout card. It
- * reuses scorePack, so there is no second scorer. Pass the cards as reconstructed in their own set
- * version; their modifiers set their points. The standout is the card with the most card points; on a
+ * The pull headline's numbers (docs/DESIGN.md, #339): the total, the combo and the standout card
+ * (screens show the total and the combo; the standout orders cards and previews). It reuses
+ * scorePack, so there is no second scorer. Pass the cards as reconstructed in their own set version; their modifiers set their points. The standout is the card with the most card points; on a
  * tie the higher slot wins (the shipped best-card rule). Without slots, the later card in the list
  * wins, so pass engine order or an order that keeps it among ties (revealOrder does).
  */

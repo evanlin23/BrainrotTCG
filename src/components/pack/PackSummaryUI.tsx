@@ -37,8 +37,8 @@ interface PackSummaryUIProps {
 }
 
 /**
- * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (combo,
- * Brainrot Score, standout card, how rare the combo is), the five cards in one compact row, best pull
+ * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (Brainrot
+ * Score, then the combo and how rare it is), the five cards in one compact row, best pull
  * first (each opens up close, and has its own Share for an image of it that links to this pack), then
  * the actions, stuck to the bottom so they never scroll away. Below them: new cards, level progress,
  * and how the score works, folded. Sharing starts here, never mid-reveal: the link carries the whole
@@ -90,7 +90,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
       <div className="summary-content" onFocus={clearActions}>
         <div className="summary-details">
-          {/* openedCards are in reveal order, which keeps pack order on ties, so the standout's tie rule holds. */}
           <PackHeadline cards={openedCards} headingRef={headingRef} oneIn={oneIn}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
           </PackHeadline>
