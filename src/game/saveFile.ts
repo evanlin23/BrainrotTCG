@@ -2,7 +2,7 @@
 import { STORAGE_KEYS } from '../constants';
 import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine';
 import { getCard } from '../data/cards';
-import { CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
+import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
 import { isLegacyPull, isStored } from './history';
 import { exportPlayer, importPlayer, isCurrentPlayer, parsePlayer } from './player';
 
@@ -26,9 +26,10 @@ const card = (value: unknown): boolean => record(value) && text(value.id)
 const ref = (value: unknown) => record(value) && text(value.setId) && count(value.setVersion) && count(value.nonce)
   && optional(value, 'publicKeyHex', text);
 
-const collection = (value: unknown) => values(value, (item) => record(item) && card(item.card)
+const collectionEntry = (item: unknown) => record(item) && card(item.card)
   && ['normalCount', 'holoCount', 'count', 'misprints'].every((key) => optional(item, key, count))
-  && optional(item, 'modifierPoints', number) && optional(item, 'finishes', (v) => values(v, count) && record(v) && Object.keys(v).every((key) => finish(key))));
+  && optional(item, 'modifierPoints', number) && optional(item, 'finishes', (v) => values(v, count) && record(v) && Object.keys(v).every((key) => finish(key)));
+const collection = (value: unknown) => values(value, collectionEntry);
 const achievements = (value: unknown) => values(value, (item) => number(item) || (record(item) && number(item.unlockedAt)
   && optional(item, 'pack', cards) && optional(item, 'ref', ref)));
 const stats = (value: unknown) => record(value) && optional(value, 'packsOpened', count)
@@ -67,12 +68,25 @@ const SAVE_FIELDS = [
   ['settings', STORAGE_KEYS.SETTINGS, settings],
 ] as const;
 
-/** A raw storage value handed over by the old address (move.ts), held to the same rules as a file field. */
-export const isValidSaveValue = (key: string, raw: string): boolean => {
+/**
+ * A raw storage value handed over by the old address (move.ts), held to the same rules as a file field,
+ * except for what that address's own storage keeps on purpose: migrateV2 takes any first-format
+ * collection entry (a missing card comes from its key) and any holoCards value, and stores a count it
+ * can't read as NaN, which JSON writes as null and the app counts as 0. Hydration leaves out a later
+ * entry it can't read, which collectionRecovery archives, or keeps in place when it can't. The old
+ * address only redirects, so refusing those would leave the save with nowhere to go.
+ */
+export const isValidSaveValue = (key: string, raw: string, dataVersion: number): boolean => {
   const field = SAVE_FIELDS.find(([, storageKey]) => storageKey === key);
   if (!field) return true;
   try {
-    return field[2](JSON.parse(raw));
+    const value: unknown = JSON.parse(raw);
+    if (key === STORAGE_KEYS.COLLECTION) {
+      return values(value, (item) => dataVersion < 2 || collectionNeedsRecovery({ item }) || (record(item) && collectionEntry(
+        Object.fromEntries(Object.entries(item).filter(([k, v]) => !(v === null && (k === 'normalCount' || k === 'holoCount')))))));
+    }
+    if (key === STORAGE_KEYS.STATS && dataVersion < 2 && record(value)) return stats({ ...value, holoCards: {} });
+    return field[2](value);
   } catch {
     return false;
   }
@@ -91,6 +105,9 @@ export const backUpSave = (backupKey: string): boolean => {
     return false;
   }
 };
+
+/** How importSaveFile's message starts when a failed import couldn't be undone (the page then reloads). */
+export const PARTIAL_IMPORT_NOTE = "Import failed partway and couldn't be fully undone, so this browser may now hold parts of both saves.";
 
 /** Private backup: recovery payloads remain opaque, separate from the active identity/state. */
 export const exportSaveFile = (): string => JSON.stringify({
@@ -179,8 +196,7 @@ export const importSaveFile = (raw: string): string | null => {
       if (restoreFields(changed, previous)) return 'Import failed. Your previous save data was restored.';
       // backUpSave copied every app key, so any value here means a copy was just made.
       const backedUp = [...previous.values()].some((value) => value !== null);
-      return "Import failed partway and couldn't be fully undone, so this browser may now hold parts of both saves."
-        + (backedUp ? ' A copy of the save from before the import is kept in this browser.' : '');
+      return PARTIAL_IMPORT_NOTE + (backedUp ? ' A copy of the save from before the import is kept in this browser.' : '');
     }
     return null;
   } catch {

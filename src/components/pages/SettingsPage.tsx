@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Download, History, Upload } from 'lucide-react';
 import { STORAGE_KEYS } from '../../constants';
-import { canBringOldSave, fetchOldSave, hasProgress, importSave, PARTIAL_MOVE_NOTE, type MoveResult } from '../../game/move';
+import { canBringOldSave, fetchOldSave, FULL_MOVE_NOTE, hasProgress, importSave, PARTIAL_MOVE_NOTE, type MoveResult } from '../../game/move';
+import { reloadPage } from '../../game/reload';
 import { CARD_FLIP_SRC } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
@@ -50,10 +51,15 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
     const showBringResult = (result: MoveResult) => {
         setOldSave(null);
         if (result === 'saved') return window.location.reload();
+        if (result === 'partial') {
+            // This page still shows the save from before; only a reload shows what storage now holds.
+            window.alert(PARTIAL_MOVE_NOTE);
+            return reloadPage();
+        }
         setOldSaveNote(
             result === 'same' ? 'Your save from the old address is already here.'
             : result === 'kept' ? 'Kept the save you have here.'
-            : result === 'partial' ? PARTIAL_MOVE_NOTE
+            : result === 'full' ? FULL_MOVE_NOTE
             : "Couldn't bring that save over, so nothing changed.",
         );
     };

@@ -22,17 +22,24 @@ const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
 const OLD_SITE_URL: string = import.meta.env.VITE_OLD_SITE_URL || '';
 const PLAYER_KEY = 'brainrot-player-v1';
 const BACKUP_KEY = 'brainrot-before-move-v1';
+/** This one and the file import's backup (saveFile.ts): kept where they are, never handed over or replaced. */
+const isBackupKey = (k: string) => k.startsWith('brainrot-before-');
 /** What makes a save worth keeping: replacing any of these asks first. */
 const PROGRESS_KEYS = [PLAYER_KEY, 'brainrot-found-collection-v1', 'brainrot-history-v1', 'brainrot-stats-v1', 'brainrot-achievements-v1'];
 
 /**
  * 'same': this player's save is already here, so nothing was written. 'invalid': nothing changed.
+ * 'full': storage had no room to back up the save here, so nothing changed.
  * 'partial': a write failed and putting the previous values back failed too.
  */
-export type MoveResult = 'saved' | 'same' | 'kept' | 'invalid' | 'partial';
+export type MoveResult = 'saved' | 'same' | 'kept' | 'invalid' | 'full' | 'partial';
 
 export const PARTIAL_MOVE_NOTE = "Bringing the save over failed partway and couldn't be fully undone, so this browser may now"
   + ' hold parts of both saves. A save with progress that was here is kept as a backup in this browser.';
+
+export const FULL_MOVE_NOTE = "This browser's storage is full, so nothing changed. Free up some space, then try again.";
+
+const isQuotaError = (e: unknown) => e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
 
 export const canBringOldSave = (): boolean => !!OLD_ORIGIN && !!OLD_SITE_URL && OLD_ORIGIN !== window.location.origin;
 
@@ -91,17 +98,17 @@ const restoreKeys = (previous: Map<string, string | null>): boolean => {
  */
 export const importSave = (save: unknown, replace: () => boolean = askToReplace): MoveResult => {
   if (!save || typeof save !== 'object') return 'invalid';
-  const incoming = Object.fromEntries(Object.entries(save).filter(([k, v]) => k.startsWith('brainrot-') && k !== BACKUP_KEY && typeof v === 'string')) as Record<string, string>;
+  const incoming = Object.fromEntries(Object.entries(save).filter(([k, v]) => k.startsWith('brainrot-') && !isBackupKey(k) && typeof v === 'string')) as Record<string, string>;
   if (!PROGRESS_KEYS.some((k) => k in incoming)) return 'invalid';
   const here = secretOf(localStorage.getItem(PLAYER_KEY));
   if (here && here === secretOf(incoming[PLAYER_KEY])) return 'same';
   // The same checks as an imported file (saveFile.ts), before asking or writing anything.
   if (PLAYER_KEY in incoming && !parsePlayer(incoming[PLAYER_KEY])) return 'invalid';
-  if (!Object.entries(incoming).every(([k, v]) => isValidSaveValue(k, v))) return 'invalid';
   // No version key means the first format (runMigrations reads it so). Written explicitly, so this
   // browser's own version can't stand in for an older save's and skip its migrations.
   const version = incoming[DATA_VERSION_KEY] ?? '1';
   if (!/^[1-9][0-9]*$/.test(version) || Number(version) > CURRENT_DATA_VERSION) return 'invalid';
+  if (!Object.entries(incoming).every(([k, v]) => isValidSaveValue(k, v, Number(version)))) return 'invalid';
   incoming[DATA_VERSION_KEY] = version;
   const progress = hasProgress();
   if (progress && !replace()) return 'kept';
@@ -109,12 +116,12 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   const previous = new Map(Object.keys(incoming).map((k): [string, string | null] => [k, localStorage.getItem(k)]));
   let replaced: string[] = [];
   if (progress) {
-    const backup = Object.fromEntries(brainrotKeys().filter((k) => k !== BACKUP_KEY).map((k) => [k, localStorage.getItem(k)]));
+    const backup = Object.fromEntries(brainrotKeys().filter((k) => !isBackupKey(k)).map((k) => [k, localStorage.getItem(k)]));
     // A full or unavailable storage area must not cost the player the save being replaced.
     try {
       localStorage.setItem(BACKUP_KEY, JSON.stringify(backup));
-    } catch {
-      return 'invalid';
+    } catch (e) {
+      return isQuotaError(e) ? 'full' : 'invalid';
     }
     replaced = Object.keys(backup);
     for (const k of replaced) previous.set(k, backup[k]);
@@ -154,7 +161,7 @@ export const receiveSave = (): Promise<boolean> => {
       opener.postMessage({ type: 'brainrot-move-result', result }, OLD_ORIGIN);
       if (root) {
         root.textContent = result === 'saved' || result === 'same' ? 'Your save is here. You can close this window.'
-          : result === 'partial' ? PARTIAL_MOVE_NOTE : 'Nothing was changed. You can close this window.';
+          : result === 'partial' ? PARTIAL_MOVE_NOTE : result === 'full' ? FULL_MOVE_NOTE : 'Nothing was changed. You can close this window.';
       }
       finish(true);
       window.close();

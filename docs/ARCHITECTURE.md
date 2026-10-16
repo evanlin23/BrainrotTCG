@@ -254,13 +254,17 @@ window-to-window postMessage, not URL contents. The old address never deletes it
 `brainrot-moved-v1` (a timestamp) once the new address reports `saved` or `same`, or once it sends
 its save to Save & restore (`#/send`), and from then on old links go straight through without offering
 the move. At the new address, the handed-over player and fields must pass the same checks as an
-imported file, and a missing `brainrot-data-version` is stored as `1` so the save's migrations
-run; otherwise the result is `invalid` and nothing is written. Replacing a different player's
-progress asks first and copies the current save into `brainrot-before-move-v1`; if that backup
-can't be stored, nothing is written and the result is `invalid`. Into a browser without progress,
-keys the save doesn't carry stay. A failed write removes what it wrote and restores the previous
-values (best effort, not a transaction); if they can't all be restored, the result is `partial` and
-the player is told this browser may hold parts of both saves.
+imported file, except for collection entries that storage keeps on purpose (first-format entries
+migrations rebuild, and entries hydration hides for recovery), and a missing `brainrot-data-version`
+is stored as `1` so the save's migrations run; otherwise the result is `invalid` and nothing is
+written. Neither side's `brainrot-before-*` backups are handed over or replaced. Replacing a
+different player's progress asks first and copies the current save into `brainrot-before-move-v1`;
+if that backup can't be stored, nothing is written and the result is `full` (storage quota) or
+`invalid`. Into a browser without progress, keys the save doesn't carry stay. A failed write removes
+what it wrote and restores the previous values (best effort, not a transaction); if they can't all
+be restored, the result is `partial`: the player is told this browser may hold parts of both saves,
+and Save & restore then reloads so the page shows what storage holds (a partial file import does the
+same).
 
 ## Profiles and levels (no server)
 

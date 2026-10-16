@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import type { CollectionItem, Stats } from '../types';
+import { PARTIAL_IMPORT_NOTE } from '../game/saveFile';
 
 // Interrupted, slow and failed openings, and a failed restore, through the real App and real tickets.
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
@@ -210,4 +211,37 @@ it("restores this player's save when storage fills mid-import, then keeps openin
   expect((await history())[0].key).toBe(SEED_KEY_PREFIX);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(4);
   expect(read<{ secretKey: string }>(PLAYER_KEY).secretKey).toBe('01'.repeat(32));
+}, 60_000);
+
+it("says so and then reloads when a failed import can't be undone, so the app doesn't keep showing the old save", async () => {
+  const save = JSON.stringify({
+    version: 2, exportedAt: '2026-01-01T00:00:00Z', collection: '{}', achievements: '{"first_pack":1}',
+    stats: JSON.stringify({ packsOpened: 5, holoCards: {} }),
+    player: JSON.stringify({ secretKey: '02'.repeat(32), name: 'Other player', nextNonce: 5, createdAt: 2 }),
+  });
+  app = await mountedApp({ ...SEED, [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 3, holoCards: {} }) });
+  await app.mount();
+  const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+  const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+  await app.interact(() => button('Player')!.click());
+  await app.until('the player sheet loads', () => expect(button('Save & restore')).toBeDefined());
+  await app.interact(() => button('Save & restore')!.click());
+  await app.until('recovery controls load', () => expect(button('Import')).toBeDefined());
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, 'files', { value: [new File([save], 'save.json', { type: 'application/json' })] });
+  await app.interact(() => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await app.until('a different player asks first', () => expect(button('Replace')).toBeDefined());
+
+  // The incoming stats don't fit, and then neither do the original achievements put back.
+  const achievements = localStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS);
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === STORAGE_KEYS.STATS || (key === STORAGE_KEYS.ACHIEVEMENTS && value === achievements)) throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  await app.interact(() => button('Replace')!.click());
+  await app.until('the player is told, then the page reloads', () => expect(reload).toHaveBeenCalledOnce());
+  expect(alert).toHaveBeenCalledOnce();
+  expect(alert.mock.calls[0][0]).toContain(PARTIAL_IMPORT_NOTE);
+  expect(alert.mock.invocationCallOrder[0]).toBeLessThan(reload.mock.invocationCallOrder[0]);
 }, 60_000);
