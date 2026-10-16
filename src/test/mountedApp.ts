@@ -168,7 +168,7 @@ export async function mountedApp(storage: Record<string, string>,
       errors.splice(0, errors.length, ...rest);
       return taken;
     },
-    async until(description: string, assertion: () => void) {
+    async until(description: string, assertion: () => void | Promise<void>) {
       let last: unknown;
       // Advance simulated animation time inside act, polling only the named observable outcome.
       // Await real ticket computation in the same act scope; never retry the interaction itself.
@@ -178,7 +178,7 @@ export async function mountedApp(storage: Record<string, string>,
           await vi.dynamicImportSettled();
           await Promise.all([...jobs]);
         });
-        try { assertion(); return; } catch (error) { last = error; }
+        try { await assertion(); return; } catch (error) { last = error; }
       }
       throw new Error(`${description}: ${String(last)}; errors: ${errors.join('; ')}; DOM: ${document.body.innerHTML.slice(-3000)}`);
     },

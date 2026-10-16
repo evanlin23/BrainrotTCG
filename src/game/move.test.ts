@@ -79,8 +79,9 @@ describe('bringing a save over', () => {
 
   it.each(['1', '2'])('moves version %s best-pack cards its migrations and profile read, however loosely stored', (version) => {
     const best = [
-      { id: amogus.id, key: amogus.key, isHolo: 1, caption: null, name: null, rarity: 'MYTHIC' }, // the registry's fields win
-      { id: 'image2', isHolo: null },
+      { id: amogus.id, key: amogus.key, isHolo: true, caption: null, name: null, rarity: 'MYTHIC' }, // the registry's fields win
+      { id: 'image2', isHolo: null }, // `!!c.isHolo` reads it as no holo
+      { id: 'image2', isHolo: false },
       ...(version === '1' ? [{ id: 5, key: amogus.key }] : []), // migrateV2 stores the id as text
     ];
     const stats = JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackCards: best });
@@ -101,6 +102,10 @@ describe('bringing a save over', () => {
     ['a key that is not text', '1', [{ id: 'image2', key: 5 }]],
     ['a numeric id after version 1', '2', [{ id: 5, key: amogus.key }]],
     ['a holo flag that is not a boolean at version 3', '3', [{ id: amogus.id, key: amogus.key, isHolo: 1 }]],
+    ['a holo flag that is a number', '1', [{ id: amogus.id, key: amogus.key, isHolo: 1 }]],
+    ['a holo flag of 0', '2', [{ id: 'image2', isHolo: 0 }]],
+    ['a holo flag that is text', '2', [{ id: amogus.id, key: amogus.key, isHolo: 'yes' }]],
+    ['a holo flag that is a record', '1', [{ id: 'image2', isHolo: {} }]],
   ])('still refuses best-pack cards with %s (version %s)', (_name, version, best) => {
     expect(importSave({ 'brainrot-stats-v1': JSON.stringify({ highestPackCards: best }), 'brainrot-data-version': version })).toBe('invalid');
     expect(importSave({ 'brainrot-stats-v1': JSON.stringify({ highestPackCards: {} }), 'brainrot-data-version': version })).toBe('invalid');
