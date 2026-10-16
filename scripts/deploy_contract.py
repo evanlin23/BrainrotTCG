@@ -241,14 +241,19 @@ def walk(node, path=()):
 CLOUDFLARE = "needs.site.outputs.host == 'cloudflare'"
 GUARD = {'name': 'Require the main source ref', 'env': {'SOURCE_REF': '${{ github.ref }}'},
          'run': 'test "$SOURCE_REF" = refs/heads/main'}
-# publish and deploy each start by checking this run's commit is still main's tip, so re-running a
-# superseded run (or only its publish or deploy job) fails instead of publishing an older build.
+# publish and deploy each start by checking this run's commit is still main's tip, so re-running a run
+# whose commit main has moved past (or only its publish or deploy job) fails instead of publishing an
+# older build. It compares commits, not runs: a re-run of an earlier run on main's current commit (an
+# older Hall of Fame refresh) still passes. ls-remote matches ref names by suffix, so awk keeps only
+# refs/heads/main itself; no such line, or a failed lookup, leaves tip empty and refuses.
 TIP = {'name': 'Require the tip of main', 'run': (
-    'tip=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | cut -f1)\n'
+    'tip=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main'
+    ' | awk \'$2 == "refs/heads/main" {print $1}\')\n'
     'if [ "$tip" != "$GITHUB_SHA" ]; then\n'
     '  echo "::error::Not publishing $GITHUB_SHA: main is now at ${tip:-a commit this job could not read}. '
-    'A re-run of a superseded deploy would put an older build over a newer one; '
-    'the run for main\'s latest commit deploys it."\n'
+    'Re-running a deploy whose commit is no longer main\'s tip would put an older build over a newer one. '
+    'If no newer deploy run is in progress, start this workflow on main by hand '
+    '(Actions > Deploy to GitHub Pages > Run workflow)."\n'
     '  exit 1\n'
     'fi\n')}
 VERIFIER = 'python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json'

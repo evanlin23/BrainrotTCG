@@ -79,8 +79,15 @@ an approval gate:
   last job may write Pages. Deploys run one at a time (the `pages` concurrency group): a newer push
   to `main` cancels an older run, and the site job stops any run not started from `main`. The publish
   and deploy jobs each first check that the run's commit is still the tip of `main`, so re-running a
-  superseded run fails rather than publishing an older build over a newer one. Their inputs are
-  one-day artifacts, so a re-run more than a day later must re-run all jobs, starting from build.
+  run whose commit `main` has moved past fails rather than publishing an older build over a newer
+  one. A failed check can leave the site stale: a `[skip ci]` merge that lands mid-run starts no new
+  run (on Cloudflare, publish may already have gone out without the Pages redirect), and re-running
+  an old run can cancel the latest one before failing itself. If no newer deploy run is in progress,
+  start the workflow on `main` by hand (Actions > Deploy to GitHub Pages > Run workflow). The check
+  compares commits, not runs: Hall of Fame refreshes start several runs on the same commit, each
+  building in the Hall of Fame list of its time, so re-running an earlier one (or just its deploy
+  job) still passes and serves that older list until the next refresh. Their inputs are one-day
+  artifacts, so a re-run more than a day later must re-run all jobs, starting from build.
   [scripts/deploy_contract.py](../scripts/deploy_contract.py) does the sealing and checks, and CI's
   workflow lint runs its test, which reads these promises from the workflow files. Its strictness is
   deliberate: it fails closed, so any drift between the workflow and the contract fails CI until

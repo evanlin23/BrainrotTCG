@@ -466,18 +466,24 @@ class TipGuard(unittest.TestCase):
         (tmp / 'git').write_text(f'#!/bin/sh\necho "$@" >> "{tmp}/git.log"\nprintf "$STUB_OUT"\nexit "$STUB_EXIT"\n')
         (tmp / 'git').chmod(0o755)
         sha, newer = 'a' * 40, 'b' * 40
+        main, decoy = 'refs/heads/main', 'refs/heads/x/refs/heads/main'
+        unread = 'a commit this job could not read'
         # A push run, or a re-run of main's latest commit, sees its own commit at the tip; a re-run of
         # a superseded commit sees a newer one; and a failed lookup refuses rather than publishes.
-        for out, code, passes in ((f'{sha}\\trefs/heads/main\\n', 0, True), (f'{newer}\\trefs/heads/main\\n', 0, False),
-                                  ('', 128, False), ('', 2, False)):
+        # ls-remote matches by suffix, so a branch ending in refs/heads/main also answers: only main
+        # itself counts, and a decoy alone reads as no tip.
+        for lines, code, shown in (([(sha, main)], 0, None), ([(newer, main)], 0, newer), ([], 128, unread), ([], 2, unread),
+                                   ([(newer, decoy), (sha, main)], 0, None), ([(sha, decoy), (newer, main)], 0, newer),
+                                   ([(sha, decoy)], 0, unread)):
+            out = ''.join(f'{commit}\\t{ref}\\n' for commit, ref in lines)
             with self.subTest(out=out, code=code):
                 env = {'PATH': f'{tmp}:{os.environ["PATH"]}', 'STUB_OUT': out, 'STUB_EXIT': str(code), 'GITHUB_SHA': sha,
                        'GITHUB_SERVER_URL': 'https://github.com', 'GITHUB_REPOSITORY': ENV['GITHUB_REPOSITORY']}
                 result = subprocess.run(['bash', '-e', '-c', dc.TIP['run']], env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode == 0, passes, result.stdout)
-                if not passes:
-                    self.assertIn(f'::error::Not publishing {sha}: main is now at', result.stdout)
-                    self.assertIn(newer if code == 0 else 'a commit this job could not read', result.stdout)
+                self.assertEqual(result.returncode == 0, shown is None, result.stdout)
+                if shown is not None:
+                    self.assertIn(f'::error::Not publishing {sha}: main is now at {shown}.', result.stdout)
+                    self.assertIn('start this workflow on main by hand', result.stdout)
         self.assertEqual(set((tmp / 'git.log').read_text().splitlines()),
                          {'ls-remote https://github.com/evanlin23/BrainrotTCG.git refs/heads/main'})
 
