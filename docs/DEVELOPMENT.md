@@ -27,7 +27,7 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 | When | Run |
 | --- | --- |
 | While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
-| Before pushing | `npm run check` (lint, typecheck, all tests, set locks, card assets), once |
+| Before pushing | `npm run check` (lint, typecheck, all tests within the test budgets, set locks, card assets), once |
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build | also `npm run build` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
@@ -84,6 +84,31 @@ save), drives the UI with `interact()`, waits for one observable outcome with
 `dispose()` in `afterEach` fails on any other error, warning or I/O and restores storage, timers,
 globals and modules. Run one with
 `npx vitest run src/test/packLifecycle.integration.test.ts`; `npm test` runs them all.
+
+## Test budgets
+
+`npm test`, and so `npm run check` and CI, runs the suite once with V8 coverage and enforces two
+budgets. Targeted `npx vitest run <path>` runs skip both (adding `--coverage` to one turns the
+floors on, and a partial run won't meet them).
+
+| Budget | Baseline (October 2026, 798 tests) | Enforced | Set in |
+| --- | --- | --- | --- |
+| Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 78.2%, statements 81.8%, lines 83.5% | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
+| Wall time of the whole run | 62-65 s with coverage, 57-64 s without, on a shared 4-core container; 54-63 s on CI without | at most 150 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
+
+After the coverage summary the run prints `Test budget: N tests in M files took Xs (budget 150s)`,
+and it fails only past the budget. The baseline came from three runs each of `vitest run` and
+`npm test` plus recent CI runs. Coverage stayed within 0.05 points between runs and added up to
+20% wall time, so it rides in the one test run. Instrumentation makes the CPU-bound engine
+simulations about 3x slower; under heavy load one run took 100 s and two of them passed the 5 s
+default timeout, so `npm test` passes `--testTimeout=15000`.
+
+The floors sit 3-4 points below the baseline and the runtime budget about 2.4x above it, so
+ordinary work, a large UI refactor included, shouldn't trip them. To move one, run `npm test` three
+times on an up-to-date branch, set each floor a few points below the lowest figure and the runtime
+budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor
+only for removed or unreachable code, never to land untested code. When the runtime budget trips,
+look for a slow or hanging test before raising it.
 
 ## Performance baseline
 
