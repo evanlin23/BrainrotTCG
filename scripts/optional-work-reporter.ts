@@ -33,7 +33,7 @@ export default class OptionalWorkReporter implements Reporter {
         'estimatedArgon2PeakBytes is peak busy workers x Argon2 memory per job, an estimate; it is never measured',
         'Measured memory is the main target JS heap only; it excludes workers, WASM, process and GPU memory',
         'open-to-summary/result exclude ticket mining (the live ticket is ready first); liveTicketMs reports that separately',
-        'Optional work is held from the tear to the summary only; open-to-result also covers summary image decode after it is freed'],
+        'Optional work is held from the tear until the summary cards decode, or 2 s after the summary shows; starts after that are not timed'],
     };
   }
   onTestEnd(test: TestCase, result: TestResult) {

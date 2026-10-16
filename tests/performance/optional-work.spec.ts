@@ -88,7 +88,7 @@ for (const scenario of OPTIONAL_SCENARIOS) for (let repetition = 1; repetition <
       await shell.focus();
       const pressedAt = await page.evaluate(() => performance.now());
       await page.keyboard.press('Space');
-      // The first frame with the summary: optional work is held until then, and free after.
+      // The first frame with the summary; optional work stays held until its cards decode (2 s cap).
       const summaryShown = page.waitForFunction(() => document.querySelector('.pack-summary') && performance.now(), undefined, { polling: 'raf', timeout: 30_000 });
       await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15_000 });
       await page.locator('button.reveal-skip').click({ timeout: 15_000 });

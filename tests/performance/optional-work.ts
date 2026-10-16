@@ -31,7 +31,7 @@ export interface OptionalMeasurement {
     optionalStartedBeforeSummary: number;
     /** Already mining at the press, so allowed to finish while held. */
     optionalFinishedBeforeSummary: number;
-    /** Started once the summary freed optional work, while its cards still decode. */
+    /** Started between the summary and its decoded cards; the summary holds them until decode or a 2 s cap. */
     optionalStartedAfterSummary: number;
   };
   /** Estimated, never measured: peak busy workers × Argon2 memory per job. */
