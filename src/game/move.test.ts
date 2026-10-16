@@ -657,6 +657,33 @@ describe('bringing a save over', () => {
   );
 
   it.each([
+    ['a re-open waiting to resume', { 'brainrot-reopen-pending-v1': 'ab'.repeat(32) }],
+    ['a re-open backing off', { 'brainrot-reopen-backoff-v1': JSON.stringify({ publicKeyHex: 'ab'.repeat(32), failures: 2, retryAt: 5 }) }],
+    ['both', { 'brainrot-reopen-pending-v1': 'ab'.repeat(32), 'brainrot-reopen-backoff-v1': JSON.stringify({ publicKeyHex: 'ab'.repeat(32), failures: 1, retryAt: 5 }) }],
+  ])('takes no copy on a retry when all written since the partial move is re-open bookkeeping: %s', (_name, reopen: Record<string, string>) => {
+    const original = {
+      'brainrot-player-v1': player('bb'),
+      'brainrot-found-collection-v1': '{"original":{"normalCount":2}}',
+      'brainrot-stats-v1': '{"packsOpened":3}',
+    };
+    for (const [key, value] of Object.entries(original)) store.set(key, value);
+    store.set(BACKUP, JSON.stringify(PREVIOUS));
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'brainrot-found-collection-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    expect(importSave(OLD, () => true)).toBe('partial');
+    expect(keptCopies()).toEqual([PREVIOUS, original]);
+    vi.restoreAllMocks();
+
+    // A reload resumes (or backs off) a re-open before the retry; that marks no progress.
+    for (const [key, value] of Object.entries(reopen)) store.set(key, value);
+
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(keptCopies()).toEqual([PREVIOUS, original]);
+  });
+
+  it.each([
     ['unreadable', '{not json'],
     ['not a copy of a save', JSON.stringify({ 'brainrot-player-v1': JSON.parse(player('bb')), 'brainrot-stats-v1': { packsOpened: 4 } })],
   ])('backs up the save here as usual when the pending copy is %s', (_name, pending) => {
