@@ -6,6 +6,7 @@ import { monitor, expectDecoded, fingerFor, snapshot } from './support';
  * and 1280x800, at 100% and 200% text, and nothing but the pack's X (or Escape, Back, or the actions)
  * leaves it. The phone runs are Pixel 5 emulation with touch and an emulated 34px home-indicator
  * inset, not a real phone; 200% text is emulated by doubling the root font size the rem tokens use.
+ * The drags that select the card viewer's text use Playwright's emulated mouse in both runs.
  */
 
 const PHONE = { width: 360, height: 640 };
@@ -114,6 +115,35 @@ async function outsideViewer(page: Page) {
   });
 }
 
+/**
+ * Two mouse drags in the open card viewer that end on its body's empty space, where the browser fires
+ * the click on the body (their common ancestor): one from the card, one across the first line of its
+ * text (the flavor, or the rarity) to the body's padding on the right of that line.
+ */
+function viewerDrags(page: Page) {
+  return page.locator('.sheet').evaluate((panel) => {
+    const body = panel.querySelector('.sheet-body')!;
+    const onBody = (x: number, y: number) => document.elementFromPoint(x, y) === body;
+    const card = panel.querySelector('.card-viewer-card')!.getBoundingClientRect();
+    const area = body.getBoundingClientRect();
+    let empty: { x: number; y: number } | null = null;
+    for (let y = Math.ceil(area.top) + 2; !empty && y < area.bottom; y += 6) {
+      for (let x = Math.ceil(area.left) + 2; x < area.right; x += 6) if (onBody(x, y)) { empty = { x, y }; break; }
+    }
+    const info = panel.querySelector('.card-viewer-info')!;
+    const range = document.createRange();
+    range.selectNodeContents(info.querySelector('.card-viewer-flavor') ?? info.firstElementChild!);
+    const line = range.getClientRects()[0];
+    const y = Math.round(line.top + line.height / 2);
+    let right: number | null = null;
+    for (let x = Math.floor(area.right) - 2; right === null && x > line.right; x -= 2) if (onBody(x, y)) right = x;
+    return {
+      fromCard: empty && { x0: card.left + card.width / 2, y0: card.top + card.height / 2, x1: empty.x, y1: empty.y },
+      acrossText: right === null ? null : { x0: Math.ceil(line.left) + 2, y0: y, x1: right, y1: y },
+    };
+  });
+}
+
 for (const textZoom of [100, 200]) {
   test(`keeps the summary's actions on screen at ${textZoom}% text while the cards scroll past the last one`, async ({ page, baseURL }) => {
     test.setTimeout(60000);
@@ -167,7 +197,7 @@ for (const textZoom of [100, 200]) {
   });
 }
 
-test('card taps, swipes and empty space never leave the summary; the viewer closes from outside, the X leaves', async ({ page, baseURL, hasTouch }) => {
+test('card taps, swipes and empty space never leave the summary; the viewer closes from outside, not from a drag off its text, the X leaves', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   const { errors, packShell } = await openSummary(page, baseURL!);
   const summary = page.locator('.pack-summary');
@@ -209,7 +239,8 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
     await expect(dialog, `swipe ${index + 1} opened a card`).toHaveCount(0);
   }
 
-  // A tap on a card opens it over the summary; a tap outside it closes only the viewer.
+  // A tap on a card opens it over the summary; a tap outside it closes only the viewer and gives focus
+  // back to the card. Dragging from the card, or across its text, onto the empty space leaves it open.
   for (const index of [0, 4]) {
     const card = page.locator('.summary-card').nth(index);
     await card.scrollIntoViewIfNeeded();
@@ -220,8 +251,23 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
     expect(outside, 'no empty space outside the card to tap').not.toBeNull();
     // A wide screen shows the backdrop around the card; a phone's bare sheet covers it.
     if (!isPhone()) expect(outside!.hit).toBe('sheet-backdrop');
+
+    const drags = await viewerDrags(page);
+    for (const [name, drag] of Object.entries(drags)) {
+      expect(drag, `no empty space in the viewer's body for the drag ${name}`).not.toBeNull();
+      const { x0, y0, x1, y1 } = drag!;
+      await page.mouse.move(x0, y0);
+      await page.mouse.down();
+      await page.mouse.move(x1, y1, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(200);
+      await expect(dialog, `a drag ${name} to the empty space closed card ${index + 1}`).toBeVisible();
+    }
+    await page.evaluate(() => getSelection()?.removeAllRanges());
+
     await tap(outside!.x, outside!.y);
     await expect(dialog).toHaveCount(0);
+    await expect(card, `closing card ${index + 1} from outside didn't give focus back to it`).toBeFocused();
     await stays(`closing card ${index + 1} from outside`);
   }
 

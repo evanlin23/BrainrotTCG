@@ -99,8 +99,9 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   scroll lock, focus returns to the opener. Sheets stack (a card opened from the collection sits on
   top of it). Sizes: `sm` (the scoring guide, short notices such as an invalid link, Report a
   problem), `md` (one pull, share previews, the pack behind an achievement), `lg` (shared profiles,
-  pack shelf), `full` (full-viewport variant, unused for now); `bare` for a single big card, closed
-  by a tap anywhere outside it.
+  pack shelf), `full` (full-viewport variant, unused for now); `bare` for a single big card (the card
+  viewer), which also closes on a tap on its empty space or the backdrop, never on the card or its
+  text (a press must start and end there, so selecting the text never closes it).
 - **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one page holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.

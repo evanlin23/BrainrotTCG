@@ -27,8 +27,9 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 /**
  * Every panel in the app: a bottom sheet on phones, a centred dialog on wide screens.
- * Closes with Escape, the close button or the backdrop (a bare sheet's empty space too); traps focus
- * while open and gives it back to whatever opened it; locks page scroll.
+ * Closes with Escape, the close button or the backdrop (a bare sheet's empty space too, when a press
+ * both starts and ends there); traps focus while open and gives it back to whatever opened it; locks
+ * page scroll.
  */
 const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare = false, className = '' }: SheetProps) => {
   const id = useId();
@@ -40,6 +41,13 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
   const replacesPlaceholder = useContext(SheetSettledContext);
   const [settled] = useState(replacesPlaceholder);
   const onCloseRef = useRef(onClose);
+  /**
+   * A bare sheet's main-button press on its own empty space: 'down' once it starts there, 'up' once it
+   * also ends there. Only then does the click that follows close it, so a drag that selects the card's
+   * text and ends on the empty space (whose click lands on the common ancestor) or a click no pointer
+   * pressed (a screen reader's double-tap on the focused dialog, a script) leaves it open.
+   */
+  const press = useRef<'down' | 'up' | null>(null);
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
@@ -110,6 +118,7 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
   }, [children]);
 
   const titleId = `${id}-title`;
+  const isEmpty = (target: EventTarget) => target === panelRef.current || target === bodyRef.current;
   return createPortal(
     <div className={`sheet-root sheet-root--${size} ${bare ? 'sheet-root--bare' : ''} ${settled ? 'sheet-root--settled' : ''}`}>
       <div className="sheet-backdrop" onClick={onClose} aria-hidden="true" />
@@ -121,8 +130,13 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
         aria-labelledby={titleId}
         tabIndex={-1}
         // Bare content floats on the backdrop, so the panel's own empty space is backdrop too (a phone has no other).
+        onPointerDown={bare ? (event) => { press.current = event.button === 0 && isEmpty(event.target) ? 'down' : null; } : undefined}
+        onPointerUp={bare ? (event) => { press.current = press.current === 'down' && isEmpty(event.target) ? 'up' : null; } : undefined}
+        onPointerCancel={bare ? () => { press.current = null; } : undefined}
         onClick={bare ? (event) => {
-          if (event.target === event.currentTarget || event.target === bodyRef.current) onClose();
+          const pressed = press.current === 'up';
+          press.current = null;
+          if (pressed && isEmpty(event.target)) onClose();
         } : undefined}
       >
         <div className="sheet-header">
