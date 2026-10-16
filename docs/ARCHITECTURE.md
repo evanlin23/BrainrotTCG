@@ -237,7 +237,7 @@ import's copy (with no such keys there is nothing to copy, and an earlier import
 copy can't be stored, nothing is imported; a failed import keeps it). Fields the file omits keep their stored values, except that a
 different player's save clears this browser's player fields (recovery archive included), which then
 stay only in that backup. It clears those fields, writes a new `brainrot-save-stamp-v1` before any imported field, clears
-them again, and writes the identity last; on failure it removes what it wrote and
+them again (even ones that were absent, which a tab still on the old save may have just written), and writes the identity last; on failure it removes what it wrote and
 restores the previous values. That is structural validation and best-effort rollback, not a
 transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
@@ -263,7 +263,8 @@ than v3 (checked as migrations and the profile read them), and a missing `brainr
 is stored as `1` so the save's migrations run; otherwise the result is `invalid` and nothing is
 written. Neither side's `brainrot-before-*` backups are handed over. Replacing a different
 player's progress asks first and copies the current save into `brainrot-before-move-v1`, overwriting
-an earlier move's copy; if that copy can't be stored, nothing is written and the result is `full`
+an earlier move's copy, then removes that save's keys (player and stamp first, so a tab still on it
+stops writing); if that copy can't be stored, nothing is written and the result is `full`
 (storage quota) or `invalid`. Into a browser without progress, keys the save doesn't carry stay and
 no copy is taken. A failed write removes what it wrote and restores the previous values, then puts
 the earlier move's copy back, or removes the new one if there was none (best effort, not a
