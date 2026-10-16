@@ -5,6 +5,7 @@ import {
   HOLO_MULTIPLIER,
   MISPRINT_MULTIPLIER,
   MODIFIERS_V1,
+  ODDS_TOTAL,
   POKER_HANDS,
   RARITIES_RAREST_FIRST,
   RARITY_POINTS,
@@ -38,6 +39,12 @@ const formatChance = (p: number) => {
 /** "Silver up to Diamond": the commonest finish to the rarest. */
 const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.length - 1]].name} up to ${FINISH_INFO[FINISHES_RAREST_FIRST[0]].name}`;
 
+/** A per-card chance in basis points, as the tables show it: "2.5%". */
+const formatPerCard = (basisPoints: number) => `${(basisPoints / 100).toLocaleString()}%`;
+
+/** The finish the worked example uses. */
+const EXAMPLE_FINISH = 'GOLD' as const;
+
 /** The card guide: what makes a card rare or special, and how Brainrot Score works, with the exact odds for this set. */
 const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
   const odds = useMemo(() => handOdds(set), [set]);
@@ -45,6 +52,12 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
   const rarities = [...RARITIES_RAREST_FIRST].reverse().filter((r) => set.odds[r] > 0);
   const commonest = rarities[0];
   const rarest = rarities[rarities.length - 1];
+  const hasModifiers = set.modifiers === 1;
+  const finishName = FINISH_INFO[EXAMPLE_FINISH].name;
+  // The worked example: holo and a finish are separate per-card rolls, so their chances multiply,
+  // apart from the rarity roll; points multiply the same way.
+  const exampleModifierChance = (set.holoOdds / ODDS_TOTAL) * (hasModifiers ? MODIFIERS_V1.finishOdds[EXAMPLE_FINISH] / ODDS_TOTAL : 1);
+  const exampleMultiplier = HOLO_MULTIPLIER * (hasModifiers ? FINISH_MULTIPLIER[EXAMPLE_FINISH] : 1);
 
   return (
     <Sheet title="Card guide" subtitle={`Rarity, modifiers and scoring for ${set.name}`} onClose={onClose} size="sm" className="scoring-guide">
@@ -55,14 +68,20 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         <p className="scoring-note">
           <strong>Holo</strong> is a shiny copy that any card can roll, whatever its rarity. It multiplies that card&apos;s points.
         </p>
-        {set.modifiers === 1 && (
+        {hasModifiers && (
           <p className="scoring-note">
-            <strong>Finishes</strong> ({FINISH_RANGE}) and <strong>misprints</strong> are rarer extras on top. They stack with holo and with each other.
+            <strong>Finishes</strong> ({FINISH_RANGE}) and <strong>misprints</strong> are rarer extras. A card gets one finish at most, but holo, a finish and a misprint can all land on the same card.
           </p>
         )}
+        {set.modifiers === undefined && (
+          <p className="scoring-note">{set.name} has no finishes or misprints: only rarity and holo.</p>
+        )}
+        <p className="scoring-note">
+          Each card rolls its rarity{hasModifiers ? ', holo, finish and misprint' : ' and holo'} separately, so any card can get any mix. Its points multiply: rarity points × holo{hasModifiers ? ' × finish × misprint' : ''}.
+        </p>
         {specialChance !== null && (
           <p className="scoring-note">
-            Holo{set.modifiers === 1 ? ', finished and misprinted cards are' : ' cards are'} special cards: about {formatChance(specialChance)} of packs have at least one.
+            Holo{hasModifiers ? ', finished and misprinted cards are' : ' cards are'} special cards: about {formatChance(specialChance)} of packs have at least one.
           </p>
         )}
 
@@ -93,9 +112,9 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
           </tbody>
         </table>
 
-        {set.modifiers === 1 && (
+        {hasModifiers && (
           <>
-            <h3>Finishes and misprints (they all stack)</h3>
+            <h3>Finishes and misprints</h3>
             <table className="scoring-table">
               <thead>
                 <tr><th>Modifier</th><th>Chance per card</th><th>Points</th></tr>
@@ -117,6 +136,15 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
             </table>
           </>
         )}
+
+        <h3>Example: a holo{hasModifiers ? ` ${finishName}` : ''} card</h3>
+        <p className="scoring-note">
+          Holo ({formatPerCard(set.holoOdds)} of cards){hasModifiers ? <> and {finishName} ({formatPerCard(MODIFIERS_V1.finishOdds[EXAMPLE_FINISH])})</> : null} {hasModifiers ? 'are separate rolls, so a card gets both' : 'is its own roll, so a card is holo'} about 1 in {formatOneIn(oneIn(exampleModifierChance))} times, whatever its rarity. Rarity is a roll of its own: {CARD_RARITIES[commonest].name} is {formatPerCard(set.odds[commonest])} of cards.
+        </p>
+        <p className="scoring-formula">
+          {CARD_RARITIES[commonest].name} {RARITY_POINTS[commonest].toLocaleString()} × holo {HOLO_MULTIPLIER}
+          {hasModifiers ? ` × ${finishName} ${FINISH_MULTIPLIER[EXAMPLE_FINISH].toLocaleString()}` : ''} = <strong>{(RARITY_POINTS[commonest] * exampleMultiplier).toLocaleString()} points</strong>
+        </p>
 
         <h3>Combos (same card more than once)</h3>
         <table className="scoring-table">
