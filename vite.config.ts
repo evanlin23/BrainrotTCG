@@ -2,7 +2,7 @@ import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { testBudget } from './scripts/test-budget'
+import { testBudget } from './scripts/test-budget.ts'
 
 const GITHUB_PAGES_URL = 'https://evanlin23.github.io/BrainrotTCG/'
 const buildRevision = () => {
