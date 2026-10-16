@@ -250,17 +250,50 @@ describe('failure and retry', () => {
     expect(img.dataset.state).toBe('loading');
   });
 
-  it('marks a loading image scrolled out of view so its shimmer pauses, and stops watching once it settles', async () => {
+  it('keeps a loaded image ready when the same card without a finish switches between thumbnail and full size (#484)', async () => {
+    const plain = ALL_CARDS[0];
+    await act(async () => root.render(<CardImage src={plain.image} thumbnail alt="" />));
+    const img = container.querySelector('img')!;
+    // jsdom loads no images: from here on the img reports the art it shows as fully loaded, as a browser would.
+    const complete = vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    const naturalWidth = vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(256);
+    try {
+      await fire(img, 'load');
+      expect(img.dataset.state).toBe('ready');
+      // Same src either way, so no new load event comes.
+      await act(async () => root.render(<CardImage src={plain.image} alt="" />));
+      expect(img.getAttribute('src')).toBe(plain.image);
+      expect(img.dataset.state).toBe('ready');
+      await act(async () => root.render(<CardImage src={plain.image} thumbnail alt="" />));
+      expect(img.dataset.state).toBe('ready');
+
+      // A new URL the img hasn't finished still waits for its load event.
+      naturalWidth.mockReturnValue(0);
+      await act(async () => root.render(<CardImage src={card.image} thumbnail alt="" />));
+      expect(img.dataset.state).toBe('loading');
+      await fire(img, 'load');
+      expect(img.dataset.state).toBe('ready');
+    } finally {
+      complete.mockRestore();
+      naturalWidth.mockRestore();
+    }
+  });
+
+  it('marks a loading image scrolled out of view so its shimmer pauses, and stops watching once it settles or unmounts', async () => {
     const observed = new Set<Element>();
     let notify: IntersectionObserverCallback | undefined;
+    const unobserve = vi.fn((element: Element) => observed.delete(element));
     vi.stubGlobal('IntersectionObserver', class {
       constructor(callback: IntersectionObserverCallback) { notify = callback; }
       observe(element: Element) { observed.add(element); }
-      unobserve(element: Element) { observed.delete(element); }
+      unobserve = unobserve;
       disconnect() { observed.clear(); }
     });
     const scroll = (target: Element, isIntersecting: boolean) =>
       act(() => notify!([{ target, isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver));
+    // The module keeps one observer for every image: a fresh copy makes it this test's, whatever ran before.
+    vi.resetModules();
+    const { default: CardImage } = await import('./CardImage');
 
     await act(async () => root.render(<CardImage src={card.image} alt="" />));
     const img = container.querySelector('img')!;
@@ -279,6 +312,15 @@ describe('failure and retry', () => {
     // An entry queued before it stopped watching changes nothing.
     scroll(img, false);
     expect(img.hasAttribute('data-offscreen')).toBe(false);
+
+    // One still loading when it unmounts stops being watched too.
+    await act(async () => root.render(<CardImage key="next" src={ALL_CARDS[0].image} alt="" />));
+    const next = container.querySelector('img')!;
+    expect(observed.has(next)).toBe(true);
+    unobserve.mockClear();
+    await act(async () => root.render(<></>));
+    expect(unobserve).toHaveBeenCalledExactlyOnceWith(next);
+    expect(observed.size).toBe(0);
   });
 
   it('recovers failed images without a control when any retry runs or the device comes back online', async () => {

@@ -695,7 +695,11 @@ function App() {
               }} onChanged={recoveryChanged} onLeave={() => {
                 (reloadRef.current ?? document.querySelector<HTMLElement>('.page-title') ?? logoRef.current)?.focus();
               }} />
-              <button type="button" className="link-btn save-warning-action" onClick={hideRecoveryNote}>Hide note</button>
+              <button type="button" className="link-btn save-warning-action" onClick={() => {
+                hideRecoveryNote();
+                // The note and its buttons leave: focus goes to the open page's heading, or the logo.
+                (document.querySelector<HTMLElement>('.page-title') ?? logoRef.current)?.focus();
+              }}>Hide note</button>
             </>
           )}
         </p>
