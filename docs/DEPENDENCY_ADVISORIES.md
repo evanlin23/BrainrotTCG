@@ -14,8 +14,9 @@ re-run. A finding is a package and can carry several advisories.
 | Root, `npm audit --omit=dev` | 0 in 16 production packages | 0 |
 | `tools/wrangler`, both commands | 0 in 91 packages | 0 (unchanged) |
 
-Nothing remains open: the 2026-10-16 re-run reports 0 for both commands at the root and in `tools/wrangler`. The 34 findings quoted in #230 on 2026-10-13 were already gone by the first
-triage (#413, at 9d806ff).
+Nothing remains open: the 2026-10-16 re-run reports 0 for both commands at the root and in
+`tools/wrangler`. The 34 findings quoted in #230 on 2026-10-13 were already gone by the first triage
+(#413, at 9d806ff).
 
 ## Fixed findings
 
