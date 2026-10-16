@@ -56,6 +56,7 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
+  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors
 
 src/content/       Set data, art and registry; existing schemas use the existing engine.
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
@@ -85,6 +86,8 @@ src/game/          Browser glue around the engine.
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
   collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
+  progressWriter.ts  stores committed progress field by field, behind both save guards, and owes
+                     packs to the pending shelf until stored (App uses it via hooks/useProgressWriter.ts)
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
   route.ts           the page addresses (#/cards, #/rankings, #/profile, #/settings) and their titles
 
@@ -204,6 +207,58 @@ order uses the time the bot first verified that exact pull on the issue (a marke
 the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
 counts once, however many times it's submitted or re-signed. A maintainer can drop an entry by adding
 the `rejected` label to its issue.
+
+### Ranking boards (`src/engine/rankings.ts`)
+
+This is an engine contract only (#223, #338). Nothing publishes or shows these boards yet, and the
+Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with these fields:
+
+- the schema version, scope and capacity;
+- the `SCORING_ERA` its scores came from;
+- completeness: complete, or partial with a reason;
+- `certifiedThrough`: how far down the ranking the board holds every candidate there is;
+- freshness: `generatedAt`, the latest first receipt, and source counts for candidates,
+  duplicates, other eras and uncertain entries.
+
+All boards use one order: score, then the earlier trusted first receipt, then pull id. Receipt
+times are compared as instants (`receiptTime`), so GitHub's `…07Z` and a client's `…07.123Z` sort
+correctly. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
+last. The pack summary's `bestPullOrder` lists the earlier slot first instead; boards don't follow it.
+
+| Board | Ranks | Identity | Size | Where |
+| --- | --- | --- | --- | --- |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
+| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
+| Best versions of this card (#224) | one card's instances | `pullId#slot` | - | card details |
+
+Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
+destinations. Best versions of this card opens from a card's details.
+
+- **Evidence.** Inputs are verified pack reconstructions (`packEvidence` from `verifyProof`), never
+  a client's score.
+- **Card entries.** A card scores `cardPoints` before the combo multiplier. It carries its exact
+  modifiers, set id and version, proof and slot.
+- **Independent cutoffs.** One proof can feed both boards. A weak pack with one great card makes
+  Best cards without making Best packs.
+- **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
+  pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
+  until they are re-derived from their proofs.
+- **Rebuilds.** `rebuildBoard` rebuilds from retained evidence after removals. Its coverage
+  defaults to the previous board's `certifiedThrough`:
+  - Exact with coverage `all`, when every candidate was kept.
+  - With a winners-only cache, the board certifies only places at or above the previous bound. It
+    comes back shorter and partial (`runners-up-not-retained`) rather than promoting runners-up
+    it never kept. The bound is stored, so it survives removing every entry.
+  - A `min-score` board stays partial (`below-intake-minimum`) unless a wider coverage is passed.
+- **Intake minimum.** A pack scores at least each of its cards' points (`scorePack`: the combo
+  multiplier is never below 1), so every card worth `HALL_OF_FAME_MIN_SCORE` or more sits in a
+  pack that qualified. That bound holds only over every filed issue, not over the pruned
+  `hallOfFameList`. It also holds only while the top 100 has room: once it fills, intake refuses
+  packs that don't beat the 100th place, so the bound rises to just above the highest 100th-place
+  score intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
+  (`below-intake-minimum`). So the card board lists only cards worth at least 20,000 and stays
+  partial until intake has filed enough of them to fill it.
+- **Daily boards** come later.
 
 ## Sharing and link previews
 
@@ -353,7 +408,8 @@ sealed, with no ticket spent); one opened before then waits on the pending shelf
 opened as (if the shelf takes it, as below), and other players' packs stay there when this one's
 change. Two tabs of the same player (no import or switch, so the stamp can't tell) are guarded too:
 every write also compares the stored collection, stats, Hall of Fame and achievements with what the
-tab last read or stored (`src/game/progressGuard.ts`, plus a storage listener), and a tab another tab
+tab last read or stored (`src/game/progressGuard.ts`, plus a storage listener; the writes and
+put-backs are in `src/game/progressWriter.ts`), and a tab another tab
 has written past stops the same way instead of storing its older copy over that tab's packs. Packs it
 took off the pending shelf at load and hasn't stored or shelved since go back on it for the next load
 to add. Packs it opened itself aren't put back: any the shelf took when they opened are still there

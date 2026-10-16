@@ -16,21 +16,22 @@ import { cardPoints, scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
-import { clearPendingPack, onShelf, savePendingPack, takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
+import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
-import { getStoredData, setStoredData } from './utils/storage';
+import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
-import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery, persistCollection } from './game/collectionRecovery';
+import { collectionRecoveryDismissed, collectionRecoveryNote, dismissCollectionRecovery } from './game/collectionRecovery';
 import { musicLevel, readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
-import { getHistory, recordMissing } from './game/history';
-import { getPlayer, sameSave, saveMark, watchPlayer } from './game/player';
+import { getHistory } from './game/history';
+import { sameSave, saveMark, watchPlayer } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
+import { useProgressWriter } from './hooks/useProgressWriter';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import {
@@ -117,28 +118,17 @@ function App() {
     setStaleSave(true);
     return false;
   }, [samePlayer]);
-  const previousProgress = useRef<Map<string, unknown> | null>(null);
-  // Packs given to the collection that it hasn't stored yet: each stays on the pending shelf till then.
-  const unsavedPacks = useRef<OpenedPack[]>([]);
-  // Of those, the ones this tab took off the shelf at load and that haven't been back on it since: only
-  // this tab has them. Once one is back on the shelf it is the next load's to add (another tab may take
-  // and store it), so it leaves this list.
-  const takenPacks = useRef<OpenedPack[]>([]);
-  // A tab that stops for another tab's progress (see progressCurrent) puts these back on the shelf for the
-  // next load, as they were (its count of them was never stored). Its other packs went on the shelf when
-  // they opened, and the other tab may have taken and stored them since: one put back would be added
-  // twice. If storage refuses, they stay owed here with the save warning up, and the next change or
-  // another tab's write tries again.
-  // After another tab's import or player switch (see samePlayer) they stay here, as on every write: the
-  // shelf then holds another save's packs, and onShelf matches a nonce, not a player.
-  const putBackTaken = useCallback(() => {
-    if (takenPacks.current.length === 0 || !samePlayer()) return;
-    savePendingPack(...takenPacks.current);
-    takenPacks.current = takenPacks.current.filter((pack) => !onShelf(pack.nonce));
-    if (takenPacks.current.length === 0) return;
-    setSaveFailed(true);
-    console.error(`${takenPacks.current.length} pack(s) couldn't be put back on the pending shelf: only this tab has them, and newer progress from another tab is stored.`);
-  }, [samePlayer]);
+  // Stores progress once React commits it, refusing once the save changed under this tab, and owes
+  // packs to the pending shelf until a stored collection holds them (see game/progressWriter.ts).
+  const { packAdded, packsTaken, putBackTaken } = useProgressWriter({ collection, achievements, stats, hallOfFame, settings }, {
+    samePlayer, progressCurrent, noted: progress.noted,
+    stale: () => setStaleSave(true),
+    failed: () => setSaveFailed(true),
+    keptAside: (note, dismissed) => {
+      setRecoveryNote(note);
+      setRecoveryNoteHidden(dismissed);
+    },
+  });
   // Download and Discard of the kept-aside data, checked on every click and again on the confirm. After
   // another tab's import or player switch the archive can hold that save's data (saveFile keeps it there):
   // discarding would delete its only copy, and a download would mix it with this tab's unsaved payloads.
@@ -150,83 +140,6 @@ function App() {
     putBackTaken();
     return false;
   }, [samePlayer, progressCurrent, putBackTaken]);
-
-  // Persist committed state, never during a React updater (which can be replayed).
-  // Skip the initial snapshot and do not retry automatically or imply a multi-field commit.
-  useEffect(() => {
-    const fields: [string, unknown][] = [
-      [STORAGE_KEYS.ACHIEVEMENTS, achievements], [STORAGE_KEYS.STATS, stats],
-      [STORAGE_KEYS.HALL_OF_FAME, hallOfFame], [STORAGE_KEYS.SETTINGS, settings],
-    ];
-    const previous = previousProgress.current;
-    previousProgress.current = new Map([[STORAGE_KEYS.COLLECTION, collection], ...fields]);
-    if (!previous) return;
-    // Checked at every write, not only on the storage event (which can come late, or not at all):
-    // packs given to the collection meanwhile stay on the pending shelf, under the player they opened as.
-    if (!samePlayer()) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- the stored save is the external system here
-      setStaleSave(true);
-      return;
-    }
-    // Another tab of this player stored progress since this one read it (see progressCurrent).
-    if (!progressCurrent()) {
-      setStaleSave(true);
-      putBackTaken();
-      return;
-    }
-    let statsHandled = false;
-    // The collection archives stored entries it couldn't read before replacing them (or keeps them).
-    if (previous.get(STORAGE_KEYS.COLLECTION) !== collection) {
-      const result = persistCollection(collection);
-      const packs = unsavedPacks.current;
-      if (result === 'blocked') {
-        setSaveFailed(true);
-        // Every pack the collection couldn't store goes (back) on the shelf for the next load to add (an
-        // older build's pack goes back into its own entry, while it is still there: see game/pulls.ts).
-        // Marked as counted first, then the stats that count them are stored; if they can't be (or a
-        // full shelf can't take one), the packs go back unmarked so that load counts them (and the stats
-        // wait for it). If the marked copies fit but neither the stats nor the unmarked copies can be
-        // stored, the shelf keeps the marked ones: the next load adds those packs without counting them
-        // unless this tab stores them first.
-        if (packs.length > 0) {
-          const marked = packs.map((pack) => ({ ...pack, counted: true }));
-          statsHandled = true;
-          const shelved = savePendingPack(...marked);
-          if (shelved && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks.current = marked;
-          // Packs taken off the shelf at load may not fit back on it: they stay owed by this tab, and the
-          // next collection change tries again. If the marked copies did fit but the stats didn't, those
-          // copies are what the shelf still holds.
-          else if (!savePendingPack(...packs)) {
-            console.error(
-              shelved
-                ? `${packs.length} pack(s) are on the pending shelf marked as counted, but the stats counting them couldn't be stored: the next load would add them uncounted unless this tab stores them first.`
-                : `${packs.length} pack(s) couldn't be put back on the pending shelf: only this tab has them until its collection is stored.`,
-            );
-          }
-          // Any taken at load that went back on the shelf (marked or not) are the next load's now.
-          takenPacks.current = takenPacks.current.filter((pack) => !onShelf(pack.nonce));
-        }
-      } else {
-        unsavedPacks.current = [];
-        takenPacks.current = [];
-        if (packs.length > 0) clearPendingPack(...packs.map((pack) => pack.nonce));
-      }
-      // A ticket mapping the history couldn't take when its pack opened goes in once this save is done.
-      if (packs.length > 0 && !recordMissing(packs, getPlayer().publicKeyHex)) setSaveFailed(true);
-      // The archive can be written even when the collection then can't be.
-      if (result !== 'saved' && collectionRecoveryState() !== 'none') {
-        setRecoveryNote(collectionRecoveryNote());
-        setRecoveryNoteHidden(collectionRecoveryDismissed());
-      }
-    }
-    for (const [key, value] of fields) {
-      if (key === STORAGE_KEYS.STATS && statsHandled) continue;
-      if (previous.get(key) === value) continue;
-      if (!setStoredData(key, value)) setSaveFailed(true);
-    }
-    // What this tab just stored (or, where storage refused, what it kept) is the progress it now holds.
-    progress.noted();
-  }, [collection, achievements, stats, hallOfFame, settings, samePlayer, progressCurrent, progress, putBackTaken]);
 
   // The page showing (Open has no hash), and any shared link open over it: see useRoute.
   const { route, proof: viewProof, profile: viewProfile, broken: brokenLink, navigate, closePage, closeLink } = useRoute();
@@ -501,7 +414,7 @@ function App() {
   }, [unlockAchievement]);
 
   const handlePackOpened = useCallback((pack: OpenedPack, from: PackProgress = { stats, collection, hallOfFame }): PackProgress => {
-    unsavedPacks.current.push(pack);
+    packAdded(pack);
     if (pack.unrecorded) setSaveFailed(true);
     // A pack put back on the shelf counted when it opened (stats, pack milestones): it only adds its cards.
     const counted = pack.counted === true;
@@ -619,7 +532,7 @@ function App() {
     // Check other achievements - get current state to avoid stale closure
     checkAllAchievements(newCards, pullRef, updatedCollection, counted ? from.stats : updatedStats, achievementsRef.current, !counted);
     return { stats: counted ? from.stats : updatedStats, collection: updatedCollection, hallOfFame: updatedHallOfFame };
-  }, [stats, hallOfFame, collection, checkAllAchievements, unlockAchievement]);
+  }, [stats, hallOfFame, collection, checkAllAchievements, unlockAchievement, packAdded]);
 
   // Packs whose reveal never finished (a reload, a closed tab): their tickets are spent, so they still count.
   // Once per mount: an older build's pack stays in its entry until stored, so a second take would add it again.
@@ -628,8 +541,7 @@ function App() {
     if (pendingTaken.current) return;
     pendingTaken.current = true;
     const taken = takePendingPacks();
-    // An older build's pack stays in its own entry until stored, so it was never taken off (see game/pulls.ts).
-    takenPacks.current = taken.filter((pack) => !pack.legacy);
+    packsTaken(taken);
     taken.reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

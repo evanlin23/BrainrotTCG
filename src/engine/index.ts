@@ -6,5 +6,6 @@ export * from './ticket';
 export * from './identity';
 export * from './proof';
 export * from './hallOfFame';
+export * from './rankings';
 export * from './odds';
 export * from './profile';
