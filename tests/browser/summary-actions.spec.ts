@@ -187,7 +187,7 @@ for (const textZoom of [200]) {
     await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
 
-    // Focus order is the page's: the heading, every card and its Share, the Card guide, then the actions.
+    // Focus order is the page's: the heading, the Card guide, every card and its Share, then the actions.
     // Each stop is on screen and not under anything, the stuck actions included.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = 0; });
     await page.locator('.summary-title').focus();

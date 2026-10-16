@@ -1,6 +1,6 @@
 /*
  * The one-screen pack summary (components/pack/PackSummaryUI.tsx, docs/DESIGN.md one-screen summary
- * rule): headline, the five cards in one row, the Card guide link, then the actions stuck to the
+ * rule): headline, the Card guide link, the five cards in one row, then the actions stuck to the
  * bottom. Scoped to .pack-summary so it wins over the older summary rules in PackOpener.css.
  */
 
@@ -58,6 +58,8 @@
  */
 .pack-summary .summary-cards {
   gap: var(--space-2);
+  /* The last content: clear of the actions' faded strip when scrolled to the end. */
+  margin-bottom: var(--space-2);
 }
 
 .pack-summary .summary-cards li {
@@ -92,14 +94,14 @@
   pointer-events: none;
 }
 
-/* Under the cards: the tap hint and the Card guide on one line, wrapping on narrow screens. */
+/* Above the cards, under the headline: the tap hint and the Card guide on one line, wrapping on narrow screens. */
 .summary-foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   column-gap: var(--space-2);
-  margin-top: var(--space-1);
+  margin-bottom: var(--space-2);
 }
 
 .summary-caption {

@@ -52,12 +52,12 @@ describe('special and new cards', () => {
 describe('result first', () => {
   const follows = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-  it('puts the heading with the score, then the cards, the Card guide, and the actions last, with the keyboard on the heading', () => {
+  it('puts the heading with the score, then the Card guide, the cards, and the actions last, with the keyboard on the heading', () => {
     act(() => root.unmount());
     root = createRoot(container);
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} holdOptional />));
     const [title, list, foot, actions] = ['.summary-title', '.summary-cards', '.summary-foot', '.summary-actions'].map((s) => container.querySelector(s)!);
-    expect(follows(title, list) && follows(list, foot) && follows(foot, actions)).toBe(true);
+    expect(follows(title, foot) && follows(foot, list) && follows(list, actions)).toBe(true);
     expect(actions.nextElementSibling).toBeNull();
     expect(title.textContent).toMatch(/^[\d,]+ Brainrot Score$/);
     expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Open another pack']);

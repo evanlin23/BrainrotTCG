@@ -82,6 +82,10 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
           <PackHeadline cards={openedCards} headingRef={headingRef} oneIn={oneIn}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
           </PackHeadline>
+          <div className="summary-foot">
+            {!viewed && <p className="summary-caption">Tap a card to see it up close</p>}
+            <CardGuideButton set={set} />
+          </div>
           <ul className="summary-cards" ref={cardsRef}>
             {shown.map((card) => (
               <li key={card.uniqueId}>
@@ -117,10 +121,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
               </li>
             ))}
           </ul>
-          <div className="summary-foot">
-            {!viewed && <p className="summary-caption">Tap a card to see it up close</p>}
-            <CardGuideButton set={set} />
-          </div>
 
           {/* Right after the result, and stuck to the bottom so they never scroll away. */}
           <div className="summary-actions" ref={actionsRef}>
