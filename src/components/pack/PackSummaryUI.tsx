@@ -74,7 +74,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
               <li key={card.uniqueId}>
                 <button
                   type="button"
-                  className={`summary-card ${card.rarity.toLowerCase()} ${card.isHolo ? 'holo' : ''} ${modifierThumb(card).className}`}
+                  className={`summary-card quiet-focus ${card.rarity.toLowerCase()} ${card.isHolo ? 'holo' : ''} ${modifierThumb(card).className}`}
                   style={modifierThumb(card).style}
                   onClick={() => setSelected(card)}
                   aria-label={`${card.name}, ${CARD_RARITIES[card.rarity].name}${modifierLabel(card) ? `, ${modifierLabel(card)}` : ''}${card.isNew ? ', new' : ''}`}

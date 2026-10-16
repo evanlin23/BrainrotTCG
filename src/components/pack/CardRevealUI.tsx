@@ -120,7 +120,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
           {currentCard && (
             <RevealCard
               key={currentCard.uniqueId}
-              className={`reveal-card ${celebration ? 'is-celebrating' : ''}`}
+              className={`reveal-card quiet-focus ${celebration ? 'is-celebrating' : ''}`}
               ref={cardRef}
               data-pack-keys
               onClick={onTap}

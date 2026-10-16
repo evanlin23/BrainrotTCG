@@ -1,0 +1,60 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from 'vitest';
+import { trackInputModality } from './inputModality';
+
+const modality = () => document.documentElement.dataset.input;
+const key = (k: string, target: EventTarget = document.body) =>
+  target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+const press = (target: EventTarget = document.body) => target.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+
+let stop: (() => void) | undefined;
+afterEach(() => {
+  stop?.();
+  stop = undefined;
+  delete document.documentElement.dataset.input;
+});
+
+describe('trackInputModality', () => {
+  it('starts as pointer', () => {
+    stop = trackInputModality();
+    expect(modality()).toBe('pointer');
+  });
+
+  it.each(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Escape'])('switches to keyboard on %j', (k) => {
+    stop = trackInputModality();
+    key(k);
+    expect(modality()).toBe('keyboard');
+  });
+
+  it('ignores bare modifiers and typed characters', () => {
+    stop = trackInputModality();
+    for (const k of ['Shift', 'Control', 'Alt', 'Meta', 'a', 'CapsLock']) key(k);
+    expect(modality()).toBe('pointer');
+  });
+
+  it('a pointer press after keys switches back, and keys after it switch again', () => {
+    stop = trackInputModality();
+    key('Tab');
+    press();
+    expect(modality()).toBe('pointer');
+    key('Enter');
+    expect(modality()).toBe('keyboard');
+    key('Shift');
+    expect(modality()).toBe('keyboard');
+  });
+
+  it('hears events a handler stops from bubbling', () => {
+    stop = trackInputModality();
+    const button = document.body.appendChild(document.createElement('button'));
+    button.addEventListener('keydown', (event) => event.stopPropagation());
+    key('Tab', button);
+    expect(modality()).toBe('keyboard');
+    button.remove();
+  });
+
+  it('stops listening once stopped', () => {
+    trackInputModality()();
+    key('Tab');
+    expect(modality()).toBe('pointer');
+  });
+});
