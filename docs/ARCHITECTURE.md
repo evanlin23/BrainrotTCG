@@ -214,11 +214,14 @@ Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with th
 - the schema version, scope and capacity;
 - the `SCORING_ERA` its scores came from;
 - completeness: complete, or partial with a reason;
+- `certifiedThrough`: how far down the ranking the board holds every candidate there is;
 - freshness: `generatedAt`, the latest first receipt, and source counts for candidates,
   duplicates, other eras and uncertain entries.
 
-All boards use one order: score, then the earlier trusted first receipt, then pull id. Within a
-pack, the later slot wins, as the pack reveal picks a best card.
+All boards use one order: score, then the earlier trusted first receipt, then pull id. Receipt
+times are compared as instants (`receiptTime`), so GitHub's `…07Z` and a client's `…07.123Z` sort
+correctly. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
+last. The pack summary's `bestPullOrder` lists the earlier slot first instead; boards don't follow it.
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
@@ -238,13 +241,21 @@ destinations. Best versions of this card opens from a card's details.
 - **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
   pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
   until they are re-derived from their proofs.
-- **Rebuilds.** `rebuildBoard` rebuilds from retained evidence after removals:
-  - Exact when every candidate was kept.
-  - With a winners-only cache, the board certifies only places at or above the previous last
-    entry. It comes back shorter and partial (`runners-up-not-retained`) rather than promoting
-    runners-up it never kept.
-- **Intake minimum.** A board built from filed issues is certified only down to
-  `HALL_OF_FAME_MIN_SCORE` (coverage `min-score`, partial `below-intake-minimum` past it).
+- **Rebuilds.** `rebuildBoard` rebuilds from retained evidence after removals. Its coverage
+  defaults to the previous board's `certifiedThrough`:
+  - Exact with coverage `all`, when every candidate was kept.
+  - With a winners-only cache, the board certifies only places at or above the previous bound. It
+    comes back shorter and partial (`runners-up-not-retained`) rather than promoting runners-up
+    it never kept. The bound is stored, so it survives removing every entry.
+  - A `min-score` board stays partial (`below-intake-minimum`) unless a wider coverage is passed.
+- **Intake minimum.** A pack scores at least each of its cards' points (`scorePack`: the combo
+  multiplier is never below 1), so every card worth `HALL_OF_FAME_MIN_SCORE` or more sits in a
+  pack that qualified. That bound holds only over every filed issue, not over the pruned
+  `hallOfFameList`. It also holds only while the top 100 has room: once it fills, intake refuses
+  packs that don't beat the 100th place, so the bound rises to just above the highest 100th-place
+  score intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
+  (`below-intake-minimum`). So the card board lists only cards worth at least 20,000 and stays
+  partial until intake has filed enough of them to fill it.
 - **Daily boards** come later.
 
 ## Sharing and link previews

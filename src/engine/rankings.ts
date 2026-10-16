@@ -26,7 +26,7 @@ export interface RankKey {
   slot?: number;
   /** Packs: the Brainrot Score. Cards: the card's own points, before the combo multiplier. */
   score: number;
-  /** When the pull was first verified, as toISOString writes it (compared as a plain string). */
+  /** When the pull was first verified, as receiptTime writes it (compared as a plain string). */
   firstReceivedAt: string;
   /** The SCORING_ERA the score was computed under. */
   scoringEra: number;
@@ -35,8 +35,19 @@ export interface RankKey {
 const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
+ * A receipt time in one format (toISOString's, with milliseconds), so that GitHub's "…:07Z" and the
+ * client's "…:07.123Z" compare by instant as plain strings. Throws on anything that isn't a time.
+ */
+export const receiptTime = (t: string): string => {
+  const ms = Date.parse(t);
+  if (Number.isNaN(ms)) throw new RangeError(`Not a receipt time: ${t}`);
+  return new Date(ms).toISOString();
+};
+
+/**
  * The one ranking order, best first: higher score, then the earlier first receipt, then the pull id,
- * then (within one pull) the later slot, as the pack reveal picks a pack's best card.
+ * then (within one pull) the later slot, as revealOrder shows it last. The pack summary's
+ * bestPullOrder lists the earlier of two equal cards first instead.
  */
 export const compareRanked = (a: RankKey, b: RankKey): number =>
   b.score - a.score || order(a.firstReceivedAt, b.firstReceivedAt) || order(a.pullId, b.pullId) || (b.slot ?? 0) - (a.slot ?? 0);
@@ -69,6 +80,12 @@ export interface RankingSnapshot<T extends RankKey = RankKey> {
   generatedAt: string;
   /** The latest first receipt among the ranked pulls (null when there were none). */
   latestReceivedAt: string | null;
+  /**
+   * How far down the ranking `entries` hold every candidate there is: everything (all), everything at
+   * or above an entry (through), or everything scoring at least a minimum (min-score). A rebuild
+   * starts from it, so the bound survives removing every entry.
+   */
+  certifiedThrough: Coverage;
   /** Inputs; duplicates, other eras and entries the coverage can't place are left off the board. */
   sources: { candidates: number; duplicates: number; otherEra: number; uncertain: number };
   entries: T[];
@@ -83,6 +100,9 @@ export interface BoardOptions {
   /** Defaults to all. */
   coverage?: Coverage;
 }
+
+const rankKey = ({ id, pullId, slot, score, firstReceivedAt, scoringEra }: RankKey): RankKey =>
+  slot === undefined ? { id, pullId, score, firstReceivedAt, scoringEra } : { id, pullId, slot, score, firstReceivedAt, scoringEra };
 
 const covers = (coverage: Coverage, e: RankKey): boolean =>
   coverage.kind === 'all' ||
@@ -108,12 +128,15 @@ export const selectBoard = <T extends RankKey>(candidates: readonly T[], options
   const certain = otherEra > 0 ? [] : ranked.filter((e) => covers(coverage, e));
   const complete = otherEra === 0 && (coverage.kind === 'all' || certain.length >= capacity);
   const reason: PartialReason = otherEra > 0 ? 'scoring-changed' : coverage.kind === 'min-score' ? 'below-intake-minimum' : 'runners-up-not-retained';
+  const certifiedThrough: Coverage =
+    otherEra > 0 ? { kind: 'through', last: null } : certain.length <= capacity ? coverage : { kind: 'through', last: rankKey(certain[capacity - 1]) };
   return {
     schemaVersion: RANKING_SCHEMA_VERSION,
     scope,
     capacity,
     scoringEra,
     completeness: complete ? { status: 'complete' } : { status: 'partial', reason },
+    certifiedThrough,
     generatedAt,
     latestReceivedAt: ranked.reduce<string | null>((latest, e) => (latest === null || e.firstReceivedAt > latest ? e.firstReceivedAt : latest), null),
     sources: { candidates: candidates.length, duplicates: candidates.length - otherEra - earliest.size, otherEra, uncertain: ranked.length - certain.length },
@@ -129,12 +152,13 @@ interface ScopeOptions {
 
 /**
  * Best packs: the Hall of Fame's top pulls through the shared schema. The same entries in the same
- * order as topPulls, except that two pulls tied on both score and time are placed by pull id rather
- * than by input order. Entries must be scored by the current engine.
+ * order as topPulls, except that receipt times are compared by instant (receiptTime) and two pulls
+ * tied on both score and time are placed by pull id rather than by input order. Entries must be
+ * scored by the current engine.
  */
 export const packBoard = <T extends RankableEntry>(entries: readonly T[], { generatedAt, capacity = HALL_OF_FAME_TOP, coverage }: ScopeOptions) =>
   selectBoard(
-    entries.map((e) => ({ ...e, pullId: e.id, firstReceivedAt: e.submittedAt, scoringEra: SCORING_ERA })),
+    entries.map((e) => ({ ...e, pullId: e.id, firstReceivedAt: receiptTime(e.submittedAt), scoringEra: SCORING_ERA })),
     { scope: 'packs', capacity, generatedAt, coverage },
   );
 
@@ -155,7 +179,7 @@ export const packEvidence = (pull: VerifiedPull, proof: string, firstReceivedAt:
   setId: pull.set.id,
   setVersion: pull.set.version,
   cards: pull.cards,
-  firstReceivedAt,
+  firstReceivedAt: receiptTime(firstReceivedAt),
 });
 
 /** The same evidence as a Best packs entry, scored as verifyProof scores it: one proof feeds both boards. */
@@ -194,7 +218,8 @@ export const cardInstanceId = (pull: string, slot: number): string => `${pull}#$
  * the evidence carries). Evidence must be engine output, so a malformed pack throws.
  */
 export const cardInstances = (evidence: readonly PackEvidence[]): CardInstance[] =>
-  [...evidence]
+  evidence
+    .map((e) => ({ ...e, firstReceivedAt: receiptTime(e.firstReceivedAt) }))
     .sort((a, b) => order(a.firstReceivedAt, b.firstReceivedAt) || order(a.proof, b.proof))
     .flatMap((e) =>
       e.cards.map((c, i): CardInstance => {
@@ -226,31 +251,31 @@ export const cardBoard = (evidence: readonly PackEvidence[], { generatedAt, capa
 
 /**
  * Rebuild a board from what was kept, after pulls are removed or new evidence arrives. `candidates`
- * are the kept entries (or their re-derivations) plus anything new. With every candidate kept
- * (`retainedAll`) the result is exact. Otherwise only the places the previous board certified count:
- * a winners-only cache that loses an entry gets a shorter, partial board instead of promoting
- * runners-up it never kept. After a scoring-era change nothing is certified until every candidate is
- * re-derived from its proof.
+ * are the kept entries (or their re-derivations) plus anything new. `coverage` is what the candidates
+ * are known to hold in full; it defaults to what the previous board certified (`certifiedThrough`),
+ * so a winners-only cache that loses an entry gets a shorter, partial board instead of promoting
+ * runners-up it never kept, and a board certified only above the intake minimum stays so. Pass
+ * `{ kind: 'all' }` only when the candidates really are every pull there is. After a scoring-era
+ * change the previous bound means nothing, so nothing is certified until the caller passes a coverage
+ * for candidates re-derived from their proofs.
  */
 export const rebuildBoard = <T extends RankKey>(
   previous: RankingSnapshot<T>,
   candidates: readonly T[],
-  { removed = [], retainedAll, generatedAt }: { removed?: Iterable<string>; retainedAll: boolean; generatedAt: string },
+  { removed = [], coverage, generatedAt }: { removed?: Iterable<string>; coverage?: Coverage; generatedAt: string },
 ): RankingSnapshot<T> => {
   const gone = new Set(removed);
   const eraChanged = previous.scoringEra !== SCORING_ERA;
-  const heldEverything = previous.completeness.status === 'complete' && previous.entries.length < previous.capacity;
-  const last = eraChanged || previous.entries.length === 0 ? null : previous.entries[previous.entries.length - 1];
   const board = selectBoard(
     candidates.filter((c) => !gone.has(c.pullId)),
-    { scope: previous.scope, capacity: previous.capacity, generatedAt, coverage: retainedAll || heldEverything ? { kind: 'all' } : { kind: 'through', last } },
+    {
+      scope: previous.scope,
+      capacity: previous.capacity,
+      generatedAt,
+      coverage: coverage ?? (eraChanged ? { kind: 'through', last: null } : previous.certifiedThrough),
+    },
   );
-  if (board.completeness.status === 'complete') return board;
-  const reason: PartialReason =
-    eraChanged || board.sources.otherEra > 0
-      ? 'scoring-changed'
-      : previous.completeness.status === 'partial'
-        ? previous.completeness.reason
-        : 'runners-up-not-retained';
-  return { ...board, completeness: { status: 'partial', reason } };
+  const stillStale =
+    coverage === undefined && (eraChanged || (previous.completeness.status === 'partial' && previous.completeness.reason === 'scoring-changed'));
+  return board.completeness.status === 'partial' && stillStale ? { ...board, completeness: { status: 'partial', reason: 'scoring-changed' } } : board;
 };

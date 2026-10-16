@@ -79,6 +79,15 @@ describe('Best packs', () => {
     expect(ids(packBoard([b, a], { generatedAt: NOW }).entries)).toEqual([a.id, b.id]);
     expect(ids(packBoard([a, b], { generatedAt: NOW }).entries)).toEqual([a.id, b.id]);
   });
+
+  it('compares receipt times by instant, whatever their precision', () => {
+    const a = { ...entry('set-a@1/aa/1', 500), submittedAt: '2026-10-01T12:00:07.123Z' }; // a pending entry's toISOString
+    const b = { ...entry('set-a@1/bb/1', 500), submittedAt: '2026-10-01T12:00:07Z' }; // a GitHub created_at, 123 ms earlier
+    const board = packBoard([a, b], { generatedAt: NOW });
+    expect(ids(board.entries)).toEqual([b.id, a.id]);
+    expect(board.entries.map((e) => e.firstReceivedAt)).toEqual(['2026-10-01T12:00:07.000Z', '2026-10-01T12:00:07.123Z']);
+    expect(() => packBoard([{ ...a, submittedAt: 'yesterday' }], { generatedAt: NOW })).toThrow(RangeError);
+  });
 });
 
 describe('Best cards', () => {
@@ -131,6 +140,16 @@ describe('Best cards', () => {
     expect(ids(cardBoard([early, twins, late], { generatedAt: NOW, capacity: 4 }).entries)).toEqual(ids(board.entries));
   });
 
+  it('compares card receipt times by instant, whatever their precision', () => {
+    const holoEpic = c('e1', 'EPIC', { isHolo: true });
+    const client = pack('cl', [holoEpic, ...filler], { at: '2026-10-01T12:00:07.123Z' });
+    const github = pack('gh', [holoEpic, ...filler], { at: '2026-10-01T12:00:07Z' });
+    const board = cardBoard([client, github], { generatedAt: NOW, capacity: 2 });
+    expect(ids(board.entries)).toEqual(['set-a@1/gh/1#0', 'set-a@1/cl/1#0']);
+    expect(board.entries[0].firstReceivedAt).toBe('2026-10-01T12:00:07.000Z');
+    expect(() => cardBoard([{ ...client, firstReceivedAt: 'yesterday' }], { generatedAt: NOW })).toThrow(RangeError);
+  });
+
   it('counts a pull once however often it was signed, and rejects malformed evidence', () => {
     const first = pack('dup', [c('l1', 'LEGENDARY'), ...filler], { at: '2026-02-01T00:00:00.000Z', proof: 'proof-first' });
     const resigned = { ...first, proof: 'proof-resigned', firstReceivedAt: '2026-03-01T00:00:00.000Z' };
@@ -171,6 +190,15 @@ describe('Best cards', () => {
     expect(cardBoard(evidence, { generatedAt: NOW, capacity: 1, coverage }).completeness).toEqual({ status: 'complete' });
   });
 
+  it('stays partial below the intake minimum when rebuilt without a new coverage', () => {
+    const evidence = [pack('big', [c('b1', 'BRAINROT', { isHolo: true }), ...filler]), pack('small', [c('l1', 'LEGENDARY'), ...filler])];
+    const partial = cardBoard(evidence, { generatedAt: NOW, coverage: { kind: 'min-score', score: HALL_OF_FAME_MIN_SCORE } });
+    expect(rebuildBoard(partial, cardInstances(evidence), { generatedAt: NOW })).toEqual(partial);
+    const everything = rebuildBoard(partial, cardInstances(evidence), { coverage: { kind: 'all' }, generatedAt: NOW });
+    expect(everything).toMatchObject({ completeness: { status: 'complete' }, certifiedThrough: { kind: 'all' } });
+    expect(everything.entries).toHaveLength(CARD_BOARD_SIZE);
+  });
+
   it('records schema, era and freshness', () => {
     const a = pack('a', filler.concat(c('e1', 'EPIC')), { at: '2026-04-01T00:00:00.000Z' });
     const b = pack('b', filler.concat(c('e1', 'EPIC')), { at: '2026-05-01T00:00:00.000Z' });
@@ -200,39 +228,54 @@ describe('Rebuilding a board', () => {
 
   it('promotes the true runner-up when every candidate was kept', () => {
     expect(ids(board.entries)).toEqual(['set-a@1/p1/1#0', 'set-a@1/p2/1#0', 'set-a@1/p3/1#0']);
-    const rebuilt = rebuildBoard(board, cardInstances(all), { removed, retainedAll: true, generatedAt: NOW });
+    const rebuilt = rebuildBoard(board, cardInstances(all), { removed, coverage: { kind: 'all' }, generatedAt: NOW });
     expect(rebuilt.entries).toEqual(cardBoard([p2, p3, p4], { generatedAt: NOW, capacity: 3 }).entries);
     expect(rebuilt.completeness).toEqual({ status: 'complete' });
   });
 
   it('goes partial instead of promoting a runner-up a winners-only cache never held', () => {
     const winners = cardInstances([p1, p2, p3]); // the winners' packs, all slots, re-derived from their proofs
-    const rebuilt = rebuildBoard(board, winners, { removed, retainedAll: false, generatedAt: NOW });
+    const rebuilt = rebuildBoard(board, winners, { removed, generatedAt: NOW });
     expect(ids(rebuilt.entries)).toEqual(['set-a@1/p2/1#0', 'set-a@1/p3/1#0']); // not p2's 700-point holo Rare
     expect(rebuilt.completeness).toEqual({ status: 'partial', reason: 'runners-up-not-retained' });
-    expect(rebuildBoard(board, board.entries, { removed, retainedAll: false, generatedAt: NOW }).entries).toEqual(rebuilt.entries);
+    expect(rebuildBoard(board, board.entries, { removed, generatedAt: NOW }).entries).toEqual(rebuilt.entries);
 
     // New evidence above the old cut is certain, so it can fill the board again.
     const p5 = top('p5', c('l1', 'LEGENDARY', { finish: 'SILVER' })); // 2,000
-    const refilled = rebuildBoard(board, [...winners, ...cardInstances([p5])], { removed, retainedAll: false, generatedAt: NOW });
+    const refilled = rebuildBoard(board, [...winners, ...cardInstances([p5])], { removed, generatedAt: NOW });
     expect(ids(refilled.entries)).toEqual(['set-a@1/p2/1#0', 'set-a@1/p5/1#0', 'set-a@1/p3/1#0']);
     expect(refilled.completeness).toEqual({ status: 'complete' });
   });
 
+  it('keeps the certified bound when every entry is removed', () => {
+    expect(board.certifiedThrough).toEqual({ kind: 'through', last: expect.objectContaining({ id: 'set-a@1/p3/1#0', score: 1_400 }) });
+    const gone = [p1.pullId, p2.pullId, p3.pullId];
+    const emptied = rebuildBoard(board, cardInstances([p1, p2, p3]), { removed: gone, generatedAt: NOW });
+    expect(emptied).toMatchObject({ entries: [], completeness: { status: 'partial', reason: 'runners-up-not-retained' } });
+    expect(emptied.certifiedThrough).toEqual(board.certifiedThrough);
+
+    // Later evidence above the old cut is certified again; the true runner-up (p4) still can't be.
+    const p5 = top('p5', c('l1', 'LEGENDARY', { finish: 'SILVER' })); // 2,000
+    const p6 = top('p6', c('r1', 'RARE')); // 35, below the cut
+    const refilled = rebuildBoard(emptied, cardInstances([p5, p6]), { generatedAt: NOW });
+    expect(ids(refilled.entries)).toEqual(['set-a@1/p5/1#0']);
+    expect(refilled).toMatchObject({ completeness: { status: 'partial', reason: 'runners-up-not-retained' }, sources: { uncertain: 9 } });
+  });
+
   it('keeps a board that held everything complete after a removal', () => {
     const roomy = cardBoard([p1], { generatedAt: NOW });
-    const rebuilt = rebuildBoard(roomy, roomy.entries, { removed: [], retainedAll: false, generatedAt: NOW });
+    const rebuilt = rebuildBoard(roomy, roomy.entries, { generatedAt: NOW });
     expect(rebuilt).toEqual(roomy);
-    const emptied = rebuildBoard(roomy, roomy.entries, { removed, retainedAll: false, generatedAt: NOW });
+    const emptied = rebuildBoard(roomy, roomy.entries, { removed, generatedAt: NOW });
     expect(emptied).toMatchObject({ entries: [], completeness: { status: 'complete' } });
   });
 
   it('certifies nothing after a scoring-era change until the proofs are re-derived', () => {
     const old = { ...board, scoringEra: SCORING_ERA - 1, entries: board.entries.map((e) => ({ ...e, scoringEra: SCORING_ERA - 1 })) };
-    const stale = rebuildBoard(old, old.entries, { retainedAll: false, generatedAt: NOW });
+    const stale = rebuildBoard(old, old.entries, { generatedAt: NOW });
     expect(stale).toMatchObject({ entries: [], scoringEra: SCORING_ERA, completeness: { status: 'partial', reason: 'scoring-changed' } });
-    expect(rebuildBoard(old, cardInstances([p1, p2, p3]), { retainedAll: false, generatedAt: NOW }).entries).toEqual([]);
-    const rederived = rebuildBoard(old, cardInstances(all), { retainedAll: true, generatedAt: NOW });
+    expect(rebuildBoard(old, cardInstances([p1, p2, p3]), { generatedAt: NOW }).entries).toEqual([]);
+    const rederived = rebuildBoard(old, cardInstances(all), { coverage: { kind: 'all' }, generatedAt: NOW });
     expect(rederived).toMatchObject({ entries: board.entries, completeness: { status: 'complete' } });
   });
 });
