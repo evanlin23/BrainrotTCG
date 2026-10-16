@@ -3,19 +3,21 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SETS } from '../../content/sets';
 import PackCuttingUI from './PackCuttingUI';
+import { REFUSAL_COPY, type PackRefusal } from './refusal';
 
-const render = (xs: number[], { pressing = false, nudging = false, tapped = false } = {}) =>
+const render = (xs: number[], { pressing = false, nudging = false, tapped = false, isPackCut = false, refusal = null as PackRefusal | null } = {}) =>
   renderToStaticMarkup(
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()}
       packDesign="pack.png"
       set={SETS[0]}
-      error={null}
+      refusal={refusal}
+      onOpen={() => {}}
       isCutting={xs.length > 1}
       pressing={pressing}
       nudging={nudging}
       tapped={tapped}
-      isPackCut={false}
+      isPackCut={isPackCut}
       cutPoints={xs.map((x) => ({ x, y: 19 }))}
       sparks={[]}
     />,
@@ -60,5 +62,33 @@ describe('the drawn cut', () => {
   it('draws nothing until the cut has a length', () => {
     expect(render([40])).not.toContain('cut-line');
     expect(render([])).not.toContain('cut-line');
+  });
+});
+
+describe('the controls under the pack (#312)', () => {
+  /** Every element's opening tag, so attributes can be checked per element. */
+  const tags = (html: string) => html.match(/<[a-z][^>]*>/g) ?? [];
+
+  it('opens it with a real Open pack button, and the pack itself is only a gesture surface', () => {
+    const html = render([]);
+    expect(html).toMatch(/<button type="button" class="btn btn--secondary btn--sm pack-open-button">Open pack<\/button>/);
+    // No fake button: nothing but a real button takes the role, a Tab stop or a name that opens the pack.
+    expect(tags(html).filter((tag) => /role="button"|tabindex=/i.test(tag))).toEqual([]);
+    expect(html).not.toMatch(/aria-label="Open a /);
+    expect(shellClasses(html)).toEqual(['pack-shell']);
+  });
+
+  it('keeps the button while the pack is torn, done but still holding focus', () => {
+    expect(render([], { isPackCut: true })).toMatch(/<button type="button" class="[^"]*pack-open-button" aria-disabled="true">Open pack<\/button>/);
+  });
+
+  it('says why a refused pack stayed sealed, with a button to try again, in place of Open pack', () => {
+    for (const refusal of ['failed', 'blocked'] as const) {
+      const html = render([], { refusal });
+      expect(html).toContain(`<p class="pack-refusal-text">${REFUSAL_COPY[refusal].message.replace(/'/g, '&#x27;')}</p>`);
+      expect(html).toMatch(new RegExp(`<button type="button" class="[^"]*pack-retry-button">${REFUSAL_COPY[refusal].action}</button>`));
+      expect(html).not.toContain('pack-open-button');
+    }
+    expect(REFUSAL_COPY.failed.action).toBe('Try again');
   });
 });

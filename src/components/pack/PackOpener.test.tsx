@@ -4,11 +4,17 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
+import { openPack } from '../../game/pulls';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
+import { REFUSAL_COPY } from './refusal';
 
-// The swipe is driven by hand: `cutter.cutting` says whether the player is mid-swipe, `cutter.tear` finishes one.
-const cutter = vi.hoisted(() => ({ cutting: false, tear: () => {}, endCutAttempt: vi.fn() }));
+// The swipe is driven by hand: `cutter.cutting` says whether the player is mid-swipe, `cutter.tear` finishes one,
+// and completeCut finishes one the way the real cutter does (the Open pack button calls it).
+// Its callbacks are stable, as the real hook's are: the opener's unmount cleanup depends on them.
+const cutter = vi.hoisted(() => ({
+  cutting: false, tear: () => {}, endCutAttempt: vi.fn(), completeCut: vi.fn(), resetCutState: () => {}, cleanup: () => {},
+}));
 vi.mock('../../hooks/usePackCutter', () => ({
   usePackCutter: ({ onCutComplete }: { onCutComplete: () => void }) => {
     cutter.tear = onCutComplete;
@@ -17,23 +23,26 @@ vi.mock('../../hooks/usePackCutter', () => ({
       isCutting: cutter.cutting,
       cutPoints: [],
       sparks: [],
-      resetCutState: () => {},
-      completeCut: () => {},
+      resetCutState: cutter.resetCutState,
+      completeCut: cutter.completeCut,
       handlePointerDown: () => {},
       handlePointerMove: () => {},
       handlePointerEnd: () => {},
       endCutAttempt: cutter.endCutAttempt,
-      cleanup: () => {},
+      cleanup: cutter.cleanup,
     };
   },
 }));
 vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn() }));
 vi.mock('../../utils/confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
+vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
 let root: Root;
 
-const render = (disabled: boolean) =>
-  act(() => root.render(<PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={DEFAULT_SETTINGS} disabled={disabled} />));
+const render = (disabled: boolean, openBlocked = false) =>
+  act(() => root.render(
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={DEFAULT_SETTINGS} disabled={disabled} openBlocked={openBlocked} />,
+  ));
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -42,6 +51,8 @@ beforeEach(() => {
   resetAdmission();
   cutter.cutting = false;
   cutter.endCutAttempt.mockReset();
+  cutter.completeCut.mockReset().mockImplementation(() => cutter.tear());
+  vi.mocked(openPack).mockReset().mockImplementation(() => new Promise(() => {}));
   root = createRoot(document.body.appendChild(document.createElement('div')));
 });
 
@@ -125,5 +136,90 @@ describe('a stroke cut short by leaving the page (#266)', () => {
     window.dispatchEvent(new Event('blur'));
     document.dispatchEvent(new Event('visibilitychange'));
     expect(cutter.endCutAttempt).not.toHaveBeenCalled();
+  });
+});
+
+describe('the controls under the pack (#312)', () => {
+  const $ = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
+  const openButton = () => $<HTMLButtonElement>('.pack-open-button');
+  const retryButton = () => $<HTMLButtonElement>('.pack-retry-button');
+  const announced = () => $('.pack-opener-container > [aria-live="polite"]')?.textContent;
+  /** Past the tear's 460ms pause, to where the ticket is asked for, and let a refused one settle. */
+  const pastTheTear = async () => {
+    await act(async () => { vi.advanceTimersByTime(500); });
+    await act(async () => {});
+  };
+
+  beforeEach(async () => {
+    // A test that unmounts mid-pack steps browser history back; let that land before this one starts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('opens the pack with one press, through the same cut and ticket as a swipe', async () => {
+    await render(false);
+    expect(openButton()?.textContent).toBe('Open pack');
+    expect($('.pack-shell')?.getAttribute('role')).toBeNull();
+    expect($('.pack-shell')?.hasAttribute('tabindex')).toBe(false);
+
+    act(() => openButton()!.click());
+    expect(cutter.completeCut).toHaveBeenCalledOnce();
+    // Torn: a second press does nothing while the ticket is on its way.
+    expect(openButton()?.getAttribute('aria-disabled')).toBe('true');
+    act(() => openButton()!.click());
+    expect(cutter.completeCut).toHaveBeenCalledOnce();
+
+    await pastTheTear();
+    expect(openPack).toHaveBeenCalledOnce();
+    expect(openPack).toHaveBeenCalledWith(SETS[0]);
+  });
+
+  it('says why a refused ticket opened nothing, and Try again asks for it again', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(openPack).mockRejectedValueOnce(new Error('ticket refused'));
+    await render(false);
+    openButton()!.focus();
+    act(() => openButton()!.click());
+    await pastTheTear();
+
+    expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.failed.message);
+    expect(announced()).toBe(REFUSAL_COPY.failed.message);
+    expect(retryButton()?.textContent).toBe('Try again');
+    expect(openButton()).toBeNull();
+    // The button the player pressed went: focus moved to Try again, not the page.
+    expect(document.activeElement).toBe(retryButton());
+
+    act(() => retryButton()!.click());
+    expect(cutter.completeCut).toHaveBeenCalledTimes(2);
+    expect($('.pack-refusal-text')).toBeNull();
+    expect(announced()).toBe('');
+    // Try again went with the refusal: focus is on the Open pack button that came back, not the page.
+    expect(retryButton()).toBeNull();
+    expect(document.activeElement).toBe(openButton());
+    await pastTheTear();
+    expect(openPack).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the pack sealed while another tab holds the save, and says so instead of tearing it', async () => {
+    await render(false, true);
+    act(() => openButton()!.click());
+    expect(cutter.completeCut).not.toHaveBeenCalled();
+    expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
+    expect(announced()).toBe(REFUSAL_COPY.blocked.message);
+    expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    await pastTheTear();
+    expect(openPack).not.toHaveBeenCalled();
+  });
+
+  it('announces the wait for a slow ticket in the one live region', async () => {
+    await render(false);
+    expect(document.querySelectorAll('[aria-live]')).toHaveLength(1);
+    act(() => openButton()!.click());
+    await pastTheTear();
+    expect(announced()).toBe('');
+    await act(async () => { vi.advanceTimersByTime(1300); });
+    expect(announced()).toBe('Opening the pack…');
+    expect(document.querySelectorAll('[aria-live]')).toHaveLength(1);
   });
 });

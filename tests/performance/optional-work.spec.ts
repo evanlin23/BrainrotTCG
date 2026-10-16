@@ -70,10 +70,11 @@ for (const scenario of OPTIONAL_SCENARIOS) for (let repetition = 1; repetition <
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: PROFILE.cpuSlowdown });
     await cdp.send('Network.emulateNetworkConditions', PROFILE.network);
     try {
-      const shell = page.getByRole('button', { name: /^Open a .* pack$/ });
+      const shell = page.locator('.pack-shell');
+      const openButton = page.getByRole('button', { name: 'Open pack', exact: true });
       await page.goto('./');
       await expectDecoded(shell.locator('img'), 2);
-      await shell.click({ trial: true });
+      await openButton.click({ trial: true });
       const navigationToClickableMs = await page.evaluate(() => performance.now());
       expect(await page.evaluate(() => JSON.parse(localStorage.getItem('brainrot-player-v1')!).nextNonce)).toBe(N);
       // Press only once the live ticket is ready, so both scenarios time the same opening; the active
@@ -85,7 +86,7 @@ for (const scenario of OPTIONAL_SCENARIOS) for (let repetition = 1; repetition <
         const optional = [...busy].filter(([key, open]) => open > 0 && Number(key.split(':')[1]) < live).length;
         return events.some((e) => e.kind === 'done' && e.nonce === live) && (!active || optional > 0);
       }, { live: N, active }, { timeout: 45_000 });
-      await shell.focus();
+      await openButton.focus();
       const pressedAt = await page.evaluate(() => performance.now());
       await page.keyboard.press('Space');
       // The first frame with the summary; optional work stays held until its cards decode (2 s cap).

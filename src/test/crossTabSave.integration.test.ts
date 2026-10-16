@@ -45,20 +45,27 @@ const otherTabWrites = (entries: Record<string, string>) => {
   for (const [key, value] of Object.entries(entries)) localStorage.setItem(key, value);
 };
 const storageEvent = (key: string | null) => app!.interact(() => window.dispatchEvent(new StorageEvent('storage', { key })));
-const packShell = () => document.querySelector<HTMLElement>('[aria-label^="Open a "]');
+const packShell = () => document.querySelector<HTMLElement>('.pack-shell');
+const openButton = () => document.querySelector<HTMLButtonElement>('.pack-open-button');
+const refusal = () => document.querySelector('.pack-refusal');
 const button = (within: ParentNode, label: string) => [...within.querySelectorAll<HTMLElement>('button')]
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label);
 
-/** Enter on the pack, as the keyboard opens it. */
+/** The Open pack button under the pack, as a tap, a click or the keyboard opens it. */
 async function pressOpen() {
-  await app!.until('the pack shell is ready', () => expect(packShell()).not.toBeNull());
+  await app!.until('the Open pack button is ready', () => expect(openButton()).not.toBeNull());
   await app!.interact(() => {
-    const shell = packShell()!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    openButton()!.focus();
+    openButton()!.click();
   });
 }
+
+/** The pack stayed sealed and says why, with a reload in place of the Open pack button (#312). */
+const expectKeptSealed = () => {
+  expect(refusal()?.textContent).toContain('Your save changed in another tab, so this pack stayed sealed.');
+  expect(button(refusal()!, 'Reload and try again')).toBeDefined();
+  expect(openButton()).toBeNull();
+};
 
 /** A drag along the tear line from edge to edge, as a finger or mouse cuts the pack open. */
 async function dragAcross() {
@@ -99,10 +106,13 @@ it('stops this tab opening packs or storing progress once another tab loads a di
   const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
 
   // No pack opens: it would spend the other player's ticket from a tab that can't store what it adds.
-  expect(packShell()?.getAttribute('aria-disabled')).toBe('true');
   await pressOpen();
   await app.settle(2000);
   expect(document.querySelector('.reveal-skip')).toBeNull();
+  expectKeptSealed();
+  expect(document.activeElement).toBe(button(refusal()!, 'Reload and try again'));
+  await app.interact(() => button(refusal()!, 'Reload and try again')!.click());
+  expect(reload).toHaveBeenCalledTimes(1);
   expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toMatchObject({ nextNonce: 0 });
   expect(shelf()).toEqual([]);
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
@@ -114,11 +124,11 @@ it('stops this tab opening packs or storing progress once another tab loads a di
   const warning = document.querySelector('.settings p[role="alert"].save-warning')!;
   expect(warning.textContent).toContain(STALE);
   await app.interact(() => button(warning, 'Reload')!.click());
-  expect(reload).toHaveBeenCalledTimes(1);
+  expect(reload).toHaveBeenCalledTimes(2);
   await app.interact(() => button(document, 'Close Settings')!.click());
   await app.until('the banner is back', () => expect(banner()?.textContent).toContain(STALE));
   await app.interact(() => button(banner()!, 'Reload')!.click());
-  expect(reload).toHaveBeenCalledTimes(2);
+  expect(reload).toHaveBeenCalledTimes(3);
   reload.mockRestore();
 
   // After the reload the tab is the other player's, as stored, and opens packs into their save.
@@ -164,7 +174,8 @@ it('puts a torn pack back sealed when another tab loads a different player befor
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toMatchObject({ nextNonce: 0 });
   expect(shelf()).toEqual([]);
-  expect(packShell()?.getAttribute('aria-disabled')).toBe('true');
+  // The tear that didn't open says why, rather than leaving a sealed pack that ignores the next one.
+  expectKeptSealed();
 }, 60_000);
 
 it('blocks the write even when the storage event never arrived', async () => {
@@ -220,9 +231,9 @@ it('stops storing progress once another tab imports a save, even the same player
   otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', ...THEIR_PROGRESS });
   await storageEvent(SAVE_STAMP_KEY);
   expect(banner()?.textContent).toContain(STALE);
-  expect(packShell()?.getAttribute('aria-disabled')).toBe('true');
   await pressOpen();
   await app.settle(2000);
+  expectKeptSealed();
   expect(document.querySelector('.reveal-skip')).toBeNull();
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
 }, 60_000);
@@ -251,9 +262,9 @@ it('stops writing once another tab clears this browser’s storage', async () =>
   await storageEvent(null);
   expect(banner()?.textContent).toContain(STALE);
   // Opening a pack would store this tab's player again, under whatever the other tab saves next.
-  expect(packShell()?.getAttribute('aria-disabled')).toBe('true');
   await pressOpen();
   await app.settle(2000);
+  expectKeptSealed();
   expect(localStorage.getItem(PLAYER_KEY)).toBeNull();
   expect(Object.values(progress())).toEqual(PROGRESS.map(() => null));
 }, 60_000);

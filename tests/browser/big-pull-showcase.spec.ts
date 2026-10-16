@@ -6,7 +6,7 @@ import { monitor } from './support';
  * behind it, and the last pack's notices wait until it ends. The fixture key's nonce 21 deals no big
  * pull; nonce 22 deals a valuable card last, which Skip stops on.
  */
-const packShell = (page: Page) => page.getByRole('button', { name: /^Open a .* pack$/ });
+const packShell = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
 
 async function tear(page: Page) {
   await packShell(page).focus();

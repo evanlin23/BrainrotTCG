@@ -27,15 +27,17 @@ it('shares the exact owned modifier from a history pack, retaining pack sharing 
     return import('../App');
   });
   await app.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
   await app.until('real pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
   await app.until('summary records the full pack', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
   await app.interact(() => button('Open another pack').click());
-  await app.until('manual pack screen returns', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app.until('manual pack screen returns', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
   await app.interact(() => button('Profile').click());
   await app.until('history has the owned pack', () => expect(document.querySelector('.pull-row')).not.toBeNull());
   await app.interact(() => document.querySelector<HTMLButtonElement>('.pull-row')!.click());
