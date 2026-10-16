@@ -104,8 +104,9 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   the transparent `--focus-outline`, which forced colours paint instead. No control sets its own ring
   or `outline: none`; one with its own box-shadow appends `var(--focus-shadow)`, empty until focused.
   Focus the app moves by script (next card, result, dialog) shows no ring once a mouse, pen or touch
-  press was the last input (`data-input="pointer"`, `components/ui/inputModality.ts`); Tab or an app
-  key brings it back. Covers `[tabindex=-1]` and `.quiet-focus` targets; mark such a control
+  press, or Space or Enter, was the last input (`data-input="pointer"` or `"press"`,
+  `components/ui/inputModality.ts`); Tab, arrows, Home/End, Page keys or Escape bring it back. A
+  control Tab reached keeps its ring through Space or Enter (`data-ring-kept`). Covers `[tabindex=-1]` and `.quiet-focus` targets; mark such a control
   `.quiet-focus` and draw its ring with `var(--focus-shadow)`.
 - **Disabled.** `--opacity-disabled` with `cursor: not-allowed` and a dashed edge (the border, or an
   inset dashed outline on a borderless button), so colour is never the only cue.
