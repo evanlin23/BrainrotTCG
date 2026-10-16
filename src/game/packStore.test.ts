@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  getStoredPack, hydratePackStore, packStoreVersion, putStoredPacks, resetPackStore, readStoredPacks, PACK_READ_PAGE, type StoredPackRef,
+  getStoredPack, hydratePackStore, packRefKey, packStoreVersion, putStoredPacks, resetPackStore, readStoredPacks, PACK_READ_PAGE, type StoredPackRef,
 } from './packStore';
 
 // Control only the asynchronous request boundary: tests still exercise the exported cache API. With
@@ -73,6 +73,12 @@ function succeed(request: ReturnType<typeof openRequest>, value = database()) {
   request.onsuccess?.();
   return value;
 }
+
+describe('packRefKey', () => {
+  it('keeps the stored key format: set key, first 16 hex of the public key, nonce', () => {
+    expect(packRefKey('genesis@1', '0123456789abcdef'.repeat(4), 42)).toBe('genesis@1|0123456789abcdef|42');
+  });
+});
 
 describe('pack store connection ownership', () => {
   it('preserves the database, store, key, and read/write cache contract', async () => {
