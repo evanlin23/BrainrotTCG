@@ -18,7 +18,7 @@ import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
-import { importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
+import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, dismissCollectionRecovery } from './game/collectionRecovery';
@@ -394,13 +394,20 @@ function App() {
   }, []);
 
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
-  const handleImportSave = useCallback((data: string): string | null => {
-    const error = importSaveFile(data);
+  const handleImportSave = useCallback((data: string, keepCopy = true): string | null => {
+    // Without a copy in storage, this file is all that would keep the save if the import is left half done.
+    const before = keepCopy ? null : exportSaveFile();
+    const error = importSaveFile(data, { keepCopy });
     if (!error) window.location.reload();
     else if (error.startsWith(PARTIAL_IMPORT_NOTE)) {
       // The app still holds the save from before; only a reload shows what storage now holds.
-      window.alert(error);
-      reloadPage();
+      if (before !== null && window.confirm(`${error}\n\nDownload the save from before the import first? OK downloads it, then reloads.`)) {
+        downloadSaveFile(before);
+        setTimeout(reloadPage, 1000); // give the download a moment to start
+      } else {
+        if (before === null) window.alert(error);
+        reloadPage();
+      }
     }
     return error;
   }, []);
