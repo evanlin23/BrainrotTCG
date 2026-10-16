@@ -84,6 +84,8 @@
   display: none;
 }
 
+/* Focus mode (a pack is open, from the tear to leaving it) and a new player have no tab bar to clear,
+   but still keep clear of the home indicator. */
 .app.is-focus .app-main,
 .app.no-nav .app-main {
   padding-bottom: var(--safe-bottom);
@@ -96,6 +98,7 @@
   }
 
   .app-main,
+  .app.is-focus .app-main,
   .app.no-nav .app-main {
     padding-bottom: var(--space-4);
   }
@@ -117,8 +120,10 @@
     }
 }
 
-/* A phone on its side: during a pack the card needs the height more than the logo does. */
-@media (max-height: 520px) {
+/* Focus mode on a phone (or a phone on its side): the cards need the room more than the logo and
+   Settings do. The notch's padding is on .app, so nothing slides under it. Wider screens keep the
+   header; the tabs and set picker step aside at every width (AppNav.css, Sets.css). */
+@media (max-width: 899px), (max-height: 520px) {
   .app.is-focus .app-header {
     display: none;
   }

@@ -12,6 +12,9 @@ const onPackEntry = () => {
 /** The pack's entry is still the current one, at the address it was added at. */
 const stillOnEntry = (href: string) => onPackEntry() && location.href === href;
 
+/** The entry this page loaded on has been checked (once per load, however often the opener remounts). */
+let loadChecked = false;
+
 /**
  * Browser Back inside a pack goes back to the packs screen instead of leaving the site.
  *
@@ -19,7 +22,8 @@ const stillOnEntry = (href: string) => onPackEntry() && location.href === href;
  * it's an earlier pack's, reached with Forward), so entries never stack across packs. Back from it
  * calls `onBack`, the same handler as the pack's X. Leaving any other way (the X, Escape, the
  * summary's next-pack button) steps back over the entry, so the next Back leaves the page as it would
- * have before, and Forward onto the old entry reopens nothing.
+ * have before, and Forward onto the old entry reopens nothing. A page loaded (or reloaded) on a pack's
+ * entry has no pack, so it steps back over that entry the same way, and the first Back leaves.
  */
 export const usePackHistory = (inPack: boolean, onBack: () => void) => {
   const onBackRef = useRef(onBack);
@@ -34,6 +38,15 @@ export const usePackHistory = (inPack: boolean, onBack: () => void) => {
   useEffect(() => {
     onBackRef.current = onBack;
   });
+
+  useEffect(() => {
+    if (loadChecked) return;
+    loadChecked = true;
+    // No pack survives a load: an entry left by one before it (a reload mid-pack) is stale.
+    if (!onPackEntry() || heldRef.current) return;
+    poppingRef.current = true;
+    history.back();
+  }, []);
 
   useEffect(() => {
     if (inPack && !heldRef.current && !poppingRef.current) {

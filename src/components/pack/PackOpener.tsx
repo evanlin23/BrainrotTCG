@@ -34,6 +34,8 @@ interface PackOpenerProps {
   onShare: (pack: OpenedPack) => void;
   /** True while a pack is being opened (its ticket is spent but it isn't recorded yet). */
   onBusyChange?: (busy: boolean) => void;
+  /** True from the tear until the player leaves the pack (while its X shows): the app's focus mode. */
+  onFocusChange?: (focus: boolean) => void;
   set: SetDefinition;
   disabled?: boolean;
   /** No new pack may start (the save changed in another tab); one already opening still finishes. */
@@ -47,7 +49,7 @@ interface PackOpenerProps {
   onLeaveEarly?: (pack: OpenedPack) => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
@@ -134,7 +136,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
 
   // From the tear on, the ticket is spent: the app mustn't swap sets (or open a sheet over it) until
   // the pack is recorded. The ticket can still be mining here on a slow phone.
-  // The summary comes after it's recorded, so the tabs and the pack switcher come back there.
+  // The summary comes after it's recorded, so it isn't busy (focus mode still hides the chrome there).
   useEffect(() => onBusyChange?.((isOpening && !showSummary) || (isPackCut && !isOpening)), [isOpening, isPackCut, showSummary, onBusyChange]);
 
   // Mining taking a while: say so, rather than leave a torn pack sitting still.
@@ -287,6 +289,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
    */
   const stageInPack = (isPackCut && !leavingOpen) || isOpening || !!openError;
 
+  // Focus mode (#312): the app's chrome stays out of the way for the whole pack, summary included, and
+  // comes back as soon as the player leaves it, even while a left pack's ticket is still on its way.
+  useEffect(() => onFocusChange?.(stageInPack), [stageInPack, onFocusChange]);
+
   /**
    * Back to the packs screen from any stage, keeping whatever the pack already spent. It works during
    * a big pull's pause too (ending its celebration): the pause holds the cards, not the player.
@@ -326,7 +332,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
     if (!disabled) leavePack();
   }, [disabled, leavePack]);
 
-  usePackHistory(stageInPack, leavePack);
+  // Browser Back goes through the same guard: behind a sheet it leaves nothing, and the pack keeps its entry.
+  usePackHistory(stageInPack, leaveFromUi);
 
   const handleFlip = useCallback(() => {
     const currentCard = openedCards[currentIndex];
