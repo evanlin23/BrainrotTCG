@@ -56,6 +56,7 @@ function CrashFallback({ report, reload }: { report: string; reload: () => void 
           <button className="btn btn--secondary btn--sm" type="button" onClick={() => void copy()}>Copy report</button>
           <a className="btn btn--secondary btn--sm" href={`https://github.com/${REPO}/issues/new?template=bug.yml`} target="_blank" rel="noopener noreferrer">Open GitHub issues</a>
         </div>
+        <p>Posting requires a GitHub account. Paste only the details you want to make public and describe what you were trying to do.</p>
       </details>
     </main>
   );

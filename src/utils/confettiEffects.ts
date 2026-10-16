@@ -1,5 +1,6 @@
 import confetti from 'canvas-confetti';
 import type { RarityKey } from '../data/cards';
+import { prefersReducedMotion } from './motion';
 
 interface ConfettiConfig {
   particleCount: number;
@@ -26,11 +27,12 @@ const RARITY_CONFETTI: Partial<Record<RarityKey, ConfettiConfig>> = {
 };
 
 /**
- * Trigger confetti effect based on card rarity
+ * Trigger confetti effect based on card rarity. Under reduced motion there is no burst: the preference
+ * is read on every call, because canvas-confetti's own `disableForReducedMotion` reads it only once.
  */
 export const triggerRarityConfetti = (rarity: RarityKey): void => {
   const config = RARITY_CONFETTI[rarity];
-  if (!config) return;
+  if (!config || prefersReducedMotion()) return;
 
   confetti({
     disableForReducedMotion: true,
@@ -42,9 +44,10 @@ export const triggerRarityConfetti = (rarity: RarityKey): void => {
 };
 
 /**
- * Trigger sparkle effect for holo cards
+ * Trigger sparkle effect for holo cards (none under reduced motion, checked again before the second burst)
  */
 export const triggerHoloSparkles = (): void => {
+  if (prefersReducedMotion()) return;
   // First burst
   confetti({
     disableForReducedMotion: true,
@@ -61,6 +64,7 @@ export const triggerHoloSparkles = (): void => {
 
   // Second burst slightly delayed
   setTimeout(() => {
+    if (prefersReducedMotion()) return;
     confetti({
     disableForReducedMotion: true,
       particleCount: 40,
