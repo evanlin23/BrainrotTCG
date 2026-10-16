@@ -332,15 +332,16 @@ stats, Hall of Fame, achievements, settings): every write compares the stored pl
 record is still stored, and `brainrot-save-stamp-v1` with what the tab loaded, and the banner asks
 for a reload. Once the tab knows, it opens no new pack (one torn open in the moment before goes back
 sealed, with no ticket spent); one opened before then waits on the pending shelf under the player it
-opened as, and other players' packs stay there when this one's change. Two tabs of the same player
-(no import or switch, so the stamp can't tell) are guarded too: every write also compares the stored
-collection, stats, Hall of Fame and achievements with what the tab last read or stored
-(`src/game/progressGuard.ts`, plus a storage listener), and a tab another tab has written past stops
-the same way instead of storing its older copy over that tab's packs. Packs it took off the pending
-shelf at load and hasn't stored or shelved since go back on it for the next load to add; packs it
-opened itself are already on the shelf, where the other tab may have taken and stored them, so they
-aren't put back twice. If storage refuses the put-back, the save warning stays up and the next change
-or storage event tries again. Settings stay last-writer-wins.
+opened as (if the shelf takes it, as below), and other players' packs stay there when this one's
+change. Two tabs of the same player (no import or switch, so the stamp can't tell) are guarded too:
+every write also compares the stored collection, stats, Hall of Fame and achievements with what the
+tab last read or stored (`src/game/progressGuard.ts`, plus a storage listener), and a tab another tab
+has written past stops the same way instead of storing its older copy over that tab's packs. Packs it
+took off the pending shelf at load and hasn't stored or shelved since go back on it for the next load
+to add. Packs it opened itself aren't put back: any the shelf took when they opened are still there
+unless the other tab has taken and stored them, so putting them back could add them twice. If storage
+refuses the put-back, the save warning stays up and the next change or storage event tries again.
+Settings stay last-writer-wins.
 Limits: storage has no lock across tabs, so two tabs of one player writing in the same instant can
 both pass that check (the later write replaces the earlier, whose pack stays in the history; the
 earlier tab then hears the write and stops), and a tab that writes before an import's stamp reaches
@@ -361,8 +362,9 @@ replaced by a newer one. Other players' packs don't expire either: one can be th
 owed to that player's collection, which this browser can't check, and they come only from a tab that
 opened a pack before it knew another tab had changed the save; past the cap (or if storage refuses the write), the new pack shows the save
 warning and isn't on the shelf while it reveals: it still reaches the collection when its reveal
-finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but a tab
-closed before that leaves it only in the history (if that write went through). Load
+finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but nothing
+keeps it for the next load: a tab closed before that leaves it only in the history, if that write went
+through. Load
 takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
 so none is added twice) and holds them until a collection holding them is stored. Taking packs off
 rewrites the shelf in place; if storage refuses, it removes the shelf and writes it again, then
