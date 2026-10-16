@@ -14,7 +14,9 @@ from a 390 px wide screen.
 2. **Nothing overlaps the game.** Navigation is a bottom tab bar on phones (in the thumb zone) and a top
    bar on wide screens, laid out around the content rather than floating over it.
 3. **Focus mode while opening.** Once a pack is cut, the tabs and the era picker get out of the way
-   until the pack is done, so the reveal owns the screen.
+   until the pack is done, so the reveal owns the screen. Every stage of a pack, from the tear to the
+   summary, has the same top bar with one X ("Back to packs"), and Escape and the browser's Back do
+   what it does. Tapping empty space never leaves a pack.
 4. **One way to show a panel.** Collection, achievements, settings, sharing and the rest are the same
    sheet: a bottom sheet on phones, a centred dialog on wide screens, with the same header, close
    button, Escape key, focus handling and backdrop.
