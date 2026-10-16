@@ -102,9 +102,9 @@ export default function PlayerSection({ level, settings, onSettingsChange, onOpe
   });
   useEffect(() => () => leave.current(), []);
   return <section id="player" className="settings-group profile-section" aria-labelledby="player-title">
-    <h2 id="player-title" className="section-title" tabIndex={-1}>Player</h2>
+    <h2 id="player-title" className="section-title" tabIndex={-1}>Name and rewards</h2>
     <p className="share-note">
-      Your player is saved in this browser. Back up your save to keep your player key:{' '}
+      Your profile is saved in this browser. Back up your save to keep your player key:{' '}
       <button type="button" className="link-btn" onClick={onOpenSave}>Save &amp; backup</button>
     </p>
     <div className="player-name">

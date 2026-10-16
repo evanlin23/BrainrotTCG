@@ -75,7 +75,7 @@ src/game/          Browser glue around the engine.
   packStore.ts       reconstructed own-pack card codes in memory and IndexedDB
   reopenCache.ts     localStorage cache for packs derived while viewing public profiles
   pulls.ts           openPack(), proofFor(), pullUrl(), checkPull()
-  share.ts, bragImage.ts   brag text, Hall of Fame submit, 9:16 pull poster and player card with QR
+  share.ts, bragImage.ts   brag text, Hall of Fame submit, 9:16 pull poster and profile card with QR
   progression.ts     titles, card backs, pack foils, collection milestones, set completion
   shareActions.ts    copy/download and API-supported coarse-pointer system sharing
   previewLinks.ts    link previews: shared links go through a static page per hand and its cards
@@ -322,7 +322,7 @@ Opening attempts to record ticket metadata immediately in `history.ts`; quota re
 cards from older records but keeps every record, and a mapping it still refuses is retried once its
 pack is stored (`recordMissing`, below). Profile construction uses retained history for the current
 key's nonce range. A ticket without a recorded set assignment stays unknown rather than guessed, and
-a profile link or player card needs every one, so a key with such a ticket can share neither. That
+a profile link or profile card needs every one, so a key with such a ticket can share neither. That
 covers tickets opened before this device kept a history, unless the old notable-pulls log (carried
 over once) held them, and any whose mapping was never recorded. The profile page says so and its
 totals count only the known packs; only a backup holding the records brings the link back (#87).
@@ -438,7 +438,7 @@ versioned generation rules. Its claims can be recomputed for the range in a veri
   (Bronze 1,000 up to Brainrot 2,000,000).
 - **Sets**: each set is *Complete* with every card and *Master* with every card as a holo, shown on
   the set picker and profiles, with an achievement for each.
-- **Player card** (`src/game/playerCard.ts`): a 9:16 image of all this plus the best pull, with a QR
+- **Profile card** (`src/game/playerCard.ts`): a 9:16 image of all this plus the best pull, with a QR
   code for the profile link.
 
 ### Card modifiers

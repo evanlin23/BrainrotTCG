@@ -37,12 +37,17 @@ const VERIFY_LIMIT = 30;
 const PAGE_SIZE = 20;
 
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+/** Whether a time falls on today's date where the player is. */
+const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
+
+/** All-time and Today rank live pulls; the archive keeps world firsts and the hackathon legends. */
+type RankingsTab = 'all' | 'today' | 'archive';
 
 /** The Rankings page (#/rankings). */
 const HallOfFamePage = () => {
   const [entries, setEntries] = useState<HallOfFameEntry[] | null>(null);
   const [checks, setChecks] = useState<Record<number, Check>>({});
-  const [tab, setTab] = useState<'top' | 'firsts' | 'legends'>('top');
+  const [tab, setTab] = useState<RankingsTab>('all');
   const tabsId = useId();
 
   const [pending, setPending] = useState<HallOfFameEntry[]>([]);
@@ -113,6 +118,15 @@ const HallOfFamePage = () => {
     focusRowRef.current = shown;
     setShown(shown + PAGE_SIZE);
   };
+  const changeTab = (next: RankingsTab) => {
+    setTab(next);
+    setShown(PAGE_SIZE);
+  };
+  // Today: pulls filed today on this device's calendar, plus any just submitted and not filed yet
+  // (their own time can't be trusted, see loadPending). The published list holds only the top pulls
+  // and the firsts, so a pull filed today that made neither isn't here. Worked out on each render of
+  // the Today tab, not memoised, so a page left open past midnight moves on to the new day.
+  const today = tab === 'today' ? topPulls((all ?? []).filter((e) => e.pending || isToday(e.submittedAt))) : [];
   // World firsts go by when GitHub verified them, so only filed entries can be one.
   const firsts = useMemo(() => firstPulls(entries ?? []), [entries]);
 
@@ -220,6 +234,17 @@ const HallOfFamePage = () => {
     );
   };
 
+  const rankedList = (list: HallOfFameEntry[]) => (
+    <>
+      <ol ref={listRef} className="hof-list">{list.slice(0, shown).map((e, i) => renderEntry(e, i))}</ol>
+      {shown < list.length && (
+        <button type="button" className="btn btn--secondary btn--block hof-more" onClick={showMore}>
+          Show more
+        </button>
+      )}
+    </>
+  );
+
   const empty = (
     <div className="hof-empty">
       <Crown aria-hidden="true" />
@@ -232,75 +257,91 @@ const HallOfFamePage = () => {
 
   return (
     <div className="hall-of-fame">
-      <p className="page-subtitle">The top {HALL_OF_FAME_TOP} pulls, and the first of every hand in each set</p>
+      <p className="page-subtitle">Shared pulls, verified and ranked by Brainrot Score</p>
       <Tabs
         idBase={tabsId}
-        label="Hall of Fame lists"
+        label="Rankings lists"
         value={tab}
-        onChange={setTab}
+        onChange={changeTab}
         tabs={[
-          { id: 'top', label: 'Leaderboard' },
-          { id: 'firsts', label: 'World firsts' },
-          { id: 'legends', label: 'Legends' },
+          { id: 'all', label: 'All-time' },
+          { id: 'today', label: 'Today' },
+          { id: 'archive', label: 'Archive' },
         ]}
       />
 
-      {tab !== 'legends' && (
-        <div className={loadState === 'loaded' ? 'sr-only' : 'hof-load-state'}>
-          <p role="status" tabIndex={-1} ref={statusRef}>
-            {loadState === 'loading' ? 'Loading leaderboard…' : loadState === 'loaded' ? 'Leaderboard loaded.' : "Couldn't load the leaderboard. Try again."}
-          </p>
-          {loadState !== 'loaded' && (
-            <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading leaderboard">
-              Retry
-            </button>
-          )}
-        </div>
-      )}
+      <div className={loadState === 'loaded' ? 'sr-only' : 'hof-load-state'}>
+        <p role="status" tabIndex={-1} ref={statusRef}>
+          {loadState === 'loading' ? 'Loading rankings…' : loadState === 'loaded' ? 'Rankings loaded.' : "Couldn't load the rankings. Try again."}
+        </p>
+        {loadState !== 'loaded' && (
+          <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading rankings">
+            Retry
+          </button>
+        )}
+      </div>
 
       <div className="hof-panel" {...tabPanelProps(tabsId, tab)}>
-        {tab === 'top' && (
+        {tab === 'all' && (
           <>
             {loadState === 'loaded' && all?.length === 0 && empty}
             {ranked.length > 0 && (
               <>
                 <p className="hof-note">
-                  <ShieldCheck aria-hidden="true" /> Ranked by Brainrot Score. The top {VERIFY_LIMIT} are re-checked on your device; open one to see it.
+                  <ShieldCheck aria-hidden="true" /> The top {HALL_OF_FAME_TOP} by Brainrot Score. The top {VERIFY_LIMIT} are re-checked on your device; open one to see it.
                 </p>
-                <ol ref={listRef} className="hof-list">{ranked.slice(0, shown).map((e, i) => renderEntry(e, i))}</ol>
-                {shown < ranked.length && (
-                  <button type="button" className="btn btn--secondary btn--block hof-more" onClick={showMore}>
-                    Show more
-                  </button>
-                )}
+                {rankedList(ranked)}
               </>
             )}
           </>
         )}
 
-        {tab === 'firsts' && (
+        {tab === 'today' && loadState === 'loaded' && (
           <>
-            <p className="hof-note">The first verified Full House, 4 of a Kind and 5 of a Kind in each set.</p>
-            {firsts.length > 0 ? <ul className="hof-list">{firsts.map((e) => renderEntry(e))}</ul> : loadState === 'loaded' ? empty : null}
+            <p className="hof-note">Pulls filed today (your time) that made the top {HALL_OF_FAME_TOP} or a world first, plus any just submitted.</p>
+            {today.length > 0 ? (
+              rankedList(today)
+            ) : (
+              <div className="hof-empty">
+                <Crown aria-hidden="true" />
+                <p>
+                  <strong>Nothing new today yet.</strong> Submit a Full House or better (or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+) from its share sheet to
+                  put it here.
+                </p>
+              </div>
+            )}
           </>
         )}
 
-        {tab === 'legends' && (
+        {tab === 'archive' && (
           <>
-            <p className="hof-note">The originals, from the hackathon, before pulls were verifiable.</p>
-            <ul className="hof-legends">
-              {HACKATHON_LEGENDS.map((entry) => (
-                <li key={entry.name} className="hof-legend">
-                  <img src={entry.image} alt={`${entry.name}'s ${entry.description}`} className={entry.portrait ? 'is-portrait' : ''} loading="lazy" />
-                  <span className="hof-legend-info">
-                    <strong>{entry.name}</strong>
-                    <span>
-                      {entry.description} · {entry.date}
+            <p className="hof-note">Kept for the record, apart from the rankings.</p>
+            <section className="hof-archive" aria-labelledby={`${tabsId}-firsts`}>
+              <h2 id={`${tabsId}-firsts`} className="section-title">
+                World firsts
+              </h2>
+              <p className="hof-note">The first verified Full House, 4 of a Kind and 5 of a Kind in each set, dated when it was filed.</p>
+              {firsts.length > 0 ? <ul className="hof-list">{firsts.map((e) => renderEntry(e))}</ul> : loadState === 'loaded' ? empty : null}
+            </section>
+            <section className="hof-archive" aria-labelledby={`${tabsId}-legends`}>
+              <h2 id={`${tabsId}-legends`} className="section-title">
+                Hackathon legends
+              </h2>
+              <p className="hof-note">Screenshots from the hackathon, before pulls could be verified, so they aren't ranked.</p>
+              <ul className="hof-legends">
+                {HACKATHON_LEGENDS.map((entry) => (
+                  <li key={entry.name} className="hof-legend">
+                    <img src={entry.image} alt={`${entry.name}'s ${entry.description}`} className={entry.portrait ? 'is-portrait' : ''} loading="lazy" />
+                    <span className="hof-legend-info">
+                      <strong>{entry.name}</strong>
+                      <span>
+                        {entry.description} · {entry.date}
+                      </span>
                     </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            </section>
           </>
         )}
       </div>
