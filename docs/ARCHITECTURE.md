@@ -331,7 +331,7 @@ clearing this site's storage) neither unlocks achievements nor stores any progre
 stats, Hall of Fame, achievements, settings): every write compares the stored player, whether its
 record is still stored, and `brainrot-save-stamp-v1` with what the tab loaded, and the banner asks
 for a reload. Once the tab knows, it opens no new pack (one torn open in the moment before goes back
-sealed, with no ticket spent); one opened before then waits on the pending shelf under the player it
+sealed, with no ticket spent); one opened before then waits on the pending shelf (if the shelf takes it, as below) under the player it
 opened as, and other players' packs stay there when this one's change. Limits: storage has no lock
 across tabs, so a tab that writes before an import's stamp reaches it can still overwrite an imported
 field (import with other tabs closed; the file and `brainrot-before-import-v1` remain). A tab stopped
@@ -350,8 +350,9 @@ replaced by a newer one. Other players' packs don't expire either: one can be th
 owed to that player's collection, which this browser can't check, and they come only from a tab that
 opened a pack before it knew another tab had changed the save; past the cap (or if storage refuses the write), the new pack shows the save
 warning and isn't on the shelf while it reveals: it still reaches the collection when its reveal
-finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but a tab
-closed before that leaves it only in the history (if that write went through). Load
+finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but nothing
+keeps it for the next load: a tab closed before that leaves it only in the history, if that write went
+through. Load
 takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
 so none is added twice) and holds them until a collection holding them is stored. Taking packs off
 rewrites the shelf in place; if storage refuses, it removes the shelf and writes it again, then

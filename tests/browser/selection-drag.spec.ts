@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded } from './support';
+import { monitor, expectDecoded, fingerFor, type Finger } from './support';
 
 // Rapid presses on game controls must not highlight text or start a native image drag, while
 // inputs, copyable text and links keep their normal behaviour (#264).
@@ -33,6 +33,43 @@ async function tryDrag(page: Page, target: Locator, dx: number, dy: number) {
   await page.mouse.down();
   for (let step = 1; step <= 5; step++) await page.mouse.move(x + (dx * step) / 5, y + (dy * step) / 5);
   await page.mouse.up();
+}
+
+/** The same with a finger: a long press first, as a phone starts its own drags and selections. */
+async function tryTouchDrag(page: Page, finger: Finger, target: Locator, dx: number, dy: number) {
+  const box = (await target.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height * 0.7;
+  await finger.press(x, y);
+  await page.waitForTimeout(800);
+  for (let step = 1; step <= 5; step++) await finger.move(x + (dx * step) / 5, y + (dy * step) / 5);
+  await finger.release();
+}
+
+/** Scroll offset and range of the nearest ancestor that scrolls (or the page). */
+const scrollOf = (target: Locator) => target.evaluate((element) => {
+  let scroller: Element | null = element.parentElement;
+  while (scroller && !(/auto|scroll/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight + 1)) {
+    scroller = scroller.parentElement;
+  }
+  scroller ??= document.scrollingElement!;
+  return { top: scroller.scrollTop, max: scroller.scrollHeight - scroller.clientHeight };
+});
+
+/**
+ * Shortens the window until the summary overflows, then scrolls by a gesture that starts on one of
+ * its no-drag card images: suppressing the native drag must not take the scroll with it.
+ */
+async function expectSummaryScrolls(page: Page, scroll: (x: number, y: number, down: boolean) => Promise<void>) {
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 420 });
+  const image = page.locator('.summary-cards img').first();
+  await expect.poll(async () => (await scrollOf(image)).max).toBeGreaterThan(120);
+  await image.scrollIntoViewIfNeeded();
+  const before = await scrollOf(image);
+  const down = before.top < before.max / 2;
+  const box = (await image.boundingBox())!;
+  await scroll(box.x + box.width / 2, box.y + box.height / 2, down);
+  await expect.poll(async () => ((await scrollOf(image)).top - before.top) * (down ? 1 : -1)).toBeGreaterThan(20);
 }
 
 test('rapid clicks and drags on the pack and reveal select no text and start no native drag', async ({ page, baseURL }) => {
@@ -78,7 +115,75 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   expect(await selectedText(page)).toBe('');
   await tryDrag(page, page.locator('.summary-cards img').first(), 30, 30);
   expect(await dragStarts()).toBe(0);
+  // That press is also a click, which opens the card viewer over the summary.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expectSummaryScrolls(page, async (x, y, down) => {
+    await page.mouse.move(x, y);
+    await page.mouse.wheel(0, down ? 150 : -150);
+  });
   expect(errors).toEqual([]);
+});
+
+test('rapid clicks on the main navigation select no text', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+  const nav = page.getByRole('navigation', { name: 'Main', exact: true });
+  for (const name of ['Cards', 'Rankings', 'Profile', 'Open']) {
+    const item = nav.locator('.app-nav-item').filter({ hasText: name });
+    await hammer(page, item);
+    expect(await selectedText(page), name).toBe('');
+    // The label itself, where a double press lands on its word.
+    await hammer(page, item.locator('.app-nav-label'));
+    expect(await selectedText(page), `${name} label`).toBe('');
+  }
+  expect(errors).toEqual([]);
+});
+
+test.describe('with a touch screen', () => {
+  // The phone project has touch already; this adds it to the desktop one too.
+  test.use({ hasTouch: true });
+
+  test('long presses and drags select no text, start no native drag, and still scroll the summary', async ({ page, baseURL }) => {
+    test.setTimeout(60000);
+    const errors = await monitor(page, baseURL!);
+    await page.goto('./');
+    await expect(page.locator('.app-logo')).toBeVisible();
+    const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+    await expectDecoded(packShell.locator('img'), 2);
+    await packShell.scrollIntoViewIfNeeded();
+    const dragStarts = await countDragStarts(page);
+    const finger = await fingerFor(page, true);
+
+    // Below the tear line, so the press is no cut.
+    await tryTouchDrag(page, finger, packShell.locator('img').first(), 0, 40);
+    expect(await dragStarts()).toBe(0);
+    expect(await selectedText(page)).toBe('');
+    await expect(packShell).not.toHaveClass(/\bis-cut\b/);
+
+    await packShell.focus();
+    await page.keyboard.press('Space');
+    const card = page.locator('.reveal-card').last().locator('.card-wrapper');
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await tryTouchDrag(page, finger, card.locator('img').first(), 0, 30);
+    expect(await dragStarts()).toBe(0);
+    expect(await selectedText(page)).toBe('');
+    await tryTouchDrag(page, finger, page.locator('.reveal-rarity'), 0, 0);
+    expect(await selectedText(page)).toBe('');
+
+    await page.locator('button.reveal-skip').click({ timeout: 15000 });
+    await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
+    await tryTouchDrag(page, finger, page.locator('.summary-cards img').first(), 30, 0);
+    expect(await dragStarts()).toBe(0);
+    // A swipe up scrolls down, and a swipe down scrolls back up.
+    await expectSummaryScrolls(page, async (x, y, down) => {
+      await finger.press(x, y);
+      for (let step = 1; step <= 8; step++) await finger.move(x, y + (down ? -15 : 15) * step);
+      await finger.release();
+    });
+    expect(errors).toEqual([]);
+  });
 });
 
 test('inputs, copyable text and links keep selection and activation', async ({ page, baseURL }) => {
