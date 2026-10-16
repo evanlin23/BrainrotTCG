@@ -12,7 +12,11 @@ from a 390 px wide screen.
    pack; during a reveal it's the next card; in the summary it's opening another pack. Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
    and wordmark), the gear, the pack and the quiet Card guide link under it: the tabs and the era
-   picker come once their first pack is saved and they leave it.
+   picker come once their first pack is saved and they leave it. There the Open pack button is brand
+   filled, the one obvious action (#80); once the nav is in it steps back to secondary under the swipe.
+   The tear line is the wrapper's seam (#267): a white perforation over a soft brand-and-foil band, with
+   a brand arrowhead at each end. A swipe along it covering a fifth of the pack opens it on release (over
+   and back counts by its span), three tenths while still moving; a vertical drag never does.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
    The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
@@ -167,7 +171,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
 - **App nav** (`ui/AppNav.tsx`): Open, Cards, Rankings and Profile, each an icon plus a label, the
   current one marked `aria-current="page"`. A fixed bottom bar on phones (under 900px, with
   safe-area padding) and part of the header from 900px, where the logo scales from 36px to 52px
-  (by about 1060px) so it never runs into the tabs; 44px targets. It stays hidden for a new
+  (by about 1060px, all in rem so a larger root font only moves the ramp) so it never runs into the tabs; 44px targets. It stays hidden for a new
   player until their first pack is saved (#222) and while a pack is open. The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem).

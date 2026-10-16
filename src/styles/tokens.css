@@ -196,6 +196,10 @@
   --dot-track: rgba(255, 255, 255, 0.16);
   --cut-line: rgba(255, 255, 255, 0.95);
   --cut-line-warm: #fff1bc;
+  /* The seam's foil band behind the perforation (#267): brand, foil pink and mint, see-through. */
+  --seam-glow-brand: rgba(255, 210, 63, 0.38);
+  --seam-glow-pink: rgba(255, 122, 200, 0.26);
+  --seam-glow-mint: rgba(111, 242, 198, 0.26);
   --spark-glow: rgba(255, 200, 100, 0.9);
   --ribbon-ink: #12002a;
   --seam-1: #ff9ad6;

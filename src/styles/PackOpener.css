@@ -195,6 +195,20 @@
     box-shadow: var(--focus-shadow), var(--shadow-1);
 }
 
+/*
+ * A first visit (no nav yet) has nothing else to do, so the button is the one obvious action: brand
+ * filled, like any primary (#80). Once a pack is opened the nav comes in and it steps back to secondary.
+ */
+.app.no-nav .pack-open-button {
+    border-color: transparent;
+    background: var(--brand);
+    color: var(--brand-ink);
+}
+
+.app.no-nav .pack-open-button:hover:not([aria-disabled="true"]) {
+    background: var(--brand-strong);
+}
+
 /* Torn and waiting for its cards: still focused, so it stays put, but plainly done. */
 .pack-open-button[aria-disabled="true"] {
     cursor: default;
@@ -441,6 +455,40 @@
     filter: drop-shadow(0 1px 1px var(--shade-80));
     z-index: 2;
     pointer-events: none;
+}
+
+/*
+ * The wrapper's seam, so the line reads as the place to tear and not as art (#267): a soft foil band
+ * in the brand accent behind the perforation, and a brand arrowhead at each end, so the line itself says
+ * "across", like the hint's icon.
+ * Static, so reduced motion needs nothing; it fades with the line once the pack is cut.
+ */
+.tear-guide::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -9px;
+    height: 14px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg,
+            transparent,
+            var(--seam-glow-brand) 12%,
+            var(--seam-glow-pink) 40%,
+            var(--seam-glow-mint) 65%,
+            var(--seam-glow-brand) 88%,
+            transparent);
+    z-index: -1;
+}
+
+.tear-guide::after {
+    content: '';
+    position: absolute;
+    inset: -8px -2px auto;
+    height: 12px;
+    background:
+        conic-gradient(from 45deg at 0 50%, var(--brand) 0 90deg, transparent 0) left / 8px 100% no-repeat,
+        conic-gradient(from 225deg at 100% 50%, var(--brand) 0 90deg, transparent 0) right / 8px 100% no-repeat;
 }
 
 /* A press on the line warms it before the swipe has a direction, so the press is felt (#267). */
