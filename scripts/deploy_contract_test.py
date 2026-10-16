@@ -59,6 +59,15 @@ class Workflows(unittest.TestCase):
     def test_publish_without_site(self):
         self.assertBroken('deploy.yml', 'needs: [site, build]', 'needs: [build]', 'job publish must need exactly')
 
+    def test_publish_without_build(self):
+        self.assertBroken('deploy.yml', 'needs: [site, build]', 'needs: [site]', 'job publish must need exactly')
+
+    def test_secret_in_pages_deploy(self):
+        self.assertBroken('deploy.yml', '    needs: [build, publish]\n    runs-on: ubuntu-latest\n',
+                          '    needs: [build, publish]\n    runs-on: ubuntu-latest\n'
+                          '    env:\n      TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
+                          'uses a secret outside')
+
     def test_runs_after_failure(self):
         self.assertBroken('deploy.yml', '        id: deployment\n', '        id: deployment\n        if: always()\n',
                           'runs after a failure or cancel')

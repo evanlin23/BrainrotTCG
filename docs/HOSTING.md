@@ -146,10 +146,19 @@ old UI. The GitHub redirect's copy may differ until refreshed; record that expli
 
 ## Read-only checks after deployment or recovery
 
-At the recorded production URL, confirm the hashed entry script in `index.html` matches the selected
-build and loads, then check required card images and a `/p/` preview page. The deploy workflow checks
-that the address's `deployment-id.json` matches the build it sealed before updating the old-site
-redirect, which doesn't prove assets decode or the game works. In a disposable browser context, open a known valid historical pull, a current-version
+Smoke check, GETs only (`curl -fsS`), at <https://brainrottcg.pages.dev/> or the recorded URL:
+
+| GET | Passes when |
+|---|---|
+| `/deployment-id.json` | 200 JSON whose `sha` and `run_id` are the deployed commit and run, and `url` is this address |
+| `/` | 200 HTML with a hashed `/assets/index-*.js` entry script |
+| that entry script | 200, `text/javascript` or `application/javascript`, non-empty |
+| `/hall-of-fame.json` | 200 JSON |
+| one card image (`/assets/*.webp`) the bundle names, and one `/p/` preview page and its `og:image` | 200 each, images non-empty |
+
+The publish job already waits for `deployment-id.json` to match the build it sealed, so a failed
+smoke check means a bad build, not a stale one. None of this proves assets decode or the game works.
+In a disposable browser context, open a known valid historical pull, a current-version
 pull and a profile link, and check invalid-proof recovery, ranking freshness and the old URL's
 forwarding. Use public test proofs, don't open new packs, submit, reset or import real saves, and
 record the tested deployment and any failures.
