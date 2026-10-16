@@ -24,7 +24,7 @@ import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progr
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory, recordMissing } from './game/history';
-import { getPlayer, watchPlayer } from './game/player';
+import { getPlayer, sameSave, saveMark, watchPlayer } from './game/player';
 import { reloadPage } from './game/reload';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
@@ -85,17 +85,17 @@ function App() {
     setRecoveryNoteHidden(true);
   }, []);
   const achievementsRef = useRef(achievements);
-  // The player this tab loaded. Another tab can import a save or switch player while this one stays
-  // open: from then on everything held here is the old player's, so nothing here unlocks achievements
-  // from the new player's history or stores progress over the new save (a reload picks that save up).
-  // Once the stored player differs it stays changed for this tab, even if the old one comes back:
-  // that tab may have written the old player's progress meanwhile.
-  const [mountedPlayer] = useState(() => getPlayer().publicKeyHex);
+  // The save this tab loaded. Another tab can import a save (even the same player's), switch player
+  // or clear storage while this one stays open: from then on everything held here is the old save's,
+  // so nothing here unlocks achievements from the new player's history or stores progress over the
+  // new save (a reload picks that save up). Once the stored save differs it stays changed for this
+  // tab, even if the old one comes back: that tab may have written the old save's progress meanwhile.
+  const [mountedSave] = useState(saveMark);
   const playerChanged = useRef(false);
   const samePlayer = useCallback(() => {
-    if (!playerChanged.current && getPlayer().publicKeyHex !== mountedPlayer) playerChanged.current = true;
+    if (!playerChanged.current && !sameSave(mountedSave, saveMark())) playerChanged.current = true;
     return !playerChanged.current;
-  }, [mountedPlayer]);
+  }, [mountedSave]);
   const previousProgress = useRef<Map<string, unknown> | null>(null);
   // Packs given to the collection that it hasn't stored yet: each stays on the pending shelf till then.
   const unsavedPacks = useRef<OpenedPack[]>([]);
@@ -237,7 +237,7 @@ function App() {
 
   // Saved packs (IndexedDB) are read a page at a time while the app runs, aborted on unmount.
   useEffect(() => watchMyPacks(), []);
-  // Hear about another tab's player switch before this one next writes (see samePlayer).
+  // Hear about another tab's import, player switch or clear before this one next writes (see samePlayer).
   useEffect(() => watchPlayer(() => {
     if (!samePlayer()) setStaleSave(true);
   }), [samePlayer]);

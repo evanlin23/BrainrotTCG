@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import { fromHex, publicKeyFromSecret, toHex } from '../engine';
+import { SAVE_STAMP_KEY } from '../game/player';
 import type { CollectionItem, Stats } from '../types';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
@@ -43,7 +44,7 @@ const shelf = () => JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS) 
 const otherTabWrites = (entries: Record<string, string>) => {
   for (const [key, value] of Object.entries(entries)) localStorage.setItem(key, value);
 };
-const storageEvent = (key: string) => app!.interact(() => window.dispatchEvent(new StorageEvent('storage', { key })));
+const storageEvent = (key: string | null) => app!.interact(() => window.dispatchEvent(new StorageEvent('storage', { key })));
 const packShell = () => document.querySelector<HTMLElement>('[aria-label^="Open a "]');
 const button = (within: ParentNode, label: string) => [...within.querySelectorAll<HTMLElement>('button')]
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label);
@@ -150,6 +151,22 @@ it('stops a pointer cut too, once another tab loads a different player', async (
   await app.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
 }, 60_000);
 
+it('puts a torn pack back sealed when another tab loads a different player before its ticket is spent', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  // The drag finishes the cut; the ticket is spent a moment later, once the tear has played.
+  await dragAcross();
+  otherTabWrites(THEIR_SAVE);
+  await storageEvent(PLAYER_KEY);
+  await app.settle(2000);
+
+  expect(banner()?.textContent).toContain(STALE);
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toMatchObject({ nextNonce: 0 });
+  expect(shelf()).toEqual([]);
+  expect(packShell()?.getAttribute('aria-disabled')).toBe('true');
+}, 60_000);
+
 it('blocks the write even when the storage event never arrived', async () => {
   app = await mountedApp(SEED);
   await app.mount();
@@ -175,6 +192,52 @@ it('keeps saving when another tab stores the same player (a rename)', async () =
   expect(Object.keys(JSON.parse(localStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS)!))).toContain('first_pack');
   expect(shelf()).toEqual([]);
   expect(banner()).toBeNull();
+}, 60_000);
+
+it('stops storing progress once another tab imports a save, even the same player’s', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+
+  // The same player, so only the import's stamp shows the save changed.
+  otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', ...THEIR_PROGRESS });
+  await storageEvent(SAVE_STAMP_KEY);
+  expect(banner()?.textContent).toContain(STALE);
+  expect(packShell()?.getAttribute('aria-disabled')).toBe('true');
+  await pressOpen();
+  await app.settle(2000);
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
+}, 60_000);
+
+it('keeps the imported save when this tab opens a pack before hearing of a same-player import', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+
+  otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', ...THEIR_PROGRESS });
+  await openPack();
+  expect(banner()?.textContent).toContain(STALE);
+  expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
+  // The pack waits on the shelf, and the next load adds it to the imported save.
+  expect(shelf()).toHaveLength(1);
+  await app.reload();
+  expect(banner()).toBeNull();
+  expect(owned()).toBe(5);
+  expect(shelf()).toEqual([]);
+}, 60_000);
+
+it('stops writing once another tab clears this browser’s storage', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+
+  localStorage.clear();
+  await storageEvent(null);
+  expect(banner()?.textContent).toContain(STALE);
+  // Opening a pack would store this tab's player again, under whatever the other tab saves next.
+  expect(packShell()?.getAttribute('aria-disabled')).toBe('true');
+  await pressOpen();
+  await app.settle(2000);
+  expect(localStorage.getItem(PLAYER_KEY)).toBeNull();
+  expect(Object.values(progress())).toEqual(PROGRESS.map(() => null));
 }, 60_000);
 
 it('still recovers a pack the collection couldn’t store when the player is the same', async () => {

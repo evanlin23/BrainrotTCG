@@ -5,7 +5,7 @@ import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
 import { exportSaveFile, importSaveFile } from './saveFile';
 import { readSettings } from '../utils/settings';
-import { exportPlayer, importPlayer, peekNonce } from './player';
+import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY } from './player';
 import { recordPack } from './history';
 import type { OpenedPack } from './pulls';
 
@@ -237,7 +237,7 @@ describe('Save & restore backup preflight', () => {
 
   it('reports a denied write instead of reporting successful import', () => {
     write.mockImplementationOnce(() => { throw new Error('storage denied'); });
-    // No current progress, so the first attempted write is an imported field rather than a backup.
+    // No current progress, so the first attempted write is the import's own (its stamp) rather than a backup.
     store.clear();
     expect(importSaveFile(JSON.stringify(fixture()))).not.toBeNull();
     expect(store.size).toBe(0);
@@ -312,4 +312,22 @@ it('restores the exact previous recovery archive if a later imported field fails
     .toBe('Import failed. Your previous save data was restored.');
   expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(previous);
   expect(JSON.parse(store.get('brainrot-before-import-v1')!)[STORAGE_KEYS.COLLECTION_RECOVERY]).toBe(previous);
+});
+
+it('stamps the save before writing any imported field, even for the same player', () => {
+  store.set(SAVE_STAMP_KEY, 'earlier');
+  expect(importSaveFile(JSON.stringify({ ...fixture(), player: player('bb'.repeat(32), 12) }))).toBeNull();
+  expect(write.mock.calls.slice(0, 2).map(([key]) => key)).toEqual(['brainrot-before-import-v1', SAVE_STAMP_KEY]);
+  expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+  expect(store.get(SAVE_STAMP_KEY)).not.toBe('earlier');
+});
+
+it.each([['an earlier stamp', 'earlier'], ['no stamp', undefined]])('puts back %s when the import fails', (_name, earlier) => {
+  if (earlier) store.set(SAVE_STAMP_KEY, earlier);
+  write.mockImplementation((key, value) => {
+    if (key === STORAGE_KEYS.STATS) throw new Error('quota');
+    store.set(key, value);
+  });
+  expect(importSaveFile(JSON.stringify(fixture()))).toBe('Import failed. Your previous save data was restored.');
+  expect(store.get(SAVE_STAMP_KEY)).toBe(earlier);
 });
