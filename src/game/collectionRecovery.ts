@@ -33,7 +33,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isEntry = (value: unknown): value is Entry => isRecord(value) && typeof value.raw === 'string'
   && (value.player === null || typeof value.player === 'string');
 
-const isArchive = (value: unknown): value is Archive => {
+/** A stored archive this code can read; also what a backup file's collectionRecovery must be (saveFile). */
+export const isArchive = (value: unknown): value is Archive => {
   if (!isEntry(value)) return false;
   const { later, dropped, kind } = value as Record<string, unknown>;
   return (later === undefined || (Array.isArray(later) && later.every(isEntry)))
@@ -281,10 +282,15 @@ export const discardCollectionRecovery = (shown: string | null): DiscardResult =
     const print = currentPrint();
     if (print !== null && print !== shown) return 'changed';
     localStorage.removeItem(ARCHIVE_KEY);
-    localStorage.removeItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN);
   } catch (error) {
     console.error(`Failed to remove localStorage key "${ARCHIVE_KEY}":`, error);
     return 'refused';
+  }
+  // The data is gone either way: a dismissal left behind only matches the same data kept aside again.
+  try {
+    localStorage.removeItem(STORAGE_KEYS.COLLECTION_RECOVERY_SEEN);
+  } catch (error) {
+    console.warn(`Failed to remove localStorage key "${STORAGE_KEYS.COLLECTION_RECOVERY_SEEN}":`, error);
   }
   unsaved = [];
   droppedThisVisit = 0;

@@ -240,9 +240,12 @@ saved) and `brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-
 app never restores a save from them). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
-replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1` (up to
-11 distinct payloads); if that can't be kept, the stored collection is left alone. Export includes
-that archive. Import
+replaced, unreadable entries are archived byte for byte, with the identity snapshot they belonged to,
+in `brainrot-collection-recovery-v1`: each distinct payload once, the first and then the newest 10,
+within 1M characters (older ones in between are let go and counted). The archive never blocks the
+save: a payload storage has no room for is kept for that visit only, and the note asks the player to
+download it. Nothing discards kept-aside data silently; the player can download or discard it from the
+save warning or Settings. Export includes that archive. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
 import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; if the

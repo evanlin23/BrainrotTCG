@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { collectionRecoveryPrint, discardCollectionRecovery, downloadCollectionRecovery } from '../../game/collectionRecovery';
 
 interface KeptAsideActionsProps {
@@ -12,6 +12,13 @@ interface KeptAsideActionsProps {
   canAct: () => boolean;
   /** Nothing is kept aside any more (discarded here, or gone before Download). The parent moves focus. */
   onGone: () => void;
+  /** What's kept aside changed since Discard asked (another tab kept more aside): the parent refreshes its note. */
+  onChanged: () => void;
+  /**
+   * These controls left while focus was in them (the tab went stale, or the player changed), so focus
+   * fell to the page body. The parent moves it: to Reload if that's shown, else to the section heading.
+   */
+  onLeave: () => void;
 }
 
 /** The question on screen, and the fingerprint of what was kept aside when it was asked. */
@@ -25,13 +32,26 @@ interface Asked {
  * first, in place, like Restore's Keep mine / Replace: the safe answer takes focus and reads the question.
  * If what's kept aside changed after the question, it asks again instead of discarding the new data.
  */
-const KeptAsideActions = ({ variant, canAct, onGone }: KeptAsideActionsProps) => {
+const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptAsideActionsProps) => {
   const [asked, setAsked] = useState<Asked | null>(null);
   const [refused, setRefused] = useState(false);
   const keepRef = useRef<HTMLButtonElement>(null);
   const discardRef = useRef<HTMLButtonElement>(null);
   const backToDiscard = useRef(false);
   const noteId = useId();
+  const rootRef = useRef<HTMLSpanElement>(null);
+  // React runs this cleanup before it removes the buttons, while focus is still on one. Whatever should
+  // take focus (Reload, say) may only be added later in the same commit, so the parent acts after it.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    return () => {
+      if (!root?.contains(document.activeElement)) return;
+      queueMicrotask(() => {
+        const active = document.activeElement;
+        if (!root.isConnected && (!active || active === document.body)) onLeave();
+      });
+    };
+  }, [onLeave]);
   useEffect(() => {
     if (asked) keepRef.current?.focus();
     else if (backToDiscard.current) discardRef.current?.focus();
@@ -54,6 +74,7 @@ const KeptAsideActions = ({ variant, canAct, onGone }: KeptAsideActionsProps) =>
     if (result === 'changed') {
       backToDiscard.current = false;
       setAsked({ print: collectionRecoveryPrint(), changed: true });
+      onChanged();
       return;
     }
     setAsked(null);
@@ -62,7 +83,7 @@ const KeptAsideActions = ({ variant, canAct, onGone }: KeptAsideActionsProps) =>
   };
 
   return (
-    <span className={variant === 'settings' ? 'settings-actions' : undefined}>
+    <span ref={rootRef} className={variant === 'settings' ? 'settings-actions' : undefined}>
       {asked ? (
         <>
           <span id={noteId} className={note}>
