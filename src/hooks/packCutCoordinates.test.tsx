@@ -98,7 +98,7 @@ describe('usePackCutter sparks (#265)', () => {
     const pack = { clientWidth: layout.clientWidth, clientHeight: layout.clientHeight, getBoundingClientRect: () => rect };
     const Probe = () => {
       const cutter = usePackCutter({ onCutComplete: () => {}, isOpening: false, isPackCut: false, volume: 0 });
-      // eslint-disable-next-line react-hooks/immutability -- test probe: no DOM to attach the ref to
+      // Test probe: no DOM to attach the ref to.
       cutter.packRef.current = pack as unknown as HTMLDivElement;
       if (!cutter.isCutting) {
         cutter.handlePointerDown({ button: 0, clientX, clientY, target: null } as unknown as PointerEvent);
