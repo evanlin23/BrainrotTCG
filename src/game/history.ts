@@ -6,8 +6,9 @@
  * Stored compactly: thousands of packs fit comfortably in localStorage.
  */
 import { STORAGE_KEYS } from '../constants';
-import { POKER_HANDS, qualifiesForHallOfFame, type Finish } from '../engine';
-import { decodeCard, encodeCard, type StoredCard } from './cardCode';
+import { POKER_HANDS, qualifiesForHallOfFame, scorePulled, type Finish } from '../engine';
+import { getSet } from '../content/sets';
+import { decodeCard, encodeCard, toPulled, type StoredCard } from './cardCode';
 import { getStoredPack } from './packStore';
 import type { OpenedPack } from './pulls';
 import type { CardWithMeta } from '../components/cards/Card';
@@ -57,16 +58,26 @@ const cardsOf = (s: Stored): StoredCard[] | null => {
   return code ? code.split(',').map(decodeCard) : null;
 };
 
-const decode = (s: Stored): HistoryEntry => ({
-  setId: s.s,
-  setVersion: s.v,
-  nonce: s.n,
-  key: s.k,
-  cards: cardsOf(s),
-  hand: s.h,
-  score: s.x,
-  openedAt: s.t,
-});
+/** recordTicket's stand-in: no cards, hand or score yet (every pack has a hand). */
+const isTicketOnly = (e: Stored) => e.h === '' && e.c === undefined;
+
+/**
+ * A stand-in's hand and score, from its pack's cards once this device has re-opened it (a profile
+ * does), so Best, For Rankings and achievements count it like any pack. Worked out on each read and
+ * never written: the stand-in stays as stored until recordPack or recordMissing replaces it.
+ */
+const handOf = (s: Stored, cards: StoredCard[] | null): Pick<HistoryEntry, 'hand' | 'score'> => {
+  const set = isTicketOnly(s) && cards ? getSet(s.s, s.v) : undefined;
+  const pulled = set && cards ? toPulled(cards, set) : null;
+  if (!pulled) return { hand: s.h, score: s.x };
+  const { hand, score } = scorePulled(pulled);
+  return { hand: hand.name, score };
+};
+
+const decode = (s: Stored): HistoryEntry => {
+  const cards = cardsOf(s);
+  return { setId: s.s, setVersion: s.v, nonce: s.n, key: s.k, cards, ...handOf(s, cards), openedAt: s.t };
+};
 
 const rawHistory = (): string | null => {
   try {
@@ -157,6 +168,12 @@ const toStored = (pack: OpenedPack): Stored => encode({
   openedAt: pack.openedAt,
 });
 
+/**
+ * A pack in its recordTicket stand-in's place, keeping the stand-in's time: it sorts where the stand-in
+ * did, newest first here and by openedAt everywhere else, so the history doesn't reorder when it opens.
+ */
+const fillStandIn = (stub: Stored, entry: Stored): Stored => ({ ...entry, t: stub.t });
+
 export const recordPack = (pack: OpenedPack): boolean => {
   const current = readValid();
   if (!current) return false;
@@ -167,11 +184,10 @@ export const recordPack = (pack: OpenedPack): boolean => {
    * Neither record can be rebuilt from the other, so both are kept rather than the last one
    * winning; a profile admits one of them by a fixed rule (game/profiles.ts, firstOpened).
    */
+  const stub = current.findIndex((e) => sameAssignment(e, entry) && isTicketOnly(e));
+  if (stub >= 0) return write(current.map((e, i) => (i === stub ? fillStandIn(e, entry) : e)));
   return write([entry, ...current.filter((e) => !sameAssignment(e, entry))]);
 };
-
-/** recordTicket's stand-in: no cards, hand or score yet (every pack has a hand). */
-const isTicketOnly = (e: Stored) => e.h === '' && e.c === undefined;
 
 /**
  * Records that this key spent ticket `nonce` on `set@version` before its pack is in hand: a mapping with
@@ -202,8 +218,12 @@ export const recordMissing = (packs: readonly OpenedPack[], publicKeyHex: string
   for (const pack of mine) {
     const entry = toStored(pack);
     const stub = current.findIndex((e) => sameAssignment(e, entry) && isTicketOnly(e));
-    if (stub >= 0) current.splice(stub, 1);
-    else if (current.some((e) => sameAssignment(e, entry))) continue;
+    if (stub >= 0) {
+      current[stub] = fillStandIn(current[stub], entry);
+      added = true;
+      continue;
+    }
+    if (current.some((e) => sameAssignment(e, entry))) continue;
     // Newest first, as recordPack keeps it.
     const at = current.findIndex((e) => e.t < entry.t);
     current.splice(at < 0 ? current.length : at, 0, entry);
