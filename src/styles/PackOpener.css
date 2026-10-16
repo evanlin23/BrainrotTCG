@@ -127,20 +127,23 @@
  * The whole pack fits the stage, so nothing needs scrolling or reaching. The wrapper image is
  * 1536:2752 with clear space above the crimp, so it's pulled up by a tenth of its width to put the
  * set ribbon just under the picker; the printed pack is then 1.7 widths tall, and --pack-fit is the
- * width at which that height fills the stage less a space-4 gap above and below. The width is also
- * capped at 80% of the screen (100% on phones, below), and never under 10rem so a very short
- * landscape stage still gets a pack to tear, with its top and the tear line showing. Opening needs a
- * drag from 18% to 82% of the width. The Open pack button under it (.pack-actions) follows the same width.
+ * width at which that height fills the stage less a gap above and below. The gap is a space-4, and at
+ * most a twentieth of the stage's height, so on a short landscape stage (a phone on its side) it
+ * shrinks with the stage and the width never goes negative. The width is also capped at 80% of the
+ * screen (100% on phones, below). There is no floor: one taller than the stage cut the bottom of the
+ * pack off at rest and while it fell in. A pack on a stage that short is small but whole, and the
+ * Open pack button under it (.pack-actions, which follows the same width) still opens it.
  */
 .pack-shell-wrap,
 .pack-actions {
-    --pack-fit: calc((100cqh - var(--space-4) * 2) / 1.7);
-    --pack-w: max(10rem, min(80vw, 1600px, var(--pack-fit)));
+    --pack-gap: min(var(--space-4), 5cqh);
+    --pack-fit: calc((100cqh - var(--pack-gap) * 2) / 1.7);
+    --pack-w: min(80vw, 1600px, var(--pack-fit));
 }
 
 .pack-shell-wrap {
     position: absolute;
-    top: calc(var(--space-4) - var(--pack-w) * 0.1);
+    top: calc(var(--pack-gap) - var(--pack-w) * 0.1);
     left: 50%;
     transform: translateX(-50%);
     width: var(--pack-w);
@@ -150,7 +153,7 @@
     .pack-shell-wrap,
     .pack-actions {
         /* The full width of the phone when the height allows: big, without running off both sides. */
-        --pack-w: max(10rem, min(100vw, var(--pack-fit)));
+        --pack-w: min(100vw, var(--pack-fit));
     }
 }
 
@@ -184,7 +187,7 @@
 
 .pack-actions::before {
     content: '';
-    flex: 0 1 calc(var(--space-4) + var(--pack-w) * 0.285 + 2.75rem);
+    flex: 0 1 calc(var(--pack-gap) + var(--pack-w) * 0.285 + 2.75rem);
     min-height: 0;
 }
 
@@ -561,6 +564,34 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+
+/*
+ * On a pack too narrow for two lines of it (the shell is an inline-size container, so this is the
+ * pack's own width) the words would wrap to three and run down over the Open pack button. The pill
+ * keeps its moving arrows and the dotted line stays, and the words stay for a screen reader. On a
+ * pack under 4rem, a phone on its side, even that pill would sit on the button, so it goes too
+ * (still read aloud); the button is the way in.
+ */
+@container (max-width: 4rem) {
+    .swipe-hint {
+        opacity: 0;
+    }
+}
+
+@container (max-width: 12rem) {
+    .swipe-hint-text {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    .swipe-hint {
+        padding: var(--space-1) var(--space-2);
+    }
 }
 
 @keyframes swipeMotion {

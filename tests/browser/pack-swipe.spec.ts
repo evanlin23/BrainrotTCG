@@ -17,8 +17,8 @@ async function sealedPack(page: Page) {
 /**
  * Presses the tear line at the first fraction of the pack's width, moves through the rest in small
  * steps, and checks the stroke is still cutting, not yet torn, before it's released. The full swipes
- * below span 29% of the pack's width: past RELEASE_CUT_RATIO (20%) so release tears it, and short of
- * DRAG_CUT_RATIO (never under 30%) so the stroke is still cutting, not torn, until then.
+ * below span 25% of the pack's width (0.375 to 0.625): past RELEASE_CUT_RATIO (20%) so release tears
+ * it, and short of DRAG_CUT_RATIO (30%) so the stroke is still cutting, not torn, until then.
  */
 async function swipeTearLine(page: Page, packShell: Locator, finger: Finger, ...across: number[]) {
   const box = (await packShell.boundingBox())!;
@@ -39,11 +39,11 @@ async function swipeTearLine(page: Page, packShell: Locator, finger: Finger, ...
   await finger.release();
 }
 
-test('a 30% swipe along the tear line opens the pack on release', async ({ page, baseURL, hasTouch }) => {
+test('a 25% swipe along the tear line opens the pack on release', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   const packShell = await sealedPack(page);
-  await swipeTearLine(page, packShell, await fingerFor(page, hasTouch), 0.35, 0.64);
+  await swipeTearLine(page, packShell, await fingerFor(page, hasTouch), 0.375, 0.625);
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   expect(errors).toEqual([]);
 });
@@ -67,7 +67,7 @@ test('a tap on the tear line pulses the swipe hint, then a swipe still opens (#4
   await finger.release();
   await expect(packShell).toHaveClass(/\bis-tapped\b/);
   await expect(packShell).not.toHaveClass(/\bis-cut\b/);
-  await swipeTearLine(page, packShell, finger, 0.35, 0.64);
+  await swipeTearLine(page, packShell, finger, 0.375, 0.625);
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   expect(errors).toEqual([]);
 });
@@ -121,7 +121,7 @@ test.describe('at a phone size', () => {
     await expectNoCut(page, packShell);
 
     // The pack still opens with a real swipe.
-    await swipeTearLine(page, packShell, finger, 0.35, 0.64);
+    await swipeTearLine(page, packShell, finger, 0.375, 0.625);
     await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
     expect(errors).toEqual([]);
   });
@@ -148,7 +148,7 @@ test.describe('at a phone size', () => {
     await finger.release();
     await expectNoCut(page, packShell);
 
-    await swipeTearLine(page, packShell, finger, 0.35, 0.64);
+    await swipeTearLine(page, packShell, finger, 0.375, 0.625);
     await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
     expect(errors).toEqual([]);
   });
