@@ -454,17 +454,19 @@ export const inbox = async () => {
     else if (issue.user?.login === BOT && !unfinished.has(id)) unfinished.set(id, issue);
   }
 
-  // Only pulls that would join the list are filed; each one filed raises the bar for the next. One
-  // UTC day for the whole run, so a run that crosses midnight judges every pull by the same day's top.
+  // Only pulls that would join the list are filed; each one filed raises the bar for the next. Each
+  // pull is judged by the UTC day its entry is stamped with: its unfinished issue's, or else today's
+  // (a new issue is stamped as it opens), so after midnight a run judges by the new day's top. The
+  // floor is today's, so it doesn't apply to an unfinished issue, which may be judged by an earlier day.
   const list = await publishedList();
-  const day = today();
   if (!list) console.log("Couldn't read the published list; filing every qualifying pull");
+  const stampDay = (pull: VerifiedPull) => utcDay(unfinished.get(pullId(pull.proof))?.created_at ?? new Date().toISOString());
 
   const { added, deferred } = await processInbox(events, {
     seen,
     filed,
-    accepts: (pull) => (list ? joinRefusal(pull, list, day) === null : qualifiesForHallOfFame(pull.score)),
-    floor: list ? hallOfFameFloor(list, day) : null,
+    accepts: (pull) => (list ? joinRefusal(pull, list, stampDay(pull)) === null : qualifiesForHallOfFame(pull.score)),
+    floor: (id) => (list && !unfinished.has(id) ? hallOfFameFloor(list, today()) : null),
     budget: INBOX_BUDGET,
     maxFiled: INBOX_MAX_FILED,
     lookup: getSet,
@@ -487,7 +489,7 @@ export const inbox = async () => {
       if (!earlier || !(await firstVerifiedAt(issue.number, id, token))) {
         await github(`/repos/${REPO}/issues/${issue.number}/comments`, token, { body: verifiedComment(entry, pull) });
       }
-      await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: [joinLabel(pull, list, day)] });
+      await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: [joinLabel(pull, list, utcDay(issue.created_at))] });
       unfinished.delete(id);
       // Done: closed issues stay in the Hall of Fame (the deploy reads every state); this keeps the
       // issue list for things that need attention.

@@ -238,11 +238,11 @@ describe('Best versions of a card', () => {
     expect([...boards.keys()]).toEqual(['set-a/b1', 'set-a/c1', 'set-a/c2', 'set-a/l1', 'set-a/r1', 'set-a/u1', 'set-a/w1']);
     expect(ids(board(boards, 'set-a/w1'))).toEqual(['set-a@1/weak/1#0']);
     expect(boards.get('set-a/w1')).toMatchObject({ scope: 'card-versions', card: 'set-a/w1', capacity: 2, completeness: { status: 'complete' } });
-    // Five c1 in the combo pack and more in the filler: c1's board keeps its own best two.
-    expect(boards.get('set-a/c1')?.sources.candidates).toBe(5 + 3);
+    // Five c1 in the combo pack and more in the filler: the combo pack holds one place on c1's board
+    // (its later slot), and the next pack received takes the other.
+    expect(boards.get('set-a/c1')?.sources).toMatchObject({ candidates: 5 + 3, duplicates: 4 });
     expect(board(boards, 'set-a/c1').map((e) => e.score)).toEqual([cardPoints('COMMON', false, null, false), cardPoints('COMMON', false, null, false)]);
-    expect(board(boards, 'set-a/c1').every((e) => e.pullId === combo.pullId)).toBe(true); // earliest receipt, later slot first
-    expect(ids(board(boards, 'set-a/c1'))).toEqual(['set-a@1/combo/1#4', 'set-a@1/combo/1#3']);
+    expect(ids(board(boards, 'set-a/c1'))).toEqual(['set-a@1/combo/1#4', 'set-a@1/both/1#1']);
   });
 
   it('ranks versions of one card together and keeps other sets apart', () => {
@@ -259,13 +259,34 @@ describe('Best versions of a card', () => {
     expect(boards.get('set-a/e1')?.capacity).toBe(CARD_BOARD_SIZE);
   });
 
+  it('gives each pack one place, its best copy of the card', () => {
+    const twice = pack('twice', [c('e1', 'EPIC'), holoEpic, ...filler.slice(0, 3)]);
+    const once = pack('once', [c('e1', 'EPIC'), ...filler]);
+    const instances = cardInstances([twice, once]);
+    const boards = cardVersionBoards(instances, { generatedAt: NOW });
+    expect(ids(board(boards, 'set-a/e1'))).toEqual(['set-a@1/twice/1#1', 'set-a@1/once/1#0']);
+    expect(boards.get('set-a/e1')?.sources).toMatchObject({ candidates: 3, duplicates: 1 });
+    const previous = boards.get('set-a/e1')!;
+    expect(ids(rebuildBoard(previous, instances.filter((i) => i.cardId === 'e1'), { coverage: { kind: 'all' }, generatedAt: NOW }).entries)).toEqual(ids(previous.entries));
+  });
+
+  it('keeps the lower proof of one instance received twice at once, whatever the input order', () => {
+    const at = tick();
+    const instances = cardInstances([pack('p', [holoEpic, ...filler], { at, proof: 'proof-b' }), pack('p', [holoEpic, ...filler], { at, proof: 'proof-a' })]);
+    for (const given of [instances, [...instances].reverse()]) {
+      const e1 = cardVersionBoards(given, { generatedAt: NOW }).get('set-a/e1')!;
+      expect(e1.entries.map((e) => e.proof)).toEqual(['proof-a']);
+      expect(e1.sources).toMatchObject({ candidates: 2, duplicates: 1 });
+    }
+  });
+
   it('breaks ties by receipt, then pull id, then the later slot, whatever the input order', () => {
     const at = tick();
     const early = pack('early', [holoEpic, ...filler], { at: '2026-01-01T00:00:00.000Z' });
     const b = pack('b', [holoEpic, ...filler], { at });
     const a = pack('a', [filler[0], holoEpic, filler[1], holoEpic, filler[2]], { at });
     const instances = cardInstances([b, a, early]);
-    const expected = ['set-a@1/early/1#0', 'set-a@1/a/1#3', 'set-a@1/a/1#1', 'set-a@1/b/1#0'];
+    const expected = ['set-a@1/early/1#0', 'set-a@1/a/1#3', 'set-a@1/b/1#0']; // a's second copy holds no place
     expect(ids(board(cardVersionBoards(instances, { generatedAt: NOW }), 'set-a/e1'))).toEqual(expected);
     expect(ids(board(cardVersionBoards([...instances].reverse(), { generatedAt: NOW }), 'set-a/e1'))).toEqual(expected);
   });
@@ -305,6 +326,13 @@ describe('Best versions of a card', () => {
     const rebuilt = rebuildBoard(previous, instances, { removed: [p.pullId], coverage: { kind: 'all' }, generatedAt: NOW });
     expect(rebuilt).toMatchObject({ scope: 'card-versions', card: 'set-a/e1', completeness: { status: 'complete' } });
     expect(ids(rebuilt.entries)).toEqual(['set-a@1/q/1#0']);
+  });
+
+  it("refuses another card's instances on a card board", () => {
+    const instances = cardInstances([pack('p', [holoEpic, ...filler])]);
+    const previous = cardVersionBoards(instances, { generatedAt: NOW }).get('set-a/e1')!;
+    expect(() => rebuildBoard(previous, instances, { generatedAt: NOW })).toThrow(RangeError);
+    expect(() => selectBoard(instances.slice(1), { scope: 'card-versions', card: 'set-a/e1', capacity: 1, generatedAt: NOW })).toThrow(/set-a\/c1/);
   });
 });
 
