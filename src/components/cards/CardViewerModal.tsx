@@ -57,7 +57,7 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false }: CardView
         className={`card-viewer-card ${card.rarity.toLowerCase()} ${isHolo ? 'holo' : ''} ${modifierClasses(shown)}`}
         style={{ transform: `perspective(1000px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)` }}
       >
-        <CardImage src={card.image} finish={finish} alt={card.name} draggable="false" />
+        <CardImage src={card.image} finish={finish} alt={card.name} draggable="false" retry />
         {misprint && <CardImage src={card.image} finish={finish} alt="" aria-hidden="true" className="misprint-ghost" draggable="false" />}
         {label && <span className="modifier-sticker">{label}</span>}
       </div>

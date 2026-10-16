@@ -99,7 +99,9 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
     expect(images.map((image) => new URL(image.src).pathname.split('/').pop())).toEqual([
       'bukangi.webp', 'niu-lai.webp', 'bukangi.webp', 'la-peace.webp', 'verity.webp',
     ]);
-    expect(images.map((image) => image.className.trim())).toEqual(['', 'finish-gold', '', '', '']);
+    // Every thumb keeps the card-shaped box; only the gold card carries a finish class.
+    expect(images.every((image) => image.classList.contains('card-image'))).toBe(true);
+    expect(images.map((image) => [...image.classList].filter((name) => name !== 'card-image'))).toEqual([[], ['finish-gold'], [], [], []]);
   });
   expect(snapshot()).toEqual(before);
 }, 30_000);
