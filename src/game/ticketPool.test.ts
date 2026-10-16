@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeTicket, toHex } from '../engine';
 import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
-import { createTicketPool, type TicketPool } from './ticketPool';
+import { createTicketPool, poolSize, type TicketPool } from './ticketPool';
 
 vi.mock('../engine', async (importOriginal) => ({
   ...await importOriginal<typeof import('../engine')>(),
@@ -257,5 +257,23 @@ describe('ticket pool scheduling and lifecycle', () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
     expect(worker.postMessage).toHaveBeenCalledOnce();
     expect(computeTicket).not.toHaveBeenCalled();
+  });
+});
+
+describe('pool size', () => {
+  const size = (deviceMemory: number | undefined, hardwareConcurrency: number) => {
+    vi.stubGlobal('navigator', { deviceMemory, hardwareConcurrency });
+    return poolSize();
+  };
+
+  it('stays small when the browser does not report memory', () => {
+    expect(size(undefined, 16)).toBe(2);
+    expect(size(undefined, 2)).toBe(1);
+  });
+
+  it('keeps the reported-memory tiers, one worker per spare core', () => {
+    expect(size(8, 16)).toBe(8);
+    expect(size(8, 4)).toBe(3);
+    expect(size(4, 16)).toBe(4);
   });
 });
