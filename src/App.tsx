@@ -25,6 +25,7 @@ import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress,
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory, recordMissing } from './game/history';
 import { getPlayer, sameSave, saveMark, watchPlayer } from './game/player';
+import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
@@ -96,6 +97,16 @@ function App() {
     if (!playerChanged.current && !sameSave(mountedSave, saveMark())) playerChanged.current = true;
     return !playerChanged.current;
   }, [mountedSave]);
+  // The progress this tab loaded. Another tab of the same player can store packs into it meanwhile (no
+  // import or switch, so samePlayer can't tell): everything held here is then older, and storing it would
+  // drop that tab's packs, cards and unlocks. As with a changed save, this tab stores no more progress
+  // and asks for a reload. Latched like samePlayer.
+  const [progress] = useState(guardProgress);
+  const progressChanged = useRef(false);
+  const progressCurrent = useCallback(() => {
+    if (!progressChanged.current && !progress.current()) progressChanged.current = true;
+    return !progressChanged.current;
+  }, [progress]);
   // For pages that write the save themselves (Profile's name): refuse, and say why, once it changed.
   const canWriteSave = useCallback(() => {
     if (samePlayer()) return true;
@@ -120,6 +131,22 @@ function App() {
     // packs given to the collection meanwhile stay on the pending shelf, under the player they opened as.
     if (!samePlayer()) {
       setStaleSave(true);
+      return;
+    }
+    // Another tab of this player stored progress since this one read it (see progressCurrent). The packs
+    // this tab took off the shelf at load go back on it for the next load to add, as they were (this tab's
+    // count of them is never stored); the ones it opened since are on it already. If the shelf won't take
+    // them, they stay owed here and the next change tries again.
+    if (!progressCurrent()) {
+      setStaleSave(true);
+      const packs = unsavedPacks.current;
+      if (packs.length > 0) {
+        if (savePendingPack(...packs)) unsavedPacks.current = [];
+        else {
+          setSaveFailed(true);
+          console.error(`${packs.length} pack(s) couldn't be put back on the pending shelf: only this tab has them, and newer progress from another tab is stored.`);
+        }
+      }
       return;
     }
     let statsHandled = false;
@@ -169,7 +196,9 @@ function App() {
       if (previous.get(key) === value) continue;
       if (!setStoredData(key, value)) setSaveFailed(true);
     }
-  }, [collection, achievements, stats, hallOfFame, settings, samePlayer]);
+    // What this tab just stored (or, where storage refused, what it kept) is the progress it now holds.
+    progress.noted();
+  }, [collection, achievements, stats, hallOfFame, settings, samePlayer, progressCurrent, progress]);
 
   // The page showing (Open has no hash), and any shared link open over it: see useRoute.
   const { route, proof: viewProof, profile: viewProfile, broken: brokenLink, navigate, closePage, closeLink } = useRoute();
@@ -242,6 +271,10 @@ function App() {
   useEffect(() => watchPlayer(() => {
     if (!samePlayer()) setStaleSave(true);
   }), [samePlayer]);
+  // And about another tab of this player storing progress (see progressCurrent), so packs stop opening here.
+  useEffect(() => watchProgress(() => {
+    if (!progressCurrent()) setStaleSave(true);
+  }), [progressCurrent]);
   const packCache = usePackCacheVersion();
   // Level rewards in use (game/progression.ts), checked against the level this save has reached.
   // Re-read after every pack (myStats reads the pack history, which each pack adds to), and when
