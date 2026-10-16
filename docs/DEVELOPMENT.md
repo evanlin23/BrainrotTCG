@@ -173,11 +173,22 @@ navigator. `npx vitest run tests/performance/optional-work.test.ts` checks its r
 
 **No fail-on-regression gate exists.** Both harnesses set `timingGate: false`, nothing in
 `npm run check` or PR CI runs them, and the Actions job only uploads reports. These budgets are
-proposals for a reviewer to hold a change against, taken from one n=7 sample on commit `8e81f18`
-(Chromium emulation, 393×727, 4× CPU, 10/2 Mbps and 40 ms, a 4-vCPU 2.1 GHz Xeon host; **not a real
-device**). Timing budgets are about 1.5× the highest median seen, so machine noise doesn't trip
-them. Sizes and counts were identical on every run, so theirs are tight: the cold transfer sits
-about 10% over, and the few warm kilobytes get a round 10,000 B.
+proposals for a reviewer to hold a change against, taken from one n=7 sample (Chromium emulation,
+393×727, 4× CPU, 10/2 Mbps and 40 ms, a 4-vCPU 2.1 GHz Xeon host; **not a real device**). Timing
+budgets are about 1.5× the highest median seen, so machine noise doesn't trip them. Sizes and counts
+were identical on every run, so theirs are tight: the cold transfer sits about 10% over, and the few
+warm kilobytes get a round 10,000 B.
+
+**Provenance: the app under test was `8e81f18`, the harness was not.** The sample ran on a tree
+based on `8e81f18` with uncommitted changes to tracked files (the optional-work reports say
+`trackedSourceDirty: true`), and the exact uncommitted state wasn't kept, so `8e81f18` alone doesn't
+reproduce every row. Those changes are now committed: the `PERF_REPETITIONS` setting that made n=7
+possible (`tests/performance/report.ts`; the default stays 3), and the optional-work harness's
+main-thread recording of long tasks and frame gaps (`tests/performance/optional-work.spec.ts` and
+`optional-work.ts`). Rows marked † exist only because of that recording. The other rows come from
+code `8e81f18` already had (`baseline.spec.ts` is unchanged since, and so are the optional-work worker
+counts and open-to-result timings). The sample has not been re-measured on the committed harness,
+and the pack layout change of #536 landed after `8e81f18`, so it is not in these numbers either.
 
 | Metric | Median (min to max), n=7 | Proposed budget |
 | --- | --- | --- |
@@ -190,8 +201,8 @@ about 10% over, and the few warm kilobytes get a round 10,000 B.
 | Cold long-task total | 1311 / 1352 ms (slowest run 1600) | 2000 ms, a review flag |
 | Optional work active: workers, Argon2 peak estimate | 4 workers, 96 MiB (inactive: 1, 32 MiB) | 4, 96 MiB |
 | Optional work active vs idle, open to result | 2467 vs 2084 ms (1.18×); an earlier pass 2816 vs 2214 ms (1.27×) | within 1.5× of idle |
-| Optional work active vs idle, long tasks while opening | 747 vs 651 ms total, longest 384 vs 364 ms | a review flag |
-| Optional work active vs idle, frame gaps over 50 ms while opening | 7 vs 5 (longest gap 383 vs 367 ms) | a review flag |
+| † Optional work active vs idle, long tasks while opening | 747 vs 651 ms total, longest 384 vs 364 ms | a review flag |
+| † Optional work active vs idle, frame gaps over 50 ms while opening | 7 vs 5 (longest gap 383 vs 367 ms) | a review flag |
 
 Maximum frame interval (317 to 417 ms median) has no budget: at 4× slowdown it is the ticket and
 decode work on the main thread, and only a real phone can say what players see. A gate, if one is
@@ -205,10 +216,14 @@ unrelated work. Compare only against a run on the same machine and settings.
 shipped `TICKET_PARAMS` in Node and on the main thread of a blank Chromium page at 1× and 4× CPU
 (#36). It reads and writes no save, history or network, uses a fixed throwaway key, and never
 changes the parameters. CDP's slowdown doesn't reach workers, so the 4× figure mines on the main
-thread; the app mines in a worker. Commit `8e81f18`, n=7 after the first call (which also starts
-the WASM), same host: Node 112 (104 to 132) ms; Chromium emulation 1×, 88 (81 to 135) ms; Chromium
-emulation 4×, 494 (436 to 554) ms. **Chromium emulation, not a real device**; a low-end phone and a
-GPU or ASIC miner haven't been measured.
+thread; the app mines in a worker. One run on the same host as above, n=7 after the first call (which
+also starts the WASM): in Node (no browser, no network) 112 (104 to 132) ms; on the main thread of a
+blank Chromium page at 390×844, device scale 3, mobile emulation and no network, at 1× CPU 88 (81 to
+135) ms and at 4× CPU 494 (436 to 554) ms. The script was still an untracked file on a tree based on
+`8e81f18` (so no report could flag it as dirty); it is committed now, and the code it times
+(`src/engine`, the ticket worker in `src/workers`, `spec`) is identical between `8e81f18` and this
+branch. **Chromium emulation, not a real device**; a low-end phone and a GPU or ASIC miner haven't
+been measured.
 
 ## Dependency audit
 
