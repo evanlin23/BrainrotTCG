@@ -68,7 +68,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | Shape | `--radius-sm` … `--radius-xl`, `--radius-pill` | |
 | Depth | `--shadow-1` … `--shadow-3` | `--glow-brand` is `none` |
 | Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--ease-out`, `--ease-spring` | zero under reduced motion |
-| Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom` | |
+| Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` | the page runs under the notch (`viewport-fit=cover`), so anything fixed to a screen edge pads by these; `theme-color` matches `--bg` |
 
 ## Components
 
