@@ -127,7 +127,7 @@ export async function mountedApp(storage: Record<string, string>,
     const { MotionConfig } = await import('framer-motion');
     // The adapter cannot decode/rasterize images. Preserve src and finish props above this boundary.
     const images = await import('../game/finishImage');
-    vi.spyOn(images, 'finishedCardImage').mockImplementation(async (src) => src);
+    vi.spyOn(images, 'holdFinishedCardImage').mockImplementation((src) => ({ image: Promise.resolve(src), release: () => {} }));
     // After a worker failure the miner computes on the main thread: await that real work too.
     const engine = await import('../engine');
     const compute = engine.computeTicket;

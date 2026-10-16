@@ -263,7 +263,7 @@ for (const { vector, entry } of cases) {
       if (!finish) {
         await expect(card.locator('img')).toHaveAttribute('src', new RegExp(`/assets/${expected.cardId}-[\\w-]+\\.webp$`));
       }
-      // Finish rendering keeps the image hidden until its modified frame is ready.
+      // A finish shows a placeholder until its modified frame is ready; expectDecoded waits for that.
       await card.click();
       const detail = page.getByRole('dialog', { name: definition.name, exact: true });
       await expect(detail).toBeVisible();

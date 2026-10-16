@@ -48,6 +48,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** These deadline tests only read the result, so each request takes a hold it never gives back. */
+const importFinishedCardImage = async () => {
+  const { holdFinishedCardImage } = await import('./finishImage');
+  return (src: string, finish?: Parameters<typeof holdFinishedCardImage>[1]) => holdFinishedCardImage(src, finish).image;
+};
+
 const expectReleased = (image: ControlledImage) => {
   expect(image.onload).toBeNull();
   expect(image.onerror).toBeNull();
@@ -55,7 +61,7 @@ const expectReleased = (image: ControlledImage) => {
 
 describe('finish image request deadlines', () => {
   it('returns unmodified cards without starting image requests or timers', async () => {
-    const { finishedCardImage } = await import('./finishImage');
+    const finishedCardImage = await importFinishedCardImage();
     await expect(finishedCardImage('/card.webp')).resolves.toBe('/card.webp');
     await expect(finishedCardImage('/card.webp', null)).resolves.toBe('/card.webp');
     expect(images).toHaveLength(0);
@@ -63,7 +69,7 @@ describe('finish image request deadlines', () => {
   });
 
   it('times out a stalled card, ignores its late load, and allows a fresh retry', async () => {
-    const { finishedCardImage } = await import('./finishImage');
+    const finishedCardImage = await importFinishedCardImage();
     const first = finishedCardImage('/card.webp', 'GOLD');
     expect(finishedCardImage('/card.webp', 'GOLD')).toBe(first);
     const failure = first.catch((error: unknown) => error);
@@ -93,7 +99,7 @@ describe('finish image request deadlines', () => {
   });
 
   it('times out a stalled mask without accepting its late load and retries both inputs', async () => {
-    const { finishedCardImage } = await import('./finishImage');
+    const finishedCardImage = await importFinishedCardImage();
     const first = finishedCardImage('/card.webp', 'SILVER');
     const failure = first.catch((error: unknown) => error);
     const [card, mask] = images;
@@ -120,7 +126,7 @@ describe('finish image request deadlines', () => {
   });
 
   it('clears successful load deadlines and ignores late errors without discarding the cached render', async () => {
-    const { finishedCardImage } = await import('./finishImage');
+    const finishedCardImage = await importFinishedCardImage();
     const result = finishedCardImage('/card.webp', 'DIAMOND');
     const [card, mask] = images;
     const lateCardError = card.onerror!;
@@ -142,7 +148,7 @@ describe('finish image request deadlines', () => {
   });
 
   it('clears a failed load deadline and keeps immediate errors retryable', async () => {
-    const { finishedCardImage } = await import('./finishImage');
+    const finishedCardImage = await importFinishedCardImage();
     const first = finishedCardImage('/card.webp', 'PLATINUM');
     const failure = first.catch((error: unknown) => error);
     const [card, mask] = images;
@@ -168,7 +174,7 @@ describe('finish image encoding deadlines', () => {
   it('rejects a stalled encoding, ignores its late callback, and preserves a fresh retry', async () => {
     const callbacks: BlobCallback[] = [];
     encode = (callback) => { callbacks.push(callback); };
-    const { finishedCardImage } = await import('./finishImage');
+    const finishedCardImage = await importFinishedCardImage();
     const first = finishedCardImage('/card.webp', 'GOLD');
     let failure: unknown;
     void first.catch((error: unknown) => { failure = error; });
@@ -201,7 +207,7 @@ describe('finish image encoding deadlines', () => {
 
   it('clears the encoding deadline on a null result and allows retry', async () => {
     encode = (callback) => callback(null);
-    const { finishedCardImage } = await import('./finishImage');
+    const finishedCardImage = await importFinishedCardImage();
     const first = finishedCardImage('/card.webp', 'SILVER');
     const failure = first.catch((error: unknown) => error);
     images[0].load();
@@ -220,7 +226,7 @@ describe('finish image encoding deadlines', () => {
   it('clears the encoding deadline on a synchronous exception and allows retry', async () => {
     const encoderError = new Error('Encoder rejected the canvas');
     encode = () => { throw encoderError; };
-    const { finishedCardImage } = await import('./finishImage');
+    const finishedCardImage = await importFinishedCardImage();
     const first = finishedCardImage('/card.webp', 'DIAMOND');
     const failure = first.catch((error: unknown) => error);
     images[0].load();
@@ -234,5 +240,104 @@ describe('finish image encoding deadlines', () => {
     await expect(retry).resolves.toBe('blob:finished-card');
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('finished image cache', () => {
+  let revoke: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    let made = 0;
+    createObjectURL.mockImplementation(() => `blob:render-${made++}`);
+    revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  });
+
+  const setup = async () => {
+    const { holdFinishedCardImage, MAX_CACHED_FINISHES } = await import('./finishImage');
+    /** Starts card `i`'s render; `loaded` lets its image (and the frame mask, the first time) arrive. */
+    const hold = (i: number) => holdFinishedCardImage(`/card-${i}.webp`, 'GOLD');
+    const loaded = async (held: ReturnType<typeof hold>) => {
+      for (const image of images.splice(0)) image.load();
+      return held.image;
+    };
+    /** Renders cards `from` to `to - 1`, as views that show each one and then go away. */
+    const shownAndGone = async (from: number, to: number) => {
+      const urls: string[] = [];
+      for (let i = from; i < to; i++) {
+        const held = hold(i);
+        urls.push(await loaded(held));
+        held.release();
+      }
+      return urls;
+    };
+    return { hold, loaded, shownAndGone, max: MAX_CACHED_FINISHES };
+  };
+
+  it('keeps a small bounded cache and revokes the least recent render once nothing holds it', async () => {
+    const { hold, loaded, shownAndGone, max } = await setup();
+    expect(max).toBe(16);
+    const urls = await shownAndGone(0, max);
+    expect(revoke).not.toHaveBeenCalled();
+
+    const [newest] = await shownAndGone(max, max + 1);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith(urls[0]);
+
+    // The rest are reused without another render; the evicted one renders again from scratch.
+    const kept = hold(1);
+    expect(images).toHaveLength(0);
+    await expect(kept.image).resolves.toBe(urls[1]);
+    kept.release();
+    const again = hold(0);
+    expect(images).toHaveLength(1);
+    expect(await loaded(again)).not.toBe(urls[0]);
+    again.release();
+    expect(revoke).toHaveBeenLastCalledWith(urls[2]);
+    expect(revoke).not.toHaveBeenCalledWith(newest);
+  });
+
+  it('counts a reused render as recent', async () => {
+    const { hold, shownAndGone, max } = await setup();
+    const urls = await shownAndGone(0, max);
+    hold(0).release();
+    await shownAndGone(max, max + 1);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith(urls[1]);
+  });
+
+  it('never revokes a render that is still held, and revokes it on its last release', async () => {
+    const { hold, loaded, max } = await setup();
+    const held: ReturnType<typeof hold>[] = [];
+    for (let i = 0; i <= max; i++) {
+      held.push(hold(i));
+      await loaded(held[i]);
+    }
+    const second = hold(0);
+    expect(revoke).not.toHaveBeenCalled();
+
+    held[0].release();
+    held[0].release(); // Releasing twice counts once.
+    expect(revoke).not.toHaveBeenCalled();
+    second.release();
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith(await held[0].image);
+
+    // Back at the bound, so a later release keeps its render for reuse.
+    held[5].release();
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('revokes a render that was evicted before it finished', async () => {
+    const { hold, shownAndGone, max } = await setup();
+    const pending = hold(0);
+    const [card] = images.splice(0, 1);
+    pending.release();
+    await shownAndGone(1, max + 1);
+    expect(revoke).not.toHaveBeenCalled();
+
+    card.load();
+    const url = await pending.image;
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith(url);
   });
 });
