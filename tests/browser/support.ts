@@ -20,7 +20,7 @@ interface Stats {
   highestPackHandName?: string; highestPackFlexValue?: number;
 }
 
-export async function monitor(page: Page, baseURL: string, historyRecords = 0) {
+export async function monitor(page: Page, baseURL: string, historyRecords = 0, { routeHttp = true } = {}) {
   const errors: string[] = [];
   const origin = new URL(baseURL).origin;
   page.on('pageerror', (error) => errors.push(error.message));
@@ -40,7 +40,8 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0) {
   // Context-wide guards also cover popups and other pages. No server connection is established
   // by this handler, including relay WebSocket writes.
   await page.context().routeWebSocket('**/*', (socket) => socket.close());
-  await page.context().route('**/*', (route) => {
+  // Playwright HTTP routing disables the HTTP cache, so warm performance runs guard HTTP themselves.
+  if (routeHttp) await page.context().route('**/*', (route) => {
     if (new URL(route.request().url()).origin === origin) return route.continue();
     // Empty responses avoid disguising local load failures with broad console-error filters.
     return route.fulfill({ status: 204 });
