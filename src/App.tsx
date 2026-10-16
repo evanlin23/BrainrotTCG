@@ -606,7 +606,7 @@ function App() {
       {bannerWarning && route !== 'settings' && (
         <p role="alert" className="save-warning">
           {bannerWarning}
-          {staleSave && <button type="button" ref={reloadRef} className="link-btn save-warning-action" onClick={() => reloadPage()}>Reload</button>}
+          {staleSave && <button type="button" ref={reloadRef} className="link-btn save-warning-action quiet-focus" onClick={() => reloadPage()}>Reload</button>}
           {showRecoveryNote && (
             <>
               <KeptAsideActions variant="banner" canAct={recoveryCurrent} onGone={() => {

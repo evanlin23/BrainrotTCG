@@ -170,7 +170,7 @@ const CardImage = ({
       <button
         ref={retryButton}
         type="button"
-        className="btn btn--secondary card-image-retry"
+        className="btn btn--secondary card-image-retry quiet-focus"
         aria-label={`Retry loading ${props.alt || 'card image'}`}
         onClick={retryNow}
       >

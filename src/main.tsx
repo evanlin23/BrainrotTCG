@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import './styles/index.css'
 import App from './App'
 import AppErrorBoundary from './components/ui/AppErrorBoundary'
+import { trackInputModality } from './components/ui/inputModality'
 import { runMigrations } from './utils/migrations'
 import { migratePullLog } from './game/history'
 import { receiveSave } from './game/move'
@@ -19,6 +20,8 @@ receiveSave().then((receiver) => {
 
   // AppErrorBoundary covers render errors once React has mounted. A failure in the startup steps
   // above (save hand-over, migrations) happens before React and is not caught by it.
+  // Script-moved focus rings for keyboard players only (base.css); this says which kind they are.
+  trackInputModality()
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <AppErrorBoundary>

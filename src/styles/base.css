@@ -109,7 +109,20 @@ a {
   --focus-shadow: var(--focus-ring);
   outline: var(--focus-outline);
   outline-offset: 2px;
-  box-shadow: var(--focus-ring);
+  box-shadow: var(--focus-shadow);
+}
+
+/* Focus the app moves by script (the next card, the result, a dialog, a note after Retry) drops its
+   ring once a mouse, pen or touch press is the player's last input. Browsers ring script focus that
+   no click put there, and a tap on a phone rarely focuses anything, so to a touch player the ring
+   reads as a selection (#312). A press sets data-input="pointer" and Tab or the keys that drive the
+   app set it back (components/ui/inputModality.ts); with no press yet, or no attribute, the ring
+   shows, for a screen reader, switch or voice control that moves focus with no key. Covers anything
+   only script can focus (tabindex -1); mark a control the app focuses with .quiet-focus, and draw its
+   own ring with var(--focus-shadow), not var(--focus-ring). */
+:root[data-input='pointer'] :is([tabindex='-1'], .quiet-focus):focus-visible {
+  --focus-shadow: 0 0 transparent;
+  outline: none;
 }
 
 .sr-only {

@@ -71,7 +71,7 @@ describe('the controls under the pack (#312)', () => {
 
   it('opens it with a real Open pack button, and the pack itself is only a gesture surface', () => {
     const html = render([]);
-    expect(html).toMatch(/<button type="button" class="btn btn--secondary btn--sm pack-open-button">Open pack<\/button>/);
+    expect(html).toMatch(/<button type="button" class="btn btn--secondary btn--sm pack-open-button quiet-focus">Open pack<\/button>/);
     // No fake button: nothing but a real button takes the role, a Tab stop or a name that opens the pack.
     expect(tags(html).filter((tag) => /role="button"|tabindex=/i.test(tag))).toEqual([]);
     expect(html).not.toMatch(/aria-label="Open a /);
@@ -79,14 +79,14 @@ describe('the controls under the pack (#312)', () => {
   });
 
   it('keeps the button while the pack is torn, done but still holding focus', () => {
-    expect(render([], { isPackCut: true })).toMatch(/<button type="button" class="[^"]*pack-open-button" aria-disabled="true">Open pack<\/button>/);
+    expect(render([], { isPackCut: true })).toMatch(/<button type="button" class="[^"]*pack-open-button quiet-focus" aria-disabled="true">Open pack<\/button>/);
   });
 
   it('says why a refused pack stayed sealed, with a button to try again, in place of Open pack', () => {
     for (const refusal of ['failed', 'blocked'] as const) {
       const html = render([], { refusal });
       expect(html).toContain(`<p class="pack-refusal-text">${REFUSAL_COPY[refusal].message.replace(/'/g, '&#x27;')}</p>`);
-      expect(html).toMatch(new RegExp(`<button type="button" class="[^"]*pack-retry-button">${REFUSAL_COPY[refusal].action}</button>`));
+      expect(html).toMatch(new RegExp(`<button type="button" class="[^"]*pack-retry-button quiet-focus">${REFUSAL_COPY[refusal].action}</button>`));
       expect(html).not.toContain('pack-open-button');
     }
     expect(REFUSAL_COPY.failed.action).toBe('Try again');
