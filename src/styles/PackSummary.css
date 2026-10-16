@@ -1,0 +1,156 @@
+/*
+ * The one-screen pack summary (components/pack/PackSummaryUI.tsx, docs/DESIGN.md one-screen summary
+ * rule): headline, the five cards in one row, then the actions stuck to the bottom; the rest below the
+ * fold. Scoped to .pack-summary so it wins over the older summary rules in PackOpener.css.
+ */
+
+.pack-summary .pack-headline {
+  gap: 2px;
+  margin-bottom: var(--space-3);
+}
+
+.pack-summary .pack-headline-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  line-height: 1.15;
+}
+
+.pack-summary .pack-headline-heading .pack-headline-combo {
+  font-size: var(--text-lg);
+  color: var(--text-muted);
+}
+
+.pack-summary .pack-headline-heading .pack-headline-total {
+  font-size: var(--text-3xl);
+  font-weight: 800;
+}
+
+.pack-headline-odds {
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+}
+
+/*
+ * One row of five at default text on every width: smaller gaps on phones so each card stays as big as
+ * it can. A card is still never narrower than its Share, so at large text the row wraps.
+ */
+.pack-summary .summary-cards {
+  gap: var(--space-2);
+}
+
+.pack-summary .summary-cards li {
+  width: min(9.5rem, calc((100% - 4 * var(--space-2)) / 5));
+  gap: 2px;
+}
+
+/* Decorative (aria-hidden): cut short rather than widen a card. */
+.pack-summary .collection-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+}
+
+/* Says the card opens up close; the New sticker keeps the other corner. */
+.summary-card-expand {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--radius-sm);
+  background: var(--shade-55);
+  color: var(--text);
+  font-size: var(--text-xs);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.summary-caption {
+  margin: var(--space-2) 0 0;
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+}
+
+/*
+ * The actions never scroll away: stuck to the bottom of the summary's scroller, above the home bar.
+ * When what follows them is taller than the screen (large text on a phone), they stick to the top.
+ */
+.pack-summary .summary-actions {
+  position: sticky;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  padding-top: var(--space-3);
+  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--bg) var(--space-3));
+}
+
+@media (max-width: 480px) {
+  .pack-summary .summary-actions {
+    gap: var(--space-2);
+  }
+
+  .pack-summary .summary-actions .btn--secondary {
+    flex: 0 0 auto;
+  }
+
+  .pack-summary .summary-actions .btn--primary {
+    flex: 1 1 auto;
+  }
+}
+
+/* A fifth of a phone holds the icon only; the button keeps its full name for screen readers. */
+@media (max-width: 639px) {
+  .pack-summary .summary-cards .summary-card-share {
+    padding-inline: 0;
+    min-width: var(--touch-target);
+  }
+
+  .summary-card-share-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.pack-summary .summary-new {
+  margin-top: var(--space-2);
+}
+
+.pack-summary .summary-xp {
+  margin: var(--space-3) auto 0;
+}
+
+.summary-how {
+  width: min(100%, 28rem);
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.summary-how summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding-inline: var(--space-2);
+  cursor: pointer;
+}
+
+.summary-how-math {
+  margin: 0 0 var(--space-2);
+}
+
+.summary-how-math strong {
+  color: var(--text);
+}

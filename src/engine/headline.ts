@@ -1,5 +1,6 @@
-import { cardPoints, scorePack, type PokerHand } from './scoring';
-import type { Finish, Rarity } from './types';
+import { handOdds, oneIn } from './odds';
+import { cardPoints, POKER_HANDS, scorePack, type HandKey, type PokerHand } from './scoring';
+import type { Finish, Rarity, SetDefinition } from './types';
 
 interface HeadlineCard {
   /** Cards match when this is equal, as in scorePack. */
@@ -40,4 +41,16 @@ export const packHeadline = <T extends HeadlineCard>(cards: readonly T[]): PackH
   });
   const best = standout as { card: T; points: number } | null;
   return { total: score, points, combo: hand, standout: best && { card: best.card, points: best.points } };
+};
+
+/**
+ * How rare a combo is in this set, as "1 in N packs" (exact odds from handOdds). Null for No Matches,
+ * which is not an event, and for a hand that isn't one of POKER_HANDS. handOdds enumerates every pack,
+ * so callers memoize this.
+ */
+export const comboOneIn = (set: SetDefinition, combo: PokerHand): number | null => {
+  const key = (Object.keys(POKER_HANDS) as HandKey[]).find((k) => POKER_HANDS[k] === combo);
+  if (!key || key === 'NO_MATCH') return null;
+  const n = oneIn(handOdds(set)[key]);
+  return Number.isFinite(n) ? n : null;
 };

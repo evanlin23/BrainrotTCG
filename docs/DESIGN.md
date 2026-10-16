@@ -276,6 +276,19 @@ claims record rarity. Select maximum original-version `cardPoints`; on ties take
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
 
+On the results screen the heading is **[combo] ×[multiplier], [score] Brainrot Score** (the score
+big), then the standout card, then **[combo]: about 1 in [n] packs** from `comboOneIn`
+(`src/engine/headline.ts`), the share of all packs of the set with that combo.
+
+### One-screen summary rule (#339)
+
+After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
+no horizontal scroll): the headline, the five cards in one compact row (each a button that opens the
+card up close, with a ⤢ corner, best pull first, its own Share), then the actions: **Open another
+pack** primary, **Share** secondary, stuck to the bottom of the summary's scroller above the safe
+area. Keyboard focus is scrolled clear of the stuck actions. New cards, the XP row and a folded "How
+this score works" (the math and the card guide) sit below them. Focus starts on the heading.
+
 Arithmetic presentation fixtures below are not claimed mined proofs. Different letters are
 separate card ids; names and modifiers must come from actual reconstruction in implementation.
 
