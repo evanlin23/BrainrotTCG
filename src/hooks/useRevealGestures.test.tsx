@@ -92,7 +92,7 @@ describe('the sideways flick guard', () => {
     const card = host.querySelector('.card')!;
 
     touchOn(card, 'touchstart', 100, 100);
-    expect(touchOn(card, 'touchmove', 104, 101).defaultPrevented).toBe(false);
+    expect(touchOn(card, 'touchmove', 101, 104).defaultPrevented).toBe(false);
     expect(touchOn(card, 'touchmove', 104, 130).defaultPrevented).toBe(false);
     // The scroll was decided up and down; a later sideways drift still scrolls.
     expect(touchOn(card, 'touchmove', 160, 132).defaultPrevented).toBe(false);
@@ -100,6 +100,23 @@ describe('the sideways flick guard', () => {
     touchOn(card, 'touchstart', 100, 100);
     expect(touchOn(card, 'touchmove', 120, 104).defaultPrevented).toBe(true);
     expect(touchOn(card, 'touchmove', 121, 140).defaultPrevented).toBe(true);
+    host.remove();
+  });
+
+  it('cancels a sideways move still inside the dead zone, but not an up-and-down one', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    render(<Stage />);
+    const card = host.querySelector('.card')!;
+
+    touchOn(card, 'touchstart', 100, 100);
+    expect(touchOn(card, 'touchmove', 105, 101).defaultPrevented).toBe(true);
+    // Still undecided: a move that turns up and down inside the zone is left to scroll.
+    expect(touchOn(card, 'touchmove', 102, 105).defaultPrevented).toBe(false);
+    // Leaving the zone up and down decides the scroll; a later sideways drift still scrolls.
+    expect(touchOn(card, 'touchmove', 103, 120).defaultPrevented).toBe(false);
+    expect(touchOn(card, 'touchmove', 150, 121).defaultPrevented).toBe(false);
     host.remove();
   });
 

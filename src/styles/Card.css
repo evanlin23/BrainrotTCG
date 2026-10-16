@@ -14,7 +14,7 @@
     position: relative;
     width: 100%;
     height: 100%;
-    transition: transform 0.1s;
+    transition: transform var(--dur-fast);
     transform-style: preserve-3d;
 }
 
@@ -78,7 +78,7 @@
 .back-prism {
     /* Still (reduced motion): one turn of the colours; otherwise they cycle. */
     --card-back-filter: hue-rotate(90deg) saturate(1.6);
-    --card-back-anim: card-back-prism 6s linear infinite;
+    --card-back-anim: card-back-prism var(--dur-drift) linear infinite;
 }
 
 @keyframes card-back-prism {
@@ -114,7 +114,7 @@
     height: 100%;
     background: linear-gradient(135deg, transparent 0%, var(--sheen) 50%, transparent 100%);
     opacity: 0;
-    transition: opacity 0.3s;
+    transition: opacity var(--dur-slow);
     pointer-events: none;
 }
 
@@ -160,7 +160,7 @@
 
 /* Legendary and Brainrot backs breathe, so you know something big is under there. */
 .card-wrapper:is(.tell-legendary, .tell-brainrot) .card-back {
-    animation: tellPulse 1.1s ease-in-out infinite;
+    animation: tellPulse var(--dur-pulse) ease-in-out infinite;
 }
 
 @keyframes tellPulse {
@@ -228,12 +228,12 @@
 
 /* Initial shine when card is revealed */
 .card-wrapper.holo.shine-played .holo-shine-overlay::before {
-    animation: holoShine 0.4s ease-out forwards;
+    animation: holoShine var(--dur-reveal) ease-out forwards;
 }
 
 /* Shine on hover after initial animation */
 .card-wrapper.holo:hover .holo-shine-overlay::before {
-    animation: holoShine 0.3s ease-out;
+    animation: holoShine var(--dur-slow) ease-out;
 }
 
 @keyframes holoShine {
@@ -269,7 +269,7 @@
     100% { background-position: 0% 50%; }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 639px) {
     .card-wrapper {
         height: calc(100vh - 12rem);
         /* The visible height: 100vh is taller than the screen while a phone's toolbar shows. */
@@ -347,7 +347,7 @@
 /* Phones can't tilt a card to catch the light, so a holo keeps glinting on its own. */
 @media (hover: none) and (prefers-reduced-motion: no-preference) {
     .card-wrapper.holo.shine-played .holo-shine-overlay::before {
-        animation: holoGlint 3.2s ease-in-out 0.4s infinite;
+        animation: holoGlint var(--dur-loop) ease-in-out var(--dur-reveal) infinite;
     }
 }
 

@@ -25,7 +25,7 @@
 @media (prefers-reduced-motion: no-preference) {
   .card-image[data-state='rendering'],
   .card-image[data-state='loading'] {
-    animation: card-image-shimmer 1.4s ease-in-out infinite;
+    animation: card-image-shimmer var(--dur-shimmer) ease-in-out infinite;
   }
 
   /* CardImage marks a loading image that is scrolled out of view; the ghost pass has nothing to shimmer. */

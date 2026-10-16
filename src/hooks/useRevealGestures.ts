@@ -41,8 +41,10 @@ export const useCardSwipe = (cardId: number | string | undefined, locked: boolea
  * then eats the next tap as the one that stops it: no click, so a tap on the card right after a flick
  * did nothing (#504). Cancelling the sideways touchmoves keeps the flick from becoming a scroll at all.
  *
- * The way is decided once, when the touch leaves a small dead zone, so a thumb that wobbles sideways as
- * it starts a scroll still scrolls. The swipe itself runs on pointer events, which this leaves alone; two
+ * The way is decided once, when the touch leaves a small dead zone, so a thumb that wobbles sideways
+ * after it has started a scroll still scrolls. Inside the dead zone a move that is more sideways than up
+ * and down is cancelled too: Chromium can start the fling from those first few pixels, before the way
+ * is decided. The swipe itself runs on pointer events, which this leaves alone; two
  * fingers still zoom. React's touch listeners are passive, so these are the DOM's own.
  */
 export const useSidewaysFlickGuard = (stageRef: RefObject<HTMLElement | null>, cardSelector: string) => {
@@ -59,8 +61,11 @@ export const useSidewaysFlickGuard = (stageRef: RefObject<HTMLElement | null>, c
     const onTouchMove = (event: TouchEvent) => {
       const touch = event.touches.length === 1 ? event.touches[0] : undefined;
       if (!start || !touch) return;
-      axis ??= touchAxis(touch.clientX - start.x, touch.clientY - start.y);
-      if (axis === 'sideways' && event.cancelable) event.preventDefault();
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      axis ??= touchAxis(dx, dy);
+      const sideways = axis === 'sideways' || (axis === undefined && Math.abs(dx) > Math.abs(dy));
+      if (sideways && event.cancelable) event.preventDefault();
     };
     stage.addEventListener('touchstart', onTouchStart, { passive: true });
     stage.addEventListener('touchmove', onTouchMove, { passive: false });

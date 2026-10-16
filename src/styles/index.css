@@ -115,8 +115,10 @@
 
   /* The logo shares the row with the tabs and the gear (about 28rem with their gaps), so it scales
      from 36px at 900px to its full 52px by about 1060px, and never shrinks below its own content.
-     All of it is in rem, so a larger root font (18px) moves the ramp right instead of crowding the
-     tabs: the floor only bites there, and it stays small enough for the row to fit at 900px. */
+     The floor binds only when the root is over 16px below 1024px, i.e. a player's browser font is set
+     larger: at 18px the old 2.25rem floor (40.5px) held the logo from 900px to about 1013px and left the
+     tabs an 18px gap. 1.75rem lets the ramp run there. From 1024px (base.css's 112.5% root) the ramp is
+     already above either floor, with at least 46px to the tabs. */
   .app-logo {
     flex-shrink: 0;
     font-size: clamp(1.75rem, 10vw - 3.375rem, 3.25rem);

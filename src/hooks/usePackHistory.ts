@@ -39,12 +39,18 @@ let loadChecked = false;
  */
 let strayBack = false;
 const strayLanded = new Set<() => void>();
+/** A step back that hasn't landed by now never will (no popstate came), so packs stop waiting on it. */
+export const STRAY_BACK_TIMEOUT_MS = 1000;
 const stepBackAfterUnmount = () => {
   strayBack = true;
-  window.addEventListener('popstate', () => {
+  const land = () => {
+    window.clearTimeout(timer);
+    window.removeEventListener('popstate', land);
     strayBack = false;
     strayLanded.forEach((landed) => landed());
-  }, { once: true });
+  };
+  const timer = window.setTimeout(land, STRAY_BACK_TIMEOUT_MS);
+  window.addEventListener('popstate', land, { once: true });
   history.back();
 };
 

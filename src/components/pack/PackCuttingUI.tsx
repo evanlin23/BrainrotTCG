@@ -3,7 +3,7 @@ import { MoveHorizontal } from 'lucide-react';
 import type { Ref, RefObject } from 'react';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
-import type { Spark } from '../../hooks/useSparks';
+import { SPARK_LIFETIME_MS, type Spark } from '../../hooks/useSparks';
 import type { SetDefinition } from '../../engine';
 import { seamBands } from './seamTrail';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
@@ -113,7 +113,7 @@ const PackCuttingUI = ({
               </g>
             </svg>
           )}
-          <div className="spark-layer" aria-hidden="true">
+          <div className="spark-layer" aria-hidden="true" style={{ '--spark-life': `${SPARK_LIFETIME_MS}ms` } as React.CSSProperties}>
             {sparks.map((spark) => (
               <span
                 key={spark.id}

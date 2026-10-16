@@ -150,7 +150,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pull-viewer-spinner {
-    animation-duration: 2.4s;
+    animation-duration: var(--dur-loop);
   }
 }
 

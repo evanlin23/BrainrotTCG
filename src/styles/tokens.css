@@ -218,11 +218,17 @@
   --dur-fast: 120ms;
   --dur: 200ms;
   --dur-slow: 320ms;
-  /* The pack's own beats: a card flying in, a big pull's celebration, an idle loop, a spinner turn. */
+  /* The pack's own beats: a card flying in, the slow Legendary/Brainrot flip (its badges wait for it to
+     land), an idle loop, a spinner turn. */
   --dur-reveal: 450ms;
   --dur-celebrate: 1200ms;
   --dur-loop: 3000ms;
   --dur-spin: 900ms;
+  /* Loops: a breath (waiting pack, big-pull tell), a shimmer (skeletons, swipe hint, seam), a slow foil
+     drift. Not zeroed below: index.css stops every loop under reduced motion. */
+  --dur-pulse: 1200ms;
+  --dur-shimmer: 1500ms;
+  --dur-drift: 6000ms;
 
   /* Layout */
   --touch-target: 44px;
@@ -236,8 +242,19 @@
   --content-max: 76rem;
   /*
    * Breakpoints. Custom properties can't go in a media query, so these are the only widths media queries
-   * use, written as min-width (and max-width one pixel under, e.g. 899px): 380px small phone, 720px dialogs
-   * stop being sheets, 900px the nav moves into the header, 1024px desktop. New CSS picks one of these.
+   * use, written as min-width (or max-width one pixel under, e.g. 899px). New CSS picks one of these.
+   *   380px  small phone (Settings slider)
+   *   420px  phones up to about 414px wide drop to the smallest thumbnails (Pulls, Hall of Fame)
+   *   480px  large phone: one-handed button rows (pack actions, summary, Pulls set name)
+   *   560px  Collection grid goes to 4 columns
+   *   640px  two columns fit side by side (Share, summary cards, card height)
+   *   720px  dialogs stop being sheets; phones end here (pack and card sizes)
+   *   820px  Collection grid goes to 6 columns
+   *   900px  the nav moves into the header
+   *   1024px desktop
+   *   1400px wide desktop
+   * Heights, only alongside a width: 520px (a phone on its side), 680px and 860px (tall enough to scale
+   * the desktop root font up).
    */
 
   /* States: disabled controls fade to this and also show a dashed border (never colour alone). */
