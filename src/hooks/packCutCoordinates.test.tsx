@@ -82,6 +82,8 @@ describe('usePackCutter sparks (#265)', () => {
     vi.useFakeTimers();
     vi.stubGlobal('window', globalThis); // emitSpark schedules removal with window.setTimeout
     vi.spyOn(Math, 'random').mockReturnValue(0.5); // no spark jitter
+    // A stroke draws at the next frame; there are no frames here, so draw at once.
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -90,9 +92,10 @@ describe('usePackCutter sparks (#265)', () => {
   });
 
   /**
-   * Press the pack once and return where the pack drew its sparks. There's no DOM here, so the probe
-   * hands the hook a measured pack and presses it while rendering; the server renderer re-renders on
-   * those state updates until the cut has started.
+   * Swipe 20px along the pack to a point and return where the pack drew its sparks. There's no DOM
+   * here, so the probe hands the hook a measured pack and swipes it while rendering; the server
+   * renderer re-renders on those state updates until the cut has started. Sparks start where the
+   * swipe has gone across, not at the press (#267).
    */
   const pressPack = (rect: PackRect, clientX: number, clientY: number) => {
     const pack = { clientWidth: layout.clientWidth, clientHeight: layout.clientHeight, getBoundingClientRect: () => rect };
@@ -101,7 +104,9 @@ describe('usePackCutter sparks (#265)', () => {
       // Test probe: no DOM to attach the ref to.
       cutter.packRef.current = pack as unknown as HTMLDivElement;
       if (!cutter.isCutting) {
-        cutter.handlePointerDown({ button: 0, clientX, clientY, target: null } as unknown as PointerEvent);
+        const finger = { button: 0, pointerId: 1, pointerType: 'touch', isPrimary: true, clientY, target: null };
+        cutter.handlePointerDown({ ...finger, clientX: clientX - 20 } as unknown as PointerEvent);
+        cutter.handlePointerMove({ ...finger, clientX } as unknown as PointerEvent);
       }
       return (
         <PackCuttingUI packRef={cutter.packRef} packDesign="/test-design.webp" set={SETS[0]} error={null}

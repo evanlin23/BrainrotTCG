@@ -4,6 +4,7 @@ import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
 import type { Spark } from '../../hooks/useSparks';
 import type { SetDefinition } from '../../engine';
+import { seamBands } from './seamTrail';
 
 interface PackCuttingUIProps {
   packRef: RefObject<HTMLDivElement | null>;
@@ -74,12 +75,26 @@ const PackCuttingUI = ({
               {nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across to open'}
             </span>
           </div>
+          {/* The cut shows as a thin foil seam that fades out behind the finger (#267). */}
           {cutPoints.length > 1 && (
-            <svg className="cut-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <polyline
-                className="cut-line"
-                points={cutPoints.map(p => `${p.x},${p.y}`).join(' ')}
-              />
+            <svg className="cut-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="pack-seam-foil" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0">
+                  <stop className="seam-stop-1" offset="0" />
+                  <stop className="seam-stop-2" offset="0.3" />
+                  <stop className="seam-stop-3" offset="0.55" />
+                  <stop className="seam-stop-4" offset="0.8" />
+                  <stop className="seam-stop-5" offset="1" />
+                </linearGradient>
+              </defs>
+              <g className="cut-line">
+                {seamBands(cutPoints).map((band, index) => (
+                  <g key={index} opacity={band.opacity}>
+                    <polyline className="cut-line-foil" stroke="url(#pack-seam-foil)" points={band.points} />
+                    <polyline className="cut-line-core" points={band.points} />
+                  </g>
+                ))}
+              </g>
             </svg>
           )}
           <div className="spark-layer" aria-hidden="true">
