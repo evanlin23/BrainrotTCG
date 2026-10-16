@@ -17,7 +17,7 @@
   overflow-wrap: anywhere;
 }
 
-/* "[combo] · about 1 in [n] packs", or just the combo when it has no odds (No Matches). */
+/* "[combo] · 1 in [n] packs score this high" ("Most packs score this high" past even odds), or just the combo without odds. */
 .pack-summary .pack-headline-odds {
   color: var(--text-muted);
   font-size: var(--text-lg);
@@ -95,7 +95,7 @@
 }
 
 /* Above the cards, under the headline: the tap hint and the Card guide on one line, wrapping on narrow screens. */
-.summary-foot {
+.summary-guide-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

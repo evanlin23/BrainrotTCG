@@ -7,7 +7,7 @@ import CardImage from '../cards/CardImage';
 import CardGuideButton from '../ui/CardGuideButton';
 import { modifierLabel, modifierThumb } from '../../game/modifiers';
 import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
-import { comboOneIn, type SetDefinition } from '../../engine';
+import { scoreAtLeastChance, type SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackHeadline from './PackHeadline';
@@ -30,12 +30,13 @@ interface PackSummaryUIProps {
 
 /**
  * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (Brainrot
- * Score, then the combo and how rare it is, then the Hall of Fame line), the five cards in one compact
- * row, in the order they were revealed (each wears its New and special badges and opens up close, where it can be
- * shared as an image that links to this pack), under the tap hint and the Card guide link, then the
- * actions, stuck to the bottom so they never scroll away. Nothing follows them: level progress lives on
- * Profile. Sharing starts here, never mid-reveal: the link carries the whole pack, so it would spoil the
- * cards still face down.
+ * Score, then "[combo] · 1 in X packs score this high" or "Most packs score this high", then the Hall of
+ * Fame line), one line with the tap hint and the Card guide link, the five cards in one compact row, in
+ * the order they were revealed (each wears its New and special badges and opens up close, where it can be
+ * shared as an image that links to this pack; the summary has no per-card Share), then the actions, stuck
+ * to the bottom so they never scroll away. Nothing follows them: level progress lives on Profile. Sharing
+ * starts here, never mid-reveal: the link carries the whole pack, so it would spoil the cards still face
+ * down.
  */
 const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
@@ -64,18 +65,17 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
     event.currentTarget.scrollBy({ top: before ? box.bottom - stuck.top + 8 : box.top - stuck.bottom - 8 });
   };
   const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
-  const { hand } = packScore;
-  // Enumerates every pack of the set, so once per set and combo (not again on each render).
-  const oneIn = useMemo(() => comboOneIn(set, hand), [set, hand]);
+  // Works through every pack of the set (cached per set), so once per set and score, not on each render.
+  const scoreChance = useMemo(() => scoreAtLeastChance(set, packScore.score), [set, packScore.score]);
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
       <div className="summary-content" onFocus={clearActions}>
         <div className="summary-details">
-          <PackHeadline cards={openedCards} headingRef={headingRef} oneIn={oneIn}>
+          <PackHeadline cards={openedCards} headingRef={headingRef} scoreChance={scoreChance}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
           </PackHeadline>
-          <div className="summary-foot">
+          <div className="summary-guide-line">
             {!viewed && <p className="summary-caption">Tap a card to view</p>}
             <CardGuideButton set={set} />
           </div>

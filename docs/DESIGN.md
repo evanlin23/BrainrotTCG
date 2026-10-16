@@ -293,9 +293,11 @@ pack order). That is the shipped best-card rule: `revealOrder`
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
 
-On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · about
-1 in [n] packs** from `comboOneIn` (`src/engine/headline.ts`), the share of all packs of the set with
-that combo (just **No Matches** when it has no odds), then the Hall of Fame line when the pull
+On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · 1 in
+[n] packs score this high** from `scoreAtLeastChance` (`src/engine/odds.ts`), the exact share of all
+packs of the set that score at least this much over the whole pack (rarity, holo, finish, misprint and
+combo). Past even odds it reads **[combo] · Most packs score this high**, and it is just the combo
+when the set's modifier table is unknown. Then the Hall of Fame line when the pull
 qualifies. The combo is named once and no multiplier shows: the Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers, and Score = card
 points added up × combo multiplier. There is no per-pack breakdown.
