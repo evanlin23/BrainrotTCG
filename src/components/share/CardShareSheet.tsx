@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import type { Card } from '../../data/cards';
-import { CARD_RARITIES, getSetCards } from '../../data/cards';
+import { CARD_RARITIES, cardNumber } from '../../data/cards';
 import { getLatestSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
 import { findPackWithCard } from '../../game/history';
 import { cardPreviewPath } from '../../game/previewLinks';
-import { proofFor, pullUrl } from '../../game/pulls';
+import { canShare, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
 import { modifierLabel } from '../../game/modifiers';
 import type { CardVersion } from '../../game/versions';
@@ -16,6 +16,11 @@ interface CardShareSheetProps {
   card: Card;
   /** The version being shared; the link goes to a pack with that exact version when there is one. */
   version: CardVersion;
+  /**
+   * The pack it came in, when the caller knows (the pack summary): the link and QR code then go to
+   * that pack, the same pull the pack's own Share links to.
+   */
+  from?: PullRef;
   onClose: () => void;
 }
 
@@ -32,26 +37,22 @@ const RARITY_COLORS: Record<string, string> = {
  * Share one card from your collection: a poster of the card, with a link to the pack it came from
  * when this device has that pack, so the card is as verifiable as the pull.
  */
-const CardShareSheet = ({ card, version, onClose }: CardShareSheetProps) => {
+const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) => {
   const { isHolo, finish = null, misprint = false } = version;
   const mods = modifierLabel(version);
   const player = getPlayer();
   const set = getLatestSet(card.setId);
   const setName = set?.name ?? card.setId;
   const code = set ? setCode(set) : card.setId.toUpperCase();
-  const cards = getSetCards(card.setId);
-  const index = cards.findIndex((c) => c.key === card.key);
-  const number = `${String(index + 1).padStart(3, '0')}/${String(cards.length).padStart(3, '0')}`;
+  const number = cardNumber(card);
   const cardId = card.key.split('/')[1];
 
-  const pack = useMemo(
-    () => findPackWithCard(player.publicKeyHex, card.setId, cardId, { isHolo, finish, misprint }),
-    [player.publicKeyHex, card.setId, cardId, isHolo, finish, misprint],
-  );
-  const proof = useMemo(
-    () => (pack ? proofFor({ setId: pack.setId, setVersion: pack.setVersion, nonce: pack.nonce, publicKeyHex: pack.key }) : undefined),
-    [pack],
-  );
+  const pack = useMemo((): PullRef | null => {
+    if (from && canShare(from)) return from;
+    const found = findPackWithCard(player.publicKeyHex, card.setId, cardId, { isHolo, finish, misprint });
+    return found && { setId: found.setId, setVersion: found.setVersion, nonce: found.nonce, publicKeyHex: found.key };
+  }, [from, player.publicKeyHex, card.setId, cardId, isHolo, finish, misprint]);
+  const proof = useMemo(() => (pack ? proofFor(pack) : undefined), [pack]);
   // The QR code opens the pull directly; the pasted link previews as this card.
   const url = proof ? pullUrl(proof) : undefined;
   const link = proof ? pullUrl(proof, cardPreviewPath(card.setId, cardId)) : undefined;

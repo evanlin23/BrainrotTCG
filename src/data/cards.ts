@@ -73,6 +73,13 @@ export const getCard = (key: string): Card | undefined => BY_KEY.get(key);
 
 export const getSetCards = (setId: string): Card[] => ALL_CARDS.filter((c) => c.setId === setId);
 
+/** A card's collector number in its set, as its labels print it: 012/120. */
+export const cardNumber = (card: { setId: string; key: string }): string => {
+  const cards = getSetCards(card.setId);
+  const pad = (n: number) => String(n).padStart(3, '0');
+  return `${pad(cards.findIndex((c) => c.key === card.key) + 1)}/${pad(cards.length)}`;
+};
+
 export const getCardsByRarity = (rarity: RarityKey): Card[] => COLLECTIBLE_CARDS.filter((card) => card.rarity === rarity);
 
 export const cardPoints = engineCardPoints;
