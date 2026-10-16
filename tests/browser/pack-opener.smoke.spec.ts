@@ -9,6 +9,9 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
   const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
   await expect(packShell).toBeVisible();
   await expectDecoded(packShell.locator('img'), 2);
+  // A new player sees only the pack; the set picker comes once their first pack is saved.
+  const picker = page.getByRole('navigation', { name: 'Choose a pack', exact: true });
+  await expect(picker).toHaveCount(0);
   // Keyboard activation exercises the accessible opening control in both viewport projects.
   await packShell.focus();
   await page.keyboard.press('Space');
@@ -17,11 +20,14 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('.summary-title')).not.toBeEmpty();
   await expectDecoded(page.locator('.summary-cards img'), 5);
+  // Saved now, but the summary is still focus mode: the picker doesn't step in over the cards.
+  await expect(picker).toBeHidden();
 
   const before = await expectRecordedPack(page);
 
   await page.reload();
   await expect(page.locator('.app-logo')).toBeVisible();
+  await expect(picker).toBeVisible();
   const tabs = page.getByRole('navigation', { name: 'Main', exact: true });
   await tabs.getByRole('button', { name: 'Profile', exact: true }).click();
   await expect(page.getByRole('main', { name: 'Profile', exact: true })).toContainText('All packs · 1');
