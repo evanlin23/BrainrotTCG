@@ -123,6 +123,7 @@ function App() {
   // The writer reads its host once, so it is memoized (useProgressWriter warns in development if it changes).
   const writerHost = useMemo<ProgressWriterHost>(() => ({
     samePlayer, progressCurrent, noted: progress.noted,
+    storing: progress.storing, unstored: progress.unstored, dropped: progress.dropped,
     stale: () => setStaleSave(true),
     failed: () => setSaveFailed(true),
     keptAside: (note, dismissed) => {
@@ -130,7 +131,7 @@ function App() {
       setRecoveryNoteHidden(dismissed);
     },
   }), [samePlayer, progressCurrent, progress]);
-  const { packAdded, packsTaken, putBackTaken } = useProgressWriter({ collection, achievements, stats, hallOfFame, settings }, writerHost);
+  const { packAdded, packsTaken, putBack } = useProgressWriter({ collection, achievements, stats, hallOfFame, settings }, writerHost);
   // Download and Discard of the kept-aside data, checked on every click and again on the confirm. After
   // another tab's import or player switch the archive can hold that save's data (saveFile keeps it there):
   // discarding would delete its only copy, and a download would mix it with this tab's unsaved payloads.
@@ -139,9 +140,9 @@ function App() {
   const recoveryCurrent = useCallback(() => {
     if (samePlayer() && progressCurrent()) return true;
     setStaleSave(true);
-    putBackTaken();
+    putBack();
     return false;
-  }, [samePlayer, progressCurrent, putBackTaken]);
+  }, [samePlayer, progressCurrent, putBack]);
 
   // The page showing (Open has no hash), and any shared link open over it: see useRoute.
   const { route, proof: viewProof, profile: viewProfile, broken: brokenLink, navigate, closePage, closeLink } = useRoute();
@@ -222,8 +223,8 @@ function App() {
   useEffect(() => watchProgress(() => {
     if (progressCurrent()) return;
     setStaleSave(true);
-    putBackTaken();
-  }), [progressCurrent, putBackTaken]);
+    putBack();
+  }), [progressCurrent, putBack]);
   const packCache = usePackCacheVersion();
   // Level rewards in use (game/progression.ts), checked against the level this save has reached.
   // Re-read after every pack (myStats reads the pack history, which each pack adds to), and when

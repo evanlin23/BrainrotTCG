@@ -26,6 +26,11 @@ export const STORAGE_KEYS = {
   PENDING_PACKS: 'brainrot-pending-packs-v2',
   /** The one-pack entry older builds keep instead; read here, and written only to put back the pack it held (see game/pulls.ts). */
   PENDING_PACK: 'brainrot-pending-pack-v1',
+  /**
+   * Which packs the stored collection holds, as `{ k: player key, n: [[first, last], ...] }` nonce ranges,
+   * written just before each collection write (see game/progressGuard.ts).
+   */
+  STORED_PACKS: 'brainrot-stored-packs-v1',
 } as const;
 
 // Achievement milestone thresholds
