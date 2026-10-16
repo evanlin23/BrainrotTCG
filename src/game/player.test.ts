@@ -161,3 +161,23 @@ describe('renaming the player', () => {
     expect(setItem).not.toHaveBeenCalled();
   });
 });
+
+describe('watching the player from other tabs', () => {
+  it('calls back when another tab stores a player or clears storage, and stops once unsubscribed', () => {
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    const storageEvent = (key: string | null) => target.dispatchEvent(Object.assign(new Event('storage'), { key }));
+    const onChange = vi.fn();
+    const stop = player.watchPlayer(onChange);
+
+    storageEvent(STORAGE_KEYS.COLLECTION);
+    expect(onChange).not.toHaveBeenCalled();
+    storageEvent(PLAYER_KEY);
+    storageEvent(null);
+    expect(onChange).toHaveBeenCalledTimes(2);
+
+    stop();
+    storageEvent(PLAYER_KEY);
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+});
