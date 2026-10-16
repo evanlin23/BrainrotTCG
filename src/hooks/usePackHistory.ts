@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useRef } from 'react';
+import { HISTORY_ENTRY_EVENT } from '../game/route';
 
 /** Marks the one history entry a pack holds. The URL is never changed, so share links are untouched. */
 const PACK_ENTRY = 'brainrotPack';
@@ -7,6 +8,9 @@ const onPackEntry = () => {
   const state: unknown = history.state;
   return !!state && typeof state === 'object' && (state as Record<string, unknown>)[PACK_ENTRY] === true;
 };
+
+/** The pack's entry is still the current one, at the address it was added at. */
+const stillOnEntry = (href: string) => onPackEntry() && location.href === href;
 
 /**
  * Browser Back inside a pack goes back to the packs screen instead of leaving the site.
@@ -33,11 +37,17 @@ export const usePackHistory = (inPack: boolean, onBack: () => void) => {
 
   useEffect(() => {
     if (inPack && !heldRef.current && !poppingRef.current) {
-      if (!onPackEntry()) history.pushState({ [PACK_ENTRY]: true }, '');
+      if (!onPackEntry()) {
+        history.pushState({ [PACK_ENTRY]: true }, '');
+        window.dispatchEvent(new Event(HISTORY_ENTRY_EVENT));
+      }
       heldRef.current = true;
       hrefRef.current = location.href;
     } else if (!inPack && heldRef.current) {
       heldRef.current = false;
+      // Only step back while the entry is the current one: from a page or link opened over the pack,
+      // Back already belongs to them (useRoute steps back onto the entry when they close).
+      if (!stillOnEntry(hrefRef.current)) return;
       poppingRef.current = true;
       history.back();
     }
@@ -65,6 +75,6 @@ export const usePackHistory = (inPack: boolean, onBack: () => void) => {
   useEffect(() => () => {
     if (!heldRef.current) return;
     heldRef.current = false;
-    history.back();
+    if (stillOnEntry(hrefRef.current)) history.back();
   }, []);
 };

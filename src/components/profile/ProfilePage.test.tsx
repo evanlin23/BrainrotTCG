@@ -2,7 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import MyProfilePage from './MyProfilePage';
+import ProfilePage from './ProfilePage';
+import { DEFAULT_SETTINGS } from '../../utils/settings';
 
 const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks } = vi.hoisted(() => ({
   myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(),
@@ -28,7 +29,7 @@ let container: HTMLElement;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  // jsdom has no ResizeObserver; the page's Sheet only uses it to track overflow.
+  // jsdom has no ResizeObserver; the player card's Sheet only uses it to track overflow.
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   localStorage.clear();
   myProfileInfo.mockReset().mockReturnValue({ packs: 3, filled: 0, missing: 0, cache: 'ready' });
@@ -47,10 +48,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const render = () =>
+const render = (props: Partial<Parameters<typeof ProfilePage>[0]> = {}) =>
   act(() =>
     root.render(
-      <MyProfilePage stats={{}} onClose={() => {}} onSharePull={() => {}} />,
+      <ProfilePage
+        stats={{}}
+        level={1}
+        settings={DEFAULT_SETTINGS}
+        onSettingsChange={() => {}}
+        unlockedAchievements={{}}
+        onSharePull={() => {}}
+        onOpenSave={() => {}}
+        onOpenPacks={() => {}}
+        canSave={() => true}
+        onSaveFailed={() => {}}
+        {...props}
+      />,
     ),
   );
 const button = (label: string) =>
@@ -88,7 +101,7 @@ describe('profile link failures', () => {
     expect(button('Copy profile link').disabled).toBe(true);
     expect(button('Player card').disabled).toBe(true);
     expect(document.body.textContent).toContain('A complete profile link or player card cannot be created from this save.');
-    expect(document.body.textContent).toContain('Keep a private export (open Player, then Save & restore)');
+    expect(document.body.textContent).toContain('Keep a private export (open Settings, then Save & backup)');
     expect(document.body.textContent).not.toMatch(/from Settings/);
     expect(button('Re-open them').disabled).toBe(false);
   });
@@ -146,5 +159,27 @@ describe('pack list order and Rankings wording', () => {
     render();
     act(() => tab('For Rankings').click());
     expect(document.querySelector('.pulls-note')?.textContent).toMatch(/^None yet: a Full House or better, or a Brainrot Score of [\d,]+\+, qualifies for Rankings\.$/);
+  });
+});
+
+describe('the page', () => {
+  it('holds the player, Achievements and the pack list under one heading level', () => {
+    render();
+    const headings = [...document.querySelectorAll('h2')].map((el) => el.textContent);
+    expect(headings).toEqual(expect.arrayContaining(['Level and stats', 'Player', 'Achievements']));
+    expect(document.querySelector('h3#achievements-title, h1')).toBeNull();
+    expect(document.getElementById('achievements')).not.toBeNull();
+  });
+
+  it('sends the empty profile to the packs screen and the save note to Save & backup', () => {
+    myProfileInfo.mockReturnValue(null);
+    myStats.mockReturnValue(null);
+    const onOpenPacks = vi.fn();
+    const onOpenSave = vi.fn();
+    render({ onOpenPacks, onOpenSave });
+    act(() => button('Open your first pack').click());
+    expect(onOpenPacks).toHaveBeenCalledTimes(1);
+    act(() => button('Save & backup').click());
+    expect(onOpenSave).toHaveBeenCalledTimes(1);
   });
 });

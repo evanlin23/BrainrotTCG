@@ -18,9 +18,9 @@ interface AchievementToastsProps {
   queue: ToastItem[];
   /** Remove these ids from the queue. */
   onDismiss: (ids: string[]) => void;
-  /** Tapping a toast opens the achievements list, the profile for a level-up, or My cards for a kept pack. */
+  /** Tapping a toast opens the achievements list, the profile for a level-up, or Cards for a kept pack. */
   onOpen: (target: ToastTarget) => void;
-  /** A sheet is open: hold the toasts until it closes, so they never cover its title or close button. */
+  /** A sheet or page is open: hold the toasts until it closes, so they never cover its title or close button. */
   paused?: boolean;
 }
 

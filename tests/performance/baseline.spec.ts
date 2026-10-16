@@ -172,9 +172,8 @@ for (const scenario of SCENARIOS) for (let repetition = 1; repetition <= REPETIT
         worker.onmessage = (event) => { worker.terminate(); URL.revokeObjectURL(url); resolve(event.data); };
       }))).toBe(204);
       await page.reload();
-      await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'My cards', exact: true }).click();
-      await page.getByRole('navigation', { name: 'My cards', exact: true }).getByRole('button', { name: 'Best pulls', exact: true }).click();
-      await expect(page.locator('.sheet')).toContainText(`All packs · ${historyCount + 1}`);
+      await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'Profile', exact: true }).click();
+      await expect(page.getByRole('main', { name: 'Profile', exact: true })).toContainText(`All packs · ${historyCount + 1}`);
       expect(await snapshot(page)).toEqual(before);
       expect(errors).toEqual([]);
     } finally {

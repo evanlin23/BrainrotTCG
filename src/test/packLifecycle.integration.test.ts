@@ -92,9 +92,7 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
 
   const before = snapshot();
   await app.reload();
-  await app.interact(() => button('My cards').click());
-  await app.until('personal destination opens', () => expect(button('Best pulls')).toBeDefined());
-  await app.interact(() => button('Best pulls').click());
+  await app.interact(() => button('Profile').click());
   await app.until('new App graph hydrates the recorded profile', () => {
     expect(document.querySelector('.pulls-history-title')?.textContent).toBe('All packs · 1');
     const images = [...document.querySelectorAll<HTMLImageElement>('.pulls-history .pull-row-thumbs img')];

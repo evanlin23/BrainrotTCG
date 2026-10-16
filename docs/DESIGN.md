@@ -17,9 +17,12 @@ from a 390 px wide screen.
    until the pack is done, so the reveal owns the screen. Every stage of a pack, from the tear to the
    summary, has the same top bar with one X ("Back to packs"), and Escape and the browser's Back do
    what it does. Tapping empty space never leaves a pack.
-4. **One way to show a panel.** Collection, achievements, settings, sharing and the rest are the same
-   sheet: a bottom sheet on phones, a centred dialog on wide screens, with the same header, close
-   button, Escape key, focus handling and backdrop.
+4. **Places are pages, moments are sheets.** Cards, Rankings, Profile and Settings are pages with an
+   address (`#/cards` and so on), a title and the browser's Back; the packs screen stays mounted under
+   them so a pack in progress survives. Sheets are only for things over the current place: sharing,
+   a shared pull or profile, the broken-link notice and confirms. Every sheet is the same: a bottom
+   sheet on phones, a centred dialog on wide screens, with the same header, close button, Escape key,
+   focus handling and backdrop.
 5. **Readable before flashy.** Rubik Glitch is for the logo only. Headings and big numbers use Lilita
    One; everything else is Archivo, whose condensed widths set labels like a grading slab. Numbers are tabular.
 6. **Colour carries meaning.** Surfaces are a binder-black ramp with card-stock white text. There is
@@ -77,26 +80,35 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Buttons** (`.btn`): `.btn--primary` (flat yellow background, one per screen), `.btn--secondary`
   (surface + border), `.btn--ghost` (text only); `.btn--lg`, `.btn--sm`, `.btn--block`; `.icon-btn`
   for icon-only buttons, always with an `aria-label`.
-- **Sheet** (`ui/Sheet.tsx`): every panel. A bottom sheet on phones, a centred dialog from 720px.
-  Title, optional subtitle and sticky footer, close button, Escape, focus trap, scroll lock, focus
-  returns to the opener. Sheets stack (a card opened from the collection sits on top of it). Sizes:
-  `sm` (settings, the scoring guide, short notices such as an invalid link), `md` (one pull, share
-  previews, the pack behind an achievement), `lg` (collection, profiles with their pull history,
-  achievements, pack shelf, Hall of Fame), `full` (full-viewport variant, unused for now); `bare`
-  for a single big card.
-- **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one sheet holds
+- **Page** (`ui/Page.tsx`): Cards, Rankings, Profile and Settings. An `h1` with a "Close <title>"
+  button (back to Open), then the screen, loaded on demand: a skeleton holds its place meanwhile
+  (rows for Rankings, blocks otherwise), never a sheet, and a failed load offers Reload and Retry.
+  Opened from inside the app, focus moves to the `h1`; the document title becomes "Cards - Brainrot
+  TCG" and so on. Escape doesn't close a page; Back and Close do. Each view has one `h1`: the page's
+  title on a page, the logo on Open (on a page the logo is a named image, not a heading).
+- **Sheet** (`ui/Sheet.tsx`): a panel over the current place. A bottom sheet on phones, a centred
+  dialog from 720px. Title, optional subtitle and sticky footer, close button, Escape, focus trap,
+  scroll lock, focus returns to the opener. Sheets stack (a card opened from the collection sits on
+  top of it). Sizes: `sm` (the scoring guide, short notices such as an invalid link, Report a
+  problem), `md` (one pull, share previews, the pack behind an achievement), `lg` (shared profiles,
+  pack shelf), `full` (full-viewport variant, unused for now); `bare` for a single big card.
+- **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one page holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.
 - **Verified label** (`.pull-viewer-badge`): a bordered, condensed caps strip with a cert number
   (player ID and ticket), like the label on a graded card.
 - **Rows**: lists are rows (thumbnail, two lines of text, a value on the right, a chevron when it
   opens something), not cards in a grid. Sound & display uses grouped rows with `.switch` toggles.
-- **App nav** (`ui/AppNav.tsx`): Open packs, My cards, Rankings, each an icon plus a label. My cards
-  switches between Cards and Best pulls with its own small nav. The header keeps the player utilities:
-  Player (display name, rewards, Achievements, Save & restore) and a Sound & display gear.
-  Closing Player (Escape, Close or backdrop) saves a changed name; if that fails it stays open once.
+- **App nav** (`ui/AppNav.tsx`): Open, Cards, Rankings and Profile, each an icon plus a label, the
+  current one marked `aria-current="page"`. A fixed bottom bar on phones (under 900px, with
+  safe-area padding) and part of the header from 900px; 44px targets. It stays hidden for a new
+  player until their first pack is saved (#222) and while a pack is open. The header's gear
+  ("Settings") opens the Settings page: Sound & display, Save & backup, Help.
+- **Profile** (`profile/ProfilePage.tsx`): name and the save note, level and stats, best pulls, then
+  the Achievements section (`#achievements`), which achievement toasts link to. Leaving Profile saves
+  a changed name, unless saving that same name just failed.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
-  inside its heading (name, era, owned count, chevron) that shows or hides its grid. The sheet always
+  inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
@@ -117,14 +129,14 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 ## Checking a change
 
 Run the app, then capture every screen at 390×844 and 1440×900 (a Playwright script that opens a
-pack and every sheet is the quickest way). Look for overlap, cut-off text and anything that needs a
-mouse. Keyboard through it: Tab reaches everything, Escape closes the top panel (except Player's
-one refused close above).
+pack, every page and every sheet is the quickest way). Look for overlap, cut-off text and anything
+that needs a mouse. Keyboard through it: Tab reaches everything, Escape closes the top sheet, and
+Back walks the pages and packs in the order they were opened (`tests/browser/pages.spec.ts`).
 
 ## Proposed local Best cards contract (#337)
 
 **Proposal for owner/Claude review, not shipped.** Keep a short list of individual card instances
-in My cards, on the **Best pulls** tab next to the shipped **All packs** list (its Newest / Best /
+on the Profile page, next to the shipped **All packs** list (its Newest / Best /
 Hall of Fame tabs); no extra primary destination or global board. The heading "Best cards", its
 placement and the cap of 10 are proposals for the owner to confirm. Rank by original-version
 individual `cardPoints` before the pack combo multiplier, preserving finish/holo/misprint together.

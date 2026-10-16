@@ -7,8 +7,8 @@
  *
  * - The old address (scripts/redirect-site.ts) offers "Bring my save". That opens this site at
  *   `#/receive`; it says it's ready, gets the save and reports back (`receiveSave`).
- * - From here, Save & restore can fetch it instead: it opens the old address at `#/send`, which sends the
- *   save back (`fetchOldSave`), for players who arrive through a new link. Save & restore asks in the page
+ * - From here, Save & backup can fetch it instead: it opens the old address at `#/send`, which sends the
+ *   save back (`fetchOldSave`), for players who arrive through a new link. Save & backup asks in the page
  *   before replacing a different save, not with a browser dialog: one can open behind the old
  *   address's window, and then it looks as if nothing happened.
  *
@@ -189,7 +189,7 @@ export const receiveSave = (): Promise<boolean> => {
 };
 
 /**
- * From here: open the old address, which sends its save back (Save & restore). The small window is closed
+ * From here: open the old address, which sends its save back (Save & backup). The small window is closed
  * as soon as it answers, and the save is handed to the caller to import. 'timeout' when it never
  * answered (it didn't load, or was closed first).
  */

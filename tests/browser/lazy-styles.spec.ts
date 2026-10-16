@@ -2,34 +2,34 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { monitor } from './support';
 
-// A lazy sheet gets only the CSS its own chunk imports. These journeys open each sheet first on a cold
-// load, before any other screen could have pulled a shared stylesheet in, and check that the classes it
-// renders are styled.
+// A lazy page or sheet gets only the CSS its own chunk imports. These journeys open each one first on a
+// cold load, before any other screen could have pulled a shared stylesheet in, and check that the
+// classes it renders are styled.
 
 const vectors = JSON.parse(readFileSync(new URL('../../spec/vectors.json', import.meta.url), 'utf8')) as {
   profiles: { note: string; profile: string; name: string }[];
 };
 
-/** The sheet fits the viewport, so its content scrolls inside it instead of stretching it. */
+/** The page or sheet fits the viewport, so its content scrolls inside it instead of stretching it. */
 async function expectBounded(page: Page, dialog: Locator) {
   const box = await dialog.boundingBox();
   expect(box).not.toBeNull();
   expect(box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
 }
 
-test('the Player sheet is styled when it is the first sheet opened', async ({ page, baseURL }) => {
-  const errors = await monitor(page, baseURL!);
+test('the Profile page is styled when it is the first page opened', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  await page.getByRole('button', { name: 'Player', exact: true }).click();
-  const player = page.getByRole('dialog', { name: 'Player', exact: true });
-  await expect(player.getByText(/^Player ID #/)).toBeVisible();
+  await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'Profile', exact: true }).click();
+  const profile = page.getByRole('main', { name: 'Profile', exact: true });
+  await expect(profile.getByText(/^Player ID #/)).toBeVisible();
   // The pack foil swatches use a full-size foil overlay that only their own rules contain.
-  const swatch = player.locator('.foil-swatch').first();
+  const swatch = profile.locator('.foil-swatch').first();
   await expect(swatch).toBeVisible({ timeout: 15000 });
   await expect(swatch).toHaveCSS('position', 'relative');
-  await expectBounded(page, player);
-  await expect(player.locator('.share-note')).toHaveCSS('display', 'flex');
+  await expectBounded(page, profile);
+  await expect(profile.locator('.share-note').first()).toHaveCSS('display', 'flex');
   expect(errors).toEqual([]);
 });
 

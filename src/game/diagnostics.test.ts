@@ -47,6 +47,12 @@ describe('allowlisted optional diagnostics', () => {
     ['Firefox/100 Android', '#/profile/private', 'firefox', 'android', 'shared-profile'],
     ['Safari/600 iPhone', '', 'safari', 'ios', 'opening'],
     ['Edg/100 Chrome/100', '#private', 'edge', 'other', 'other'],
+    ['Chrome/100', '#/cards', 'chromium', 'other', 'cards'],
+    ['Chrome/100', '#/rankings', 'chromium', 'other', 'rankings'],
+    ['Chrome/100', '#/profile', 'chromium', 'other', 'profile'],
+    ['Chrome/100', '#/settings', 'chromium', 'other', 'settings'],
+    ['Chrome/100', '#/profile/', 'chromium', 'other', 'shared-profile'],
+    ['Chrome/100', '#/cards/private', 'chromium', 'other', 'other'],
   ])('reduces browser and route to known categories: %s', (userAgent, hash, browser, device, route) => {
     expect(diagnosticSnapshot({ userAgent, hash })).toMatchObject({ browser, device, route });
   });

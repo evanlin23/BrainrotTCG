@@ -54,6 +54,13 @@
   user-select: none;
 }
 
+.app-logo:focus,
+.app-logo:focus-visible {
+  /* Focus lands here when a page closes: it only marks the reading position, it isn't a control. */
+  outline: none;
+  box-shadow: none;
+}
+
 .app-logo .title-char {
   display: inline-block;
 }
@@ -73,7 +80,12 @@
   padding-bottom: calc(var(--nav-height) + var(--safe-bottom));
 }
 
-.app.is-focus .app-main {
+.app-main[hidden] {
+  display: none;
+}
+
+.app.is-focus .app-main,
+.app.no-nav .app-main {
   padding-bottom: var(--safe-bottom);
 }
 
@@ -83,7 +95,8 @@
     padding-top: var(--space-4);
   }
 
-  .app-main {
+  .app-main,
+  .app.no-nav .app-main {
     padding-bottom: var(--space-4);
   }
 }

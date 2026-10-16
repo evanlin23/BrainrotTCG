@@ -61,10 +61,7 @@ describe('Hall of Fame loading', () => {
     let settle!: (list: HallOfFameEntry[] | null) => void;
     loadHallOfFame.mockResolvedValueOnce(null).mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
 
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
-    // Named like its nav item and loading placeholder, so the dialog keeps one accessible name.
-    const dialog = document.querySelector('[role="dialog"]')!;
-    expect(document.getElementById(dialog.getAttribute('aria-labelledby')!)?.textContent).toBe('Rankings');
+    await act(async () => root.render(<HallOfFamePage />));
     expect(status().textContent).toBe("Couldn't load the leaderboard. Try again.");
     expect(status().tabIndex).toBe(-1);
     expect(document.activeElement).toBe(status());
@@ -89,7 +86,7 @@ describe('Hall of Fame loading', () => {
 
   it('shows the failure again when a retry fails, and can retry again', async () => {
     loadHallOfFame.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce([ENTRY]);
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    await act(async () => root.render(<HallOfFamePage />));
     expect(status().textContent).toBe("Couldn't load the leaderboard. Try again.");
 
     await act(async () => clickRetry());
@@ -109,7 +106,7 @@ describe('Hall of Fame loading', () => {
     let settle!: (list: HallOfFameEntry[] | null) => void;
     const pendingLoad = () => new Promise<HallOfFameEntry[] | null>((resolve) => { settle = resolve; });
     loadHallOfFame.mockImplementationOnce(pendingLoad).mockImplementationOnce(pendingLoad);
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    await act(async () => root.render(<HallOfFamePage />));
     const firstsTab = tab('World firsts');
 
     firstsTab.focus();
@@ -126,14 +123,14 @@ describe('Hall of Fame loading', () => {
 
   it('leaves focus alone when the first load succeeds', async () => {
     loadHallOfFame.mockResolvedValueOnce([ENTRY]);
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    await act(async () => root.render(<HallOfFamePage />));
     expect(status().textContent).toBe('Leaderboard loaded.');
     expect(document.activeElement).not.toBe(status());
   });
 
   it('aborts the pending-submissions check when the page closes', async () => {
     loadHallOfFame.mockResolvedValueOnce([ENTRY]);
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    await act(async () => root.render(<HallOfFamePage />));
     expect(loadPending).toHaveBeenCalledTimes(1);
     const signal = loadPending.mock.calls[0][2] as AbortSignal;
     expect(signal.aborted).toBe(false);
@@ -144,7 +141,7 @@ describe('Hall of Fame loading', () => {
 
   it('stops re-verifying a pull when the page closes, so its ticket stops waiting', async () => {
     loadHallOfFame.mockResolvedValueOnce([ENTRY]);
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    await act(async () => root.render(<HallOfFamePage />));
     expect(checkPull).toHaveBeenCalledTimes(1);
     expect(checkPull.mock.calls[0][0]).toBe(ENTRY.proof);
     const signal = checkPull.mock.calls[0][1] as AbortSignal;
@@ -169,7 +166,7 @@ describe('Rankings paging', () => {
 
   it('shows the first 20 rows, and each Show more adds 20 in the same order until all are shown', async () => {
     loadHallOfFame.mockResolvedValue(many);
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    await act(async () => root.render(<HallOfFamePage />));
 
     expect(rows()).toHaveLength(20);
     expect(rows().map((a) => a.getAttribute('href'))).toEqual(many.slice(0, 20).map((e) => `#/pull/${e.proof}`));
@@ -191,7 +188,7 @@ describe('Rankings paging', () => {
 
   it('has no Show more when 20 or fewer pulls are ranked', async () => {
     loadHallOfFame.mockResolvedValue(many.slice(0, 20));
-    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    await act(async () => root.render(<HallOfFamePage />));
     expect(rows()).toHaveLength(20);
     expect(showMore()).toBeUndefined();
   });

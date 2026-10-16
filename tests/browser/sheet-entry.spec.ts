@@ -1,8 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { monitor } from './support';
 
-// A lazy sheet shows a loading placeholder until its chunk arrives. The loaded screen must take the
-// placeholder's place without replaying the entrance: one fade of the backdrop, one rise of the panel.
+// Cards and Rankings are pages: while a slow chunk loads, a skeleton holds the page's place (rows for
+// Rankings) and no sheet opens or animates in, so nothing flashes. Pointing at a tab fetches its chunk.
 
 declare global {
   interface Window { sheetEntrances: { part: 'panel' | 'backdrop'; deferred: boolean }[] }
@@ -30,13 +30,13 @@ const entrances = async (page: Page) => {
 };
 
 const SCREENS = [
-  { tab: 'My cards', chunk: '**/assets/CollectionBrowser-*.js' },
-  { tab: 'Rankings', chunk: '**/assets/HallOfFamePage-*.js' },
+  { tab: 'Cards', chunk: '**/assets/CollectionBrowser-*.js', skeleton: '.page-skeleton--blocks', content: '.collection' },
+  { tab: 'Rankings', chunk: '**/assets/HallOfFamePage-*.js', skeleton: '.page-skeleton--rows', content: '.hall-of-fame' },
 ];
 
-for (const { tab, chunk } of SCREENS) {
-  test(`${tab} enters once while its chunk is slow`, async ({ page, baseURL }) => {
-    const errors = await monitor(page, baseURL!);
+for (const { tab, chunk, skeleton, content } of SCREENS) {
+  test(`${tab} holds its page with a skeleton while its chunk is slow, with no sheet`, async ({ page, baseURL }) => {
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
     await countEntrances(page);
     // Page routes run before monitor's context route.
     await page.route(chunk, async (route) => {
@@ -46,30 +46,37 @@ for (const { tab, chunk } of SCREENS) {
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
     await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: tab, exact: true }).click();
-    await expect(page.locator('.sheet--deferred')).toBeVisible();
-    await expect(page.locator('.sheet--deferred')).toHaveCount(0, { timeout: 15000 });
-    const dialog = page.getByRole('dialog', { name: tab, exact: true });
-    await expect(dialog).toBeVisible();
-    // Long enough for a replayed entrance to start.
+    const main = page.getByRole('main', { name: tab, exact: true });
+    await expect(main).toBeVisible();
+    await expect(main.locator(skeleton)).toBeVisible();
+    await expect(main.locator('.page-skeleton')).toHaveCount(0, { timeout: 15000 });
+    await expect(main.locator(content).first()).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // Long enough for a sheet entrance to start, if one were going to.
     await page.waitForTimeout(500);
-    expect(await entrances(page)).toEqual({ panel: 1, backdrop: 1, placeholder: true });
-    await expect(dialog.getByRole('button', { name: 'Close' })).toBeVisible();
+    expect(await entrances(page)).toEqual({ panel: 0, backdrop: 0, placeholder: false });
     expect(errors).toEqual([]);
   });
 }
 
-test('pointing at My cards fetches it, so it opens with no placeholder', async ({ page, baseURL }) => {
-  const errors = await monitor(page, baseURL!);
-  await countEntrances(page);
+test('pointing at Cards fetches it, so it opens with no skeleton', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  await page.addInitScript(() => {
+    new MutationObserver(() => {
+      if (document.querySelector('.page-skeleton')) document.documentElement.dataset.sawSkeleton = 'yes';
+    }).observe(document, { childList: true, subtree: true });
+  });
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  const tab = page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'My cards', exact: true });
+  const tab = page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Cards', exact: true });
   const fetched = page.waitForResponse(/\/assets\/CollectionBrowser-[^/]+\.js$/);
   await tab.hover();
   await fetched;
+  // Let the module evaluate, so the loader holds it before the click.
+  await page.waitForTimeout(200);
   await tab.click();
-  await expect(page.getByRole('dialog', { name: 'My cards', exact: true })).toBeVisible();
-  await page.waitForTimeout(500);
-  expect(await entrances(page)).toEqual({ panel: 1, backdrop: 1, placeholder: false });
+  const main = page.getByRole('main', { name: 'Cards', exact: true });
+  await expect(main.locator('.collection')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.dataset.sawSkeleton ?? 'no')).toBe('no');
   expect(errors).toEqual([]);
 });

@@ -90,10 +90,8 @@ it('migrates a pre-versioning save on load without losing its cards or pulls, th
     setId: 'right-now', setVersion: 2, nonce: 0, key: PUBLIC.slice(0, 16), cards: null, hand: 'Pair', score: 200, openedAt: OPENED,
   })]);
 
-  // Best pulls shows the migrated pull and the unproven best pack.
-  await app.interact(() => button('My cards').click());
-  await app.until('My cards opens', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
-  await app.interact(() => button('Best pulls').click());
+  // Best pulls, on the Profile page, shows the migrated pull and the unproven best pack.
+  await app.interact(() => button('Profile').click());
   await app.until('Best pulls lists the migrated pull', () => {
     expect(document.querySelector('.pulls-history-title#pulls-history-title')?.textContent).toBe('All packs · 1');
   });
@@ -102,9 +100,9 @@ it('migrates a pre-versioning save on load without losing its cards or pulls, th
   expect(rows[0].querySelector('.pull-row-hand')?.textContent).toContain('Pair');
   expect(rows[0].querySelector('.pull-row-setname')?.textContent).toContain('Summer of Slop');
   expect(rows[0].disabled, 'a migrated pull has no cards to show yet').toBe(true);
-  expect([...document.querySelectorAll('.pulls-page .pulls-legacy h3')].map((h) => h.textContent)).toEqual(['Best before verifiable pulls']);
-  await app.interact(() => button('Close').click());
-  await app.until('the sheet closes', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  expect([...document.querySelectorAll('.pulls-page .pulls-legacy h2')].map((h) => h.textContent)).toEqual(['Best before verifiable pulls']);
+  await app.interact(() => button('Close Profile').click());
+  await app.until('Open shows again', () => expect(document.querySelector<HTMLElement>('main.app-main')!.hidden).toBe(false));
 
   // The next pack takes the next nonce and adds to the migrated save instead of replacing it.
   await openPack(app);

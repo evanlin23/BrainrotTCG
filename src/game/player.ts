@@ -108,22 +108,29 @@ export const allocateNonce = (): { nonce: number; player: Player } => {
 
 /**
  * What a rename did, with the player as it is now stored: `saved`; `blank` or `unchanged` (nothing
- * written); or `failed` (this browser refused the write, so the old name stays).
+ * written); or `failed` (this browser refused the write, so the old name stays). `stale` means the
+ * stored player is no longer the one the rename was meant for (another tab switched or imported a
+ * save), so nothing was written and that player isn't handed back.
  */
-export interface RenameResult {
-  status: 'saved' | 'blank' | 'unchanged' | 'failed';
-  player: Player;
-}
+export type RenameResult =
+  | { status: 'saved' | 'blank' | 'unchanged' | 'failed'; player: Player }
+  | { status: 'stale' };
 
-/** Change only the name, on the record read from storage now, so another tab's key and ticket counter stay intact. */
-export const renamePlayer = (name: string): RenameResult => {
+/**
+ * Change only the name, on the record read from storage now, so another tab's key and ticket counter
+ * stay intact. `expectedKey` is the public key (hex) of the player being renamed: if the stored player
+ * has another key, nothing is written, so one player's name never lands on another player.
+ */
+export const renamePlayer = (name: string, expectedKey: string): RenameResult => {
   const clean = normalizeName(name);
   const record = current();
-  if (!clean) return { status: 'blank', player: toPlayer(record) };
-  if (clean === record.name) return { status: 'unchanged', player: toPlayer(record) };
+  const player = toPlayer(record);
+  if (player.publicKeyHex !== expectedKey) return { status: 'stale' };
+  if (!clean) return { status: 'blank', player };
+  if (clean === record.name) return { status: 'unchanged', player };
   const next = { ...record, name: clean };
   // Adopt the name only once it is stored, so the page never shows a name the next read would undo.
-  if (!write(next)) return { status: 'failed', player: toPlayer(record) };
+  if (!write(next)) return { status: 'failed', player };
   memory = next;
   return { status: 'saved', player: toPlayer(next) };
 };

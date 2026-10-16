@@ -10,9 +10,8 @@ import PackCardViewer from '../ui/PackCardViewer';
 import Sheet from '../ui/Sheet';
 import '../../styles/Achievements.css';
 
-interface AchievementsPageProps {
+interface AchievementsSectionProps {
   unlockedAchievements: Record<string, AchievementData | number>;
-  onClose: () => void;
   /** How far along the counting achievements are, e.g. { packs_10: [3, 10, 'packs'] }. */
   progress?: Record<string, [have: number, need: number, unit: string]>;
   /** Share the pack that unlocked one, the same way as from the profile. */
@@ -39,8 +38,11 @@ const refFor = ({ pack, ref, unlockedAt }: Unlocked): PullRef | null => {
   return entry && { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key };
 };
 
-/** A checklist, like the one printed in a pack: unlocked first (newest on top), then everything still to get. */
-const AchievementsPage = ({ unlockedAchievements, onClose, progress = {}, onSharePull }: AchievementsPageProps) => {
+/**
+ * The Profile page's Achievements section (#/profile, where achievement toasts lead): a checklist, like
+ * the one printed in a pack, unlocked first (newest on top), then everything still to get.
+ */
+const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull }: AchievementsSectionProps) => {
   const [selected, setSelected] = useState<Unlocked | null>(null);
   const selectedRef = useMemo(() => (selected ? refFor(selected) : null), [selected]);
 
@@ -60,23 +62,17 @@ const AchievementsPage = ({ unlockedAchievements, onClose, progress = {}, onShar
 
   return (
     <>
-      <Sheet
-        title="Achievements"
-        subtitle={
-          <span className="tabular">
-            {unlocked.length}/{ACHIEVEMENTS.length} unlocked · {percent}%
-          </span>
-        }
-        onClose={onClose}
-        size="lg"
-        className="achievements"
-      >
+      <section id="achievements" className="achievements profile-section" aria-labelledby="achievements-title">
+        <h2 id="achievements-title" className="section-title" tabIndex={-1}>Achievements</h2>
+        <p className="achievements-count tabular">
+          {unlocked.length}/{ACHIEVEMENTS.length} unlocked · {percent}%
+        </p>
         <div className="progress achievements-progress" aria-hidden="true">
           <span style={{ width: `${percent}%` }} />
         </div>
 
         {unlocked.length > 0 && (
-          <section>
+          <section className="achievements-group">
             <h3 className="section-title">Unlocked</h3>
             <ul className="achievement-list">
               {unlocked.map((entry) => {
@@ -110,7 +106,7 @@ const AchievementsPage = ({ unlockedAchievements, onClose, progress = {}, onShar
         )}
 
         {locked.length > 0 && (
-          <section>
+          <section className="achievements-group">
             <h3 className="section-title">Still to get</h3>
             <ul className="achievement-list">
               {locked.map((achievement) => (
@@ -133,7 +129,7 @@ const AchievementsPage = ({ unlockedAchievements, onClose, progress = {}, onShar
             </ul>
           </section>
         )}
-      </Sheet>
+      </section>
 
       {selected?.pack && (
         <Sheet
@@ -158,4 +154,4 @@ const AchievementsPage = ({ unlockedAchievements, onClose, progress = {}, onShar
   );
 };
 
-export default AchievementsPage;
+export default AchievementsSection;

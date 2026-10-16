@@ -1,0 +1,130 @@
+/* ---- Pages (#/cards, #/rankings, #/profile, #/settings): they take the packs screen's place ---- */
+
+.page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Clear of the bottom tab bar on phones. */
+  padding: 0 var(--gutter) calc(var(--nav-height) + var(--safe-bottom) + var(--space-6));
+}
+
+.app.no-nav .page {
+  padding-bottom: calc(var(--safe-bottom) + var(--space-6));
+}
+
+.page-inner {
+  width: 100%;
+  max-width: 64rem;
+  margin: 0 auto;
+}
+
+.page--md .page-inner {
+  max-width: 42rem;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 var(--space-2);
+}
+
+.page-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-2xl);
+  color: var(--text);
+}
+
+.page-title:focus,
+.page-title:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.page-close {
+  flex: none;
+  margin-top: -6px;
+  margin-right: -10px;
+}
+
+/* Counts and a short description under the heading, rendered by the page itself. */
+.page-subtitle {
+  margin-bottom: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* A section a link scrolls to keeps its heading clear of the top edge. */
+.page [id] {
+  scroll-margin-top: var(--space-4);
+}
+
+.page h2[tabindex='-1']:focus,
+.page h3[tabindex='-1']:focus,
+.page h2[tabindex='-1']:focus-visible,
+.page h3[tabindex='-1']:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.page-error {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+}
+
+.page-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Placeholder while a page's chunk loads: rows for lists, a few blocks otherwise. */
+.page-skeleton {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.page-skeleton-item {
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%) 0 0 / 200% 100%;
+  animation: page-skeleton 1.4s ease-in-out infinite;
+}
+
+.page-skeleton--rows .page-skeleton-item {
+  height: 56px;
+}
+
+.page-skeleton--blocks .page-skeleton-item {
+  height: 140px;
+}
+
+@keyframes page-skeleton {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-skeleton-item {
+    animation: none;
+  }
+}
+
+@media (min-width: 900px) {
+  .page,
+  .app.no-nav .page {
+    padding-bottom: var(--space-6);
+  }
+
+  .page-header {
+    padding-top: var(--space-4);
+  }
+}

@@ -31,7 +31,8 @@ const button = (label: string) => {
 const banner = () => document.querySelector('.app > p[role="alert"].save-warning');
 const expectAppShown = () => {
   expect(document.querySelector('.app .app-header .app-logo')?.getAttribute('aria-label')).toBe('Brainrot TCG');
-  expect(document.querySelectorAll('.app-nav .app-nav-item')).toHaveLength(3);
+  // The tabs show once a pack is saved, in memory at least (#222); a new player has none yet.
+  expect([0, 4]).toContain(document.querySelectorAll('.app-nav .app-nav-item').length);
   expect(document.querySelector('.app-main')).not.toBeNull();
 };
 const ownedTotal = () => [...document.querySelectorAll('.collection [aria-label$=" owned"], .collection [aria-label*=" owned,"]')]
@@ -107,13 +108,13 @@ it.each(['QuotaExceededError', 'SecurityError'])(
     const toastsAfterFirst = await drainToasts(app);
     expect(toastsAfterFirst.join(' ')).toContain('Baby Steps');
 
-    // Sound & display shows the same warning; the banner steps aside while it is open.
-    await app.interact(() => button('Sound & display').click());
-    await app.until('Sound & display loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+    // The Settings page shows the same warning; the banner steps aside while it is open.
+    await app.interact(() => button('Settings').click());
+    await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
     expect(document.querySelector('.settings p[role="alert"].save-warning')?.textContent).toMatch(/couldn't be saved in this browser/);
     expect(banner()).toBeNull();
-    await app.interact(() => button('Close').click());
-    expect(banner()).not.toBeNull();
+    await app.interact(() => button('Close Settings').click());
+    await app.until('the banner returns with Open', () => expect(banner()).not.toBeNull());
 
     // A second pack while writes keep failing: progress keeps adding up in memory.
     await app.interact(() => button('Open another pack').click());
@@ -133,7 +134,7 @@ it.each(['QuotaExceededError', 'SecurityError'])(
     }
 
     // The collection browser shows both packs from memory.
-    await app.interact(() => button('My cards').click());
+    await app.interact(() => button('Cards').click());
     await app.until('Collection loads', () => expect(document.querySelector('.collection')).not.toBeNull());
     expect(ownedTotal()).toBe(10);
     expect(document.querySelector('.collection-empty')).toBeNull();
@@ -215,6 +216,32 @@ it('warns when a ticket mapping missing from the history still cannot be recorde
   expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
   await drainToasts(app);
 }, 60_000);
+
+it('warns when a name edited on Profile cannot be stored as the page is left', async () => {
+  app = await mountedApp(SEED);
+  history.replaceState(null, '', '/BrainrotTCG/#/profile');
+  await app.mount();
+  const nameField = () => document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]');
+  await app.until('Profile loads', () => expect(nameField()).not.toBeNull());
+  await app.interact(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(nameField()!, 'Left behind');
+    nameField()!.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === 'brainrot-player-v1') throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  expect(banner()).toBeNull();
+
+  await app.interact(() => button('Close Profile').click());
+  await app.until('Open shows again', () => expect(nameField()).toBeNull());
+
+  expect(app.takeErrors(/^Could not save player identity/)).toHaveLength(1);
+  expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).name).toBe('Mounted fixture');
+  expectAppShown();
+  expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
+});
 
 it('starts on the default set when reading the remembered set throws SecurityError', async () => {
   app = await mountedApp(SEED);

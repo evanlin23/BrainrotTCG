@@ -82,12 +82,12 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
 });
 
 test('inputs, copyable text and links keep selection and activation', async ({ page, baseURL }) => {
-  const errors = await monitor(page, baseURL!);
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   const dialog = (name: string) => page.getByRole('dialog', { name, exact: true });
-  await page.getByRole('button', { name: 'Player', exact: true }).click();
-  const player = dialog('Player');
+  await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'Profile', exact: true }).click();
+  const player = page.getByRole('main', { name: 'Profile', exact: true });
 
   const name = player.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true });
   await expect(name).toHaveValue('Browser smoke fixture');
@@ -101,10 +101,10 @@ test('inputs, copyable text and links keep selection and activation', async ({ p
   await playerId.click({ clickCount: 3 });
   expect(await selectedText(page)).toContain((await playerId.textContent())!);
   await page.evaluate(() => document.getSelection()?.removeAllRanges());
-  await player.getByRole('button', { name: 'Close', exact: true }).click();
+  await player.getByRole('button', { name: 'Close Profile', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Sound & display', exact: true }).click();
-  await dialog('Sound & display').getByRole('button', { name: 'Report a problem', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('main', { name: 'Settings', exact: true }).getByRole('button', { name: 'Report a problem', exact: true }).click();
   // By its label: the textarea's id comes from useId, so it isn't a stable selector.
   const report = dialog('Report a problem').getByRole('textbox', { name: 'Report details (editable)', exact: true });
   await expect(report).toBeVisible();
