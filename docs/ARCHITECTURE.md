@@ -75,7 +75,7 @@ src/game/          Browser glue around the engine.
   packStore.ts       reconstructed own-pack card codes in memory and IndexedDB
   reopenCache.ts     localStorage cache for packs derived while viewing public profiles
   pulls.ts           openPack(), proofFor(), pullUrl(), checkPull()
-  share.ts, bragImage.ts   brag text, Hall of Fame submit, 9:16 pull poster and player card with QR
+  share.ts, bragImage.ts   brag text, Hall of Fame submit, 9:16 pull poster and profile card with QR
   progression.ts     titles, card backs, pack foils, collection milestones, set completion
   shareActions.ts    copy/download and API-supported coarse-pointer system sharing
   previewLinks.ts    link previews: shared links go through a static page per hand and its cards
