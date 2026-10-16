@@ -191,6 +191,20 @@ describe('re-opening after packs could not be saved', () => {
     expect(data.get(PENDING)).toBe(me);
   });
 
+  it('never waits longer than a day, even for a wait stored while the clock was ahead', async () => {
+    const me = getPlayer().publicKeyHex;
+    data.set(PENDING, me);
+    data.set(BACKOFF, JSON.stringify({ publicKeyHex: me, failures: 3, retryAt: NOW + 24 * 60 * MINUTE + 1 }));
+    const at = await failedRun(resumeReopening);
+    expect(backoff()).toEqual({ publicKeyHex: me, failures: 4, retryAt: at + 40 * MINUTE });
+
+    // A wait within a day is kept as stored.
+    vi.setSystemTime(at + 40 * MINUTE - 1);
+    mining = [];
+    expect(resumeReopening()).toBeUndefined();
+    expect(mining).toHaveLength(0);
+  });
+
   it('asking re-opens at once, and saving every pack ends the wait', async () => {
     const me = getPlayer().publicKeyHex;
     data.set(PENDING, me);
