@@ -110,7 +110,9 @@ set@version           ─┼─► Argon2id ticket (32 MiB, 2 iterations) ─►
 ticket number (nonce) ─┘
 ```
 
-- Opening allocates the next ticket number before deriving its cards. `ticketMiner.ts` queues work
+- Opening mines the next ticket number's ticket, then claims that number, derives the cards and
+  records the mapping in one task, so a closed tab or failed miner spends no number; if another tab
+  took the number meanwhile it mines the one it claimed. `ticketMiner.ts` queues work
   serially and prefetches the next ticket while a pack is shown. Prefetch can reduce waits, but slow
   devices, worker failures and competing work can still delay opening; fallback uses the main thread.
 - A **proof** is `(set, version, public key, nonce, name)` signed with the player's key and
@@ -360,7 +362,8 @@ player's public key and the number, so two tabs never spend one number even when
 read lags. A tab holds the lock of the highest number it took per key until it closes and lets the
 lower ones go; a claim skips any number below a lock another tab holds. Where Web Locks are missing
 or refuse (insecure pages, older browsers) a tab counts on its own, past any number it saw taken.
-A tab never hands out a number below its own count for the same key (exports carry that count too),
+A tab never hands out a number below its own count for the same key (exports carry that count too)
+or at or below one its pack history maps for that key (a mapping stored while the count was refused),
 rewrites the stored count while the app watches the player (`watchPlayer`) when another tab's lower
 one lands later, and shows the save warning when storage refuses the new count or that rewrite
 (after a reload that number could be handed out again).

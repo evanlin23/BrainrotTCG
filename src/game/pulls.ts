@@ -70,10 +70,19 @@ export const prefetchNextPack = (set: SetDefinition) => {
     .catch(() => undefined);
 };
 
-/** Open a pack: consume a ticket number, mine (or reuse) its ticket, derive the cards. */
+/**
+ * Open a pack: mine (or reuse) the next number's ticket, then consume the number, derive the cards and
+ * record its mapping. The number is claimed only once its ticket is in hand, so the counter write and
+ * the mapping write land in the same task: a tab closed or a miner failing mid-mine spends nothing.
+ */
 export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
+  const owner = getPlayer();
+  const next = peekNonce();
+  let ticket = await getTicket(setKey(set), owner.publicKey, next);
   const { nonce, player, stored } = await claimNonce();
-  const ticket = await getTicket(setKey(set), player.publicKey, nonce);
+  // Another tab took that number (or switched the key) meanwhile: mine the one claimed. Only this
+  // rare path leaves a window where a claimed number has no mapping yet; a profile shows it unmapped.
+  if (nonce !== next || player.publicKeyHex !== owner.publicKeyHex) ticket = await getTicket(setKey(set), player.publicKey, nonce);
   const cards = toCardsWithMeta(generatePack(set, packSeedFromTicket(ticket)));
   prefetchTicket(setKey(set), player.publicKey, nonce + 1);
   const pack: OpenedPack = {
