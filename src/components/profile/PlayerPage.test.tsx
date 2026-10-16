@@ -244,9 +244,9 @@ describe('closing with an unsaved draft', () => {
   });
 });
 
-describe('leaving for Goals or Save with an unsaved draft', () => {
+describe('leaving for Achievements or Save with an unsaved draft', () => {
   it.each([
-    ['Goals & rewards', () => onOpenGoals],
+    ['Achievements', () => onOpenGoals],
     ['Save & restore', () => onOpenSave],
   ] as const)('%s saves a changed name and then opens', (label, opened) => {
     type('Saved First');
@@ -257,7 +257,7 @@ describe('leaving for Goals or Save with an unsaved draft', () => {
   });
 
   it.each([
-    ['Goals & rewards', () => onOpenGoals],
+    ['Achievements', () => onOpenGoals],
     ['Save & restore', () => onOpenSave],
   ] as const)('%s keeps the draft and the error once when that save fails', (label, opened) => {
     failWrites();

@@ -140,3 +140,45 @@ describe('Hall of Fame loading', () => {
     expect(signal.aborted).toBe(true);
   });
 });
+
+describe('Rankings paging', () => {
+  /** 45 entries, best first: entry n scores lower than entry n - 1. */
+  const many = Array.from({ length: 45 }, (_, i): HallOfFameEntry => ({
+    ...ENTRY,
+    id: `pull-${i}`,
+    proof: `proof-${i}`,
+    issue: 100 + i,
+    score: 50_000 - i,
+  }));
+  const rows = () => [...document.querySelectorAll<HTMLAnchorElement>('.hof-list .hof-entry')];
+  const showMore = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Show more');
+
+  it('shows the first 20 rows, and each Show more adds 20 in the same order until all are shown', async () => {
+    loadHallOfFame.mockResolvedValue(many);
+    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+
+    expect(rows()).toHaveLength(20);
+    expect(rows().map((a) => a.getAttribute('href'))).toEqual(many.slice(0, 20).map((e) => `#/pull/${e.proof}`));
+    const button = showMore()!;
+    expect(button.type).toBe('button');
+    expect(button.classList).toContain('btn');
+
+    await act(async () => button.click());
+    expect(rows()).toHaveLength(40);
+    expect(rows()[20].getAttribute('aria-label')).toMatch(/^Number 21: /);
+    // Keyboard users carry on from the first new row.
+    expect(document.activeElement).toBe(rows()[20]);
+
+    await act(async () => showMore()!.click());
+    expect(rows().map((a) => a.getAttribute('href'))).toEqual(many.map((e) => `#/pull/${e.proof}`));
+    expect(document.activeElement).toBe(rows()[40]);
+    expect(showMore()).toBeUndefined();
+  });
+
+  it('has no Show more when 20 or fewer pulls are ranked', async () => {
+    loadHallOfFame.mockResolvedValue(many.slice(0, 20));
+    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    expect(rows()).toHaveLength(20);
+    expect(showMore()).toBeUndefined();
+  });
+});

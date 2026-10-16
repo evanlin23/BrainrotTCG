@@ -34,6 +34,8 @@ type Check = 'checking' | 'verified' | 'failed';
 
 /** How many entries to re-verify on this device (each costs one ticket). */
 const VERIFY_LIMIT = 30;
+/** How many leaderboard rows show at first, and how many more each "Show more" adds. */
+const PAGE_SIZE = 20;
 
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 
@@ -97,6 +99,23 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   // pull, the earliest verification keeping the credit. A pull can be signed more than once, so they
   // key on the pull id (set, key and ticket number) rather than the proof text.
   const ranked = useMemo(() => topPulls(all ?? []), [all]);
+  // The leaderboard shows a page at a time so the sheet stays short on a phone. Only what's drawn
+  // changes: the order, and which entries get re-verified, are the same whatever is shown.
+  const [shown, setShown] = useState(PAGE_SIZE);
+  const listRef = useRef<HTMLOListElement>(null);
+  const focusRowRef = useRef<number | null>(null);
+  useEffect(() => {
+    // After "Show more", focus moves to the first new row, so a keyboard or screen reader user
+    // carries on from where the list grew instead of from the button below it.
+    const row = focusRowRef.current;
+    if (row === null) return;
+    focusRowRef.current = null;
+    listRef.current?.querySelectorAll<HTMLElement>('.hof-entry')[row]?.focus();
+  }, [shown]);
+  const showMore = () => {
+    focusRowRef.current = shown;
+    setShown(shown + PAGE_SIZE);
+  };
   // World firsts go by when GitHub verified them, so only filed entries can be one.
   const firsts = useMemo(() => firstPulls(entries ?? []), [entries]);
 
@@ -237,7 +256,12 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
                 <p className="hof-note">
                   <ShieldCheck aria-hidden="true" /> Ranked by Brainrot Score. The top {VERIFY_LIMIT} are re-checked on your device; open one to see it.
                 </p>
-                <ol className="hof-list">{ranked.map((e, i) => renderEntry(e, i))}</ol>
+                <ol ref={listRef} className="hof-list">{ranked.slice(0, shown).map((e, i) => renderEntry(e, i))}</ol>
+                {shown < ranked.length && (
+                  <button type="button" className="btn btn--secondary btn--block hof-more" onClick={showMore}>
+                    Show more
+                  </button>
+                )}
               </>
             )}
           </>

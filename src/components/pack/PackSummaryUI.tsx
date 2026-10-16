@@ -5,7 +5,7 @@ import type { CardWithMeta } from '../cards/Card';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
 import BrainrotScorePanel from '../ui/BrainrotScorePanel';
-import { modifierLabel, modifierThumb } from '../../game/modifiers';
+import { modifierLabel, modifierThumb, specialCardsLine } from '../../game/modifiers';
 import { CARD_RARITIES, getSetCards, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import { myProgress } from '../../game/profiles';
@@ -35,6 +35,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
     return `${String(i + 1).padStart(3, '0')}/${String(setCards.length).padStart(3, '0')}`;
   };
   const newCount = openedCards.filter((c) => c.isNew).length;
+  const special = specialCardsLine(openedCards);
   // What this pack did for your level: shown here so progress isn't hidden away in the profile.
   // Null until saved packs are read: a loading note then, never zero XP.
   const packCache = usePackCacheVersion();
@@ -95,6 +96,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
               </li>
             ))}
           </ul>
+          {special && <p className="summary-new">{special}</p>}
           {newCount > 0 && (
             <p className="summary-new tabular">
               {newCount} new {newCount === 1 ? 'card' : 'cards'} for your binder

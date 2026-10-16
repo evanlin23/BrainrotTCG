@@ -19,8 +19,9 @@ const TEXT_FIELD = 'input, select, textarea, [contenteditable]:not([contentedita
 
 /**
  * Space or Enter does the next thing: open the pack, flip, next card, next pack. Holding Space runs
- * through the cards. Escape leaves a pack at any stage. The listeners are added once and read the
- * latest state from a ref, so a re-render can't cancel a held Space.
+ * through the cards. Escape leaves a pack at any stage. With Ctrl, Cmd or Alt held, none of these
+ * keys do anything. The listeners are added once and read the latest state from a ref, so a
+ * re-render can't cancel a held Space.
  */
 export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
   const latest = useRef(options);
@@ -45,6 +46,8 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       // focus is on a control that Space or Enter already activates.
       if (disabled) return;
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      // Ctrl, Cmd and Alt combos belong to the browser and the system (Ctrl+Enter, Alt+Space), never the pack.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
       // Escape belongs to whatever is on top: a sheet closes itself first, and a text field keeps it.
       if (e.key === 'Escape') {

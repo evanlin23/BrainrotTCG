@@ -10,7 +10,7 @@ interface BrainrotScorePanelProps {
   /** Left out where the hand's name is already the heading above the panel. */
   handName?: string;
   score: number;
-  /** Set whose odds the "how it works" guide should show. */
+  /** Set whose odds the card guide should show. */
   setId?: string;
 }
 
@@ -33,7 +33,7 @@ const BrainrotScorePanel = ({ points, multiplier, handName, score, setId }: Brai
       </div>
       {set && (
         <button type="button" className="score-panel-help" onClick={(e) => { e.stopPropagation(); setShowGuide(true); }}>
-          <Info aria-hidden="true" /> How scoring works
+          <Info aria-hidden="true" /> Card guide
         </button>
       )}
       {showGuide && set && <ScoringGuide set={set} onClose={() => setShowGuide(false)} />}

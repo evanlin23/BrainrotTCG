@@ -5,7 +5,7 @@ import { fingerprint, generateKeypair, isValidName, normalizeName } from './iden
 import { createRng, generatePack } from './pack';
 import { decodeProof, derivePack, encodeProof, extractProof, signProof, verifyProof } from './proof';
 import { getPokerHand, POKER_HANDS, scorePack, type HandKey } from './scoring';
-import { handOdds } from './odds';
+import { handOdds, specialPackChance } from './odds';
 import { handFromCounts } from './scoring';
 import { computeTicket } from './ticket';
 import { validateSet, type SetDefinition } from './types';
@@ -115,6 +115,23 @@ describe('odds', () => {
     for (const [hand, chance] of Object.entries(exact)) {
       expect(Math.abs((counts[hand] ?? 0) / packs - chance)).toBeLessThan(0.004);
     }
+  });
+
+  it('gives the chance of a special card in a pack, matching generatePack with and without modifiers', () => {
+    const packs = 100_000;
+    for (const set of [TEST_SET, { ...TEST_SET, modifiers: 1 as const }]) {
+      let special = 0;
+      for (let i = 0; i < packs; i++) {
+        if (generatePack(set, sha256(utf8(`special-${i}`))).some((c) => c.isHolo || c.finish || c.misprint)) special++;
+      }
+      // About 4 standard errors; leaving out misprints alone would be off by about 0.009.
+      expect(Math.abs(special / packs - specialPackChance(set)!)).toBeLessThan(0.006);
+    }
+  });
+
+  it('has no special-card chance for a modifier table it does not know', () => {
+    expect(specialPackChance({ ...TEST_SET, modifiers: 2 as unknown as 1 })).toBeNull();
+    expect(specialPackChance({ ...TEST_SET, holoOdds: 0 })).toBe(0);
   });
 
   it('pays rarer combos more (rarity corresponds to reward)', () => {

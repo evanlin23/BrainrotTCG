@@ -1,5 +1,5 @@
 import { handFromCounts, POKER_HANDS, type HandKey } from './scoring';
-import { ODDS_TOTAL, type SetDefinition } from './types';
+import { MODIFIERS_V1, ODDS_TOTAL, type Finish, type SetDefinition } from './types';
 
 /**
  * Exact chance of each combo for one pack of a set, by enumerating every
@@ -30,6 +30,28 @@ export const handOdds = (set: SetDefinition): Record<HandKey, number> => {
   };
   walk(0, k, 1, factorial(k));
   return result;
+};
+
+/** The modifier tables this build knows, by the number a set names in `"modifiers"` (spec section 5.4). */
+const MODIFIER_TABLES: Readonly<Partial<Record<number, { finishOdds: Readonly<Record<Finish, number>>; misprintOdds: number }>>> = {
+  1: MODIFIERS_V1,
+};
+
+/**
+ * Exact chance that a pack has at least one special card: holo, a finish or a misprint. generatePack
+ * rolls each card's holo, finish and misprint separately, so a card is plain when all three miss and
+ * a pack is plain only when every card is. Null for a modifier table this build doesn't know, rather
+ * than a chance that leaves its modifiers out.
+ */
+export const specialPackChance = (set: Pick<SetDefinition, 'holoOdds' | 'packSize' | 'modifiers'>): number | null => {
+  let plainCard = 1 - set.holoOdds / ODDS_TOTAL;
+  if (set.modifiers !== undefined) {
+    const table = MODIFIER_TABLES[set.modifiers];
+    if (!table) return null;
+    const finished = Object.values(table.finishOdds).reduce((a, b) => a + b, 0);
+    plainCard *= (1 - finished / ODDS_TOTAL) * (1 - table.misprintOdds / ODDS_TOTAL);
+  }
+  return 1 - plainCard ** set.packSize;
 };
 
 /** "1 in N" for display. */

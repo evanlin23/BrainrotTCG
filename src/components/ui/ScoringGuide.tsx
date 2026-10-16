@@ -10,9 +10,11 @@ import {
   RARITY_POINTS,
   handOdds,
   oneIn,
+  specialPackChance,
   type HandKey,
   type SetDefinition,
 } from '../../engine';
+import { CARD_RARITIES } from '../../data/cards';
 import { FINISH_INFO } from '../../game/modifiers';
 import RarityBadge from './RarityBadge';
 import Sheet from './Sheet';
@@ -27,13 +29,44 @@ const HAND_ORDER: HandKey[] = ['PAIR', 'TWO_PAIR', 'THREE_OF_A_KIND', 'FULL_HOUS
 
 const formatOneIn = (n: number) => (n < 10 ? n.toFixed(1) : Math.round(n).toLocaleString());
 
-/** How Brainrot Score works, with the exact odds for this set. */
+/** "About 63%", or one decimal place under 1%. */
+const formatChance = (p: number) => {
+  const percent = p * 100;
+  return `${percent >= 1 ? Math.round(percent) : percent.toFixed(1)}%`;
+};
+
+/** "Silver up to Diamond": the commonest finish to the rarest. */
+const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.length - 1]].name} up to ${FINISH_INFO[FINISHES_RAREST_FIRST[0]].name}`;
+
+/** The card guide: what makes a card rare or special, and how Brainrot Score works, with the exact odds for this set. */
 const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
   const odds = useMemo(() => handOdds(set), [set]);
+  const specialChance = useMemo(() => specialPackChance(set), [set]);
   const rarities = [...RARITIES_RAREST_FIRST].reverse().filter((r) => set.odds[r] > 0);
+  const commonest = rarities[0];
+  const rarest = rarities[rarities.length - 1];
 
   return (
-    <Sheet title="How Brainrot Score works" onClose={onClose} size="sm" className="scoring-guide">
+    <Sheet title="Card guide" subtitle={`Rarity, modifiers and scoring for ${set.name}`} onClose={onClose} size="sm" className="scoring-guide">
+        <h3>Rare, holo or special?</h3>
+        <p className="scoring-note">
+          <strong>Rarity</strong> is which card you pulled, from {CARD_RARITIES[commonest].name} up to {CARD_RARITIES[rarest].name}. Rarer cards are worth more points.
+        </p>
+        <p className="scoring-note">
+          <strong>Holo</strong> is a shiny copy that any card can roll, whatever its rarity. It multiplies that card&apos;s points.
+        </p>
+        {set.modifiers === 1 && (
+          <p className="scoring-note">
+            <strong>Finishes</strong> ({FINISH_RANGE}) and <strong>misprints</strong> are rarer extras on top. They stack with holo and with each other.
+          </p>
+        )}
+        {specialChance !== null && (
+          <p className="scoring-note">
+            Holo{set.modifiers === 1 ? ', finished and misprinted cards are' : ' cards are'} special cards: about {formatChance(specialChance)} of packs have at least one.
+          </p>
+        )}
+
+        <h3>Brainrot Score</h3>
         <p className="scoring-formula">
           Brainrot Score = <strong>card points</strong> × <strong>combo multiplier</strong>
         </p>

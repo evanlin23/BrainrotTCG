@@ -58,12 +58,12 @@ it('keeps three primary destinations and gives identity, goals, sound and recove
   await app.interact(() => button('Close').click());
   await app.interact(() => button('Player').click());
   await app.until('player reopens with saved name', () => expect(document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]')?.value).toBe('Changed name'));
-  await app.interact(() => button('Goals & rewards').click());
+  await app.interact(() => button('Achievements').click());
   // The sheet keeps the button's name while its chunk loads and once it has loaded.
-  expect(dialogName()).toBe('Goals & rewards');
+  expect(dialogName()).toBe('Achievements');
   await app.until('goals load', () => expect(document.querySelector('.achievements')).not.toBeNull());
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
-  expect(dialogName()).toBe('Goals & rewards');
+  expect(dialogName()).toBe('Achievements');
   expect(currentTab()).toBeNull();
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).nextNonce).toBe(0);
 }, 30_000);
