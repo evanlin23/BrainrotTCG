@@ -20,8 +20,8 @@
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
  *     Lists verified Hall of Fame issues (and `daily` ones from the day before
  *     on), verifies each proof, and writes the
- *     list (the top pulls, each set's firsts, and the daily top of the build's
- *     UTC day and the day before; src/engine/hallOfFame.ts) to
+ *     list (the top pulls and the daily top of the build's UTC day and the day
+ *     before, at most HALL_OF_FAME_MAX_ENTRIES; src/engine/hallOfFame.ts) to
  *     public/hall-of-fame.json. Results are kept in hof-build-cache.json (cached
  *     between deploys): an issue unchanged since the last deploy isn't checked
  *     again, so a deploy's cost grows with new submissions, not with all of them.
@@ -30,7 +30,7 @@
  * The inbox and the issue verifier only add a pull that would join the list, so
  * the number of entries stays about the same however many people play.
  *
- * Labels: a pull that makes the top pulls or is a first is labelled `verified`
+ * Labels: a pull that makes the top pulls is labelled `verified`
  * and is listed by every deploy. One that only makes its UTC day's top (up to
  * 50 a day) is labelled `daily`, and deploys only list those updated since the
  * day before, so the issues a deploy reads don't grow with the daily ones. So
@@ -52,17 +52,15 @@ import { getSet } from '../src/content/sets/index.ts';
 import {
   decodeProof,
   extractProof,
-  dailyPulls,
   HALL_OF_FAME_DAILY_TOP,
-  HALL_OF_FAME_MIN_MULTIPLIER,
   HALL_OF_FAME_MIN_SCORE,
   HALL_OF_FAME_TOP,
+  hallOfFameFloor,
   hallOfFameJoin,
   hallOfFameList,
   previousUtcDay,
   pullId,
   qualifiesForHallOfFame,
-  topPulls,
   utcDay,
   verifyProof,
   type RankableEntry,
@@ -232,9 +230,8 @@ const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day = t
   if (hallOfFameJoin(candidate, list, day)) return null;
   if (list.some((e) => e.id === candidate.id)) return 'This pull is already in the Hall of Fame.';
   // Turned down, so the top pulls and the day's top are both full: either bar lets it in.
-  const lowest = Math.min(topPulls(list).at(-1)?.score ?? 0, dailyPulls(list, day).at(-1)?.score ?? 0);
-  const first = pull.score.hand.multiplier >= HALL_OF_FAME_MIN_MULTIPLIER ? `, or be the first ${pull.score.hand.name} in ${safe(pull.set.name)}` : '';
-  return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP}, the first of each hand in each set, and the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}${first}.`;
+  const lowest = hallOfFameFloor(list, day) ?? 0;
+  return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP} and the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}.`;
 };
 
 export const verifyIssue = async () => {
@@ -250,7 +247,7 @@ export const verifyIssue = async () => {
       console.warn(`Could not read earlier comments; treating this as a new verification. ${error}`);
     }
   }
-  // A new verification only goes in if it would join the list (the top pulls, a first, or today's
+  // A new verification only goes in if it would join the list (the top pulls or today's
   // top), and one that only makes today's top only if it isn't already on an earlier day's. The same
   // pull verified again keeps the label it has.
   let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
@@ -337,10 +334,10 @@ const BUILD_CACHE = 'hof-build-cache.json';
 type BuildCache = Record<string, { updatedAt: string; entry: HallOfFameEntry | null; reason?: string }>;
 
 /**
- * What `build` publishes: the top pulls, each set's firsts, and the daily top of the build's UTC day
- * and the day before (Rankings' "Today", and yesterday's best just after midnight). The first
- * verification of a pull keeps the credit. Daily entries only add to the list, so intake
- * (wouldJoinHallOfFame) and older clients read the same top pulls and firsts as before.
+ * What `build` publishes: the top pulls and the daily top of the build's UTC day and the day before
+ * (Rankings' "Today", and yesterday's best just after midnight), at most HALL_OF_FAME_MAX_ENTRIES.
+ * The first verification of a pull keeps the credit. Daily entries only add to the list, so intake
+ * (wouldJoinHallOfFame) and older clients read the same top pulls as before.
  */
 export const listToPublish = <T extends RankableEntry>(verified: readonly T[], now = new Date()): T[] => {
   const today = utcDay(now.toISOString());
@@ -465,6 +462,7 @@ export const inbox = async () => {
     seen,
     filed,
     accepts: (pull) => (list ? joinRefusal(pull, list) === null : qualifiesForHallOfFame(pull.score)),
+    floor: list ? hallOfFameFloor(list, today()) : null,
     budget: INBOX_BUDGET,
     maxFiled: INBOX_MAX_FILED,
     lookup: getSet,

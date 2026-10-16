@@ -39,11 +39,12 @@ export const wasSubmitted = (id: string): boolean => {
  * Send a qualifying pull to the Hall of Fame without a GitHub account: a signed note to public
  * Nostr relays, which a GitHub Action reads every 15 minutes (see src/game/nostrInbox.ts).
  * Resolves to true as soon as one relay accepts it (the other relays keep sending in the
- * background), or false once every relay has refused, failed or timed out.
+ * background), or false once every relay has refused, failed or timed out. `score` (the pull's
+ * Brainrot Score) lets the inbox skip a pull that can't make the list without re-deriving it.
  */
-export const submitToHallOfFame = async (proof: string, id: string): Promise<boolean> => {
+export const submitToHallOfFame = async (proof: string, id: string, score?: number): Promise<boolean> => {
   const { hallOfFameEvent, publishUntilAccepted } = await import('./nostrInbox');
-  const { accepted } = await publishUntilAccepted(hallOfFameEvent(proof, id));
+  const { accepted } = await publishUntilAccepted(hallOfFameEvent(proof, id, Date.now(), score));
   if (accepted) {
     try {
       const list = JSON.parse(localStorage.getItem(SUBMITTED_KEY) ?? '[]') as string[];

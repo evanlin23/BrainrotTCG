@@ -63,8 +63,12 @@ export const verifyEvent = (e: unknown): e is NostrEvent => {
   }
 };
 
-/** A Hall of Fame submission for one pull, signed with a fresh throwaway key. */
-export const hallOfFameEvent = (proof: string, pullId: string, now = Date.now()): NostrEvent => {
+/**
+ * A Hall of Fame submission for one pull, signed with a fresh throwaway key. `score` is the pull's
+ * Brainrot Score as the player's device worked it out: a hint the inbox may use to turn a pull away
+ * without re-deriving it (scripts/hof-inbox.ts). It never puts a pull on the list.
+ */
+export const hallOfFameEvent = (proof: string, pullId: string, now = Date.now(), score?: number): NostrEvent => {
   const secretKey = schnorr.utils.randomSecretKey();
   return signEvent(
     {
@@ -75,7 +79,7 @@ export const hallOfFameEvent = (proof: string, pullId: string, now = Date.now())
         ['d', `brainrot-tcg/hof/${pullId}`],
         ['t', HOF_TAG],
       ],
-      content: JSON.stringify({ v: 1, proof }),
+      content: JSON.stringify(score === undefined ? { v: 1, proof } : { v: 1, proof, score }),
     },
     secretKey,
   );
@@ -113,6 +117,20 @@ export const proofFromEvent = (e: NostrEvent): string | null => {
   try {
     const content = JSON.parse(e.content) as { v?: unknown; proof?: unknown };
     return content.v === 1 && typeof content.proof === 'string' && extractProof(content.proof) === content.proof ? content.proof : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The score a submission claims for its pull, or null if it claims none (older clients) or the claim
+ * isn't a whole number from 0 up. Untrusted: claiming too little only turns away the sender's own
+ * pull, and a claim that lets a pull through is still verified in full.
+ */
+export const scoreHintFromEvent = (e: NostrEvent): number | null => {
+  try {
+    const { score } = JSON.parse(e.content) as { score?: unknown };
+    return typeof score === 'number' && Number.isSafeInteger(score) && score >= 0 ? score : null;
   } catch {
     return null;
   }

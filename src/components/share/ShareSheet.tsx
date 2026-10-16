@@ -87,7 +87,7 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
             <Crown aria-hidden="true" /> This pull is in the Hall of Fame.
           </p>
         ) : (
-          joins && <HallOfFameSubmit proof={proof} id={id} githubUrl={hallOfFameSubmitUrl(url, `${target.score.hand.name} in ${setName}`)} />
+          joins && <HallOfFameSubmit proof={proof} id={id} score={target.score.score} githubUrl={hallOfFameSubmitUrl(url, `${target.score.hand.name} in ${setName}`)} />
         )
       }
     >
@@ -110,13 +110,13 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'failed';
  * One tap, no account: the pull goes to public relays and a GitHub Action adds it within about 15
  * minutes. The GitHub issue form stays as a fallback.
  */
-const HallOfFameSubmit = ({ proof, id, githubUrl }: { proof: string; id: string; githubUrl: string }) => {
+const HallOfFameSubmit = ({ proof, id, score, githubUrl }: { proof: string; id: string; score: number; githubUrl: string }) => {
   const [state, setState] = useState<SubmitState>(() => (wasSubmitted(id) ? 'sent' : 'idle'));
 
   const submit = async () => {
     setState('sending');
     try {
-      setState((await submitToHallOfFame(proof, id)) ? 'sent' : 'failed');
+      setState((await submitToHallOfFame(proof, id, score)) ? 'sent' : 'failed');
     } catch {
       setState('failed');
     }
