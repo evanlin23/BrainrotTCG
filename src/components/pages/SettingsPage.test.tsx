@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLatestSet } from '../../content/sets';
 import { ALL_CARDS } from '../../data/cards';
 import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
-import { DEFAULT_SETTINGS } from '../../utils/settings';
+import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundGain } from '../../constants/audio';
+import { DEFAULT_SETTINGS, effectsLevel } from '../../utils/settings';
 import SettingsPage from './SettingsPage';
 
 // The old address answers with this save; importSave and storage are the real ones.
@@ -114,5 +115,34 @@ describe('Settings: Help', () => {
   it('leaves the card guide out when no pack is given', () => {
     expect(button('Card guide')).toBeUndefined();
     expect(button('Report a problem')).toBeDefined();
+  });
+});
+
+describe('Settings: effects volume preview', () => {
+  it('plays the flip, then a vine boom after the delay, each at its gain on the chosen level', () => {
+    vi.useFakeTimers();
+    const played: { src: string; volume: number }[] = [];
+    vi.stubGlobal('Audio', class {
+      volume = 1;
+      constructor(public src: string) {}
+      play() { played.push({ src: this.src, volume: this.volume }); return Promise.resolve(); }
+    });
+    const slider = [...document.body.querySelectorAll<HTMLInputElement>('input[type="range"]')]
+      .find((el) => el.labels?.[0]?.textContent === 'Sound effects')!;
+    expect(slider).toBeDefined();
+    slider.value = '50';
+    act(() => void slider.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true })));
+
+    const level = effectsLevel(0.5);
+    expect(played).toHaveLength(1);
+    expect(played[0].src).toBe(CARD_FLIP_SRC);
+    expect(played[0].volume).toBeCloseTo(level * soundGain(CARD_FLIP_SRC));
+    vi.advanceTimersByTime(EFFECT_DELAY_MS - 1);
+    expect(played).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(played).toHaveLength(2);
+    expect(played[1].src).toBe(VINE_BOOM_SRC);
+    expect(played[1].volume).toBeCloseTo(level * soundGain(VINE_BOOM_SRC));
+    vi.useRealTimers();
   });
 });

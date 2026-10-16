@@ -17,6 +17,30 @@ export const BRAINROT_VOICES = [
 ];
 
 export const EFFECT_SOUNDS = [dingSrc, rizzSrc, tacoBellSrc, vineBoomSrc];
+export const VINE_BOOM_SRC = vineBoomSrc;
 export const CARD_FLIP_SRC = cardFlipSrc;
 export const FAIRY_DUST_SRC = fairyDustSrc;
 export const WOOSH_SRC = wooshSrc;
+
+/** The random effect starts this long after the card flip, so their peaks don't add up. */
+export const EFFECT_DELAY_MS = 120;
+
+// Per-sound gain (0 to 1, multiplied onto the effects level) that evens out the files' loudness.
+const voiceGain = (name: string) => (name.includes('Blondie') ? 0.75 : 1);
+const SOUND_GAINS = new Map<string, number>([
+  [vineBoomSrc, 0.35],
+  [rizzSrc, 0.5],
+  [tacoBellSrc, 0.5],
+  [dingSrc, 0.65],
+  [wooshSrc, 0.45],
+  [fairyDustSrc, 0.5],
+  [cardFlipSrc, 0.8],
+  [whatBrainrotOriginal, 1],
+  ...Object.entries(elevenLabsVoices).map(([path, m]): [string, number] => [m.default, voiceGain(path)]),
+]);
+
+/** The gain for a sound by its imported src; 1 for one it doesn't know. */
+export const soundGain = (src: string | null | undefined): number => (src ? SOUND_GAINS.get(src) ?? 1 : 1);
+
+/** The element volume for a sound at an effects level. */
+export const soundVolume = (src: string | null | undefined, level: number): number => level * soundGain(src);
