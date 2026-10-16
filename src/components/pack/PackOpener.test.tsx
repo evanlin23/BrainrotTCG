@@ -33,7 +33,7 @@ vi.mock('../../hooks/usePackCutter', () => ({
     };
   },
 }));
-vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn() }));
+vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
 vi.mock('../../utils/confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
@@ -243,8 +243,9 @@ describe('the reveal sounds on a first pack', () => {
       act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
       await act(async () => { vi.advanceTimersByTime(500); });
       await act(async () => {});
-      // Dealt (the reveal itself waits on the pack's exit animation, which jsdom doesn't run).
+      // Dealt, and the reveal is drawn while the torn pack is still leaving, with no empty stage between.
       expect(openPack).toHaveBeenCalledOnce();
+      expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
       const before = downloading().size;
       const waiting = idle.length;
       act(() => idle.splice(0).forEach((task) => task()));

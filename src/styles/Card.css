@@ -257,7 +257,7 @@
     background: var(--holo-rainbow);
     opacity: 0.26;
     background-size: 400% 400%;
-    animation: holoRainbowShimmer 3s ease infinite;
+    animation: holoRainbowShimmer var(--dur-loop) ease infinite;
     pointer-events: none;
     border-radius: var(--radius-lg);
     mix-blend-mode: overlay;

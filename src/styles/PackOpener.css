@@ -396,7 +396,7 @@
     clip-path: inset(0 0 calc(100% - var(--tear-y)) 0);
     opacity: 0;
     transform-origin: 50% var(--tear-y);
-    transition: transform 0.46s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
+    transition: transform var(--dur-reveal) cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
     z-index: 1;
 }
 
@@ -417,7 +417,7 @@
     z-index: 2;
     pointer-events: none;
     transform-origin: 50% var(--tear-y);
-    transition: transform 0.46s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
+    transition: transform var(--dur-reveal) cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
 }
 
 /* Once torn, the top flies up past the pack's edge (the stage still clips it). */
@@ -457,7 +457,7 @@
 
 /* A press that missed the line: the line pulses so it's clear where to swipe. */
 .pack-shell.is-nudged .tear-guide {
-    animation: tear-nudge 0.45s ease-in-out 3;
+    animation: tear-nudge var(--dur-reveal) ease-in-out 3;
 }
 
 @keyframes tear-nudge {
@@ -523,7 +523,7 @@
 
 /* A tap on the line that didn't swipe: the hint pulses, so it's clear the line wants a swipe (#485). */
 .pack-shell.is-tapped .swipe-hint {
-    animation: swipe-hint-tap 0.45s ease-in-out 2;
+    animation: swipe-hint-tap var(--dur-reveal) ease-in-out 2;
 }
 
 @keyframes swipe-hint-tap {

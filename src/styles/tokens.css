@@ -214,6 +214,11 @@
   --dur-fast: 120ms;
   --dur: 200ms;
   --dur-slow: 320ms;
+  /* The pack's own beats: a card flying in, a big pull's celebration, an idle loop, a spinner turn. */
+  --dur-reveal: 450ms;
+  --dur-celebrate: 1200ms;
+  --dur-loop: 3000ms;
+  --dur-spin: 900ms;
 
   /* Layout */
   --touch-target: 44px;
@@ -225,6 +230,11 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --content-max: 76rem;
+  /*
+   * Breakpoints. Custom properties can't go in a media query, so these are the only widths media queries
+   * use, written as min-width (and max-width one pixel under, e.g. 899px): 380px small phone, 720px dialogs
+   * stop being sheets, 900px the nav moves into the header, 1024px desktop. New CSS picks one of these.
+   */
 
   /* States: disabled controls fade to this and also show a dashed border (never colour alone). */
   --opacity-disabled: 0.5;
@@ -244,5 +254,7 @@
     --dur-fast: 0ms;
     --dur: 0ms;
     --dur-slow: 0ms;
+    --dur-reveal: 0ms;
+    --dur-celebrate: 0ms;
   }
 }

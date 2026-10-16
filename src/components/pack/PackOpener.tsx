@@ -615,7 +615,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
           showcase={showcase ? <ShowcaseRibbon card={currentCard} /> : undefined}
         />
       )}
-      <AnimatePresence mode="wait">
+      {/* The torn pack flies off as the first card back fades in, not before it: waiting for the exit
+          left an empty stage between the tear and the reveal (#312 P2-6). popLayout lifts the leaving
+          pack out of the flow, so the two overlap in place. */}
+      <AnimatePresence mode="popLayout">
         {!isOpening ? (
           <Motion.div
             key="pack"

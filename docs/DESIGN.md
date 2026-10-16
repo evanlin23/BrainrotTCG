@@ -87,7 +87,8 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | Shape | `--radius-sm` (4 px), `--radius-md` (6), `--radius-lg` (10), `--radius-xl` (14), `--radius-pill` | the only radii, besides `0`, `50%` and `inherit` |
 | Card | `--card-aspect` (687 / 1024, the art's own shape), `--card-tall` (its inverse) | every card face and slot uses these |
 | Depth | `--shadow-1` … `--shadow-3` | `--glow-brand` is `none` |
-| Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--ease-out`, `--ease-spring` | zero under reduced motion |
+| Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--dur-reveal` (450 ms), `--dur-celebrate` (1200), `--dur-loop` (3000), `--dur-spin` (900), `--ease-out`, `--ease-spring` | zero under reduced motion, except loops and spinners, which reduced motion stops outright; new CSS uses these, not raw durations |
+| Breakpoints | 380 px (small phone), 720 px (dialogs), 900 px (nav in the header), 1024 px (desktop) | variables can't go in a media query, so use these widths as `min-width` (or one pixel under as `max-width`) |
 | Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` | the page runs under the notch (`viewport-fit=cover`), so anything fixed to a screen edge pads by these; `theme-color` matches `--bg` |
 | States | `--focus-ring`, `--focus-outline`, `--opacity-disabled` | see the rules below |
 | Layers | `--z-stage-fx` (5), `--z-header` (40), `--z-nav` (50), `--z-hud` (60), `--z-sheet` (100), `--z-toast` (200) | the only z-index values above 3 |

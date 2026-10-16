@@ -75,7 +75,7 @@
     background: var(--holo-rainbow);
     opacity: 0.18;
     background-size: 400% 400%;
-    animation: cardViewerHoloRainbow 3s ease infinite;
+    animation: cardViewerHoloRainbow var(--dur-loop) ease infinite;
     pointer-events: none;
     border-radius: var(--radius-lg);
     mix-blend-mode: overlay;
