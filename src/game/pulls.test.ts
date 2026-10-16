@@ -220,6 +220,60 @@ describe('several packs owed at once', () => {
     expect(shelved()).toEqual([entry(4), entry(6)]);
   });
 
+  it("takes this player's packs off a shelf that fits only once the old one is gone, and keeps another player's", () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const other = entry(7, { k: 'ab'.repeat(32) });
+    data.set(LIST, JSON.stringify([other, entry(4), entry(5), entry(6)]));
+    refuseWrite = (k) => k === LIST && data.has(LIST);
+    clearPendingPack(5);
+    expect(shelved()).toEqual([other, entry(4), entry(6)]);
+    expect(takePendingPacks().map((p) => p.nonce)).toEqual([4, 6]);
+    expect(shelved()).toEqual([other]);
+    // Nothing of this player's is listed, so the shelf stays as it is.
+    expect(takePendingPacks()).toEqual([]);
+    expect(shelved()).toEqual([other]);
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("never leaves a pack handed out on the shelf, and says so when another player's go with it", () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const other = entry(7, { k: 'ab'.repeat(32) });
+    data.set(LIST, JSON.stringify([other, entry(4), entry(5), entry(6)]));
+    refuseWrite = (k) => k === LIST;
+    clearPendingPack(5);
+    expect(data.has(LIST)).toBe(false);
+    expect(error).toHaveBeenLastCalledWith(expect.stringContaining("2 owed pack(s) dropped (the history still has them), and another player's"));
+
+    data.set(LIST, JSON.stringify([other, entry(4)]));
+    expect(takePendingPacks().map((p) => p.nonce)).toEqual([4]);
+    expect(data.has(LIST)).toBe(false);
+    expect(error).toHaveBeenLastCalledWith(expect.stringContaining("another player's owed packs were dropped"));
+
+    // With none of this player's listed, there is nothing to take off and another player's stay.
+    error.mockClear();
+    data.set(LIST, JSON.stringify([other]));
+    expect(takePendingPacks()).toEqual([]);
+    expect(shelved()).toEqual([other]);
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it("puts the shelf back as it was rather than drop another player's packs, when storage takes only that", () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const other = entry(7, { k: 'ab'.repeat(32) });
+    const before = JSON.stringify([other, entry(4), entry(5), entry(6)]);
+    data.set(LIST, before);
+    refuseWrite = (k, v) => k === LIST && v !== before;
+    clearPendingPack(5);
+    expect(data.get(LIST)).toBe(before);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('the next load may add 1 stored pack(s) again'));
+    // Taking them off is refused the same way, so none are handed out to be added twice.
+    expect(takePendingPacks()).toEqual([]);
+    expect(data.get(LIST)).toBe(before);
+    error.mockRestore();
+  });
+
   it('takes every pack off rather than leave a stored one to be added again, and says what it dropped', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     data.set(LIST, JSON.stringify([entry(4), entry(5), entry(6)]));
@@ -247,6 +301,26 @@ describe('several packs owed at once', () => {
     expect(savePendingPack({ ...ten, counted: true }, five)).toBe(false);
     expect(shelved()).toEqual([entry(10, { d: 1 }), ...full.slice(1)]);
     expect(savePendingPack(ten)).toBe(true);
+    error.mockRestore();
+  });
+
+  it("counts another player's packs toward the limit, and never drops one for this player's", () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const [five, ten] = [pack(5), pack(10)];
+    const theirs = Array.from({ length: 45 }, (_, i) => entry(i + 100, { k: 'ab'.repeat(32) }));
+    const full = [...theirs, ...Array.from({ length: 5 }, (_, i) => entry(i + 10))];
+    data.set(LIST, JSON.stringify(full));
+    expect(savePendingPack(five)).toBe(false);
+    expect(shelved()).toEqual(full);
+    expect(error).toHaveBeenCalledOnce();
+    // An owed pack is still updated in place.
+    expect(savePendingPack({ ...ten, counted: true })).toBe(true);
+    expect(shelved()).toEqual([...theirs, entry(10, { d: 1 }), ...full.slice(46)]);
+    // Once one is cleared, there is room again.
+    clearPendingPack(10);
+    expect(savePendingPack(five)).toBe(true);
+    expect(shelved()).toHaveLength(50);
+    expect(shelved().slice(0, 45)).toEqual(theirs);
     error.mockRestore();
   });
 

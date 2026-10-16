@@ -59,6 +59,24 @@ async function pressOpen() {
   });
 }
 
+/** A drag along the tear line from edge to edge, as a finger or mouse cuts the pack open. */
+async function dragAcross() {
+  await app!.until('the pack shell is ready', () => expect(packShell()).not.toBeNull());
+  const shell = packShell()!;
+  // jsdom lays nothing out, and the cutter measures the pack: give it a phone-sized one.
+  const [width, height] = [320, 573];
+  shell.getBoundingClientRect = () => ({ left: 0, top: 0, right: width, bottom: height, x: 0, y: 0, width, height, toJSON: () => ({}) });
+  Object.defineProperty(shell, 'clientWidth', { configurable: true, value: width });
+  Object.defineProperty(shell, 'clientHeight', { configurable: true, value: height });
+  const Pointer = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+  const at = (type: string, clientX: number) => new Pointer(type,
+    { bubbles: true, cancelable: true, button: 0, buttons: 1, isPrimary: true, pointerType: 'mouse', clientX, clientY: height * 0.19 });
+  // One event per step, so the cutter sees each step's state before the next.
+  await app!.interact(() => shell.dispatchEvent(at('pointerdown', 10)));
+  for (const x of [160, 310]) await app!.interact(() => shell.dispatchEvent(at('pointermove', x)));
+  await app!.interact(() => shell.dispatchEvent(at('pointerup', 310)));
+}
+
 async function openPack() {
   await pressOpen();
   await app!.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
@@ -110,6 +128,26 @@ it('stops this tab opening packs or storing progress once another tab loads a di
   expect(owned()).toBe(5);
   expect(packsOpened()).toBe(4);
   expect(shelf()).toEqual([]);
+}, 60_000);
+
+it('stops a pointer cut too, once another tab loads a different player', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  otherTabWrites(THEIR_SAVE);
+  await storageEvent(PLAYER_KEY);
+  expect(banner()?.textContent).toContain(STALE);
+
+  await dragAcross();
+  await app.settle(2000);
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!)).toMatchObject({ nextNonce: 0 });
+  expect(shelf()).toEqual([]);
+
+  // The same drag opens the pack once the tab holds the stored player.
+  await app.reload();
+  expect(banner()).toBeNull();
+  await dragAcross();
+  await app.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
 }, 60_000);
 
 it('blocks the write even when the storage event never arrived', async () => {
