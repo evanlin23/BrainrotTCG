@@ -13,7 +13,7 @@ import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
 import { usePackHistory } from '../../hooks/usePackHistory';
-import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC } from '../../constants/audio';
+import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import PackCuttingUI from './PackCuttingUI';
 import CardRevealUI from './CardRevealUI';
@@ -95,6 +95,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Set synchronously before React renders: rapid taps and held keys share the same guard.
   const revealLockedUntilRef = useRef(0);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const effectTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const skippingRef = useRef(false);
   /** Whether this pack has been handed to onOpen; a pack is recorded once, however it's finished. */
   const recordedRef = useRef(false);
@@ -297,7 +298,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // A refusal replaces the button the player was on: its Try again takes focus.
   const retryButtonRef = useCallback((el: HTMLButtonElement | null) => focusIfFree(el), []);
 
+  const clearEffectTimers = useCallback(() => {
+    effectTimersRef.current.forEach(clearTimeout);
+    effectTimersRef.current.clear();
+  }, []);
+
   const finishPack = useCallback(() => {
+    clearEffectTimers();
     skippingRef.current = false;
     setSkipping(false);
     if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
@@ -320,9 +327,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setHasMovedMouse(false);
     resetCutState();
     focusOpenRef.current = true;
-  }, [resetCutState, preloadedAssets, cleanupAudio]);
+  }, [resetCutState, preloadedAssets, cleanupAudio, clearEffectTimers]);
 
-  // What the summary's per-card Share links to: this pull (one object, so its proof is signed once).
+  // What a card shared from the summary links to: this pull (one object, so its proof is signed once).
   const pullRef = useMemo((): PullRef | undefined => openedPack
     ? { setId: openedPack.setId, setVersion: openedPack.setVersion, nonce: openedPack.nonce, publicKeyHex: openedPack.publicKeyHex }
     : undefined, [openedPack]);
@@ -451,7 +458,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
 
     if (effectsVolume > 0) {
       playAndCleanup(preloadedAssets.cardFlip, effectsVolume);
-      playRandom(preloadedAssets.effects, effectsVolume);
+      const effects = preloadedAssets.effects;
+      const timer = setTimeout(() => {
+        effectTimersRef.current.delete(timer);
+        playRandom(effects, effectsVolume);
+      }, EFFECT_DELAY_MS);
+      effectTimersRef.current.add(timer);
     }
 
     setOpenedCards(openedCards.map((card, index) => index === currentIndex ? { ...card, isRevealed: true } : card));
@@ -573,11 +585,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Cleanup on unmount
   useEffect(() => () => {
     if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
+    clearEffectTimers();
     if (openTimeoutRef.current) {
       window.clearTimeout(openTimeoutRef.current);
     }
     cleanupCutter();
-  }, [cleanupCutter]);
+  }, [cleanupCutter, clearEffectTimers]);
 
   const currentCard = openedCards[currentIndex];
   // The showcase lasts as long as the celebration: its timer, moving on, the X or the summary ends it.

@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
 import { STORAGE_KEYS } from '../constants/config';
 import type { CollectionItem, Stats } from '../types';
-import { PARTIAL_IMPORT_NOTE } from '../game/saveFile';
+import { FILE_TOO_BIG_NOTE, NO_ROOM_FOR_COPY_NOTE, PARTIAL_IMPORT_NOTE } from '../game/saveFile';
 
 // Interrupted, slow and failed openings, and a failed restore, through the real App and real tickets.
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
@@ -86,6 +86,9 @@ it('adds a pack left mid-reveal by a reload once, from the pending shelf', async
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(1);
   expect(await historyCodes()).toEqual(GOLDEN_CARDS);
   expectShelvesEmpty();
+  // A first pack restored from the shelf counts as saved: the tabs and set picker show (#222).
+  expect(document.querySelector('.app-nav')).not.toBeNull();
+  expect(document.querySelector('nav.set-picker[aria-label="Choose a pack"]')).not.toBeNull();
   const settled = Object.entries(localStorage);
   await app.reload();
   expect(Object.entries(localStorage)).toEqual(settled);
@@ -222,12 +225,14 @@ it("restores this player's save when storage fills mid-import, then keeps openin
     setItem.call(this, key, value);
   });
   await app.interact(() => button('Replace')!.click());
+  await app.until('the player may go ahead without the copy', () => expect(button('Replace without a copy')).toBeDefined());
+  expect(document.body.textContent).toContain(NO_ROOM_FOR_COPY_NOTE);
+  expect(Object.fromEntries(Object.entries(localStorage))).toEqual(before);
+  await app.interact(() => button('Replace without a copy')!.click());
   await app.until('the failure is explained', () => expect(document.body.textContent)
-    .toContain('Import failed. Your previous save data was restored.'));
-  const after = Object.fromEntries(Object.entries(localStorage));
-  expect(JSON.parse(after['brainrot-before-import-v1'])).toEqual(before);
-  delete after['brainrot-before-import-v1'];
-  expect(after).toEqual(before);
+    .toContain(FILE_TOO_BIG_NOTE));
+  expect(Object.fromEntries(Object.entries(localStorage))).toEqual(before);
+  expect(button('Import')).toBeDefined();
 
   // The identity in memory never switched, so the next pack is this player's nonce-0 pack.
   await app.interact(() => button('Close Settings')!.click());
