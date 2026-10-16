@@ -153,7 +153,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             {saveWarning && (
                 <p role="alert" className="save-warning">
                     {saveWarning}
-                    {onReload && <button type="button" ref={reloadRef} className="link-btn save-warning-action" onClick={onReload}>Reload</button>}
+                    {onReload && <button type="button" ref={reloadRef} className="link-btn save-warning-action quiet-focus" onClick={onReload}>Reload</button>}
                 </p>
             )}
             <section className="settings-group" aria-labelledby="settings-sound">
@@ -256,7 +256,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             </span>
                             {oldSave ? (
                                 <span className="settings-actions">
-                                    <button type="button" ref={keepRef} className="btn btn--secondary btn--sm" onClick={() => showBringResult('kept')}>
+                                    <button type="button" ref={keepRef} className="btn btn--secondary btn--sm quiet-focus" onClick={() => showBringResult('kept')}>
                                         Keep mine
                                     </button>
                                     <button type="button" className="btn btn--primary btn--sm" onClick={() => showBringResult(importSave(oldSave.save, () => true))}>

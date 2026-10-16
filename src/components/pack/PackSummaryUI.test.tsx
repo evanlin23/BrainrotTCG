@@ -90,21 +90,44 @@ describe('special cards line', () => {
     expect(text()).not.toContain('special');
     const special = cards.map((card, i) => ({ ...card, isHolo: i === 0, finish: i === 1 ? 'GOLD' : null, misprint: i === 1 }) as CardWithMeta);
     act(() => root.render(<PackSummaryUI openedCards={special} set={set} onClose={() => {}} />));
-    expect(container.querySelector('.summary-cards + .summary-new')?.textContent).toBe('2 special cards · Gold, Holo, Misprint');
+    expect(container.querySelector('.summary-actions + .summary-new')?.textContent).toBe('2 special cards · Gold, Holo, Misprint');
   });
 });
 
 describe('result first', () => {
   const follows = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-  it('puts the heading, the cards and the score before the actions, and the keyboard on the heading', () => {
+  it('puts the heading with the score, then the cards, then the actions, the rest folded below, and the keyboard on the heading', () => {
     act(() => root.unmount());
     root = createRoot(container);
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} holdOptional />));
-    const [title, list, score, actions] = ['.summary-title', '.summary-cards', '.score-panel', '.summary-actions'].map((s) => container.querySelector(s)!);
-    expect(follows(title, list) && follows(list, score) && follows(score, actions)).toBe(true);
+    const [title, list, actions, how] = ['.summary-title', '.summary-cards', '.summary-actions', 'details.summary-how'].map((s) => container.querySelector(s)!);
+    expect(follows(title, list) && follows(list, actions) && follows(actions, how)).toBe(true);
+    expect(title.textContent).toMatch(/[\d,]+ Brainrot Score$/);
     expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Open another pack']);
+    // The breakdown and the card guide are folded away, not gone.
+    expect(how.hasAttribute('open')).toBe(false);
+    expect(how.querySelector('.summary-how-math')?.textContent).toMatch(/pts × .+ Brainrot Score$/);
+    expect([...how.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
     expect(document.activeElement).toBe(title);
+  });
+
+  it('says how rare the combo is', () => {
+    const pair = cards.map((card, i) => (i === 1 ? { ...cards[0], uniqueId: 9 } : card));
+    act(() => root.render(<PackSummaryUI openedCards={pair} set={set} onClose={() => {}} />));
+    expect(container.querySelector('.pack-headline-odds')?.textContent).toMatch(/^Pair: about 1 in [\d.,]+ packs$/);
+  });
+
+  it('hints that a card opens up close until one is opened', () => {
+    // The up-close viewer measures itself and reads motion preferences.
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    const caption = () => container.querySelector('.summary-caption')?.textContent;
+    expect(caption()).toBe('Tap a card to see it up close');
+    const first = container.querySelector<HTMLButtonElement>('.summary-card')!;
+    expect(first.getAttribute('aria-label')).toMatch(/^View .+ up close, /);
+    act(() => first.click());
+    expect(caption()).toBeUndefined();
   });
 
   it('leaves the keyboard where it is while a sheet covers the summary', () => {
@@ -145,7 +168,7 @@ describe('each card\'s own Share', () => {
     expect(shareButtons().map((b) => b.getAttribute('aria-label'))).toEqual(
       order.map((name, k) => `Share or save ${name}${mods[k] ? `, ${mods[k]}` : ''}`),
     );
-    expect([...container.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label')?.split(',')[0])).toEqual(order);
+    expect([...container.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label')?.split(',')[0])).toEqual(order.map((name) => `View ${name} up close`));
     expect(shareButtons().every((b) => b.textContent?.trim() === 'Share')).toBe(true);
   });
 

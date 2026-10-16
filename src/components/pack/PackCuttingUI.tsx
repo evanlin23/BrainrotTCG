@@ -137,7 +137,7 @@ const PackCuttingUI = ({
         {refusal ? (
           <div className="pack-refusal">
             <p className="pack-refusal-text">{REFUSAL_COPY[refusal].message}</p>
-            <button type="button" ref={retryButtonRef} className="btn btn--primary btn--sm pack-retry-button" onClick={onRetry}>
+            <button type="button" ref={retryButtonRef} className="btn btn--primary btn--sm pack-retry-button quiet-focus" onClick={onRetry}>
               {REFUSAL_COPY[refusal].action}
             </button>
           </div>
@@ -146,7 +146,7 @@ const PackCuttingUI = ({
           <button
             type="button"
             ref={openButtonRef}
-            className="btn btn--secondary btn--sm pack-open-button"
+            className="btn btn--secondary btn--sm pack-open-button quiet-focus"
             onClick={onOpen}
             aria-disabled={isPackCut || undefined}
           >

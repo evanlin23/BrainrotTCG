@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { monitor, expectDecoded, fingerFor, snapshot } from './support';
 
 /**
- * The pack summary (#182): its actions keep their own row on screen while the cards scroll, at 360x640
+ * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
  * and 1280x800, at 100% and 200% text, and nothing but the pack's X (or Escape, Back, or the actions)
  * leaves it. The phone runs are Pixel 5 emulation with touch and an emulated 34px home-indicator
  * inset, not a real phone; 200% text is emulated by doubling the root font size the rem tokens use.
@@ -68,18 +68,25 @@ function layout(page: Page) {
   });
 }
 
-/** True when the element is the one hit at the middle of its part inside the scrolling list. */
-function unobstructed(page: Page) {
+/**
+ * Null when the focused element is what's hit across its visible part inside the scrolling list, else
+ * what covers it. Only the summary's own parts count as covering: a toast over the app is not one.
+ */
+function obstruction(page: Page) {
   return page.evaluate(() => {
     const element = document.activeElement!;
     const box = element.getBoundingClientRect();
     const list = document.querySelector('.summary-content')!.getBoundingClientRect();
-    const scope = element.closest('.summary-actions') ? box : list;
-    const top = Math.max(box.top, scope.top);
-    const bottom = Math.min(box.bottom, scope.bottom);
-    if (bottom - top < 1) return false;
-    const hit = document.elementFromPoint((box.left + box.right) / 2, (top + bottom) / 2);
-    return !!hit && element.contains(hit);
+    const top = Math.max(box.top, list.top);
+    const bottom = Math.min(box.bottom, list.bottom);
+    if (bottom - top < 1) return `off screen: ${Math.round(box.top)}..${Math.round(box.bottom)} in ${Math.round(list.top)}..${Math.round(list.bottom)}`;
+    // The middle, then both ends of the visible part: the stuck actions can cover the bottom of a card.
+    const x = (box.left + box.right) / 2;
+    for (const y of [(top + bottom) / 2, top + 1, bottom - 1]) {
+      const hit = document.elementsFromPoint(x, y).find((under) => under.closest('.pack-summary'));
+      if (!hit || !element.contains(hit)) return `at y=${Math.round(y)} (${Math.round(top)}..${Math.round(bottom)}): ${hit?.className || hit?.tagName}`;
+    }
+    return null;
   });
 }
 
@@ -145,7 +152,7 @@ function viewerDrags(page: Page) {
 }
 
 for (const textZoom of [100, 200]) {
-  test(`keeps the summary's actions on screen at ${textZoom}% text while the cards scroll past the last one`, async ({ page, baseURL }) => {
+  test(`keeps the summary's actions on screen at ${textZoom}% text, stuck above the inset while the rest scrolls`, async ({ page, baseURL }) => {
     test.setTimeout(60000);
     const { errors } = await openSummary(page, baseURL!, { textZoom });
 
@@ -153,10 +160,11 @@ for (const textZoom of [100, 200]) {
     expect(before.viewport).toEqual(isPhone() ? PHONE : DESKTOP);
     // The phone keeps clear of the emulated home indicator; from 900px the inset isn't in play.
     if (isPhone()) expect(before.inset).toBe(INSET);
-    expect(before.scrollable, 'the cards need to scroll for this check to mean anything').toBeGreaterThan(40);
+    expect(before.scrollable, 'the summary needs to scroll for this check to mean anything').toBeGreaterThan(40);
     expect(before.pageOverflow, 'the page scrolls sideways').toBeLessThanOrEqual(0);
-    // The actions sit whole on screen, above the inset, below the list and never over it.
-    expect(before.actions.top).toBeGreaterThanOrEqual(before.content.bottom);
+    // The actions sit whole on screen, inside the list's box and above the inset.
+    expect(before.actions.top).toBeGreaterThanOrEqual(before.content.top);
+    expect(before.actions.bottom).toBeLessThanOrEqual(before.content.bottom);
     expect(before.actions.bottom).toBeLessThanOrEqual(before.viewport.height - (isPhone() ? INSET : 0));
     for (const button of before.buttons) {
       expect(button.left).toBeGreaterThanOrEqual(0);
@@ -167,35 +175,55 @@ for (const textZoom of [100, 200]) {
     }
     await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport({ ratio: 1 });
 
-    // Scrolled to the end, the actions haven't moved and the last card is clear of them.
+    // Scrolled to the end, the actions are still whole on screen and the last card is clear of them.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = list.scrollHeight; });
     const after = await layout(page);
     expect(after.scrollTop).toBeGreaterThan(0);
-    expect(after.actions).toEqual(before.actions);
-    expect(after.buttons).toEqual(before.buttons);
-    expect(after.lastCard.bottom).toBeLessThanOrEqual(after.content.bottom);
+    expect(after.actions.bottom).toBeLessThanOrEqual(after.content.bottom);
+    await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
 
-    // Focus order is the page's: the heading, every card and its Share, the rest, then the actions.
-    // Each stop is on screen and not under anything, the last card's Share included.
+    // Focus order is the page's: the heading, every card and its Share, the actions, then the rest.
+    // Each stop is on screen and not under anything, the stuck actions included.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = 0; });
     await page.locator('.summary-title').focus();
     const expected = await page.locator('.pack-summary').evaluate((summary) => Array.from(summary.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      'button:not([disabled]), a[href], input, select, textarea, details > summary, [tabindex]:not([tabindex="-1"])',
     )).filter((element) => element.checkVisibility()).map((element) => element.outerHTML));
     await expect(page.locator('.summary-card-share')).toHaveCount(5);
-    expect(expected.length).toBeGreaterThanOrEqual(12);
+    expect(expected.length).toBeGreaterThanOrEqual(13);
     const visited: string[] = [];
     for (let stop = 0; stop < expected.length; stop++) {
       await page.keyboard.press('Tab');
       visited.push(await page.evaluate(() => document.activeElement!.outerHTML));
-      expect(await unobstructed(page), `stop ${stop + 1} is covered or off screen`).toBe(true);
+      expect(await obstruction(page), `stop ${stop + 1} is covered or off screen`).toBeNull();
     }
     expect(visited).toEqual(expected);
-    expect(visited.at(-1)).toContain('Open another pack');
+    expect(visited.at(-1)).toContain('How this score works');
     expect(errors).toEqual([]);
   });
 }
+
+// The whole result on one phone screen at 100% text: headline, score, all five cards and both
+// actions without scrolling, and nothing sideways (Chromium emulation of the two phone sizes).
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }]) test(`shows the headline, score, every card and both actions without scrolling at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const { errors } = await openSummary(page, baseURL!, { viewport });
+  expect(await page.locator('.summary-content').evaluate((list) => list.scrollTop)).toBe(0);
+  for (const locator of [
+    page.locator('.summary-title'),
+    page.locator('.pack-headline-total'),
+    ...Array.from({ length: 5 }, (_, index) => page.locator('.summary-card').nth(index)),
+    page.getByRole('button', { name: 'Share', exact: true }),
+    page.getByRole('button', { name: 'Open another pack' }),
+  ]) await expect(locator).toBeInViewport({ ratio: 1 });
+  // Nothing in the actions' way: the last card ends above them.
+  const { lastCard, actions, buttons, pageOverflow } = await layout(page);
+  expect(lastCard.bottom).toBeLessThanOrEqual(Math.min(...buttons.map((button) => button.top)));
+  expect(actions.bottom).toBeLessThanOrEqual(viewport.height);
+  expect(pageOverflow).toBeLessThanOrEqual(0);
+  expect(errors).toEqual([]);
+});
 
 // At 100% a card is a third of the phone; at 200% (on a 320x568 phone) the row holds fewer cards, so
 // each card stays as wide as its Share, and the pack's own Share still fits its row (#312).
@@ -258,8 +286,11 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
   // Swipes across the cards, sideways and up, flick or drag: they scroll or select, never dismiss.
   const first = (await page.locator('.summary-card').first().boundingBox())!;
   const last = (await page.locator('.summary-card').last().boundingBox())!;
+  // The long drag runs right to left across the whole row: a level left-to-right drag is the browser's
+  // own swipe-back in Chromium's touch emulation (history.back, which no page CSS stops there), not
+  // the summary dismissing itself.
   const strokes = [
-    [first.x + first.width / 2, first.y + first.height / 2, last.x + last.width / 2, first.y + first.height / 2],
+    [last.x + last.width / 2, last.y + last.height / 2, first.x + first.width / 2, last.y + last.height / 2],
     [first.x + first.width * 0.8, first.y + first.height / 2, Math.max(4, first.x - 120), first.y + first.height / 2],
     [first.x + first.width / 2, first.y + first.height * 0.8, first.x + first.width / 2, Math.max(8, first.y - 160)],
   ];
