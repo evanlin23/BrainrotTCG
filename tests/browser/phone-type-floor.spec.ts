@@ -30,7 +30,7 @@ test('keeps pack-screen text at 12 px and form fields at 16 px on a 360 px phone
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Choose a pack', exact: true })).toBeVisible();
-  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const packShell = page.locator('.pack-shell');
   await expect(packShell).toBeVisible();
   await expectDecoded(packShell.locator('img'), 2);
   await page.evaluate(() => document.fonts.ready);
@@ -55,7 +55,7 @@ test('keeps pack-screen text at 12 px on a desktop window too', async ({ page, b
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   await page.goto('./');
   await expect(page.getByRole('navigation', { name: 'Choose a pack', exact: true })).toBeVisible();
-  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const packShell = page.locator('.pack-shell');
   await expect(packShell).toBeVisible();
   await expectDecoded(packShell.locator('img'), 2);
   await page.evaluate(() => document.fonts.ready);

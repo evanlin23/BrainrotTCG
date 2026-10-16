@@ -37,12 +37,13 @@ const expectedCodes = async (setId: string, version: number, nonce: number) => {
 };
 
 async function openPack(current: NonNullable<typeof app>, name: string) {
-  await current.until(`the ${name} pack shell is ready`, () => expect(document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label')).toContain(name));
+  await current.until(`the ${name} pack shell is ready`, () => expect(document.querySelector('.pack-open-button') && document.querySelector('.pack-set-name')?.textContent).toContain(name));
   await current.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
   await current.until('the ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await current.interact(() => button('Skip opening animation').click());

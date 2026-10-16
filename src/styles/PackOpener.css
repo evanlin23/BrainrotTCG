@@ -120,15 +120,19 @@
     user-select: none;
 }
 
-.pack-shell-wrap {
-    /*
-     * 80% of the screen across (wider than it on phones). The wrapper image is 1536:2752 with clear
-     * space above the crimp, so it's pulled up by a tenth of its width to put the set ribbon just
-     * under the picker; the tear line then sits about 0.24 widths down, and on short screens the
-     * pack shrinks to keep it in view. Opening needs a drag from 18% to 82% of the width, so it never
-     * gets wider than 1.5 screens.
-     */
+/*
+ * 80% of the screen across (wider than it on phones). The wrapper image is 1536:2752 with clear
+ * space above the crimp, so it's pulled up by a tenth of its width to put the set ribbon just
+ * under the picker; the tear line then sits about 0.24 widths down, and on short screens the
+ * pack shrinks to keep it in view. Opening needs a drag from 18% to 82% of the width, so it never
+ * gets wider than 1.5 screens. The Open pack button under it (.pack-actions) follows the same width.
+ */
+.pack-shell-wrap,
+.pack-actions {
     --pack-w: min(80vw, 1600px, (100cqh - 7rem) * 4);
+}
+
+.pack-shell-wrap {
     position: absolute;
     top: calc(var(--space-4) - var(--pack-w) * 0.1);
     left: 50%;
@@ -137,7 +141,8 @@
 }
 
 @media (max-width: 700px) {
-    .pack-shell-wrap {
+    .pack-shell-wrap,
+    .pack-actions {
         /* The full width of the phone: big, without running off both sides. */
         --pack-w: min(100vw, (100cqh - 7rem) * 4);
     }
@@ -156,9 +161,72 @@
     user-select: text;
 }
 
-.pack-hint.is-error {
-    color: var(--danger);
+/*
+ * Under the swipe hint: the Open pack button, or why the last tear didn't open and a way to try again.
+ * The space above it (::before) is where the hint ends; on a short stage it gives way, so the button
+ * is never clipped off the bottom. Only the controls take presses: the rest still swipes the pack.
+ */
+.pack-actions {
+    position: absolute;
+    inset: 0 var(--gutter) var(--space-3);
+    z-index: var(--z-stage-fx);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+}
+
+.pack-actions::before {
+    content: '';
+    flex: 0 1 calc(var(--space-4) + var(--pack-w) * 0.285 + 2.75rem);
+    min-height: 0;
+}
+
+.pack-actions > * {
+    flex: none;
+    pointer-events: auto;
+}
+
+/* Secondary to the swipe, but on a solid surface so it reads over any pack art. */
+.pack-open-button {
+    background: var(--surface);
+    box-shadow: var(--focus-shadow), var(--shadow-1);
+}
+
+/* Torn and waiting for its cards: still focused, so it stays put, but plainly done. */
+.pack-open-button[aria-disabled="true"] {
+    cursor: default;
+    opacity: var(--opacity-disabled);
+}
+
+.pack-refusal {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    max-width: 22rem;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
+    text-align: center;
+}
+
+.pack-refusal-text {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
     font-weight: 600;
+    /* A player may want to quote it in a bug report. */
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* A long word at 200% text wraps rather than pushing the button off a narrow phone. */
+.pack-retry-button {
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.2;
 }
 
 /* Over the torn pack while a slow ticket mines. */
@@ -611,11 +679,15 @@
     background: var(--text);
 }
 
-/* The card takes all the height that's left, at its real 687:1024 shape. */
+/*
+ * The card takes all the height that's left, at its real 687:1024 shape. At large text on a short
+ * phone the rows around it can take the whole stage, so it keeps at least 40% of the screen's
+ * height and the stage scrolls to the rows under it, rather than shrinking the card to nothing.
+ */
 .active-card-container {
     position: relative;
     flex: 1;
-    min-height: 0;
+    min-height: 40svh;
     width: 100%;
     container-type: size;
     display: grid;
@@ -769,6 +841,15 @@
     position: relative;
     z-index: 2;
     touch-action: pan-y;
+}
+
+/* The card is a real button: none of a button's own box, just the card. */
+button.reveal-card {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    text-align: inherit;
 }
 
 /*
@@ -955,6 +1036,8 @@
     gap: 6px;
     /* Three across on phones (then two), five across from tablets. */
     width: min(8.5rem, calc((100% - 2 * var(--space-3)) / 3));
+    /* Never narrower than its Share: at large text the row holds fewer cards, down to one. */
+    min-width: min-content;
 }
 
 @media (min-width: 640px) {
@@ -1036,12 +1119,6 @@
     color: var(--text-muted);
     font-size: var(--text-sm);
     font-weight: 600;
-}
-
-/* The pack is also a button for the keyboard and takes the shared ring. Its edges can sit off screen
-   or under the stage's clip, so the hint on it rings too. */
-.pack-shell:focus-visible .swipe-hint {
-    box-shadow: var(--focus-ring), var(--shadow-1);
 }
 
 /* The card is the reveal's button (flip, then next). Its ring is drawn over the big-pull halo, which

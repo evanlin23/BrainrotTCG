@@ -57,7 +57,8 @@ for (const scenario of SCENARIOS) for (let repetition = 1; repetition <= REPETIT
     };
     // Priming only fills caches, so it runs unthrottled to keep the warm run short.
     if (!warm) await throttle();
-    const shell = page.getByRole('button', { name: /^Open a .* pack$/ });
+    const shell = page.locator('.pack-shell');
+    const openButton = page.getByRole('button', { name: 'Open pack', exact: true });
     let encodedBytes = 0;
     let completedRequests = 0;
     const requests = new Set<string>();
@@ -91,7 +92,7 @@ for (const scenario of SCENARIOS) for (let repetition = 1; repetition <= REPETIT
     const journey = async () => {
       await page.goto('./');
       await expectDecoded(shell.locator('img'), 2);
-      await shell.click({ trial: true });
+      await openButton.click({ trial: true });
       const navigationToClickableMs = await page.evaluate(() => performance.now());
       const fixture = await page.evaluate((keys) => {
         const history = localStorage.getItem(keys.HISTORY) ?? '[]';
@@ -103,7 +104,7 @@ for (const scenario of SCENARIOS) for (let repetition = 1; repetition <= REPETIT
       }, STORAGE_KEYS);
       expect(fixture.historyRecordsBefore).toBe(historyCount);
       expect(fixture.nextNonceBefore).toBe(historyCount);
-      await shell.focus();
+      await openButton.focus();
       const openingStarted = await page.evaluate(() => performance.now());
       await page.keyboard.press('Space');
       await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15_000 });

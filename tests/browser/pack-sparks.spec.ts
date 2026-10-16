@@ -19,7 +19,7 @@ async function settledPack(page: Page, ancestorTransform?: string) {
   await expect(page.locator('.app-logo')).toBeVisible();
   // Over the drop-in's inline transform: a stylesheet !important wins over it.
   if (ancestorTransform) await page.addStyleTag({ content: `.pack-display { transform: ${ancestorTransform} !important; }` });
-  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const packShell = page.locator('.pack-shell');
   await expectDecoded(packShell.locator('img'), 2);
   await packShell.scrollIntoViewIfNeeded();
   await expectStill(packShell, 'the pack stops moving');

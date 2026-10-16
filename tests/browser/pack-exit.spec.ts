@@ -7,7 +7,7 @@ test('browser Back mid-reveal returns to the packs screen, keeps the pack and st
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   const start = page.url();
-  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const packShell = page.getByRole('button', { name: 'Open pack', exact: true });
   const close = page.getByRole('button', { name: 'Back to packs', exact: true });
   const length = await page.evaluate(() => history.length);
 
