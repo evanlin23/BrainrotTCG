@@ -54,7 +54,7 @@
 
 /*
  * One row of five at default text on every width: smaller gaps on phones so each card stays as big as
- * it can. A card is still never narrower than its Share, so at large text the row wraps.
+ * it can.
  */
 .pack-summary .summary-cards {
   gap: var(--space-2);
@@ -141,22 +141,5 @@
 
   .pack-summary .summary-actions .btn--primary {
     flex: 1 1 auto;
-  }
-}
-
-/* A fifth of a phone holds the icon only; the button keeps its full name for screen readers. */
-@media (max-width: 639px) {
-  .pack-summary .summary-cards .summary-card-share {
-    padding-inline: 0;
-    min-width: var(--touch-target);
-  }
-
-  .summary-card-share-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 }

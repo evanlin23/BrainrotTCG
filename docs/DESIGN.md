@@ -303,9 +303,9 @@ points added up × combo multiplier. There is no per-pack breakdown.
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
 no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
-Fame line), the tap hint and the **Card guide** link, the five cards in one compact row (each a
-button that opens the card up close, with a ⤢ corner, best pull first, its own Share; new and
-special cards carry the tile's own New sticker and modifier label, never a line of text), then the
+Fame line), the tap hint (**Tap a card to view**) and the **Card guide** link, the five cards in one
+compact row (each a button that opens the card up close, with a ⤢ corner, best pull first; a card is
+shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
 actions: **Open another pack** primary, **Share** secondary, stuck to the bottom of the summary's
 scroller above the safe area. The cards are the last content: only the actions sit below them,
 nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
