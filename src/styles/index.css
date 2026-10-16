@@ -61,6 +61,18 @@
   box-shadow: none;
 }
 
+a.app-logo--link {
+  display: inline-block;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+}
+
+a.app-logo--link:focus-visible {
+  outline: var(--focus-outline);
+  box-shadow: var(--focus-shadow, none);
+  outline-offset: 4px;
+}
+
 .app-logo .title-char {
   display: inline-block;
 }

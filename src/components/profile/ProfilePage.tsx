@@ -1,5 +1,5 @@
-import { useEffect, useId, useMemo, useState } from 'react';
-import { ChevronRight, IdCard, Link2, Trophy } from 'lucide-react';
+import { useEffect, useId, useMemo, useState, useSyncExternalStore } from 'react';
+import { Check, ChevronRight, IdCard, Link2, Trophy } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import CardImage from '../cards/CardImage';
 import PackCardViewer from '../ui/PackCardViewer';
@@ -16,10 +16,11 @@ import { modifierClasses } from '../../game/modifiers';
 import { renderPlayerCard } from '../../game/playerCard';
 import { getLatestSet, setCode } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
-import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
+import { HALL_OF_FAME_MIN_SCORE, pullId } from '../../engine';
 import { STORAGE_KEYS } from '../../constants';
 import { getPlayer } from '../../game/player';
 import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
+import { onSubmissionChange, submissionStatus } from '../../game/share';
 import { copyText } from '../../game/shareActions';
 import type { PullRef } from '../../game/pulls';
 import type { AchievementData, Settings } from '../../types';
@@ -67,6 +68,21 @@ const timeAgo = (t: number) => {
   const hours = Math.round(minutes / 60);
   if (Math.abs(hours) < 24) return relative.format(hours, 'hour');
   return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+/**
+ * Whether this device has sent a Rankings-worthy pack to the Hall of Fame inbox. Only for this player's own packs (other players on this device sign with other keys). Per device (it reads
+ * the same record as the share sheet's Submit), so it says nothing about other devices; no network.
+ */
+const SubmittedBadge = ({ entry }: { entry: HistoryEntry }) => {
+  const id = pullId({ setId: entry.setId, setVersion: entry.setVersion, publicKey: getPlayer().publicKey, nonce: entry.nonce });
+  const status = useSyncExternalStore(onSubmissionChange, () => submissionStatus(id));
+  return (
+    <span className={`pull-row-sent${status === 'sent' ? ' pull-row-sent--done' : ''}`} title={status === 'sent' ? 'Sent from this device' : undefined}>
+      {status === 'sent' && <Check aria-hidden="true" />}
+      {status === 'sent' ? 'Submitted' : status === 'sending' ? 'Sending…' : 'Not submitted'}
+    </span>
+  );
 };
 
 /**
@@ -337,6 +353,7 @@ const ProfilePage = ({
                                 <span className="sr-only">, qualifies for Rankings</span>
                               </>
                             )}
+                            {isHallOfFameWorthy(entry) && entry.key === getPlayer().publicKeyHex.slice(0, 16) && <SubmittedBadge entry={entry} />}
                           </span>
                           <span className="pull-row-meta">
                             {set && <span className="set-code">{setCode(set)}</span>}
