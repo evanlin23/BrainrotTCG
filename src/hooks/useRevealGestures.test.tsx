@@ -84,15 +84,24 @@ describe('the sideways flick guard', () => {
     return event;
   };
 
+  /** jsdom lays nothing out, so a stage with more to scroll than it shows is faked. */
+  const tallStage = (host: Element) => {
+    const stage = host.querySelector('#stage')!;
+    Object.defineProperty(stage, 'scrollHeight', { value: 900, configurable: true });
+    Object.defineProperty(stage, 'clientHeight', { value: 600, configurable: true });
+  };
+
   it('cancels a sideways move on the card, but not a wobble before a scroll', () => {
     const host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
     render(<Stage />);
+    tallStage(host);
     const card = host.querySelector('.card')!;
 
     touchOn(card, 'touchstart', 100, 100);
-    expect(touchOn(card, 'touchmove', 101, 104).defaultPrevented).toBe(false);
+    // iOS stops a scroll for the whole touch if its first move is cancelled.
+    expect(touchOn(card, 'touchmove', 104, 101).defaultPrevented).toBe(false);
     expect(touchOn(card, 'touchmove', 104, 130).defaultPrevented).toBe(false);
     // The scroll was decided up and down; a later sideways drift still scrolls.
     expect(touchOn(card, 'touchmove', 160, 132).defaultPrevented).toBe(false);
@@ -103,7 +112,7 @@ describe('the sideways flick guard', () => {
     host.remove();
   });
 
-  it('cancels a sideways move still inside the dead zone, but not an up-and-down one', () => {
+  it('cancels a sideways move still inside the dead zone when the stage has nothing to scroll', () => {
     const host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);

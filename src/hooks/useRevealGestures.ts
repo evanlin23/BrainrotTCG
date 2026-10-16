@@ -43,9 +43,11 @@ export const useCardSwipe = (cardId: number | string | undefined, locked: boolea
  *
  * The way is decided once, when the touch leaves a small dead zone, so a thumb that wobbles sideways
  * after it has started a scroll still scrolls. Inside the dead zone a move that is more sideways than up
- * and down is cancelled too: Chromium can start the fling from those first few pixels, before the way
- * is decided. The swipe itself runs on pointer events, which this leaves alone; two
- * fingers still zoom. React's touch listeners are passive, so these are the DOM's own.
+ * and down is cancelled only while the stage has nothing to scroll: Chromium can start the fling from
+ * those first few pixels, but iOS WebKit stops scrolling for the whole touch once its first move is
+ * cancelled, so a slightly sideways start to a scroll of a tall stage has to be left alone. The swipe
+ * itself runs on pointer events, which this leaves alone; two fingers still zoom. React's touch
+ * listeners are passive, so these are the DOM's own.
  */
 export const useSidewaysFlickGuard = (stageRef: RefObject<HTMLElement | null>, cardSelector: string) => {
   useEffect(() => {
@@ -53,10 +55,12 @@ export const useSidewaysFlickGuard = (stageRef: RefObject<HTMLElement | null>, c
     if (!stage) return;
     let start: { x: number; y: number } | null = null;
     let axis: Axis;
+    let scrolls = false;
     const onTouchStart = (event: TouchEvent) => {
       const touch = event.touches.length === 1 ? event.touches[0] : undefined;
       start = touch && (event.target as Element).closest(cardSelector) ? { x: touch.clientX, y: touch.clientY } : null;
       axis = undefined;
+      scrolls = stage.scrollHeight > stage.clientHeight;
     };
     const onTouchMove = (event: TouchEvent) => {
       const touch = event.touches.length === 1 ? event.touches[0] : undefined;
@@ -64,7 +68,7 @@ export const useSidewaysFlickGuard = (stageRef: RefObject<HTMLElement | null>, c
       const dx = touch.clientX - start.x;
       const dy = touch.clientY - start.y;
       axis ??= touchAxis(dx, dy);
-      const sideways = axis === 'sideways' || (axis === undefined && Math.abs(dx) > Math.abs(dy));
+      const sideways = axis === 'sideways' || (axis === undefined && !scrolls && Math.abs(dx) > Math.abs(dy));
       if (sideways && event.cancelable) event.preventDefault();
     };
     stage.addEventListener('touchstart', onTouchStart, { passive: true });

@@ -242,7 +242,9 @@
   --content-max: 76rem;
   /*
    * Breakpoints. Custom properties can't go in a media query, so these are the only widths media queries
-   * use, written as min-width (or max-width one pixel under, e.g. 899px). New CSS picks one of these.
+   * use. New CSS picks one of these and writes it as min-width, or as max-width one pixel under (e.g.
+   * 899px). Older phone rules at 420px and 480px use max-width at the step itself (Hall of Fame, Pulls,
+   * pack actions, summary), so exactly 420px or 480px wide counts as the smaller layout there.
    *   380px  small phone (Settings slider)
    *   420px  phones up to about 414px wide drop to the smallest thumbnails (Pulls, Hall of Fame)
    *   480px  large phone: one-handed button rows (pack actions, summary, Pulls set name)

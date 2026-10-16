@@ -117,12 +117,17 @@ describe('usePackHistory after an opener unmounts mid-pack', () => {
     act(() => enter(true));
     // The old opener's step back goes nowhere, so no popstate ever comes.
     const back = vi.spyOn(history, 'back').mockImplementation(() => {});
-    act(() => root?.unmount());
-    expect(back).toHaveBeenCalledTimes(1);
-    back.mockRestore();
-    mount();
-    act(() => enter(true));
-    await act(() => new Promise((resolve) => setTimeout(resolve, STRAY_BACK_TIMEOUT_MS + 50)));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      act(() => root?.unmount());
+      expect(back).toHaveBeenCalledTimes(1);
+      back.mockRestore();
+      mount();
+      act(() => enter(true));
+      act(() => vi.advanceTimersByTime(STRAY_BACK_TIMEOUT_MS));
+    } finally {
+      vi.useRealTimers();
+    }
     // The new pack holds the entry, so Back closes it rather than leaving.
     expect(onPackEntry()).toBe(true);
     history.back();
