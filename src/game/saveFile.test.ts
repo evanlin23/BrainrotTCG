@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
-import { exportSaveFile, importSaveFile } from './saveFile';
+import { exportSaveFile, importSaveFile, NO_ROOM_FOR_COPY_NOTE } from './saveFile';
 import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY } from './player';
 import { recordPack } from './history';
@@ -335,7 +335,7 @@ it('stamps the save before writing any imported field, even for the same player'
 it.each([['an earlier stamp', 'earlier'], ['no stamp', undefined]])('puts back %s when the import fails', (_name, earlier) => {
   if (earlier) store.set(SAVE_STAMP_KEY, earlier);
   write.mockImplementation((key, value) => {
-    if (key === STORAGE_KEYS.STATS) throw new Error('quota');
+    if (key === STORAGE_KEYS.STATS && value === fixture().stats) throw new Error('quota'); // the old value fit
     store.set(key, value);
   });
   expect(importSaveFile(JSON.stringify(fixture()))).toBe('Import failed. Your previous save data was restored.');
@@ -382,7 +382,7 @@ it.each([
   let oldTab = true;
   write.mockImplementation((key, value) => {
     if (key === SAVE_STAMP_KEY && oldTab) { oldTab = false; store.set(STORAGE_KEYS.PULLS, '["old tab"]'); }
-    if (key === failing) throw new Error('quota');
+    if (key === failing && value === fixture().stats) throw new Error('quota');
     store.set(key, value);
   });
   expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
@@ -390,4 +390,55 @@ it.each([
   expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
   if (failing) expect(store.get(SAVE_STAMP_KEY)).toBe('earlier');
   else expect(exportPlayer()).toBe(fixture().player);
+});
+
+describe('a nearly full browser storage', () => {
+  const NO_ROOM = "This browser's storage has no room for this file. Your previous save data was restored.";
+  const bytes = () => [...store].reduce((sum, [key, value]) => sum + key.length + value.length, 0);
+  /** Storage that refuses any write taking it past `limit`, like a 5 MB localStorage. */
+  const quota = (limit: number) => write.mockImplementation((key, value) => {
+    const before = store.get(key);
+    store.set(key, value);
+    if (bytes() <= limit) return;
+    if (before === undefined) store.delete(key);
+    else store.set(key, before);
+    throw new DOMException('full', 'QuotaExceededError');
+  });
+  const bigCollection = () => JSON.stringify(Object.fromEntries(ALL_CARDS.map((card) => [card.key, { card, normalCount: 1, holoCount: 0 }])));
+
+  it('imports a file that fits on its own though not beside the old save, once the player skips the copy', () => {
+    const save = { ...fixture(), collection: bigCollection() };
+    store.set(STORAGE_KEYS.COLLECTION, JSON.stringify({ pad: 'x'.repeat(save.collection.length) }));
+    quota(bytes() + save.collection.length / 2);
+    const before = new Map(store);
+    expect(importSaveFile(JSON.stringify(save))).toBe(NO_ROOM_FOR_COPY_NOTE);
+    expect(store).toEqual(before);
+    expect(importSaveFile(JSON.stringify(save), { keepCopy: false })).toBeNull();
+    expect(exportPlayer()).toBe(save.player);
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(save.collection);
+    expect(store.has('brainrot-before-import-v1')).toBe(false);
+  });
+
+  it('keeps the old save intact when the file alone is larger than the storage', () => {
+    const save = { ...fixture(), collection: bigCollection() };
+    quota(bytes() * 3); // room for a copy of the old save, not for the file
+    const before = new Map(store);
+    expect(importSaveFile(JSON.stringify(save))).toBe(NO_ROOM_FOR_COPY_NOTE);
+    expect(store).toEqual(before);
+    expect(importSaveFile(JSON.stringify(save), { keepCopy: false })).toBe(NO_ROOM);
+    expect(store).toEqual(before);
+  });
+
+  it.each([true, false])('rolls the old save back when storage fills partway through the import (keepCopy %s)', (keepCopy) => {
+    store.set('brainrot-before-import-v1', '{"earlier":"copy"}');
+    const before = new Map(store);
+    const save = fixture();
+    write.mockImplementation((key, value) => {
+      if (key === STORAGE_KEYS.HISTORY && value === save.history) throw new DOMException('full', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    expect(importSaveFile(JSON.stringify(save), { keepCopy })).toBe(keepCopy ? NO_ROOM_FOR_COPY_NOTE : NO_ROOM);
+    expect(store).toEqual(before);
+    expect(write.mock.calls.some(([key, value]) => key === STORAGE_KEYS.STATS && value === save.stats)).toBe(true); // it got partway
+  });
 });

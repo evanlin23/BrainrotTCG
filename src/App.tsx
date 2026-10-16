@@ -395,8 +395,8 @@ function App() {
   }, []);
 
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
-  const handleImportSave = useCallback((data: string): string | null => {
-    const error = importSaveFile(data);
+  const handleImportSave = useCallback((data: string, keepCopy = true): string | null => {
+    const error = importSaveFile(data, { keepCopy });
     if (!error) window.location.reload();
     else if (error.startsWith(PARTIAL_IMPORT_NOTE)) {
       // The app still holds the save from before; only a reload shows what storage now holds.

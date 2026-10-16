@@ -113,6 +113,10 @@ export const isValidSaveValue = (key: string, raw: string, dataVersion: number):
   }
 };
 
+/** A full browser storage (Chrome/Safari, Firefox). */
+export const isQuotaError = (e: unknown): boolean => e instanceof DOMException
+  && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+
 /** Keep this browser's save under `backupKey` before something replaces it (an imported file, a move). */
 export const backUpSave = (backupKey: string): boolean => {
   try {
@@ -129,6 +133,12 @@ export const backUpSave = (backupKey: string): boolean => {
 
 /** How importSaveFile's message starts when a failed import couldn't be undone (the page then reloads). */
 export const PARTIAL_IMPORT_NOTE = "Import failed partway and couldn't be fully undone, so this browser may now hold parts of both saves.";
+
+/** importSaveFile's answer when the file fits but not beside a copy of this save: nothing changed, and Settings offers to go on without one. */
+export const NO_ROOM_FOR_COPY_NOTE = "There's no room in this browser's storage for this file and a copy of your current save."
+  + ' Nothing changed. Export your save first if you want to keep it, then replace it without a copy.';
+
+const IMPORT_BACKUP_KEY = 'brainrot-before-import-v1';
 
 /** Private backup: recovery payloads remain opaque, separate from the active identity/state. */
 export const exportSaveFile = (): string => JSON.stringify({
@@ -162,9 +172,12 @@ const restoreFields = (changed: string[], previous: Map<string, string | null>):
  * Omitted/null fields preserve existing storage, as older exports omitted fields introduced later,
  * unless the save brings a different player: then this browser's player data (recovery archive
  * included) moves to the import backup instead of staying under the new identity.
+ * Each replaced value is removed before the new ones are written, so the old and new saves never need
+ * room at once. When the copy of this save doesn't fit beside the file, nothing changes and the answer
+ * is NO_ROOM_FOR_COPY_NOTE; `keepCopy: false` (the player's choice after that) then imports without one.
  * This validates structure, not the authenticity of cached cards/scores, and is not an atomic commit.
  */
-export const importSaveFile = (raw: string): string | null => {
+export const importSaveFile = (raw: string, { keepCopy = true }: { keepCopy?: boolean } = {}): string | null => {
   try {
     const save: unknown = JSON.parse(raw);
     if (!record(save) || (save.version !== 1 && save.version !== 2)
@@ -203,9 +216,14 @@ export const importSaveFile = (raw: string): string | null => {
       ? omitted.filter((key) => PLAYER_FIELDS.has(key)).map((key): [string, null] => [key, null]) : [];
     staged.unshift(...clears, [SAVE_STAMP_KEY, newSaveStamp()], ...clears);
     const previous = new Map(staged.map(([key]) => [key, localStorage.getItem(key)]));
-    if (!backUpSave('brainrot-before-import-v1')) {
-      return "Couldn't keep a backup of your current save. Nothing was imported.";
-    }
+    // After the stamp, every value the file replaces is removed before any is written: the old save's
+    // copies of them stop taking room the file needs (the import fits if the file does, copy aside).
+    const stamp = staged.findIndex(([key]) => key === SAVE_STAMP_KEY) + 1 + clears.length;
+    staged.splice(stamp, 0, ...staged.slice(stamp)
+      .filter(([key, value]) => value !== null && previous.get(key) !== null && previous.get(key) !== value)
+      .map(([key]): [string, null] => [key, null]));
+    const earlierCopy = keepCopy ? localStorage.getItem(IMPORT_BACKUP_KEY) : null;
+    if (keepCopy && !backUpSave(IMPORT_BACKUP_KEY)) return NO_ROOM_FOR_COPY_NOTE;
     const changed: string[] = [];
     try {
       for (const [key, value] of staged) {
@@ -216,10 +234,19 @@ export const importSaveFile = (raw: string): string | null => {
       }
       // Identity is last: no later write can fail after importPlayer adopts the new memory identity.
       if (typeof save.player === 'string' && !importPlayer(save.player)) throw new Error('Identity import failed');
-    } catch {
-      if (restoreFields(changed, previous)) return 'Import failed. Your previous save data was restored.';
+    } catch (error) {
+      if (restoreFields(changed, previous)) {
+        if (!isQuotaError(error)) return 'Import failed. Your previous save data was restored.';
+        if (!keepCopy) return "This browser's storage has no room for this file. Your previous save data was restored.";
+        // The copy took the room the file needed. The save it copied is back in place, so put back the earlier copy.
+        try {
+          if (earlierCopy === null) localStorage.removeItem(IMPORT_BACKUP_KEY);
+          else localStorage.setItem(IMPORT_BACKUP_KEY, earlierCopy);
+        } catch { /* The new copy stays: it holds the same save. */ }
+        return NO_ROOM_FOR_COPY_NOTE;
+      }
       // backUpSave copied every app key, so any value here means a copy was just made.
-      const backedUp = [...previous.values()].some((value) => value !== null);
+      const backedUp = keepCopy && [...previous.values()].some((value) => value !== null);
       return PARTIAL_IMPORT_NOTE + (backedUp ? ' A copy of the save from before the import is kept in this browser.' : '');
     }
     // A list this tab couldn't store belongs to the save just replaced: never write it into this one.
