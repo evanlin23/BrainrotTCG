@@ -115,14 +115,6 @@
   font-size: var(--text-sm);
 }
 
-.share-hof a {
-  width: fit-content;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-}
-
 /* Pull viewer */
 
 .pull-viewer-checking {
@@ -139,7 +131,7 @@
   border-radius: 50%;
   border: 3px solid var(--surface-3);
   border-top-color: var(--text);
-  animation: pull-spin 0.8s linear infinite;
+  animation: pull-spin var(--dur-spin) linear infinite;
 }
 
 @keyframes pull-spin {
@@ -150,7 +142,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pull-viewer-spinner {
-    animation-duration: 2.4s;
+    animation-duration: var(--dur-loop);
   }
 }
 

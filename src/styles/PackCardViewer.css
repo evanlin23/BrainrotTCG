@@ -101,7 +101,7 @@
     background: var(--holo-rainbow);
     opacity: 0.15;
     background-size: 400% 400%;
-    animation: packViewerHoloRainbow 3s ease infinite;
+    animation: packViewerHoloRainbow var(--dur-loop) ease infinite;
     pointer-events: none;
     /* The card's own corners. */
     border-radius: inherit;
@@ -127,7 +127,7 @@
     background: var(--shine);
     opacity: 0.6;
     transform: skewX(-20deg);
-    animation: packViewerHoloShine 3s ease-in-out infinite;
+    animation: packViewerHoloShine var(--dur-loop) ease-in-out infinite;
     pointer-events: none;
     z-index: 2;
 }
