@@ -17,6 +17,20 @@ export const touchAxis = (dx: number, dy: number): Axis => {
 };
 
 /**
+ * Whether anything a touch on this element could scroll has more to show: the element or the nearest
+ * ancestor that scrolls up and down, up to the page itself.
+ */
+export const scrollsVertically = (from: Element): boolean => {
+  const page = document.scrollingElement ?? document.documentElement;
+  for (let el: Element | null = from; el; el = el.parentElement) {
+    const overflows = el.scrollHeight > el.clientHeight;
+    if (el === page) return overflows;
+    if (overflows && /^(auto|scroll|overlay)$/.test(getComputedStyle(el).overflowY)) return true;
+  }
+  return false;
+};
+
+/**
  * A flipped card moves on when flung far or fast enough, or when tapped. A mouse drag ends with a click
  * on the card it dragged; that click isn't a tap, so it mustn't advance again. Only that card's click:
  * a swipe deals the next card at once, and a tap on it is a real tap.
@@ -43,11 +57,11 @@ export const useCardSwipe = (cardId: number | string | undefined, locked: boolea
  *
  * The way is decided once, when the touch leaves a small dead zone, so a thumb that wobbles sideways
  * after it has started a scroll still scrolls. Inside the dead zone a move that is more sideways than up
- * and down is cancelled only while the stage has nothing to scroll: Chromium can start the fling from
- * those first few pixels, but iOS WebKit stops scrolling for the whole touch once its first move is
- * cancelled, so a slightly sideways start to a scroll of a tall stage has to be left alone. The swipe
- * itself runs on pointer events, which this leaves alone; two fingers still zoom. React's touch
- * listeners are passive, so these are the DOM's own.
+ * and down is cancelled only while nothing around the card can scroll: Chromium can start the fling
+ * from those first few pixels, but iOS WebKit stops scrolling for the whole touch once its first move
+ * is cancelled, so a slightly sideways start to a scroll of the reveal area or the page is left alone.
+ * The swipe itself runs on pointer events, which this leaves alone; two fingers still zoom. React's
+ * touch listeners are passive, so these are the DOM's own.
  */
 export const useSidewaysFlickGuard = (stageRef: RefObject<HTMLElement | null>, cardSelector: string) => {
   useEffect(() => {
@@ -60,7 +74,7 @@ export const useSidewaysFlickGuard = (stageRef: RefObject<HTMLElement | null>, c
       const touch = event.touches.length === 1 ? event.touches[0] : undefined;
       start = touch && (event.target as Element).closest(cardSelector) ? { x: touch.clientX, y: touch.clientY } : null;
       axis = undefined;
-      scrolls = stage.scrollHeight > stage.clientHeight;
+      scrolls = start !== null && scrollsVertically(stage);
     };
     const onTouchMove = (event: TouchEvent) => {
       const touch = event.touches.length === 1 ? event.touches[0] : undefined;

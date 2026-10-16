@@ -84,11 +84,11 @@ describe('the sideways flick guard', () => {
     return event;
   };
 
-  /** jsdom lays nothing out, so a stage with more to scroll than it shows is faked. */
-  const tallStage = (host: Element) => {
-    const stage = host.querySelector('#stage')!;
-    Object.defineProperty(stage, 'scrollHeight', { value: 900, configurable: true });
-    Object.defineProperty(stage, 'clientHeight', { value: 600, configurable: true });
+  /** jsdom lays nothing out, so an element with more to show than fits is faked. */
+  const overflowing = (el: HTMLElement, overflowY: string) => {
+    el.style.overflowY = overflowY;
+    Object.defineProperty(el, 'scrollHeight', { value: 900, configurable: true });
+    Object.defineProperty(el, 'clientHeight', { value: 600, configurable: true });
   };
 
   it('cancels a sideways move on the card, but not a wobble before a scroll', () => {
@@ -96,7 +96,8 @@ describe('the sideways flick guard', () => {
     document.body.append(host);
     root = createRoot(host);
     render(<Stage />);
-    tallStage(host);
+    // The reveal area around the stage scrolls, as it does with large text on a short phone.
+    overflowing(host, 'auto');
     const card = host.querySelector('.card')!;
 
     touchOn(card, 'touchstart', 100, 100);
@@ -112,11 +113,13 @@ describe('the sideways flick guard', () => {
     host.remove();
   });
 
-  it('cancels a sideways move still inside the dead zone when the stage has nothing to scroll', () => {
+  it('cancels a sideways move still inside the dead zone when nothing around it scrolls', () => {
     const host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
     render(<Stage />);
+    // The stage clips its own overflow; only a scrolling element counts.
+    overflowing(host.querySelector<HTMLElement>('#stage')!, 'clip');
     const card = host.querySelector('.card')!;
 
     touchOn(card, 'touchstart', 100, 100);
