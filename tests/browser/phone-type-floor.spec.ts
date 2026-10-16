@@ -47,3 +47,18 @@ test('keeps pack-screen text at 12 px and form fields at 16 px on a 360 px phone
   expect(await report.evaluate((field) => parseFloat(getComputedStyle(field).fontSize))).toBeGreaterThanOrEqual(16);
   expect(errors).toEqual([]);
 });
+
+test('keeps pack-screen text at 12 px on a desktop window too', async ({ page, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'The desktop counterpart of the phone check above.');
+  // This file's phone viewport would hide the desktop layout (static nav, wide header) this checks.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  await page.goto('./');
+  await expect(page.getByRole('navigation', { name: 'Choose a pack', exact: true })).toBeVisible();
+  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  await expect(packShell).toBeVisible();
+  await expectDecoded(packShell.locator('img'), 2);
+  await page.evaluate(() => document.fonts.ready);
+  expect(await textUnder(page, 12)).toEqual([]);
+  expect(errors).toEqual([]);
+});

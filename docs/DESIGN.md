@@ -84,6 +84,20 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | Depth | `--shadow-1` … `--shadow-3` | `--glow-brand` is `none` |
 | Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--ease-out`, `--ease-spring` | zero under reduced motion |
 | Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` | the page runs under the notch (`viewport-fit=cover`), so anything fixed to a screen edge pads by these; `theme-color` matches `--bg` |
+| States | `--focus-ring`, `--focus-outline`, `--opacity-disabled` | see the rules below |
+| Layers | `--z-stage-fx` (5), `--z-header` (40), `--z-nav` (50), `--z-hud` (60), `--z-sheet` (100), `--z-toast` (200) | the only z-index values above 3 |
+
+- **Layers.** Inside a component, stack with 1-3 under `isolation: isolate` (DOM order breaks ties).
+  Anything that must clear its siblings takes a `--z-*` token. `tests/style-scan.test.ts` fails on a
+  raw z-index above 3.
+- **Focus.** One ring for every control: `:focus-visible` draws `--focus-ring` as a box-shadow over
+  the transparent `--focus-outline`, which forced colours paint instead. No control sets its own ring
+  or `outline: none`; one with its own box-shadow appends `var(--focus-shadow)`, empty until focused.
+- **Disabled.** `--opacity-disabled` with `cursor: not-allowed` and a dashed edge (the border, or an
+  inset dashed outline on a borderless button), so colour is never the only cue.
+- **Size.** `.btn--sm` keeps the 44 px `--touch-target`. Text never goes under 12 px (`--text-xs`);
+  a size in `vw` or `cqw` takes a `max(0.75rem, …)` floor. New CSS has no raw colour, z-index or
+  duration literals.
 
 ## Components
 
@@ -147,10 +161,12 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 
 ## Checking a change
 
-Run the app, then capture every screen at 390×844 and 1440×900 (a Playwright script that opens a
-pack, every page and every sheet is the quickest way). Look for overlap, cut-off text and anything
-that needs a mouse. Keyboard through it: Tab reaches everything, Escape closes the top sheet, and
-Back walks the pages and packs in the order they were opened (`tests/browser/pages.spec.ts`).
+Run the app, then capture every screen at 360×740, 375×667, 390×844, 1280×800 and 1440×900 (a
+Playwright script that opens a pack, every page and every sheet is the quickest way). Look for
+overlap, cut-off text and anything that needs a mouse. Keyboard through it: Tab reaches everything,
+Escape closes the top sheet, and Back walks the pages and packs in the order they were opened
+(`tests/browser/pages.spec.ts`). Tab through once more with forced colours emulated (DevTools >
+Rendering): every stop still shows an outline (`tests/browser/forced-colors-focus.spec.ts`).
 
 ## Proposed local Best cards contract (#337)
 

@@ -211,8 +211,13 @@
     max-width: none;
   }
 
+  /* A centred dialog doesn't reach the home indicator, so no safe-area padding. */
   .sheet-body {
     padding-bottom: var(--space-6);
+  }
+
+  .sheet-footer {
+    padding-bottom: var(--space-3);
   }
 }
 

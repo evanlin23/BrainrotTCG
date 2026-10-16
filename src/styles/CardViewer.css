@@ -110,7 +110,8 @@
     transform: skewX(-20deg);
     animation: cardViewerHoloShine 2.5s ease-in-out infinite;
     pointer-events: none;
-    z-index: 2;
+    /* Same layer as the foil (::before); as the last child it still draws over the foil and ghost. */
+    z-index: 1;
 }
 
 @keyframes cardViewerHoloShine {

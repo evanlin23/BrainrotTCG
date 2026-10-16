@@ -21,6 +21,8 @@
   width: 100%;
   height: calc(var(--w) * 1024 / 687 + var(--space-5));
   padding-top: var(--space-2);
+  /* The raised card only needs to clear its neighbours. */
+  isolation: isolate;
 }
 
 .pack-viewer-grid {
@@ -41,7 +43,7 @@
   border-radius: var(--radius-sm);
   overflow: hidden;
   background: var(--surface);
-  box-shadow: 0 0 0 2px var(--r), var(--shadow-2);
+  box-shadow: 0 0 0 2px var(--r), var(--focus-shadow), var(--shadow-2);
   cursor: pointer;
 }
 
@@ -63,7 +65,7 @@
 
 .pack-viewer-card-carousel:hover,
 .pack-viewer-card-carousel:focus-visible {
-  z-index: 10;
+  z-index: 1;
   transform: translateX(calc(var(--offset) * var(--w) * 0.8)) translateY(-8px) scale(1.08);
 }
 
@@ -84,12 +86,7 @@
 
 .pack-viewer-card-carousel.brainrot,
 .pack-viewer-card-grid.brainrot {
-  box-shadow: 0 0 0 2px #ffe14d, 0 0 18px rgba(255, 225, 77, 0.55), var(--shadow-2);
-}
-
-.pack-viewer-card-carousel:focus-visible,
-.pack-viewer-card-grid:focus-visible {
-  box-shadow: 0 0 0 2px var(--r), var(--focus-ring);
+  box-shadow: 0 0 0 2px #ffe14d, var(--focus-shadow), 0 0 18px rgba(255, 225, 77, 0.55), var(--shadow-2);
 }
 
 /* Rainbow shimmer for holo cards */
