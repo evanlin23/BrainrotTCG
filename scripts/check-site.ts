@@ -3,8 +3,9 @@
  *
  * - every page's local links (scripts, styles, icons, where a preview page forwards to) are under
  *   BASE_PATH and are in the build, and so is everything the stylesheets load;
- * - every page's link-preview tags point at SITE_URL, and the picture they name is in the build,
- *   decodes, and has the size its og:image:width/height tags say;
+ * - every page's link-preview tags point at SITE_URL (og:url, when a page has one, at that page's
+ *   own address), and the picture they name is in the build, decodes as a JPEG, and has the size
+ *   its og:image:width/height tags give (both are required);
  * - every share and set page scripts/preview-pages.ts writes for the set registry is there and
  *   forwards to BASE_PATH.
  *
@@ -34,9 +35,21 @@ export interface SiteCheckResult {
 
 const unescape = (text: string) => text.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
-/** A page's link-preview tags, by property or name. */
-export const metaTags = (html: string): Map<string, string> =>
-  new Map([...html.matchAll(/<meta\s+(?:property|name)="([^"]+)"\s+content="([^"]*)"/g)].map((m) => [m[1], unescape(m[2])]));
+/** A page's link-preview tags, by property or name, whatever order each tag's attributes are in. */
+export const metaTags = (html: string): Map<string, string> => {
+  const tags = new Map<string, string>();
+  for (const [tag] of html.matchAll(/<meta\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)) {
+    const attributes = new Map([...tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map((m) => [m[1].toLowerCase(), unescape(m[2] ?? m[3])]));
+    const key = attributes.get('property') ?? attributes.get('name');
+    const content = attributes.get('content');
+    if (key !== undefined && content !== undefined) tags.set(key, content);
+  }
+  return tags;
+};
+
+/** Where a page in the build is served: a directory's index.html at the directory. */
+export const pageUrl = (site: string, file: string): string =>
+  file === 'index.html' ? site : file.endsWith('/index.html') ? `${site}${file.slice(0, -'index.html'.length)}` : `${site}${file}`;
 
 /** Where a preview page forwards to (scripts/preview-pages.ts: location.replace(base + ...)). */
 export const forwardTarget = (html: string): string | undefined => {
@@ -44,7 +57,8 @@ export const forwardTarget = (html: string): string | undefined => {
   return match ? (JSON.parse(match[1]) as string) : undefined;
 };
 
-const IMAGE_FORMATS: Record<string, AssetCheck['format']> = { '.jpg': 'jpeg', '.jpeg': 'jpeg', '.webp': 'webp' };
+// The build draws every link-preview picture as a JPEG (scripts/preview-pages.ts, public/og-image.jpg).
+const IMAGE_FORMATS: Record<string, AssetCheck['format']> = { '.jpg': 'jpeg', '.jpeg': 'jpeg' };
 
 /** Every file under dir, relative to it with '/' separators. */
 const filesIn = (dir: string): string[] =>
@@ -108,7 +122,9 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     }
 
     const meta = metaTags(html);
-    for (const key of ['og:url', 'og:image', 'twitter:image']) {
+    const url = meta.get('og:url');
+    if (url !== undefined && url !== pageUrl(site, file)) fail(file, `og:url is ${url}, not ${pageUrl(site, file)}`);
+    for (const key of ['og:image', 'twitter:image']) {
       const url = meta.get(key);
       if (url !== undefined && !url.startsWith(site)) fail(file, `${key} is ${url}, not under SITE_URL ${site}`);
     }
@@ -118,12 +134,16 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     const relative = image.slice(site.length).replace(/[?#].*$/, '');
     const format = IMAGE_FORMATS[path.extname(relative).toLowerCase()];
     if (!format) {
-      fail(file, `og:image ${image} isn't a JPEG or WebP`);
+      fail(file, `og:image ${image} isn't a JPEG`);
       continue;
     }
     const width = Number(meta.get('og:image:width'));
     const height = Number(meta.get('og:image:height'));
-    const dimensions = width > 0 && height > 0 ? { width, height } : undefined;
+    if (![width, height].every((n) => Number.isInteger(n) && n > 0)) {
+      fail(file, `og:image ${relative} needs og:image:width and og:image:height (has ${meta.get('og:image:width') ?? 'none'} and ${meta.get('og:image:height') ?? 'none'})`);
+      continue;
+    }
+    const dimensions = { width, height };
     const check = images.get(relative);
     if (check && JSON.stringify(check.dimensions) !== JSON.stringify(dimensions)) fail(file, `og:image ${relative} is given two different sizes`);
     if (!check) images.set(relative, { path: path.join(outDir, relative), format, dimensions });

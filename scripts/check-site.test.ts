@@ -4,7 +4,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SETS } from '../src/content/sets/index.ts';
-import { checkSite, metaTags, type SiteCheckOptions } from './check-site.ts';
+import { checkSite, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
 import { generatePreviews } from './preview-pages.ts';
 
 interface Host {
@@ -85,12 +85,73 @@ const build = async (host: Host) => {
 const sharePicture = (images: string[]) => images.find((image) => image.startsWith('p/img/'))!;
 const SET_PICTURE = `s/${SET.id}/preview.jpg`;
 
+describe('metaTags', () => {
+  it('reads a tag whatever order its attributes are in', () => {
+    const html = `<meta content="https://a.example/x.jpg" property="og:image" />
+<meta name="twitter:image" content='https://a.example/x.jpg'>
+<meta data-x="1" content="1200" property="og:image:width"><meta property="og:title" content="A &amp; B">`;
+    expect(Object.fromEntries(metaTags(html))).toEqual({
+      'og:image': 'https://a.example/x.jpg',
+      'twitter:image': 'https://a.example/x.jpg',
+      'og:image:width': '1200',
+      'og:title': 'A & B',
+    });
+  });
+});
+
+describe('pageUrl', () => {
+  it('gives a directory page its directory and any other page its own name', () => {
+    const site = CLOUDFLARE.site;
+    expect(pageUrl(site, 'index.html')).toBe(site);
+    expect(pageUrl(site, 's/genesis/index.html')).toBe(`${site}s/genesis/`);
+    expect(pageUrl(site, 'p/0123abcd.html')).toBe(`${site}p/0123abcd.html`);
+  });
+});
+
 describe('checkSite', () => {
   it.each([GITHUB, CLOUDFLARE])('passes a build for $name', async (host) => {
     const { options, pages, images } = await build(host);
     expect(pages).toHaveLength(20);
     expect(images).toContain(SET_PICTURE);
     expect(await checkSite(options)).toEqual({ pages: pages.length + 1, images: images.length + 1, errors: [] });
+  });
+
+  it('passes link-preview tags written in another attribute order', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    const file = `${outDir}index.html`;
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/<meta (property|name)="([^"]+)" content="([^"]*)" \/>/g, '<meta content="$3" $1="$2" />'));
+    expect(readFileSync(file, 'utf8')).toContain(`<meta content="${CLOUDFLARE.site}og-image.jpg" property="og:image" />`);
+    expect((await checkSite(options)).errors).toEqual([]);
+  });
+
+  it('fails a page whose og:image has no size', async () => {
+    const { options, outDir } = await build(GITHUB);
+    const file = `${outDir}index.html`;
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/\s*<meta property="og:image:height"[^>]*>/, ''));
+    expect((await checkSite(options)).errors).toEqual([{ path: 'index.html', error: 'og:image og-image.jpg needs og:image:width and og:image:height (has 1200 and none)' }]);
+  });
+
+  it("fails an og:url that isn't the page's own address", async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    const setPage = `s/${SET.id}/index.html`;
+    for (const [file, from, to] of [
+      ['index.html', `content="${CLOUDFLARE.site}"`, `content="${CLOUDFLARE.site}p/"`],
+      [setPage, `${CLOUDFLARE.site}s/${SET.id}/`, CLOUDFLARE.site],
+    ]) {
+      writeFileSync(`${outDir}${file}`, readFileSync(`${outDir}${file}`, 'utf8').replace(from, to));
+    }
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: `og:url is ${CLOUDFLARE.site}p/, not ${CLOUDFLARE.site}` },
+      { path: setPage, error: `og:url is ${CLOUDFLARE.site}, not ${CLOUDFLARE.site}s/${SET.id}/` },
+    ]);
+  });
+
+  it("fails a link-preview picture that isn't a JPEG", async () => {
+    const { options, outDir } = await build(GITHUB);
+    const file = `${outDir}index.html`;
+    writeFileSync(file, readFileSync(file, 'utf8').replaceAll('og-image.jpg', 'og-image.webp'));
+    write(`${outDir}og-image.webp`, await picture().webp().toBuffer());
+    expect((await checkSite(options)).errors).toEqual([{ path: 'index.html', error: `og:image ${GITHUB.site}og-image.webp isn't a JPEG` }]);
   });
 
   it('fails a directory that is not a build', async () => {
@@ -167,7 +228,7 @@ describe('checkSite', () => {
       for (const page of pages) {
         expect(errors).toContainEqual({ path: page, error: expect.stringMatching(new RegExp(`^og:image is ${other.site}.*, not under SITE_URL ${built.site}$`)) });
       }
-      expect(errors).toContainEqual({ path: `s/${SET.id}/index.html`, error: `og:url is ${other.site}s/${SET.id}/, not under SITE_URL ${built.site}` });
+      expect(errors).toContainEqual({ path: `s/${SET.id}/index.html`, error: `og:url is ${other.site}s/${SET.id}/, not ${built.site}s/${SET.id}/` });
       expect(decoded).toBeLessThan(images.length);
     });
 
