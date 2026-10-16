@@ -95,9 +95,12 @@ const promotePending = () => {
   localStorage.removeItem(PENDING_KEY);
 };
 
-/** Never progress: what marks a save, this device's preferences, and caches it can rebuild. */
+/**
+ * Never progress: what marks a save, this device's preferences, caches it can rebuild, and the re-open
+ * bookkeeping (profiles.ts) a reload writes on its own: the done mark, a re-open waiting to resume, its backoff.
+ */
 const NO_PROGRESS_KEYS = new Set<string>([SAVE_STAMP_KEY, DATA_VERSION_KEY, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SELECTED_SET,
-  STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'brainrot-reopened-v1']);
+  STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'brainrot-reopened-v1', 'brainrot-reopen-pending-v1', 'brainrot-reopen-backoff-v1']);
 
 /** No number above 0, no text, no `true` and no list entry, at any depth: a fresh guest's stats, say. */
 const holdsNothing = (value: unknown): boolean => value === null || value === 0 || value === false || value === ''
