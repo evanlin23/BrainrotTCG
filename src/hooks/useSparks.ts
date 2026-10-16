@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
+import { REDUCED_MOTION_QUERY } from '../utils/motion';
 
 export interface Spark {
   id: number;
@@ -16,7 +17,6 @@ const SPARK_THROTTLE_MS = 9;
 /** The one empty state, so a disabled or idle pack keeps the same array between renders. */
 const EMPTY_SPARKS: readonly Spark[] = [];
 
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const subscribeReducedMotion = (onChange: () => void) => {
   const media = window.matchMedia(REDUCED_MOTION_QUERY);
   media.addEventListener('change', onChange);
