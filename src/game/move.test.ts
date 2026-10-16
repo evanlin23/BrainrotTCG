@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALL_CARDS } from '../data/cards';
+import { ALL_CARDS, type Card } from '../data/cards';
 import type { CollectionItem } from '../types';
-import { hydrateCollection, runMigrations } from '../utils/migrations';
+import { hydrateCard, hydrateCollection, runMigrations } from '../utils/migrations';
 import { importSave } from './move';
+import { SAVE_STAMP_KEY } from './player';
 
 /** Just enough of localStorage and window for importSave. */
 const store = new Map<string, string>();
@@ -77,6 +78,41 @@ describe('bringing a save over', () => {
     expect(JSON.parse(store.get('brainrot-stats-v1')!).holoCards).toEqual({ [amogus.key]: true });
   });
 
+  it.each(['1', '2'])('moves version %s best-pack cards its migrations and profile read, however loosely stored', (version) => {
+    const best = [
+      { id: amogus.id, key: amogus.key, isHolo: true, caption: null, name: null, rarity: 'MYTHIC' }, // the registry's fields win
+      { id: 'image2', isHolo: null }, // `!!c.isHolo` reads it as no holo
+      { id: 'image2', isHolo: false },
+      ...(version === '1' ? [{ id: 5, key: amogus.key }] : []), // migrateV2 stores the id as text
+    ];
+    const stats = JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackCards: best });
+    expect(importSave({ 'brainrot-stats-v1': stats, 'brainrot-data-version': version })).toBe('saved');
+    expect(store.get('brainrot-stats-v1')).toBe(stats);
+    runMigrations();
+    const moved = JSON.parse(store.get('brainrot-stats-v1')!) as { highestPackCards: Card[]; highestPackFlexValue: number };
+    // Every one is amogus ('image2' is its first-format id), as the profile shows it.
+    expect(moved.highestPackCards.map((c) => hydrateCard(c).name)).toEqual(best.map(() => amogus.name));
+    expect(moved.highestPackFlexValue).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['an empty slot', '1', [null]],
+    ['a card no registry knows, without its own fields', '2', [{ id: 'nope-nope' }]],
+    ['a finish that does not exist', '2', [{ id: amogus.id, key: amogus.key, finish: 'bogus' }]],
+    ['a revealed flag that is not a boolean', '1', [{ id: amogus.id, key: amogus.key, isRevealed: null }]],
+    ['a key that is not text', '1', [{ id: 'image2', key: 5 }]],
+    ['a numeric id after version 1', '2', [{ id: 5, key: amogus.key }]],
+    ['a holo flag that is not a boolean at version 3', '3', [{ id: amogus.id, key: amogus.key, isHolo: 1 }]],
+    ['a holo flag that is a number', '1', [{ id: amogus.id, key: amogus.key, isHolo: 1 }]],
+    ['a holo flag of 0', '2', [{ id: 'image2', isHolo: 0 }]],
+    ['a holo flag that is text', '2', [{ id: amogus.id, key: amogus.key, isHolo: 'yes' }]],
+    ['a holo flag that is a record', '1', [{ id: 'image2', isHolo: {} }]],
+  ])('still refuses best-pack cards with %s (version %s)', (_name, version, best) => {
+    expect(importSave({ 'brainrot-stats-v1': JSON.stringify({ highestPackCards: best }), 'brainrot-data-version': version })).toBe('invalid');
+    expect(importSave({ 'brainrot-stats-v1': JSON.stringify({ highestPackCards: {} }), 'brainrot-data-version': version })).toBe('invalid');
+    expect(store.size).toBe(0);
+  });
+
   it("moves collection entries the old address keeps but can't show, so recovery there still has them here", () => {
     const collection = JSON.stringify({
       [amogus.key]: { card: { id: amogus.id, key: amogus.key }, normalCount: 1, holoCount: null }, // a count migrations couldn't read
@@ -120,6 +156,26 @@ describe('bringing a save over', () => {
     importSave({ ...OLD, 'unrelated-key': 'x', 'brainrot-stats-v1': 7 });
     expect(store.has('unrelated-key')).toBe(false);
     expect(store.has('brainrot-stats-v1')).toBe(false);
+  });
+
+  it.each([['no stamp', {}], ['its own stamp', { [SAVE_STAMP_KEY]: 'old address' }]])(
+    'writes a fresh stamp over an earlier import\'s when the moved save has %s', (_name, stamp) => {
+      store.set('brainrot-player-v1', player('bb'));
+      store.set('brainrot-stats-v1', '{"packsOpened":4}');
+      store.set(SAVE_STAMP_KEY, 'earlier import');
+      expect(importSave({ ...OLD, ...stamp }, () => true)).toBe('saved');
+      expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+      expect(['earlier import', 'old address']).not.toContain(store.get(SAVE_STAMP_KEY));
+    });
+
+  it('changes the stamp, first, when a save without a player key comes into a visited browser', () => {
+    const visitor = JSON.stringify({ secretKey: 'cc', name: 'Visitor', nextNonce: 0, createdAt: 2 });
+    store.set('brainrot-player-v1', visitor);
+    const write = vi.spyOn(localStorage, 'setItem');
+    expect(importSave({ 'brainrot-found-collection-v1': OLD['brainrot-found-collection-v1'] })).toBe('saved');
+    expect(store.get('brainrot-player-v1')).toBe(visitor);
+    expect(write.mock.calls[0][0]).toBe(SAVE_STAMP_KEY);
+    expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
   });
 
   it('does nothing when the same player is already here', () => {
@@ -193,25 +249,63 @@ describe('bringing a save over', () => {
   });
 
   it.each([
-    { name: 'replacing a save', progress: true },
-    { name: 'into a visited browser', progress: false },
-  ])('puts back what was here when the incoming save runs out of space: $name', ({ progress }) => {
+    { name: 'replacing a save', progress: true, previousBackup: false },
+    { name: 'replacing a save, after an earlier move', progress: true, previousBackup: true },
+    { name: 'into a visited browser', progress: false, previousBackup: false },
+    { name: 'into a visited browser, after an earlier move', progress: false, previousBackup: true },
+  ])('reports full and puts back what was here when the incoming save runs out of space: $name', ({ progress, previousBackup }) => {
     store.set('brainrot-player-v1', progress ? player('bb') : JSON.stringify({ secretKey: 'cc', name: 'Visitor', nextNonce: 0, createdAt: 2 }));
     store.set('brainrot-settings-v1', '{"musicVolume":0.2}');
     if (progress) store.set('brainrot-stats-v1', '{"packsOpened":4}');
+    if (previousBackup) store.set('brainrot-before-move-v1', '{"previous":"backup"}');
     store.set('unrelated-key', 'leave alone');
     const original = new Map(store);
+    const backups: string[] = [];
     vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
       if (key === 'brainrot-found-collection-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      if (key === 'brainrot-before-move-v1') backups.push(value);
+      store.set(key, value);
+    });
+
+    expect(importSave(OLD, () => true)).toBe('full');
+    // Nothing changed, an earlier move's backup included.
+    expect(store).toEqual(original);
+    // Replacing progress first copied the save that was here (what a failed restore would leave).
+    if (progress) {
+      expect(JSON.parse(backups[0])).toEqual(Object.fromEntries([...original].filter(([key]) => key.startsWith('brainrot-') && key !== 'brainrot-before-move-v1')));
+    } else expect(backups).toEqual([]);
+  });
+
+  it('reports invalid, not full, when storage refuses the incoming save for another reason', () => {
+    store.set('brainrot-player-v1', player('bb'));
+    store.set('brainrot-stats-v1', '{"packsOpened":4}');
+    store.set('brainrot-before-move-v1', '{"previous":"backup"}');
+    const original = new Map(store);
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'brainrot-found-collection-v1') throw new DOMException('Injected denial', 'SecurityError');
       store.set(key, value);
     });
 
     expect(importSave(OLD, () => true)).toBe('invalid');
-    const backup = store.get('brainrot-before-move-v1');
-    store.delete('brainrot-before-move-v1');
     expect(store).toEqual(original);
-    if (progress) expect(JSON.parse(backup!)).toEqual(Object.fromEntries([...original].filter(([key]) => key.startsWith('brainrot-'))));
-    else expect(backup).toBeUndefined();
+  });
+
+  it('keeps the copy it just took when the earlier backup cannot be put back', () => {
+    store.set('brainrot-player-v1', player('bb'));
+    store.set('brainrot-stats-v1', '{"packsOpened":4}');
+    store.set('brainrot-before-move-v1', '{"previous":"backup"}');
+    const here = { 'brainrot-player-v1': player('bb'), 'brainrot-stats-v1': '{"packsOpened":4}' };
+    let backupWrites = 0;
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'brainrot-found-collection-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      if (key === 'brainrot-before-move-v1' && ++backupWrites > 1) throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      store.set(key, value);
+    });
+
+    expect(importSave(OLD, () => true)).toBe('full');
+    expect(store.get('brainrot-player-v1')).toBe(here['brainrot-player-v1']);
+    expect(store.get('brainrot-stats-v1')).toBe(here['brainrot-stats-v1']);
+    expect(JSON.parse(store.get('brainrot-before-move-v1')!)).toEqual(here);
   });
 
   it("says so when a failed write can't be undone, and keeps the replaced save as a backup", () => {
@@ -254,7 +348,7 @@ describe('bringing a save over', () => {
       'brainrot-before-move-v1': 'incoming must not replace backup',
       'brainrot-before-import-v1': 'nor the file import backup',
     }, () => true)).toBe('saved');
-    expect(events).toEqual(['backup', ...Object.keys(original).map(() => 'remove'), ...Object.keys(OLD).map(() => 'incoming')]);
+    expect(events).toEqual(['backup', ...Object.keys(original).map(() => 'remove'), 'incoming', ...Object.keys(OLD).map(() => 'incoming')]);
     expect(remove).toHaveBeenCalledTimes(Object.keys(original).length);
     expect(store.get('brainrot-before-move-v1')).toBe(JSON.stringify(original));
     expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
