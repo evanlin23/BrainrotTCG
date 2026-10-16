@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getLatestSet } from '../../content/sets';
 import { ALL_CARDS } from '../../data/cards';
 import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
@@ -87,5 +88,31 @@ describe('Settings: bringing the old address save', () => {
     expect(events).toEqual([`alert: ${PARTIAL_MOVE_NOTE}`, 'reload']);
     // The save that was here is kept as a backup.
     expect(JSON.parse(localStorage.getItem('brainrot-before-move-v1')!)).toMatchObject({ 'brainrot-player-v1': player('bb') });
+  });
+});
+
+describe('Settings: Help', () => {
+  it("has the card guide for the pack being opened beside Report a problem, and hands focus back when it closes", () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    const set = getLatestSet('right-now')!;
+    act(() => root.render(
+      <SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} guideSet={set} />,
+    ));
+    const help = document.querySelector('[aria-labelledby="settings-help"]')!;
+    expect([...help.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide', 'Report a problem']);
+    const guide = button('Card guide');
+    guide.focus();
+    act(() => guide.click());
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(document.getElementById(dialog.getAttribute('aria-labelledby')!)?.textContent).toBe('Card guide');
+    expect(dialog.textContent).toContain(`Rarity, modifiers and scoring for ${set.name}`);
+    act(() => document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label="Close"]')!.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(guide);
+  });
+
+  it('leaves the card guide out when no pack is given', () => {
+    expect(button('Card guide')).toBeUndefined();
+    expect(button('Report a problem')).toBeDefined();
   });
 });
