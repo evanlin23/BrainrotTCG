@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { CardWithMeta } from '../cards/Card';
 import type { Settings } from '../../types';
@@ -6,6 +6,7 @@ import type { SetDefinition } from '../../engine';
 import { openPack, prefetchNextPack, type OpenedPack } from '../../game/pulls';
 import { holdLive } from '../../game/admission';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
+import { buzz } from '../../utils/motion';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
@@ -16,6 +17,7 @@ import PackCuttingUI from './PackCuttingUI';
 import CardRevealUI from './CardRevealUI';
 import PackSummaryUI from './PackSummaryUI';
 import PackTopBar from './PackTopBar';
+import ShowcaseRibbon from './ShowcaseRibbon';
 import { packImageUrl } from '../../content/art';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
@@ -36,6 +38,8 @@ interface PackOpenerProps {
   onBusyChange?: (busy: boolean) => void;
   /** True from the tear until the player leaves the pack (while its X shows): the app's focus mode. */
   onFocusChange?: (focus: boolean) => void;
+  /** True while a revealed big pull is being showcased (its ribbon and halo are up): the app holds its notices. */
+  onShowcaseChange?: (showcase: boolean) => void;
   set: SetDefinition;
   disabled?: boolean;
   /** No new pack may start (the save changed in another tab); one already opening still finishes. */
@@ -49,7 +53,7 @@ interface PackOpenerProps {
   onLeaveEarly?: (pack: OpenedPack) => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
@@ -363,10 +367,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, set, disable
 
     setOpenedCards(openedCards.map((card, index) => index === currentIndex ? { ...card, isRevealed: true } : card));
 
-    // A short buzz on phones: a tick for any card, a double for big pulls.
-    if (typeof navigator.vibrate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      navigator.vibrate(isBigPull(currentCard) ? [18, 60, 30] : 8);
-    }
+    // A short buzz on phones: a tick for any card, a double for big pulls. None under reduced motion.
+    buzz(isBigPull(currentCard) ? [18, 60, 30] : 8);
 
     if (settings.particlesEnabled) {
       // A finish or misprint gets at least an Epic's confetti.
@@ -483,6 +485,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, set, disable
   }, [cleanupCutter]);
 
   const currentCard = openedCards[currentIndex];
+  // The showcase lasts as long as the celebration: its timer, moving on, the X or the summary ends it.
+  const showcase = isOpening && !showSummary && !!currentCard?.isRevealed
+    && celebratingCardId === currentCard.uniqueId && isSpecialReveal(currentCard);
+  // Before paint, so a notice can't flash in the frame the ribbon first shows.
+  useLayoutEffect(() => {
+    if (!showcase) return;
+    onShowcaseChange?.(true);
+    return () => onShowcaseChange?.(false);
+  }, [showcase, onShowcaseChange]);
 
   return (
     <div className="pack-opener-container">
@@ -490,6 +501,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, set, disable
         <PackTopBar
           onLeave={leaveFromUi}
           progress={isOpening && !showSummary ? { index: currentIndex, total: openedCards.length } : undefined}
+          showcase={showcase ? <ShowcaseRibbon card={currentCard} /> : undefined}
         />
       )}
       <AnimatePresence mode="wait">

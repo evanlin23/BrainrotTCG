@@ -187,6 +187,8 @@ function App() {
   const [packBusy, setPackBusy] = useState(false);
   /** A pack is open, from the tear to leaving it: the chrome steps aside (see index.css). Not busy: it disables nothing. */
   const [packFocus, setPackFocus] = useState(false);
+  /** A big pull is on show: notices wait until it ends, so none lands in the player's screenshot. */
+  const [packShowcase, setPackShowcase] = useState(false);
 
   const playableSets = SETS.filter((s) => !s.archivedAt && (!s.draft || settings.showDraftSets));
   const [selectedSetId, setSelectedSetId] = useState<string>(readSelectedSet);
@@ -646,7 +648,7 @@ function App() {
         queue={visibleNotifications}
         onDismiss={dismissNotifications}
         onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'player'))}
-        paused={isAnyModalOpen || onPage}
+        paused={isAnyModalOpen || onPage || packShowcase}
       />
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}
@@ -658,6 +660,7 @@ function App() {
           onShare={sharePack}
           onBusyChange={setPackBusy}
           onFocusChange={setPackFocus}
+          onShowcaseChange={setPackShowcase}
           set={selectedSet}
           disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}

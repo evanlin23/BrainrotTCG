@@ -1,20 +1,21 @@
 import type { Rarity, PackScore } from '../engine';
 import { REPO } from '../constants';
 
-const RARITY_EMOJI: Record<Rarity, string> = {
-  COMMON: '⬜',
-  UNCOMMON: '🟩',
-  RARE: '🟦',
-  EPIC: '🟪',
-  LEGENDARY: '🟧',
-  BRAINROT: '🌈',
+/** Each rarity's square and initial, so the row reads without colour (C U R E L B are all different). */
+const RARITY_MARK: Record<Rarity, string> = {
+  COMMON: '⬜C',
+  UNCOMMON: '🟩U',
+  RARE: '🟦R',
+  EPIC: '🟪E',
+  LEGENDARY: '🟧L',
+  BRAINROT: '🟥B',
 };
 
-/** Wordle-style one-liner: rarity squares, holo sparkles, hand and value. */
+/** Wordle-style one-liner: rarity squares with initials, holo sparkles, hand and value. */
 export const bragText = (cards: { rarity: Rarity; isHolo: boolean }[], score: PackScore, setName: string, url: string) =>
   [
     `🧠 Brainrot TCG · ${setName}`,
-    cards.map((c) => RARITY_EMOJI[c.rarity] + (c.isHolo ? '✨' : '')).join(''),
+    cards.map((c) => RARITY_MARK[c.rarity] + (c.isHolo ? '✨' : '')).join(' '),
     `${score.hand.name}${score.hand.multiplier > 1 ? ` ×${score.hand.multiplier.toLocaleString('en-US')}` : ''} · 🧠 ${score.score.toLocaleString('en-US')} Brainrot Score`,
     `Verify it yourself: ${url}`,
   ].join('\n');
