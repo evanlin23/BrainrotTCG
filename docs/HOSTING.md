@@ -24,8 +24,8 @@ About five minutes, all in your browser:
 5. **Actions → Deploy to GitHub Pages → Run workflow** (or push anything to `main`).
 
 The deploy then creates the Cloudflare Pages project `brainrottcg`, publishes the site at its root,
-checks that the new address serves this exact build, and only then turns the old address into a
-redirect. The run's log shows the new address (if `brainrottcg` is taken, Cloudflare adds a suffix).
+checks that the new address serves this exact build (its `deployment-id.json` names this run), and
+only then turns the old address into a redirect. The run's log shows the new address (if `brainrottcg` is taken, Cloudflare adds a suffix).
 
 What keeps working:
 
@@ -52,8 +52,8 @@ What keeps working:
 Domains cost money (about $10–15 a year), so this is optional, and it's best decided before the
 move: saves only carry over from the GitHub Pages address, not from `pages.dev` to a domain added
 later. To use one, add it in Cloudflare (**Workers & Pages → brainrottcg → Custom domains**), set a
-repository **variable** (not a secret) `SITE_URL` to it, ending in `/` (for example
-`https://brainrottcg.net/`), and deploy.
+repository **variable** (not a secret) `SITE_URL` to it, with or without the trailing `/` (for
+example `https://brainrottcg.net/`), and deploy.
 
 ## Switching back to GitHub Pages
 
@@ -74,7 +74,14 @@ an approval gate:
 - Results at that revision: `npm run check`, `npm run build`, independent Python verification and
   relevant browser/storage/asset checks, plus unrun checks and unresolved blockers. The
   [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
-  builds (`npm run check`, `npm run build`) and deploys only if it passes.
+  builds (`npm run check`, `npm run build`) and deploys only if it passes. The build job holds no
+  secrets and seals what it built; the Cloudflare job publishes only those sealed files. Only the
+  last job may write Pages. Deploys run one at a time (the `pages` concurrency group): a newer push
+  to `main` cancels an older run, and the site job stops any run not started from `main`.
+  [scripts/deploy_contract.py](../scripts/deploy_contract.py) does the sealing and checks, and CI's
+  workflow lint runs its test, which reads these promises from the workflow files. Its strictness is
+  deliberate: it fails closed, so any drift between the workflow and the contract fails CI until
+  both are changed together.
   [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) skip
   pushes to `main` (`branches-ignore`), so on a bypassed revision workflow lint (actionlint) and
   browser tests may not have run.
@@ -117,7 +124,8 @@ and migration origins consistent with the selected release.
 
 Cloudflare's deployment history is the artifact rollback source. On its Cloudflare path, the workflow
 uploads only the GitHub Pages **redirect** directory (`pages/`) as `github-pages`; it does not archive
-Cloudflare's `dist/`. Never upload that redirect artifact as the game. When GitHub Pages is the actual
+Cloudflare's `dist/` (the one-day `cloudflare-site-N` handoff between jobs is not a rollback source).
+Never upload that redirect artifact as the game. When GitHub Pages is the actual
 host, use the compatible feature-PR/forward-fix path above; there is no rollback command in this workflow.
 
 UI and ranking recovery are separate decisions. A provider rollback also restores its bundled
@@ -130,8 +138,8 @@ old UI. The GitHub redirect's copy may differ until refreshed; record that expli
 
 At the recorded production URL, confirm the hashed entry script in `index.html` matches the selected
 build and loads, then check required card images and a `/p/` preview page. The deploy workflow checks
-the entry-script reference before updating the old-site redirect, which doesn't prove assets decode or
-the game works. In a disposable browser context, open a known valid historical pull, a current-version
+that the address's `deployment-id.json` matches the build it sealed before updating the old-site
+redirect, which doesn't prove assets decode or the game works. In a disposable browser context, open a known valid historical pull, a current-version
 pull and a profile link, and check invalid-proof recovery, ranking freshness and the old URL's
 forwarding. Use public test proofs, don't open new packs, submit, reset or import real saves, and
 record the tested deployment and any failures.

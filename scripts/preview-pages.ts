@@ -50,7 +50,8 @@ export const optionsFromEnv = (env: NodeJS.ProcessEnv = process.env): PreviewOpt
     outDir: env.OUT_DIR ? `${env.OUT_DIR.replace(/\/$/, '')}/` : `${ROOT}dist/`,
     pagesOnly: env.PAGES_ONLY === '1',
     base,
-    site: env.SITE_URL ?? `https://evanlin23.github.io${base}`,
+    // SITE_URL may end in / or not; the pages always name it ending in one.
+    site: env.SITE_URL ? `${env.SITE_URL.replace(/\/+$/, '')}/` : `https://evanlin23.github.io${base}`,
   };
 };
 const W = 1200;
