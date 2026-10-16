@@ -4,8 +4,11 @@ export const PROFILE = {
   viewport: { width: 393, height: 727 },
 } as const;
 export const REPETITIONS = 3;
-export const SCENARIOS = ['first-cold', 'synthetic-history-cold'] as const;
+// Cold scenarios keep their names and order; warm ones repeat the journey after a priming load.
+export const SCENARIOS = ['first-cold', 'synthetic-history-cold', 'first-warm', 'synthetic-history-warm'] as const;
 export type Scenario = typeof SCENARIOS[number];
+export const cacheOf = (scenario: Scenario) => scenario.endsWith('-warm') ? 'warm' as const : 'cold' as const;
+export const historyRecordsOf = (scenario: Scenario) => scenario.startsWith('synthetic-history') ? 100 : 0;
 
 export type Observation<T> = { supported: true; value: T } | { supported: false; reason: string };
 export interface Measurement {
@@ -18,6 +21,8 @@ export interface Measurement {
   longTasks: Observation<{ count: number; totalMs: number; maxMs: number }>;
   frames: { count: number; medianIntervalMs: number; maxIntervalMs: number; intervalsOver50Ms: number };
   memory: Observation<{ scope: 'main-target-js-heap-only'; usedBytes: number; totalBytes: number }>;
+  /** Warm runs only: what the priming load left behind and how the measured load reused it. */
+  warm?: { indexedDBDatabases: string[]; servedFromCache: number; notModified: number };
 }
 export interface Run {
   scenario: Scenario;
@@ -48,6 +53,12 @@ export function validateRun(run: Run) {
     m.frames?.maxIntervalMs, m.frames?.intervalsOver50Ms, m.fixture?.historyRecordsBefore,
     m.fixture?.historyUtf16BytesBefore, m.fixture?.localStorageUtf16BytesBefore, m.fixture?.nextNonceBefore];
   if (numbers.some((n) => !Number.isFinite(n) || n < 0)) throw new Error('Invalid measurement number');
+  if (cacheOf(run.scenario) === 'warm') {
+    const w = m.warm;
+    if (!w || !Array.isArray(w.indexedDBDatabases) || [w.servedFromCache, w.notModified].some((n) => !Number.isInteger(n) || n < 0)) {
+      throw new Error('Passed warm run needs warm cache details');
+    }
+  }
   for (const observation of [m.longTasks, m.memory]) {
     if (!observation || typeof observation.supported !== 'boolean') throw new Error('Missing observation support status');
     if (!observation.supported && !observation.reason) throw new Error('Unsupported observation needs a reason');
@@ -63,7 +74,7 @@ export function summarize(runs: Run[]) {
     const selected = runs.filter((run) => run.scenario === scenario);
     const measured = selected.filter((run) => run.status === 'passed').map((run) => run.measurement!);
     return {
-      scenario, expectedRuns: REPETITIONS, recordedRuns: selected.length, passedRuns: measured.length,
+      scenario, cache: cacheOf(scenario), expectedRuns: REPETITIONS, recordedRuns: selected.length, passedRuns: measured.length,
       failedOrIncompleteRuns: selected.filter((run) => run.status !== 'passed').length,
       navigationToClickableMs: range(measured.map((m) => m.navigationToClickableMs)),
       openToResultMs: range(measured.map((m) => m.openToResultMs)),
@@ -72,6 +83,10 @@ export function summarize(runs: Run[]) {
       longTaskTotalMs: range(measured.flatMap((m) => m.longTasks.supported ? [m.longTasks.value.totalMs] : [])),
       maximumFrameIntervalMs: range(measured.map((m) => m.frames.maxIntervalMs)),
       mainTargetHeapUsedBytes: range(measured.flatMap((m) => m.memory.supported ? [m.memory.value.usedBytes] : [])),
+      ...(cacheOf(scenario) === 'warm' ? {
+        servedFromCacheRequests: range(measured.map((m) => m.warm!.servedFromCache)),
+        notModifiedRequests: range(measured.map((m) => m.warm!.notModified)),
+      } : {}),
     };
   });
 }
