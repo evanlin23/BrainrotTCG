@@ -19,6 +19,7 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run check:sets && npm run check:card-assets",
     "prompts": "tsx scripts/cards/prompts.ts",
     "og-image": "tsx scripts/og-image.ts",
+    "icons": "tsx scripts/logo-icons.ts",
     "test:performance": "playwright test --config=playwright.performance.config.ts",
     "test:performance:optional-work": "playwright test --config=playwright.optional-work.config.ts",
     "audit:agent": "tsx scripts/agent-audit/run.ts"

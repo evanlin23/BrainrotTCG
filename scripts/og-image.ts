@@ -1,12 +1,15 @@
 /**
- * Builds public/og-image.jpg, the 1200x630 link preview: the logo over a fan of the
- * Brainrot-rarity cards from the five newest openable sets, so it never shows archived cards.
+ * Builds public/og-image.jpg, the 1200x630 link preview: the logo mark (src/styles/logoMark.ts) over
+ * a fan of the Brainrot-rarity cards from the five newest openable sets, so it never shows archived
+ * cards. The page title names the site beside the preview, so the mark stands alone here.
  *
- *   npx tsx scripts/og-image.ts
+ *   npm run og-image
  */
 import { fileURLToPath } from 'node:url';
 import sharp, { type OverlayOptions } from 'sharp';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
+import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../src/styles/logoMark.ts';
+import { BRAND, PAPER } from '../src/styles/palette.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const W = 1200;
@@ -51,8 +54,14 @@ for (const [i, slot] of SLOTS.entries()) {
     .toBuffer();
   layers.push({ input: visible, left: left + cropLeft, top });
 }
-const logo = await sharp(`${ROOT}src/assets/images/logo.png`).resize(170, 170).toBuffer();
-layers.push({ input: logo, left: Math.round(W / 2 - 85), top: 18 });
+// The mark in card-stock white with a hard yellow misprint offset, as in the app's header.
+const MARK = 150;
+const SHIFT = 4;
+const box = LOGO_MARK_SIZE + SHIFT;
+const markSvg =
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${(MARK * box) / LOGO_MARK_SIZE}" height="${(MARK * box) / LOGO_MARK_SIZE}" viewBox="0 0 ${box} ${box}">` +
+  `<path transform="translate(${SHIFT} ${SHIFT})" fill="${BRAND}" d="${LOGO_MARK_PATH}"/><path fill="${PAPER}" d="${LOGO_MARK_PATH}"/></svg>`;
+layers.push({ input: Buffer.from(markSvg), left: Math.round(W / 2 - MARK / 2), top: 36 });
 
 const out = `${ROOT}public/og-image.jpg`;
 await sharp(background).composite(layers).jpeg({ quality: 82, mozjpeg: true }).toFile(out);
