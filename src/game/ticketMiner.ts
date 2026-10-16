@@ -6,7 +6,7 @@
  * push out the next pack's ticket.
  */
 import { computeTicket, toHex } from '../engine';
-import type { TicketRequest, TicketResponse, WarmUpRequest, WarmUpResponse } from '../workers/ticket.worker';
+import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
 import { holdLive, requestSlot, stopped } from './admission';
 
 type Pending = { resolve: (t: Uint8Array) => void; reject: (e: Error) => void; setKey: string; publicKey: Uint8Array; nonce: number };
@@ -19,8 +19,7 @@ const getWorker = (): Worker | null => {
   if (worker !== undefined) return worker;
   try {
     worker = new Worker(new URL('../workers/ticket.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (event: MessageEvent<TicketResponse | WarmUpResponse>) => {
-      if ('warmedUp' in event.data) return;
+    worker.onmessage = (event: MessageEvent<TicketResponse>) => {
       const job = pending.get(event.data.id);
       if (!job) return;
       pending.delete(event.data.id);
@@ -51,19 +50,6 @@ const run = (setKey: string, publicKey: Uint8Array, nonce: number): Promise<Uint
     pending.set(id, { resolve, reject, setKey, publicKey, nonce });
     w.postMessage({ id, setKey, publicKeyHex: toHex(publicKey), nonce } satisfies TicketRequest);
   });
-};
-
-let warmedUp = false;
-
-/**
- * Start the worker and compile its Argon2 WASM now, so the first ticket only has to mine. Cheap
- * (no 32 MiB run) and changes no ticket. Without a worker it does nothing: the main thread
- * compiles the WASM with the first ticket.
- */
-export const warmUpMiner = (): void => {
-  if (warmedUp) return;
-  warmedUp = true;
-  getWorker()?.postMessage({ warmUp: true } satisfies WarmUpRequest);
 };
 
 export type Lane = 'live' | 'optional';

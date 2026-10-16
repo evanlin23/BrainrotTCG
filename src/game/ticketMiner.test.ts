@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TicketRequest, TicketResponse, WarmUpRequest, WarmUpResponse } from '../workers/ticket.worker';
+import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
 
 vi.mock('../engine', async (importOriginal) => ({
   ...await importOriginal<typeof import('../engine')>(),
@@ -9,7 +9,7 @@ vi.mock('../engine', async (importOriginal) => ({
 /** The miner's one worker: it answers only when the test says so. */
 class ControlledWorker {
   static instances: ControlledWorker[] = [];
-  onmessage: ((event: MessageEvent<TicketResponse | WarmUpResponse>) => void) | null = null;
+  onmessage: ((event: MessageEvent<TicketResponse>) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   requests: TicketRequest[] = [];
   terminate = vi.fn();
@@ -160,33 +160,5 @@ describe('ticket miner lanes', () => {
     expect(await live(9)).toEqual(Uint8Array.of(9));
     // Neither the pack's hold nor the check's slot is left behind.
     expect(await admission.admitOptional(async () => 'free')).toBe('free');
-  });
-});
-
-describe('warming up the miner', () => {
-  it('compiles Argon2 in the one worker once, which then mines tickets as before', async () => {
-    miner.warmUpMiner();
-    miner.warmUpMiner();
-    expect(ControlledWorker.instances).toHaveLength(1);
-    expect(worker().postMessage.mock.calls).toEqual([[{ warmUp: true } satisfies WarmUpRequest]]);
-    // The first ticket still goes to the same worker, and the warm-up's answer settles no ticket.
-    const pack = live(3);
-    await flush();
-    expect(ControlledWorker.instances).toHaveLength(1);
-    expect(nonces()).toEqual([undefined, 3]); // the warm-up, then the ticket
-    let settled = false;
-    void pack.then(() => { settled = true; });
-    worker().onmessage?.({ data: { warmedUp: true } } as MessageEvent<WarmUpResponse>);
-    await flush();
-    expect(settled).toBe(false);
-    worker().reply();
-    expect(await pack).toEqual(Uint8Array.of(3));
-    expect(computeTicket).not.toHaveBeenCalled();
-  });
-
-  it('does nothing without worker support', () => {
-    vi.stubGlobal('Worker', undefined);
-    expect(() => miner.warmUpMiner()).not.toThrow();
-    expect(computeTicket).not.toHaveBeenCalled();
   });
 });

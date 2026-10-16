@@ -152,11 +152,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setIsOpening(true);
   }, [set, preloadAudio, isOwned]);
 
-  // The reveal's sounds download once it has been drawn and the page is idle.
+  // The reveal's sounds download once it has been drawn and the page is idle, and not at all while
+  // effects are muted (each one only plays when effectsVolume > 0).
+  const effectsOn = effectsVolume > 0;
   useEffect(() => {
-    if (!isOpening || !preloadedAssets) return;
+    if (!isOpening || !preloadedAssets || !effectsOn) return;
     return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
-  }, [isOpening, preloadedAssets, loadDeferred]);
+  }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
 
   // Mine the next pack's ticket while this one is on screen.
   useEffect(() => {

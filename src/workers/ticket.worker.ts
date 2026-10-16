@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 /** Mines pack tickets (Argon2id) off the main thread so animations never stutter. */
-import { computeTicket, warmUpArgon2 } from '../engine/ticket';
+import { computeTicket } from '../engine/ticket';
 import { fromHex } from '../engine/bytes';
 
 export interface TicketRequest {
@@ -10,23 +10,9 @@ export interface TicketRequest {
   nonce: number;
 }
 
-/** Compile the Argon2 WASM before the first ticket is asked for. Answered with `{ warmedUp: true }`. */
-export interface WarmUpRequest {
-  warmUp: true;
-}
-
 export type TicketResponse = { id: number; ticket: Uint8Array } | { id: number; error: string };
 
-export interface WarmUpResponse {
-  warmedUp: true;
-}
-
-self.onmessage = async (event: MessageEvent<TicketRequest | WarmUpRequest>) => {
-  if ('warmUp' in event.data) {
-    await warmUpArgon2().catch(() => undefined); // the first ticket compiles it instead
-    (self as DedicatedWorkerGlobalScope).postMessage({ warmedUp: true } satisfies WarmUpResponse);
-    return;
-  }
+self.onmessage = async (event: MessageEvent<TicketRequest>) => {
   const { id, setKey, publicKeyHex, nonce } = event.data;
   try {
     const ticket = await computeTicket(setKey, fromHex(publicKeyHex), nonce);

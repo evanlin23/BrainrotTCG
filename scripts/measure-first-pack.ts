@@ -59,7 +59,7 @@ const median = (values: number[]) => {
 };
 
 const run = async (waterfall: boolean) => {
-  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium' });
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
   // Each run is a fresh browser, so the HTTP cache starts empty, as on a first visit (and still
   // serves what the page prefetched, as a real one does).

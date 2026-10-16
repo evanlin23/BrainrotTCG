@@ -39,9 +39,9 @@ vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
 let root: Root;
 
-const render = (disabled: boolean, openBlocked = false) =>
+const render = (disabled: boolean, openBlocked = false, settings = DEFAULT_SETTINGS) =>
   act(() => root.render(
-    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={DEFAULT_SETTINGS} disabled={disabled} openBlocked={openBlocked} />,
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} />,
   ));
 
 beforeEach(() => {
@@ -225,7 +225,8 @@ describe('the controls under the pack (#312)', () => {
 });
 
 describe('the reveal sounds on a first pack', () => {
-  it('download only once the reveal is drawn and the page is idle, not ahead of its card backs', async () => {
+  // Opens a pack and returns which sounds started downloading, before and after the page goes idle.
+  const openAndIdle = async (settings = DEFAULT_SETTINGS) => {
     // A test that unmounts mid-pack steps browser history back; let that land before this one starts.
     await new Promise((resolve) => setTimeout(resolve, 0));
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -242,26 +243,42 @@ describe('the reveal sounds on a first pack', () => {
       setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
     } as unknown as Awaited<ReturnType<typeof openPack>>);
     try {
-      await render(false);
+      await render(false, false, settings);
       act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
       await act(async () => { vi.advanceTimersByTime(500); });
       await act(async () => {});
-      // Dealt (the reveal itself waits on the pack's exit animation, which jsdom doesn't run), with
-      // its sounds waiting for the page to go idle rather than racing its card backs.
+      // Dealt (the reveal itself waits on the pack's exit animation, which jsdom doesn't run).
       expect(openPack).toHaveBeenCalledOnce();
-      expect(idle.length).toBeGreaterThan(0);
-      expect(load).not.toHaveBeenCalled();
-      expect(downloading().size).toBe(0);
-
+      const before = downloading().size;
+      const waiting = idle.length;
       act(() => idle.splice(0).forEach((task) => task()));
-      expect(downloading().size).toBeGreaterThan(0);
-      // Each starts once, in place: load() would abort the download and fetch it again.
-      expect(preload.mock.calls.filter(([value]) => value === 'auto')).toHaveLength(downloading().size);
-      expect(load).not.toHaveBeenCalled();
+      return {
+        before, waiting, after: downloading().size,
+        starts: preload.mock.calls.filter(([value]) => value === 'auto').length,
+        loads: load.mock.calls.length,
+      };
     } finally {
       preload.mockRestore();
       load.mockRestore();
       vi.useRealTimers();
     }
+  };
+
+  it('download only once the reveal is drawn and the page is idle, not ahead of its card backs', async () => {
+    const { before, waiting, after, starts, loads } = await openAndIdle();
+    // Its sounds wait for the page to go idle rather than racing its card backs.
+    expect(waiting).toBeGreaterThan(0);
+    expect(before).toBe(0);
+    expect(after).toBeGreaterThan(0);
+    // Each starts once, in place: load() would abort the download and fetch it again.
+    expect(starts).toBe(after);
+    expect(loads).toBe(0);
+  });
+
+  it('download nothing while effects are muted, since none of them would play', async () => {
+    const { before, after, loads } = await openAndIdle({ ...DEFAULT_SETTINGS, effectsVolume: 0 });
+    expect(before).toBe(0);
+    expect(after).toBe(0);
+    expect(loads).toBe(0);
   });
 });

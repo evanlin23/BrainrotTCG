@@ -7,7 +7,7 @@ import { decodeProof, derivePack, encodeProof, extractProof, signProof, verifyPr
 import { getPokerHand, POKER_HANDS, scorePack, type HandKey } from './scoring';
 import { handOdds, specialPackChance } from './odds';
 import { handFromCounts } from './scoring';
-import { computeTicket, TICKET_PARAMS, warmUpArgon2 } from './ticket';
+import { computeTicket } from './ticket';
 import { validateSet, type SetDefinition } from './types';
 
 const TEST_SET: SetDefinition = validateSet({
@@ -148,13 +148,6 @@ describe('tickets and proofs', () => {
   it('ticket hash is fixed for given inputs (spec lock: changing params needs a new ticket version)', async () => {
     const ticket = await computeTicket('test-set@1', new Uint8Array(32), 0);
     expect(toHex(ticket)).toMatchInlineSnapshot(`"bac88a9a2bc2ccf35d6a9a2521cb7acf33a8ff99ac1d13546a675b8d21b07b35"`);
-  });
-
-  it('warming up Argon2 leaves the ticket parameters and tickets as they were', async () => {
-    await warmUpArgon2();
-    expect(TICKET_PARAMS).toEqual({ memorySize: 32 * 1024, iterations: 2, parallelism: 1, hashLength: 32 });
-    const ticket = await computeTicket('test-set@1', new Uint8Array(32), 0);
-    expect(toHex(ticket)).toBe('bac88a9a2bc2ccf35d6a9a2521cb7acf33a8ff99ac1d13546a675b8d21b07b35');
   });
 
   it('round-trips and verifies a signed proof', async () => {

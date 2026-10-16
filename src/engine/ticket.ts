@@ -32,19 +32,3 @@ export const computeTicket = async (setKey: string, publicKey: Uint8Array, nonce
     outputType: 'binary',
   });
 };
-
-/**
- * Compiles the Argon2 WASM ahead of the first ticket, so mining it doesn't wait for that too.
- * Tiny parameters and its own salt: the result is thrown away and is never a ticket.
- */
-export const warmUpArgon2 = async (): Promise<void> => {
-  await argon2id({
-    password: 'warm-up',
-    salt: utf8('brainrot-tcg/warm-up'),
-    memorySize: 8,
-    iterations: 1,
-    parallelism: 1,
-    hashLength: 4,
-    outputType: 'binary',
-  });
-};

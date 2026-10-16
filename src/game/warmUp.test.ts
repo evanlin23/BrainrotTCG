@@ -1,19 +1,29 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { whenIdle } from './idle';
 
-const warmUpMiner = vi.hoisted(() => vi.fn());
-vi.mock('./ticketMiner', () => ({ warmUpMiner }));
 vi.mock('../assets/images/card_back.webp', () => ({ default: '/card_back.webp' }));
+
+let visibility: DocumentVisibilityState = 'visible';
 
 beforeEach(() => {
   vi.useFakeTimers();
-  warmUpMiner.mockReset();
+  visibility = 'visible';
+  vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+  history.replaceState(null, '', '/');
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  history.replaceState(null, '', '/');
 });
+
+const show = (state: DocumentVisibilityState) => {
+  visibility = state;
+  document.dispatchEvent(new Event('visibilitychange'));
+};
 
 describe('whenIdle', () => {
   it('waits for the browser to be idle, and can be cancelled', () => {
@@ -53,16 +63,64 @@ describe('whenIdle', () => {
 });
 
 describe('warmUpFirstPack', () => {
-  it('warms the miner and fetches the card back once the page is idle, not before', async () => {
+  const fetched = () => {
     const images: { src: string }[] = [];
     vi.stubGlobal('Image', class { src = ''; constructor() { images.push(this); } });
     vi.stubGlobal('requestIdleCallback', undefined);
+    return () => images.map((image) => image.src);
+  };
+
+  it('fetches the card back once the page is idle, not before', async () => {
+    const images = fetched();
     const { warmUpFirstPack } = await import('./warmUp');
     warmUpFirstPack();
-    expect(warmUpMiner).not.toHaveBeenCalled();
-    expect(images).toEqual([]);
+    expect(images()).toEqual([]);
     vi.runAllTimers();
-    expect(warmUpMiner).toHaveBeenCalledOnce();
-    expect(images.map((image) => image.src)).toEqual(['/card_back.webp']);
+    expect(images()).toEqual(['/card_back.webp']);
   });
+
+  it('waits while the tab is hidden, and starts once it is shown', async () => {
+    const images = fetched();
+    const { warmUpFirstPack } = await import('./warmUp');
+    visibility = 'hidden';
+    warmUpFirstPack();
+    vi.advanceTimersByTime(60_000);
+    expect(images()).toEqual([]);
+    show('visible');
+    vi.runAllTimers();
+    expect(images()).toEqual(['/card_back.webp']);
+  });
+
+  it('waits again if the tab is hidden before the page goes idle', async () => {
+    const images = fetched();
+    const { warmUpFirstPack } = await import('./warmUp');
+    warmUpFirstPack();
+    visibility = 'hidden';
+    vi.runAllTimers();
+    expect(images()).toEqual([]);
+    show('visible');
+    vi.runAllTimers();
+    expect(images()).toEqual(['/card_back.webp']);
+  });
+
+  it('fetches nothing when the visitor saves data', async () => {
+    const images = fetched();
+    vi.stubGlobal('navigator', { ...navigator, connection: { saveData: true } });
+    const { warmUpFirstPack } = await import('./warmUp');
+    warmUpFirstPack();
+    vi.runAllTimers();
+    expect(images()).toEqual([]);
+  });
+
+  it.each(['#/cards', '#/rankings', '#/profile', '#/settings', '#/pull/abc', '#/profile/abc'])(
+    'fetches nothing on %s, which opens no pack',
+    async (hash) => {
+      const images = fetched();
+      history.replaceState(null, '', `/${hash}`);
+      const { warmUpFirstPack } = await import('./warmUp');
+      warmUpFirstPack();
+      vi.runAllTimers();
+      expect(images()).toEqual([]);
+    },
+  );
 });
