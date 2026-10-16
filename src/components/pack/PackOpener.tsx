@@ -454,13 +454,18 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [isOpening, hasMovedMouse]);
 
-  // Pointer event listeners for cutting
+  // Pointer event listeners for cutting. Losing focus or hiding the page (switching apps, often
+  // without a pointerup) ends a stroke and drops its pending frame, sparks and sound (#266).
   useEffect(() => {
+    const endWhenHidden = () => {
+      if (document.visibilityState === 'hidden') endCutAttempt();
+    };
     window.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerEnd);
     window.addEventListener('pointercancel', handlePointerEnd);
     window.addEventListener('blur', endCutAttempt);
+    document.addEventListener('visibilitychange', endWhenHidden);
 
     return () => {
       window.removeEventListener('pointerdown', handlePointerDown);
@@ -468,6 +473,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       window.removeEventListener('pointerup', handlePointerEnd);
       window.removeEventListener('pointercancel', handlePointerEnd);
       window.removeEventListener('blur', endCutAttempt);
+      document.removeEventListener('visibilitychange', endWhenHidden);
     };
   }, [handlePointerDown, handlePointerMove, handlePointerEnd, endCutAttempt]);
 

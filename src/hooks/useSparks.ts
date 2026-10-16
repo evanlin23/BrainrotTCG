@@ -14,6 +14,12 @@ export interface Spark {
 const MAX_SPARKS = 220;
 const SPARK_LIFETIME_MS = 620;
 const SPARK_THROTTLE_MS = 9;
+/**
+ * Expired bursts leave together, at most once this often, so a swipe re-renders for expiry a few
+ * times a second instead of once per burst (#266). A spark can outstay its lifetime by up to this
+ * long, after its animation has already faded it out (`forwards`, ending at opacity 0).
+ */
+const SPARK_EXPIRY_BATCH_MS = 100;
 /** The one empty state, so a disabled or idle pack keeps the same array between renders. */
 const EMPTY_SPARKS: readonly Spark[] = [];
 
@@ -25,8 +31,8 @@ const subscribeReducedMotion = (onChange: () => void) => {
 
 /**
  * Spark work follows the particle setting and the device's current motion preference: with
- * particles off or `prefers-reduced-motion: reduce` (watched live), emitSpark does nothing, pending
- * removal timers are cancelled and the hook returns EMPTY_SPARKS.
+ * particles off or `prefers-reduced-motion: reduce` (watched live), emitSpark does nothing, the
+ * pending removal timer is cancelled and the hook returns EMPTY_SPARKS.
  */
 export const useSparks = (enabled = true) => {
   const reducedMotion = useSyncExternalStore(
@@ -37,13 +43,45 @@ export const useSparks = (enabled = true) => {
   const active = enabled && !reducedMotion;
   const [sparks, setSparks] = useState<readonly Spark[]>(EMPTY_SPARKS);
   const sparkIdRef = useRef(0);
-  const sparkTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  /** Bursts on screen, oldest first: each one's last spark ID and when it expires. */
+  const burstsRef = useRef<{ lastId: number; expiresAt: number }[]>([]);
+  /** The one expiry timer, pending while any burst is on screen. */
+  const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSparkAtRef = useRef(0);
 
   const cancelSparkTimers = useCallback(() => {
-    sparkTimeoutsRef.current.forEach(timer => window.clearTimeout(timer));
-    sparkTimeoutsRef.current = [];
+    if (expiryTimerRef.current !== null) window.clearTimeout(expiryTimerRef.current);
+    expiryTimerRef.current = null;
+    burstsRef.current = [];
     lastSparkAtRef.current = 0;
+  }, []);
+
+  /**
+   * Remove every burst that has expired in one update (IDs only grow, and every burst lives as long,
+   * so they expire oldest first), then wait for the next one, but at least SPARK_EXPIRY_BATCH_MS.
+   */
+  const startExpiryTimer = useCallback((delay: number) => {
+    const expire = () => {
+      const now = Date.now();
+      const bursts = burstsRef.current;
+      let cutoff: number | null = null;
+      // A burst due later than a lifetime away means the clock went back: it's expired too.
+      while (bursts.length > 0 && (bursts[0].expiresAt <= now || bursts[0].expiresAt - now > SPARK_LIFETIME_MS)) {
+        cutoff = bursts[0].lastId;
+        bursts.shift();
+      }
+      if (cutoff !== null) {
+        const lastExpired = cutoff;
+        setSparks(prev => {
+          const next = prev.filter(item => item.id > lastExpired);
+          return next.length > 0 ? next : EMPTY_SPARKS;
+        });
+      }
+      expiryTimerRef.current = bursts.length > 0
+        ? window.setTimeout(expire, Math.max(bursts[0].expiresAt - now, SPARK_EXPIRY_BATCH_MS))
+        : null;
+    };
+    expiryTimerRef.current = window.setTimeout(expire, delay);
   }, []);
 
   // Changing the preference or unmounting owns timer cancellation, without updating unmounted state.
@@ -85,18 +123,10 @@ export const useSparks = (enabled = true) => {
       return next.length > MAX_SPARKS ? next.slice(next.length - MAX_SPARKS) : next;
     });
 
-    // A burst shares one lifetime, so expire its contiguous IDs with one timer and one update.
-    const firstId = newSparks[0].id;
-    const lastId = newSparks[newSparks.length - 1].id;
-    const timeout = window.setTimeout(() => {
-      setSparks(prev => {
-        const next = prev.filter(item => item.id < firstId || item.id > lastId);
-        return next.length > 0 ? next : EMPTY_SPARKS;
-      });
-      sparkTimeoutsRef.current = sparkTimeoutsRef.current.filter(item => item !== timeout);
-    }, SPARK_LIFETIME_MS);
-    sparkTimeoutsRef.current.push(timeout);
-  }, [active]);
+    // One timer serves every burst on screen: the oldest's, or this one's if there's none.
+    burstsRef.current.push({ lastId: newSparks[newSparks.length - 1].id, expiresAt: now + SPARK_LIFETIME_MS });
+    if (expiryTimerRef.current === null) startExpiryTimer(SPARK_LIFETIME_MS);
+  }, [active, startExpiryTimer]);
 
   return {
     sparks: active ? sparks : EMPTY_SPARKS,
