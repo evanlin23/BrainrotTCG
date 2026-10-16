@@ -255,16 +255,19 @@ window-to-window postMessage, not URL contents. The old address never deletes it
 its save to Save & restore (`#/send`), and from then on old links go straight through without offering
 the move. At the new address, the handed-over player and fields must pass the same checks as an
 imported file, except for collection entries that storage keeps on purpose (first-format entries
-migrations rebuild, and entries hydration hides for recovery), and a missing `brainrot-data-version`
+migrations rebuild, and entries hydration hides for recovery) and best-pack cards in a save older
+than v3 (checked as migrations and the profile read them), and a missing `brainrot-data-version`
 is stored as `1` so the save's migrations run; otherwise the result is `invalid` and nothing is
-written. Neither side's `brainrot-before-*` backups are handed over or replaced. Replacing a
-different player's progress asks first and copies the current save into `brainrot-before-move-v1`;
-if that backup can't be stored, nothing is written and the result is `full` (storage quota) or
-`invalid`. Into a browser without progress, keys the save doesn't carry stay. A failed write removes
-what it wrote and restores the previous values (best effort, not a transaction); if they can't all
-be restored, the result is `partial`: the player is told this browser may hold parts of both saves,
-and Save & restore then reloads so the page shows what storage holds (a partial file import does the
-same).
+written. Neither side's `brainrot-before-*` backups are handed over. Replacing a different
+player's progress asks first and copies the current save into `brainrot-before-move-v1`, overwriting
+an earlier move's copy; if that backup can't be stored, nothing is written and the result is `full`
+(storage quota) or `invalid`. Into a browser without progress, keys the save doesn't carry stay. A
+failed write removes what it wrote and restores the previous values, then the earlier backup (best
+effort, not a transaction), and the result is `full` (storage quota) or `invalid`. If the values
+can't all be restored, the result is `partial` and the backup keeps the save that was here: the player
+is told this browser may hold parts of both saves, Save & restore then reloads so the page shows what
+storage holds (a partial file import does the same), and the move window stays open on any failure
+so its note can be read.
 
 ## Profiles and levels (no server)
 

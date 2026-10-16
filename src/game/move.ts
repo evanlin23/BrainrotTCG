@@ -22,14 +22,14 @@ const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
 const OLD_SITE_URL: string = import.meta.env.VITE_OLD_SITE_URL || '';
 const PLAYER_KEY = 'brainrot-player-v1';
 const BACKUP_KEY = 'brainrot-before-move-v1';
-/** This one and the file import's backup (saveFile.ts): kept where they are, never handed over or replaced. */
+/** This one and the file import's backup (saveFile.ts): never handed over. Each move that replaces progress overwrites this one. */
 const isBackupKey = (k: string) => k.startsWith('brainrot-before-');
 /** What makes a save worth keeping: replacing any of these asks first. */
 const PROGRESS_KEYS = [PLAYER_KEY, 'brainrot-found-collection-v1', 'brainrot-history-v1', 'brainrot-stats-v1', 'brainrot-achievements-v1'];
 
 /**
  * 'same': this player's save is already here, so nothing was written. 'invalid': nothing changed.
- * 'full': storage had no room to back up the save here, so nothing changed.
+ * 'full': storage had no room for the backup or the incoming save, so nothing changed.
  * 'partial': a write failed and putting the previous values back failed too.
  */
 export type MoveResult = 'saved' | 'same' | 'kept' | 'invalid' | 'full' | 'partial';
@@ -114,6 +114,7 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   if (progress && !replace()) return 'kept';
   // What the incoming writes replace (null: absent), put back if the incoming save doesn't fit.
   const previous = new Map(Object.keys(incoming).map((k): [string, string | null] => [k, localStorage.getItem(k)]));
+  const earlierBackup = localStorage.getItem(BACKUP_KEY);
   let replaced: string[] = [];
   if (progress) {
     const backup = Object.fromEntries(brainrotKeys().filter((k) => !isBackupKey(k)).map((k) => [k, localStorage.getItem(k)]));
@@ -129,8 +130,18 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   try {
     for (const k of replaced) localStorage.removeItem(k);
     for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
-  } catch {
-    return restoreKeys(previous) ? 'invalid' : 'partial';
+  } catch (e) {
+    // BACKUP_KEY now holds the save that was here (the values `previous` puts back), so a failed
+    // restore leaves that copy; Save & restore then reloads ('partial').
+    if (!restoreKeys(previous)) return 'partial';
+    // All back as it was, so an earlier move's backup returns too (if it can't, the copy stays).
+    if (progress) {
+      try {
+        if (earlierBackup === null) localStorage.removeItem(BACKUP_KEY);
+        else localStorage.setItem(BACKUP_KEY, earlierBackup);
+      } catch { /* The copy just taken matches what's back in place. */ }
+    }
+    return isQuotaError(e) ? 'full' : 'invalid';
   }
   return 'saved';
 };
@@ -164,7 +175,8 @@ export const receiveSave = (): Promise<boolean> => {
           : result === 'partial' ? PARTIAL_MOVE_NOTE : result === 'full' ? FULL_MOVE_NOTE : 'Nothing was changed. You can close this window.';
       }
       finish(true);
-      window.close();
+      // A failure stays open so its note can be read (the old address goes on to this one either way).
+      if (result === 'saved' || result === 'same' || result === 'kept') window.close();
     };
     window.addEventListener('message', onMessage);
     opener.postMessage({ type: 'brainrot-ready' }, OLD_ORIGIN);

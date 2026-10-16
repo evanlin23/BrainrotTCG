@@ -52,6 +52,21 @@ const history = (value: unknown) => Array.isArray(value) && value.every((entry) 
 const pulls = (value: unknown) => Array.isArray(value) && value.every((entry) => isLegacyPull(entry) && ref(entry)
   && number(entry.score) && number(entry.openedAt));
 
+/**
+ * A best-pack card in a save older than v3, read as its readers read it: migrateV2 stores
+ * hydrateCard({ ...c, id: String(c.id) }), migrateV3 scores that with `!!c.isHolo`, and the profile
+ * hydrates it again, so a known card's stored display fields give way to the registry's. Before v2 a
+ * numeric id is fine (migrateV2 stores it as text); after, the profile reads the id as stored.
+ */
+const olderBestCard = (value: unknown, dataVersion: number) => {
+  if (!record(value) || !(text(value.id) || (dataVersion < 2 && number(value.id)))) return false;
+  const id = String(value.id);
+  const lookup = value.key ?? migrateCardKey(id);
+  const read = { ...value, id, isHolo: !!value.isHolo, ...(text(lookup) ? getCard(lookup) : undefined) };
+  // JSON drops what the registry leaves undefined (a card without a caption clears a stored one).
+  return card(Object.fromEntries(Object.entries(read).filter(([, v]) => v !== undefined)));
+};
+
 /** One kept-aside collection: its exact bytes and the identity snapshot they belonged to. */
 const archived = (value: unknown): value is RecordValue => record(value) && text(value.raw)
   && (value.player === null || text(value.player));
@@ -72,7 +87,8 @@ const SAVE_FIELDS = [
  * A raw storage value handed over by the old address (move.ts), held to the same rules as a file field,
  * except for what that address's own storage keeps on purpose: migrateV2 takes any first-format
  * collection entry (a missing card comes from its key) and any holoCards value, and stores a count it
- * can't read as NaN, which JSON writes as null and the app counts as 0. Hydration leaves out a later
+ * can't read as NaN, which JSON writes as null and the app counts as 0. Before v3, best-pack cards
+ * are checked as their readers take them (olderBestCard). Hydration leaves out a later
  * entry it can't read, which collectionRecovery archives, or keeps in place when it can't. The old
  * address only redirects, so refusing those would leave the save with nowhere to go.
  */
@@ -85,7 +101,11 @@ export const isValidSaveValue = (key: string, raw: string, dataVersion: number):
       return values(value, (item) => dataVersion < 2 || collectionNeedsRecovery({ item }) || (record(item) && collectionEntry(
         Object.fromEntries(Object.entries(item).filter(([k, v]) => !(v === null && (k === 'normalCount' || k === 'holoCount')))))));
     }
-    if (key === STORAGE_KEYS.STATS && dataVersion < 2 && record(value)) return stats({ ...value, holoCards: {} });
+    if (key === STORAGE_KEYS.STATS && dataVersion < 3 && record(value)) {
+      const best = value.highestPackCards;
+      return stats({ ...value, ...(dataVersion < 2 && { holoCards: {} }), highestPackCards: [] }) && (!('highestPackCards' in value)
+        || (Array.isArray(best) && best.every((c) => olderBestCard(c, dataVersion))));
+    }
     return field[2](value);
   } catch {
     return false;
