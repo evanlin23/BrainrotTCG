@@ -88,8 +88,9 @@ class Workflows(unittest.TestCase):
         self.assertBroken('deploy.yml', '"${URL%/}/deployment-id.json?run=', '"${URL}deployment-id.json?run=', 'publish must')
 
     def test_deploy_runs_more(self):
-        self.assertBroken('deploy.yml', '    steps:\n      - uses: actions/deploy-pages',
-                          '    steps:\n      - run: npm ci\n      - uses: actions/deploy-pages', 'deploy must only deploy Pages')
+        self.assertBroken('deploy.yml', '          fi\n      - uses: actions/deploy-pages',
+                          '          fi\n      - run: npm ci\n      - uses: actions/deploy-pages',
+                          'deploy must only require the tip of main, then deploy Pages')
 
     def test_concurrency_removed(self):
         self.assertBroken('deploy.yml', 'concurrency:\n  group: pages\n  cancel-in-progress: true\n', '',
@@ -103,7 +104,34 @@ class Workflows(unittest.TestCase):
                 self.assertBroken('deploy.yml', old, new, 'concurrency must be the pages group')
 
     def test_site_url_not_normalized(self):
-        self.assertBroken('deploy.yml', 'echo "url=${url%/}/"', 'echo "url=$url"', 'site lookup must hand on its address')
+        self.assertBroken('deploy.yml', 'echo "url=$url/"', 'echo "url=$url"', 'site lookup must end by handing on its address')
+
+    def test_site_url_strips_one_slash(self):
+        self.assertBroken('deploy.yml', '          while [ "${url%/}" != "$url" ]; do url=${url%/}; done\n', '          url=${url%/}\n',
+                          'site lookup must end by handing on its address')
+
+    def deploy_problems(self, change):
+        workflow = dc.load(WORKFLOWS / 'deploy.yml')
+        change(workflow['jobs'])
+        return dc.check_deploy(workflow)
+
+    def test_tip_guard_removed(self):
+        for job in ('publish', 'deploy'):
+            with self.subTest(job):
+                problems = self.deploy_problems(lambda jobs: jobs[job]['steps'].pop(0))
+                self.assertTrue(any(f'{job} must' in p and 'tip of main' in p for p in problems), problems)
+
+    def test_tip_guard_weakened(self):
+        for job in ('publish', 'deploy'):
+            with self.subTest(job):
+                def weaken(jobs):
+                    jobs[job]['steps'][0]['run'] = jobs[job]['steps'][0]['run'].replace('exit 1', 'exit 0')
+                problems = self.deploy_problems(weaken)
+                self.assertTrue(any(f'{job} must' in p and 'tip of main' in p for p in problems), problems)
+
+    def test_tip_guard_after_publishing(self):
+        problems = self.deploy_problems(lambda jobs: jobs['deploy']['steps'].append(jobs['deploy']['steps'].pop(0)))
+        self.assertTrue(any('deploy must only require the tip of main' in p for p in problems), problems)
 
     def test_secret_in_dependency_install(self):
         self.assertBroken('deploy.yml', '        run: npm ci --prefix tools/wrangler --ignore-scripts\n',
@@ -426,6 +454,34 @@ class Guard(unittest.TestCase):
                 self.assertEqual(code == 0, passes)
 
 
+class TipGuard(unittest.TestCase):
+    """publish's and deploy's first step, run as the workflow has it with git stubbed."""
+
+    def test_only_the_tip_of_main(self):
+        jobs = dc.load(WORKFLOWS / 'deploy.yml')['jobs']
+        self.assertEqual(jobs['publish']['steps'][0], dc.cloudflare(dc.TIP))
+        self.assertEqual(jobs['deploy']['steps'][0], dc.TIP)
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        (tmp / 'git').write_text(f'#!/bin/sh\necho "$@" >> "{tmp}/git.log"\nprintf "$STUB_OUT"\nexit "$STUB_EXIT"\n')
+        (tmp / 'git').chmod(0o755)
+        sha, newer = 'a' * 40, 'b' * 40
+        # A push run, or a re-run of main's latest commit, sees its own commit at the tip; a re-run of
+        # a superseded commit sees a newer one; and a failed lookup refuses rather than publishes.
+        for out, code, passes in ((f'{sha}\\trefs/heads/main\\n', 0, True), (f'{newer}\\trefs/heads/main\\n', 0, False),
+                                  ('', 128, False), ('', 2, False)):
+            with self.subTest(out=out, code=code):
+                env = {'PATH': f'{tmp}:{os.environ["PATH"]}', 'STUB_OUT': out, 'STUB_EXIT': str(code), 'GITHUB_SHA': sha,
+                       'GITHUB_SERVER_URL': 'https://github.com', 'GITHUB_REPOSITORY': ENV['GITHUB_REPOSITORY']}
+                result = subprocess.run(['bash', '-e', '-c', dc.TIP['run']], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, passes, result.stdout)
+                if not passes:
+                    self.assertIn(f'::error::Not publishing {sha}: main is now at', result.stdout)
+                    self.assertIn(newer if code == 0 else 'a commit this job could not read', result.stdout)
+        self.assertEqual(set((tmp / 'git.log').read_text().splitlines()),
+                         {'ls-remote https://github.com/evanlin23/BrainrotTCG.git refs/heads/main'})
+
+
 @unittest.skipUnless(shutil.which('jq'), 'the site lookup needs jq, as on the runner')
 class SiteLookup(unittest.TestCase):
     """The site job's lookup, run as the workflow has it with Cloudflare's API stubbed: SITE_URL may end in / or not."""
@@ -444,7 +500,9 @@ class SiteLookup(unittest.TestCase):
 
     def test_address_ends_in_one_slash(self):
         for custom_url, url in (('', 'https://brainrottcg.pages.dev/'), ('https://brainrottcg.com', 'https://brainrottcg.com/'),
-                                ('https://brainrottcg.com/', 'https://brainrottcg.com/')):
+                                ('https://brainrottcg.com/', 'https://brainrottcg.com/'),
+                                ('https://brainrottcg.com//', 'https://brainrottcg.com/'),
+                                ('https://brainrottcg.com///', 'https://brainrottcg.com/')):
             with self.subTest(custom_url):
                 self.assertEqual(self.outputs(custom_url), {'host': 'cloudflare', 'url': url, 'base': '/'})
                 self.assertEqual(dc.marker({**ENV, 'SITE_URL': url})['url'], url)
