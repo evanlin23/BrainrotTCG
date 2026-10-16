@@ -319,9 +319,13 @@ PUBLISH = [
                 and '"${URL%/}/deployment-id.json?run=' in run}),
 ]
 DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
-# Only one deploy runs at a time, and a newer push to main cancels the older run: with GUARD and TIP,
-# this is what stops an older build publishing over a newer one.
-CONCURRENCY = {'group': 'pages', 'cancel-in-progress': True}
+# Only one deploy of main runs at a time, and a newer push to main cancels the older run: with GUARD
+# and TIP, this is what stops an older build publishing over a newer one. One group per ref, so a run
+# from another branch (which GUARD fails) can't cancel a run of main.
+CONCURRENCY = {'group': 'pages-${{ github.ref }}', 'cancel-in-progress': True}
+# On GitHub Pages every publish step is skipped and this upload (never conditional) is the game; on
+# Cloudflare it is the redirect pages.
+PAGES_PATH = "${{ needs.site.outputs.host == 'cloudflare' && 'pages' || 'dist' }}"
 # The site lookup hands SITE_URL on ending in exactly one /, however many the variable ends in.
 SITE_URL_OUTPUT = ('while [ "${url%/}" != "$url" ]; do url=${url%/}; done\n'
                    '{ echo "host=cloudflare"; echo "url=$url/"; echo "base=/"; } >> "$GITHUB_OUTPUT"\n')
@@ -336,7 +340,7 @@ def check_deploy(workflow):
     if workflow.get('permissions') != {}:
         problems.append('deploy.yml: the workflow must grant no token scopes (permissions: {})')
     if workflow.get('concurrency') != CONCURRENCY:
-        problems.append('deploy.yml: concurrency must be the pages group with cancel-in-progress: true')
+        problems.append(f"deploy.yml: concurrency must be one pages group per ref ({CONCURRENCY['group']}) with cancel-in-progress: true")
     jobs = workflow.get('jobs') or {}
     if set(jobs) != set(PERMISSIONS):
         return problems + [f'deploy.yml: jobs must be exactly {sorted(PERMISSIONS)}']
@@ -396,6 +400,9 @@ def check_deploy(workflow):
     if jobs['build'].get('outputs') != {'artifact_id': '${{ steps.handoff.outputs.artifact-id }}',
                                         'manifest_sha256': '${{ steps.seal.outputs.manifest_sha256 }}'}:
         problems.append('deploy.yml: build outputs must be the handoff artifact ID and the sealed manifest hash')
+    pages = [s for s in build if action(s) == 'actions/upload-pages-artifact']
+    if len(pages) != 1 or not match(pages[0], {'uses': 'actions/upload-pages-artifact', 'with': {'path': PAGES_PATH}}):
+        problems.append(f'deploy.yml: build must always upload one Pages artifact from {PAGES_PATH}')
     if len(publish) != len(PUBLISH) or not all(match(step, spec) for step, spec in zip(publish, PUBLISH)):
         problems.append('deploy.yml: publish must require the tip of main, check out its two files, download by artifact ID, verify the seal, '
                         'set up Node, install Wrangler without scripts, deploy release/dist, then wait for deployment-id.json')
