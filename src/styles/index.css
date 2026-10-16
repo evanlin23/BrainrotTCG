@@ -65,6 +65,18 @@
   display: inline-block;
 }
 
+/* The mark (src/styles/logoMark.ts) stands on the baseline at cap height, with the wordmark's
+   misprint offset. A filter rather than text-shadow, which SVG ignores. */
+.app-logo-mark {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.3em;
+  vertical-align: -0.04em;
+  overflow: visible;
+  filter: drop-shadow(0.06em 0.06em 0 var(--brand-ink)) drop-shadow(0.03em 0.03em 0 var(--brand));
+}
+
 .app-logo .title-space {
   display: inline-block;
   width: 0.3em;

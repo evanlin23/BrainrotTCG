@@ -7,6 +7,7 @@ import qrcode from 'qrcode-generator';
 import type { Finish, PackScore } from '../engine';
 import { FINISH_INFO, modifierLabel } from './modifiers';
 import { holdFinishedCardImage } from './finishImage';
+import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../styles/logoMark';
 import { BRAND as YELLOW, CHIP_BG, FINISH_GLOWS, FOIL_STOPS, INK, MUTED, PAPER } from '../styles/palette';
 
 interface PosterCard {
@@ -231,14 +232,38 @@ const newCanvas = async () => {
   return { canvas, ctx };
 };
 
-/** The logo (card-stock white with a hard yellow misprint offset), then the set's code and name. */
+const LOGO_SIZE = 104;
+/** The mark's size, drop below the baseline and gap before the wordmark, in ems as the header's CSS. */
+const MARK = { size: 0.8 * LOGO_SIZE, drop: 0.04 * LOGO_SIZE, gap: 0.3 * LOGO_SIZE };
+
+/**
+ * The logo, centred on its baseline: the mark and the wordmark in card-stock white, each with a
+ * hard yellow misprint offset. The mark is a path, so nothing is fetched; without Path2D (jsdom)
+ * the wordmark is drawn alone.
+ */
+export const drawLogo = (ctx: CanvasRenderingContext2D, baseline: number) => {
+  const text = 'BRAINROT TCG';
+  ctx.font = `${LOGO_SIZE}px ${LOGO_FONT}`;
+  ctx.textAlign = 'left';
+  const mark = typeof Path2D === 'undefined' ? null : new Path2D(LOGO_MARK_PATH);
+  const markWidth = mark ? MARK.size + MARK.gap : 0;
+  const left = (W - markWidth - ctx.measureText(text).width) / 2;
+  for (const [offset, colour] of [[8, YELLOW], [0, PAPER]] as const) {
+    ctx.fillStyle = colour;
+    if (mark) {
+      ctx.save();
+      ctx.translate(left + offset, baseline + MARK.drop - MARK.size + offset);
+      ctx.scale(MARK.size / LOGO_MARK_SIZE, MARK.size / LOGO_MARK_SIZE);
+      ctx.fill(mark);
+      ctx.restore();
+    }
+    ctx.fillText(text, left + markWidth + offset, baseline + offset);
+  }
+};
+
+/** The logo, then the set's code and name. */
 const drawHeader = (ctx: CanvasRenderingContext2D, setName: string, code: string, setColor?: string) => {
-  ctx.textAlign = 'center';
-  ctx.font = `104px ${LOGO_FONT}`;
-  ctx.fillStyle = YELLOW;
-  ctx.fillText('BRAINROT TCG', W / 2 + 8, 168);
-  ctx.fillStyle = PAPER;
-  ctx.fillText('BRAINROT TCG', W / 2, 160);
+  drawLogo(ctx, 160);
 
   ctx.font = `700 44px ${BODY_FONT}`;
   const nameWidth = ctx.measureText(setName).width;
