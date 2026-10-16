@@ -1,7 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// PREVIEW_PORT moves a local run off a busy port; everything else uses the default.
-const PORT = Number(process.env.PREVIEW_PORT ?? 4173);
+// PREVIEW_PORT moves a local run off a busy port; unset or empty keeps the default.
+function previewPort(value = '') {
+  if (!value.trim()) return 4173;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`PREVIEW_PORT must be a whole number from 1 to 65535, got "${value}"`);
+  }
+  return port;
+}
+const PORT = previewPort(process.env.PREVIEW_PORT);
 const BASE_PATH = process.env.BASE_PATH ?? '/BrainrotTCG/';
 const baseURL = `http://127.0.0.1:${PORT}${BASE_PATH}`;
 

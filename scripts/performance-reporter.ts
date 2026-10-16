@@ -18,9 +18,6 @@ export default class PerformanceReporter implements Reporter {
       runner: `Playwright ${createRequire(import.meta.url)('@playwright/test/package.json').version}`,
       node: process.version, createdAt: new Date().toISOString(), profile: PROFILE,
       machine: { platform: process.platform, arch: process.arch, cpuModel: cpus()[0]?.model, logicalCPUs: cpus().length, hostMemoryBytes: totalmem() },
-      conditions: `Emulated, not a real device: headless Chromium only; CDP ${PROFILE.cpuSlowdown}x CPU slowdown, `
-        + `${PROFILE.network.downloadThroughput * 8 / 1e6}/${PROFILE.network.uploadThroughput * 8 / 1e6} Mbps down/up, ${PROFILE.network.latency} ms latency, `
-        + `${PROFILE.viewport.width}x${PROFILE.viewport.height} viewport`,
       repetitions: REPETITIONS, timingGate: false, intentionalFailureProbe: process.env.PERF_INJECT_FUNCTIONAL_FAILURE === '1',
       fixtures: {
         'first-cold': { historyRecords: 0, cache: 'cleared HTTP browser cache; fresh context/storage' },

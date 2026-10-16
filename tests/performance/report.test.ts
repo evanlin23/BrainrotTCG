@@ -41,11 +41,15 @@ describe('performance report contract', () => {
   it('reports warm runs separately from cold ones and requires their cache details', () => {
     const cold = run();
     const warm = run(); warm.scenario = 'first-warm'; warm.measurement!.openToResultMs = 5;
-    warm.measurement!.warm = { indexedDBDatabases: [], servedFromCache: 0, notModified: 11 };
+    warm.measurement!.warm = { indexedDBDatabases: [], servedFromCache: 2, notModified: 11 };
     const [first, , firstWarm] = summarize([cold, warm]);
     expect(first).toMatchObject({ scenario: 'first-cold', cache: 'cold', passedRuns: 1, openToResultMs: { median: 20 } });
     expect(first).not.toHaveProperty('notModifiedRequests');
-    expect(firstWarm).toMatchObject({ scenario: 'first-warm', cache: 'warm', passedRuns: 1, openToResultMs: { median: 5 }, notModifiedRequests: { median: 11 } });
+    expect(first).not.toHaveProperty('servedFromCacheRequests');
+    expect(firstWarm).toMatchObject({
+      scenario: 'first-warm', cache: 'warm', passedRuns: 1, openToResultMs: { median: 5 },
+      servedFromCacheRequests: { median: 2 }, notModifiedRequests: { median: 11 },
+    });
     delete warm.measurement!.warm;
     expect(() => validateRun(warm)).toThrow('warm cache details');
   });
