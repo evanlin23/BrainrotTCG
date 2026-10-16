@@ -125,16 +125,15 @@ it("keeps achievements a pack unlocks in a tab another player's save replaced ou
   localStorage.setItem(STORAGE_KEYS.HISTORY, '[]');
   const imported = { all_commons_pack: { unlockedAt: 1234 } };
   localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(imported));
-  await app.interact(() => window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' })));
-  await app.settle(100);
+  // No storage event reaches this tab first (once one does, it opens no packs: crossTabSave covers that).
 
   // This tab opens a pack: its first, so it unlocks achievements here, which aren't stored over the
-  // other player's; the tab says it couldn't save instead.
+  // other player's; the tab says its save changed elsewhere instead.
   await openAPack();
   await app.settle(100);
   expect(document.body.textContent).toMatch(/\d+ achievements unlocked/);
   expect(achievements()).toEqual(imported);
-  expect(document.body.textContent).toContain("Some changes couldn't be saved");
+  expect(document.body.textContent).toContain('This save changed in another tab');
 });
 
 it("unlocks achievements from your own packs when another player's saved pack can't be read", async () => {
