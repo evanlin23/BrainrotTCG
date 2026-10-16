@@ -17,6 +17,7 @@ import { versionOf } from '../../game/versions';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackCacheNote from '../profile/PackCacheNote';
+import PackHeadline from './PackHeadline';
 import '../../styles/CollectionLabel.css';
 
 const Motion = motion;
@@ -34,7 +35,7 @@ interface PackSummaryUIProps {
 }
 
 /**
- * After the last card, result first: the hand as the headline, then the five cards laid out like a
+ * After the last card, result first: the pack's headline (total, combo, standout card), then the five cards laid out like a
  * pack's contents on a table, best pull first (each with its collector number, rarity, a NEW sticker
  * if it's new, and its own Share for an image of it that links to this pack), then the score and
  * level, with the actions in their own row below. Sharing starts here, never mid-reveal: the link
@@ -68,7 +69,8 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
       <div className="summary-content">
         <div className="summary-details">
-          <h2 className="summary-title" ref={headingRef} tabIndex={-1}>{hand.name}</h2>
+          {/* openedCards are in reveal order, which keeps pack order on ties, so the standout's tie rule holds. */}
+          <PackHeadline cards={openedCards} headingRef={headingRef} />
           <ul className="summary-cards" ref={cardsRef}>
             {shown.map((card) => (
               <li key={card.uniqueId}>
@@ -106,7 +108,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
               {newCount} new {newCount === 1 ? 'card' : 'cards'} for your binder
             </p>
           )}
-          {/* The hand's name is the heading above the cards, so the panel doesn't repeat it. */}
+          {/* The combo is in the headline above the cards, so the panel doesn't repeat it. */}
           <BrainrotScorePanel points={points} multiplier={hand.multiplier} score={score} set={set} />
           {progress ? (
             <div className="summary-xp">

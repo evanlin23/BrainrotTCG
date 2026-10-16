@@ -261,13 +261,14 @@ pack detail offers a proposed Share pack (#185). Listed proofs establish those i
 complete lifetime totals or the absence of a stronger undeclared pull. The rest of the acceptance
 matrix (interruption and UI states) remains in #337.
 
-## Proposed pull headline rule (#339)
+## Pull headline rule (#339)
 
-**Proposal, not implemented.** Choose a consistent pack headline over a dominance threshold:
+**Shipped** on the results screen, owned and public pack detail (`PackCardViewer`, so profile packs
+and shared pulls) and card detail. A consistent pack headline, not a dominance threshold:
 **Pack total: [score]**, then **[true combo] ×[multiplier]**, then **Standout card: [finish] [Holo]
 [Misprint] [name] · [card points]** (omit absent modifiers). Card surfaces lead with identity/modifiers
-and Card points. The labels "Pack total", "Standout card" and "Card points" are proposals for the
-owner to confirm, not shipped UI text. Individual points exclude the pack multiplier; neither title
+and Card points. The labels "Pack total", "Standout card" and "Card points" were accepted on #339.
+Individual points exclude the pack multiplier; neither title
 claims record rarity. Select maximum original-version `cardPoints`; on ties take the **higher** slot
 (the last of the tied cards in engine pack order). That is the shipped best-card rule: `revealOrder`
 (`src/game/reveal.ts`) sorts by `cardPoints` ascending and keeps pack order on ties, and `previewOf`
@@ -287,15 +288,16 @@ separate card ids; names and modifiers must come from actual reconstruction in i
 | A10 B20 C35 D70 E200 | 335 / No Matches ×1 | E · 200 |
 | Historical version | Its reconstructed total/combo | No later rarity/modifier assumptions |
 
-One presentation helper returns structured total/combo/standout fields, without a second scorer.
-Results and owned/public pack detail show all fields above cards; personal/global pack rows show
-total, combo and concise standout, opening that detail. Card rows/detail show card identity/points
+`packHeadline` (`src/engine/headline.ts`) returns structured total/combo/standout fields from
+`scorePack`, without a second scorer; `PackHeadline` (`src/components/pack/PackHeadline.tsx`) renders
+them. Results and owned/public pack detail show all fields above cards, and on results the total is
+the focused heading; card detail shows Card points. **Not shipped yet:** personal/global pack rows
+show total, combo and concise standout, opening that detail. Card rows/detail show card identity/points
 and labeled original-pack context. Exact-pull captions/posters use the same fields and proof link.
 Static previews cannot read proof fragments: keep generic hand/card descriptions, stable paths and
 old images; do not imply they depict exact modifiers or regenerate history solely for new titles.
 
 At narrow/short widths, wrap the standout and keep actions reachable. Compact 40M formatting needs
-exact accessible points and full details; rankings use exact values. After approval, implement the
-helper plus consumer regressions across these surfaces. Scoring, generators, selectors, public proof
-URLs and animations do not change. Full surface/mobile/sharing acceptance stays in #339; checks are
-planned, not executed here. Figma authoring (#312) remains deferred.
+exact accessible points and full details; rankings use exact values (shipped surfaces show exact
+values). Scoring, generators, selectors, public proof URLs and animations do not change. Pack rows,
+card-row original-pack context and exact-pull captions and posters remain in #339. Figma authoring (#312) remains deferred.
