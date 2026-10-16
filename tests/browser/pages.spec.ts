@@ -27,6 +27,8 @@ const tab = (page: Page, name: string) => nav(page).getByRole('button', { name, 
 const gear = (page: Page) => page.getByRole('button', { name: 'Settings', exact: true });
 const pageNamed = (page: Page, name: string) => page.getByRole('main', { name, exact: true });
 const opener = (page: Page) => page.getByRole('button', { name: /^Open a .* pack$/ });
+// The link under the pack; the summary's score panel has its own "Card guide" button.
+const cardGuide = (page: Page) => page.locator('.card-guide-entry').getByRole('button', { name: 'Card guide', exact: true });
 /** The control that marks a page current: its tab, or the gear for Settings. */
 const marker = (page: Page, name: string) => (name === 'Settings' ? gear(page) : tab(page, name));
 
@@ -159,13 +161,46 @@ test('a new player sees no tabs until their first pack is saved', async ({ page,
   await expect(opener(page)).toBeEnabled();
   await expect(nav(page)).toHaveCount(0);
   await expect(gear(page)).toBeVisible();
+  // The card guide is there before the first pull, and Escape gives focus back to its button (#184).
+  const guide = cardGuide(page);
+  await expect(guide).toBeVisible();
+  await guide.click();
+  const sheet = page.getByRole('dialog', { name: 'Card guide', exact: true });
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect(guide).toBeFocused();
   await openPackSummary(page);
   await expect.poll(async () => (await snapshot(page)).stats?.packsOpened).toBe(1);
   // The tabs exist once the pack is saved, but focus mode keeps them aside until the player leaves it (#312).
   await expect(page.locator('.app-nav')).toHaveCount(1);
   await expect(page.locator('.app-nav')).toBeHidden();
+  await expect(guide).toHaveCount(0);
   await page.getByRole('button', { name: 'Open another pack', exact: true }).click();
   await expect(tab(page, 'Cards')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('the card guide link fits a 320 px phone at 200% text, under the pack it leaves alone', async ({ page, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+  await page.setViewportSize({ width: 320, height: 568 });
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  await expect(opener(page)).toBeEnabled();
+  await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+  const guide = cardGuide(page);
+  await expect(guide).toBeVisible();
+  const box = (await guide.boundingBox())!;
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(320);
+  expect(box.y + box.height).toBeLessThanOrEqual(568);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  // Nothing covers it, and the pack stays the big target above it.
+  await guide.click();
+  await expect(page.getByRole('dialog', { name: 'Card guide', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(opener(page)).toBeVisible();
   expect(errors).toEqual([]);
 });
 

@@ -36,6 +36,12 @@
 }
 
 /* Two buttons answering a question in the row: they drop below its text when there's no room. */
+.settings-help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .settings-actions {
   display: flex;
   align-items: center;
