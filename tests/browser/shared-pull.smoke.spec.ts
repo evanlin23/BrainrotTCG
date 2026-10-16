@@ -27,16 +27,16 @@ const lookup = (setId: string, version: number) => {
 const asVector = ({ cardId, rarity, isHolo, finish, misprint }: PulledCard) =>
   finish === undefined ? { cardId, rarity, isHolo } : { cardId, rarity, isHolo, finish, misprint };
 
-// Load failures that are not missing assets. Chromium fetches the favicon after load, so leaving or
+// Load failures that are not missing assets. Chromium fetches the favicon (one of the icon links) after load, so leaving or
 // reloading soon after can abort that request. Routing disables Chromium's HTTP cache, so a card shown
 // with a finish requests its plain art again each time it mounts, and that request is cancelled once
 // the cached finished frame replaces it. Only those exact aborts are forgiven: any other aborted
 // request, and every status >= 400 (a missing favicon or card art included), fails the journey.
 const ABORTED = 'net::ERR_ABORTED ';
 const loadFailures = (errors: string[], baseURL: string, finishedCardIds: readonly string[] = []) => {
-  const logo = new URL('logo.png', baseURL).href;
+  const icons = ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png'].map((icon) => new URL(icon, baseURL).href);
   const assets = new URL('assets/', baseURL).href;
-  const forgiven = (url: string) => url === logo || (url.startsWith(assets)
+  const forgiven = (url: string) => icons.includes(url) || (url.startsWith(assets)
     && finishedCardIds.some((cardId) => new RegExp(`^${cardId}-[\\w-]{8}\\.webp$`).test(url.slice(assets.length))));
   return errors.filter((error) => !(error.startsWith(ABORTED) && forgiven(error.slice(ABORTED.length))));
 };
