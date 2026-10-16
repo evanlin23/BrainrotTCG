@@ -86,6 +86,8 @@ src/game/          Browser glue around the engine.
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
   collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
+  progressWriter.ts  stores committed progress field by field, behind both save guards, and owes
+                     packs to the pending shelf until stored (App uses it via hooks/useProgressWriter.ts)
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
   route.ts           the page addresses (#/cards, #/rankings, #/profile, #/settings) and their titles
 
@@ -406,7 +408,8 @@ sealed, with no ticket spent); one opened before then waits on the pending shelf
 opened as (if the shelf takes it, as below), and other players' packs stay there when this one's
 change. Two tabs of the same player (no import or switch, so the stamp can't tell) are guarded too:
 every write also compares the stored collection, stats, Hall of Fame and achievements with what the
-tab last read or stored (`src/game/progressGuard.ts`, plus a storage listener), and a tab another tab
+tab last read or stored (`src/game/progressGuard.ts`, plus a storage listener; the writes and
+put-backs are in `src/game/progressWriter.ts`), and a tab another tab
 has written past stops the same way instead of storing its older copy over that tab's packs. Packs it
 took off the pending shelf at load and hasn't stored or shelved since go back on it for the next load
 to add. Packs it opened itself aren't put back: any the shelf took when they opened are still there
