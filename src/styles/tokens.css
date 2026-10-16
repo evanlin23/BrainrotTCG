@@ -196,6 +196,10 @@
   --dot-track: rgba(255, 255, 255, 0.16);
   --cut-line: rgba(255, 255, 255, 0.95);
   --cut-line-warm: #fff1bc;
+  /* The seam's foil band behind the perforation (#267): brand, foil pink and mint, see-through. */
+  --seam-glow-brand: rgba(255, 210, 63, 0.38);
+  --seam-glow-pink: rgba(255, 122, 200, 0.26);
+  --seam-glow-mint: rgba(111, 242, 198, 0.26);
   --spark-glow: rgba(255, 200, 100, 0.9);
   --ribbon-ink: #12002a;
   --seam-1: #ff9ad6;
@@ -214,6 +218,17 @@
   --dur-fast: 120ms;
   --dur: 200ms;
   --dur-slow: 320ms;
+  /* The pack's own beats: a card flying in, the slow Legendary/Brainrot flip (its badges wait for it to
+     land), an idle loop, a spinner turn. */
+  --dur-reveal: 450ms;
+  --dur-celebrate: 1200ms;
+  --dur-loop: 3000ms;
+  --dur-spin: 900ms;
+  /* Loops: a breath (waiting pack, big-pull tell), a shimmer (skeletons, swipe hint, seam), a slow foil
+     drift. Not zeroed below: index.css stops every loop under reduced motion. */
+  --dur-pulse: 1200ms;
+  --dur-shimmer: 1500ms;
+  --dur-drift: 6000ms;
 
   /* Layout */
   --touch-target: 44px;
@@ -225,6 +240,24 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --content-max: 76rem;
+  /*
+   * Breakpoints. Custom properties can't go in a media query, so these are the only widths media queries
+   * use. New CSS picks one of these and writes it as min-width, or as max-width one pixel under (e.g.
+   * 899px). Older phone rules at 420px and 480px use max-width at the step itself (Hall of Fame, Pulls,
+   * pack actions, summary), so exactly 420px or 480px wide counts as the smaller layout there.
+   *   380px  small phone (Settings slider)
+   *   420px  phones up to about 414px wide drop to the smallest thumbnails (Pulls, Hall of Fame)
+   *   480px  large phone: one-handed button rows (pack actions, summary, Pulls set name)
+   *   560px  Collection grid goes to 4 columns
+   *   640px  two columns fit side by side (Share, summary cards, card height)
+   *   720px  dialogs stop being sheets; phones end here (pack and card sizes)
+   *   820px  Collection grid goes to 6 columns
+   *   900px  the nav moves into the header
+   *   1024px desktop
+   *   1400px wide desktop
+   * Heights, only alongside a width: 520px (a phone on its side), 680px and 860px (tall enough to scale
+   * the desktop root font up).
+   */
 
   /* States: disabled controls fade to this and also show a dashed border (never colour alone). */
   --opacity-disabled: 0.5;
@@ -244,5 +277,7 @@
     --dur-fast: 0ms;
     --dur: 0ms;
     --dur-slow: 0ms;
+    --dur-reveal: 0ms;
+    --dur-celebrate: 0ms;
   }
 }

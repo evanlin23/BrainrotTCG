@@ -178,11 +178,11 @@
 }
 
 .reveal-rarity > * {
-  animation: reveal-badge-in var(--dur) var(--ease-out) 0.35s both;
+  animation: reveal-badge-in var(--dur) var(--ease-out) var(--dur-slow) both;
 }
 
 .reveal-rarity.is-slow > * {
-  animation-delay: 1.1s;
+  animation-delay: var(--dur-celebrate);
 }
 
 @keyframes reveal-badge-in {

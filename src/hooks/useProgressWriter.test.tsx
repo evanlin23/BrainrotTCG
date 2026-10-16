@@ -8,7 +8,7 @@ import { useProgressWriter } from './useProgressWriter';
 const created = vi.hoisted(() => [] as { host: unknown; writer: unknown }[]);
 vi.mock('../game/progressWriter', () => ({
   createProgressWriter: (host: unknown) => {
-    const writer = { commit: vi.fn(), packAdded: vi.fn(), packsTaken: vi.fn(), putBackTaken: vi.fn() };
+    const writer = { commit: vi.fn(), packAdded: vi.fn(), packsTaken: vi.fn(), putBack: vi.fn() };
     created.push({ host, writer });
     return writer;
   },
@@ -19,6 +19,7 @@ vi.mock('../game/progressWriter', () => ({
 const progress = {} as HeldProgress;
 const host = (): ProgressWriterHost => ({
   samePlayer: () => true, progressCurrent: () => true, noted: () => {}, stale: () => {}, failed: () => {}, keptAside: () => {},
+  storing: () => true, unstored: () => {}, dropped: () => [],
 });
 
 let root: Root;

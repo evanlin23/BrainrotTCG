@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CARD_FLIP_SRC } from '../constants/audio';
 import { useAudio } from './useAudio';
 
 type Audio = ReturnType<typeof useAudio>;
@@ -43,5 +44,15 @@ describe('preloading sounds', () => {
     // Raising preload resumes the deferred download; load() would abort it and fetch again.
     expect(load).not.toHaveBeenCalled();
     expect(sounds.map((s) => s.preload)).toEqual(['auto', 'auto', 'none']);
+  });
+});
+
+describe('playing sounds', () => {
+  it('scales the volume by the sound\'s gain, and leaves an unknown sound at the level', () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const [flip, other] = audio.preloadAudio([CARD_FLIP_SRC, '/other.mp3']);
+    expect(audio.playAndCleanup(flip, 0.5).volume).toBeCloseTo(0.4);
+    expect(audio.playAndCleanup(other, 0.5).volume).toBe(0.5);
+    expect(play).toHaveBeenCalledTimes(2);
   });
 });

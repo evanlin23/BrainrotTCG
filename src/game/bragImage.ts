@@ -377,6 +377,8 @@ export interface CardPosterInput {
   /** The verifiable pull this card came from, if this device has one. */
   url?: string;
   cert?: string;
+  /** Points and pack odds for this version, e.g. "400 pts · 1 in 2,400 packs". */
+  stats?: string;
 }
 
 /** One card, big: its name, rarity and collector number, and the pull it came from when there is one. */
@@ -396,6 +398,11 @@ export const renderCardPoster = async (input: CardPosterInput): Promise<Blob> =>
   ctx.font = `700 40px ${BODY_FONT}`;
   ctx.fillStyle = input.card.rarityColor;
   ctx.fillText(rarity, W / 2, 1470);
+  if (input.stats) {
+    ctx.font = `600 34px ${BODY_FONT}`;
+    ctx.fillStyle = MUTED;
+    ctx.fillText(input.stats, W / 2, 1530, W - 140);
+  }
 
   drawLabel(ctx, {
     kind: input.url ? 'Verifiable pull' : 'From the collection of',
