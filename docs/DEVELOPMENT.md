@@ -57,7 +57,7 @@ actually unfurl a page is still checked by hand, against a deployed address.
 ## Browser smoke
 
 `npm run test:browser` (Playwright, Chromium) builds the checkout and owns a strict-port preview at
-`http://127.0.0.1:4173/BrainrotTCG/`; stop any server on that port first, and set `BASE_PATH=/` for
+`http://127.0.0.1:4173/BrainrotTCG/`; stop any server on that port first (or set `PREVIEW_PORT`), and set `BASE_PATH=/` for
 a root-path build. It blocks HTTP outside the preview origin and all WebSockets, seeds a disposable
 identity with muted audio, opens one real pack on desktop and Pixel 5 viewports, and checks that
 stats, collection and history survive a reload. Failure traces, screenshots and videos land in
@@ -90,11 +90,12 @@ only)" Actions job (read-only, 20-minute cap, reports kept seven days). It reuse
 build and server, disposable identity, HTTP/WebSocket guards and opening/record/reload assertions,
 so functional errors still exit nonzero and never enter the timing summaries.
 
-It runs two cold-HTTP-cache scenarios, three times each, in one headless Chromium at 393×727 with
-CDP 4× CPU slowdown and a 10/2 Mbps, 40 ms network: a fresh save, and 100 synthetic cached history
-records. That history repeats known cards at synthetic nonces; it isn't verified history, a valid
+It runs a fresh save and 100 synthetic cached history records, three times each, in one headless
+Chromium at 393×727 with CDP 4× CPU slowdown and a 10/2 Mbps, 40 ms network: cold (HTTP cache cleared
+and disabled), then warm (the same journey again in the same context after an unthrottled priming
+load, keeping the HTTP cache and IndexedDB, with localStorage reset). That history repeats known cards at synthetic nonces; it isn't verified history, a valid
 profile or proof evidence. Each measured opening mines a real ticket. Worker HTTP egress is probed;
-Worker WebSockets aren't proven blocked. Warm-cache runs are still open (#351).
+Worker WebSockets aren't proven blocked.
 
 `test-results/performance/raw-runs.json` and `summary.json` record the commit and dirty state,
 runner, browser and host, every raw run, and median/min/max per scenario; each report lists its

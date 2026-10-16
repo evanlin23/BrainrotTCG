@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+// PREVIEW_PORT moves a local run off a busy port; everything else uses the default.
+const PORT = Number(process.env.PREVIEW_PORT ?? 4173);
 const BASE_PATH = process.env.BASE_PATH ?? '/BrainrotTCG/';
 const baseURL = `http://127.0.0.1:${PORT}${BASE_PATH}`;
 

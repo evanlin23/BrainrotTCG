@@ -38,4 +38,15 @@ describe('performance report contract', () => {
     const unsupported = run(); unsupported.measurement!.memory = { supported: false, reason: '' };
     expect(() => validateRun(unsupported)).toThrow('needs a reason');
   });
+  it('reports warm runs separately from cold ones and requires their cache details', () => {
+    const cold = run();
+    const warm = run(); warm.scenario = 'first-warm'; warm.measurement!.openToResultMs = 5;
+    warm.measurement!.warm = { indexedDBDatabases: [], servedFromCache: 0, notModified: 11 };
+    const [first, , firstWarm] = summarize([cold, warm]);
+    expect(first).toMatchObject({ scenario: 'first-cold', cache: 'cold', passedRuns: 1, openToResultMs: { median: 20 } });
+    expect(first).not.toHaveProperty('notModifiedRequests');
+    expect(firstWarm).toMatchObject({ scenario: 'first-warm', cache: 'warm', passedRuns: 1, openToResultMs: { median: 5 }, notModifiedRequests: { median: 11 } });
+    delete warm.measurement!.warm;
+    expect(() => validateRun(warm)).toThrow('warm cache details');
+  });
 });
