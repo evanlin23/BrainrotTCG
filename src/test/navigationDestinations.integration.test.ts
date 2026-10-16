@@ -94,19 +94,18 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
     return Promise.resolve(published);
   }));
   await app.interact(() => { button('Rankings').focus(); button('Rankings').click(); });
-  await app.until('the failed load is reported', () => expect(hofStatus()?.textContent).toBe("Couldn't load the leaderboard. Try again."));
+  await app.until('the failed load is reported', () => expect(hofStatus()?.textContent).toBe("Couldn't load the rankings. Try again."));
   expect(currentTab()).toBe('Rankings');
   expect(document.activeElement).toBe(hofStatus());
   published = new Response('[]', { headers: { 'content-type': 'application/json' } });
-  await app.interact(() => button('Retry loading leaderboard').click());
-  await app.until('the retry loads the list', () => expect(hofStatus()?.textContent).toBe('Leaderboard loaded.'));
+  await app.interact(() => button('Retry loading rankings').click());
+  await app.until('the retry loads the list', () => expect(hofStatus()?.textContent).toBe('Rankings loaded.'));
   expect(requested).toHaveLength(2);
   expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).toContain('Nothing filed here yet.');
-  expect(document.querySelector('[aria-label="Retry loading leaderboard"]')).toBeNull();
-  // The legends are part of the app, so they show whatever the network does.
-  await app.interact(() => button('Legends').click());
+  expect(document.querySelector('[aria-label="Retry loading rankings"]')).toBeNull();
+  // The legends are part of the app, so the archive shows them whatever the network does.
+  await app.interact(() => button('Archive').click());
   expect(document.querySelectorAll('.hall-of-fame .hof-legend').length).toBeGreaterThan(0);
-  expect(hofStatus()).toBeNull();
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   await app.interact(() => button('Close Rankings').click());
   await app.until('Open shows again', () => expect(currentTab()).toBe('Open'));

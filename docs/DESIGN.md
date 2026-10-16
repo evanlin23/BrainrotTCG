@@ -114,9 +114,15 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   safe-area padding) and part of the header from 900px; 44px targets. It stays hidden for a new
   player until their first pack is saved (#222) and while a pack is open. The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help.
-- **Profile** (`profile/ProfilePage.tsx`): name and the save note, level and stats, best pulls, then
-  the Achievements section (`#achievements`), which achievement toasts link to. Leaving Profile saves
-  a changed name, unless saving that same name just failed.
+- **Profile** (`profile/ProfilePage.tsx`): name and the save note ("Name and rewards"), level and
+  stats, best pulls, then the Achievements section (`#achievements`), which achievement toasts link
+  to. Its shareable image is the "Profile card"; "Player ID" stays the name of the key's fingerprint,
+  as on proofs. Leaving Profile saves a changed name, unless saving that same name just failed.
+- **Rankings** (`pages/HallOfFamePage.tsx`): tabs All-time, Today and Archive. All-time is the
+  published top 100 by Brainrot Score, 20 rows at a time. Today ranks the published pulls (top 100
+  and world firsts) filed today on the player's own calendar, plus just-submitted ones not filed yet;
+  it comes second because on a quiet day it is empty. Archive holds what isn't ranked, each under a heading that says why: world
+  firsts (dated, not numbered) and the hackathon legends (screenshots from before proofs).
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest

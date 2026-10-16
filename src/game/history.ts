@@ -68,14 +68,24 @@ const decode = (s: Stored): HistoryEntry => ({
   openedAt: s.t,
 });
 
-const read = (): Stored[] => {
+const rawHistory = (): string | null => {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
+    return localStorage.getItem(STORAGE_KEYS.HISTORY);
+  } catch {
+    return null;
+  }
+};
+
+const parseHistory = (raw: string | null): Stored[] => {
+  try {
+    const parsed = JSON.parse(raw ?? '[]');
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 };
+
+const read = (): Stored[] => parseHistory(rawHistory());
 
 const save = (entries: Stored[]) => {
   try {
@@ -160,12 +170,28 @@ export const recordPack = (pack: OpenedPack): boolean => {
   return write([entry, ...current.filter((e) => !sameAssignment(e, entry))]);
 };
 
+/** recordTicket's stand-in: no cards, hand or score yet (every pack has a hand). */
+const isTicketOnly = (e: Stored) => e.h === '' && e.c === undefined;
+
+/**
+ * Records that this key spent ticket `nonce` on `set@version` before its pack is in hand: a mapping with
+ * no cards, hand or score, which recordPack (or recordMissing) replaces once the pack opens. If the pack
+ * never opens here (its ticket fails to mine, or the tab closes), a profile still covers the ticket and
+ * re-opens it to show it. False when the history can't be read or written.
+ */
+export const recordTicket = (setId: string, setVersion: number, nonce: number, publicKeyHex: string, openedAt: number): boolean => {
+  const current = readValid();
+  if (!current) return false;
+  const entry: Stored = { s: setId, v: setVersion, n: nonce, k: publicKeyHex.slice(0, KEY_PREFIX), h: '', x: 0, t: openedAt };
+  return current.some((e) => sameAssignment(e, entry)) || write([entry, ...current]);
+};
+
 /**
  * Records the packs opened with this key whose ticket mapping the history lacks (its write failed when
- * the pack opened, e.g. with storage full), in opening order; recorded ones stay as they are. App calls
- * this once a save goes through, so a lost mapping comes back. Another key's packs (or a pack without
- * one) are left out, so no player's tickets enter another's history. False when the history can't be
- * read or written.
+ * the pack opened, e.g. with storage full), in opening order; recorded ones stay as they are, but a
+ * recordTicket stand-in gives way to its pack. App calls this once a save goes through, so a lost mapping
+ * comes back. Another key's packs (or a pack without one) are left out, so no player's tickets enter
+ * another's history. False when the history can't be read or written.
  */
 export const recordMissing = (packs: readonly OpenedPack[], publicKeyHex: string): boolean => {
   const mine = packs.filter((pack) => pack.publicKeyHex === publicKeyHex);
@@ -175,7 +201,9 @@ export const recordMissing = (packs: readonly OpenedPack[], publicKeyHex: string
   let added = false;
   for (const pack of mine) {
     const entry = toStored(pack);
-    if (current.some((e) => sameAssignment(e, entry))) continue;
+    const stub = current.findIndex((e) => sameAssignment(e, entry) && isTicketOnly(e));
+    if (stub >= 0) current.splice(stub, 1);
+    else if (current.some((e) => sameAssignment(e, entry))) continue;
     // Newest first, as recordPack keeps it.
     const at = current.findIndex((e) => e.t < entry.t);
     current.splice(at < 0 ? current.length : at, 0, entry);
@@ -190,15 +218,25 @@ export const historyForKey = (publicKeyHex: string): HistoryEntry[] =>
     .filter((e) => e.key === publicKeyHex.slice(0, KEY_PREFIX))
     .sort((a, b) => a.nonce - b.nonce);
 
+/** ticketsRecorded's count per key prefix, with the stored history it was counted from. */
+let counted: { raw: string | null; next: Map<string, number> } | null = null;
+
 /**
  * One past the highest ticket this key's history records (0 when none). A recorded ticket was spent
- * even if storage refused the ticket counter past it, so the counter never hands it out again.
+ * even if storage refused the ticket counter past it, so the counter never hands it out again. Never
+ * above Number.MAX_SAFE_INTEGER: a ticket number with no safe successor counts for nothing. Counted
+ * again only when the stored history changes: each call reads it, so another tab's write is never missed.
  */
 export const ticketsRecorded = (publicKeyHex: string): number => {
-  const key = publicKeyHex.slice(0, KEY_PREFIX);
-  let next = 0;
-  for (const e of read()) if (isStored(e) && e.k === key && e.n >= next && Number.isSafeInteger(e.n + 1)) next = e.n + 1;
-  return next;
+  const raw = rawHistory();
+  if (counted?.raw !== raw) {
+    const next = new Map<string, number>();
+    for (const e of parseHistory(raw)) {
+      if (isStored(e) && Number.isSafeInteger(e.n + 1) && e.n >= (next.get(e.k) ?? 0)) next.set(e.k, e.n + 1);
+    }
+    counted = { raw, next };
+  }
+  return counted.next.get(publicKeyHex.slice(0, KEY_PREFIX)) ?? 0;
 };
 
 type LegacyPull = Pick<OpenedPack, 'setId' | 'setVersion' | 'nonce' | 'publicKeyHex' | 'openedAt'> & { score: number; hand: string };
