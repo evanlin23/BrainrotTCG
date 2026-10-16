@@ -86,6 +86,9 @@ it('adds a pack left mid-reveal by a reload once, from the pending shelf', async
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(1);
   expect(await historyCodes()).toEqual(GOLDEN_CARDS);
   expectShelvesEmpty();
+  // A first pack restored from the shelf counts as saved: the tabs and set picker show (#222).
+  expect(document.querySelector('.app-nav')).not.toBeNull();
+  expect(document.querySelector('nav.set-picker[aria-label="Choose a pack"]')).not.toBeNull();
   const settled = Object.entries(localStorage);
   await app.reload();
   expect(Object.entries(localStorage)).toEqual(settled);
