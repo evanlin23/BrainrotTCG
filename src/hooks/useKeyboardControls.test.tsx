@@ -152,3 +152,44 @@ describe('modifier keys', () => {
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('a held Space', () => {
+  const space = (type: 'keydown' | 'keyup') => act(() => {
+    document.body.dispatchEvent(new KeyboardEvent(type, { key: ' ', code: 'Space', bubbles: true, cancelable: true }));
+  });
+  const wait = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('does one thing when pressed a moment, and repeats only once held past it', () => {
+    const interact = vi.fn();
+    render({ handleInteractionRef: { current: interact } });
+    // A press held a little longer than the repeat rate flips the card and stops there.
+    space('keydown');
+    wait(390);
+    space('keyup');
+    wait(1000);
+    expect(interact, 'a press held under the delay did more than one thing').toHaveBeenCalledTimes(1);
+
+    // Held on, it moves on a card every 150ms after the delay, until it's let go.
+    space('keydown');
+    wait(399);
+    expect(interact).toHaveBeenCalledTimes(2);
+    wait(1);
+    expect(interact).toHaveBeenCalledTimes(3);
+    wait(300);
+    expect(interact).toHaveBeenCalledTimes(5);
+    space('keyup');
+    wait(1000);
+    expect(interact).toHaveBeenCalledTimes(5);
+  });
+
+  it('stops for the summary, even before it repeats', () => {
+    const interact = vi.fn();
+    render({ handleInteractionRef: { current: interact } });
+    space('keydown');
+    render({ handleInteractionRef: { current: interact }, showSummary: true });
+    wait(1000);
+    expect(interact).toHaveBeenCalledTimes(1);
+  });
+});

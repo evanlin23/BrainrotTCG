@@ -17,6 +17,11 @@ interface UseKeyboardControlsOptions {
 /** Fields that take typing keep their keys. Any contenteditable value but "false" makes one ("" is "true"). */
 const TEXT_FIELD = 'input, select, textarea, [contenteditable]:not([contenteditable="false"])';
 
+/** A held Space waits this long before it repeats, so a press held a moment still does one thing. */
+const HOLD_DELAY_MS = 400;
+/** Then it moves on a card this often. */
+const HOLD_REPEAT_MS = 150;
+
 /**
  * Space or Enter does the next thing: open the pack, flip, next card, next pack. Holding Space runs
  * through the cards. Escape leaves a pack at any stage. With Ctrl, Cmd or Alt held, none of these
@@ -29,15 +34,22 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
     latest.current = options;
   });
   const spaceHeldRef = useRef(false);
-  const spaceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const spaceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const stopHold = () => {
       spaceHeldRef.current = false;
-      if (spaceIntervalRef.current) {
-        clearInterval(spaceIntervalRef.current);
-        spaceIntervalRef.current = null;
+      if (spaceTimerRef.current) {
+        clearTimeout(spaceTimerRef.current);
+        spaceTimerRef.current = null;
       }
+    };
+
+    const repeatAfter = (ms: number) => {
+      spaceTimerRef.current = setTimeout(() => {
+        latest.current.handleInteractionRef.current();
+        if (spaceHeldRef.current) repeatAfter(HOLD_REPEAT_MS);
+      }, ms);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -71,10 +83,10 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       } else if (e.code !== 'Space') {
         handleInteractionRef.current();
       } else if (!spaceHeldRef.current) {
-        // Held Space keeps going, a card every 150ms.
+        // Held Space keeps going, once it has been held past a tap.
         spaceHeldRef.current = true;
         handleInteractionRef.current();
-        spaceIntervalRef.current = setInterval(() => latest.current.handleInteractionRef.current(), 150);
+        repeatAfter(HOLD_DELAY_MS);
       }
     };
 
@@ -95,9 +107,9 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
 
   // The summary stops a held Space.
   useEffect(() => {
-    if (options.showSummary && spaceIntervalRef.current) {
-      clearInterval(spaceIntervalRef.current);
-      spaceIntervalRef.current = null;
+    if (options.showSummary && spaceTimerRef.current) {
+      clearTimeout(spaceTimerRef.current);
+      spaceTimerRef.current = null;
       spaceHeldRef.current = false;
     }
   }, [options.showSummary]);

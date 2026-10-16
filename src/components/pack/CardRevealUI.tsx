@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react';
-import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
+import { useCallback, useEffect, useRef, type ComponentPropsWithRef } from 'react';
+import { motion, AnimatePresence, useIsPresent, type PanInfo } from 'framer-motion';
 import { FastForward } from 'lucide-react';
 import Card from '../cards/Card';
 import type { CardWithMeta } from '../cards/Card';
@@ -11,6 +11,12 @@ import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 
 const Motion = motion;
+
+/** The card on top. One leaving keeps its last props for its exit, so it is inert until it has gone. */
+const RevealCard = (props: ComponentPropsWithRef<typeof Motion.div>) => {
+  const present = useIsPresent();
+  return <Motion.div {...props} inert={!present || undefined} aria-hidden={!present || undefined} />;
+};
 
 interface CardRevealUIProps {
   currentCard: CardWithMeta;
@@ -90,7 +96,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
         ))}
         <AnimatePresence mode="popLayout">
           {currentCard && (
-            <Motion.div
+            <RevealCard
               key={currentCard.uniqueId}
               className={`reveal-card ${celebration ? 'is-celebrating' : ''}`}
               ref={cardRef}
@@ -111,7 +117,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
                   The pull is announced once, by the ribbon in the top bar (PackOpener's ShowcaseRibbon). */}
               {celebration && <div className="showcase-halo" aria-hidden="true" />}
               <Card card={currentCard} isFlipped={currentCard.isRevealed} onFlip={onTap} tell={big} slowFlip={slow} />
-            </Motion.div>
+            </RevealCard>
           )}
         </AnimatePresence>
       </div>
