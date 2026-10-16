@@ -86,7 +86,7 @@ export const getRegisteredAssetChecks = (sets: SetDefinition[], rootDir = ROOT):
           Object.values(parsed).some((hash) => typeof hash !== 'string')) throw new Error('Expected a card-to-hash object');
         manifest = parsed;
       } catch (error) {
-        throw new Error(`${path.relative(rootDir, manifestPath)}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`${path.relative(rootDir, manifestPath)}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
     }
     // The generator emits these finishes for each opted-in card, including retained old versions.

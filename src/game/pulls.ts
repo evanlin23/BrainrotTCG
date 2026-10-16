@@ -283,6 +283,9 @@ export const clearPendingPack = (...nonces: number[]) => {
   else if (result === 'gone') console.error(`The pending pack shelf couldn't be rewritten: ${kept.length} owed pack(s) dropped (the history still has them); another player's owed packs are kept in this tab till the shelf can be written.`);
 };
 
+/** Whether this player's pending shelf holds this pack (not the older builds' one-pack entry). */
+export const onShelf = (nonce: number): boolean => readShelf().some((p) => p.n === nonce);
+
 /**
  * The packs opened but never added to the collection (this player's only), taken off the shelf; other
  * players' packs stay on it. A pack in the older builds' entry stays there until clearPendingPack (see above).
