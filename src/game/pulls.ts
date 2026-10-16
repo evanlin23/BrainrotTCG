@@ -82,11 +82,13 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
   const next = peekNonce();
   let ticket = await getTicket(setKey(set), owner.publicKey, next);
   const { nonce, player, stored } = await claimNonce();
+  // One time for the stand-in below and the pack, so the pack sorts where its stand-in did.
+  const openedAt = Date.now();
   // Another tab took that number (or switched the key) meanwhile: mine the one claimed. Its mapping is
   // recorded first, so a failed mine or a reload mid-mine leaves a ticket a profile can re-open rather
   // than an unmapped one that blocks the profile link. Best effort: the pack's own record retries it.
   if (nonce !== next || player.publicKeyHex !== owner.publicKeyHex) {
-    recordTicket(set.id, set.version, nonce, player.publicKeyHex, Date.now());
+    recordTicket(set.id, set.version, nonce, player.publicKeyHex, openedAt);
     ticket = await getTicket(setKey(set), player.publicKey, nonce);
   }
   const cards = toCardsWithMeta(generatePack(set, packSeedFromTicket(ticket)));
@@ -98,7 +100,7 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
     publicKeyHex: player.publicKeyHex,
     cards,
     score: scoreCards(cards),
-    openedAt: Date.now(),
+    openedAt,
   };
   // Recorded now, not after the reveal: the ticket is spent either way, and a profile needs every one.
   if (!recordPack(pack)) pack.unrecorded = true;

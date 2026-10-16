@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { byBest, findPackByCards, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, recordTicket, type HistoryEntry } from './history';
-import { HALL_OF_FAME_MIN_SCORE } from '../engine';
+import { HALL_OF_FAME_MIN_SCORE, scorePulled } from '../engine';
+import { getSet } from '../content/sets';
+import { decodeCard, toPulled } from './cardCode';
+import { putStoredPacks, resetPackStore } from './packStore';
 import type { OpenedPack } from './pulls';
 
 /** Minimal localStorage with an optional size cap, to exercise the out-of-space path. */
@@ -156,8 +159,9 @@ describe('recording the ticket mappings a full storage refused', () => {
     recordPack(pack(2, { setId: 'other-set', openedAt: 700 }));
     expect(recordMissing([pack(1), pack(2)], KEY)).toBe(true);
     const history = getHistory();
-    expect(history.map((e) => [e.setId, e.nonce, e.hand, e.openedAt])).toEqual([['right-now', 2, 'Pair', 1_002], ['right-now', 1, 'Pair', 1_001], ['other-set', 2, 'Pair', 700]]);
-    expect(history[1].cards).toHaveLength(5);
+    // Each stand-in is filled where it was, keeping its time; the pack with no stand-in goes in by time.
+    expect(history.map((e) => [e.setId, e.nonce, e.hand, e.openedAt])).toEqual([['right-now', 2, 'Pair', 1_002], ['other-set', 2, 'Pair', 600], ['right-now', 1, 'Pair', 500]]);
+    expect(history[2].cards).toHaveLength(5);
   });
 
   it('writes nothing when nothing is missing', () => {
@@ -198,6 +202,19 @@ describe('recording a ticket before its pack is in hand', () => {
     expect(historyForKey(KEY)[0].cards).toHaveLength(5);
   });
 
+  it('fills the stand-in where it is, keeping its time, so the history does not reorder when the pack opens', () => {
+    installStorage();
+    expect(recordTicket('right-now', 1, 1, KEY, 500)).toBe(true);
+    recordPack(pack(2, { openedAt: 600 }));
+    recordPack(pack(1, { openedAt: 700 }));
+    const history = getHistory();
+    expect(history.map((e) => [e.nonce, e.hand, e.openedAt])).toEqual([[2, 'Pair', 600], [1, 'Pair', 500]]);
+    expect(history[1].cards).toHaveLength(5);
+    // A recorded pack recorded again still moves to the front, as before.
+    recordPack(pack(1, { openedAt: 800 }));
+    expect(getHistory().map((e) => [e.nonce, e.openedAt])).toEqual([[1, 800], [2, 600]]);
+  });
+
   it('reports a history it could not read or write', () => {
     installStorage(10);
     expect(recordTicket('right-now', 1, 0, KEY, 1)).toBe(false);
@@ -205,6 +222,47 @@ describe('recording a ticket before its pack is in hand', () => {
     data.set(STORAGE_KEYS.HISTORY, '[null]');
     expect(recordTicket('right-now', 1, 0, KEY, 1)).toBe(false);
     expect(data.get(STORAGE_KEYS.HISTORY)).toBe('[null]');
+  });
+});
+
+describe('a stand-in whose pack this device re-opened', () => {
+  // A Full House: worth the Hall of Fame, and far above the Pair the other packs here score.
+  const CODE = 'jimothy*,jimothy,jimothy,verity,verity';
+  const expected = () => scorePulled(toPulled(CODE.split(',').map(decodeCard), getSet('right-now', 1)!)!);
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    resetPackStore();
+  });
+
+  it('reads with the hand and score of its cards, so Best and the Hall of Fame count it, and writes nothing', async () => {
+    const data = installStorage();
+    expect(recordTicket('right-now', 1, 7, KEY, 900)).toBe(true);
+    recordPack(pack(8, { openedAt: 1_000 }));
+    const stored = data.get(STORAGE_KEYS.HISTORY);
+    expect(historyForKey(KEY).find((e) => e.nonce === 7)).toMatchObject({ cards: null, hand: '', score: 0 });
+    await putStoredPacks([{ setKey: 'right-now@1', publicKeyHex: KEY, nonce: 7, cards: CODE }]);
+    const { hand, score } = expected();
+    expect(hand.name).toBe('Full House');
+    const filled = historyForKey(KEY).find((e) => e.nonce === 7)!;
+    expect(filled).toMatchObject({ hand: 'Full House', score, openedAt: 900 });
+    expect(filled.cards).toHaveLength(5);
+    expect(isHallOfFameWorthy(filled)).toBe(true);
+    expect([...getHistory()].sort(byBest).map((e) => e.nonce)).toEqual([7, 8]);
+    // Worked out on read: the stand-in is stored as it was, and still gives way to its pack.
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(stored);
+    recordPack(pack(7, { openedAt: 1_100 }));
+    expect(historyForKey(KEY).map((e) => [e.nonce, e.hand, e.score, e.openedAt])).toEqual([[7, 'Pair', 100, 900], [8, 'Pair', 100, 1_000]]);
+  });
+
+  it("never scores a stand-in from cards its set version doesn't have, or another key's pack", async () => {
+    installStorage();
+    expect(recordTicket('right-now', 1, 7, KEY, 900)).toBe(true);
+    await putStoredPacks([
+      { setKey: 'right-now@1', publicKeyHex: KEY, nonce: 7, cards: 'jimothy,jimothy,jimothy,verity,not-a-card' },
+      { setKey: 'right-now@1', publicKeyHex: 'cd'.repeat(32), nonce: 7, cards: CODE },
+    ]);
+    expect(historyForKey(KEY)[0]).toMatchObject({ hand: '', score: 0 });
   });
 });
 

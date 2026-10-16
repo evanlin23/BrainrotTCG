@@ -518,6 +518,9 @@ describe('claiming the next ticket number', () => {
       await expect(player.claimNonce()).rejects.toThrow(RangeError);
       expect(setItem).not.toHaveBeenCalled();
       expect(player.getPlayer().publicKeyHex).toBe(ORIGINAL_KEY);
+      // Logged as the counter running out, not as a lock that failed.
+      if (withLocks) expect(console.error).toHaveBeenCalledWith(player.COUNTER_EXHAUSTED, expect.any(RangeError));
+      expect(console.error).not.toHaveBeenCalledWith('Could not hold a ticket number', expect.anything());
 
       // A corrupt mapping that high in the history: the same, with the stored record untouched.
       store.set(PLAYER_KEY, JSON.stringify(original));
