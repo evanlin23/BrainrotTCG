@@ -6,7 +6,7 @@
 import qrcode from 'qrcode-generator';
 import type { Finish, PackScore } from '../engine';
 import { FINISH_INFO, modifierLabel } from './modifiers';
-import { finishedCardImage } from './finishImage';
+import { holdFinishedCardImage } from './finishImage';
 
 interface PosterCard {
   image: string;
@@ -33,13 +33,19 @@ const W = 1080;
 const H = 1920;
 
 const loadImage = async (src: string, finish?: Finish | null) => {
-  const imageUrl = await finishedCardImage(src, finish);
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Could not load ${src}`));
-    img.src = imageUrl;
-  });
+  const finished = holdFinishedCardImage(src, finish);
+  try {
+    const imageUrl = await finished.image;
+    return await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`Could not load ${src}`));
+      img.src = imageUrl;
+    });
+  } finally {
+    // A loaded image keeps its pixels, so the render can be evicted while the poster is drawn.
+    finished.release();
+  }
 };
 
 const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => {

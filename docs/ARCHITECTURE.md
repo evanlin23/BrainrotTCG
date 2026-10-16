@@ -448,7 +448,9 @@ platinum blue, diamond blue/violet), with glow on platinum and diamond; misprint
 stored compactly in the pack history (`src/game/cardCode.ts`: `sigma*G!` is a holo Gold misprint).
 
 `src/game/frameRecolor.ts` uses the shared frame's alpha mask to protect the meme artwork. Large
-card views and the PNG exporter use `src/game/finishImage.ts`, caching full-size results per card/finish.
+card views and the PNG exporter use `src/game/finishImage.ts`, caching full-size results per card/finish
+in a 16-entry LRU. Each view holds its render while mounted; an evicted render's blob URL is revoked
+only after its last holder lets go, so no mounted `<img>` loses its source.
 Collection tiles load pre-rendered 344px WebP finishes directly, with native lazy loading and no
 canvas recolouring or PNG encoding on first load. They use the same recolouring function before
 resizing. `npm run cards` rebuilds these thumbnails and the small lossless mask

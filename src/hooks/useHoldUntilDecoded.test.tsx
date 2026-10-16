@@ -8,11 +8,11 @@ import { SUMMARY_DECODE_CAP_MS, useHoldUntilDecoded } from './useHoldUntilDecode
 let root: Root;
 let decoded: () => void;
 
-/** `prepared={false}` keeps the second card hidden, as CardImage does while a finish's inks render. */
+/** `prepared={false}` marks the second card as rendering, as CardImage does while a finish's inks render. */
 const Summary = ({ active = true, prepared = true }: { active?: boolean; prepared?: boolean }) => {
   const ref = useRef<HTMLUListElement>(null);
   useHoldUntilDecoded(ref, active);
-  return <ul ref={ref}><li><img alt="" /></li><li><img alt="" style={prepared ? {} : { visibility: 'hidden' }} /></li></ul>;
+  return <ul ref={ref}><li><img alt="" /></li><li><img alt="" data-state={prepared ? 'ready' : 'rendering'} /></li></ul>;
 };
 const render = (node: React.ReactNode) => act(() => root.render(node));
 /** Optional work queued now, and whether it has started. */

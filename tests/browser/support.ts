@@ -74,11 +74,12 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
   return errors;
 }
 
+/** Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. */
 export async function expectDecoded(images: Locator, count: number) {
   await expect(images).toHaveCount(count);
   for (const image of await images.all()) {
     await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
-      element.complete && element.naturalWidth > 0 && element.naturalHeight > 0,
+      (element.dataset.state ?? 'ready') === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0,
     )).toBe(true);
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }

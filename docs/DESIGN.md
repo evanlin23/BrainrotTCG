@@ -43,7 +43,9 @@ from a 390 px wide screen.
 9. **Accessible by default.** Text meets WCAG AA contrast; every control is reachable by keyboard with a
    visible focus ring; touch targets are at least 44 px; panels trap focus and close with Escape;
    motion is reduced when the OS asks for it.
-10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading; standard UI transitions
+10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading. Card art shows a
+    placeholder while it loads (a shimmer only when motion is allowed) and a hatched slot if it fails; the
+    card viewer offers Retry, and failed art also retries when the device comes back online. Standard UI transitions
     are 120–320 ms (rare pull celebrations and card shimmers run longer, and specific card/reveal effects animate
     properties like box-shadow or clip-path).
 
