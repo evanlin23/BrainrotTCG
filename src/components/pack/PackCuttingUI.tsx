@@ -1,3 +1,4 @@
+import { useIsPresent } from 'framer-motion';
 import { MoveHorizontal } from 'lucide-react';
 import type { Ref, RefObject } from 'react';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
@@ -52,10 +53,14 @@ const PackCuttingUI = ({
   sparks,
 }: PackCuttingUIProps) => {
   const touch = useCoarsePointer();
+  // The torn pack flies off over the first card (#312 P2-6), so it drops its controls the moment it
+  // starts leaving: a focused Open pack button there would keep focus from the card, which takes it
+  // only from the page, and would still be read and queried for the exit's quarter second.
+  const leaving = !useIsPresent();
 
   return (
     <>
-      <div className="pack-shell-wrap">
+      <div className="pack-shell-wrap" inert={leaving || undefined}>
         {/* A gesture surface only: the Open pack button under it is the control for keys and screen readers. */}
         <div
           ref={packRef}
@@ -126,7 +131,7 @@ const PackCuttingUI = ({
           </div>
         </div>
         {/* Seen, not read: the pack's live region (PackOpener) says it once. */}
-        {waiting && !refusal && (
+        {waiting && !refusal && !leaving && (
           <p className="pack-hint is-waiting" aria-hidden="true">
             Opening…
           </p>
@@ -134,7 +139,7 @@ const PackCuttingUI = ({
       </div>
       {/* Under the tear line: the swipe is the show, this is the same opening for everyone else (#312). */}
       <div className="pack-actions">
-        {refusal ? (
+        {leaving ? null : refusal ? (
           <div className="pack-refusal">
             <p className="pack-refusal-text">{REFUSAL_COPY[refusal].message}</p>
             <button type="button" ref={retryButtonRef} className="btn btn--primary btn--sm pack-retry-button quiet-focus" onClick={onRetry}>
