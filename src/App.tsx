@@ -5,6 +5,7 @@ import PackOpener from './components/pack/PackOpener';
 import AchievementToasts, { type ToastItem } from './components/achievements/AchievementToasts';
 import AppNav, { type NavTarget } from './components/ui/AppNav';
 import DeferredSheet from './components/ui/DeferredSheet';
+import { sheetLoader } from './components/ui/sheetEntry';
 import SetPicker from './components/sets/SetPicker';
 import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
@@ -38,16 +39,21 @@ import {
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
 import swedenSrc from './assets/audio/Sweden.mp3';
 
-// Keep loaders stable, and request a secondary screen only when its existing state opens it.
-const loadPlayer = () => import('./components/profile/PlayerPage');
-const loadProfile = () => import('./components/profile/MyProfilePage');
-const loadPublicProfile = () => import('./components/profile/ProfileViewerPage');
-const loadAchievements = () => import('./components/achievements/AchievementsPage');
-const loadHallOfFame = () => import('./components/pages/HallOfFamePage');
-const loadSettings = () => import('./components/pages/SettingsPage');
-const loadCollection = () => import('./components/collection/CollectionBrowser');
-const loadShare = () => import('./components/share/ShareSheet');
-const loadPull = () => import('./components/share/PullViewerPage');
+// Keep loaders stable. A secondary screen is requested when its state opens it, or a moment earlier
+// when the player points at, focuses or presses what opens it: never at startup or on idle.
+const loadPlayer = sheetLoader(() => import('./components/profile/PlayerPage'));
+const loadProfile = sheetLoader(() => import('./components/profile/MyProfilePage'));
+const loadPublicProfile = sheetLoader(() => import('./components/profile/ProfileViewerPage'));
+const loadAchievements = sheetLoader(() => import('./components/achievements/AchievementsPage'));
+const loadHallOfFame = sheetLoader(() => import('./components/pages/HallOfFamePage'));
+const loadSettings = sheetLoader(() => import('./components/pages/SettingsPage'));
+const loadCollection = sheetLoader(() => import('./components/collection/CollectionBrowser'));
+const loadShare = sheetLoader(() => import('./components/share/ShareSheet'));
+const loadPull = sheetLoader(() => import('./components/share/PullViewerPage'));
+const PREFETCH: Partial<Record<NavTarget, () => Promise<unknown>>> = {
+  collection: loadCollection, profile: loadProfile, achievements: loadAchievements, hallOfFame: loadHallOfFame,
+  player: loadPlayer, settings: loadSettings, save: loadSettings,
+};
 
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). */
 const isBrokenLink = (hash: string) => /^#\/(pull|profile)\//.test(hash) && !extractProof(hash) && !extractProfile(hash);
@@ -386,6 +392,12 @@ function App() {
     setNotificationQueue(prev => prev.filter(a => !ids.includes(a.id)));
   }, []);
 
+  /** Start fetching a screen on intent, so it is usually there by the click; not while a pack opens. */
+  const prefetch = useCallback((target: NavTarget) => {
+    if (!packBusy) PREFETCH[target]?.().catch(() => {});
+  }, [packBusy]);
+  const intent = (target: NavTarget) => ({ onPointerEnter: () => prefetch(target), onFocus: () => prefetch(target), onPointerDown: () => prefetch(target) });
+
   const openNav = useCallback((target: NavTarget) => {
     setIsCollectionOpen(target === 'collection');
     setIsProfileOpen(target === 'profile');
@@ -582,8 +594,8 @@ function App() {
   const activeTab = isNonTabSheetOpen ? null : isCollectionOpen || isProfileOpen ? 'collection' : isHallOfFameOpen ? 'hallOfFame' : 'open';
 
   const personalNavigation = <nav className="personal-nav" aria-label="My cards">
-    <button type="button" className="btn btn--secondary" aria-current={isCollectionOpen ? 'page' : undefined} onClick={() => openNav('collection')}>Cards</button>
-    <button type="button" className="btn btn--secondary" aria-current={isProfileOpen ? 'page' : undefined} onClick={() => openNav('profile')}>Best pulls</button>
+    <button type="button" className="btn btn--secondary" aria-current={isCollectionOpen ? 'page' : undefined} {...intent('collection')} onClick={() => openNav('collection')}>Cards</button>
+    <button type="button" className="btn btn--secondary" aria-current={isProfileOpen ? 'page' : undefined} {...intent('profile')} onClick={() => openNav('profile')}>Best pulls</button>
   </nav>;
 
   return (
@@ -607,10 +619,10 @@ function App() {
             ),
           )}
         </h1>
-        <AppNav onOpen={openNav} active={activeTab} />
+        <AppNav onOpen={openNav} onPrefetch={prefetch} active={activeTab} />
         <div className="app-utilities">
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('player')} disabled={packBusy}>Player</button>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => openNav('settings')} disabled={packBusy} aria-label="Sound & display" title="Sound & display"><Settings2 aria-hidden="true" size={20} /></button>
+          <button type="button" className="btn btn--ghost btn--sm" {...intent('player')} onClick={() => openNav('player')} disabled={packBusy}>Player</button>
+          <button type="button" className="btn btn--ghost btn--sm" {...intent('settings')} onClick={() => openNav('settings')} disabled={packBusy} aria-label="Sound & display" title="Sound & display"><Settings2 aria-hidden="true" size={20} /></button>
         </div>
       </header>
 
