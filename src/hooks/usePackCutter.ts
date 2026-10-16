@@ -71,7 +71,15 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   const strokeRef = useRef<CutStroke | null>(null);
   const cutCompletedRef = useRef(false);
   const isPointerDownRef = useRef(false);
-  /** This press started over something else (an open sheet), so it can't cut until it's released. */
+  /**
+   * The pointer whose press this is. Every other pointer is ignored until it's released, so a second
+   * finger can't stretch the first one's stroke.
+   */
+  const ownerRef = useRef<number | null>(null);
+  /**
+   * This press started over something else (an open sheet) or beside the pack, so it can't cut until
+   * it's released.
+   */
   const blockedRef = useRef(false);
   const fairyDustRef = useRef<HTMLAudioElement | null>(null);
 
@@ -171,6 +179,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   const endCutAttempt = useCallback(() => {
     setIsCutting(false);
     isPointerDownRef.current = false;
+    ownerRef.current = null;
     clearSparks();
 
     // Stop fairy dust sound
@@ -187,28 +196,42 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
 
   const handlePointerDown = useCallback((event: PointerEvent) => {
     if (event.button !== 0) return;
+    if (ownerRef.current !== null) {
+      // Another finger while one is down: not part of this stroke.
+      if (event.pointerId !== ownerRef.current && event.isPrimary === false) return;
+      // Otherwise the owner's release was lost (a mouse can't press twice, and a primary touch means
+      // no other is down), so this press starts afresh.
+      endCutAttempt();
+    }
+    ownerRef.current = event.pointerId;
+    blockedRef.current = false;
     // The pack's top bar (its X) can sit over the tear line on a phone: pressing it never cuts.
     if (disabled || (event.target as Element | null)?.closest?.('[role="dialog"], .sheet-backdrop, .pack-top-bar')) {
       blockedRef.current = true;
       return;
     }
-    isPointerDownRef.current = true;
     const point = getLocalPoint(event.clientX, event.clientY);
-    const onPack = !!point && point.x >= 0 && point.x <= point.width && point.y >= 0 && point.y <= point.height;
-    if (onPack && Math.abs(point.y - point.tearY) > point.tolerance && !isOpening && !isPackCut) onMiss?.();
+    // A press beside the pack, dragged onto it, doesn't cut either.
+    if (!point || point.x < 0 || point.x > point.width || point.y < 0 || point.y > point.height) {
+      blockedRef.current = true;
+      return;
+    }
+    isPointerDownRef.current = true;
+    if (Math.abs(point.y - point.tearY) > point.tolerance && !isOpening && !isPackCut) onMiss?.();
     trackPoint(event.clientX, event.clientY);
-  }, [trackPoint, disabled, getLocalPoint, isOpening, isPackCut, onMiss]);
+  }, [trackPoint, endCutAttempt, disabled, getLocalPoint, isOpening, isPackCut, onMiss]);
 
   const handlePointerMove = useCallback((event: PointerEvent) => {
     if (blockedRef.current || disabled || cutCompletedRef.current || isOpening || isPackCut) return;
-    const isPressed = isPointerDownRef.current || event.buttons === 1 || event.pressure > 0;
-    if (!isPressed) return;
+    if (!isPointerDownRef.current || event.pointerId !== ownerRef.current) return;
     for (const { clientX, clientY } of pointsOf(event)) trackPoint(clientX, clientY);
   }, [trackPoint, disabled, isOpening, isPackCut]);
 
   /** On release, a stroke that started on the tear line and is wide enough finishes the cut. */
   const handlePointerEnd = useCallback((event?: PointerEvent) => {
+    if (event && ownerRef.current !== null && event.pointerId !== ownerRef.current) return;
     blockedRef.current = false;
+    ownerRef.current = null;
     if (!isPointerDownRef.current && !strokeRef.current) return;
     if (event?.type === 'pointerup' && strokeRef.current && !disabled && !isOpening && !isPackCut) {
       // The release point (and any coalesced into it) counts, so a flick with no moves still cuts.

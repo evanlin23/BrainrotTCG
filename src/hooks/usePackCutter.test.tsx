@@ -15,8 +15,13 @@ type Point = { clientX: number; clientY: number };
 /** A point `across` of the way over the pack, `below` px under its tear line. */
 const at = (across: number, below = 0): Point => ({ clientX: rect.left + across * rect.width, clientY: tearClientY + below });
 
+/** One finger's event; pass `pointerId` and `isPrimary: false` for a second finger. */
 const pointer = (type: string, point: Point, extra: Partial<PointerEvent> = {}) =>
-  ({ type, button: 0, buttons: type === 'pointerup' ? 0 : 1, pressure: 0.5, target: null, ...point, ...extra }) as unknown as PointerEvent;
+  ({
+    type, button: 0, buttons: type === 'pointerup' ? 0 : 1, pressure: 0.5, target: null,
+    pointerId: 1, pointerType: 'touch', isPrimary: true, ...point, ...extra,
+  }) as unknown as PointerEvent;
+const second = { pointerId: 2, isPrimary: false };
 
 let root: Root;
 let container: HTMLDivElement;
@@ -115,8 +120,10 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('opens on a fast flick with only a press and a release', () => {
-    swipe(at(0.3), at(0.6));
+  it('opens on a fast flick with only a press and a release, with no move between', () => {
+    down(at(0.3));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.6));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
@@ -124,6 +131,27 @@ describe('usePackCutter short swipes (#312)', () => {
     down(at(0.3));
     move(at(0.8), { getCoalescedEvents: () => [at(0.45), at(0.6), at(0.8)] as unknown as PointerEvent[] });
     expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts the points a browser coalesced into the release', () => {
+    down(at(0.3));
+    up(at(0.3), { getCoalescedEvents: () => [at(0.45), at(0.6)] as unknown as PointerEvent[] });
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('measures a stroke from where it reaches the tear line, not from a press just off it', () => {
+    // 50px under the line is just past the band, so the press nudges; the stroke starts at 20%.
+    swipe(at(0.1, 50), at(0.2), at(0.38));
+    expect(onMiss).toHaveBeenCalledTimes(1);
+    expect(onCutComplete).not.toHaveBeenCalled();
+    swipe(at(0.1, 50), at(0.2), at(0.42));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('never cuts from a press beside the pack at tear height, dragged onto it', () => {
+    swipe(at(-0.1), at(0.2), at(0.5), at(0.6));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    expect(onMiss).not.toHaveBeenCalled();
   });
 
   it('does not open on a tap on the tear line', () => {
@@ -154,5 +182,61 @@ describe('usePackCutter short swipes (#312)', () => {
     move(at(0.6));
     act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.6))));
     expect(onCutComplete).not.toHaveBeenCalled();
+  });
+});
+
+describe('usePackCutter with more than one finger', () => {
+  it('does not open when a second finger lands far along the tear line', () => {
+    down(at(0.2));
+    down(at(0.7), second);
+    up(at(0.7), second);
+    up(at(0.2));
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('does not open from a second finger swiping while the first holds still', () => {
+    down(at(0.3));
+    down(at(0.35), second);
+    move(at(0.45), second);
+    move(at(0.55), second);
+    up(at(0.3));
+    up(at(0.55), second);
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('does not open from a second finger tapping 30% away', () => {
+    down(at(0.3));
+    down(at(0.6), second);
+    up(at(0.6), second);
+    up(at(0.3));
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('ignores a cancel from another finger', () => {
+    down(at(0.3));
+    down(at(0.6), second);
+    act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.6), second)));
+    move(at(0.45));
+    up(at(0.6));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('still opens from a one-finger stroke after another pointer has come and gone', () => {
+    swipe(at(0.5, 200));
+    down(at(0.3), { pointerId: 8 });
+    down(at(0.6), { pointerId: 9, isPrimary: false });
+    up(at(0.6), { pointerId: 9, isPrimary: false });
+    move(at(0.55), { pointerId: 8 });
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.55), { pointerId: 8 });
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts afresh from a new first finger when the last one\'s release was lost', () => {
+    down(at(0.8));
+    down(at(0.3), { pointerId: 2 });
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.6), { pointerId: 2 });
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 });
