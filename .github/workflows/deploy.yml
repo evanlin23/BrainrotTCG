@@ -187,7 +187,11 @@ jobs:
       - name: Require the tip of main
         if: needs.site.outputs.host == 'cloudflare'
         run: |
-          tip=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | awk '$2 == "refs/heads/main" {print $1}')
+          if ! refs=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main); then
+            echo "::error::Could not read the tip of main, so not publishing $GITHUB_SHA. git ls-remote failed; re-run this job once GitHub is reachable."
+            exit 1
+          fi
+          tip=$(printf '%s\n' "$refs" | awk '$2 == "refs/heads/main" {print $1}')
           if [ "$tip" != "$GITHUB_SHA" ]; then
             echo "::error::Not publishing $GITHUB_SHA: main is now at ${tip:-a commit this job could not read}. Re-running a deploy whose commit is no longer main's tip would put an older build over a newer one. If no newer deploy run is in progress, start this workflow on main by hand (Actions > Deploy to GitHub Pages > Run workflow)."
             exit 1
@@ -257,7 +261,11 @@ jobs:
       # on one commit, so re-running an earlier one still passes and serves its older list until the next.
       - name: Require the tip of main
         run: |
-          tip=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main | awk '$2 == "refs/heads/main" {print $1}')
+          if ! refs=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main); then
+            echo "::error::Could not read the tip of main, so not publishing $GITHUB_SHA. git ls-remote failed; re-run this job once GitHub is reachable."
+            exit 1
+          fi
+          tip=$(printf '%s\n' "$refs" | awk '$2 == "refs/heads/main" {print $1}')
           if [ "$tip" != "$GITHUB_SHA" ]; then
             echo "::error::Not publishing $GITHUB_SHA: main is now at ${tip:-a commit this job could not read}. Re-running a deploy whose commit is no longer main's tip would put an older build over a newer one. If no newer deploy run is in progress, start this workflow on main by hand (Actions > Deploy to GitHub Pages > Run workflow)."
             exit 1

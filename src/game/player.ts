@@ -121,6 +121,9 @@ export interface NonceClaim {
   stored: boolean;
 }
 
+/** Logged when a claim fails because this player's ticket counter is out of safe integers. */
+export const COUNTER_EXHAUSTED = 'Ticket counter exhausted: this player has no ticket number with a safe successor left';
+
 const take = (record: StoredPlayer, nonce: number): NonceClaim => {
   // Checked before anything is written: a count past Number.MAX_SAFE_INTEGER would make the next read
   // reject the record and make a new key in its place.
@@ -236,7 +239,9 @@ export const claimNonce = async (): Promise<NonceClaim> => {
     try {
       result = await attempt(locks, record, at);
     } catch (error) {
-      console.error('Could not hold a ticket number', error);
+      // take() refuses a number with no safe successor with a RangeError: the counter has run out, and
+      // the unlocked fallback refuses it the same way, so say that rather than blame the lock.
+      console.error(error instanceof RangeError ? COUNTER_EXHAUSTED : 'Could not hold a ticket number', error);
       return takeFrom(record, at.nonce);
     }
     if (typeof result !== 'number') return result;

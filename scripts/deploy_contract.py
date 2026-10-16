@@ -244,11 +244,17 @@ GUARD = {'name': 'Require the main source ref', 'env': {'SOURCE_REF': '${{ githu
 # publish and deploy each start by checking this run's commit is still main's tip, so re-running a run
 # whose commit main has moved past (or only its publish or deploy job) fails instead of publishing an
 # older build. It compares commits, not runs: a re-run of an earlier run on main's current commit (an
-# older Hall of Fame refresh) still passes. ls-remote matches ref names by suffix, so awk keeps only
-# refs/heads/main itself; no such line, or a failed lookup, leaves tip empty and refuses.
+# older Hall of Fame refresh) still passes. A failed lookup refuses with its own error: the runner's
+# shell has -e and pipefail, so the lookup runs outside the pipe and an if catches its failure before
+# -e would end the step silently. ls-remote matches ref names by suffix, so awk keeps only
+# refs/heads/main itself; no such line leaves tip empty and refuses.
 TIP = {'name': 'Require the tip of main', 'run': (
-    'tip=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main'
-    ' | awk \'$2 == "refs/heads/main" {print $1}\')\n'
+    'if ! refs=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main); then\n'
+    '  echo "::error::Could not read the tip of main, so not publishing $GITHUB_SHA. '
+    'git ls-remote failed; re-run this job once GitHub is reachable."\n'
+    '  exit 1\n'
+    'fi\n'
+    'tip=$(printf \'%s\\n\' "$refs" | awk \'$2 == "refs/heads/main" {print $1}\')\n'
     'if [ "$tip" != "$GITHUB_SHA" ]; then\n'
     '  echo "::error::Not publishing $GITHUB_SHA: main is now at ${tip:-a commit this job could not read}. '
     'Re-running a deploy whose commit is no longer main\'s tip would put an older build over a newer one. '

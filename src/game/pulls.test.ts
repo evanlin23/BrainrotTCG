@@ -543,7 +543,9 @@ describe('opening a pack', () => {
     const pack = await opening;
     expect(pack.nonce).toBe(before.nonce + 2);
     expect(pack.cards.map((c) => c.key)).toEqual(generatePack(SET, packSeedFromTicket(ticketFor(before.nonce + 2))).map((c) => `${c.setId}/${c.cardId}`));
-    expect(recorded()[0]).toMatchObject({ n: before.nonce + 2, s: SET.id, v: SET.version });
+    // The pack takes its stand-in's place and time, so it sorts where the stand-in did.
+    expect(recorded()[0]).toMatchObject({ n: before.nonce + 2, s: SET.id, v: SET.version, t: pack.openedAt });
+    expect(recorded().filter((e) => e.n === before.nonce + 2)).toHaveLength(1);
     expect(counter()).toBe(before.nonce + 3);
   });
 

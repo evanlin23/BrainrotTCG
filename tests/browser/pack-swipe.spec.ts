@@ -54,3 +54,85 @@ test('a swipe that goes over and comes back opens the pack on release', async ({
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   expect(errors).toEqual([]);
 });
+
+interface SeamSeen { cutting: boolean; line: boolean; spark: boolean }
+type SeamWindow = Window & { seamSeen?: SeamSeen };
+
+/** Records whether the pack ever shows a cut in progress: the cutting state, the seam or a spark. */
+async function watchForCut(packShell: Locator) {
+  await packShell.evaluate((shell) => {
+    const seen: SeamSeen = { cutting: false, line: false, spark: false };
+    (window as SeamWindow).seamSeen = seen;
+    new MutationObserver(() => {
+      seen.cutting ||= shell.classList.contains('is-cutting');
+      seen.line ||= !!shell.querySelector('.cut-line-svg, .cut-line');
+      seen.spark ||= !!shell.querySelector('.drag-spark');
+    }).observe(shell, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
+  });
+}
+
+/** Checks a gesture drew nothing and left the pack sealed. */
+async function expectNoCut(page: Page, packShell: Locator) {
+  // Long enough for a release that would open the pack to have started the tear.
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => (window as SeamWindow).seamSeen)).toEqual({ cutting: false, line: false, spark: false });
+  await expect(packShell).not.toHaveClass(/\bis-cut\b/);
+  await expect(page.locator('.card-reveal-area')).toHaveCount(0);
+}
+
+// Gestures that aren't a swipe along the seam never cut or draw (#267), at a phone's size. Desktop
+// drives them with a mouse, the phone project with touch.
+test.describe('at a phone size', () => {
+  test.use({ viewport: { width: 393, height: 727 } });
+
+  test('a drag down from the tear line neither cuts nor draws', async ({ page, baseURL, hasTouch }) => {
+    test.setTimeout(60000);
+    const errors = await monitor(page, baseURL!);
+    const packShell = await sealedPack(page);
+    const box = (await packShell.boundingBox())!;
+    const x = box.x + box.width * 0.5;
+    const y = box.y + box.height * 0.19;
+    const onPack = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.pack-shell'), [x, y]);
+    expect(onPack, 'the drag starts on the pack').toBe(true);
+    await watchForCut(packShell);
+
+    const finger = await fingerFor(page, hasTouch);
+    await finger.press(x, y);
+    // Down the pack with a little sideways drift, as a thumb scrolling would.
+    for (let step = 1; step <= 6; step++) await finger.move(x + step * 2, y + step * 20);
+    await finger.release();
+    await expectNoCut(page, packShell);
+
+    // The pack still opens with a real swipe.
+    await swipeTearLine(page, packShell, finger, 0.35, 0.65);
+    await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+    expect(errors).toEqual([]);
+  });
+
+  test('a swipe that starts off the tear line neither cuts nor draws, even when it reaches it', async ({ page, baseURL, hasTouch }) => {
+    test.setTimeout(60000);
+    const errors = await monitor(page, baseURL!);
+    const packShell = await sealedPack(page);
+    const box = (await packShell.boundingBox())!;
+    const xAt = (fraction: number) => box.x + box.width * fraction;
+    const tearY = box.y + box.height * 0.19;
+    // Further below the tear line than its widest tolerance (52px), on the art.
+    const startY = tearY + 80;
+    const onPack = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.pack-shell'), [xAt(0.15), startY]);
+    expect(onPack, 'the swipe starts on the pack').toBe(true);
+    await watchForCut(packShell);
+
+    const finger = await fingerFor(page, hasTouch);
+    await finger.press(xAt(0.15), startY);
+    // The press missed the seam, so the pack shows where to swipe.
+    await expect(packShell).toHaveClass(/\bis-nudged\b/);
+    // Plainly across, rising onto the tear line by the end.
+    for (let step = 1; step <= 8; step++) await finger.move(xAt(0.15 + (0.7 * step) / 8), startY + ((tearY - startY) * step) / 8);
+    await finger.release();
+    await expectNoCut(page, packShell);
+
+    await swipeTearLine(page, packShell, finger, 0.35, 0.65);
+    await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+    expect(errors).toEqual([]);
+  });
+});

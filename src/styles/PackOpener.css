@@ -355,6 +355,8 @@
     pointer-events: none;
 }
 
+/* A press on the line warms it before the swipe has a direction, so the press is felt (#267). */
+.pack-shell.is-pressed .tear-guide,
 .pack-shell.is-cutting .tear-guide {
     border-top-color: rgba(255, 241, 188, 1);
     animation: none;
@@ -447,13 +449,49 @@
     overflow: visible;
 }
 
+/* The cut: a thin white seam over a foil gradient, with a dark edge so it reads on any wrapper art.
+   It keeps the same width whatever the pack's size (#267). */
 .cut-line {
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 3px rgba(255, 255, 255, 0.85));
+    animation: seam-shimmer 1.6s ease-in-out infinite alternate;
+}
+
+.cut-line polyline {
     fill: none;
-    stroke: #6a0dad;
-    stroke-width: 2;
-    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: butt;
     stroke-linejoin: round;
-    filter: drop-shadow(0 0 6px #6a0dad) drop-shadow(0 0 12px #4a0080);
+}
+
+.cut-line-foil {
+    stroke-width: 4px;
+}
+
+.cut-line-core {
+    stroke: #fff;
+    stroke-width: 1.5px;
+}
+
+.seam-stop-1 { stop-color: #ff9ad6; }
+.seam-stop-2 { stop-color: #ffe066; }
+.seam-stop-3 { stop-color: #8ff5d2; }
+.seam-stop-4 { stop-color: #9cc9ff; }
+.seam-stop-5 { stop-color: #dea6ff; }
+
+@keyframes seam-shimmer {
+    from {
+        filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 3px rgba(255, 255, 255, 0.85)) hue-rotate(0deg);
+    }
+    to {
+        filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 3px rgba(255, 255, 255, 0.85)) hue-rotate(50deg);
+    }
+}
+
+/* A still seam: no shimmer. */
+@media (prefers-reduced-motion: reduce) {
+    .cut-line {
+        animation: none;
+    }
 }
 
 .spark-layer {

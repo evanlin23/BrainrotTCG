@@ -467,21 +467,27 @@ class TipGuard(unittest.TestCase):
         (tmp / 'git').chmod(0o755)
         sha, newer = 'a' * 40, 'b' * 40
         main, decoy = 'refs/heads/main', 'refs/heads/x/refs/heads/main'
-        unread = 'a commit this job could not read'
+        unread, failed = 'a commit this job could not read', 'lookup failed'
         # A push run, or a re-run of main's latest commit, sees its own commit at the tip; a re-run of
-        # a superseded commit sees a newer one; and a failed lookup refuses rather than publishes.
-        # ls-remote matches by suffix, so a branch ending in refs/heads/main also answers: only main
-        # itself counts, and a decoy alone reads as no tip.
-        for lines, code, shown in (([(sha, main)], 0, None), ([(newer, main)], 0, newer), ([], 128, unread), ([], 2, unread),
+        # a superseded commit sees a newer one; and a failed lookup refuses rather than publishes, and
+        # says so. ls-remote matches by suffix, so a branch ending in refs/heads/main also answers: only
+        # main itself counts, and a decoy alone reads as no tip.
+        for lines, code, shown in (([(sha, main)], 0, None), ([(newer, main)], 0, newer), ([], 128, failed), ([], 2, failed),
+                                   ([(sha, main)], 128, failed),
                                    ([(newer, decoy), (sha, main)], 0, None), ([(sha, decoy), (newer, main)], 0, newer),
                                    ([(sha, decoy)], 0, unread)):
             out = ''.join(f'{commit}\\t{ref}\\n' for commit, ref in lines)
             with self.subTest(out=out, code=code):
                 env = {'PATH': f'{tmp}:{os.environ["PATH"]}', 'STUB_OUT': out, 'STUB_EXIT': str(code), 'GITHUB_SHA': sha,
                        'GITHUB_SERVER_URL': 'https://github.com', 'GITHUB_REPOSITORY': ENV['GITHUB_REPOSITORY']}
-                result = subprocess.run(['bash', '-e', '-c', dc.TIP['run']], env=env, capture_output=True, text=True)
+                # The shell GitHub runs a step's script with, pipefail included.
+                result = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', dc.TIP['run']],
+                                        env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, shown is None, result.stdout)
-                if shown is not None:
+                if shown == failed:
+                    self.assertIn(f'::error::Could not read the tip of main, so not publishing {sha}.', result.stdout)
+                    self.assertNotIn('main is now at', result.stdout)
+                elif shown is not None:
                     self.assertIn(f'::error::Not publishing {sha}: main is now at {shown}.', result.stdout)
                     self.assertIn('start this workflow on main by hand', result.stdout)
         self.assertEqual(set((tmp / 'git.log').read_text().splitlines()),
