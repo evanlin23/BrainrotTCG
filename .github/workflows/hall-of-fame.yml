@@ -41,20 +41,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ github.event.issue.number }}
           VERIFIED: ${{ steps.check.outputs.verified }}
+          LABEL: ${{ steps.check.outputs.label }}
         run: |
           gh label create hall-of-fame --color FF3DF2 --description "Hall of Fame submission" 2>/dev/null || true
           gh label create verified --color 2BFF6A --description "Pull verified" 2>/dev/null || true
+          gh label create daily --color 2BD9FF --description "Pull verified for the daily top" 2>/dev/null || true
           gh label create not-verified --color 999999 --description "Pull did not verify or qualify" 2>/dev/null || true
           gh issue comment "$ISSUE" --body-file hof-comment.md
           if [ "$VERIFIED" = "true" ]; then
-            gh issue edit "$ISSUE" --add-label hall-of-fame,verified
+            # `daily`: it only made the day's top, so deploys list it for a day or two. Anything
+            # else is `verified`, which every deploy lists.
+            if [ "$LABEL" = "daily" ]; then OTHER=verified; else LABEL=verified; OTHER=daily; fi
+            gh issue edit "$ISSUE" --add-label "hall-of-fame,$LABEL"
             gh issue edit "$ISSUE" --remove-label not-verified 2>/dev/null || true
+            gh issue edit "$ISSUE" --remove-label "$OTHER" 2>/dev/null || true
             # Done: closed issues stay in the Hall of Fame (the deploy reads every state). One that
             # didn't verify stays open, so the submitter can fix the link.
             gh issue close "$ISSUE" --reason completed 2>/dev/null || true
           else
             gh issue edit "$ISSUE" --add-label hall-of-fame,not-verified
             gh issue edit "$ISSUE" --remove-label verified 2>/dev/null || true
+            gh issue edit "$ISSUE" --remove-label daily 2>/dev/null || true
           fi
 
   # The only job that can start a deploy, and all it can do. It runs only if verify succeeded.

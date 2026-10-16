@@ -242,4 +242,69 @@ describe('loadPending', () => {
     expect(fetchEvents).not.toHaveBeenCalled();
     expect(onEntry).not.toHaveBeenCalled();
   });
+
+  describe('a pull that only makes today’s top', () => {
+    afterEach(() => vi.useRealTimers());
+
+    // 100 pulls above it, and the first of its hand in its set already taken: it can only join
+    // through the daily top 50 (UTC).
+    const entry = (id: string, score: number, submittedAt: string) =>
+      ({ id, setId: 'test-set', hand: 'Full House', multiplier: 150, score, submittedAt }) as unknown as import('./hallOfFameList').HallOfFameEntry;
+    const board = (todays: number) => [
+      ...Array.from({ length: 100 }, (_, i) => entry(`top-${i}`, 100_000 + i, '2026-10-01T00:00:00.000Z')),
+      ...Array.from({ length: todays }, (_, i) => entry(`today-${i}`, 20_000 + i, '2026-10-16T01:00:00.000Z')),
+    ];
+
+    // The clock reads 2026-10-16T12:00Z: an event from 09:00 that day, and one from two days before.
+    const sentToday = Date.parse('2026-10-16T09:00:00Z') / 1000;
+    const sentTwoDaysAgo = Date.parse('2026-10-14T09:00:00Z') / 1000;
+
+    const pending = async (published: ReturnType<typeof board>, createdAt = sentToday) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+      const { secretKey, publicKey } = generateKeypair();
+      const proof = encodeProof(signProof({ setId: 'test-set', setVersion: 1, publicKey, nonce: 1, name: 'Alice' }, secretKey));
+      const { proofFromEvent } = await import('./nostrInbox');
+      const { checkPull } = await import('./pulls');
+      vi.mocked(proofFromEvent).mockReturnValue(proof);
+      vi.mocked(checkPull).mockResolvedValue({
+        set: { id: 'test-set', name: 'Test Set' },
+        score: { score: 10_000, hand: { name: 'Full House', multiplier: 150 } },
+        proof: { name: 'Alice' },
+        fingerprint: 'fp',
+        cards: [],
+      } as never);
+      fetchEvents.mockResolvedValue({ events: [{ created_at: createdAt }], perRelay: [] });
+      const { loadPending } = await import('./hallOfFameList');
+      const onEntry = vi.fn();
+      await loadPending(published, onEntry, new AbortController().signal);
+      return onEntry;
+    };
+
+    it('shows it while today’s top 50 has room', async () => {
+      const onEntry = await pending(board(49));
+      expect(onEntry).toHaveBeenCalledTimes(1);
+      expect(onEntry.mock.calls[0][0]).toMatchObject({ score: 10_000, pending: true, submittedAt: '2026-10-16T12:00:00.000Z' });
+    });
+
+    it('leaves it out once today’s top 50 is full of better pulls', async () => {
+      const onEntry = await pending(board(50));
+      expect(onEntry).not.toHaveBeenCalled();
+    });
+
+    it('leaves it out when it was sent before today (UTC), though today’s top has room', async () => {
+      // Its day's daily entries have left the published list, so only the send time keeps it from
+      // coming back as one of today's.
+      expect(await pending(board(0), sentTwoDaysAgo)).not.toHaveBeenCalled();
+      expect(await pending(board(49), Date.parse('2026-10-15T23:59:59Z') / 1000)).not.toHaveBeenCalled();
+      expect(await pending(board(49), Date.parse('2026-10-16T00:00:00Z') / 1000)).toHaveBeenCalledTimes(1);
+    });
+
+    it('still shows an older one that would join the all-time list', async () => {
+      // Room in the top 100: it joins all-time, whenever it was sent.
+      const onEntry = await pending(board(0).slice(1), sentTwoDaysAgo);
+      expect(onEntry).toHaveBeenCalledTimes(1);
+      expect(onEntry.mock.calls[0][0]).toMatchObject({ score: 10_000, pending: true, submittedAt: '2026-10-16T12:00:00.000Z' });
+    });
+  });
 });

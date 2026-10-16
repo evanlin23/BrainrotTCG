@@ -42,7 +42,8 @@ Downloaded files are untrusted: download each into its own empty folder, then va
 with Pillow (`python3 -I`, which also strips metadata) before it goes into `art/`.
 
 Then run `npm run cards`. It also builds the set's booster pack wrapper (`pack.webp`) from the set's
-colours, the logo and its three rarest cards, so every era gets its own pack with no extra art.
+colours, the logo mark (`src/styles/logoMark.ts`) and its three rarest cards, so every era gets its own pack
+with no extra art.
 
 To preview one set (registered or not) as a contact sheet:
 

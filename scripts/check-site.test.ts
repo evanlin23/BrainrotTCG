@@ -58,7 +58,7 @@ const build = async (host: Host) => {
     `<!doctype html>
 <html lang="en">
   <head>
-    <link rel="icon" type="image/png" href="${base}logo.png" />
+    <link rel="icon" type="image/svg+xml" href="${base}favicon.svg" />
     <meta property="og:url" content="${site}" />
     <meta property="og:image" content="${site}og-image.jpg" />
     <meta property="og:image:width" content="1200" />
@@ -71,7 +71,7 @@ const build = async (host: Host) => {
 </html>
 `,
   );
-  write(`${outDir}logo.png`, 'logo');
+  write(`${outDir}favicon.svg`, 'icon');
   write(`${outDir}assets/index.js`, 'app');
   write(`${outDir}assets/index.css`, `@font-face{src:url(${base}assets/font.woff2) format("woff2")}body{background:url("./paper.webp")}`);
   write(`${outDir}assets/font.woff2`, 'font');
