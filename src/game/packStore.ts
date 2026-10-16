@@ -65,22 +65,25 @@ export interface StoredPack {
   cards: string;
 }
 
-/** Keep re-opened packs. Resolves once they're on disk (or right away without IndexedDB). */
-export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<void> => {
-  if (packs.length === 0) return;
+/**
+ * Keep re-opened packs. Resolves once they're on disk (or right away without IndexedDB): false if
+ * the write failed, so they're only in memory for this visit.
+ */
+export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<boolean> => {
+  if (packs.length === 0) return true;
   for (const p of packs) memory.set(keyOf(p.setKey, p.publicKeyHex, p.nonce), p.cards);
   const database = await open();
-  if (!database) return;
-  await new Promise<void>((resolve) => {
+  if (!database) return true;
+  return new Promise<boolean>((resolve) => {
     try {
       const tx = database.transaction(STORE, 'readwrite');
       const store = tx.objectStore(STORE);
       for (const p of packs) store.put(p.cards, keyOf(p.setKey, p.publicKeyHex, p.nonce));
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-      tx.onabort = () => resolve();
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
     } catch {
-      resolve();
+      resolve(false);
     }
   });
 };

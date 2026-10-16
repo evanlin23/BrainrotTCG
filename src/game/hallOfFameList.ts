@@ -90,7 +90,7 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
   for (const [i, { proof, id }] of candidates.entries()) {
     if (signal.aborted) return;
     try {
-      const pull = await checkPull(proof);
+      const pull = await checkPull(proof, signal);
       if (!wouldJoinHallOfFame({ id, setId: pull.set.id, score: pull.score }, list)) continue;
       const entry: HallOfFameEntry = {
         id,

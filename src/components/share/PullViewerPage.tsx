@@ -21,11 +21,13 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
 
   useEffect(() => {
     let cancelled = false;
-    checkPull(proof)
+    const stop = new AbortController();
+    checkPull(proof, stop.signal)
       .then((pull) => !cancelled && setState({ status: 'ok', pull }))
       .catch((error: unknown) => !cancelled && setState({ status: 'error', reason: error instanceof Error ? error.message : String(error) }));
     return () => {
       cancelled = true;
+      stop.abort();
     };
   }, [proof]);
 

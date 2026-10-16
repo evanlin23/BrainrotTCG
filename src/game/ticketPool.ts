@@ -13,10 +13,14 @@ export interface TicketPool {
   size: number;
 }
 
-/** One worker per spare core, up to 8 where there's memory for it (32 MiB each), else 4. */
+/**
+ * One worker per spare core, up to 8 where there's memory for it (32 MiB each), else 4. Browsers
+ * that don't report memory (Safari, Firefox, so every iPhone) get 2: the phone may be a small one.
+ */
 export const poolSize = () => {
-  const memory = (navigator as { deviceMemory?: number }).deviceMemory ?? 8;
-  return Math.max(1, Math.min(memory >= 8 ? 8 : 4, (navigator.hardwareConcurrency || 2) - 1));
+  const memory = (navigator as { deviceMemory?: number }).deviceMemory;
+  const cap = memory === undefined ? 2 : memory >= 8 ? 8 : 4;
+  return Math.max(1, Math.min(cap, (navigator.hardwareConcurrency || 2) - 1));
 };
 
 export const createTicketPool = (size = poolSize()): TicketPool => {

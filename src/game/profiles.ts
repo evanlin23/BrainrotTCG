@@ -32,6 +32,7 @@ import { getReopened, putReopened } from './reopenCache';
 import { getStoredPack, hydratePackStore, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
 import { decodeCard, encodeCard, modifiersFor, type StoredCard } from './cardCode';
 import { createTicketPool } from './ticketPool';
+import { admitOptional } from './admission';
 
 export const profileUrl = (profile: string): string => `${window.location.origin}${import.meta.env.BASE_URL}#/profile/${profile}`;
 
@@ -431,18 +432,30 @@ const reopen = async (snapshot: PlayerTickets, auto = false): Promise<void> => {
 
   const promise = (async () => {
     const pool = createTicketPool();
+    // Optional work: each ticket waits for a free slot, so opening a pack never waits behind it.
+    // A different save stops it before the next ticket; one already mining finishes.
+    const stop = new AbortController();
+    const ticket = (set: string, publicKey: Uint8Array, nonce: number) =>
+      admitOptional(() => {
+        if (getPlayer().publicKeyHex !== player.publicKeyHex) throw new Error('Your save changed while your packs were being re-opened. Try again.');
+        return pool.ticket(set, publicKey, nonce);
+      }, stop.signal);
     let batch: StoredPack[] = [];
     let saving = Promise.resolve();
+    let onDisk = true;
     const save = () => {
       const packs = batch;
       batch = [];
-      saving = saving.then(() => putStoredPacks(packs));
+      saving = saving.then(async () => {
+        if (!(await putStoredPacks(packs))) onDisk = false;
+      });
     };
+    let complete = false;
     let next = 0;
     const work = async () => {
       while (next < missing.length) {
         const t = missing[next++];
-        const cards = await derivePack(t.set, player.publicKey, t.nonce, pool.ticket);
+        const cards = await derivePack(t.set, player.publicKey, t.nonce, ticket);
         const code = cards.map((c) => encodeCard({ id: c.cardId, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(',');
         batch.push({ setKey: setKey(t.set), publicKeyHex: player.publicKeyHex, nonce: t.nonce, cards: code });
         if (batch.length >= SAVE_BATCH) save();
@@ -453,14 +466,17 @@ const reopen = async (snapshot: PlayerTickets, auto = false): Promise<void> => {
     try {
       // Twice as many loops as workers, so a worker never waits for the next ticket to be handed out.
       await Promise.all(Array.from({ length: Math.min(missing.length, pool.size * 2) }, work));
-      setPending(null);
+      complete = true;
     } catch (error) {
       status.error = error instanceof Error ? error.message : String(error);
       throw error;
     } finally {
+      stop.abort();
       pool.close();
       save();
       await saving;
+      // Not until every pack is on disk: otherwise the next visit carries on.
+      if (complete && onDisk) setPending(null);
       status.running = false;
       emit(true);
     }
@@ -580,7 +596,9 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
     const cached = getReopened(set, keyHex, nonce);
     if (cached) return { nonce, set, cards: cached, score: scorePulled(cached) };
     pool ??= createTicketPool();
-    const pack = await openProfileTicket(checked, nonce, pool.ticket);
+    const { ticket } = pool;
+    // Optional work: each ticket waits for a free slot, so opening a pack never waits behind it.
+    const pack = await openProfileTicket(checked, nonce, (set, key, n) => admitOptional(() => ticket(set, key, n), signal));
     putReopened(set, keyHex, nonce, pack.cards);
     return pack;
   };
