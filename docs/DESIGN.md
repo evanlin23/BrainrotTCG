@@ -15,8 +15,8 @@ from a 390 px wide screen.
    picker come once their first pack is saved and they leave it.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
-   The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
-   an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
+   The summary lists the cards in the order they were revealed (best last), each opening up close, where
+   its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
    revealed card, one quiet line (game, site, set and card number) says where a screenshot came from; a
    narrow phone wraps the set and number onto a second line, never cutting them off.
@@ -283,7 +283,7 @@ matrix (interruption and UI states) remains in #337.
 **Shipped** on the results screen, owned and public pack detail (`PackCardViewer`, so profile packs
 and shared pulls) and card detail. A consistent pack headline, not a dominance threshold:
 **Pack total: [score]**, then **[true combo] ×[multiplier]**. No surface shows a standout line: the
-engine's standout only orders cards (best pull first) and picks previews. Card surfaces lead with
+engine's standout only picks previews; cards show in reveal order (best last). Card surfaces lead with
 identity/modifiers and Card points, which exclude the pack multiplier. The standout is the maximum
 original-version `cardPoints`; on ties take the **higher** slot (the last of the tied cards in engine
 pack order). That is the shipped best-card rule: `revealOrder`
@@ -304,7 +304,7 @@ points added up × combo multiplier. There is no per-pack breakdown.
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
 no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
 Fame line), the tap hint (**Tap a card to view**) and the **Card guide** link, the five cards in one
-compact row (each a button that opens the card up close, with a ⤢ corner, best pull first; a card is
+compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
 shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
 actions: **Open another pack** primary, **Share** secondary, stuck to the bottom of the summary's
 scroller above the safe area. The cards are the last content: only the actions sit below them,

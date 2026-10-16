@@ -9,7 +9,6 @@ import { modifierLabel, modifierThumb } from '../../game/modifiers';
 import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
 import { comboOneIn, type SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
-import { bestPullOrder } from '../../game/reveal';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackHeadline from './PackHeadline';
 import SummaryHallOfFame from './SummaryHallOfFame';
@@ -32,7 +31,7 @@ interface PackSummaryUIProps {
 /**
  * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (Brainrot
  * Score, then the combo and how rare it is, then the Hall of Fame line), the five cards in one compact
- * row, best pull first (each wears its New and special badges and opens up close, where it can be
+ * row, in the order they were revealed (each wears its New and special badges and opens up close, where it can be
  * shared as an image that links to this pack), under the tap hint and the Card guide link, then the
  * actions, stuck to the bottom so they never scroll away. Nothing follows them: level progress lives on
  * Profile. Sharing starts here, never mid-reveal: the link carries the whole pack, so it would spoil the
@@ -42,7 +41,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
   // The "tap a card" hint stays until a card is opened on this visit.
   const [viewed, setViewed] = useState(false);
-  const shown = useMemo(() => bestPullOrder(openedCards), [openedCards]);
   const cardsRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -82,7 +80,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
             <CardGuideButton set={set} />
           </div>
           <ul className="summary-cards" ref={cardsRef}>
-            {shown.map((card) => (
+            {openedCards.map((card) => (
               <li key={card.uniqueId}>
                 <button
                   type="button"

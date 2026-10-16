@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSet } from '../../content/sets';
 import { getSetCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
+import { revealOrder } from '../../game/reveal';
 import PackSummaryUI from './PackSummaryUI';
 
 // The share sheet itself is tested on its own (CardShareSheet.test.tsx): here, what it was opened with.
@@ -87,6 +88,18 @@ describe('result first', () => {
 
   it('leaves the keyboard where it is while a sheet covers the summary', () => {
     expect(document.activeElement).not.toBe(container.querySelector('.summary-title'));
+  });
+});
+
+describe('card order', () => {
+  it('keeps the order the cards were revealed in, best last, not best first', () => {
+    // Engine order puts the Gold first and the Holo second; the reveal deals them last.
+    const pack = cards.map((card, i) => ({ ...card, rarity: 'COMMON', isHolo: i === 1, finish: i === 0 ? 'GOLD' : null }) as CardWithMeta);
+    const revealed = revealOrder(pack);
+    act(() => root.render(<PackSummaryUI openedCards={revealed} set={set} onClose={() => {}} />));
+    const tiles = [...container.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label'));
+    expect(tiles.map((label) => revealed.findIndex((card) => label!.startsWith(`View ${card.name} up close`)))).toEqual([0, 1, 2, 3, 4]);
+    expect(revealed[revealed.length - 1].finish).toBe('GOLD');
   });
 });
 

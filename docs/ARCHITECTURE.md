@@ -254,7 +254,7 @@ times are compared as instants: `selectBoard` and `rebuildBoard` rewrite every r
 coverage bound's included, in `receiptTime`'s millisecond form first, so GitHub's `…07Z` and a
 client's `…07.123Z` sort correctly. `receiptTime` takes only ISO 8601 UTC ending in `Z` and throws
 on anything else. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
-last. The pack summary's `bestPullOrder` lists the earlier slot first instead; boards don't follow it.
+last. The pack summary and pack views show the cards in that same reveal order.
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
