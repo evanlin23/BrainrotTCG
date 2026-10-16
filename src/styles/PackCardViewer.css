@@ -19,7 +19,7 @@
   display: flex;
   justify-content: center;
   width: 100%;
-  height: calc(var(--w) * 1024 / 687 + var(--space-5));
+  height: calc(var(--w) * var(--card-tall) + var(--space-5));
   padding-top: var(--space-2);
   /* The raised card only needs to clear its neighbours. */
   isolation: isolate;
@@ -38,7 +38,7 @@
   --r: var(--rarity-common);
   position: relative;
   width: var(--w);
-  aspect-ratio: 687 / 1024;
+  aspect-ratio: var(--card-aspect);
   padding: 0;
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -86,7 +86,7 @@
 
 .pack-viewer-card-carousel.brainrot,
 .pack-viewer-card-grid.brainrot {
-  box-shadow: 0 0 0 2px #ffe14d, var(--focus-shadow), 0 0 18px rgba(255, 225, 77, 0.55), var(--shadow-2);
+  box-shadow: 0 0 0 2px var(--rarity-brainrot-solid), var(--focus-shadow), 0 0 18px var(--rarity-brainrot-glow), var(--shadow-2);
 }
 
 /* Rainbow shimmer for holo cards */
@@ -98,21 +98,13 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(
-        45deg,
-        rgba(255, 0, 0, 0.15) 0%,
-        rgba(255, 127, 0, 0.15) 14%,
-        rgba(255, 255, 0, 0.15) 28%,
-        rgba(0, 255, 0, 0.15) 42%,
-        rgba(0, 0, 255, 0.15) 56%,
-        rgba(75, 0, 130, 0.15) 70%,
-        rgba(148, 0, 211, 0.15) 84%,
-        rgba(255, 0, 0, 0.15) 100%
-    );
+    background: var(--holo-rainbow);
+    opacity: 0.15;
     background-size: 400% 400%;
     animation: packViewerHoloRainbow 3s ease infinite;
     pointer-events: none;
-    border-radius: 5px;
+    /* The card's own corners. */
+    border-radius: inherit;
     mix-blend-mode: overlay;
     z-index: 1;
 }
@@ -132,12 +124,8 @@
     left: -100%;
     width: 50%;
     height: 100%;
-    background: linear-gradient(120deg,
-        transparent 0%,
-        rgba(255, 255, 255, 0) 30%,
-        rgba(255, 255, 255, 0.6) 50%,
-        rgba(255, 255, 255, 0) 70%,
-        transparent 100%);
+    background: var(--shine);
+    opacity: 0.6;
     transform: skewX(-20deg);
     animation: packViewerHoloShine 3s ease-in-out infinite;
     pointer-events: none;

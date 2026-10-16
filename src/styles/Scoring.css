@@ -203,12 +203,12 @@
   display: inline-block;
   padding: 0 7px;
   border: 1px solid var(--finish, currentColor);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--finish, var(--text));
   font-size: var(--text-sm);
   font-weight: 800;
 }
 
 .misprint-pill {
-  text-shadow: 1.5px 0 rgba(255, 0, 90, 0.7), -1.5px 0 rgba(0, 230, 255, 0.7);
+  text-shadow: var(--misprint-text-shadow);
 }

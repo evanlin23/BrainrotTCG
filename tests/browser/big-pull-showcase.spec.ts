@@ -154,7 +154,7 @@ test('keeps the halo still and the ribbon unscaled when motion is reduced, with 
   await tear(page);
   await page.getByRole('button', { name: 'Skip opening animation' }).click();
   // Read in the page as soon as the showcase is on screen.
-  const motion = (await (await page.waitForFunction(() => {
+  const still = await (await page.waitForFunction(() => {
     const ribbon = document.querySelector('.showcase-ribbon');
     const halo = document.querySelector('.showcase-halo');
     if (!ribbon || !halo) return null;
@@ -163,22 +163,34 @@ test('keeps the halo still and the ribbon unscaled when motion is reduced, with 
       ribbonScale: getComputedStyle(ribbon).transform,
       halo: getComputedStyle(halo).animationName,
       rays: getComputedStyle(halo, '::before').animationName,
-      // The rays' box, centred on the card, against the stage that clips them (#460).
-      raysBox: (() => {
-        const card = halo.getBoundingClientRect();
-        const rays = getComputedStyle(halo, '::before');
-        const [width, height] = [parseFloat(rays.width), parseFloat(rays.height)];
-        const [x, y] = [card.left + card.width / 2 - width / 2, card.top + card.height / 2 - height / 2];
-        return { x, y, width, height };
-      })(),
-      stage: (() => {
-        const { x, y, width, height } = document.querySelector('.active-card-container')!.getBoundingClientRect();
-        return { x, y, width, height };
-      })(),
+    };
+  }, undefined, { timeout: 10000 })).jsonValue();
+  expect(still).toEqual({ ribbon: 'none', ribbonScale: 'none', halo: 'none', rays: 'none' });
+  // The rays' box, centred on the card, against the stage that clips them (#460). Measured once the
+  // card has landed: it mounts with the halo at its entry offset (24px low, invisible) and Framer
+  // Motion moves it to its place a frame later, so a read on that first frame finds the card 24px off
+  // centre. Landed means no translation left and the same box on two frames in a row.
+  const { raysBox, stage } = (await (await page.waitForFunction(() => {
+    const halo = document.querySelector('.showcase-halo');
+    const card = halo?.parentElement;
+    if (!halo || !card) return null;
+    const transform = getComputedStyle(card).transform;
+    const { m41, m42 } = transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
+    const box = halo.getBoundingClientRect();
+    const seen = window as unknown as { lastHaloBox?: string };
+    const key = JSON.stringify(box);
+    const settled = m41 === 0 && m42 === 0 && seen.lastHaloBox === key;
+    seen.lastHaloBox = key;
+    if (!settled) return null;
+    const rays = getComputedStyle(halo, '::before');
+    const [width, height] = [parseFloat(rays.width), parseFloat(rays.height)];
+    const [x, y] = [box.left + box.width / 2 - width / 2, box.top + box.height / 2 - height / 2];
+    const stageBox = document.querySelector('.active-card-container')!.getBoundingClientRect();
+    return {
+      raysBox: { x, y, width, height },
+      stage: { x: stageBox.x, y: stageBox.y, width: stageBox.width, height: stageBox.height },
     };
   }, undefined, { timeout: 10000 })).jsonValue())!;
-  const { raysBox, stage, ...still } = motion;
-  expect(still).toEqual({ ribbon: 'none', ribbonScale: 'none', halo: 'none', rays: 'none' });
   // The rays fade out inside their box, so a box inside the stage is never cut off at its edge.
   expect(raysBox.x, 'the rays run past the stage on the left').toBeGreaterThanOrEqual(stage.x - 1);
   expect(raysBox.y, 'the rays run past the top of the stage').toBeGreaterThanOrEqual(stage.y - 1);

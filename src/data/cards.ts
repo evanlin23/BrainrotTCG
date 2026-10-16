@@ -4,6 +4,7 @@
  */
 import { ALL_SET_VERSIONS, getCardDefinition, isOpenable, SETS } from '../content/sets';
 import { cardImageUrl } from '../content/art';
+import { RARITY_COLORS } from '../styles/palette';
 import { cardPoints as engineCardPoints, scorePack, type CardDefinition, type Finish, type PackScore, type Rarity } from '../engine';
 
 export type RarityKey = Rarity;
@@ -16,12 +17,12 @@ export interface RarityInfo {
 }
 
 export const CARD_RARITIES: Record<RarityKey, RarityInfo> = {
-  COMMON: { name: 'Common', color: '#aaaaaa', symbol: '\u25CF' },
-  UNCOMMON: { name: 'Uncommon', color: '#1eff00', symbol: '\u25C6' },
-  RARE: { name: 'Rare', color: '#0070dd', symbol: '\u2605' },
-  EPIC: { name: 'Epic', color: '#a335ee', symbol: '\u2605\u2605' },
-  LEGENDARY: { name: 'Legendary', color: '#ff8000', symbol: '\u2605\u2605\u2605' },
-  BRAINROT: { name: 'Brainrot', color: 'rainbow', symbol: '\u2726' },
+  COMMON: { name: 'Common', color: RARITY_COLORS.COMMON, symbol: '\u25CF' },
+  UNCOMMON: { name: 'Uncommon', color: RARITY_COLORS.UNCOMMON, symbol: '\u25C6' },
+  RARE: { name: 'Rare', color: RARITY_COLORS.RARE, symbol: '\u2605' },
+  EPIC: { name: 'Epic', color: RARITY_COLORS.EPIC, symbol: '\u2605\u2605' },
+  LEGENDARY: { name: 'Legendary', color: RARITY_COLORS.LEGENDARY, symbol: '\u2605\u2605\u2605' },
+  BRAINROT: { name: 'Brainrot', color: RARITY_COLORS.BRAINROT, symbol: '\u2726' },
 };
 
 export interface Card {

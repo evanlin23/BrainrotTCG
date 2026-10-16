@@ -149,7 +149,7 @@
   height: 4px;
   overflow: hidden;
   border-radius: var(--radius-pill);
-  background: rgba(243, 239, 230, 0.1);
+  background: var(--track);
 }
 
 .profile-set-bar > span {
@@ -167,7 +167,7 @@
   margin-bottom: var(--space-5);
   padding: var(--space-3);
   border: 1px solid var(--border-strong);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: var(--text-sm);
 }
 
@@ -333,11 +333,11 @@
 
 .back-swatch {
   width: 2.6rem;
-  aspect-ratio: 687 / 1024;
+  aspect-ratio: var(--card-aspect);
 }
 
 .back-swatch .card-back-image {
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .foil-swatch {

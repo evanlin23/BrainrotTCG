@@ -94,7 +94,7 @@ h4 {
 }
 
 a {
-  color: var(--brand-2);
+  color: var(--brand);
   text-underline-offset: 0.2em;
 }
 
@@ -102,7 +102,7 @@ a {
    mode paints (it drops shadows and recolours outlines). Components that need their own box-shadow add
    var(--focus-shadow) to it: none until the element itself has focus, so it never inherits. */
 * {
-  --focus-shadow: 0 0 #0000;
+  --focus-shadow: 0 0 transparent;
 }
 
 :focus-visible {
@@ -185,7 +185,7 @@ a {
 }
 
 .btn--secondary:hover:not(:disabled) {
-  background: rgba(243, 239, 230, 0.06);
+  background: var(--tint-hover);
 }
 
 .btn--ghost {
@@ -195,7 +195,7 @@ a {
 
 .btn--ghost:hover:not(:disabled) {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--tint-hover);
 }
 
 .btn--lg {
@@ -228,7 +228,7 @@ a {
 
 .icon-btn:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--tint-hover-strong);
 }
 
 .icon-btn svg {
@@ -283,8 +283,8 @@ a {
 
 .progress {
   height: 4px;
-  border-radius: 2px;
-  background: rgba(243, 239, 230, 0.1);
+  border-radius: var(--radius-sm);
+  background: var(--track);
   overflow: hidden;
 }
 

@@ -2,10 +2,11 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
+import * as palette from '../src/styles/palette';
 
-// Style rules from docs/DESIGN.md (#312 S5), checked across every stylesheet in src since
-// component tests don't load CSS: layers come from the z ladder in tokens.css, and no text
-// can be set under the 12 px floor.
+// Style rules from docs/DESIGN.md (#312 S5, S8a), checked across every stylesheet in src since
+// component tests don't load CSS: layers come from the z ladder in tokens.css, no text can be set
+// under the 12 px floor, colours come from tokens.css alone, and corners from the radius ladder.
 const src = fileURLToPath(new URL('../src/', import.meta.url));
 const sheets = readdirSync(src, { recursive: true, encoding: 'utf8' })
   .filter((path) => path.endsWith('.css'))
@@ -15,7 +16,25 @@ const sheets = readdirSync(src, { recursive: true, encoding: 'utf8' })
 const declarations = (property: RegExp) => sheets.flatMap(({ path, css }) =>
   [...css.matchAll(/(?:^|[;{\s])(--?[\w-]+|[a-z-]+)\s*:\s*([^;{}]+)/g)]
     .filter(([, name]) => property.test(name))
-    .map(([, name, value]) => ({ where: `${path}: ${name}: ${value.trim()}`, value: value.trim() })));
+    .map(([, name, value]) => ({ path, where: `${path}: ${name}: ${value.trim()}`, value: value.trim() })));
+
+/** The custom properties tokens.css defines on :root, by name. */
+const tokens: Record<string, string> = Object.fromEntries(
+  [.../:root\s*\{([\s\S]*?)\n\}/.exec(sheets.find(({ path }) => path === 'styles/tokens.css')!.css)![1]
+    .matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(([, name, value]) => [name, value.trim()]));
+
+/** A token's value with every var() it uses filled in, without whitespace and in lower case. */
+const token = (name: string): string => {
+  expect(tokens, name).toHaveProperty([name]);
+  return tokens[name].replace(/var\((--[\w-]+)\)/g, (_, ref: string) => token(ref)).replace(/\s+/g, '').toLowerCase();
+};
+const same = (value: string) => value.replace(/\s+/g, '').toLowerCase();
+
+/** The declarations in a top-level rule with exactly this selector, as written. */
+const rule = (path: string, selector: string) => {
+  const css = sheets.find((sheet) => sheet.path === path)!.css;
+  return new RegExp(`(?:^|\\})\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+};
 
 const PX: Record<string, number> = { px: 1, rem: 16, em: 16, '%': 0.16 };
 const LENGTH = /^(\d*\.?\d+)(px|rem|em|%)$/;
@@ -23,19 +42,29 @@ const FLUID = /^\d*\.?\d+(vw|vh|vmin|vmax|svh|dvh|lvh|cqw|cqh|cqi|cqb|cqmin|cqma
 
 /**
  * The smallest size a font-size value can reach, in px at the default 16 px root: a literal
- * length, the first argument of clamp(), or the largest literal argument of max(). Fluid units
- * with no literal floor reach 0. `undefined` means the scan can't tell (var(), calc(), keywords).
+ * length, a :root token through var() (or the var()'s fallback), the first argument of clamp(),
+ * the largest literal argument of max(), or the smallest argument of min(). Fluid units with no
+ * literal floor reach 0, and so does a bare 0. `undefined` means the scan can't tell (calc(), a
+ * var() that isn't a :root token and has no fallback, keywords), and the scan lets it through.
  */
 const floor = (value: string): number | undefined => {
+  if (value === '0') return 0;
   const length = LENGTH.exec(value);
   if (length) return Number(length[1]) * PX[length[2]];
   if (FLUID.test(value)) return 0;
-  const call = /^(clamp|max)\((.*)\)$/.exec(value);
+  const ref = /^var\((--[\w-]+)\s*(?:,\s*(.+))?\)$/.exec(value);
+  if (ref) {
+    const resolved = tokens[ref[1]] ?? ref[2];
+    return resolved === undefined ? undefined : floor(resolved);
+  }
+  const call = /^(clamp|max|min)\((.*)\)$/.exec(value);
   if (!call) return undefined;
   const args = call[2].split(',').map((arg) => arg.trim());
   if (call[1] === 'clamp') return floor(args[0]);
-  const floors = args.map(floor).filter((px) => px !== undefined);
-  return floors.length ? Math.max(...floors) : undefined;
+  const floors = args.map(floor);
+  if (call[1] === 'min') return floors.includes(undefined) ? undefined : Math.min(...(floors as number[]));
+  const known = floors.filter((px) => px !== undefined);
+  return known.length ? Math.max(...known) : undefined;
 };
 
 it('scans the app stylesheets', () => {
@@ -51,6 +80,9 @@ it('keeps raw z-index to 0-3 inside components; anything higher comes from the -
     .map((name) => Number(new RegExp(`--z-${name}:\\s*(\\d+)`).exec(tokens)?.[1]));
   expect(ladder.every((z) => z > 3)).toBe(true);
   expect([...ladder].sort((a, b) => a - b)).toEqual(ladder);
+  // The two layers everything else must sit under take their places from it, not from a number.
+  expect(rule('styles/Sheet.css', '.sheet-root')).toMatch(/z-index:\s*var\(--z-sheet\)/);
+  expect(rule('styles/Toasts.css', '.toast-region')).toMatch(/z-index:\s*var\(--z-toast\)/);
 });
 
 it('never sets text under the 12 px floor, in a font size or a --text-* token', () => {
@@ -73,6 +105,122 @@ it('measures what the rules mean', () => {
   expect(floor('5cqw')).toBe(0);
   expect(floor('max(0.75rem, 2.9cqw)')).toBe(12);
   expect(floor('clamp(0.7rem, 2vw, 1rem)')).toBeCloseTo(11.2);
-  expect(floor('var(--text-xs)')).toBeUndefined();
+  expect(floor('min(1rem, 4vw)')).toBe(0);
+  expect(floor('min(1rem, 0.8rem)')).toBeCloseTo(12.8);
+  expect(floor('var(--text-xs)')).toBe(12);
+  expect(floor('var(--local-size, 11px)')).toBe(11);
+  expect(floor('var(--local-size)')).toBeUndefined();
+  expect(floor('calc(1rem - 2px)')).toBeUndefined();
   expect(floor('#b6b0ba')).toBeUndefined();
+  expect(rule('styles/Sheet.css', '.sheet-root')).toContain('position');
+});
+
+// Colours: anything written as a colour value outside tokens.css is a drift waiting to happen.
+const HEX = /(?<![\w-])#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})(?![\w-])/i;
+const COLOR_FN = /(?<![\w-])(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/i;
+// CSS named colours. `transparent`, `currentColor` and the forced-colors system colours (Canvas,
+// CanvasText, Highlight...) aren't here: they follow the theme rather than fix a colour.
+const NAMED = new Set(`aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue
+  blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan
+  darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen
+  darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey
+  darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite
+  forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink
+  indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral
+  lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen
+  lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta
+  maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue
+  mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin
+  navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen
+  paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red
+  rosybrown royalblue saddlebrown salmon seagreen seashell sienna silver skyblue slateblue slategray
+  slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke
+  yellow yellowgreen`.split(/\s+/));
+const named = (value: string) => [...value.matchAll(/(?<![\w-])([a-z]+)(?![\w-])/gi)].some(([word]) => NAMED.has(word.toLowerCase()));
+
+/** Colour literals the scan allows outside tokens.css, each with the reason it can't be a token. */
+const COLOUR_ALLOWLIST = [
+  {
+    sheet: 'styles/PackOpener.css',
+    literal: /hsl\(var\(--hue\) [^)]*\)/g,
+    reason: 'Each tear spark sets its own --hue inline, so its colour is computed per spark.',
+  },
+];
+
+it('takes every colour from tokens.css, apart from a short allowlist with reasons', () => {
+  const values = declarations(/./).filter(({ path }) => path !== 'styles/tokens.css');
+  expect(values.length).toBeGreaterThan(500);
+  const allowed = new Set<string>();
+  const raw = values.filter(({ path, value }) => {
+    const rest = COLOUR_ALLOWLIST.filter(({ sheet }) => sheet === path).reduce((left, { literal, reason }) => {
+      const kept = left.replace(literal, '');
+      if (kept !== left) allowed.add(reason);
+      return kept;
+    }, value);
+    return HEX.test(rest) || COLOR_FN.test(rest) || named(rest);
+  });
+  expect(raw.map(({ where }) => where)).toEqual([]);
+  // A stale allowlist entry hides nothing, so it goes.
+  expect(COLOUR_ALLOWLIST.map(({ reason }) => reason).filter((reason) => !allowed.has(reason))).toEqual([]);
+  // The retired yellows stay retired: one price-sticker yellow, --brand.
+  expect(sheets.filter(({ css }) => /--brand-[23]\b/.test(css)).map(({ path }) => path)).toEqual([]);
+});
+
+it('spots what the colour scan means', () => {
+  expect(HEX.test('0 0 0 1px #fff')).toBe(true);
+  expect(HEX.test('url(#clip)')).toBe(false);
+  expect(COLOR_FN.test('rgba(0, 0, 0, 0.5)')).toBe(true);
+  expect(COLOR_FN.test('color-mix(in srgb, var(--brand), transparent)')).toBe(false);
+  expect(named('1px solid white')).toBe(true);
+  expect(named('var(--finish-silver)')).toBe(false);
+  expect(named('transparent')).toBe(false);
+  expect(named('CanvasText')).toBe(false);
+});
+
+// Radii: 4 / 6 / 10 / 14 / pill, as --radius-sm, -md, -lg, -xl and -pill.
+const RADIUS_OK = /^(?:var\(--radius-(?:sm|md|lg|xl|pill)\)|0|50%|inherit)$/;
+/** Off-ladder radii the scan allows, each with the reason it can't be a step. */
+const RADIUS_ALLOWLIST = [
+  {
+    sheet: 'styles/Sets.css',
+    radius: '1.6cqw',
+    reason: "The set ribbon is part of the pack art, so its corner scales with the pack's width.",
+  },
+];
+
+it('keeps every corner on the radius ladder, apart from a short allowlist with reasons', () => {
+  expect(['sm', 'md', 'lg', 'xl', 'pill'].map((step) => tokens[`--radius-${step}`])).toEqual(['4px', '6px', '10px', '14px', '999px']);
+  const radii = declarations(/^border(?:-[a-z]+)*-radius$/);
+  expect(radii.length).toBeGreaterThan(50);
+  const allowed = new Set<string>();
+  const off = radii.filter(({ path, value }) => !value.split(/\s*\/\s*|\s+/).every((part) => {
+    if (RADIUS_OK.test(part)) return true;
+    const entry = RADIUS_ALLOWLIST.find(({ sheet, radius }) => sheet === path && radius === part);
+    if (entry) allowed.add(entry.reason);
+    return entry !== undefined;
+  }));
+  expect(off.map(({ where }) => where)).toEqual([]);
+  expect(RADIUS_ALLOWLIST.map(({ reason }) => reason).filter((reason) => !allowed.has(reason))).toEqual([]);
+});
+
+// Canvas can't read CSS variables, so src/styles/palette.ts mirrors the tokens it paints with.
+it('keeps the canvas palette in step with tokens.css', () => {
+  const pairs: [string, string][] = [
+    ['--bg', palette.INK],
+    ['--text', palette.PAPER],
+    ['--text-muted', palette.MUTED],
+    ['--brand', palette.BRAND],
+    ['--chip-bg', palette.CHIP_BG],
+    ...Object.entries(palette.RARITY_COLORS).map(([rarity, colour]): [string, string] =>
+      [rarity === 'BRAINROT' ? '--rarity-brainrot-solid' : `--rarity-${rarity.toLowerCase()}`, colour]),
+    ...Object.entries(palette.FINISH_COLORS).map(([finish, colour]): [string, string] => [`--finish-${finish.toLowerCase()}`, colour]),
+    ['--finish-platinum-glow', palette.FINISH_GLOWS.PLATINUM],
+    ['--finish-diamond-glow', palette.FINISH_GLOWS.DIAMOND],
+    ['--finish-diamond-glow-2', palette.FINISH_GLOWS.DIAMOND_2],
+  ];
+  expect(pairs.filter(([name, value]) => token(name) !== same(value))).toEqual([]);
+  // The foil runs pink, brand, mint, blue, violet; the canvas closes it back to pink.
+  expect(palette.FOIL_STOPS.map(same)).toEqual(['--foil-pink', '--brand', '--foil-mint', '--foil-blue', '--foil-violet', '--foil-pink'].map(token));
+  expect(same(tokens['--foil'])).toBe(
+    'linear-gradient(var(--foil-angle),var(--foil-pink),var(--brand)30%,var(--foil-mint)55%,var(--foil-blue)80%,var(--foil-violet))');
 });

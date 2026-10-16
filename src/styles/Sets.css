@@ -207,7 +207,7 @@
   left: 50%;
   translate: -50% 0;
   padding: 1px 8px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--brand);
   color: var(--brand-ink);
   font-size: var(--text-xs);
@@ -249,7 +249,7 @@
   height: 4px;
   overflow: hidden;
   border-radius: var(--radius-pill);
-  background: rgba(243, 239, 230, 0.1);
+  background: var(--track);
 }
 
 .pack-tile-bar > span {
@@ -270,7 +270,7 @@
   margin-left: var(--space-2);
   padding: 0 5px;
   border: 1px solid currentColor;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-size: var(--text-xs);
   font-weight: 800;
@@ -293,7 +293,7 @@
 .set-new {
   margin-left: var(--space-2);
   padding: 0 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--brand);
   color: var(--brand-ink);
   font-size: var(--text-xs);
@@ -323,10 +323,10 @@
   align-items: center;
   padding: 0.4cqw 3.5cqw;
   border-radius: 1.6cqw;
-  border: 0.5cqw solid #12002a;
+  border: 0.5cqw solid var(--ribbon-ink);
   background: var(--set-a);
-  box-shadow: 0 0.8cqw 0 #12002a;
-  color: #12002a;
+  box-shadow: 0 0.8cqw 0 var(--ribbon-ink);
+  color: var(--ribbon-ink);
   white-space: nowrap;
   pointer-events: none;
 }

@@ -10,6 +10,7 @@ import { canShare, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
 import { modifierLabel } from '../../game/modifiers';
 import type { CardVersion } from '../../game/versions';
+import { RARITY_COLORS } from '../../styles/palette';
 import SharePreviewSheet from './SharePreviewSheet';
 
 interface CardShareSheetProps {
@@ -23,15 +24,6 @@ interface CardShareSheetProps {
   from?: PullRef;
   onClose: () => void;
 }
-
-const RARITY_COLORS: Record<string, string> = {
-  COMMON: '#b8b4bd',
-  UNCOMMON: '#5fd38d',
-  RARE: '#6aa8ff',
-  EPIC: '#c08bff',
-  LEGENDARY: '#ffa24d',
-  BRAINROT: '#ffd23f',
-};
 
 /**
  * Share one card from your collection: a poster of the card, with a link to the pack it came from
