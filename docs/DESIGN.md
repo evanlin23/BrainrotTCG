@@ -10,7 +10,8 @@ from a 390 px wide screen.
 
 1. **The pack is the hero.** Each screen has one primary action: on the home screen it's opening the
    pack; during a reveal it's the next card; in the summary it's opening another pack. Everything else
-   steps back (smaller, quieter, or out of the way).
+   steps back (smaller, quieter, or out of the way). A new player's home screen is only the logo, the
+   gear and the pack: the tabs and the era picker come once their first pack is saved and they leave it.
 2. **Nothing overlaps the game.** Navigation is a bottom tab bar on phones (in the thumb zone) and a top
    bar on wide screens, laid out around the content rather than floating over it.
 3. **Focus mode while opening.** Once a pack is cut, the tabs and the era picker get out of the way

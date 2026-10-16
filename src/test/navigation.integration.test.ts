@@ -2,6 +2,10 @@
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
 import { afterEach, expect, it } from 'vitest';
 import { mountedApp } from './mountedApp';
+import { STORAGE_KEYS } from '../constants/config';
+import { getSetCards } from '../data/cards';
+import { SETS } from '../content/sets';
+import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
 afterEach(async () => { await app?.dispose(); app = undefined; });
@@ -24,6 +28,48 @@ it('shows a new player only the packs screen and Settings until their first pack
   expect(document.querySelector('.app')!.classList).toContain('no-nav');
   expect(button('Settings')).toBeDefined();
   expect(button('Player')).toBeUndefined();
+}, 30_000);
+
+const picker = () => document.querySelector('nav.set-picker[aria-label="Choose a pack"]');
+const packLabel = () => document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label') ?? null;
+/** An old save, or one whose stats couldn't be read: cards but no pack count. */
+const CARDS_ONLY = {
+  [STORAGE_KEYS.COLLECTION]: JSON.stringify(Object.fromEntries([getSetCards(SETS[0].id)[0]].map((card) => [card.key, { card, normalCount: 1, holoCount: 0 }]))),
+  [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
+};
+
+it('shows a new player the set picker only once their first pack is saved, and never mid-reveal', async () => {
+  app = await mountedApp({ ...PLAYER, [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }) });
+  await app.mount();
+  const first = packLabel();
+  expect(first).not.toBeNull();
+  expect(picker()).toBeNull();
+
+  await app.interact(() => {
+    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
+    shell.focus();
+    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+  });
+  await app.until('the ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
+  expect(picker()).toBeNull();
+  await app.interact(() => button('Skip opening animation').click());
+  await app.until('Skip completes the summary', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
+  // Saved at the summary, which is still focus mode: its CSS keeps the picker and tabs out of the way.
+  expect(document.querySelector('.app')!.classList).toContain('is-focus');
+
+  await app.interact(() => button('Open another pack').click());
+  await app.until('the picker shows once the pack is left', () => expect(picker()).not.toBeNull());
+  expect(document.querySelector('.app')!.classList).not.toContain('is-focus');
+  expect(document.querySelector('.app-nav')).not.toBeNull();
+  expect(packLabel()).toBe(first);
+}, 30_000);
+
+it.each([['a saved pack', RETURNING], ['cards but no pack count', CARDS_ONLY]])('shows the set picker to a player with %s', async (_, save) => {
+  app = await mountedApp({ ...PLAYER, ...QUIET, ...save });
+  await app.mount();
+  expect(picker()).not.toBeNull();
+  expect(document.querySelector('.app-nav')).not.toBeNull();
 }, 30_000);
 
 it('gives Open, Cards, Rankings and Profile a page each, with an address, a title and Back between them', async () => {

@@ -331,10 +331,22 @@ clearing this site's storage) neither unlocks achievements nor stores any progre
 stats, Hall of Fame, achievements, settings): every write compares the stored player, whether its
 record is still stored, and `brainrot-save-stamp-v1` with what the tab loaded, and the banner asks
 for a reload. Once the tab knows, it opens no new pack (one torn open in the moment before goes back
-sealed, with no ticket spent); one opened before then waits on the pending shelf (if the shelf takes it, as below) under the player it
-opened as, and other players' packs stay there when this one's change. Limits: storage has no lock
-across tabs, so a tab that writes before an import's stamp reaches it can still overwrite an imported
-field (import with other tabs closed; the file and `brainrot-before-import-v1` remain). A tab stopped
+sealed, with no ticket spent); one opened before then waits on the pending shelf under the player it
+opened as (if the shelf takes it, as below), and other players' packs stay there when this one's
+change. Two tabs of the same player (no import or switch, so the stamp can't tell) are guarded too:
+every write also compares the stored collection, stats, Hall of Fame and achievements with what the
+tab last read or stored (`src/game/progressGuard.ts`, plus a storage listener), and a tab another tab
+has written past stops the same way instead of storing its older copy over that tab's packs. Packs it
+took off the pending shelf at load and hasn't stored or shelved since go back on it for the next load
+to add. Packs it opened itself aren't put back: any the shelf took when they opened are still there
+unless the other tab has taken and stored them, so putting them back could add them twice. If storage
+refuses the put-back, the save warning stays up and the next change or storage event tries again.
+Settings stay last-writer-wins.
+Limits: storage has no lock across tabs, so two tabs of one player writing in the same instant can
+both pass that check (the later write replaces the earlier, whose pack stays in the history; the
+earlier tab then hears the write and stops), and a tab that writes before an import's stamp reaches
+it can still overwrite an imported field (import with other tabs closed; the file and
+`brainrot-before-import-v1` remain). A tab stopped
 by an import that then failed and was undone stays stopped until it reloads. Storage cleared with no
 storage event (a browser's clear-site-data) is noticed at the next write, but a pack opened first
 stores this tab's player again, and if that save had no stamp the tab then writes its progress back. IndexedDB
