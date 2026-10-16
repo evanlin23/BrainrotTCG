@@ -35,7 +35,8 @@ export interface RankableEntry {
 }
 
 const byTime = <T extends RankableEntry>(a: T, b: T) => a.submittedAt.localeCompare(b.submittedAt);
-const byRank = <T extends RankableEntry>(a: T, b: T) => b.score - a.score || byTime(a, b);
+/** Score, then the earlier verification, then pull id, so exact ties can't swap between runs. */
+const byRank = <T extends RankableEntry>(a: T, b: T) => b.score - a.score || byTime(a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /** Each pull once (its earliest verification keeps the credit). */
 export const uniquePulls = <T extends RankableEntry>(entries: readonly T[]): T[] => {

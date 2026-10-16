@@ -544,6 +544,19 @@ describe('retention and intake contracts (offline)', () => {
     expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(expect.arrayContaining([low.id, lying.id]));
   });
 
+  it('judges a run that crosses UTC midnight by the day it started on', async () => {
+    // The 16th's top is full; the 17th's would be empty, so judging the 4 of a Kind by the new day would file it.
+    clockAt('2026-10-16T23:59:59Z');
+    const gh = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP) });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(pair, idOf(pair), 1_000_000), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_001_000)], perRelay: [] });
+    // The first line logged (turning the pair away) comes after the run picked its day: midnight passes there.
+    vi.mocked(console.log).mockImplementation(() => vi.setSystemTime(new Date('2026-10-17T00:00:05Z')));
+    await inbox();
+    expect(logged().some((l) => l.includes("15000 doesn't make the Hall of Fame"))).toBe(true);
+    expect(gh.writes()).toEqual([]);
+    expect(outputs()).toEqual({ added: '0' });
+  });
+
   it('keeps only the published list and the run caches, and never writes to public/', async () => {
     const tracked = path.join(home, 'public', 'hall-of-fame.json');
     const before = existsSync(tracked) ? readFileSync(tracked, 'utf8') : null;
