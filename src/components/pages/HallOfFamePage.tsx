@@ -298,7 +298,7 @@ const HallOfFamePage = () => {
 
         {tab === 'today' && loadState === 'loaded' && (
           <>
-            <p className="hof-note">Pulls filed today (your time) that made the top {HALL_OF_FAME_TOP} or a world first, plus any just submitted.</p>
+            <p className="hof-note">Pulls filed today (your time) that made the top {HALL_OF_FAME_TOP} or a world first, plus any just submitted. Only pulls in the all-time top {VERIFY_LIMIT} are re-checked on your device.</p>
             {today.length > 0 ? (
               rankedList(today)
             ) : (

@@ -1,7 +1,9 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { monitor, expectDecoded, expectStill, fingerFor } from './support';
 
-// Cut sparks start on the drawn cut, at the press and at the pointer, in the same frame (#265).
+// Cut sparks start on the drawn cut at the pointer, in the frame that draws it (#265). Nothing
+// draws or sparks until the drag is plainly across rather than down, so the press itself sparks
+// nothing (#267).
 // useSparks jitters each spark by up to 8px across and 2px down in the pack's own pixels, so the
 // checks allow that, times any ancestor scale, plus a pixel for rounding. A rotated ancestor is a
 // known limit (packCutCoordinates.ts) and isn't covered. The phone project presses with touch
@@ -78,13 +80,13 @@ async function cutAndRead(page: Page, packShell: Locator, touch: boolean) {
     if (!line || sparks.length < burst) return null;
     const seam = line.getBoundingClientRect();
     return { line: { left: seam.left, right: seam.right, y: seam.top + seam.height / 2 }, sparks };
-  }, 6).then((handle) => handle.jsonValue());
+  }, 3).then((handle) => handle.jsonValue());
   await finger.release();
   // waitForFunction resolves only on a reading, never on null.
   return { from, to, y, ...reading! };
 }
 
-/** Checks the drawn cut follows the pointer and every spark starts on it, at one of its ends. */
+/** Checks the drawn cut runs from the press to the pointer and the sparks start on it, at the pointer. */
 function expectAligned({ from, to, y, line, sparks }: Awaited<ReturnType<typeof cutAndRead>>, scale: number) {
   expect(Math.abs(line.left - from), 'the cut starts at the press').toBeLessThanOrEqual(1.5);
   expect(Math.abs(line.right - to), 'the cut ends at the pointer').toBeLessThanOrEqual(1.5);
@@ -92,15 +94,12 @@ function expectAligned({ from, to, y, line, sparks }: Awaited<ReturnType<typeof 
 
   const acrossTolerance = JITTER_X * scale + 1;
   const downTolerance = JITTER_Y * scale + 1;
-  const nearest = (x: number) => Math.min(Math.abs(x - line.left), Math.abs(x - line.right));
   for (const spark of sparks) {
     expect(Math.abs(spark.y - line.y), `spark ${JSON.stringify(spark)} on the cut, not below it`).toBeLessThanOrEqual(downTolerance);
-    expect(nearest(spark.x), `spark ${JSON.stringify(spark)} at an end of the cut`).toBeLessThanOrEqual(acrossTolerance);
+    expect(Math.abs(spark.x - line.right), `spark ${JSON.stringify(spark)} at the pointer`).toBeLessThanOrEqual(acrossTolerance);
     expect(spark.hit, 'sparks take no pointer').toBe(false);
     expect(spark.layerEvents, 'the spark layer takes no pointer').toBe('none');
   }
-  expect(sparks.some((spark) => Math.abs(spark.x - line.left) <= acrossTolerance), 'a burst at the press').toBe(true);
-  expect(sparks.some((spark) => Math.abs(spark.x - line.right) <= acrossTolerance), 'a burst at the pointer').toBe(true);
 }
 
 test('sparks start on the cut line with the pack at rest', async ({ page, baseURL, hasTouch }) => {
@@ -138,6 +137,8 @@ test.describe('with reduced motion', () => {
     await finger.move(box.x + box.width * 0.55, y);
     await expect(packShell.locator('.cut-line')).toHaveCount(1);
     await expect(packShell.locator('.drag-spark')).toHaveCount(0);
+    // A still seam: no shimmer.
+    expect(await packShell.locator('.cut-line').evaluate((line) => getComputedStyle(line).animationName)).toBe('none');
     await finger.release();
     expect(errors).toEqual([]);
   });

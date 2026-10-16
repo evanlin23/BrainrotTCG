@@ -238,7 +238,10 @@ describe('Rankings tabs', () => {
       'Number 3: Full House by Early in Original, score 2000',
     ]);
     expect(rows()[1].textContent).toContain('Just submitted');
-    expect(document.querySelector('.hof-panel .hof-note')?.textContent).toContain('filed today (your time)');
+    const note = document.querySelector('.hof-panel .hof-note')?.textContent;
+    expect(note).toContain('filed today (your time)');
+    // Re-checks run down the all-time ranking only, so the caption says a pull here may not be re-checked.
+    expect(note).toContain('Only pulls in the all-time top 30 are re-checked on your device.');
   });
 
   it('says so when nothing came in today', async () => {

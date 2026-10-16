@@ -34,8 +34,16 @@ let cutter: Cutter;
 let onCutComplete: ReturnType<typeof vi.fn<() => void>>;
 let onMiss: ReturnType<typeof vi.fn<() => void>>;
 
-const Probe = ({ hold, disabled = false, particles = false }: { hold: (cutter: Cutter) => void; disabled?: boolean; particles?: boolean }) => {
-  const latest = usePackCutter({ onCutComplete, onMiss, isOpening: false, isPackCut: false, volume: 0, particlesEnabled: particles, disabled });
+interface ProbeProps {
+  hold: (cutter: Cutter) => void;
+  disabled?: boolean;
+  isOpening?: boolean;
+  isPackCut?: boolean;
+  particles?: boolean;
+}
+
+const Probe = ({ hold, disabled = false, isOpening = false, isPackCut = false, particles = false }: ProbeProps) => {
+  const latest = usePackCutter({ onCutComplete, onMiss, isOpening, isPackCut, volume: 0, particlesEnabled: particles, disabled });
   const { packRef } = latest;
   useEffect(() => hold(latest));
   return <div ref={packRef} />;
@@ -61,12 +69,8 @@ const swipe = (...points: Point[]) => {
   up(points[points.length - 1]);
 };
 
-beforeEach(() => {
-  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  // jsdom has no matchMedia; the spark layer asks it about reduced motion.
-  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
-  onCutComplete = vi.fn<() => void>();
-  onMiss = vi.fn<() => void>();
+/** Mounts the probe on a pack with the box `rect`. */
+const mount = () => {
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -75,6 +79,15 @@ beforeEach(() => {
   const pack = container.firstElementChild as HTMLDivElement;
   Object.defineProperty(pack, 'clientWidth', { value: rect.width });
   Object.defineProperty(pack, 'clientHeight', { value: rect.height });
+};
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // jsdom has no matchMedia; the spark layer asks it about reduced motion.
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+  onCutComplete = vi.fn<() => void>();
+  onMiss = vi.fn<() => void>();
+  mount();
 });
 
 afterEach(() => {
@@ -153,12 +166,68 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('measures a stroke from where it reaches the tear line, not from a press just off it', () => {
-    // 50px under the line is just past the band, so the press nudges; the stroke starts at 20%.
-    swipe(at(0.1, 50), at(0.2), at(0.38));
+  it('never cuts from a press just off the seam, dragged onto it and across', () => {
+    // 50px under the line is just past the 45.84px band, so the press nudges and can't cut (#267).
+    swipe(at(0.1, 50), at(0.2), at(0.9));
     expect(onMiss).toHaveBeenCalledTimes(1);
     expect(onCutComplete).not.toHaveBeenCalled();
-    swipe(at(0.1, 50), at(0.2), at(0.42));
+  });
+
+  it('never cuts after a clear scroll down from the seam, 40px down and under 10px across', () => {
+    // 40px down is still inside the band, and 60% across would open mid-drag (#267).
+    down(at(0.3));
+    move(at(0.305, 10));
+    move(at(0.31, 20));
+    move(at(0.315, 30));
+    move(at(0.325, 40));
+    move(at(0.9, 40));
+    up(at(0.9, 40));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    expect(cutter.isPressing).toBe(false);
+  });
+
+  it('never cuts from a press on the seam that sets off clearly up, then swipes across', () => {
+    down(at(0.3));
+    move(at(0.32, -36));
+    move(at(0.9, -36));
+    up(at(0.9, -36));
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('never cuts on a release whose coalesced points go clearly down before going across', () => {
+    down(at(0.3));
+    up(at(0.9, 40), { getCoalescedEvents: () => [at(0.3, 40), at(0.9, 40)] as unknown as PointerEvent[] });
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it.each([8, 10, -10])('opens when a thumb settles %ipx up or down on the seam, then swipes across', (settle) => {
+    // The settle passes the 10px slop without deciding anything; the swipe then leads (#267).
+    down(at(0.3));
+    move(at(0.3, settle / 2));
+    move(at(0.3, settle));
+    move(at(0.4, settle));
+    move(at(0.55, settle));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.55, settle));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens mid-drag when a thumb settles 10px down on the seam, then swipes 45% across', () => {
+    down(at(0.3));
+    move(at(0.3, 10));
+    move(at(0.5, 10));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    move(at(0.8, 10));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the direction only past the slop, so a wobble before a swipe still opens', () => {
+    // 6px down is a finger settling, not a scroll.
+    down(at(0.3));
+    move(at(0.3, 6));
+    move(at(0.6, 6));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.6, 6));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
@@ -391,18 +460,22 @@ describe('usePackCutter frame batching (#266)', () => {
   it('draws the moves between two frames in one update, keeping every point', () => {
     renderCounting(false);
     down(at(0.3));
-    expect(drawnX()).toEqual([30]);
+    // The press only lights the seam (one commit); its moves wait for the frame.
     commits = 0;
+    // A press draws nothing until it goes across: 6.4px is still inside the slop (#267).
     move(at(0.32));
+    expect(frames.size).toBe(0);
     move(at(0.36), coalesced(at(0.34), at(0.36)));
     move(at(0.38));
     expect(commits).toBe(0);
-    expect(drawnX()).toEqual([30]);
+    expect(drawnX()).toEqual([]);
+    expect(cutter.isCutting).toBe(false);
     expect(frames.size).toBe(1);
 
     runFrame();
     expect(commits).toBe(1);
     expect(drawnX()).toEqual([30, 32, 34, 36, 38]);
+    expect(cutter.isCutting).toBe(true);
     expect(frames.size).toBe(0);
   });
 
@@ -410,19 +483,98 @@ describe('usePackCutter frame batching (#266)', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5); // no spark jitter
     renderCounting(true);
     down(at(0.3));
-    const burst = cutter.sparks.length;
-    expect(burst).toBeGreaterThan(0);
-    vi.advanceTimersByTime(16);
-    commits = 0;
+    expect(cutter.sparks).toHaveLength(0);
     move(at(0.32));
     move(at(0.34));
     move(at(0.36));
+    expect(cutter.sparks).toHaveLength(0);
+    runFrame();
+    const burst = cutter.sparks.length;
+    expect(burst).toBeGreaterThan(0);
+    expect(cutter.sparks[0].x).toBeCloseTo(0.36 * rect.width);
+
+    vi.advanceTimersByTime(16);
+    commits = 0;
+    move(at(0.38));
+    move(at(0.4));
+    move(at(0.42));
     expect(cutter.sparks).toHaveLength(burst);
 
     runFrame();
     expect(commits).toBe(1);
     expect(cutter.sparks).toHaveLength(2 * burst);
-    expect(cutter.sparks[burst].x).toBeCloseTo(0.36 * rect.width);
+    expect(cutter.sparks[burst].x).toBeCloseTo(0.42 * rect.width);
+  });
+
+  it('draws nothing for a press on the seam that goes clearly down', () => {
+    renderCounting(true);
+    down(at(0.3));
+    move(at(0.31, 4));
+    move(at(0.32, 40));
+    move(at(0.6, 40));
+    expect(frames.size).toBe(0);
+    runFrame();
+    expect(cutter.cutPoints).toEqual([]);
+    expect(cutter.isCutting).toBe(false);
+    expect(cutter.isPressing).toBe(false);
+    expect(cutter.sparks).toHaveLength(0);
+    up(at(0.6, 40));
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('lights the seam on a press without cutting, then draws once a settled thumb goes across', () => {
+    renderCounting(false);
+    down(at(0.3));
+    expect(cutter.isPressing).toBe(true);
+    expect(cutter.isCutting).toBe(false);
+    move(at(0.3, 9));
+    expect(frames.size).toBe(0);
+    // 19.2px across leads the 9px settle.
+    move(at(0.36, 9));
+    expect(frames.size).toBe(1);
+    runFrame();
+    expect(cutter.isCutting).toBe(true);
+    expect(drawnX()).toEqual([30, 30, 36]);
+    up(at(0.36, 9));
+    expect(cutter.isPressing).toBe(false);
+    expect(cutter.isCutting).toBe(false);
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('does not light the seam for a press off it', () => {
+    down(at(0.3, 60));
+    expect(cutter.isPressing).toBe(false);
+    expect(onMiss).toHaveBeenCalledTimes(1);
+    up(at(0.3, 60));
+  });
+
+  it('draws nothing for a press off the seam, dragged onto it and across', () => {
+    renderCounting(true);
+    down(at(0.3, 60));
+    move(at(0.3));
+    move(at(0.4));
+    move(at(0.5));
+    expect(frames.size).toBe(0);
+    runFrame();
+    expect(cutter.cutPoints).toEqual([]);
+    expect(cutter.isCutting).toBe(false);
+    expect(cutter.sparks).toHaveLength(0);
+    expect(onMiss).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['disabled', 'isOpening', 'isPackCut'] as const)('draws nothing in a frame that lands after %s', (closed) => {
+    renderCounting(true);
+    down(at(0.3));
+    move(at(0.34));
+    move(at(0.36));
+    expect(frames.size).toBe(1);
+    act(() => root.render(
+      <Probe hold={(latest) => { cutter = latest; }} particles {...{ [closed]: true }} />,
+    ));
+    runFrame();
+    expect(cutter.cutPoints).toEqual([]);
+    expect(cutter.isCutting).toBe(false);
+    expect(cutter.sparks).toHaveLength(0);
   });
 
   it('decides the cut from points no frame has drawn yet', () => {
@@ -431,7 +583,7 @@ describe('usePackCutter frame batching (#266)', () => {
     move(at(0.42));
     move(at(0.55));
     move(at(0.4));
-    expect(drawnX()).toEqual([30]);
+    expect(drawnX()).toEqual([]);
     up(at(0.4));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
     expect(frames.size).toBe(0);
@@ -473,8 +625,8 @@ describe('usePackCutter frame batching (#266)', () => {
   });
 
   const exits: [string, () => void][] = [
-    ['a release', () => up(at(0.33))],
-    ['a cancel', () => act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.33))))],
+    ['a release', () => up(at(0.36))],
+    ['a cancel', () => act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.36))))],
     ['blur or a hidden page', () => act(() => cutter.endCutAttempt())],
     ['a reset', () => act(() => cutter.resetCutState())],
     ['unmount', () => {
@@ -486,8 +638,10 @@ describe('usePackCutter frame batching (#266)', () => {
   it.each(exits)('cancels its frame and spark timer on %s', (_exit, end) => {
     renderCounting(true);
     down(at(0.3));
-    vi.advanceTimersByTime(16);
-    move(at(0.33));
+    move(at(0.34));
+    // This frame's sparks start the expiry timer; the next move asks for another frame.
+    runFrame();
+    move(at(0.36));
     expect(frames.size).toBe(1);
     expect(vi.getTimerCount()).toBe(1);
 
@@ -499,6 +653,33 @@ describe('usePackCutter frame batching (#266)', () => {
 
   it('stops listening for resizes and scrolls on unmount', () => {
     const removed = vi.spyOn(window, 'removeEventListener');
+    act(() => root.unmount());
+    root = createRoot(container);
+    expect(removed.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(['resize', 'scroll']));
+  });
+
+  it('measures again after a pinch zoom or a keyboard moves the visual viewport, and stops listening on unmount', () => {
+    const viewport = new EventTarget();
+    vi.stubGlobal('visualViewport', viewport);
+    act(() => root.unmount());
+    container.remove();
+    mount();
+    const pack = container.firstElementChild as HTMLDivElement;
+    const measure = vi.spyOn(pack, 'getBoundingClientRect');
+    down(at(0.3));
+    move(at(0.32));
+    expect(measure).toHaveBeenCalledTimes(1);
+
+    act(() => { viewport.dispatchEvent(new Event('resize')); });
+    move(at(0.34));
+    expect(measure).toHaveBeenCalledTimes(2);
+
+    act(() => { viewport.dispatchEvent(new Event('scroll')); });
+    move(at(0.36));
+    expect(measure).toHaveBeenCalledTimes(3);
+    up(at(0.36));
+
+    const removed = vi.spyOn(viewport, 'removeEventListener');
     act(() => root.unmount());
     root = createRoot(container);
     expect(removed.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(['resize', 'scroll']));

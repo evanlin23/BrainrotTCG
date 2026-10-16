@@ -11,6 +11,7 @@ import { sheetLoader } from './components/ui/sheetEntry';
 import SetPicker from './components/sets/SetPicker';
 import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
+import CardGuideButton from './components/ui/CardGuideButton';
 import { cardPoints, scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
@@ -748,6 +749,12 @@ function App() {
           isOwned={isOwned}
           onLeaveEarly={noticeKeptPack}
         />
+        {/* A quiet way into the card guide before any pack, a new player's first included; it steps aside with the chrome once a pack is torn. */}
+        {!packFocus && !packBusy && (
+          <div className="card-guide-entry">
+            <CardGuideButton set={selectedSet} />
+          </div>
+        )}
       </main>
 
       {route === 'cards' && (
@@ -790,6 +797,7 @@ function App() {
           recoveryNote: staleSave ? undefined : recoveryNote,
           recoveryAllowed: recoveryCurrent,
           onRecoveryChanged: recoveryChanged,
+          guideSet: selectedSet,
         }} />
       )}
 

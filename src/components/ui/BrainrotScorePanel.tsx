@@ -1,7 +1,5 @@
-import { useState } from 'react';
-import { Info } from 'lucide-react';
 import { DEFAULT_SET_ID, getLatestSet } from '../../content/sets';
-import ScoringGuide from './ScoringGuide';
+import CardGuideButton from './CardGuideButton';
 import '../../styles/Scoring.css';
 
 interface BrainrotScorePanelProps {
@@ -15,7 +13,6 @@ interface BrainrotScorePanelProps {
 }
 
 const BrainrotScorePanel = ({ points, multiplier, handName, score, setId }: BrainrotScorePanelProps) => {
-  const [showGuide, setShowGuide] = useState(false);
   const set = getLatestSet(setId ?? DEFAULT_SET_ID) ?? getLatestSet(DEFAULT_SET_ID);
   return (
     <div className="score-panel">
@@ -31,12 +28,7 @@ const BrainrotScorePanel = ({ points, multiplier, handName, score, setId }: Brai
           handName && <> · {handName}</>
         )}
       </div>
-      {set && (
-        <button type="button" className="score-panel-help" onClick={(e) => { e.stopPropagation(); setShowGuide(true); }}>
-          <Info aria-hidden="true" /> Card guide
-        </button>
-      )}
-      {showGuide && set && <ScoringGuide set={set} onClose={() => setShowGuide(false)} />}
+      {set && <CardGuideButton set={set} />}
     </div>
   );
 };
