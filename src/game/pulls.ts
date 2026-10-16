@@ -332,8 +332,11 @@ export interface CheckedPull extends VerifiedPull {
   cardsWithMeta: CardWithMeta[];
 }
 
-/** Verify a shared pull on this device (ticket mined in the worker). */
-export const checkPull = async (proof: string): Promise<CheckedPull> => {
-  const verified = await verifyProof(proof, getSet, getTicket);
+/**
+ * Verify a shared pull on this device (ticket mined in the worker). It's optional work: its ticket
+ * waits for any pack being opened, and `signal` stops it while it waits.
+ */
+export const checkPull = async (proof: string, signal?: AbortSignal): Promise<CheckedPull> => {
+  const verified = await verifyProof(proof, getSet, (set, publicKey, nonce) => getTicket(set, publicKey, nonce, 'optional', signal));
   return { ...verified, cardsWithMeta: toCardsWithMeta(verified.cards).map((c) => ({ ...c, isRevealed: true })) };
 };
