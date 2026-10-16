@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { SheetSettledContext } from './sheetEntry';
 import '../../styles/Sheet.css';
 
 export type SheetSize = 'sm' | 'md' | 'lg' | 'full';
@@ -35,6 +36,9 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
   const bodyRef = useRef<HTMLDivElement>(null);
   /** A body that scrolls but has nothing to tab to (a guide, an empty list) is itself a tab stop. */
   const [bodyFocusable, setBodyFocusable] = useState(false);
+  /** Replacing a loading placeholder that is already on screen: no second entrance. Fixed at mount. */
+  const replacesPlaceholder = useContext(SheetSettledContext);
+  const [settled] = useState(replacesPlaceholder);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -107,7 +111,7 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
 
   const titleId = `${id}-title`;
   return createPortal(
-    <div className={`sheet-root sheet-root--${size} ${bare ? 'sheet-root--bare' : ''}`}>
+    <div className={`sheet-root sheet-root--${size} ${bare ? 'sheet-root--bare' : ''} ${settled ? 'sheet-root--settled' : ''}`}>
       <div className="sheet-backdrop" onClick={onClose} aria-hidden="true" />
       <div
         ref={panelRef}
@@ -129,7 +133,8 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
           </button>
         </div>
         <div ref={bodyRef} className="sheet-body" tabIndex={bodyFocusable ? 0 : undefined}>
-          {children}
+          {/* A sheet opened from inside this one is new: it plays its own entrance. */}
+          <SheetSettledContext value={false}>{children}</SheetSettledContext>
         </div>
         {footer && <footer className="sheet-footer">{footer}</footer>}
       </div>

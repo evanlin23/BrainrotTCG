@@ -37,7 +37,15 @@ async function setup() {
     const { createElement, useState } = await import('react');
     const { default: Sheet } = await import('../components/ui/Sheet');
     const { default: DeferredSheet } = await import('../components/ui/DeferredSheet');
-    screen = { default: ({ onClose }) => createElement(Sheet, { title: 'Loaded screen', onClose, children: 'Real Sheet content' }) };
+    const Screen = ({ onClose }: { onClose: () => void }) => {
+      const [nested, setNested] = useState(false);
+      return createElement(Sheet, { title: 'Loaded screen', onClose, children: [
+        'Real Sheet content',
+        createElement('button', { key: 'more', onClick: () => setNested(true) }, 'Open nested'),
+        nested && createElement(Sheet, { key: 'nested', title: 'Nested', onClose: () => setNested(false), children: 'Nested content' }),
+      ] });
+    };
+    screen = { default: Screen };
     const Root = () => {
       const [open, setOpen] = useState(false);
       return createElement('div', null,
@@ -65,6 +73,29 @@ it('loads on demand, keeps loading dismissible, retires closed results and resto
   await app!.until('reopening loads the requested real Sheet', () => expect(document.body.textContent).toContain('Real Sheet content'));
   await app!.interact(() => button('Close').click());
   expect(document.activeElement).toBe(button('Open screen'));
+});
+
+it('enters once: a screen arriving after its placeholder is on screen takes its place in place', async () => {
+  const fixture = await setup();
+  const root = (text: string) => [...document.querySelectorAll('.sheet-root')].find((el) => el.textContent?.includes(text))!;
+  await app!.interact(() => { button('Open screen').focus(); button('Open screen').click(); });
+  await app!.settle(50); // the placeholder has reached the screen and started its entrance
+  expect(root('Loading Example').classList).not.toContain('sheet-root--settled');
+  await app!.interact(() => fixture.initial.resolve(fixture.screen));
+  await app!.until('the loaded screen replaces the placeholder', () => expect(document.body.textContent).toContain('Real Sheet content'));
+  expect(document.querySelector('[role="status"]')).toBeNull();
+  expect(root('Real Sheet content').classList).toContain('sheet-root--settled');
+  expect(document.activeElement?.getAttribute('role')).toBe('dialog');
+  // A sheet the screen opens later plays its own entrance.
+  await app!.interact(() => button('Open nested').click());
+  expect(root('Nested content').classList).not.toContain('sheet-root--settled');
+  await app!.interact(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  await app!.interact(() => button('Close').click());
+  expect(document.activeElement).toBe(button('Open screen'));
+  // Arriving before the placeholder's first frame, the screen makes the entrance itself.
+  await app!.interact(() => button('Open screen').click());
+  expect(document.querySelector('[role="status"]')).toBeNull();
+  expect(root('Real Sheet content').classList).not.toContain('sheet-root--settled');
 });
 
 it('contains an import rejection and retries with a new request without losing the Sheet focus', async () => {
