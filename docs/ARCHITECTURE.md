@@ -38,7 +38,7 @@ flowchart LR
 ```
 
 GitHub keeps verified submission issues used to build the Hall of Fame list; public Nostr relays
-carry submissions from players without a GitHub account. Either can omit or delay submissions. The build verifies issues
+carry the game's submissions, which need no GitHub account. Either can omit or delay submissions. The build verifies issues
 (or reuses cached verification). The Rankings page doesn't re-derive published entries again: each
 row links to its pull, and opening a pull link verifies its proof. Relay submissions not filed yet
 are re-derived on the device before they show.
@@ -146,7 +146,9 @@ section 7 and covered by the vectors, including small-order key and malleable-en
 
 ## Hall of Fame (no server)
 
-There are two submission paths; the default relay path needs no GitHub account.
+The game submits through public relays, so players need no GitHub account. The GitHub issue form
+(`.github/ISSUE_TEMPLATE/hall-of-fame.yml`) and its `verify-issue` workflow still work for an issue
+opened by hand, but the game no longer links to the form.
 
 ```
 player ─► Share ─► "Submit"  ─► signed Nostr event ─► 5 public relays
@@ -154,7 +156,7 @@ player ─► Share ─► "Submit"  ─► signed Nostr event ─► 5 public r
                     .github/workflows/hall-of-fame-inbox.yml
                     scripts/hall-of-fame.ts inbox  ─► bot-filed issue + comment + labels (+ redeploy)
                                    │
-player ─► Share ─► "on GitHub" ─► GitHub issue form (pull link; needs an account)
+by hand  ─► GitHub issue form (pull link; needs an account; not linked from the game)
                                    │
                     .github/workflows/hall-of-fame.yml
                     scripts/hall-of-fame.ts verify-issue  ─► comment + labels (+ redeploy)
@@ -254,7 +256,8 @@ times are compared as instants: `selectBoard` and `rebuildBoard` rewrite every r
 coverage bound's included, in `receiptTime`'s millisecond form first, so GitHub's `…07Z` and a
 client's `…07.123Z` sort correctly. `receiptTime` takes only ISO 8601 UTC ending in `Z` and throws
 on anything else. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
-last. The pack summary's `bestPullOrder` lists the earlier slot first instead; boards don't follow it.
+last. The pack summary and the reopened pack's sheet (ShareSheet) show the cards in that same reveal
+order; the shared-pull page keeps engine order.
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
