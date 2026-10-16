@@ -38,8 +38,8 @@ test('keeps pack-screen text at 12 px and form fields at 16 px on a 360 px phone
   expect(await textUnder(page, 12)).toEqual([]);
 
   // The report textarea sets its own small monospace font; on a phone it still renders at 16 px.
-  await page.getByRole('button', { name: 'Sound & display', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Sound & display', exact: true }).getByRole('button', { name: 'Report a problem', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('main', { name: 'Settings', exact: true }).getByRole('button', { name: 'Report a problem', exact: true }).click();
   const report = page.getByRole('dialog', { name: 'Report a problem', exact: true }).getByRole('textbox', { name: 'Report details (editable)', exact: true });
   await expect(report).toBeVisible();
   expect(await report.evaluate((field) => parseFloat(getComputedStyle(field).fontSize))).toBeGreaterThanOrEqual(16);

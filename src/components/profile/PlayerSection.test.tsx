@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
-import PlayerPage from './PlayerPage';
+import PlayerSection from './PlayerSection';
 
 const PLAYER_KEY = 'brainrot-player-v1';
 const stored = { secretKey: 'cd'.repeat(32), name: 'Original Player', nextNonce: 4, createdAt: 1 };
@@ -12,25 +12,19 @@ const storedName = () => JSON.parse(localStorage.getItem(PLAYER_KEY)!).name as s
 let root: Root;
 let container: HTMLElement;
 let setItem: MockInstance<Storage['setItem']>;
-let onClose: ReturnType<typeof vi.fn<() => void>>;
-let onOpenGoals: ReturnType<typeof vi.fn<() => void>>;
 let onOpenSave: ReturnType<typeof vi.fn<() => void>>;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  // jsdom has no ResizeObserver; the page's Sheet only uses it to track overflow.
-  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
   localStorage.clear();
   localStorage.setItem(PLAYER_KEY, JSON.stringify(stored));
   setItem = vi.spyOn(Storage.prototype, 'setItem');
-  onClose = vi.fn<() => void>();
-  onOpenGoals = vi.fn<() => void>();
   onOpenSave = vi.fn<() => void>();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
   act(() => root.render(
-    <PlayerPage level={1} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onClose={onClose} onOpenGoals={onOpenGoals} onOpenSave={onOpenSave} />,
+    <PlayerSection level={1} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onOpenSave={onOpenSave} />,
   ));
 });
 
@@ -53,23 +47,10 @@ const clickSave = () => act(() => {
 });
 const failWrites = () => setItem.mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
 const SAVE_FAILED = "Couldn't save your name in this browser. Try again.";
-/** A pointer close: mousedown moves focus off the field (saving it) before the click lands. */
-const closeBy = (target: 'Close' | 'the backdrop') => {
-  const el = document.querySelector<HTMLElement>(target === 'Close' ? 'button[aria-label="Close"]' : '.sheet-backdrop')!;
-  act(() => { if (target === 'Close') el.focus(); else input().blur(); });
-  act(() => el.click());
-};
-const pressEscape = () => act(() => {
-  (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-});
 const playerWrites = () => setItem.mock.calls.filter(([key]) => key === PLAYER_KEY);
 const statusNode = () => document.querySelector('.settings-group [role="status"]')!.firstChild;
-/** A pointer press on one of the page's buttons: focus moves to it (blurring the field), then it clicks. */
-const pressButton = (label: string) => {
-  const el = [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === label)!;
-  act(() => el.focus());
-  act(() => el.click());
-};
+/** Leaving the Profile page (a tab, Back or its close button) unmounts the section. */
+const leave = () => act(() => root.render(<p>Another page</p>));
 
 describe('saving the display name', () => {
   it.each([
@@ -174,108 +155,58 @@ describe('the status line', () => {
   });
 });
 
-describe('closing with an unsaved draft', () => {
-  it('saves a changed name when Escape closes the sheet', () => {
-    type('Escaped Name');
-    pressEscape();
-    expect(storedName()).toBe('Escaped Name');
-    expect(onClose).toHaveBeenCalledTimes(1);
+
+describe('leaving the page with an unsaved draft', () => {
+  it('saves a changed name', () => {
+    type('Left Name');
+    leave();
+    expect(storedName()).toBe('Left Name');
+    expect(playerWrites()).toHaveLength(1);
   });
 
-  it('closes without writing when the draft is blank or unchanged', () => {
+  it('writes nothing for a blank or unchanged draft', () => {
     type('   ');
-    pressEscape();
-    expect(onClose).toHaveBeenCalledTimes(1);
+    leave();
     expect(playerWrites()).toEqual([]);
     expect(storedName()).toBe('Original Player');
   });
 
-  it('stays open once with the draft when that save fails, then closes on the next Escape', () => {
-    setItem.mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
-    type('Unsaved Name');
-    pressEscape();
-    expect(onClose).not.toHaveBeenCalled();
-    expect(status()).toBe("Couldn't save your name in this browser. Try again.");
-    expect(input().value).toBe('Unsaved Name');
-    pressEscape();
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(storedName()).toBe('Original Player');
-  });
-
-  it.each(['Close', 'the backdrop'] as const)('stays open once when that save fails and %s blurred the field first', (target) => {
+  it('does not write again a draft whose save just failed', () => {
     failWrites();
     type('Unsaved Name');
-    closeBy(target);
-    expect(onClose).not.toHaveBeenCalled();
-    expect(status()).toBe(SAVE_FAILED);
-    expect(input().value).toBe('Unsaved Name');
-    closeBy(target);
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(storedName()).toBe('Original Player');
-  });
-
-  it('writes and announces a failed save once when a pointer close blurs the field first', () => {
-    failWrites();
-    type('Unsaved Name');
-    const close = document.querySelector<HTMLElement>('button[aria-label="Close"]')!;
-    act(() => close.focus());
-    const announced = statusNode();
+    clickSave();
     expect(playerWrites()).toHaveLength(1);
-    act(() => close.click());
-    expect(onClose).not.toHaveBeenCalled();
-    expect(playerWrites()).toHaveLength(1);
-    // The click reused the blur's result instead of remounting the live region text a second time.
-    expect(statusNode()).toBe(announced);
-    act(() => close.click());
-    expect(onClose).toHaveBeenCalledTimes(1);
+    leave();
     expect(playerWrites()).toHaveLength(1);
   });
 
-  it('stays open once more after the name is edited again', () => {
+  it('tries again once the failed draft is edited', () => {
     failWrites();
     type('Unsaved Name');
-    pressEscape();
+    clickSave();
     type('Edited Again');
-    pressEscape();
-    expect(onClose).not.toHaveBeenCalled();
-    expect(input().value).toBe('Edited Again');
-    pressEscape();
-    expect(onClose).toHaveBeenCalledTimes(1);
+    setItem.mockRestore();
+    leave();
+    expect(storedName()).toBe('Edited Again');
   });
 });
 
-describe('leaving for Achievements or Save with an unsaved draft', () => {
-  it.each([
-    ['Achievements', () => onOpenGoals],
-    ['Save & restore', () => onOpenSave],
-  ] as const)('%s saves a changed name and then opens', (label, opened) => {
-    type('Saved First');
-    pressButton(label);
-    expect(storedName()).toBe('Saved First');
-    expect(playerWrites()).toHaveLength(1);
-    expect(opened()).toHaveBeenCalledTimes(1);
+describe('the save note', () => {
+  it('links to Settings, Save & backup', () => {
+    const link = [...document.querySelectorAll<HTMLButtonElement>('.share-note button')].find((el) => el.textContent === 'Save & backup')!;
+    act(() => link.click());
+    expect(onOpenSave).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ['Achievements', () => onOpenGoals],
-    ['Save & restore', () => onOpenSave],
-  ] as const)('%s keeps the draft and the error once when that save fails', (label, opened) => {
-    failWrites();
-    type('Unsaved Name');
-    pressButton(label);
-    expect(opened()).not.toHaveBeenCalled();
-    expect(input().value).toBe('Unsaved Name');
-    expect(status()).toBe(SAVE_FAILED);
-    expect(playerWrites()).toHaveLength(1);
-    pressButton(label);
-    expect(opened()).toHaveBeenCalledTimes(1);
-    expect(playerWrites()).toHaveLength(1);
+  it('has no links to the other pages', () => {
+    expect(document.querySelector('.personal-nav')).toBeNull();
+    expect([...document.querySelectorAll('button')].map((el) => el.textContent)).not.toContain('Achievements');
   });
 });
 
 describe('while the level is unknown', () => {
   const rerender = (level: number | null) => act(() => root.render(
-    <PlayerPage level={level} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onClose={onClose} onOpenGoals={onOpenGoals} onOpenSave={onOpenSave} />,
+    <PlayerSection level={level} settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onOpenSave={onOpenSave} />,
   ));
 
   it('shows a loading note instead of the rewards, then the rewards once the level is known', () => {

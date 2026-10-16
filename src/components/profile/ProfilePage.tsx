@@ -1,13 +1,14 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { ChevronRight, IdCard, Link2, Trophy } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import CardImage from '../cards/CardImage';
 import PackCardViewer from '../ui/PackCardViewer';
-import Sheet from '../ui/Sheet';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
 import ProfileSummary from './ProfileSummary';
 import PackCacheNote from './PackCacheNote';
+import PlayerSection from './PlayerSection';
+import AchievementsSection from '../achievements/AchievementsSection';
 import SharePreviewSheet from '../share/SharePreviewSheet';
 import { modifierClasses } from '../../game/modifiers';
 import { renderPlayerCard } from '../../game/playerCard';
@@ -18,6 +19,8 @@ import { STORAGE_KEYS } from '../../constants';
 import { getPlayer } from '../../game/player';
 import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
 import { copyText } from '../../game/shareActions';
+import type { PullRef } from '../../game/pulls';
+import type { AchievementData, Settings } from '../../types';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
 import '../../styles/Pulls.css';
 
@@ -26,11 +29,21 @@ interface LegacyBest {
   highestPackLegacy?: boolean;
 }
 
-interface MyProfilePageProps {
+interface ProfilePageProps {
   stats: LegacyBest;
-  onClose: () => void;
-  navigation?: ReactNode;
+  /** Null while saved packs are still being read (or couldn't be). */
+  level: number | null;
+  settings: Settings;
+  onSettingsChange: (settings: Settings) => void;
+  unlockedAchievements: Record<string, AchievementData | number>;
+  achievementProgress?: Record<string, [have: number, need: number, unit: string]>;
   onSharePull: (entry: HistoryEntry, cards: CardWithMeta[]) => void;
+  /** Share the pack that unlocked an achievement. */
+  onShareAchievementPull?: (ref: PullRef, cards: CardWithMeta[]) => void;
+  /** Go to Settings, Save & backup. */
+  onOpenSave: () => void;
+  /** Go to the packs screen. */
+  onOpenPacks: () => void;
 }
 
 const PAGE = 30;
@@ -48,9 +61,23 @@ const timeAgo = (t: number) => {
   return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
-/** Your level and stats, a link that proves them, and every pack you've opened (best first). */
-const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePageProps) => {
-  const player = getPlayer();
+/**
+ * The Profile page (#/profile): your level and stats with a link that proves them, your name and
+ * level rewards, achievements, and every pack you've opened (best first).
+ */
+const ProfilePage = ({
+  stats,
+  level,
+  settings,
+  onSettingsChange,
+  unlockedAchievements,
+  achievementProgress,
+  onSharePull,
+  onShareAchievementPull,
+  onOpenSave,
+  onOpenPacks,
+}: ProfilePageProps) => {
+  const [player, setPlayer] = useState(getPlayer);
   // Saved packs are read in pages (game/profiles.ts): recount, and show their cards, as they arrive.
   const packCache = usePackCacheVersion();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,18 +173,11 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
 
   return (
     <>
-      <Sheet
-        title="My cards"
-        subtitle={
-          <>
-            {player.name} <span className="share-fp">#{player.fingerprint}</span>
-          </>
-        }
-        onClose={onClose}
-        size="lg"
-        className="pulls-page"
-      >
-        {navigation}
+      <div className="profile-page pulls-page">
+        <p className="page-subtitle">
+          {player.name} <span className="share-fp">#{player.fingerprint}</span>
+        </p>
+        <h2 className="sr-only">Level and stats</h2>
         {mine && !summary ? (
           <PackCacheNote
             what="your level and stats"
@@ -194,7 +214,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
         ) : (
           <div className="pulls-empty">
             <p>No packs yet. Your level, stats and best pulls show up here.</p>
-            <button type="button" className="btn btn--primary" onClick={onClose}>
+            <button type="button" className="btn btn--primary" onClick={onOpenPacks}>
               Open your first pack
             </button>
           </div>
@@ -212,14 +232,14 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
           <p className="pulls-note">
             Original set/version records are missing or unavailable for {mine.filled.toLocaleString()} pack{mine.filled === 1 ? '' : 's'}.
             These local totals are partial. A complete profile link or player card cannot be created from this save. Keep a private export
-            (open Player, then Save & restore); if you have an older complete backup, it may contain the missing records.
+            (open Settings, then Save & backup); if you have an older complete backup, it may contain the missing records.
           </p>
         )}
 
         {reopen?.running ? (
           <p className="pulls-note" role="status">
-            Re-opening your packs in the background: {reopen.done.toLocaleString()} of {reopen.total.toLocaleString()}. You can close
-            this and keep playing; if you close the tab, it carries on next time.
+            Re-opening your packs in the background: {reopen.done.toLocaleString()} of {reopen.total.toLocaleString()}. You can leave
+            this page and keep playing; if you close the tab, it carries on next time.
           </p>
         ) : (
           unopened > 0 && (
@@ -234,18 +254,22 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
           )
         )}
 
+        <PlayerSection level={level} settings={settings} onSettingsChange={onSettingsChange} onOpenSave={onOpenSave} onRenamed={setPlayer} />
+
+        <AchievementsSection unlockedAchievements={unlockedAchievements} progress={achievementProgress} onSharePull={onShareAchievementPull} />
+
         {stats.highestPackLegacy && stats.highestPackCards?.length ? (
           <section className="pulls-legacy">
-            <h3 className="section-title pulls-history-title">Best before verifiable pulls</h3>
+            <h2 className="section-title pulls-history-title">Best before verifiable pulls</h2>
             <PackCardViewer cards={stats.highestPackCards} displayMode="grid" canShareCards />
           </section>
         ) : null}
 
         {history.length > 0 && (
           <section aria-labelledby="pulls-history-title" className="pulls-history">
-            <h3 id="pulls-history-title" className="section-title pulls-history-title">
+            <h2 id="pulls-history-title" className="section-title pulls-history-title">
               All packs · {history.length.toLocaleString()}
-            </h3>
+            </h2>
             <Tabs
               idBase={tabsId}
               label="Sort packs"
@@ -315,7 +339,7 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
             </div>
           </section>
         )}
-      </Sheet>
+      </div>
       {cardUrl && summary && (
         <SharePreviewSheet
           title="Your player card"
@@ -331,4 +355,4 @@ const MyProfilePage = ({ stats, onClose, onSharePull, navigation }: MyProfilePag
   );
 };
 
-export default MyProfilePage;
+export default ProfilePage;

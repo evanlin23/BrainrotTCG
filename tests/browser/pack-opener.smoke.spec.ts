@@ -22,15 +22,14 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
 
   await page.reload();
   await expect(page.locator('.app-logo')).toBeVisible();
-  await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'My cards', exact: true }).click();
-  const myCards = page.getByRole('dialog', { name: 'My cards', exact: true });
-  const personal = myCards.getByRole('navigation', { name: 'My cards', exact: true });
-  await personal.getByRole('button', { name: 'Best pulls', exact: true }).click();
-  await expect(myCards).toContainText('All packs · 1');
-  await personal.getByRole('button', { name: 'Cards', exact: true }).click();
+  const tabs = page.getByRole('navigation', { name: 'Main', exact: true });
+  await tabs.getByRole('button', { name: 'Profile', exact: true }).click();
+  await expect(page.getByRole('main', { name: 'Profile', exact: true })).toContainText('All packs · 1');
+  await tabs.getByRole('button', { name: 'Cards', exact: true }).click();
   await expect(page.locator('.collection-set').first()).toBeVisible();
   // Compare after UI hydration, not merely immediately after navigation.
   expect(await snapshot(page)).toEqual(before);
-  await page.locator('.sheet').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Close Cards', exact: true }).click();
+  await expect(packShell).toBeVisible();
   expect(errors).toEqual([]);
 });

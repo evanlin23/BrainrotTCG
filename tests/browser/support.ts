@@ -20,7 +20,11 @@ interface Stats {
   highestPackHandName?: string; highestPackFlexValue?: number;
 }
 
-export async function monitor(page: Page, baseURL: string, historyRecords = 0, { routeHttp = true } = {}) {
+/**
+ * Collects page errors and seeds a fixture player. `returning` also records saved packs, so the tabs
+ * show: a new player sees only the packs screen until their first pack is saved (#222).
+ */
+export async function monitor(page: Page, baseURL: string, historyRecords = 0, { routeHttp = true, returning = false } = {}) {
   const errors: string[] = [];
   const origin = new URL(baseURL).origin;
   page.on('pageerror', (error) => errors.push(error.message));
@@ -46,7 +50,7 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
     // Empty responses avoid disguising local load failures with broad console-error filters.
     return route.fulfill({ status: 204 });
   });
-  await page.addInitScript(({ historyRecords, keys, origin }) => {
+  await page.addInitScript(({ historyRecords, returning, keys, origin }) => {
     if (window.location.origin !== origin) return;
     // Fresh smoke seeds identity/audio only; optional performance history below is synthetic.
     if (!localStorage.getItem('brainrot-player-v1')) {
@@ -54,6 +58,9 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
         secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: historyRecords, createdAt: 1,
       }));
       localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+      if (returning) {
+        localStorage.setItem(keys.STATS, JSON.stringify({ packsOpened: Math.max(historyRecords, 1), holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
+      }
       if (historyRecords) {
         // Performance shape only: repeated nonce0 cached cards at synthetic nonces. This is
         // intentionally NOT a verified history/profile, and never enters a proof verifier.
@@ -63,7 +70,7 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
         localStorage.setItem('brainrot-data-version', '3');
       }
     }
-  }, { historyRecords, keys: STORAGE_KEYS, origin });
+  }, { historyRecords, returning, keys: STORAGE_KEYS, origin });
   return errors;
 }
 

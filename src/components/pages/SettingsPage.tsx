@@ -7,16 +7,13 @@ import { CARD_FLIP_SRC } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import type { Settings } from '../../types';
-import Sheet from '../ui/Sheet';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import '../../styles/Settings.css';
 import { exportSaveFile } from '../../game/saveFile';
 
 interface SettingsPageProps {
-    section?: 'sound' | 'save';
     settings: Settings;
     onSettingsChange: (settings: Settings) => void;
-    onClose: () => void;
     /** Returns an error to show, or null (the page then reloads with the imported save). */
     onImportSave: (data: string) => string | null;
     saveWarning?: string;
@@ -24,7 +21,8 @@ interface SettingsPageProps {
     onReload?: () => void;
 }
 
-const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveWarning, onReload, section = 'sound' }: SettingsPageProps) => {
+/** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help. */
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const handleExportSave = () => {
@@ -112,7 +110,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
             try {
                 incoming = JSON.parse(content);
             } catch {
-                return setImportNote("Couldn't read that file. Is it a save exported from Save & restore?");
+                return setImportNote("Couldn't read that file. Is it a save exported from Save & backup?");
             }
             // Replacing real progress with someone else's (or an older) save asks first, in the page.
             const here = localStorage.getItem('brainrot-player-v1');
@@ -138,15 +136,15 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
     };
 
     return (
-        <Sheet title={section === 'save' ? 'Save & restore' : 'Sound & display'} onClose={onClose} size="sm" className="settings">
+        <div className="settings">
             {saveWarning && (
                 <p role="alert" className="save-warning">
                     {saveWarning}
                     {onReload && <button type="button" className="link-btn save-warning-action" onClick={onReload}>Reload</button>}
                 </p>
             )}
-            {section === 'sound' && <section className="settings-group">
-                <h3 className="section-title">Experience</h3>
+            <section className="settings-group" aria-labelledby="settings-sound">
+                <h2 id="settings-sound" className="section-title">Sound &amp; display</h2>
                 <div className="settings-panel">
                     <SliderRow
                         label="Music"
@@ -180,10 +178,10 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
                         onChange={() => onSettingsChange({ ...settings, showDraftSets: !settings.showDraftSets })}
                     />
                 </div>
-            </section>}
+            </section>
 
-            {section === 'save' && <section className="settings-group">
-                <h3 className="section-title">Save data</h3>
+            <section id="save-backup" className="settings-group" aria-labelledby="settings-save">
+                <h2 id="settings-save" className="section-title" tabIndex={-1}>Save &amp; backup</h2>
                 <div className="settings-panel">
                     <div className="settings-row">
                         <span className="settings-text">
@@ -245,13 +243,13 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
                         </div>
                     )}
                 </div>
-            </section>}
-            <section className="settings-group">
-                <h3 className="section-title">Help</h3>
+            </section>
+            <section className="settings-group" aria-labelledby="settings-help">
+                <h2 id="settings-help" className="section-title">Help</h2>
                 <button type="button" className="btn btn--secondary" onClick={() => setReporting(true)}>Report a problem</button>
             </section>
             {reporting && <DiagnosticReport onClose={() => setReporting(false)} />}
-        </Sheet>
+        </div>
     );
 };
 

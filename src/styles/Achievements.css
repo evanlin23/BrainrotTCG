@@ -1,14 +1,20 @@
-/* Achievements sheet (AchievementsPage.tsx). */
+/* The Profile page's Achievements section (AchievementsSection.tsx). */
+
+.achievements-count {
+  margin: var(--space-1) 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
 
 .achievements-progress {
   margin-bottom: var(--space-5);
 }
 
-.achievements section + section {
+.achievements-group + .achievements-group {
   margin-top: var(--space-5);
 }
 
-.achievements .section-title {
+.achievements-group .section-title {
   margin-bottom: var(--space-2);
 }
 

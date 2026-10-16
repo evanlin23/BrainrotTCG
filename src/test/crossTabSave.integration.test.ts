@@ -107,14 +107,14 @@ it('stops this tab opening packs or storing progress once another tab loads a di
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
 
   // Settings, where the banner steps aside, offers the same reload.
-  await app.interact(() => button(document, 'Sound & display')!.click());
-  await app.until('Sound & display loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
   expect(banner()).toBeNull();
   const warning = document.querySelector('.settings p[role="alert"].save-warning')!;
   expect(warning.textContent).toContain(STALE);
   await app.interact(() => button(warning, 'Reload')!.click());
   expect(reload).toHaveBeenCalledTimes(1);
-  await app.interact(() => button(document, 'Close')!.click());
+  await app.interact(() => button(document, 'Close Settings')!.click());
   await app.until('the banner is back', () => expect(banner()?.textContent).toContain(STALE));
   await app.interact(() => button(banner()!, 'Reload')!.click());
   expect(reload).toHaveBeenCalledTimes(2);

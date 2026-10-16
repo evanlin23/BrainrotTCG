@@ -47,7 +47,9 @@ const pressA = () => app!.interact(() => window.dispatchEvent(new KeyboardEvent(
 const escape = () => app!.interact(() => (document.activeElement ?? document.body)
   .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })));
 const toasts = () => [...document.querySelectorAll('.toast')].map((el) => el.textContent ?? '').join(' | ');
-const openMyCards = () => app!.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent === 'My cards')!.click());
+// The tabs are hidden while a pack is open, but an address typed or followed still opens a page or a link.
+const go = (hash: string) => app!.interact(() => { location.hash = hash; });
+const pageTitle = () => document.querySelector('main.page h1')?.textContent ?? null;
 
 it('ignores the old auto-open key on the sealed pack and during a reveal', async () => {
   app = await mountedApp(preferences());
@@ -102,19 +104,23 @@ it('leaves a spent reveal only by its Back to packs button, exactly once: empty 
   }
 }, 30_000);
 
-it('does not leave or record a reveal from behind an open sheet', async () => {
+it('does not leave or record a reveal from behind a page, and the reveal is still there when it closes', async () => {
   app = await mountedApp(preferences());
   await app.mount();
   await reveal();
   await app.interact(() => $('.card-wrapper')!.click());
-  await openMyCards();
-  await app.until('a sheet opens over the reveal', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
+  await go('#/cards');
+  await app.until('Cards opens over the reveal', () => expect(pageTitle()).toBe('Cards'));
+  expect($('main.app-main')!.hidden).toBe(true);
   await app.interact(() => button('Back to packs').click());
+  await escape();
   await app.settle(400);
-  expect(sealed(), 'a press behind the sheet left the reveal').toBeNull();
-  expect(stats()?.packsOpened ?? 0, 'a press behind the sheet recorded the pack').toBe(0);
-  await app.interact(() => button('Close').click());
-  await app.until('the sheet closes', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  expect(progress(), 'a press behind the page left the reveal').toBe('1');
+  expect(stats()?.packsOpened ?? 0, 'a press behind the page recorded the pack').toBe(0);
+  await app.interact(() => button('Close Cards').click());
+  await app.until('the page closes onto the reveal', () => expect($('main.app-main')!.hidden).toBe(false));
+  expect(progress()).toBe('1');
+  expect(location.hash).toBe('');
   await app.interact(() => button('Back to packs').click());
   await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
   expect(stats()?.packsOpened).toBe(1);
@@ -131,14 +137,17 @@ it('leaves a reveal with Escape as Back to packs does, and says the face-down ca
   expect(stats()?.packsOpened).toBe(1);
   expect(stats()?.highestPackCards).toHaveLength(5);
   await app.until('a notice says the pack was kept', () => expect(toasts()).toContain('Pack kept'));
-  expect(toasts()).toContain('Its cards are in My cards');
+  expect(toasts()).toContain('Its cards are in Cards');
   // Tapping the notice opens the cards it names.
   await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast')].find((el) => el.textContent?.includes('Pack kept'))!.click());
-  await app.until('My cards opens from the notice', () => expect(document.querySelector('[role="dialog"]')?.textContent).toContain('My cards'));
+  await app.until('Cards opens from the notice', () => expect(pageTitle()).toBe('Cards'));
+  expect(location.hash).toBe('#/cards');
 
-  // With no reveal open, Escape only closes the sheet and opens or records nothing.
+  // With no reveal open, Escape on the page or back on Open opens or records nothing.
   await escape();
-  await app.until('Escape closes the sheet', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
+  await app.settle(400);
+  await app.interact(() => button('Close Cards').click());
+  await app.until('Open shows again', () => expect($('main.app-main')!.hidden).toBe(false));
   await escape();
   await app.settle(1000);
   expect($('.reveal-progress')).toBeNull();
@@ -169,7 +178,8 @@ it('lets Escape close a sheet over the reveal without closing the reveal', async
   app = await mountedApp(preferences());
   await app.mount();
   await reveal();
-  await openMyCards();
+  // A shared link followed during the reveal: its sheet goes on top of the pack.
+  await go('#/pull/cut-off');
   await app.until('a sheet opens over the reveal', () => expect(document.querySelector('[role="dialog"]')).not.toBeNull());
   await escape();
   await app.until('Escape closes the sheet', () => expect(document.querySelector('[role="dialog"]')).toBeNull());
@@ -178,6 +188,7 @@ it('lets Escape close a sheet over the reveal without closing the reveal', async
   expect(sealed()).toBeNull();
   expect(stats()?.packsOpened ?? 0, 'Escape under a sheet recorded the pack').toBe(0);
   expect(toasts()).not.toContain('Pack kept');
+  expect(location.hash).toBe('');
   await escape();
   await app.until('the next Escape closes the reveal', () => expect(sealed()).not.toBeNull());
   expect(stats()?.packsOpened).toBe(1);

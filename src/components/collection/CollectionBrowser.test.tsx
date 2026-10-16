@@ -50,7 +50,7 @@ let container: HTMLElement;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  // jsdom has no ResizeObserver or matchMedia; the sheet and card viewer only use them for layout and tilt.
+  // jsdom has no ResizeObserver or matchMedia; the card viewer only use them for layout and tilt.
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   finishedCardImage.mockClear();
@@ -68,17 +68,17 @@ afterEach(() => {
 });
 
 const render = (collection: Record<string, CollectionItem>, recentSetId?: string) =>
-  act(() => root.render(<CollectionBrowser collection={collection} onClose={() => {}} recentSetId={recentSetId} />));
-/** A fresh sheet: which eras open is decided when it mounts. */
+  act(() => root.render(<CollectionBrowser collection={collection} recentSetId={recentSetId} />));
+/** A fresh page: which eras open is decided when it mounts. */
 const remount = () => {
   act(() => root.unmount());
   root = createRoot(container);
 };
 
-const sheet = () => document.querySelector<HTMLElement>('.sheet.collection')!;
-const headers = () => [...sheet().querySelectorAll<HTMLButtonElement>('.collection-set-toggle')];
-const mountedPockets = () => sheet().querySelectorAll('.collection-grid > li').length;
-const tiles = (root: ParentNode = sheet()) => [...root.querySelectorAll<HTMLButtonElement>('.collection-grid button.collection-item')];
+const page = () => document.querySelector<HTMLElement>('.collection')!;
+const headers = () => [...page().querySelectorAll<HTMLButtonElement>('.collection-set-toggle')];
+const mountedPockets = () => page().querySelectorAll('.collection-grid > li').length;
+const tiles = (root: ParentNode = page()) => [...root.querySelectorAll<HTMLButtonElement>('.collection-grid button.collection-item')];
 const gridOf = (header: HTMLButtonElement) => {
   const id = header.getAttribute('aria-controls');
   return id ? document.getElementById(id) : null;
@@ -108,7 +108,7 @@ describe('bounded collection grid (#344)', () => {
     expect(unboundedPockets(collection)).toBeGreaterThanOrEqual(127);
     expect(openEras()).toEqual([previous.name, newest.name]);
     expect(mountedPockets()).toBe(24);
-    expect(sheet().querySelectorAll('.collection-grid img')).toHaveLength(24);
+    expect(page().querySelectorAll('.collection-grid img')).toHaveLength(24);
     // Only a showing grid is named by its header; a collapsed header controls nothing mounted.
     for (const header of headers()) {
       if (header.getAttribute('aria-expanded') === 'true') expect(gridOf(header)!.matches('ul.collection-grid')).toBe(true);
@@ -154,7 +154,7 @@ describe('bounded collection grid (#344)', () => {
   });
 
   it('opens the era you just pulled from, even when older and newer eras would fill the budget', () => {
-    // 19 Genesis cards, a Summer of Slop pack, a card from each of two newer eras, then My cards.
+    // 19 Genesis cards, a Summer of Slop pack, a card from each of two newer eras, then Cards.
     addFutureSets(2);
     const genesis = setNamed('Genesis');
     const slop = setNamed('Summer of Slop');
@@ -194,7 +194,7 @@ describe('bounded collection grid (#344)', () => {
     expect(tiles()).toHaveLength(3);
   });
 
-  it('shows an era started while the sheet is open with its grid open', () => {
+  it('shows an era started while the page is open with its grid open', () => {
     const [first] = SETS.filter(isOpenable);
     const rest = SETS.filter((set) => set.id !== first.id).flatMap((set) => getSetCards(set.id));
     render(own(rest));
@@ -214,7 +214,7 @@ describe('every owned card stays reachable', () => {
     const owned = Object.values(collection);
     render(collection);
     const ownedCollectible = COLLECTIBLE_CARDS.filter((card) => collection[card.key]).length;
-    expect(sheet().querySelector('.sheet-subtitle')!.textContent).toMatch(new RegExp(`^${ownedCollectible}/${COLLECTIBLE_CARDS.length} cards · `));
+    expect(page().querySelector('.page-subtitle')!.textContent).toMatch(new RegExp(`^${ownedCollectible}/${COLLECTIBLE_CARDS.length} cards · `));
 
     expandAll();
     expect(headers().every((h) => h.getAttribute('aria-expanded') === 'true')).toBe(true);
@@ -271,7 +271,7 @@ describe('every owned card stays reachable', () => {
   it('keeps the empty and not-started views', () => {
     render({});
     expect(headers()).toHaveLength(0);
-    expect(sheet().querySelector('.collection-empty')!.textContent).toBe('Open packs to start your collection.');
-    expect(sheet().querySelectorAll('.collection-later li')).toHaveLength(SETS.filter(isOpenable).length);
+    expect(page().querySelector('.collection-empty')!.textContent).toBe('Open packs to start your collection.');
+    expect(page().querySelectorAll('.collection-later li')).toHaveLength(SETS.filter(isOpenable).length);
   });
 });
