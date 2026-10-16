@@ -2,9 +2,11 @@ import { useId, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
+import SetBadge from '../sets/SetBadge';
 import { CARD_RARITIES, cardPoints, COLLECTIBLE_CARDS, getSetCards, type Card } from '../../data/cards';
 import { isOpenable, SETS } from '../../content/sets';
 import { FINISH_INFO, bestFinish } from '../../game/modifiers';
+import { setProgress } from '../../game/progression';
 import { ownedVersions } from '../../game/versions';
 import type { Finish } from '../../engine';
 import type { CollectionItem } from '../../types';
@@ -39,12 +41,6 @@ const initiallyOpen = (started: { set: { id: string }; pockets: number }[], rece
     fits = fits && (index === 0 || pockets <= INITIAL_POCKETS);
     return [section.set.id, fits];
   }));
-};
-
-/** "Master" when every card of the set is owned as a holo, "Complete" when every card is owned in any version. */
-const completion = (cards: Card[], owned: Map<string, Owned>): 'Master' | 'Complete' | null => {
-  if (cards.length === 0 || !cards.every((c) => owned.has(c.key))) return null;
-  return cards.every((c) => (owned.get(c.key)?.holoCount ?? 0) > 0) ? 'Master' : 'Complete';
 };
 
 /**
@@ -84,7 +80,8 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     const cards = getSetCards(set.id);
     const have = cards.filter((c) => owned.has(c.key)).length;
     // An openable set shows a pocket for every card; an archived or draft one only the cards you own.
-    return { set, cards, have, pockets: isOpenable(set) ? cards.length : have };
+    const holo = cards.filter((c) => (owned.get(c.key)?.holoCount ?? 0) > 0).length;
+    return { set, cards, have, done: setProgress(have, holo, cards.length), pockets: isOpenable(set) ? cards.length : have };
   }).filter((s) => s.have > 0 || isOpenable(s.set));
   // What you own first (in timeline order), then the eras you haven't opened yet as one short list.
   const started = sections.filter((s) => s.have > 0);
@@ -103,7 +100,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
         <p className="page-subtitle tabular">
           {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} Brainrot Score
         </p>
-        {started.map(({ set, cards, have }) => {
+        {started.map(({ set, cards, have, done }) => {
           const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
           const expanded = open[set.id] ?? true;
           const gridId = `${gridIds}-${set.id}`;
@@ -122,7 +119,12 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
                     <span className="collection-set-era">
                       {set.era}
                       {set.archivedAt && <span className="collection-set-archived">Archived</span>}
-                      {completion(cards, owned) && <span className="collection-set-archived collection-set-done">{completion(cards, owned)}</span>}
+                      {done && (
+                        <>
+                          <SetBadge done={done} />
+                          <span className="sr-only">{done === 'master' ? ': every card as a holo' : ': every card collected'}</span>
+                        </>
+                      )}
                     </span>
                     <span className="collection-set-count tabular">
                       {have}/{cards.length}

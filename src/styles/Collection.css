@@ -56,9 +56,14 @@
   grid-area: era;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+.collection-set-era .set-badge {
+  margin-left: 0;
 }
 
 .collection-set-archived {
@@ -70,11 +75,6 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.collection-set-done {
-  border-color: var(--success);
-  color: var(--success);
 }
 
 .collection-set-count {

@@ -281,7 +281,7 @@ describe('every owned card stays reachable', () => {
 describe('completed sets', () => {
   const set = () => SETS.find(isOpenable)!;
   const cardsOf = () => getSetCards(set().id);
-  const tag = () => headerOf(set().name).querySelector('.collection-set-done')?.textContent ?? null;
+  const tag = () => headerOf(set().name).querySelector('.set-badge')?.textContent ?? null;
   /** Every card owned, as holos only when `holo` says so. */
   const ownAll = (holo: (index: number) => boolean) =>
     Object.fromEntries(cardsOf().map((card, i) => [card.key, { card, normalCount: 1, holoCount: holo(i) ? 1 : 0 } satisfies CollectionItem]));
@@ -301,6 +301,23 @@ describe('completed sets', () => {
     render(ownAll(() => true));
     expect(tag()).toBe('Master');
     expect(headerOf(set().name).textContent).not.toContain('Complete');
+  });
+
+  it('puts the meaning in the toggle\'s accessible text, and uses the foil badge for Master', () => {
+    render(ownAll(() => true));
+    expect(headerOf(set().name).querySelector('.set-badge--master')).not.toBeNull();
+    expect(headerOf(set().name).textContent).toContain('Master: every card as a holo');
+    render(ownAll((i) => i === 0));
+    expect(headerOf(set().name).querySelector('.set-badge--complete')).not.toBeNull();
+    expect(headerOf(set().name).textContent).toContain('Complete: every card collected');
+  });
+
+  it('shows the tag beside Archived on an archived set\'s header', () => {
+    const archived = SETS.find((s) => s.archivedAt)!;
+    render(Object.fromEntries(getSetCards(archived.id).map((card) => [card.key, { card, normalCount: 1, holoCount: 0 } satisfies CollectionItem])));
+    const era = headerOf(archived.name).querySelector('.collection-set-era')!;
+    expect(era.querySelector('.collection-set-archived')?.textContent).toBe('Archived');
+    expect(era.querySelector('.set-badge')?.textContent).toBe('Complete');
   });
 
   it('still toggles from the header with the tag in it', () => {
