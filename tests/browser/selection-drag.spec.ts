@@ -81,6 +81,9 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   await expectDecoded(packShell.locator('img'), 2);
   const dragStarts = await countDragStarts(page);
 
+  // A press-drag across the title letters grows a selection wherever text is selectable.
+  await tryDrag(page, page.locator('.app-logo'), 60, 0);
+  expect(await selectedText(page)).toBe('');
   await page.locator('.app-logo').click({ clickCount: 3 });
   await packShell.dblclick();
   await packShell.click({ clickCount: 3 });
@@ -182,6 +185,28 @@ test.describe('with a touch screen', () => {
       for (let step = 1; step <= 8; step++) await finger.move(x, y + (down ? -15 : 15) * step);
       await finger.release();
     });
+    expect(errors).toEqual([]);
+  });
+
+  test('long presses and drags on the logo and navigation labels select no text and start no native drag', async ({ page, baseURL }) => {
+    test.setTimeout(60000);
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await page.goto('./');
+    const logo = page.locator('.app-logo');
+    await expect(logo).toBeVisible();
+    const dragStarts = await countDragStarts(page);
+    const finger = await fingerFor(page, true);
+
+    // Across the title letters, the way a long press then a slide would grow a selection.
+    await tryTouchDrag(page, finger, logo, 40, 0);
+    expect(await dragStarts()).toBe(0);
+    expect(await selectedText(page)).toBe('');
+    const nav = page.getByRole('navigation', { name: 'Main', exact: true });
+    for (const name of ['Cards', 'Rankings', 'Profile', 'Open']) {
+      await tryTouchDrag(page, finger, nav.locator('.app-nav-item').filter({ hasText: name }).locator('.app-nav-label'), 20, 0);
+      expect(await dragStarts(), name).toBe(0);
+      expect(await selectedText(page), name).toBe('');
+    }
     expect(errors).toEqual([]);
   });
 });
