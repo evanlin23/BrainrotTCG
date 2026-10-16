@@ -76,7 +76,7 @@ const scrollOf = (target: Locator) => target.evaluate((element) => {
  * its no-drag card images: suppressing the native drag must not take the scroll with it.
  */
 async function expectSummaryScrolls(page: Page, scroll: (x: number, y: number, down: boolean) => Promise<void>) {
-  await page.setViewportSize({ width: page.viewportSize()!.width, height: 420 });
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 340 });
   const image = page.locator('.summary-cards img').first();
   await expect.poll(async () => (await scrollOf(image)).max).toBeGreaterThan(120);
   await image.scrollIntoViewIfNeeded();

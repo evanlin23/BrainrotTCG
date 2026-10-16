@@ -4,51 +4,44 @@ import { RotateCcw, Share2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
-import DeferredSheet from '../ui/DeferredSheet';
-import { sheetLoader } from '../ui/sheetEntry';
 import CardGuideButton from '../ui/CardGuideButton';
-import { modifierLabel, modifierThumb, specialCardsLine } from '../../game/modifiers';
+import { modifierLabel, modifierThumb } from '../../game/modifiers';
 import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
-import { comboOneIn, type SetDefinition } from '../../engine';
-import { myProgress } from '../../game/profiles';
+import { scoreAtLeastChance, type SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
-import { bestPullOrder } from '../../game/reveal';
-import { versionOf } from '../../game/versions';
-import { usePackCacheVersion } from '../../hooks/usePackCache';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
-import PackCacheNote from '../profile/PackCacheNote';
 import PackHeadline from './PackHeadline';
+import SummaryHallOfFame from './SummaryHallOfFame';
 import '../../styles/CollectionLabel.css';
 import '../../styles/PackSummary.css';
 
 const Motion = motion;
-const loadCardShare = sheetLoader(() => import('../share/CardShareSheet'));
 
 interface PackSummaryUIProps {
   openedCards: CardWithMeta[];
   set: SetDefinition;
   onClose: () => void;
   onShare?: () => void;
-  /** The pull these cards came from: each card can then be shared or saved as an image that links to it. */
+  /** The pull these cards came from: a card opened up close can then be shared or saved as an image that links to it. */
   pack?: PullRef;
   /** Keep optional work waiting until these cards have decoded (off while a sheet covers them). */
   holdOptional?: boolean;
 }
 
 /**
- * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (combo,
- * Brainrot Score, standout card, how rare the combo is), the five cards in one compact row, best pull
- * first (each opens up close, and has its own Share for an image of it that links to this pack), then
- * the actions, stuck to the bottom so they never scroll away. Below them: new cards, level progress,
- * and how the score works, folded. Sharing starts here, never mid-reveal: the link carries the whole
- * pack, so it would spoil the cards still face down.
+ * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (Brainrot
+ * Score, then "[combo] · 1 in X packs score this high" or "Most packs score this high", then the Hall of
+ * Fame line), one line with the tap hint and the Card guide link, the five cards in one compact row, in
+ * the order they were revealed (each wears its New and special badges and opens up close, where it can be
+ * shared as an image that links to this pack; the summary has no per-card Share), then the actions, stuck
+ * to the bottom so they never scroll away. Nothing follows them: level progress lives on Profile. Sharing
+ * starts here, never mid-reveal: the link carries the whole pack, so it would spoil the cards still face
+ * down.
  */
 const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
-  const [sharing, setSharing] = useState<CardWithMeta | null>(null);
   // The "tap a card" hint stays until a card is opened on this visit.
   const [viewed, setViewed] = useState(false);
-  const shown = useMemo(() => bestPullOrder(openedCards), [openedCards]);
   const cardsRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -71,27 +64,23 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
     const before = actions.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_PRECEDING;
     event.currentTarget.scrollBy({ top: before ? box.bottom - stuck.top + 8 : box.top - stuck.bottom - 8 });
   };
-  const { points, hand, score } = scoreCards(openedCards);
-  // Enumerates every pack of the set, so once per set and combo.
-  const oneIn = useMemo(() => comboOneIn(set, scoreCards(openedCards).hand), [set, openedCards]);
-  const newCount = openedCards.filter((c) => c.isNew).length;
-  const special = specialCardsLine(openedCards);
-  // What this pack did for your level: shown here so progress isn't hidden away in the profile.
-  // Null until saved packs are read: a loading note then, never zero XP.
-  const packCache = usePackCacheVersion();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const progress = useMemo(() => myProgress(), [packCache]);
-  const into = progress ? progress.xp - progress.levelXp : 0;
-  const span = progress ? progress.nextXp - progress.levelXp : 1;
+  const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
+  // Works through every pack of the set (cached per set), so once per set and score, not on each render.
+  const scoreChance = useMemo(() => scoreAtLeastChance(set, packScore.score), [set, packScore.score]);
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
       <div className="summary-content" onFocus={clearActions}>
         <div className="summary-details">
-          {/* openedCards are in reveal order, which keeps pack order on ties, so the standout's tie rule holds. */}
-          <PackHeadline cards={openedCards} headingRef={headingRef} oneIn={oneIn} />
+          <PackHeadline cards={openedCards} headingRef={headingRef} scoreChance={scoreChance}>
+            {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
+          </PackHeadline>
+          <div className="summary-guide-line">
+            {!viewed && <p className="summary-caption">Tap a card to view</p>}
+            <CardGuideButton set={set} />
+          </div>
           <ul className="summary-cards" ref={cardsRef}>
-            {shown.map((card) => (
+            {openedCards.map((card) => (
               <li key={card.uniqueId}>
                 <button
                   type="button"
@@ -112,20 +101,9 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
                   {cardNumber(card)}{' '}
                   <span className={`collection-label-rarity ${card.rarity.toLowerCase()}`}>{CARD_RARITIES[card.rarity].symbol}</span>
                 </span>
-                {pack && (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm summary-card-share"
-                    onClick={() => setSharing(card)}
-                    aria-label={`Share or save ${card.name}${modifierLabel(card) ? `, ${modifierLabel(card)}` : ''}`}
-                  >
-                    <Share2 aria-hidden="true" /> <span className="summary-card-share-text">Share</span>
-                  </button>
-                )}
               </li>
             ))}
           </ul>
-          {!viewed && <p className="summary-caption">Tap a card to see it up close</p>}
 
           {/* Right after the result, and stuck to the bottom so they never scroll away. */}
           <div className="summary-actions" ref={actionsRef}>
@@ -138,33 +116,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
               <RotateCcw aria-hidden="true" /> Open another pack
             </button>
           </div>
-
-          {special && <p className="summary-new">{special}</p>}
-          {newCount > 0 && (
-            <p className="summary-new tabular">
-              {newCount} new {newCount === 1 ? 'card' : 'cards'} for your binder
-            </p>
-          )}
-          {progress ? (
-            <div className="summary-xp">
-              <span className="summary-xp-text tabular">
-                <strong>+{progress.gained.toLocaleString()} XP</strong> · Level {progress.level} · {into.toLocaleString()}/{span.toLocaleString()} to Level {progress.level + 1}
-              </span>
-              <span className="progress" aria-hidden="true">
-                <span style={{ width: `${Math.min(100, (into / span) * 100)}%` }} />
-              </span>
-            </div>
-          ) : (
-            <PackCacheNote what="your level progress" className="summary-xp summary-xp-text" />
-          )}
-          <details className="summary-how">
-            <summary>How this score works</summary>
-            <p className="summary-how-math tabular">
-              {points.toLocaleString()} pts × <strong>{hand.multiplier.toLocaleString()}</strong> for {hand.name} ={' '}
-              <strong>{score.toLocaleString()}</strong> Brainrot Score
-            </p>
-            <CardGuideButton set={set} />
-          </details>
         </div>
       </div>
 
@@ -174,13 +125,6 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
           onClose={() => setSelected(null)}
           canShare
           pack={pack}
-        />
-      )}
-      {sharing && pack && (
-        <DeferredSheet
-          load={loadCardShare}
-          title={`Share ${sharing.name}`}
-          screenProps={{ card: sharing, version: versionOf(sharing), from: pack, onClose: () => setSharing(null) }}
         />
       )}
     </Motion.div>
