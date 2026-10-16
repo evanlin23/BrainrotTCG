@@ -16,7 +16,7 @@ import {
   type VerifiedPull,
 } from '../engine';
 import { getSet } from '../content/sets';
-import { allocateNonce, getPlayer, peekNonce } from './player';
+import { claimNonce, getPlayer, peekNonce } from './player';
 import { recordPack } from './history';
 import { decodeCard, encodeCard, modifiersFor } from './cardCode';
 import { STORAGE_KEYS } from '../constants';
@@ -43,8 +43,9 @@ export interface OpenedPack extends PullRef {
   /** Taken from an older build's one-pack entry, which keeps it until a stored collection holds it. */
   legacy?: boolean;
   /**
-   * Its ticket mapping couldn't be written to the history, or it couldn't be put on the pending shelf
-   * (storage full or blocked, or the shelf full): warn that saving failed.
+   * Its ticket mapping couldn't be written to the history, it couldn't be put on the pending shelf, or
+   * the ticket counter past it couldn't be stored (storage full or blocked, or the shelf full): warn
+   * that saving failed.
    */
   unrecorded?: boolean;
 }
@@ -71,7 +72,7 @@ export const prefetchNextPack = (set: SetDefinition) => {
 
 /** Open a pack: consume a ticket number, mine (or reuse) its ticket, derive the cards. */
 export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
-  const { nonce, player } = allocateNonce();
+  const { nonce, player, stored } = await claimNonce();
   const ticket = await getTicket(setKey(set), player.publicKey, nonce);
   const cards = toCardsWithMeta(generatePack(set, packSeedFromTicket(ticket)));
   prefetchTicket(setKey(set), player.publicKey, nonce + 1);
@@ -88,6 +89,8 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
   if (!recordPack(pack)) pack.unrecorded = true;
   // Not kept for the next load (storage refused, or the shelf is full): warn as well.
   if (!savePendingPack(pack)) pack.unrecorded = true;
+  // The counter past this number wasn't stored: after a reload this ticket could be handed out again.
+  if (!stored) pack.unrecorded = true;
   return pack;
 };
 

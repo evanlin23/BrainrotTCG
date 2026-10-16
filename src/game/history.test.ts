@@ -169,6 +169,59 @@ describe('recording the ticket mappings a full storage refused', () => {
   });
 });
 
+describe('a long pack history in full storage', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps every ticket and the collection when a save overflows, and loses nothing when even that fails', () => {
+    // One quota shared by every key, as a browser's storage has.
+    const data = new Map<string, string>();
+    let quota = Infinity;
+    const used = (except?: string) => [...data].reduce((sum, [k, v]) => (k === except ? sum : sum + k.length + v.length), 0);
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (used(k) + k.length + v.length > quota) throw new DOMException('full', 'QuotaExceededError');
+        data.set(k, v);
+      },
+      removeItem: (k: string) => data.delete(k),
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const LONG = 3_000;
+    const collection = JSON.stringify({ 'right-now/tung-tung-sahur': { normalCount: 40, holoCount: 2 } });
+    data.set(STORAGE_KEYS.COLLECTION, collection);
+    expect(recordMissing(Array.from({ length: LONG }, (_, n) => pack(n)), KEY)).toBe(true);
+    const nonces = (count: number) => Array.from({ length: count }, (_, n) => count - 1 - n);
+
+    // Full: the next pack still saves, by dropping older packs' cached cards, never a ticket.
+    quota = used();
+    expect(recordPack(pack(LONG))).toBe(true);
+    let history = getHistory();
+    expect(history.map((e) => e.nonce)).toEqual(nonces(LONG + 1));
+    expect(history[0].cards).toHaveLength(5);
+    expect(history[LONG].cards).toBeNull();
+    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(collection);
+
+    // So full that even the bare log can't grow: the save is refused and reported, and the stored log
+    // and collection stay exactly as they were.
+    const log = data.get(STORAGE_KEYS.HISTORY)!;
+    const bare = JSON.stringify((JSON.parse(log) as { c?: string }[]).map(({ c: _cards, ...rest }) => rest));
+    quota = used() - log.length + bare.length;
+    expect(recordPack(pack(LONG + 1))).toBe(false);
+    expect(error).toHaveBeenCalledWith('Could not save pack history');
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(log);
+    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(collection);
+
+    // Once there is room, the refused pack's mapping is added back and nothing is missing.
+    quota = Infinity;
+    expect(recordMissing([pack(LONG + 1)], KEY)).toBe(true);
+    history = getHistory();
+    expect(history.map((e) => e.nonce)).toEqual(nonces(LONG + 2));
+    expect(data.get(STORAGE_KEYS.COLLECTION)).toBe(collection);
+  });
+});
+
 describe('sorting and filtering packs', () => {
   const entry = (hand: string, score: number, openedAt: number): HistoryEntry => ({ setId: 'right-now', setVersion: 1, nonce: openedAt, key: 'ab', cards: null, hand, score, openedAt });
 
