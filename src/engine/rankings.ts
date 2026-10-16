@@ -326,8 +326,8 @@ export const cardKey = (setId: string, cardId: string): string => `${setId}/${ca
  * own winners, and an instance from another scoring era leaves only its own card's board partial.
  * Each pack holds one place on a card's board, its best copy of that card (selectBoard), so a pack
  * with the card twice doesn't fill two places. Ties fall to compareRanked: earlier receipt, then pull
- * id, then the later slot. A `through` bound
- * belongs to one board, so it is refused here; rebuild one card's board with rebuildBoard instead.
+ * id, then the later slot. A `through` bound belongs to one board, so it is refused here; rebuild
+ * one card's board with rebuildBoard instead.
  * The boards certify only what the instances cover: a pack-score intake minimum (min-score) still
  * holds for each card, since a pack scores at least each of its cards, but it leaves the boards of
  * cards worth less than the minimum empty and partial.

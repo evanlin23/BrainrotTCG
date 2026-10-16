@@ -456,7 +456,8 @@ export const inbox = async () => {
 
   // Only pulls that would join the list are filed; each one filed raises the bar for the next. Each
   // pull is judged by the UTC day its entry is stamped with: its unfinished issue's, or else today's
-  // (a new issue is stamped as it opens), so after midnight a run judges by the new day's top.
+  // (a new issue is stamped as it opens), so after midnight a run judges by the new day's top. The
+  // floor is today's, so it doesn't apply to an unfinished issue, which may be judged by an earlier day.
   const list = await publishedList();
   if (!list) console.log("Couldn't read the published list; filing every qualifying pull");
   const stampDay = (pull: VerifiedPull) => utcDay(unfinished.get(pullId(pull.proof))?.created_at ?? new Date().toISOString());
@@ -465,7 +466,7 @@ export const inbox = async () => {
     seen,
     filed,
     accepts: (pull) => (list ? joinRefusal(pull, list, stampDay(pull)) === null : qualifiesForHallOfFame(pull.score)),
-    floor: () => (list ? hallOfFameFloor(list, today()) : null),
+    floor: (id) => (list && !unfinished.has(id) ? hallOfFameFloor(list, today()) : null),
     budget: INBOX_BUDGET,
     maxFiled: INBOX_MAX_FILED,
     lookup: getSet,

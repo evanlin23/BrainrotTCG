@@ -563,6 +563,38 @@ describe('retention and intake contracts (offline)', () => {
     expect(outputs()).toEqual({ added: '1' });
   });
 
+  describe("an issue a stopped run left unlabelled on the 16th, finished on the 17th", () => {
+    // The 16th's top has one place left and the 17th's is full: the entry is stamped the 16th, so it joins there.
+    const stamped = '2026-10-16T23:00:00Z';
+    const unfinishedRun = () => {
+      clockAt('2026-10-17T12:00:00Z');
+      const seventeenth = dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP).filter((e) => e.id.startsWith('today-')).map((e) => ({ ...e, id: `17-${e.id}` }));
+      const left = { ...issue(5, fourOfAKind, { labels: ['hall-of-fame'], login: BOT, updated: stamped }), created_at: stamped };
+      return fakeGitHub({ issues: [left], published: [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1), ...seventeenth] });
+    };
+    const FINISHED = ['POST /issues/5/comments', 'POST /issues/5/labels', 'PATCH /issues/5'];
+
+    it("is judged and labelled by the 16th's top", async () => {
+      const gh = unfinishedRun();
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+      await inbox();
+      expect(gh.writes()).toEqual(FINISHED);
+      expect(gh.requests.find((r) => r.path === '/issues/5/labels')!.body).toEqual({ labels: ['daily'] });
+      expect(outputs()).toEqual({ added: '1' });
+    });
+
+    it("isn't turned away by today's floor", async () => {
+      // Today's floor is the 17th's 50th (20,000); the claim of 15,000 is at or below it.
+      const gh = unfinishedRun();
+      const event = hinted(fourOfAKind, 15_000, 1_000_000);
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
+      await inbox();
+      expect(logged().some((l) => l.startsWith(`${event.id}:`) && l.includes('not checked'))).toBe(false);
+      expect(gh.writes()).toEqual(FINISHED);
+      expect(outputs()).toEqual({ added: '1' });
+    });
+  });
+
   it('keeps only the published list and the run caches, and never writes to public/', async () => {
     const tracked = path.join(home, 'public', 'hall-of-fame.json');
     const before = existsSync(tracked) ? readFileSync(tracked, 'utf8') : null;
