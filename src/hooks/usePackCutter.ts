@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { useSparks } from './useSparks';
 import { mapPackPointer, type PackLayout, type PackRect } from './packCutCoordinates';
-import { FAIRY_DUST_SRC, WOOSH_SRC } from '../constants/audio';
+import { FAIRY_DUST_SRC, WOOSH_SRC, soundVolume } from '../constants/audio';
 
 // Pack cutting constants
 const TEAR_LINE_RATIO = 0.19;
@@ -226,7 +226,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     // Play woosh sound
     if (volume > 0) {
       const woosh = new Audio(WOOSH_SRC);
-      woosh.volume = volume;
+      woosh.volume = soundVolume(WOOSH_SRC, volume);
       woosh.onended = () => { woosh.src = ''; };
       woosh.play().catch(() => { });
     }
@@ -274,7 +274,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
             fairyDustRef.current.currentTime = 0;
           }
           fairyDustRef.current = new Audio(FAIRY_DUST_SRC);
-          fairyDustRef.current.volume = volume;
+          fairyDustRef.current.volume = soundVolume(FAIRY_DUST_SRC, volume);
           fairyDustRef.current.play().catch(() => { });
         }
       }

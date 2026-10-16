@@ -217,7 +217,7 @@ it('shares from the summary, which leads with the result and puts its actions af
   const cards = $('.summary-cards')!;
   expect(cards.compareDocumentPosition($('.summary-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the actions came before the cards').toBeTruthy();
   expect($('.summary-title')!.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(cards.compareDocumentPosition($('.pack-summary .summary-how')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the score math came before the cards').toBeTruthy();
+  expect($('.summary-actions')!.nextElementSibling, 'something followed the actions').toBeNull();
   // Keyboard focus starts at the result, not on a button below it.
   expect(document.activeElement).toBe($('.summary-title'));
   expect(button('Open another pack')).toBeDefined();
@@ -289,7 +289,7 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
 
 it('holds the last pack\'s notices while a big pull is on show, and shows them all once it ends', async () => {
   // Nonce 21 has no big pull; the next pack, nonce 22, does.
-  app = await mountedApp(preferences({ nextNonce: 21, pauseBigPulls: true }));
+  app = await mountedApp(preferences({ nextNonce: 21, pauseBigPulls: true }), { hallOfFame: [] });
   await app.mount();
   await reveal();
   await escape();
@@ -312,7 +312,7 @@ it('holds the last pack\'s notices while a big pull is on show, and shows them a
 
 it('keeps notices held between two big pulls that Skip shows back to back (#460)', async () => {
   // Nonce 973 leaves a notice behind; nonce 974 deals two big pulls, the last two cards.
-  app = await mountedApp(preferences({ nextNonce: 973, pauseBigPulls: true }));
+  app = await mountedApp(preferences({ nextNonce: 973, pauseBigPulls: true }), { hallOfFame: [] });
   await app.mount();
   await reveal();
   await escape();
