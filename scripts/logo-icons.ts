@@ -7,7 +7,7 @@
  *
  *   npm run icons
  *
- * scripts/logo-icons.test.ts fails if the committed SVGs drift from the mark.
+ * scripts/logo-icons.test.ts fails if the committed SVGs or PNGs drift from the mark.
  */
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -27,13 +27,16 @@ export const PNG_FILES: Record<string, { svg: string; size: number; opaque?: boo
   'public/apple-touch-icon.png': { svg: logoTileSvg({ rounded: false, size: 180 }), size: 180, opaque: true },
 };
 
+/** One PNG icon as `npm run icons` writes it. */
+export async function renderPng({ svg, size, opaque }: (typeof PNG_FILES)[string]): Promise<Buffer> {
+  // Render at 8x and shrink, so the small icon's edges are averaged rather than rasterised.
+  const big = await sharp(Buffer.from(svg), { density: 72 * 8 }).png().toBuffer();
+  const icon = sharp(big).resize(size, size, { kernel: 'lanczos3' });
+  return (opaque ? icon.flatten({ background: '#000' }) : icon).png({ compressionLevel: 9 }).toBuffer();
+}
+
 if (isMainModule(import.meta.url)) {
   for (const [file, svg] of Object.entries(SVG_FILES)) writeFileSync(`${ROOT}${file}`, svg);
-  for (const [file, { svg, size, opaque }] of Object.entries(PNG_FILES)) {
-    // Render at 8x and shrink, so the small icon's edges are averaged rather than rasterised.
-    const big = await sharp(Buffer.from(svg), { density: 72 * 8 }).png().toBuffer();
-    const icon = sharp(big).resize(size, size, { kernel: 'lanczos3' });
-    await (opaque ? icon.flatten({ background: '#000' }) : icon).png({ compressionLevel: 9 }).toFile(`${ROOT}${file}`);
-  }
+  for (const [file, png] of Object.entries(PNG_FILES)) writeFileSync(`${ROOT}${file}`, await renderPng(png));
   console.log(`wrote ${[...Object.keys(SVG_FILES), ...Object.keys(PNG_FILES)].join(', ')}`);
 }

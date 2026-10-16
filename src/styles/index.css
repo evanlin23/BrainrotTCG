@@ -113,6 +113,13 @@
     padding-top: var(--space-4);
   }
 
+  /* The logo shares the row with the tabs and the gear (about 450px with their gaps), so it scales
+     from 36px at 900px to its full 52px by about 1060px, and never shrinks below its own content. */
+  .app-logo {
+    flex-shrink: 0;
+    font-size: clamp(2.25rem, 10vw - 3.375rem, 3.25rem);
+  }
+
   .app-main,
   .app.is-focus .app-main,
   .app.no-nav .app-main {

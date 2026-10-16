@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import { expect, it } from 'vitest';
 import { LOGO_MARK_PATH } from '../src/styles/logoMark.ts';
-import { PNG_FILES, SVG_FILES } from './logo-icons.ts';
+import { PNG_FILES, SVG_FILES, renderPng } from './logo-icons.ts';
 
 const file = (name: string) => fileURLToPath(new URL(`../${name}`, import.meta.url));
 
@@ -19,12 +20,19 @@ it('keeps the committed SVGs in step with the mark (npm run icons)', () => {
   for (const [name, svg] of Object.entries(SVG_FILES)) expect(readFileSync(file(name), 'utf8'), name).toBe(svg);
 });
 
-it('commits each PNG icon at its size', () => {
-  for (const [name, { size }] of Object.entries(PNG_FILES)) {
+it('commits each PNG icon at its size, drawn from the current mark (npm run icons)', async () => {
+  for (const [name, spec] of Object.entries(PNG_FILES)) {
     const png = readFileSync(file(name));
     expect(png.subarray(1, 4).toString('latin1'), name).toBe('PNG');
     // The IHDR chunk's width and height.
-    expect([png.readUInt32BE(16), png.readUInt32BE(20)], name).toEqual([size, size]);
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)], name).toEqual([spec.size, spec.size]);
+    // Compare pixels, not bytes, so a different PNG encoder can't fail it; a moved square can.
+    const pixels = (image: Buffer) => sharp(image).ensureAlpha().raw().toBuffer();
+    const [committed, fresh] = await Promise.all([pixels(png), renderPng(spec).then(pixels)]);
+    expect(committed.length, name).toBe(fresh.length);
+    let worst = 0;
+    for (let i = 0; i < fresh.length; i++) worst = Math.max(worst, Math.abs(committed[i] - fresh[i]));
+    expect(worst, name).toBeLessThanOrEqual(8);
   }
 });
 
