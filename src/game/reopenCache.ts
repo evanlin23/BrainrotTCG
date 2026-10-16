@@ -3,7 +3,7 @@
  * profile with more packs) only re-opens what's new. Only ever written with packs this device
  * derived itself, so trusting it is trusting this device.
  */
-import type { PulledCard, SetDefinition } from '../engine';
+import { setKey, type PulledCard, type SetDefinition } from '../engine';
 import { decodeCard, encodeCard, modifiersFor } from './cardCode';
 
 const KEY = 'brainrot-reopened-v1';
@@ -37,7 +37,7 @@ const flush = () => {
   }
 };
 
-const keyOf = (set: SetDefinition, publicKeyHex: string, nonce: number) => `${set.id}@${set.version}|${publicKeyHex}|${nonce}`;
+const keyOf = (set: SetDefinition, publicKeyHex: string, nonce: number) => `${setKey(set)}|${publicKeyHex}|${nonce}`;
 
 export const getReopened = (set: SetDefinition, publicKeyHex: string, nonce: number): PulledCard[] | null => {
   const stored = load().get(keyOf(set, publicKeyHex, nonce));

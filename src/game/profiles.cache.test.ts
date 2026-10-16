@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import { computeTicket, derivePack, profileStats, scorePulled, setKey, type ProfilePack, type SetDefinition } from '../engine';
 import { encodeCard } from './cardCode';
-import { getStoredPack, hydratePackStore, putStoredPacks, resetPackStore, type StoredPack, type StoredPackRef } from './packStore';
+import { getStoredPack, hydratePackStore, packRefKey, putStoredPacks, resetPackStore, type StoredPack, type StoredPackRef } from './packStore';
 import { getPlayer } from './player';
 import {
   historyAchievementsReady, historyPacksState, hydrateMyPacks, myPackCacheState, myProfileInfo, myProgress, myStats, reopenStatus, resetTicketList,
@@ -40,7 +40,7 @@ interface Read {
 let reads: Read[] = [];
 /** What this device's IndexedDB holds. */
 let saved = new Map<string, StoredPack>();
-const idOf = (p: StoredPackRef) => `${p.setKey}|${p.publicKeyHex.slice(0, 16)}|${p.nonce}`;
+const idOf = (p: StoredPackRef) => packRefKey(p.setKey, p.publicKeyHex, p.nonce);
 
 beforeEach(() => {
   reads = [];
