@@ -76,6 +76,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
    * finger can't stretch the first one's stroke.
    */
   const ownerRef = useRef<number | null>(null);
+  /** The owner's pointerType. Only read while there is an owner. */
+  const ownerTypeRef = useRef<string | null>(null);
   /**
    * This press started over something else (an open sheet) or beside the pack, so it can't cut until
    * it's released.
@@ -197,13 +199,17 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   const handlePointerDown = useCallback((event: PointerEvent) => {
     if (event.button !== 0) return;
     if (ownerRef.current !== null) {
-      // Another finger while one is down: not part of this stroke.
-      if (event.pointerId !== ownerRef.current && event.isPrimary === false) return;
+      // Another finger, or another kind of pointer (a mouse is primary even while a finger is down),
+      // while one is down: not part of this stroke.
+      if (event.pointerId !== ownerRef.current
+        && (event.isPrimary === false || event.pointerType !== ownerTypeRef.current)) return;
       // Otherwise the owner's release was lost (a mouse can't press twice, and a primary touch means
-      // no other is down), so this press starts afresh.
+      // no other is down), so this press starts afresh. A lost release followed by another kind of
+      // pointer waits for the same kind to press again, or for the window to lose focus.
       endCutAttempt();
     }
     ownerRef.current = event.pointerId;
+    ownerTypeRef.current = event.pointerType;
     blockedRef.current = false;
     // The pack's top bar (its X) can sit over the tear line on a phone: pressing it never cuts.
     if (disabled || (event.target as Element | null)?.closest?.('[role="dialog"], .sheet-backdrop, .pack-top-bar')) {
