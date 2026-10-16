@@ -3,6 +3,7 @@ import { ALL_CARDS, type Card } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { hydrateCard, hydrateCollection, runMigrations } from '../utils/migrations';
 import { importSave } from './move';
+import { SAVE_STAMP_KEY } from './player';
 
 /** Just enough of localStorage and window for importSave. */
 const store = new Map<string, string>();
@@ -155,6 +156,26 @@ describe('bringing a save over', () => {
     importSave({ ...OLD, 'unrelated-key': 'x', 'brainrot-stats-v1': 7 });
     expect(store.has('unrelated-key')).toBe(false);
     expect(store.has('brainrot-stats-v1')).toBe(false);
+  });
+
+  it.each([['no stamp', {}], ['its own stamp', { [SAVE_STAMP_KEY]: 'old address' }]])(
+    'writes a fresh stamp over an earlier import\'s when the moved save has %s', (_name, stamp) => {
+      store.set('brainrot-player-v1', player('bb'));
+      store.set('brainrot-stats-v1', '{"packsOpened":4}');
+      store.set(SAVE_STAMP_KEY, 'earlier import');
+      expect(importSave({ ...OLD, ...stamp }, () => true)).toBe('saved');
+      expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+      expect(['earlier import', 'old address']).not.toContain(store.get(SAVE_STAMP_KEY));
+    });
+
+  it('changes the stamp, first, when a save without a player key comes into a visited browser', () => {
+    const visitor = JSON.stringify({ secretKey: 'cc', name: 'Visitor', nextNonce: 0, createdAt: 2 });
+    store.set('brainrot-player-v1', visitor);
+    const write = vi.spyOn(localStorage, 'setItem');
+    expect(importSave({ 'brainrot-found-collection-v1': OLD['brainrot-found-collection-v1'] })).toBe('saved');
+    expect(store.get('brainrot-player-v1')).toBe(visitor);
+    expect(write.mock.calls[0][0]).toBe(SAVE_STAMP_KEY);
+    expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
   });
 
   it('does nothing when the same player is already here', () => {
@@ -327,7 +348,7 @@ describe('bringing a save over', () => {
       'brainrot-before-move-v1': 'incoming must not replace backup',
       'brainrot-before-import-v1': 'nor the file import backup',
     }, () => true)).toBe('saved');
-    expect(events).toEqual(['backup', ...Object.keys(original).map(() => 'remove'), ...Object.keys(OLD).map(() => 'incoming')]);
+    expect(events).toEqual(['backup', ...Object.keys(original).map(() => 'remove'), 'incoming', ...Object.keys(OLD).map(() => 'incoming')]);
     expect(remove).toHaveBeenCalledTimes(Object.keys(original).length);
     expect(store.get('brainrot-before-move-v1')).toBe(JSON.stringify(original));
     expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
