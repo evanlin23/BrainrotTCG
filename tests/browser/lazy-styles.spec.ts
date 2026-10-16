@@ -55,7 +55,7 @@ test('the pack summary labels and its card viewer are styled on a cold load', as
   test.setTimeout(90000);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
-  const pack = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
   await pack.focus();
   await page.keyboard.press('Space');
   await page.locator('button.reveal-skip').click({ timeout: 15000 });

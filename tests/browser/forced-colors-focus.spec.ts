@@ -47,7 +47,7 @@ const openPackScreen = async (page: Page, baseURL: string) => {
   const errors = await monitor(page, baseURL, 0, { returning: true });
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Open a .* pack$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeVisible();
   expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
   return errors;
 };
@@ -55,7 +55,7 @@ const openPackScreen = async (page: Page, baseURL: string) => {
 test('shows a visible focus outline on every Tab stop of the pack screen in forced colours', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
   const errors = await openPackScreen(page, baseURL!);
-  const stops = await tabTo(page, page.getByRole('button', { name: /^Open a .* pack$/ }));
+  const stops = await tabTo(page, page.getByRole('button', { name: 'Open pack', exact: true }));
   // The walk reached the pack through the header, nav and set picker, not one lucky stop.
   expect(stops.length).toBeGreaterThanOrEqual(3);
   expect(errors).toEqual([]);
@@ -83,13 +83,13 @@ test('shows a visible focus outline inside a sheet and on the reveal card in for
   await expect(sheet).toHaveCount(0);
 
   // The reveal: the card is its one control, and keeps the outline while the ring is a pseudo-element.
-  await tabTo(page, page.getByRole('button', { name: /^Open a .* pack$/ }));
+  await tabTo(page, page.getByRole('button', { name: 'Open pack', exact: true }));
   await page.keyboard.press('Space');
   const card = page.locator('.reveal-card:focus');
   await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
   expect((await expectOutline(page))?.name).toMatch(/reveal-card/);
   await page.keyboard.press('Space');
-  await expect(card).toHaveAttribute('aria-label', 'Next card', { timeout: 10000 });
+  await expect(card).toHaveAttribute('aria-label', /^Next card\. Card 1 of 5: /, { timeout: 10000 });
   expect((await expectOutline(page))?.name).toMatch(/reveal-card/);
   expect(errors).toEqual([]);
 });

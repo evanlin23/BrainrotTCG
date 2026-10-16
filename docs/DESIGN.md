@@ -208,49 +208,63 @@ Escape closes the top sheet, and Back walks the pages and packs in the order the
 (`tests/browser/pages.spec.ts`). Tab through once more with forced colours emulated (DevTools >
 Rendering): every stop still shows an outline (`tests/browser/forced-colors-focus.spec.ts`).
 
-## Proposed local Best cards contract (#337)
+## Local Best cards contract (#337)
 
-**Proposal for owner/Claude review, not shipped.** Keep a short list of individual card instances
-on the Profile page, next to the shipped **All packs** list (its Newest / Best /
-Hall of Fame tabs); no extra primary destination or global board. The heading "Best cards", its
-placement and the cap of 10 are proposals for the owner to confirm. Rank by original-version
-individual `cardPoints` before the pack combo multiplier, preserving finish/holo/misprint together.
-Distinct slots may both qualify; repeated imports of one instance cannot duplicate it.
+Slice 1 (the selector, storage and save coverage, in `src/game/bestCards.ts`) has shipped; it has no UI
+yet. A short list of individual card instances, headed **Best cards** and capped at 10
+(`BEST_CARDS_CAP`), will sit on the Profile page next to the shipped **All packs** list (its Newest /
+Best / Hall of Fame tabs), with no extra primary destination or global board. Ranking uses each
+card's own `cardPoints` in its original set version, before the pack combo multiplier, with
+finish/holo/misprint kept together. Distinct slots may both qualify; offering a pack again never
+duplicates an instance.
 
-Use `(full public key, set id, set version, nonce, zero-based slot)` as the instance key: the full
-64-hex `publicKeyHex`, and the slot in engine pack order, not reveal order. Pack history
+The instance key is `(full public key, set id, set version, nonce, zero-based slot)`: the full
+64-hex `publicKeyHex` and the slot in engine pack order, not reveal order. Pack history
 (`brainrot-history-v1`) and the pack cache store only the first 16 hex characters of the key
-(`KEY_PREFIX` in `src/game/history.ts`, `keyOf` in `src/game/packStore.ts`), so the full key must
-come from the player or the proof, never from history. On equal points, order by lower nonce (as
-profile highlights do, `src/engine/profile.ts`), then by higher slot (as shipped best-card picks do;
-see the pull headline rule below). The local Best tab instead breaks pack ties by newer `openedAt`,
-which this list must not use. Conflicting set assignments for one nonce require resolution, not two
-awards. Namespace lists by full key; switching/importing an identity never merges its winners with
-another key's. Local timestamps and short display fingerprints are not trusted tie/identity data.
+(`KEY_PREFIX` in `src/game/history.ts`, `keyOf` in `src/game/packStore.ts`), so the full key comes
+from the player or the opened pack, never from history. Equal points go to the lower nonce (as
+profile highlights do, `src/engine/profile.ts`), then the higher slot (as shipped best-card picks
+do; see the pull headline rule below), never `openedAt`, which the local Best tab uses for pack
+ties. A nonce recorded under two set assignments is awarded once, to the first-opened assignment
+(`firstOpened` in `src/game/history.ts`, the rule profiles use), across history, the stored list
+and new packs. Lists are namespaced by full key; switching or importing an identity never merges
+its winners with another key's. Local timestamps and short fingerprints are not tie or identity data.
 
-Retain the original pack proof or a portable authoritative assignment reference, including exact
-version/slot, independently of pack-history trimming (when storage is full, history drops cached
-cards, then the oldest packs). Reconstruct before accepting a candidate; cached
-points/cards/images are discardable. Bound the list to the cap (10, owner to confirm) and
-deduplicate parent proofs, without deleting the separate profile ledger or achievement evidence
-(#241/#323).
+Storage (`brainrot-best-cards-v1`): `{ [full key]: { w, b } }`. Each winner in `b` is a reference
+`{ s, v, n, i, t }` (set, version, nonce, slot, opened time) plus an optional cached card code `c`;
+the reference alone rebuilds the card with the engine (`derivePack`), so it doesn't depend on
+history trimming (which drops cached cards, then the oldest packs) or the pack cache. `w` is the
+weighed mark: `b` is the exact top 10 of a set of packs that holds every ticket below `w`. Opening
+the next ticket in order moves `w` past it; a sync from history (`syncMyBestCards`) moves it past
+every recoverable ticket; a lost assignment, a cached card that disagrees with its ticket, or more
+than 10 winners awaiting a rebuild resets it to 0. The list is **complete** only when `w` reaches the
+tickets used and every winner is scored; otherwise it is the best among recoverable pulls, not a
+certified best-ever. Cached codes, points and images are discardable: `rebuildBestCards` re-derives
+winners without one (or all, with `all`), offers each pack whole, and keeps winners whose pack
+fails to rebuild, counting them for a retry. An unreadable or invalid store is never overwritten;
+a refused write (quota) keeps the stored winners, holds the new list in memory as **unsaved**, and
+is retried by the next merge. The list is the save field `bestCards`: exported, validated on import,
+and cleared by a different player's import, so a fresh browser rebuilds it from references alone.
+The separate profile ledger and achievement evidence (#241/#323) are untouched.
 
-| Case | Required result |
-| --- | --- |
-| A 40M-point card's parent pack is trimmed from history | Card remains reconstructible with original-pack access |
-| Reimported pack; equal cards in two slots | No duplicate instance; both slots eligible, higher slot first |
-| Later version changes rarity/modifiers | Original version determines points and exact appearance |
-| Missing cache / failed save | Reconstruct with retry; preserve prior winners and report unsaved state |
-| Legacy history already missing | “Best among recoverable pulls”, not certified best-ever |
+| Case | Required result | Covered by (`src/game/bestCards.test.ts`) |
+| --- | --- | --- |
+| A 40M-point card's parent pack is trimmed from history | Card remains reconstructible from its reference | keeps a winner rebuildable after the history drops its pack and the cached card |
+| Reimported pack; equal cards in two slots | No duplicate instance; both slots eligible, higher slot first | never lists an instance twice when a pack is offered again |
+| Later version changes rarity/modifiers | Original version determines points and exact appearance | scores each winner by its own set version |
+| Missing cache / failed save | Rebuild with retry; preserve prior winners and report unsaved state | keeps a winner rebuildable…; keeps the stored winners when a save fails |
+| Legacy history already missing | Best among recoverable pulls, not certified best-ever | lists the best among recoverable packs until every used ticket is weighed |
 
-Portable saves must include required references/provenance even if stored in IndexedDB; restore
-into a fresh browser must not depend on the source cache. An external different-key proof is a
-viewed shared pull, not an owned opening. Public proof/generator formats remain unchanged.
+The same file covers quota errors, never overwriting broken storage, identity isolation (keys
+sharing the history prefix included), double-spent tickets, and an export/import round trip into a
+fresh browser; `src/game/pulls.test.ts` covers recording on open. An external different-key proof
+is a viewed shared pull, not an owned opening. Public proof/generator formats are unchanged.
+
+**Slice 2 proposals, not shipped:** the Profile list itself, wired to sync and rebuild on load.
 Rows open shared card detail with the shipped Share card action plus a proposed View original pack;
-pack detail offers a proposed Share pack (#185). Listed proofs establish those instances, not complete lifetime totals or absence of a
-stronger undeclared pull. After approval, split selector/persistence/save coverage from UI wiring.
-The full quota, interruption, mixed-version and round-trip acceptance matrix remains in #337;
-those implementation tests are planned, not executed by this design-only change.
+pack detail offers a proposed Share pack (#185). Listed proofs establish those instances, not
+complete lifetime totals or the absence of a stronger undeclared pull. The rest of the acceptance
+matrix (interruption and UI states) remains in #337.
 
 ## Proposed pull headline rule (#339)
 

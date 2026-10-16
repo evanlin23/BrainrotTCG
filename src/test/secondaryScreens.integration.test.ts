@@ -156,7 +156,7 @@ const openShows = () => expect(document.querySelector<HTMLElement>('main.app-mai
 it('keeps actual App pages working without changing the selected pack', async () => {
   app = await mountedApp({ ...PLAYER('Pages fixture'), ...RETURNING });
   await app.mount();
-  const pack = document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label');
+  const pack = document.querySelector('.pack-set-name')?.textContent;
   for (const [target, content] of [['Cards', '.collection'], ['Profile', '#player'], ['Settings', '.settings-group']]) {
     await app.interact(() => { button(target).focus(); button(target).click(); });
     await app.until(`${target} loads its production controls`, () => {
@@ -167,7 +167,7 @@ it('keeps actual App pages working without changing the selected pack', async ()
     await app.interact(() => button(`Close ${target}`).click());
     await app.until(`${target} closes to Open`, openShows);
     expect(document.activeElement).toBe(document.querySelector('.app-logo'));
-    expect(document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label')).toBe(pack);
+    expect(document.querySelector('.pack-set-name')?.textContent).toBe(pack);
   }
 });
 
@@ -223,14 +223,15 @@ it('fetches a page on intent, but not while a pack is opening', async () => {
   };
   expect(requested, 'nothing is fetched at startup').toEqual([]);
 
-  await app.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
   await app.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
-  await app.until('a slow ticket holds the app on the pack', () => expect(document.querySelector('.pack-hint.is-waiting[role="status"]')).not.toBeNull());
+  await app.until('a slow ticket holds the app on the pack', () => expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull());
   expect(button('Settings').disabled).toBe(true);
   await app.interact(() => { point('Cards'); point('Rankings'); });
   await app.settle(100);

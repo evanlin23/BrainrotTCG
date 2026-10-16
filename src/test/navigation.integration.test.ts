@@ -31,7 +31,7 @@ it('shows a new player only the packs screen and Settings until their first pack
 }, 30_000);
 
 const picker = () => document.querySelector('nav.set-picker[aria-label="Choose a pack"]');
-const packLabel = () => document.querySelector('[aria-label^="Open a "]')?.getAttribute('aria-label') ?? null;
+const packLabel = () => (document.querySelector('.pack-open-button') && document.querySelector('.pack-set-name')?.textContent) || null;
 /** An old save, or one whose stats couldn't be read: cards but no pack count. */
 const CARDS_ONLY = {
   [STORAGE_KEYS.COLLECTION]: JSON.stringify(Object.fromEntries([getSetCards(SETS[0].id)[0]].map((card) => [card.key, { card, normalCount: 1, holoCount: 0 }]))),
@@ -46,10 +46,11 @@ it('shows a new player the set picker only once their first pack is saved, and n
   expect(picker()).toBeNull();
 
   await app.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
   await app.until('the ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   expect(picker()).toBeNull();
@@ -70,10 +71,11 @@ it('brings a new player the set picker and tabs as they leave a first pack whose
     { tickets: () => ({ delayMs: 4000 }) });
   await app.mount();
   await app.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
   await app.until('the slow ticket says so', () => expect(document.querySelector('.pack-hint.is-waiting')).not.toBeNull());
   expect(picker()).toBeNull();

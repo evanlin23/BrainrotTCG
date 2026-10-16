@@ -190,7 +190,7 @@ export const recordPack = (pack: OpenedPack): boolean => {
    * Re-recording a pack replaces its entry. Another set on the same ticket is a conflicting
    * assignment (two tabs spent one ticket number at once, or an imported backup carried both).
    * Neither record can be rebuilt from the other, so both are kept rather than the last one
-   * winning; a profile admits one of them by a fixed rule (game/profiles.ts, firstOpened).
+   * winning; a profile admits one of them by a fixed rule (firstOpened below).
    */
   const stub = current.findIndex((e) => sameAssignment(e, entry) && isTicketOnly(e));
   if (stub >= 0) return write(replaceStandIn(current, stub, entry));
@@ -239,6 +239,17 @@ export const recordMissing = (packs: readonly OpenedPack[], publicKeyHex: string
   }
   return !added || write(current);
 };
+
+type OpenedOrder = Pick<HistoryEntry, 'openedAt' | 'setId' | 'setVersion'>;
+
+/**
+ * One original mapping per ticket. History keeps every conflicting record of a ticket (two tabs
+ * spent the same ticket number, or a backup carried both; see recordPack), and a profile admits
+ * the pack opened first with it: the earliest openedAt, then setId, then setVersion. Every read on
+ * every device picks the same record whatever order they are stored in, and none is deleted.
+ */
+export const firstOpened = (a: OpenedOrder, b: OpenedOrder): number =>
+  a.openedAt - b.openedAt || (a.setId < b.setId ? -1 : a.setId > b.setId ? 1 : 0) || a.setVersion - b.setVersion;
 
 /** This key's packs in ticket order (what a profile is built from). */
 export const historyForKey = (publicKeyHex: string): HistoryEntry[] =>

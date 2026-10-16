@@ -35,7 +35,7 @@ async function pressPoint(target: Locator) {
  * before then can land on the pack instead. Checks that the drags' press point hits the logo.
  */
 async function settledLogo(page: Page) {
-  await expectStill(page.getByRole('button', { name: /^Open a .* pack$/ }), 'the pack stops moving');
+  await expectStill(page.locator('.pack-shell'), 'the pack stops moving');
   const logo = page.locator('.app-logo');
   const { x, y } = await pressPoint(logo);
   expect(await logo.evaluate((element, [px, py]) => element.contains(document.elementFromPoint(px, py)), [x, y]),
@@ -92,7 +92,7 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const packShell = page.locator('.pack-shell');
   await expectDecoded(packShell.locator('img'), 2);
   const dragStarts = await countDragStarts(page);
 
@@ -109,7 +109,7 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   expect(await dragStarts()).toBe(0);
   expect(await selectedText(page)).toBe('');
 
-  await packShell.focus();
+  await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   // The previous card stays in the DOM while it animates out; the current one is last.
@@ -169,7 +169,7 @@ test.describe('with a touch screen', () => {
     const errors = await monitor(page, baseURL!);
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
-    const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+    const packShell = page.locator('.pack-shell');
     await expectDecoded(packShell.locator('img'), 2);
     await packShell.scrollIntoViewIfNeeded();
     const dragStarts = await countDragStarts(page);
@@ -181,7 +181,7 @@ test.describe('with a touch screen', () => {
     expect(await selectedText(page)).toBe('');
     await expect(packShell).not.toHaveClass(/\bis-cut\b/);
 
-    await packShell.focus();
+    await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
     await page.keyboard.press('Space');
     const card = page.locator('.reveal-card').last().locator('.card-wrapper');
     await expect(card).toBeVisible({ timeout: 15000 });

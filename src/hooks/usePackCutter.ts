@@ -336,8 +336,9 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     ownerRef.current = event.pointerId;
     ownerTypeRef.current = event.pointerType;
     blockedRef.current = false;
-    // The pack's top bar (its X) can sit over the tear line on a phone: pressing it never cuts.
-    if (disabled || (event.target as Element | null)?.closest?.('[role="dialog"], .sheet-backdrop, .pack-top-bar')) {
+    // The pack's top bar (its X) can sit over the tear line on a phone, and the Open pack and Try again
+    // buttons under the pack can meet its art: pressing them never cuts.
+    if (disabled || (event.target as Element | null)?.closest?.('[role="dialog"], .sheet-backdrop, .pack-top-bar, .pack-actions')) {
       blockedRef.current = true;
       return;
     }
