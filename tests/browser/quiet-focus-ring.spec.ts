@@ -92,6 +92,16 @@ async function longPressDrag(page: Page, finger: Finger, target: Locator) {
   await finger.release();
 }
 
+/** A quick sideways flick across the middle of the card, far enough to swipe a face-up card away. */
+async function flick(finger: Finger, card: Locator) {
+  const box = (await card.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height * 0.6;
+  await finger.press(x, y);
+  for (let step = 1; step <= 5; step++) await finger.move(x - step * 30, y);
+  await finger.release();
+}
+
 /** A mouse drag from the target's text off its edge: how a mouse starts a selection, and no click. */
 async function dragOff(finger: Finger, target: Locator) {
   const box = (await target.boundingBox())!;
@@ -153,6 +163,33 @@ test.describe('opened by touch, 390px phone emulation', () => {
     expect((await expectNoRing(summaryCard, 'a summary card')).focusVisible).toBe(true);
     await longPressDrag(page, finger, summaryCard);
     expect(await selectedText(page)).toBe('');
+    expect(errors).toEqual([]);
+  });
+
+  // Chromium flings a sideways flick even where the card lets the page pan only up and down, and spent
+  // the next tap stopping that fling, so the card never saw it (#504). A swipe's own click guard ate the
+  // next card's tap too. Both taps here come as soon as the card is there.
+  test('a tap right after a flick on the face-down card, or right after a swipe, still flips it', async ({ page, baseURL }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone check; the phone project runs it.');
+    test.setTimeout(60000);
+    const { errors, packShell } = await sealedPack(page, baseURL!);
+    const finger = await fingerFor(page, true);
+    await swipeOpen(packShell, finger);
+    const card = page.locator('.reveal-card:focus');
+    await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+    await expectStill(card, 'card 1 is dealt');
+
+    // Face down the card doesn't drag, so the flick is nothing, and the tap flips it.
+    await flick(finger, card);
+    await card.tap();
+    await expect(card).toHaveAttribute('aria-label', /^Next card\. Card 1 of 5: /);
+    await expectStill(card, 'card 1 is face up');
+
+    // Face up the flick swipes it away, and the next card's tap is a tap, not the end of the swipe.
+    await flick(finger, card);
+    await expect(card).toHaveAttribute('aria-label', 'Flip card 2 of 5');
+    await card.tap();
+    await expect(card).toHaveAttribute('aria-label', /^Next card\. Card 2 of 5: /);
     expect(errors).toEqual([]);
   });
 });
