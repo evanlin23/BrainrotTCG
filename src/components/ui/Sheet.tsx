@@ -27,8 +27,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 /**
  * Every panel in the app: a bottom sheet on phones, a centred dialog on wide screens.
- * Closes with Escape, the close button or the backdrop; traps focus while open and gives it back
- * to whatever opened it; locks page scroll.
+ * Closes with Escape, the close button or the backdrop (a bare sheet's empty space too); traps focus
+ * while open and gives it back to whatever opened it; locks page scroll.
  */
 const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare = false, className = '' }: SheetProps) => {
   const id = useId();
@@ -120,6 +120,10 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
+        // Bare content floats on the backdrop, so the panel's own empty space is backdrop too (a phone has no other).
+        onClick={bare ? (event) => {
+          if (event.target === event.currentTarget || event.target === bodyRef.current) onClose();
+        } : undefined}
       >
         <div className="sheet-header">
           <div className="sheet-heading">

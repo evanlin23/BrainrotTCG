@@ -13,9 +13,10 @@ from a 390 px wide screen.
    steps back (smaller, quieter, or out of the way). A new player's home screen is only the logo, the
    gear and the pack: the tabs and the era picker come once their first pack is saved and they leave it.
    The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
-   an image of it linking to the pack; nothing is shared mid-reveal. Under the revealed card, one quiet
-   line (game, site, set and card number) says where a screenshot came from; a narrow phone wraps the set
-   and number onto a second line, never cutting them off.
+   an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
+   the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
+   revealed card, one quiet line (game, site, set and card number) says where a screenshot came from; a
+   narrow phone wraps the set and number onto a second line, never cutting them off.
 2. **Nothing overlaps the game.** Navigation is a bottom tab bar on phones (in the thumb zone) and a top
    bar on wide screens, laid out around the content rather than floating over it.
 3. **Focus mode while opening.** Once a pack is cut, the tabs and the era picker get out of the way
@@ -96,7 +97,8 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   scroll lock, focus returns to the opener. Sheets stack (a card opened from the collection sits on
   top of it). Sizes: `sm` (the scoring guide, short notices such as an invalid link, Report a
   problem), `md` (one pull, share previews, the pack behind an achievement), `lg` (shared profiles,
-  pack shelf), `full` (full-viewport variant, unused for now); `bare` for a single big card.
+  pack shelf), `full` (full-viewport variant, unused for now); `bare` for a single big card, closed
+  by a tap anywhere outside it.
 - **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one page holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.
