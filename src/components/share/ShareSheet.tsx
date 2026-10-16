@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Crown, ShieldCheck } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import type { PackScore } from '../../engine';
-import { decodeProof, pullId, qualifiesForHallOfFame, wouldJoinHallOfFame } from '../../engine';
+import { decodeProof, pullId, qualifiesForHallOfFame, utcDay, wouldJoinHallOfFame } from '../../engine';
 import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { getLatestSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
@@ -37,13 +37,14 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
   const url = proof ? pullUrl(proof) : '';
   const link = proof ? pullUrl(proof, previewFor(target.cards)) : '';
   const id = useMemo(() => (proof ? pullId(decodeProof(proof)) : ''), [proof]);
-  // Submit only what would make the list (the top pulls, or a first); until it loads, anything that qualifies.
+  // Submit only what would make the list (the top pulls, a first, or today's top in UTC); until it
+  // loads, anything that qualifies.
   const [list, setList] = useState<HallOfFameEntry[] | null>(null);
   useEffect(() => {
     if (qualifiesForHallOfFame(target.score)) loadHallOfFame().then(setList);
   }, [target.score]);
   const listed = !!list?.some((e) => e.id === id);
-  const joins = qualifiesForHallOfFame(target.score) && (!list || wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list));
+  const joins = qualifiesForHallOfFame(target.score) && (!list || wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())));
 
   if (!shareable) {
     return (
