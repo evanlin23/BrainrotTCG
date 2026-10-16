@@ -7,7 +7,7 @@ import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList'
 import { getLatestSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
 import { canShare, previewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
-import { bragText, hallOfFameSubmitUrl } from '../../game/share';
+import { bragText } from '../../game/share';
 import { useHallOfFameSubmit } from './useHallOfFameSubmit';
 import { renderPoster } from '../../game/bragImage';
 import Sheet from '../ui/Sheet';
@@ -89,7 +89,7 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
             <Crown aria-hidden="true" /> This pull is in the Hall of Fame.
           </p>
         ) : (
-          joins && <HallOfFameSubmit proof={proof} id={id} score={target.score.score} githubUrl={hallOfFameSubmitUrl(url, `${target.score.hand.name} in ${setName}`)} />
+          joins && <HallOfFameSubmit proof={proof} id={id} score={target.score.score} />
         )
       }
     >
@@ -107,18 +107,15 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
   );
 };
 
-/**
- * One tap, no account: the pull goes to public relays and a GitHub Action adds it within about 15
- * minutes. The GitHub issue form stays as a fallback.
- */
-const HallOfFameSubmit = ({ proof, id, score, githubUrl }: { proof: string; id: string; score: number; githubUrl: string }) => {
+/** One tap, no account: the pull goes to public relays and a GitHub Action adds it within about 15 minutes. */
+const HallOfFameSubmit = ({ proof, id, score }: { proof: string; id: string; score: number }) => {
   const [state, submit] = useHallOfFameSubmit(proof, id, score);
 
   const note =
     state === 'sent'
       ? `It shows in the Hall of Fame now, checked on each visitor's device, and is filed for good within the hour.`
       : state === 'failed'
-        ? "Couldn't reach any relay. Try again, or submit on GitHub."
+        ? "Couldn't reach any relay. Try again."
         : 'No account needed. It shows in the Hall of Fame right away.';
 
   return (
@@ -127,9 +124,6 @@ const HallOfFameSubmit = ({ proof, id, score, githubUrl }: { proof: string; id: 
       <span>
         <strong>This makes the Hall of Fame</strong>
         <span role="status">{note}</span>
-        <a href={githubUrl} target="_blank" rel="noreferrer">
-          Or submit on GitHub instead
-        </a>
       </span>
       <button type="button" className="btn btn--secondary btn--sm" onClick={submit} disabled={state === 'sending' || state === 'sent'}>
         {state === 'sending' ? 'Sending…' : state === 'sent' ? 'Submitted' : 'Submit'}

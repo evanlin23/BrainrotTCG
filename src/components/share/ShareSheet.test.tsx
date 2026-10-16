@@ -76,6 +76,15 @@ describe('Hall of Fame in the pack share sheet', () => {
     expect(inOrder(['.share-actions-main', '.share-hof', '.share-preview', '.share-pack-cards'])).toBe(true);
   });
 
+  it('has no GitHub route for the submit: one button, no issue link', async () => {
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    const offer = document.querySelector('.share-hof')!;
+    expect(offer.querySelector('a')).toBeNull();
+    expect(offer.textContent).not.toMatch(/github/i);
+    expect(document.querySelector('a[href*="github.com"]')).toBeNull();
+    expect([...offer.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Submit']);
+  });
+
   it('puts the already-listed note in the same place', async () => {
     vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
@@ -107,7 +116,10 @@ describe('Hall of Fame in the pack share sheet', () => {
     const button = await clickSubmit();
     expect(button.textContent).toBe('Submit');
     expect(button.disabled).toBe(false);
-    expect(document.querySelector('.share-hof [role="status"]')!.textContent).toContain("Couldn't reach any relay");
+    const status = document.querySelector('.share-hof [role="status"]')!.textContent!;
+    expect(status).toContain("Couldn't reach any relay. Try again.");
+    expect(status).not.toMatch(/github/i);
+    expect(document.querySelector('.share-hof a')).toBeNull();
   });
 
   it('counts today’s top (UTC) when deciding whether to offer the submit', async () => {
