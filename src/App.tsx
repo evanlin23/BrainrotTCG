@@ -628,7 +628,19 @@ function App() {
       <header className="app-header">
         {/* One h1 per view: the logo on the packs screen; on a page, that page's title (see Page). */}
         {onPage ? (
-          <div className="app-logo" role="img" aria-label="Brainrot TCG">{logoMark}{logoChars}</div>
+          <a
+            className="app-logo app-logo--link"
+            href={import.meta.env.BASE_URL}
+            aria-label="Brainrot TCG, home"
+            aria-disabled={packBusy || undefined}
+            tabIndex={packBusy ? -1 : undefined}
+            onClick={(e) => {
+              // Let the browser handle modified clicks (new tab, window); a plain one is the Packs tab.
+              if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              if (!packBusy) openPage('open');
+            }}
+          >{logoMark}{logoChars}</a>
         ) : (
           <h1 ref={logoRef} className="app-logo" aria-label="Brainrot TCG" tabIndex={-1}>{logoMark}{logoChars}</h1>
         )}
