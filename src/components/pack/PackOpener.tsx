@@ -329,7 +329,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     focusOpenRef.current = true;
   }, [resetCutState, preloadedAssets, cleanupAudio, clearEffectTimers]);
 
-  // What the summary's per-card Share links to: this pull (one object, so its proof is signed once).
+  // What a card shared from the summary links to: this pull (one object, so its proof is signed once).
   const pullRef = useMemo((): PullRef | undefined => openedPack
     ? { setId: openedPack.setId, setVersion: openedPack.setVersion, nonce: openedPack.nonce, publicKeyHex: openedPack.publicKeyHex }
     : undefined, [openedPack]);
@@ -628,7 +628,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
           showcase={showcase ? <ShowcaseRibbon card={currentCard} /> : undefined}
         />
       )}
-      <AnimatePresence mode="wait">
+      {/* The torn pack flies off as the first card back fades in, not before it: waiting for the exit
+          left an empty stage between the tear and the reveal (#312 P2-6). popLayout lifts the leaving
+          pack out of the flow, so the two overlap in place. */}
+      <AnimatePresence mode="popLayout">
         {!isOpening ? (
           <Motion.div
             key="pack"

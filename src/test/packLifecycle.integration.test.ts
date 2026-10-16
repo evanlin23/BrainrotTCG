@@ -85,10 +85,10 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
     if (extra) item.modifierPoints = (item.modifierPoints ?? 0) + extra;
   }
   expect(read(STORAGE_KEYS.COLLECTION)).toEqual(expected);
-  // Best pull first, ties in pack order (the copy flagged new is the earlier one in the pack, so it leads).
+  // The order they were revealed in, best last; ties in pack order (the copy flagged new is the earlier one).
   expect([...document.querySelectorAll('.summary-card')].map((el) => el.getAttribute('aria-label'))).toEqual([
-    'View Niu Lai up close, Common, Gold, new', 'View Verity up close, Epic, new', 'View La Peace up close, Uncommon, new',
-    'View Bukangi up close, Common, new', 'View Bukangi up close, Common',
+    'View Bukangi up close, Common, new', 'View Bukangi up close, Common', 'View La Peace up close, Uncommon, new',
+    'View Verity up close, Epic, new', 'View Niu Lai up close, Common, Gold, new',
   ]);
 
   const before = snapshot();

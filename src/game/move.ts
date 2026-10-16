@@ -17,7 +17,7 @@
 import { STORAGE_KEYS } from '../constants';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
 import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY, ticketCount } from './player';
-import { isValidSaveValue } from './saveFile';
+import { isQuotaError, isValidSaveValue } from './saveFile';
 
 const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
 const OLD_SITE_URL: string = import.meta.env.VITE_OLD_SITE_URL || '';
@@ -53,8 +53,6 @@ export const PARTIAL_MOVE_NOTE = "Bringing the save over failed partway and coul
   + ' hold parts of both saves. A save with progress that was here is kept as a backup in this browser.';
 
 export const FULL_MOVE_NOTE = "This browser's storage is full, so nothing changed. Free up some space, then try again.";
-
-const isQuotaError = (e: unknown) => e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
 
 export const canBringOldSave = (): boolean => !!OLD_ORIGIN && !!OLD_SITE_URL && OLD_ORIGIN !== window.location.origin;
 

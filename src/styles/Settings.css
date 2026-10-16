@@ -91,7 +91,7 @@
   text-align: right;
 }
 
-@media (max-width: 380px) {
+@media (max-width: 379px) {
   .settings-slider input[type='range'] {
     width: 6.5rem;
   }

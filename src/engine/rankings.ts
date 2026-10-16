@@ -57,8 +57,7 @@ export const receiptTime = (t: string): string => {
 
 /**
  * The one ranking order, best first: higher score, then the earlier first receipt, then the pull id,
- * then (within one pull) the later slot, as revealOrder shows it last. The pack summary's
- * bestPullOrder lists the earlier of two equal cards first instead. Receipt times are compared as
+ * then (within one pull) the later slot, as revealOrder shows it last. Receipt times are compared as
  * plain strings, so both keys must hold receiptTime's form (selectBoard rewrites them first).
  */
 export const compareRanked = (a: RankKey, b: RankKey): number =>
