@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { getLatestSet, getSet } from '../../content/sets';
 import { FINISH_MULTIPLIER, HOLO_MULTIPLIER, MISPRINT_MULTIPLIER, MODIFIERS_V1, ODDS_TOTAL, RARITY_POINTS } from '../../engine';
+import { formatOneIn } from '../../game/cardStats';
 import ScoringGuide from './ScoringGuide';
 
 let root: Root;
@@ -36,7 +37,7 @@ it('is the Card guide, explaining rarity, holo and modifiers, and how a misprint
   expect(text).toContain(`Rarity, modifiers and scoring for ${set.name}`);
   expect(text).toMatch(/Rarity is which card you pulled, from Common up to \w+/);
   expect(text).toContain('Holo is a shiny copy that any card can roll');
-  expect(text).toContain('Finishes (Silver up to Diamond) and misprints are rarer extras. A card gets one finish at most.');
+  expect(text).toContain('Finishes (Silver up to Diamond) and misprints are rarer extras. A card gets one finish at most, and a misprint can land on top of it.');
   // A card rolls one finish at most (the engine walks one roll through the finish odds), so finishes never stack with each other.
   expect(text).not.toContain('with each other');
   // The misprint is a separate roll, so it stacks on any finish: the guide works one through from the engine's multipliers.
@@ -68,7 +69,7 @@ it('leaves finishes out for a set without modifiers', () => {
   expect(text).not.toContain('Misprint stacks');
   // The worked example drops the finish: a holo card, from the set's own holo odds.
   expect(text).toContain('Example: a holo card');
-  expect(text).toContain(`About 1 in ${Math.round(ODDS_TOTAL / set.holoOdds)} cards is Holo (${set.holoOdds / 100}%), at any rarity.`);
+  expect(text).toContain(`About 1 in ${formatOneIn(ODDS_TOTAL / set.holoOdds)} cards is Holo (${set.holoOdds / 100}%), at any rarity.`);
   expect(text).toContain(`Common ${RARITY_POINTS.COMMON} × holo ${HOLO_MULTIPLIER} = ${(RARITY_POINTS.COMMON * HOLO_MULTIPLIER).toLocaleString()} points`);
 });
 
@@ -77,9 +78,9 @@ it('works a holo Gold card through from the engine odds, keeping the modifier od
   act(() => root.render(<ScoringGuide set={set} onClose={() => {}} />));
   const text = document.body.textContent ?? '';
   const gold = MODIFIERS_V1.finishOdds.GOLD;
-  const bothOneIn = Math.round(1 / ((set.holoOdds / ODDS_TOTAL) * (gold / ODDS_TOTAL)));
+  const bothOneIn = formatOneIn(1 / ((set.holoOdds / ODDS_TOTAL) * (gold / ODDS_TOTAL)));
   expect(text).toContain('Example: a holo Gold card');
-  expect(text).toContain(`About 1 in ${bothOneIn.toLocaleString()} cards is both Holo (${set.holoOdds / 100}%) and Gold (${gold / 100}%), at any rarity.`);
+  expect(text).toContain(`About 1 in ${bothOneIn} cards is both Holo (${set.holoOdds / 100}%) and Gold (${gold / 100}%), at any rarity.`);
   expect(text).not.toContain('Rarity is a roll of its own');
   const points = RARITY_POINTS.COMMON * HOLO_MULTIPLIER * FINISH_MULTIPLIER.GOLD;
   expect(text).toContain(`Common ${RARITY_POINTS.COMMON} × holo ${HOLO_MULTIPLIER} × Gold ${FINISH_MULTIPLIER.GOLD} = ${points.toLocaleString()} points`);

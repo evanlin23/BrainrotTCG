@@ -53,7 +53,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
 
   return (
     <Sheet title="Card guide" subtitle={`Rarity, modifiers and scoring for ${set.name}`} onClose={onClose} size="sm" className="scoring-guide">
-        <h3>Rare, holo or special?</h3>
+        <h3>Rare, holo or extra?</h3>
         <p className="scoring-note">
           <strong>Rarity</strong> is which card you pulled, from {CARD_RARITIES[commonest].name} up to {CARD_RARITIES[rarest].name}. Rarer cards are worth more points.
         </p>
@@ -62,7 +62,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         </p>
         {hasModifiers && (
           <p className="scoring-note">
-            <strong>Finishes</strong> ({FINISH_RANGE}) and <strong>misprints</strong> are rarer extras. A card gets one finish at most.
+            <strong>Finishes</strong> ({FINISH_RANGE}) and <strong>misprints</strong> are rarer extras. A card gets one finish at most, and a misprint can land on top of it.
           </p>
         )}
         {set.modifiers === undefined && (
