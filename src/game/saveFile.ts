@@ -4,7 +4,6 @@ import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine
 import { getCard } from '../data/cards';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
 import { isLegacyPull, isStored } from './history';
-import { backUpSave } from './move';
 import { exportPlayer, importPlayer, isCurrentPlayer, parsePlayer } from './player';
 
 type RecordValue = Record<string, unknown>;
@@ -67,6 +66,31 @@ const SAVE_FIELDS = [
   ['history', STORAGE_KEYS.HISTORY, history],
   ['settings', STORAGE_KEYS.SETTINGS, settings],
 ] as const;
+
+/** A raw storage value handed over by the old address (move.ts), held to the same rules as a file field. */
+export const isValidSaveValue = (key: string, raw: string): boolean => {
+  const field = SAVE_FIELDS.find(([, storageKey]) => storageKey === key);
+  if (!field) return true;
+  try {
+    return field[2](JSON.parse(raw));
+  } catch {
+    return false;
+  }
+};
+
+/** Keep this browser's save under `backupKey` before something replaces it (an imported file, a move). */
+export const backUpSave = (backupKey: string): boolean => {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+      .filter((key): key is string => !!key?.startsWith('brainrot-') && !key.startsWith('brainrot-before-'));
+    if (keys.length === 0) return true;
+    const backup = Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)]));
+    localStorage.setItem(backupKey, JSON.stringify(backup));
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /** Private backup: recovery payloads remain opaque, separate from the active identity/state. */
 export const exportSaveFile = (): string => JSON.stringify({

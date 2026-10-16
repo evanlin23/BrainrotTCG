@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Download, History, Upload } from 'lucide-react';
 import { STORAGE_KEYS } from '../../constants';
-import { canBringOldSave, fetchOldSave, hasProgress, importSave, type MoveResult } from '../../game/move';
+import { canBringOldSave, fetchOldSave, hasProgress, importSave, PARTIAL_MOVE_NOTE, type MoveResult } from '../../game/move';
 import { CARD_FLIP_SRC } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
@@ -53,6 +53,7 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
         setOldSaveNote(
             result === 'same' ? 'Your save from the old address is already here.'
             : result === 'kept' ? 'Kept the save you have here.'
+            : result === 'partial' ? PARTIAL_MOVE_NOTE
             : "Couldn't bring that save over, so nothing changed.",
         );
     };

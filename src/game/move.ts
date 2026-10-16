@@ -14,6 +14,10 @@
  *
  * Only builds with VITE_OLD_ORIGIN (set by the deploy once the site has moved) do any of this.
  */
+import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
+import { parsePlayer } from './player';
+import { isValidSaveValue } from './saveFile';
+
 const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
 const OLD_SITE_URL: string = import.meta.env.VITE_OLD_SITE_URL || '';
 const PLAYER_KEY = 'brainrot-player-v1';
@@ -21,8 +25,14 @@ const BACKUP_KEY = 'brainrot-before-move-v1';
 /** What makes a save worth keeping: replacing any of these asks first. */
 const PROGRESS_KEYS = [PLAYER_KEY, 'brainrot-found-collection-v1', 'brainrot-history-v1', 'brainrot-stats-v1', 'brainrot-achievements-v1'];
 
-/** 'same': this player's save is already here, so nothing was written. */
-export type MoveResult = 'saved' | 'same' | 'kept' | 'invalid';
+/**
+ * 'same': this player's save is already here, so nothing was written. 'invalid': nothing changed.
+ * 'partial': a write failed and putting the previous values back failed too.
+ */
+export type MoveResult = 'saved' | 'same' | 'kept' | 'invalid' | 'partial';
+
+export const PARTIAL_MOVE_NOTE = "Bringing the save over failed partway and couldn't be fully undone, so this browser may now"
+  + ' hold parts of both saves. A save with progress that was here is kept as a backup in this browser.';
 
 export const canBringOldSave = (): boolean => !!OLD_ORIGIN && !!OLD_SITE_URL && OLD_ORIGIN !== window.location.origin;
 
@@ -60,8 +70,8 @@ const brainrotKeys = () => Array.from({ length: localStorage.length }, (_, i) =>
 const askToReplace = () =>
   window.confirm('Bring over your save from the old Brainrot TCG address? It replaces the save in this browser now (that one is kept as a backup).');
 
-/** Undo a partial handover: free every touched key first, then put the previous values back. */
-const restoreKeys = (previous: Map<string, string | null>) => {
+/** Undo a partial handover: free every touched key first, then put the previous values back. True if all match again. */
+const restoreKeys = (previous: Map<string, string | null>): boolean => {
   for (const k of previous.keys()) {
     try { localStorage.removeItem(k); } catch { /* Still put back the rest. */ }
   }
@@ -69,6 +79,9 @@ const restoreKeys = (previous: Map<string, string | null>) => {
     if (v === null) continue;
     try { localStorage.setItem(k, v); } catch { /* A replaced save is still under BACKUP_KEY. */ }
   }
+  return [...previous].every(([k, v]) => {
+    try { return localStorage.getItem(k) === v; } catch { return false; }
+  });
 };
 
 /**
@@ -82,6 +95,14 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   if (!PROGRESS_KEYS.some((k) => k in incoming)) return 'invalid';
   const here = secretOf(localStorage.getItem(PLAYER_KEY));
   if (here && here === secretOf(incoming[PLAYER_KEY])) return 'same';
+  // The same checks as an imported file (saveFile.ts), before asking or writing anything.
+  if (PLAYER_KEY in incoming && !parsePlayer(incoming[PLAYER_KEY])) return 'invalid';
+  if (!Object.entries(incoming).every(([k, v]) => isValidSaveValue(k, v))) return 'invalid';
+  // No version key means the first format (runMigrations reads it so). Written explicitly, so this
+  // browser's own version can't stand in for an older save's and skip its migrations.
+  const version = incoming[DATA_VERSION_KEY] ?? '1';
+  if (!/^[1-9][0-9]*$/.test(version) || Number(version) > CURRENT_DATA_VERSION) return 'invalid';
+  incoming[DATA_VERSION_KEY] = version;
   const progress = hasProgress();
   if (progress && !replace()) return 'kept';
   // What the incoming writes replace (null: absent), put back if the incoming save doesn't fit.
@@ -102,8 +123,7 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     for (const k of replaced) localStorage.removeItem(k);
     for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
   } catch {
-    restoreKeys(previous);
-    return 'invalid';
+    return restoreKeys(previous) ? 'invalid' : 'partial';
   }
   return 'saved';
 };
@@ -132,7 +152,10 @@ export const receiveSave = (): Promise<boolean> => {
       if (event.origin !== OLD_ORIGIN || event.source !== opener || event.data?.type !== 'brainrot-save') return;
       const result = importSave(event.data.save);
       opener.postMessage({ type: 'brainrot-move-result', result }, OLD_ORIGIN);
-      if (root) root.textContent = result === 'saved' || result === 'same' ? 'Your save is here. You can close this window.' : 'Nothing was changed. You can close this window.';
+      if (root) {
+        root.textContent = result === 'saved' || result === 'same' ? 'Your save is here. You can close this window.'
+          : result === 'partial' ? PARTIAL_MOVE_NOTE : 'Nothing was changed. You can close this window.';
+      }
       finish(true);
       window.close();
     };
@@ -169,17 +192,4 @@ export const fetchOldSave = (): Promise<{ save: unknown } | 'none' | 'blocked' |
     };
     window.addEventListener('message', onMessage);
   });
-};
-
-/** Keep this browser's save under `backupKey` before something replaces it (a move, an imported file). */
-export const backUpSave = (backupKey: string): boolean => {
-  try {
-    const keys = brainrotKeys().filter((key) => !key.startsWith('brainrot-before-'));
-    if (keys.length === 0) return true;
-    const backup = Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)]));
-    localStorage.setItem(backupKey, JSON.stringify(backup));
-    return true;
-  } catch {
-    return false;
-  }
 };
