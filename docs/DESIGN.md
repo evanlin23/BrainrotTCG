@@ -170,10 +170,15 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   player until their first pack is saved (#222) and while a pack is open. The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem).
-- **Profile** (`profile/ProfilePage.tsx`): name and the save note ("Name and rewards"), level and
-  stats, best pulls, then the Achievements section (`#achievements`), which achievement toasts link
-  to. Its shareable image is the "Profile card"; "Player ID" stays the name of the key's fingerprint,
-  as on proofs. Leaving Profile saves a changed name, unless saving that same name just failed.
+- **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit
+  name" opening the field in place (Enter saves, Escape cancels and returns focus to the button);
+  level and stats; best pulls; the collection score and sets; Achievements (`#achievements`, the
+  three newest with "Show all achievements" folded below; achievement toasts link here and open it);
+  "Card back and foil" (`#rewards`, a closed `<details>` whose summary counts what is unlocked;
+  level-up toasts open it); All packs; then a one-line "Saved in this browser · Back up" footnote.
+  Sections share one left edge and `--space-6` between them. Its shareable image is the "Profile
+  card"; "Player ID" stays the name of the key's fingerprint, as on proofs. Leaving Profile saves a
+  changed name, unless saving that same name just failed.
 - **Rankings** (`pages/HallOfFamePage.tsx`): tabs Today (the default) and All-time, 20 rows at a
   time. Today ranks the best 50 pulls filed on the current UTC day, the same day for everyone, plus
   just-submitted ones not filed yet. It resets at 00:00 UTC (the note gives that time in the

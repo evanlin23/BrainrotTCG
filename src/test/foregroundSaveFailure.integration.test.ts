@@ -223,7 +223,8 @@ it('warns when a name edited on Profile cannot be stored as the page is left', a
   history.replaceState(null, '', '/BrainrotTCG/#/profile');
   await app.mount();
   const nameField = () => document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]');
-  await app.until('Profile loads', () => expect(nameField()).not.toBeNull());
+  await app.until('Profile loads', () => { button('Edit name'); });
+  await app.interact(() => button('Edit name').click());
   await app.interact(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(nameField()!, 'Left behind');
     nameField()!.dispatchEvent(new Event('input', { bubbles: true }));
