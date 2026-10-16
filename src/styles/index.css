@@ -65,6 +65,18 @@
   display: inline-block;
 }
 
+/* The mark (src/styles/logoMark.ts) stands on the baseline at cap height, with the wordmark's
+   misprint offset. A filter rather than text-shadow, which SVG ignores. */
+.app-logo-mark {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.3em;
+  vertical-align: -0.04em;
+  overflow: visible;
+  filter: drop-shadow(0.06em 0.06em 0 var(--brand-ink)) drop-shadow(0.03em 0.03em 0 var(--brand));
+}
+
 .app-logo .title-space {
   display: inline-block;
   width: 0.3em;
@@ -99,6 +111,13 @@
     z-index: var(--z-header);
     justify-content: space-between;
     padding-top: var(--space-4);
+  }
+
+  /* The logo shares the row with the tabs and the gear (about 450px with their gaps), so it scales
+     from 36px at 900px to its full 52px by about 1060px, and never shrinks below its own content. */
+  .app-logo {
+    flex-shrink: 0;
+    font-size: clamp(2.25rem, 10vw - 3.375rem, 3.25rem);
   }
 
   .app-main,

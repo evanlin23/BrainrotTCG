@@ -10,9 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
-import { decodeProof, pullId, verifyProof } from '../src/engine/index.ts';
+import { dailyPulls, decodeProof, firstPulls, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, topPulls, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { build, inbox, verifyIssue } from './hall-of-fame.ts';
+import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
 
@@ -24,6 +24,20 @@ const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB'
 const idOf = (proof: string) => pullId(decodeProof(proof));
 const marker = (proof: string) => `<!-- hof-verified ${idOf(proof)} -->`;
 const link = (proof: string) => `https://evanlin23.github.io/BrainrotTCG/#/pull/${proof}`;
+/** Freezes the clock (only `Date`) at `time`; the shared afterEach restores it. */
+const clockAt = (time: string) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(time));
+};
+/**
+ * A published list the 4 of a Kind (15,000 in lockdown-lore) can only join through `day`'s top: the
+ * top 100 sits far above it, its first is taken, and `day` already has `todays` pulls above it.
+ */
+const dailyOnlyBoard = (day: string, todays: number): RankableEntry[] => [
+  ...Array.from({ length: HALL_OF_FAME_TOP }, (_, i) => ({ id: `top-${i}`, setId: 'other-set', hand: 'Full House', multiplier: 150, score: 100_000 + i, submittedAt: '2026-10-01T00:00:00.000Z' })),
+  { id: 'first', setId: 'lockdown-lore', hand: '4 of a Kind', multiplier: 250, score: 15_000, submittedAt: '2026-09-01T00:00:00.000Z' },
+  ...Array.from({ length: todays }, (_, i) => ({ id: `today-${i}`, setId: 'other-set', hand: 'Full House', multiplier: 150, score: 20_000 + i, submittedAt: `${day}T01:00:00.000Z` })),
+];
 
 interface Issue {
   number: number;
@@ -44,6 +58,7 @@ interface Comment {
 interface Request {
   method: string;
   path: string;
+  query?: string;
   body?: Record<string, unknown>;
 }
 interface Fixture {
@@ -86,7 +101,7 @@ const fakeGitHub = (fixture: Fixture) => {
       if (!match) return unexpected(`${method} ${url}`);
       const [, route, query = ''] = match;
       const body = typeof init.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : undefined;
-      const request: Request = { method, path: route, ...(body ? { body } : {}) };
+      const request: Request = { method, path: route, ...(query ? { query } : {}), ...(body ? { body } : {}) };
       requests.push(request);
       if (fixture.fail?.(request)) return json({ message: 'Server Error' }, 500);
       const params = new URLSearchParams(query);
@@ -94,8 +109,14 @@ const fakeGitHub = (fixture: Fixture) => {
       const byNumber = (n: string) => fixture.issues.find((i) => i.number === Number(n));
 
       if (route === '/issues' && method === 'GET') {
+        // As GitHub does: every label must match, `since` keeps issues updated at or after it, and
+        // the results come in pages.
         const labels = (params.get('labels') ?? '').split(',').filter(Boolean);
-        return json(firstPage ? fixture.issues.filter((i) => labels.every((l) => i.labels.some((x) => x.name === l))) : []);
+        const since = params.get('since');
+        const perPage = Number(params.get('per_page') ?? 30);
+        const page = Number(params.get('page') ?? 1);
+        const matching = fixture.issues.filter((i) => labels.every((l) => i.labels.some((x) => x.name === l)) && (!since || Date.parse(i.updated_at) >= Date.parse(since)));
+        return json(matching.slice((page - 1) * perPage, page * perPage));
       }
       if (route === '/issues' && method === 'POST') {
         const created: Issue = {
@@ -156,6 +177,7 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 afterEach(() => {
+  vi.useRealTimers();
   process.chdir(home);
   rmSync(dir, { recursive: true, force: true });
   vi.unstubAllEnvs();
@@ -223,19 +245,84 @@ describe('build (deploy workflow)', () => {
     gh.requests.length = 0;
     await build(output());
     expect(entries().map((e) => e.issue)).toEqual([1]);
-    expect(gh.requests.map((r) => r.path)).toEqual(['/issues']); // listed, nothing re-checked
+    expect(gh.requests.map((r) => r.path)).toEqual(['/issues', '/issues']); // `verified` and `daily` listed, nothing re-checked
 
     // An edit swapped the pull for one that doesn't qualify.
     fixture.issues[0] = issue(1, pair, { updated: '2026-10-03T00:00:00Z' });
     await build(output());
     expect(entries()).toEqual([]);
   });
+
+  it('lists `daily` issues changed since the day before, and counts each only on the day it was verified', async () => {
+    const daily = { labels: ['hall-of-fame', 'daily'] };
+    const gh = fakeGitHub({
+      issues: [
+        issue(2, fourOfAKind, { ...daily, updated: '2026-10-16T09:00:00Z' }), // verified today
+        issue(3, fourOfAKind, { ...daily, updated: '2026-10-16T08:00:00Z' }), // verified on the 10th, commented on today
+        issue(4, fourOfAKind, { ...daily, updated: '2026-10-14T23:59:59Z' }), // unchanged since the 14th
+      ],
+      comments: {
+        2: [comment(BOT, marker(fourOfAKind), '2026-10-16T09:00:00Z')],
+        // Each would take the credit (an earlier verification of the same pull) if it counted.
+        3: [comment(BOT, marker(fourOfAKind), '2026-10-10T00:00:00Z'), comment('alice', 'still mine', '2026-10-16T08:00:00Z')],
+        4: [comment(BOT, marker(fourOfAKind), '2026-10-14T00:00:00Z')],
+      },
+    });
+    clockAt('2026-10-16T12:00:00Z');
+    await build(output());
+    expect(entries().map((e) => [e.issue, e.submittedAt])).toEqual([[2, '2026-10-16T09:00:00Z']]);
+    const listings = gh.requests.filter((r) => r.path === '/issues').map((r) => r.query);
+    expect(listings).toEqual(['state=all&labels=hall-of-fame,verified&per_page=100&page=1', 'state=all&labels=hall-of-fame,daily&since=2026-10-15T00:00:00Z&per_page=100&page=1']);
+    expect(gh.requests.map((r) => r.path)).not.toContain('/issues/4/comments');
+
+    // Still on the board the next day (the day before is kept), and gone the day after.
+    clockAt('2026-10-17T23:00:00Z');
+    await build(output());
+    expect(entries().map((e) => e.issue)).toEqual([2]);
+    clockAt('2026-10-18T00:30:00Z');
+    await build(output());
+    expect(entries()).toEqual([]);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it('fails rather than publish part of the list when there are more issues than it may read', async () => {
+    fakeGitHub({ issues: Array.from({ length: ISSUE_PAGES * 100 }, (_, i) => issue(i + 1, null)) });
+    writeFileSync(output(), '[{"kept":true}]\n');
+    await expect(build(output())).rejects.toThrow(`More than ${ISSUE_PAGES * 100} issues match`);
+    expect(readFileSync(output(), 'utf8')).toBe('[{"kept":true}]\n');
+  });
+});
+
+describe('published list', () => {
+  const pull = (id: string, score: number, submittedAt: string): RankableEntry => ({ id, setId: 'set-a', hand: 'Full House', multiplier: 7, score, submittedAt });
+  const day = (date: string, n: number, base = 10) =>
+    Array.from({ length: n }, (_, i) => pull(`${date}-${i}`, base + i, `${date}T${String(i % 24).padStart(2, '0')}:${String(Math.floor(i / 24)).padStart(2, '0')}:00.000Z`));
+
+  it("keeps the build's UTC day and the day before on top of the all-time list and firsts", () => {
+    const allTime = day('2026-10-01', HALL_OF_FAME_TOP + 10, 100_000); // fill the top 100 well above the daily pulls
+    const verified = [...allTime, ...day('2026-10-14', 4), ...day('2026-10-15', 6), ...day('2026-10-16', HALL_OF_FAME_DAILY_TOP + 5)];
+    const now = new Date('2026-10-16T00:30:00.000Z'); // just after midnight: yesterday is still kept
+    const list = listToPublish(verified, now);
+    const plain = hallOfFameList(verified);
+    // Top 100 and firsts are unchanged; only extra entries follow them.
+    expect(list.slice(0, plain.length)).toEqual(plain);
+    expect(topPulls(list)).toEqual(topPulls(verified));
+    expect(firstPulls(list)).toEqual(firstPulls(verified));
+    const extra = list.slice(plain.length);
+    expect(extra.filter((e) => e.submittedAt.startsWith('2026-10-16'))).toHaveLength(HALL_OF_FAME_DAILY_TOP);
+    expect(extra.filter((e) => e.submittedAt.startsWith('2026-10-15'))).toHaveLength(6);
+    expect(extra.filter((e) => e.submittedAt.startsWith('2026-10-14'))).toEqual([]);
+    expect(dailyPulls(list, '2026-10-16')).toEqual(dailyPulls(verified, '2026-10-16'));
+    // A build a minute before midnight keeps the 15th and the 14th instead.
+    const before = listToPublish(verified, new Date('2026-10-15T23:59:00.000Z')).slice(plain.length);
+    expect(new Set(before.map((e) => e.submittedAt.slice(0, 10)))).toEqual(new Set(['2026-10-15', '2026-10-14']));
+  });
 });
 
 describe('verify-issue (issue workflow)', () => {
-  const run = async (body: string) => {
+  const run = async (body: string, labels = ['hall-of-fame']) => {
     rmSync('github-output', { force: true });
-    writeFileSync('event.json', JSON.stringify({ issue: { ...issue(7, null, { labels: ['hall-of-fame'] }), body } }));
+    writeFileSync('event.json', JSON.stringify({ issue: { ...issue(7, null, { labels }), body } }));
     await verifyIssue();
     return { comment: readFileSync('hof-comment.md', 'utf8'), outputs: outputs() };
   };
@@ -243,15 +330,63 @@ describe('verify-issue (issue workflow)', () => {
   it('verifies a qualifying pull that would join the list, without writing to GitHub', async () => {
     const gh = fakeGitHub({ issues: [], published: [] });
     const result = await run(`My pull: ${link(fourOfAKind)}`);
-    expect(result.outputs).toEqual({ verified: 'true', changed: 'true' });
+    expect(result.outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified' });
     expect(result.comment).toContain('**Verified!**');
     expect(result.comment).toContain(marker(fourOfAKind));
     expect(gh.writes()).toEqual([]);
   });
 
+  it("verifies a pull that only makes today's top 50 (labelled daily), and turns it down once that's full", async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    const board = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1) });
+    const joined = await run(link(fourOfAKind));
+    expect(joined.outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    expect(joined.comment).toContain(marker(fourOfAKind));
+    // A full day yesterday leaves today open.
+    fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-15', HALL_OF_FAME_DAILY_TOP) });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+
+    const full = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP) });
+    const refused = await run(link(fourOfAKind));
+    expect(refused.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified' });
+    expect(refused.comment).toContain('**Not added.**');
+    expect(refused.comment).toContain(`the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day`);
+    expect(refused.comment).toContain('Brainrot Score above 20,000'); // today's 50th, below the top 100's 100th
+    expect(refused.comment).not.toContain('hof-verified');
+    expect([...board.writes(), ...full.writes()]).toEqual([]);
+  });
+
+  it("turns down a pull that only makes today's top while another issue from the last 8 days carries it under daily", async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    const published = dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1);
+    const daily = (number: number, updated: string) => issue(number, fourOfAKind, { labels: ['hall-of-fame', 'daily'], updated });
+
+    // Filed two days ago, it left the published list but must not count on today's top too.
+    const again = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published });
+    const refused = await run(link(fourOfAKind));
+    expect(refused.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified' });
+    expect(refused.comment).toContain('**Not added.**');
+    expect(refused.comment).toContain('counts on one day only');
+    expect(refused.comment).not.toContain('hof-verified');
+
+    // The issue itself, one past the 8 days, and one under another label don't hold it back.
+    const own = fakeGitHub({ issues: [daily(7, '2026-10-16T11:00:00Z'), daily(5, '2026-10-08T11:59:59Z'), issue(6, fourOfAKind, { updated: '2026-10-15T00:00:00Z' })], published });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    // Nor does a GitHub error: the pull goes ahead.
+    const down = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published, fail: (r) => r.path === '/issues' });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    // A pull that joins the all-time list isn't checked.
+    const allTime = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published: [] });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified' });
+    expect(allTime.requests.some((r) => r.path === '/issues')).toBe(false);
+    expect([again, own, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
+  });
+
   it('changes nothing when the bot already verified the same pull on the issue', async () => {
     fakeGitHub({ issues: [], comments: { 7: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } });
-    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'false' });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'false', label: 'verified' });
+    // It keeps the label it has.
+    expect((await run(link(fourOfAKind), ['hall-of-fame', 'daily'])).outputs).toEqual({ verified: 'true', changed: 'false', label: 'daily' });
   });
 
   it("turns down a missing link, a forged pull, one that doesn't qualify, and one that wouldn't join", async () => {
@@ -265,7 +400,7 @@ describe('verify-issue (issue workflow)', () => {
     ];
     for (const [body, reason] of cases) {
       const result = await run(body);
-      expect(result.outputs).toEqual({ verified: 'false', changed: 'true' });
+      expect(result.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified' });
       expect(result.comment).toContain('**Not added.**');
       expect(result.comment).toContain(reason);
       expect(result.comment).not.toContain('hof-verified');
@@ -281,6 +416,8 @@ describe('inbox (scheduled workflow)', () => {
     return events;
   };
   const FILED = ['POST /issues', 'POST /issues/100/comments', 'POST /issues/100/labels', 'PATCH /issues/100'];
+  // The day after the fake GitHub opens its issues (2026-10-15T12:00:00Z), well inside the relay window.
+  beforeEach(() => clockAt('2026-10-16T12:00:00Z'));
 
   it('files a qualifying pull as a bot issue: open, marker comment, verified label, close', async () => {
     const gh = fakeGitHub({ issues: [], published: [] });
@@ -315,6 +452,31 @@ describe('inbox (scheduled workflow)', () => {
     await inbox();
     expect(listed.writes()).toEqual([]);
     expect(outputs()).toEqual({ added: '0' });
+
+    // A `daily` issue counts too: it was changed within the relay window, so it is read.
+    rmSync('hof-inbox-seen.json');
+    const daily = fakeGitHub({ issues: [issue(1, fourOfAKind, { labels: ['hall-of-fame', 'daily'], updated: '2026-10-12T00:00:00Z' })], published: [] });
+    await inbox();
+    expect(daily.writes()).toEqual([]);
+    expect(daily.requests.filter((r) => r.path === '/issues').map((r) => r.query)).toEqual([
+      'state=all&labels=hall-of-fame,verified&per_page=100&page=1',
+      'state=all&labels=hall-of-fame&since=2026-10-08T12:00:00Z&per_page=100&page=1',
+    ]);
+  });
+
+  it("files a pull that only makes today's top with the daily label, and nothing once today's top is full", async () => {
+    const gh = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1) });
+    relaysHold(fourOfAKind);
+    await inbox();
+    expect(gh.writes()).toEqual(FILED);
+    expect(gh.requests.find((r) => r.path === '/issues/100/labels')!.body).toEqual({ labels: ['daily'] });
+    expect(outputs()).toEqual({ added: '1' });
+
+    rmSync('hof-inbox-seen.json');
+    const full = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP) });
+    await inbox();
+    expect(full.writes()).toEqual([]);
+    expect(outputs()).toEqual({ added: '0' });
   });
 
   it('finishes an issue a stopped run left unlabelled, instead of opening another', async () => {
@@ -334,7 +496,7 @@ describe('inbox (scheduled workflow)', () => {
   });
 
   it("doesn't take over an unlabelled issue someone else opened", async () => {
-    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind, { labels: ['hall-of-fame'], login: 'mallory' })], published: [] });
+    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind, { labels: ['hall-of-fame'], login: 'mallory', updated: '2026-10-15T00:00:00Z' })], published: [] });
     relaysHold(fourOfAKind);
     await inbox();
     expect(gh.writes()).toEqual(FILED);

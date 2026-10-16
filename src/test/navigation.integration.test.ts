@@ -124,22 +124,23 @@ it('gives Open, Cards, Rankings and Profile a page each, with an address, a titl
 
   await app.interact(() => tab('Profile').click());
   expect(location.hash).toBe('#/profile');
-  await app.until('Profile loads', () => expect(document.querySelector('input[autocomplete="nickname"]')).not.toBeNull());
+  await app.until('Profile loads', () => expect(button('Edit name')).toBeDefined());
   expect(pageTitle()).toBe('Profile');
   expect(currentTab()).toBe('Profile');
-  expect(document.body.textContent).toContain('saved in this browser');
+  expect(document.body.textContent).toContain('Saved in this browser');
   // Achievements is a section of Profile, under its own name.
   expect(document.querySelector('#achievements h2')?.textContent).toBe('Achievements');
+  await app.interact(() => button('Edit name').click());
   await app.interact(() => {
     const input = document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]')!;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Changed name');
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  await app.interact(() => button('Save name').click());
+  await app.interact(() => button('Save').click());
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).name).toBe('Changed name');
 
   // Profile's save note opens Settings at Save & backup; Settings is none of the tabs.
-  await app.interact(() => button('Save & backup').click());
+  await app.interact(() => button('Back up').click());
   expect(location.hash).toBe('#/settings');
   await app.until('Save & backup loads', () => expect(button('Import')).toBeDefined());
   expect(document.activeElement?.textContent).toBe('Save & backup');
@@ -149,7 +150,7 @@ it('gives Open, Cards, Rankings and Profile a page each, with an address, a titl
   expect(button('Settings').getAttribute('aria-current')).toBe('page');
 
   await app.interact(() => history.back());
-  await app.until('Back returns to Profile', () => expect(document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]')?.value).toBe('Changed name'));
+  await app.until('Back returns to Profile', () => expect(document.querySelector('#player h2')?.textContent).toBe('Changed name'));
   expect(location.hash).toBe('#/profile');
   await app.interact(() => history.back());
   await app.until('Back returns to Cards', () => expect(pageTitle()).toBe('Cards'));
@@ -202,7 +203,7 @@ it('treats a bare #/profile as your own Profile page and #/profile/<id> as a sha
   await app.mount();
   expect(pageTitle()).toBe('Profile');
   expect(document.querySelector('[role="dialog"]')).toBeNull();
-  await app.until('Profile loads', () => expect(document.querySelector('input[autocomplete="nickname"]')).not.toBeNull());
+  await app.until('Profile loads', () => expect(button('Edit name')).toBeDefined());
   // Loaded directly: focus stays where the browser put it, and closing swaps in Open.
   expect(document.activeElement).toBe(document.body);
   await app.interact(() => button('Close Profile').click());

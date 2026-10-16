@@ -51,20 +51,21 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
   // Name edit, on Profile.
   await app.interact(() => button('Profile').click());
   expect(location.hash).toBe('#/profile');
-  await app.until('the name editor loads', () => expect(document.querySelector('input[autocomplete="nickname"]')).not.toBeNull());
+  await app.until('the name editor loads', () => { button('Edit name'); });
+  await app.interact(() => button('Edit name').click());
   await app.interact(() => {
     const input = document.querySelector<HTMLInputElement>('input[autocomplete="nickname"]')!;
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Renamed fixture');
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', bubbles: true }));
   });
-  await app.interact(() => button('Save name').click());
+  await app.interact(() => button('Save').click());
   expect(JSON.parse(localStorage.getItem('brainrot-player-v1')!).name).toBe('Renamed fixture');
 
   // Best pulls, on the same page: the new name, and the pack just opened, which can be opened again.
   await app.until('Best pulls lists the opened pack', () => expect(document.querySelector('#pulls-history-title')?.textContent).toBe('All packs · 1'));
   expect(currentTab()).toBe('Profile');
-  expect(document.querySelector('.pulls-page')?.textContent).toContain('Renamed fixture #');
+  expect(document.querySelector('.pulls-page #player h2')?.textContent).toBe('Renamed fixture');
   const row = document.querySelector<HTMLButtonElement>('.pulls-page .pull-row')!;
   expect(row.querySelector('.pull-row-setname')?.textContent).toContain('Summer of Slop');
   expect(row.disabled).toBe(false);
@@ -102,12 +103,15 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
   await app.interact(() => button('Retry loading rankings').click());
   await app.until('the retry loads the list', () => expect(hofStatus()?.textContent).toBe('Rankings loaded.'));
   expect(requested).toHaveLength(2);
-  expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).toContain('Nothing filed here yet.');
+  expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).toContain('No pulls filed today yet.');
   expect(document.querySelector('[aria-label="Retry loading rankings"]')).toBeNull();
-  // The legends are part of the app, so the archive shows them whatever the network does.
-  await app.interact(() => button('Archive').click());
-  expect(document.querySelectorAll('.hall-of-fame .hof-legend').length).toBeGreaterThan(0);
+  // The legends are part of the app, so "Where it started" shows them whatever the network does.
   expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await app.interact(() => { button('Where it started').focus(); button('Where it started').click(); });
+  expect(document.querySelectorAll('[role="dialog"] .hof-legend').length).toBeGreaterThan(0);
+  await app.interact(() => button('Close').click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(button('Where it started'));
   await app.interact(() => button('Close Rankings').click());
   await app.until('Open shows again', () => expect(currentTab()).toBe('Open'));
   expect(location.hash).toBe('');

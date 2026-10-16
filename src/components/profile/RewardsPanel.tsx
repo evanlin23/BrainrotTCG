@@ -17,10 +17,7 @@ interface RewardsPanelProps {
 const RewardsPanel = ({ level, settings, onSettingsChange, packImage }: RewardsPanelProps) => {
   const next = nextReward(level);
   return (
-    <section className="rewards" aria-labelledby="rewards-title">
-      <h3 id="rewards-title" className="section-title profile-heading">
-        Level rewards
-      </h3>
+    <div className="rewards">
       <p className="rewards-next">
         {next ? (
           <>
@@ -54,7 +51,7 @@ const RewardsPanel = ({ level, settings, onSettingsChange, packImage }: RewardsP
           </span>
         )}
       />
-    </section>
+    </div>
   );
 };
 
