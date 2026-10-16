@@ -15,6 +15,9 @@ type Point = { clientX: number; clientY: number };
 /** A point `across` of the way over the pack, `below` px under its tear line. */
 const at = (across: number, below = 0): Point => ({ clientX: rect.left + across * rect.width, clientY: tearClientY + below });
 
+/** A point `x` px right of the pack's left edge, on its tear line: for a pack narrowed with `sizePack`. */
+const fromLeft = (x: number): Point => ({ clientX: rect.left + x, clientY: tearClientY });
+
 /** One finger's event; pass `pointerId` and `isPrimary: false` for a second finger. */
 const pointer = (type: string, point: Point, extra: Partial<PointerEvent> = {}) =>
   ({
@@ -22,6 +25,8 @@ const pointer = (type: string, point: Point, extra: Partial<PointerEvent> = {}) 
     pointerId: 1, pointerType: 'touch', isPrimary: true, ...point, ...extra,
   }) as unknown as PointerEvent;
 const second = { pointerId: 2, isPrimary: false };
+/** A mouse: the primary pointer of its own type, even while a finger is down. */
+const mouse = { pointerId: 7, pointerType: 'mouse', isPrimary: true } as Partial<PointerEvent>;
 
 let root: Root;
 let container: HTMLDivElement;
@@ -29,11 +34,20 @@ let cutter: Cutter;
 let onCutComplete: ReturnType<typeof vi.fn<() => void>>;
 let onMiss: ReturnType<typeof vi.fn<() => void>>;
 
-const Probe = ({ hold }: { hold: (cutter: Cutter) => void }) => {
-  const latest = usePackCutter({ onCutComplete, onMiss, isOpening: false, isPackCut: false, volume: 0, particlesEnabled: false });
+const Probe = ({ hold, disabled = false }: { hold: (cutter: Cutter) => void; disabled?: boolean }) => {
+  const latest = usePackCutter({ onCutComplete, onMiss, isOpening: false, isPackCut: false, volume: 0, particlesEnabled: false, disabled });
   const { packRef } = latest;
   useEffect(() => hold(latest));
   return <div ref={packRef} />;
+};
+
+/** Renders the probe, or re-renders it with a sheet open over the pack (`disabled`). */
+const render = (disabled = false) => act(() => root.render(<Probe hold={(latest) => { cutter = latest; }} disabled={disabled} />));
+
+/** Gives the pack the on-screen box `rect`, or `rect` narrowed to `width` px from the same left edge. */
+const sizePack = (width = rect.width) => {
+  const pack = container.firstElementChild as HTMLDivElement;
+  pack.getBoundingClientRect = () => ({ ...rect, width, x: rect.left, y: rect.top, right: rect.left + width, bottom: rect.top + rect.height, toJSON() {} });
 };
 
 const down = (point: Point, extra?: Partial<PointerEvent>) => act(() => cutter.handlePointerDown(pointer('pointerdown', point, extra)));
@@ -56,9 +70,9 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
-  act(() => root.render(<Probe hold={(latest) => { cutter = latest; }} />));
+  render();
+  sizePack();
   const pack = container.firstElementChild as HTMLDivElement;
-  pack.getBoundingClientRect = () => ({ ...rect, x: rect.left, y: rect.top, right: rect.left + rect.width, bottom: rect.top + rect.height, toJSON() {} });
   Object.defineProperty(pack, 'clientWidth', { value: rect.width });
   Object.defineProperty(pack, 'clientHeight', { value: rect.height });
 });
@@ -177,6 +191,54 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
+  it('needs at least 32px on a pack too narrow for 20% to reach it', () => {
+    // 20% of 120px is 24px, so the floor decides. 30px is 25% of the pack and still too short.
+    sizePack(120);
+    swipe(fromLeft(40), fromLeft(55), fromLeft(70));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    down(fromLeft(40));
+    move(fromLeft(56));
+    move(fromLeft(72));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(fromLeft(72));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not open mid-drag on a 50% stroke that goes further down than across', () => {
+    // 160px across is past the 144px (45%) that opens mid-drag, but it's 200px down.
+    down(at(0.2));
+    move(at(0.7, 200));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    // The release measures the same stroke against the same guard, so it doesn't open either.
+    up(at(0.7, 200));
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('ignores points above or below the pack, so they cannot stretch a stroke to 20%', () => {
+    // On the pack the stroke spans 10%. 115px over the tear line is 6px above the pack: counted, the
+    // move to 80% would span 160px across and 115px up, enough to open even mid-drag. 470px under
+    // the line is 5px below the pack.
+    down(at(0.3));
+    move(at(0.4));
+    move(at(0.8, -115));
+    move(at(0.9, 470));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.8, -115));
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('does not open on release once a sheet has opened over the pack mid-stroke', () => {
+    down(at(0.3));
+    move(at(0.6));
+    render(true);
+    expect(() => up(at(0.6))).not.toThrow();
+    expect(onCutComplete).not.toHaveBeenCalled();
+    // Nothing is left half-done: once the sheet closes, the next stroke opens as usual.
+    render();
+    swipe(at(0.3), at(0.6));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
   it('does not open when the browser cancels the stroke', () => {
     down(at(0.3));
     move(at(0.6));
@@ -229,6 +291,29 @@ describe('usePackCutter with more than one finger', () => {
     move(at(0.55), { pointerId: 8 });
     expect(onCutComplete).not.toHaveBeenCalled();
     up(at(0.55), { pointerId: 8 });
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not open from a mouse click during a touch stroke', () => {
+    down(at(0.3));
+    move(at(0.4));
+    down(at(0.7), mouse);
+    up(at(0.7), mouse);
+    up(at(0.4));
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  // Known bug, found while covering #312: a mouse is the primary pointer of its own type, so its
+  // press reads as the touch's lost release and takes the stroke over (usePackCutter.ts:201-204).
+  // The touch stroke then never opens. Flip this to `it` once the hook keeps the touch stroke.
+  it.fails('keeps the touch stroke when a mouse clicks during it', () => {
+    down(at(0.3));
+    move(at(0.4));
+    down(at(0.7), mouse);
+    up(at(0.7), mouse);
+    move(at(0.5));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up(at(0.6));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
