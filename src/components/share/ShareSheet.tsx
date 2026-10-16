@@ -111,14 +111,11 @@ type SubmitState = 'idle' | 'sending' | 'sent' | 'failed';
  */
 const HallOfFameSubmit = ({ proof, id, githubUrl }: { proof: string; id: string; githubUrl: string }) => {
   const [state, setState] = useState<SubmitState>(() => (wasSubmitted(id) ? 'sent' : 'idle'));
-  const [detail, setDetail] = useState('');
 
   const submit = async () => {
     setState('sending');
     try {
-      const { accepted, total } = await submitToHallOfFame(proof, id);
-      setState(accepted > 0 ? 'sent' : 'failed');
-      setDetail(accepted > 0 ? `Sent to ${accepted} of ${total} relays.` : '');
+      setState((await submitToHallOfFame(proof, id)) ? 'sent' : 'failed');
     } catch {
       setState('failed');
     }
@@ -126,7 +123,7 @@ const HallOfFameSubmit = ({ proof, id, githubUrl }: { proof: string; id: string;
 
   const note =
     state === 'sent'
-      ? `${detail ? `${detail} ` : ''}It shows in the Hall of Fame now, checked on each visitor's device, and is filed for good within the hour.`
+      ? `It shows in the Hall of Fame now, checked on each visitor's device, and is filed for good within the hour.`
       : state === 'failed'
         ? "Couldn't reach any relay. Try again, or submit on GitHub."
         : 'No account needed. It shows in the Hall of Fame right away.';

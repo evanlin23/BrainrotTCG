@@ -135,46 +135,64 @@ export interface PublishResult {
   message: string;
 }
 
+/** Send an event to one relay; it answers OK (accepted) or not, or times out. */
+const publishToRelay = (event: NostrEvent, relay: string, timeoutMs: number, open: SocketFactory): Promise<PublishResult> =>
+  new Promise<PublishResult>((resolve) => {
+    let done = false;
+    let socket: Socket | null = null;
+    const finish = (ok: boolean, message: string) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        socket?.close();
+      } catch {
+        // already closed
+      }
+      resolve({ relay, ok, message });
+    };
+    const timer = setTimeout(() => finish(false, 'timed out'), timeoutMs);
+    try {
+      socket = open(relay);
+    } catch (error) {
+      finish(false, String(error));
+      return;
+    }
+    socket.onopen = () => socket!.send(JSON.stringify(['EVENT', event]));
+    socket.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(String(msg.data)) as unknown[];
+        if (data[0] === 'OK' && data[1] === event.id) finish(data[2] === true, String(data[3] ?? ''));
+      } catch {
+        // ignore anything that isn't JSON
+      }
+    };
+    socket.onerror = () => finish(false, 'connection failed');
+    socket.onclose = () => finish(false, 'closed');
+  });
+
 /** Send an event to every relay at once; each answers OK (accepted) or not, or times out. */
 export const publishEvent = (event: NostrEvent, relays = HOF_RELAYS, timeoutMs = 7000, open: SocketFactory = defaultSocket): Promise<PublishResult[]> =>
-  Promise.all(
-    relays.map(
-      (relay) =>
-        new Promise<PublishResult>((resolve) => {
-          let done = false;
-          let socket: Socket | null = null;
-          const finish = (ok: boolean, message: string) => {
-            if (done) return;
-            done = true;
-            clearTimeout(timer);
-            try {
-              socket?.close();
-            } catch {
-              // already closed
-            }
-            resolve({ relay, ok, message });
-          };
-          const timer = setTimeout(() => finish(false, 'timed out'), timeoutMs);
-          try {
-            socket = open(relay);
-          } catch (error) {
-            finish(false, String(error));
-            return;
-          }
-          socket.onopen = () => socket!.send(JSON.stringify(['EVENT', event]));
-          socket.onmessage = (msg) => {
-            try {
-              const data = JSON.parse(String(msg.data)) as unknown[];
-              if (data[0] === 'OK' && data[1] === event.id) finish(data[2] === true, String(data[3] ?? ''));
-            } catch {
-              // ignore anything that isn't JSON
-            }
-          };
-          socket.onerror = () => finish(false, 'connection failed');
-          socket.onclose = () => finish(false, 'closed');
-        }),
-    ),
-  );
+  Promise.all(relays.map((relay) => publishToRelay(event, relay, timeoutMs, open)));
+
+/**
+ * Send an event to every relay at once, but resolve as soon as one accepts it (the inbox reads every
+ * relay, so one is enough). `accepted` is that relay's answer, or null once every relay has refused,
+ * failed or timed out. The other sends carry on in the background; `all` settles when they finish.
+ */
+export const publishUntilAccepted = (
+  event: NostrEvent,
+  relays = HOF_RELAYS,
+  timeoutMs = 7000,
+  open: SocketFactory = defaultSocket,
+): Promise<{ accepted: PublishResult | null; all: Promise<PublishResult[]> }> => {
+  const sends = relays.map((relay) => publishToRelay(event, relay, timeoutMs, open));
+  const all = Promise.all(sends);
+  return new Promise((resolve) => {
+    for (const send of sends) void send.then((result) => { if (result.ok) resolve({ accepted: result, all }); });
+    void all.then(() => resolve({ accepted: null, all }));
+  });
+};
 
 export interface Filter {
   ids?: string[];
