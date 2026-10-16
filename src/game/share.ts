@@ -38,13 +38,13 @@ export const wasSubmitted = (id: string): boolean => {
 /**
  * Send a qualifying pull to the Hall of Fame without a GitHub account: a signed note to public
  * Nostr relays, which a GitHub Action reads every 15 minutes (see src/game/nostrInbox.ts).
- * Resolves to how many relays accepted it.
+ * Resolves to true as soon as one relay accepts it (the other relays keep sending in the
+ * background), or false once every relay has refused, failed or timed out.
  */
-export const submitToHallOfFame = async (proof: string, id: string): Promise<{ accepted: number; total: number }> => {
-  const { hallOfFameEvent, publishEvent, HOF_RELAYS } = await import('./nostrInbox');
-  const results = await publishEvent(hallOfFameEvent(proof, id));
-  const accepted = results.filter((r) => r.ok).length;
-  if (accepted > 0) {
+export const submitToHallOfFame = async (proof: string, id: string): Promise<boolean> => {
+  const { hallOfFameEvent, publishUntilAccepted } = await import('./nostrInbox');
+  const { accepted } = await publishUntilAccepted(hallOfFameEvent(proof, id));
+  if (accepted) {
     try {
       const list = JSON.parse(localStorage.getItem(SUBMITTED_KEY) ?? '[]') as string[];
       localStorage.setItem(SUBMITTED_KEY, JSON.stringify([...list.filter((x) => x !== id), id].slice(-200)));
@@ -52,5 +52,5 @@ export const submitToHallOfFame = async (proof: string, id: string): Promise<{ a
       // only the "Submitted" label depends on this
     }
   }
-  return { accepted, total: HOF_RELAYS.length };
+  return accepted !== null;
 };
