@@ -21,7 +21,6 @@ import {
   type ProfileRun,
   type ProfileStats,
   type ProofRule,
-  type PulledCard,
   type SetDefinition,
   xpForLevel,
 } from '../engine';
@@ -30,21 +29,12 @@ import { getPlayer, getPlayerTickets } from './player';
 import { getHistory, historyForKey, type HistoryEntry } from './history';
 import { getReopened, putReopened } from './reopenCache';
 import { getStoredPack, hydratePackStore, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
-import { decodeCard, encodeCard, modifiersFor, type StoredCard } from './cardCode';
+import { decodeCard, encodeCard, toPulled } from './cardCode';
 import { createTicketPool } from './ticketPool';
 import { admitOptional } from './admission';
 import { siteUrl } from './pulls';
 
 export const profileUrl = (profile: string): string => `${siteUrl()}#/profile/${profile}`;
-
-const toPulled = (stored: readonly StoredCard[], set: SetDefinition): PulledCard[] | null => {
-  const cards = stored.map((c, slot) => {
-    // This exact version's rarity: a later version may change it (spec section 12).
-    const rarity = set.cards.find((card) => card.id === c.id)?.rarity;
-    return rarity ? { setId: set.id, cardId: c.id, rarity, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1), slot } : null;
-  });
-  return cards.every((c) => c) ? (cards as PulledCard[]) : null;
-};
 
 interface Ticket {
   nonce: number;

@@ -10,7 +10,8 @@ import type { Finish, Rarity } from './types';
  * - Holo (5% of cards) multiplies a card's points by 20 = 1 / 5%.
  * - In sets with modifiers, a finish and a misprint multiply them again, each by about
  *   1 / (its chance): Silver 10% x10, Gold 2.5% x40, Platinum 0.5% x200, Diamond 0.1% x1000,
- *   Misprint 0.5% x200. They all stack.
+ *   Misprint 0.5% x200. A card has at most one finish; holo, that finish and a misprint all
+ *   multiply together.
  * - Combo multipliers are about 1 / (chance of that hand) in a typical set
  *   (see odds.ts for the exact odds of any set).
  *
@@ -48,6 +49,13 @@ export const POKER_HANDS = {
 } as const satisfies Record<string, PokerHand>;
 
 export type HandKey = keyof typeof POKER_HANDS;
+
+/**
+ * Which scoring rules a score came from. Bump it whenever a change to the tables above, cardPoints or
+ * scorePack would give any existing pull different points, so ranking boards never compare scores
+ * made under different rules (see rankings.ts).
+ */
+export const SCORING_ERA = 1;
 
 export const cardPoints = (rarity: Rarity, isHolo: boolean, finish?: Finish | null, misprint?: boolean): number =>
   (RARITY_POINTS[rarity] ?? 0) * (isHolo ? HOLO_MULTIPLIER : 1) * (finish ? FINISH_MULTIPLIER[finish] : 1) * (misprint ? MISPRINT_MULTIPLIER : 1);

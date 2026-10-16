@@ -61,12 +61,11 @@ textarea {
 }
 
 /* iOS zooms the page when a focused field's text is under 16 px, so on phones and touch screens every
-   field is at least 16 px. The one shared rule for that, so it overrides component font sizes. */
+   field is at least 16 px. The one shared rule for that: the doubled :root (0,2,1) outranks a component's
+   `.block textarea` (0,1,1), so it wins without !important. */
 @media (max-width: 899px), (pointer: coarse) {
-  input,
-  select,
-  textarea {
-    font-size: max(16px, 1rem) !important;
+  :root:root :is(input, select, textarea) {
+    font-size: max(16px, 1rem);
   }
 }
 
@@ -99,8 +98,17 @@ a {
   text-underline-offset: 0.2em;
 }
 
+/* One focus ring everywhere. The box-shadow is the look; the transparent outline is what forced-colours
+   mode paints (it drops shadows and recolours outlines). Components that need their own box-shadow add
+   var(--focus-shadow) to it: none until the element itself has focus, so it never inherits. */
+* {
+  --focus-shadow: 0 0 #0000;
+}
+
 :focus-visible {
-  outline: none;
+  --focus-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   box-shadow: var(--focus-ring);
 }
 
@@ -147,9 +155,13 @@ a {
   transform: scale(0.97);
 }
 
+/* Disabled is never colour alone: faded, a dashed edge and the not-allowed cursor. The edge is an inset
+   outline (a disabled control can't take focus), so it covers any border without shifting the layout. */
 .btn:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: var(--opacity-disabled);
+  outline: 1px dashed currentColor;
+  outline-offset: -1px;
 }
 
 .btn svg {
@@ -193,7 +205,7 @@ a {
 }
 
 .btn--sm {
-  min-height: 36px;
+  min-height: var(--touch-target);
   padding: 0 var(--space-4);
   font-size: var(--text-sm);
 }

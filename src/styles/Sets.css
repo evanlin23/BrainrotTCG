@@ -1,6 +1,7 @@
 .set-picker {
   position: relative;
-  z-index: 5;
+  /* Over the pack stage below it (a raised or flying pack), under the header and nav. */
+  z-index: 3;
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
@@ -71,14 +72,11 @@
   transform: scale(0.97);
 }
 
-.set-step:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
+.set-step:disabled,
 .set-current:disabled {
-  opacity: 0.4;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
+  border-style: dashed;
 }
 
 .set-current-head {
@@ -335,7 +333,8 @@
 
 .pack-set-name {
   font-weight: 900;
-  font-size: 5cqw;
+  /* The same 12 px floor as the era below; only a pack under 240 px wide ever reaches it. */
+  font-size: max(0.75rem, 5cqw);
   line-height: 1.1;
   text-transform: uppercase;
 }

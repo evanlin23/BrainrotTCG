@@ -64,7 +64,10 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
   const packRing = await ring(pack.locator('.swipe-hint'));
   expect(packRing.focusVisible).toBe(true);
   expect(packRing.boxShadow).toContain(BRAND);
-  expect((await ring(pack)).outline).toBe(`solid ${BRAND}`);
+  // The pack takes the shared ring too, over the transparent outline forced colours paint (#312 S5).
+  const packOwn = await ring(pack);
+  expect(packOwn.boxShadow).toContain(BRAND);
+  expect(packOwn.outline).toBe('solid rgba(0, 0, 0, 0)');
   expect(contrast(rgb(BRAND), rgb(packRing.page))).toBeGreaterThanOrEqual(3);
 
   await page.keyboard.press('Space');

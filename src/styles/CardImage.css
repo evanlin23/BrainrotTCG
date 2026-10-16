@@ -48,8 +48,8 @@
 .card-image-retry {
   position: absolute;
   inset: 0;
-  /* Above the holo foil and shine (CardViewer.css, 1 and 2) and the modifier sticker (Card.css, 3). */
-  z-index: 4;
+  /* Above the holo foil and shine (CardViewer.css, 1) and the new and modifier stickers (Card.css, 2). */
+  z-index: 3;
   width: fit-content;
   height: fit-content;
   margin: auto;
