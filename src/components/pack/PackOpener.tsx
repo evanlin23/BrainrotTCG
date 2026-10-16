@@ -4,6 +4,7 @@ import type { CardWithMeta } from '../cards/Card';
 import type { Settings } from '../../types';
 import type { SetDefinition } from '../../engine';
 import { openPack, prefetchNextPack, type OpenedPack } from '../../game/pulls';
+import { holdLive } from '../../game/admission';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
@@ -191,6 +192,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
   useEffect(() => {
     landingRef.current = { onOpen, onLeaveEarly, resetCutState };
   });
+
+  // From the first swipe until the summary, re-opening and checking other pulls start no new ticket
+  // (one already mining finishes), so this pack's ticket and animations get the device.
+  const live = isCutting || (isOpening && !showSummary) || (isPackCut && !isOpening);
+  useEffect(() => (live ? holdLive() : undefined), [live]);
 
   // A pack that refused to open can be torn again, as its error asks.
   useEffect(() => {
