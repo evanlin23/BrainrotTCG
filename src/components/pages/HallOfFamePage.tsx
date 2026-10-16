@@ -126,10 +126,17 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
   const startedRef = useRef(new Set<number>());
   const runningRef = useRef(false);
   const goneRef = useRef(false);
+  const stopRef = useRef<AbortController | null>(null);
   useEffect(() => {
     // StrictMode replays setup after cleanup while retaining these refs.
     goneRef.current = false;
-    return () => { goneRef.current = true; };
+    const stop = new AbortController();
+    stopRef.current = stop;
+    return () => {
+      goneRef.current = true;
+      // Leaving stops a check waiting for its ticket (one already mining finishes).
+      stop.abort();
+    };
   }, []);
   useEffect(() => {
     rankedRef.current = ranked;
@@ -139,11 +146,12 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
       runningRef.current = true;
       for (let entry = next(); entry && !goneRef.current; entry = next()) {
         const { issue } = entry;
+        const { signal } = stopRef.current!;
         startedRef.current.add(issue);
         setChecks((prev) => ({ ...prev, [issue]: 'checking' }));
         let result: Check = 'failed';
         try {
-          const pull = await checkPull(entry.proof);
+          const pull = await checkPull(entry.proof, signal);
           // Every field we display must be exactly what the proof produces.
           const matches =
             pull.proof.name === entry.name &&
@@ -162,6 +170,11 @@ const HallOfFamePage = ({ onClose }: HallOfFamePageProps) => {
           result = matches ? 'verified' : 'failed';
         } catch {
           result = 'failed';
+        }
+        if (signal.aborted && result === 'failed') {
+          // Stopped, not failed: check it again if the page comes back (StrictMode's replay).
+          startedRef.current.delete(issue);
+          break;
         }
         if (!goneRef.current) setChecks((prev) => ({ ...prev, [issue]: result }));
       }

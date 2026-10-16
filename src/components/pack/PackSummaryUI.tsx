@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { RotateCcw, Share2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
@@ -10,6 +10,7 @@ import { CARD_RARITIES, getSetCards, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import { myProgress } from '../../game/profiles';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
+import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackCacheNote from '../profile/PackCacheNote';
 import '../../styles/CollectionLabel.css';
 
@@ -20,14 +21,18 @@ interface PackSummaryUIProps {
   set: SetDefinition;
   onClose: () => void;
   onShare?: () => void;
+  /** Keep optional work waiting until these cards have decoded (off while a sheet covers them). */
+  holdOptional?: boolean;
 }
 
 /**
  * After the last card: the hand as the headline, the score, and the five cards laid out like a
  * pack's contents on a table, each with its collector number, rarity and a NEW sticker if it's new.
  */
-const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProps) => {
+const PackSummaryUI = ({ openedCards, set, onClose, onShare, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
+  const cardsRef = useRef<HTMLUListElement>(null);
+  useHoldUntilDecoded(cardsRef, holdOptional);
   const { points, hand, score } = scoreCards(openedCards);
   const setCards = getSetCards(set.id);
   const numberOf = (card: CardWithMeta) => {
@@ -75,7 +80,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare }: PackSummaryUIProp
             <PackCacheNote what="your level progress" className="summary-xp summary-xp-text" />
           )}
 
-          <ul className="summary-cards">
+          <ul className="summary-cards" ref={cardsRef}>
             {openedCards.map((card) => (
               <li key={card.uniqueId}>
                 <button
