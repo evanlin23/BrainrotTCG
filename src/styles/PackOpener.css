@@ -627,9 +627,19 @@
     padding-top: var(--space-3);
 }
 
+/* Large text wraps a label inside its button instead of pushing the button past the screen edge. */
+.summary-actions .btn {
+    max-width: 100%;
+    padding-block: var(--space-2);
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+}
+
 @media (max-width: 480px) {
+    /* Sized from the one-line label, so a row only shares when both labels fit unwrapped. */
     .summary-actions .btn {
-        flex: 1;
+        flex: 1 1 auto;
     }
 }
 
