@@ -221,8 +221,10 @@ Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with th
   duplicates, other eras and uncertain entries.
 
 All boards use one order: score, then the earlier trusted first receipt, then pull id. Receipt
-times are compared as instants (`receiptTime`), so GitHub's `…07Z` and a client's `…07.123Z` sort
-correctly. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
+times are compared as instants: `selectBoard` and `rebuildBoard` rewrite every receipt time, a
+coverage bound's included, in `receiptTime`'s millisecond form first, so GitHub's `…07Z` and a
+client's `…07.123Z` sort correctly. `receiptTime` takes only ISO 8601 UTC ending in `Z` and throws
+on anything else. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
 last. The pack summary's `bestPullOrder` lists the earlier slot first instead; boards don't follow it.
 
 | Board | Ranks | Identity | Size | Where |
@@ -626,9 +628,10 @@ No signed name bytes, released proof rules or generator versions change in this 
 
 ### Scalable-profile decision (#323)
 
-Status: proposed, awaiting owner (#323).
+Status: decided. #323 closed on 2026-10-16 with production aggregate formats deferred; the feasibility
+prototype below is tracked in #490, which has no milestone.
 
-**For review: defer production aggregate formats; proceed with one bounded feasibility prototype.**
+**Decision: defer production aggregate formats; proceed with one bounded feasibility prototype.**
 A minimal input ledger is interim provenance protection, not the owner's final history-free design.
 Current profile v1 signs assignments for tickets 0..N−1 as runs, XP and up to five best-pack claims
 (min(5, N)). The bounds below (N ≤ 100,000, at most 64 set entries) come from
@@ -662,6 +665,6 @@ Next prototype stays outside production builds/formats: one exact released deriv
 step in one selected circuit/zkVM, engine fixture equality and altered-input rejection. Measure
 prover time/peak memory, parameters/download bytes, proof versus resumable-state bytes, verification,
 browser/WASM feasibility and export/restore/continue; all benchmarks are **unrun**. Compare bounded
-checkpoint replay budgets without deployment, then choose proceed/defer. Full acceptance stays in
-#323. Neither route witnesses human play, animation completion, wall-clock time or undeclared lifetime
-mining; self-signed totals/Merkle roots alone do not prove aggregate correctness.
+checkpoint replay budgets without deployment, then choose proceed/defer. The prototype's acceptance
+is tracked in #490. Neither route witnesses human play, animation completion, wall-clock time or
+undeclared lifetime mining; self-signed totals/Merkle roots alone do not prove aggregate correctness.
