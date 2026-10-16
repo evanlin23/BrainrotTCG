@@ -241,6 +241,21 @@ def walk(node, path=()):
 CLOUDFLARE = "needs.site.outputs.host == 'cloudflare'"
 GUARD = {'name': 'Require the main source ref', 'env': {'SOURCE_REF': '${{ github.ref }}'},
          'run': 'test "$SOURCE_REF" = refs/heads/main'}
+# publish and deploy each start by checking this run's commit is still main's tip, so re-running a run
+# whose commit main has moved past (or only its publish or deploy job) fails instead of publishing an
+# older build. It compares commits, not runs: a re-run of an earlier run on main's current commit (an
+# older Hall of Fame refresh) still passes. ls-remote matches ref names by suffix, so awk keeps only
+# refs/heads/main itself; no such line, or a failed lookup, leaves tip empty and refuses.
+TIP = {'name': 'Require the tip of main', 'run': (
+    'tip=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main'
+    ' | awk \'$2 == "refs/heads/main" {print $1}\')\n'
+    'if [ "$tip" != "$GITHUB_SHA" ]; then\n'
+    '  echo "::error::Not publishing $GITHUB_SHA: main is now at ${tip:-a commit this job could not read}. '
+    'Re-running a deploy whose commit is no longer main\'s tip would put an older build over a newer one. '
+    'If no newer deploy run is in progress, start this workflow on main by hand '
+    '(Actions > Deploy to GitHub Pages > Run workflow)."\n'
+    '  exit 1\n'
+    'fi\n')}
 VERIFIER = 'python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json'
 PERMISSIONS = {
     'independent-verifier': {'contents': 'read'},
@@ -278,6 +293,7 @@ def cloudflare(spec):
 
 
 PUBLISH = [
+    cloudflare(TIP),
     cloudflare({'uses': 'actions/checkout', 'with': {'persist-credentials': False, 'sparse-checkout-cone-mode': False,
                                                     'sparse-checkout': '/scripts/deploy_contract.py\n/tools/wrangler/\n'}}),
     cloudflare({'uses': 'actions/download-artifact', 'with': {'artifact-ids': '${{ needs.build.outputs.artifact_id }}', 'path': 'release'}}),
@@ -294,12 +310,13 @@ PUBLISH = [
                 'run': lambda run: isinstance(run, str) and '| cmp -s release/dist/deployment-id.json - && exit 0' in run
                 and '"${URL%/}/deployment-id.json?run=' in run}),
 ]
-DEPLOY = [{'uses': 'actions/deploy-pages'}]
-# Only one deploy runs at a time, and a newer push to main cancels the older run: with GUARD, this
-# is what stops an older build publishing over a newer one.
+DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
+# Only one deploy runs at a time, and a newer push to main cancels the older run: with GUARD and TIP,
+# this is what stops an older build publishing over a newer one.
 CONCURRENCY = {'group': 'pages', 'cancel-in-progress': True}
-# The site lookup hands SITE_URL on ending in exactly one /, whichever way the variable is written.
-SITE_URL_OUTPUT = 'echo "url=${url%/}/"'
+# The site lookup hands SITE_URL on ending in exactly one /, however many the variable ends in.
+SITE_URL_OUTPUT = ('while [ "${url%/}" != "$url" ]; do url=${url%/}; done\n'
+                   '{ echo "host=cloudflare"; echo "url=$url/"; echo "base=/"; } >> "$GITHUB_OUTPUT"\n')
 
 
 def check_deploy(workflow):
@@ -348,8 +365,8 @@ def check_deploy(workflow):
         problems.append('deploy.yml: independent-verifier must end by checking both vector files')
     if len(site) != 2 or site[0] != GUARD or site[1].get('id') != 'site' or 'uses' in site[1]:
         problems.append('deploy.yml: site must be the main-ref guard, then the host lookup, and run no actions')
-    elif SITE_URL_OUTPUT not in str(site[1].get('run', '')):
-        problems.append(f'deploy.yml: the site lookup must hand on its address ending in one / ({SITE_URL_OUTPUT})')
+    elif not str(site[1].get('run', '')).endswith(SITE_URL_OUTPUT):
+        problems.append(f'deploy.yml: the site lookup must end by handing on its address ending in one / ({SITE_URL_OUTPUT!r})')
     if any(step == GUARD for job in ('build', 'publish', 'deploy', 'independent-verifier') for step in jobs[job].get('steps') or []):
         problems.append('deploy.yml: the main-ref guard belongs in site only')
     if jobs['site'].get('outputs') != {key: f'${{{{ steps.site.outputs.{key} }}}}' for key in ('host', 'url', 'base')}:
@@ -372,10 +389,10 @@ def check_deploy(workflow):
                                         'manifest_sha256': '${{ steps.seal.outputs.manifest_sha256 }}'}:
         problems.append('deploy.yml: build outputs must be the handoff artifact ID and the sealed manifest hash')
     if len(publish) != len(PUBLISH) or not all(match(step, spec) for step, spec in zip(publish, PUBLISH)):
-        problems.append('deploy.yml: publish must check out its two files, download by artifact ID, verify the seal, '
+        problems.append('deploy.yml: publish must require the tip of main, check out its two files, download by artifact ID, verify the seal, '
                         'set up Node, install Wrangler without scripts, deploy release/dist, then wait for deployment-id.json')
     if len(deploy) != len(DEPLOY) or not all(match(step, spec) for step, spec in zip(deploy, DEPLOY)):
-        problems.append('deploy.yml: deploy must only deploy Pages')
+        problems.append('deploy.yml: deploy must only require the tip of main, then deploy Pages')
     if jobs['deploy'].get('environment') != {'name': 'github-pages', 'url': '${{ steps.deployment.outputs.page_url }}'}:
         problems.append('deploy.yml: deploy must publish to the github-pages environment')
     return problems
