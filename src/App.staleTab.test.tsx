@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { scoreCards } from './data/cards';
-import { getPlayer } from './game/player';
+import { allocateNonce, getPlayer } from './game/player';
 import { savePendingPack, toCardsWithMeta, type OpenedPack } from './game/pulls';
 import { STORAGE_KEYS } from './constants';
 import App from './App';
@@ -143,6 +143,27 @@ describe('a tab whose save another tab of the same player has written since', ()
       window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.COLLECTION }));
     });
     expect(container.textContent).toContain(STALE);
+  });
+
+  it('warns when storage refuses to restore its ticket count over another tab’s lower one', async () => {
+    const PLAYER_KEY = 'brainrot-player-v1';
+    await mount();
+    expect(allocateNonce().stored).toBe(true);
+    const lower = localStorage.getItem(PLAYER_KEY)!;
+    expect(allocateNonce().stored).toBe(true);
+    // Another tab of this player stores the count from before this tab's write; storing ours over it is refused.
+    localStorage.setItem(PLAYER_KEY, lower);
+    const realSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === PLAYER_KEY) throw new DOMException('full', 'QuotaExceededError');
+      realSetItem.call(this, key, value);
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(container.textContent).not.toContain("Some changes couldn't be saved");
+    await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: PLAYER_KEY })));
+    expect(localStorage.getItem(PLAYER_KEY)).toBe(lower);
+    expect(container.textContent).toContain("Some changes couldn't be saved");
+    expect(container.textContent).not.toContain(STALE);
   });
 
   it('does not put back a pack it opened that another tab took off the shelf and stored during the reveal', async () => {
