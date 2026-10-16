@@ -283,11 +283,11 @@ an earlier move's copy is there, into `brainrot-before-move-pending-v1`. A pendi
 move left first replaces the one in `brainrot-before-move-v1` (one write, then it is removed), so the
 save being replaced is always copied and there are never more than these two copies; if either write
 fails, the save here is unchanged (a pending copy already moved into place stays there) and the
-result is `full` (storage quota) or `invalid`. A pending copy of the save here itself (the same
-stamp, or, without a stamp, the same player) is what a move that ended `partial` left: it is whole
-where the save here may not be, so it stays as this move's copy and no copy of the save here is
-taken over it. The move then
-removes that save's keys (player and stamp first, so a tab still on it stops writing). Once moved,
+result is `full` (storage quota) or `invalid`. A pending copy that already holds the save here
+(every key here matches the copy or the incoming save, or holds no progress, like a guest that
+opened no packs) is what a move that ended `partial` left: it is whole where the save here may not
+be, so it stays as this move's copy instead. A matching stamp or player alone isn't enough, since
+packs opened since would be in neither copy. The move then removes that save's keys (player and stamp first, so a tab still on it stops writing). Once moved,
 with or without progress to replace, a pending copy replaces the one in `brainrot-before-move-v1`
 the same way; if that fails, both stay until the next move. Into a browser without progress, keys
 the save doesn't carry stay and no copy is taken. A failed write removes what it wrote, restores the

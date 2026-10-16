@@ -14,6 +14,7 @@
  *
  * Only builds with VITE_OLD_ORIGIN (set by the deploy once the site has moved) do any of this.
  */
+import { STORAGE_KEYS } from '../constants';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
 import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
 import { isValidSaveValue } from './saveFile';
@@ -26,7 +27,7 @@ const BACKUP_KEY = 'brainrot-before-move-v1';
  * While an earlier move's copy is under BACKUP_KEY, a new move's copy waits here and takes BACKUP_KEY's
  * place in one write once the move succeeds. One still here (a move that couldn't be undone, or whose
  * copy couldn't take BACKUP_KEY's place) holds the save from before that move, so the next move moves
- * it into BACKUP_KEY before taking its own copy, unless it is a copy of the save here (see pendingIsOf).
+ * it into BACKUP_KEY before taking its own copy, unless it already holds the save here (see pendingHolds).
  * So there are never more than these two copies.
  */
 const PENDING_KEY = 'brainrot-before-move-pending-v1';
@@ -88,18 +89,37 @@ const promotePending = () => {
   localStorage.removeItem(PENDING_KEY);
 };
 
+/** Never progress: what marks a save, this device's preferences, and caches it can rebuild. */
+const NO_PROGRESS_KEYS = new Set<string>([SAVE_STAMP_KEY, DATA_VERSION_KEY, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SELECTED_SET,
+  STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'brainrot-reopened-v1']);
+
+/** No number above 0, no text, no `true` and no list entry, at any depth: a fresh guest's stats, say. */
+const holdsNothing = (value: unknown): boolean => value === null || value === 0 || value === false || value === ''
+  || (Array.isArray(value) ? value.length === 0 : typeof value === 'object' && Object.values(value).every(holdsNothing));
+
+/** A value here that nothing is lost by dropping: a guest who opened no packs, an empty collection. */
+const holdsNoProgress = (key: string, raw: string | null): boolean => {
+  if (raw === null || NO_PROGRESS_KEYS.has(key)) return true;
+  if (key === PLAYER_KEY) return parsePlayer(raw)?.nextNonce === 0;
+  try {
+    return holdsNothing(JSON.parse(raw));
+  } catch {
+    return false;
+  }
+};
+
 /**
- * Whether the pending copy is of `save`, the save here: then the move that took it failed partway and
- * couldn't be undone, so the copy is whole and the save here may not be. A move or import that worked
- * gives the save here a new stamp, so the stamps match; a save without one (it never had one, or it
- * couldn't be put back) is matched by its player.
+ * Whether the pending copy already holds everything in `save`, the save here: then a move that ended
+ * 'partial' left it, whole where the save here may not be. Each key here must match the copy, match
+ * what this move writes anyway, or hold no progress (the guest a reload made when the player couldn't
+ * be put back). A matching stamp or player isn't enough: packs opened since would be in neither copy.
  */
-const pendingIsOf = (save: Record<string, string | null>): boolean => {
-  const copy = parse(PENDING_KEY) as Record<string, string | undefined> | null;
-  if (!copy || typeof copy !== 'object') return false;
-  if (save[SAVE_STAMP_KEY]) return save[SAVE_STAMP_KEY] === copy[SAVE_STAMP_KEY];
-  const secret = secretOf(save[PLAYER_KEY]);
-  return !!secret && secret === secretOf(copy[PLAYER_KEY]);
+const pendingHolds = (save: Record<string, string | null>, incoming: Record<string, string>): boolean => {
+  const copy = parse(PENDING_KEY);
+  if (!copy || typeof copy !== 'object' || Array.isArray(copy)) return false;
+  const kept = copy as Record<string, unknown>;
+  if (!Object.values(kept).every((v) => v === null || typeof v === 'string')) return false;
+  return Object.entries(save).every(([k, v]) => v === kept[k] || v === incoming[k] || holdsNoProgress(k, v));
 };
 
 const brainrotKeys = () => Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((k): k is string => !!k?.startsWith('brainrot-'));
@@ -125,6 +145,7 @@ const restoreKeys = (previous: Map<string, string | null>): boolean => {
  * Write a handed-over save into this address's storage. If there's already progress here that isn't
  * the same player, `replace` decides (by asking, unless told otherwise) and the replaced save is kept
  * as a backup (see PENDING_KEY). The oldest copy is only replaced once a newer one has been stored.
+ * A pending copy that already holds the save here (see pendingHolds) is kept as this move's copy instead.
  */
 export const importSave = (save: unknown, replace: () => boolean = askToReplace): MoveResult => {
   if (!save || typeof save !== 'object') return 'invalid';
@@ -155,8 +176,8 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     // A full or unavailable storage area must not cost the player the save being replaced, so if
     // either write fails nothing here is moved. A copy already pending makes room for this one first
     // (if that fails, both stay); the oldest copy goes, and there are still at most two. A pending
-    // copy of this same save is whole where the save here may not be, so it stays this move's copy.
-    if (!pendingIsOf(backup)) {
+    // copy that holds everything here is whole where the save here may not be, so it stays this move's copy.
+    if (!pendingHolds(backup, incoming)) {
       try {
         promotePending();
         const slot = localStorage.getItem(BACKUP_KEY) === null ? BACKUP_KEY : PENDING_KEY;
