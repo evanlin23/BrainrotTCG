@@ -3,7 +3,14 @@ export const PROFILE = {
   network: { offline: false, latency: 40, downloadThroughput: 10_000_000 / 8, uploadThroughput: 2_000_000 / 8 },
   viewport: { width: 393, height: 727 },
 } as const;
-export const REPETITIONS = 3;
+/** Runs per scenario: 3 by default; `PERF_REPETITIONS=7` (an integer from 1 to 50) takes a larger sample by hand. */
+export const repetitionsFrom = (raw: string | undefined): number => {
+  if (raw === undefined || raw === '') return 3;
+  const count = Number(raw);
+  if (!Number.isInteger(count) || count < 1 || count > 50) throw new Error(`PERF_REPETITIONS must be an integer from 1 to 50, got "${raw}"`);
+  return count;
+};
+export const REPETITIONS = repetitionsFrom(process.env.PERF_REPETITIONS);
 // Cold scenarios keep their names and order; warm ones repeat the journey after a priming load.
 export const SCENARIOS = ['first-cold', 'synthetic-history-cold', 'first-warm', 'synthetic-history-warm'] as const;
 export type Scenario = typeof SCENARIOS[number];
