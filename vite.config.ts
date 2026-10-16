@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { configDefaults } from 'vitest/config'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -25,5 +26,15 @@ export default defineConfig({
   test: {
     // Vitest's defaults (any node_modules, .git) plus the Playwright suites and build output.
     exclude: ['**/node_modules/**', '**/.git/**', 'tests/browser/**', 'tests/performance/*.spec.ts', 'dist/**'],
+    // `npm test` turns coverage on for app code only, and the budget reporter then checks the run's
+    // wall time. Both budgets sit below the measured baseline: docs/DEVELOPMENT.md, Test budgets.
+    reporters: [...configDefaults.reporters, './scripts/test-budget.ts'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/**/*.d.ts'],
+      reporter: ['text-summary'],
+      thresholds: { branches: 75, statements: 78, lines: 80 },
+    },
   },
 })
