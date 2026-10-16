@@ -120,8 +120,9 @@ a {
    (components/ui/inputModality.ts). With no input yet, or no attribute, the ring shows,
    for a screen reader, switch or voice control that moves focus with no key. Covers anything only
    script can focus (tabindex -1); mark a control the app focuses with .quiet-focus, and draw its
-   own ring with var(--focus-shadow), not var(--focus-ring). */
-:root:is([data-input='pointer'], [data-input='press']) :is([tabindex='-1'], .quiet-focus):focus-visible {
+   own ring with var(--focus-shadow), not var(--focus-ring). Focus a navigation key placed carries
+   data-ring-kept, so Space or Enter on a control reached by Tab keeps its ring. */
+:root:is([data-input='pointer'], [data-input='press']) :is([tabindex='-1'], .quiet-focus):not([data-ring-kept]):focus-visible {
   --focus-shadow: 0 0 transparent;
   outline: none;
 }

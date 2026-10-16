@@ -98,6 +98,54 @@ describe('trackInputModality', () => {
     expect(modality()).toBe('keyboard');
   });
 
+  describe('focus a navigation key placed', () => {
+    const focusOn = (button: HTMLButtonElement) => { button.focus(); };
+    const kept = (button: Element) => button.hasAttribute('data-ring-kept');
+    const make = () => document.body.appendChild(document.createElement('button'));
+
+    it('is marked while Tab holds, and keeps its mark through Space', () => {
+      stop = trackInputModality();
+      const a = make();
+      key('Tab');
+      focusOn(a);
+      key(' ');
+      expect(modality()).toBe('press');
+      expect(kept(a)).toBe(true);
+      a.remove();
+    });
+
+    it('is not marked for focus a script moves after a press, and the mark leaves with focus', () => {
+      stop = trackInputModality();
+      const a = make();
+      const b = make();
+      key('Tab');
+      focusOn(a);
+      key('Enter');
+      focusOn(b);
+      expect(kept(a)).toBe(false);
+      expect(kept(b)).toBe(false);
+      a.remove();
+      b.remove();
+    });
+
+    it('is not marked once the key is released, or after a pointer press', () => {
+      stop = trackInputModality();
+      const a = make();
+      const b = make();
+      key('Tab');
+      document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', bubbles: true }));
+      focusOn(a);
+      expect(kept(a)).toBe(false);
+      key('ArrowRight');
+      focusOn(b);
+      expect(kept(b)).toBe(true);
+      press();
+      expect(kept(b)).toBe(false);
+      a.remove();
+      b.remove();
+    });
+  });
+
   it('hears events a handler stops from bubbling', () => {
     stop = trackInputModality();
     const button = document.body.appendChild(document.createElement('button'));

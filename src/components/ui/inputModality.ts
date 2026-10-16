@@ -10,6 +10,9 @@
  * on those targets after a pointer press or Space/Enter (base.css, #312), and navigation keys bring it
  * back. It starts as keyboard: a screen reader, switch or voice control can move focus with no key
  * heard here, while a touch or mouse player presses before the app moves focus for them.
+ *
+ * Focus a navigation key placed (Tab onto Open pack) is marked `data-ring-kept` until it leaves, so
+ * pressing Space or Enter on it keeps its ring; the next script move after the press stays quiet.
  */
 export type InputModality = 'keyboard' | 'press' | 'pointer';
 
@@ -19,6 +22,9 @@ const KEYBOARD_KEYS = new Set([
 ]);
 const PRESS_KEYS = new Set(['Enter', ' ']);
 
+/** Marks the element a navigation key focused; base.css keeps its ring under "press". */
+export const RING_KEPT = 'data-ring-kept';
+
 const set = (root: HTMLElement, modality: InputModality) => {
   if (root.dataset.input !== modality) root.dataset.input = modality;
 };
@@ -27,16 +33,40 @@ const set = (root: HTMLElement, modality: InputModality) => {
 export function trackInputModality(doc: Document = document): () => void {
   const root = doc.documentElement;
   set(root, 'keyboard');
+  // True from a navigation keydown to its keyup: focus that lands meanwhile was placed by that key.
+  let navigating = false;
   const onKey = (event: KeyboardEvent) => {
     if (event.ctrlKey || event.altKey || event.metaKey) return;
-    if (KEYBOARD_KEYS.has(event.key)) set(root, 'keyboard');
-    else if (PRESS_KEYS.has(event.key)) set(root, 'press');
+    if (KEYBOARD_KEYS.has(event.key)) {
+      navigating = true;
+      set(root, 'keyboard');
+    } else if (PRESS_KEYS.has(event.key)) {
+      navigating = false;
+      set(root, 'press');
+    }
   };
-  const onPointer = () => set(root, 'pointer');
+  const onKeyUp = () => { navigating = false; };
+  const onPointer = () => {
+    navigating = false;
+    doc.querySelector(`[${RING_KEPT}]`)?.removeAttribute(RING_KEPT);
+    set(root, 'pointer');
+  };
+  const onFocusIn = (event: FocusEvent) => {
+    if (navigating && event.target instanceof Element) event.target.setAttribute(RING_KEPT, '');
+  };
+  const onFocusOut = (event: FocusEvent) => {
+    if (event.target instanceof Element) event.target.removeAttribute(RING_KEPT);
+  };
   doc.addEventListener('keydown', onKey, true);
+  doc.addEventListener('keyup', onKeyUp, true);
   doc.addEventListener('pointerdown', onPointer, true);
+  doc.addEventListener('focusin', onFocusIn, true);
+  doc.addEventListener('focusout', onFocusOut, true);
   return () => {
     doc.removeEventListener('keydown', onKey, true);
+    doc.removeEventListener('keyup', onKeyUp, true);
     doc.removeEventListener('pointerdown', onPointer, true);
+    doc.removeEventListener('focusin', onFocusIn, true);
+    doc.removeEventListener('focusout', onFocusOut, true);
   };
 }

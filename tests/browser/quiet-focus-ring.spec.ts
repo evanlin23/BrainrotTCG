@@ -34,9 +34,9 @@ async function expectNoRing(target: Locator, what: string, input = 'pointer') {
 }
 
 /** The ring is there. Buttons ease their box-shadow in, so it's read once that has settled. */
-async function expectRing(target: Locator, what: string) {
+async function expectRing(target: Locator, what: string, input = 'keyboard') {
   await expect.poll(async () => (await ringOf(target)).shadows, { message: what }).toContain(RING);
-  expect(await ringOf(target), what).toMatchObject({ focusVisible: true, input: 'keyboard' });
+  expect(await ringOf(target), what).toMatchObject({ focusVisible: true, input });
 }
 
 const expectNoRingAfterPress = (target: Locator, what: string) => expectNoRing(target, what, 'press');
@@ -246,7 +246,12 @@ test('opened by keyboard: Tab rings, Space is quiet, Tab rings again, until a cl
   }
   await expectRing(pack, 'Open pack');
 
-  await page.keyboard.press('Space');
+  // Space is down but not yet released (a button clicks on keyup), so Open pack still holds the focus
+  // Tab gave it: it keeps its ring.
+  await page.keyboard.down('Space');
+  expect(await page.evaluate(() => document.documentElement.dataset.input)).toBe('press');
+  await expectRing(pack, 'Open pack while Space is held', 'press');
+  await page.keyboard.up('Space');
   await revealAll(page, () => page.keyboard.press('Space'), expectNoRingAfterPress);
   const title = page.locator('.summary-title');
   await expect(title).toBeFocused();
