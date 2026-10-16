@@ -186,8 +186,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   today yet", shows up to 3 of yesterday's best and how to submit. All-time is the published top 100
   by Brainrot Score. Rows aren't re-checked on the page: each links to its pull, which re-derives it.
   A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
-  before pulls were verifiable, so unranked) in a sheet. World firsts stay in the published data but
-  have no section.
+  before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
@@ -274,19 +273,33 @@ pack detail offers a proposed Share pack (#185). Listed proofs establish those i
 complete lifetime totals or the absence of a stronger undeclared pull. The rest of the acceptance
 matrix (interruption and UI states) remains in #337.
 
-## Proposed pull headline rule (#339)
+## Pull headline rule (#339)
 
-**Proposal, not implemented.** Choose a consistent pack headline over a dominance threshold:
+**Shipped** on the results screen, owned and public pack detail (`PackCardViewer`, so profile packs
+and shared pulls) and card detail. A consistent pack headline, not a dominance threshold:
 **Pack total: [score]**, then **[true combo] ×[multiplier]**, then **Standout card: [finish] [Holo]
 [Misprint] [name] · [card points]** (omit absent modifiers). Card surfaces lead with identity/modifiers
-and Card points. The labels "Pack total", "Standout card" and "Card points" are proposals for the
-owner to confirm, not shipped UI text. Individual points exclude the pack multiplier; neither title
+and Card points. The labels "Pack total", "Standout card" and "Card points" were accepted on #339.
+Individual points exclude the pack multiplier; neither title
 claims record rarity. Select maximum original-version `cardPoints`; on ties take the **higher** slot
 (the last of the tied cards in engine pack order). That is the shipped best-card rule: `revealOrder`
 (`src/game/reveal.ts`) sorts by `cardPoints` ascending and keeps pack order on ties, and `previewOf`
 (`src/game/previewLinks.ts`, called from `previewFor` in `src/game/pulls.ts`) takes its last card
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
+
+On the results screen the heading is **[combo] ×[multiplier], [score] Brainrot Score** (the score
+big), then the standout card, then **[combo]: about 1 in [n] packs** from `comboOneIn`
+(`src/engine/headline.ts`), the share of all packs of the set with that combo.
+
+### One-screen summary rule (#339)
+
+After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
+no horizontal scroll): the headline, the five cards in one compact row (each a button that opens the
+card up close, with a ⤢ corner, best pull first, its own Share), then the actions: **Open another
+pack** primary, **Share** secondary, stuck to the bottom of the summary's scroller above the safe
+area. Keyboard focus is scrolled clear of the stuck actions. New cards, the XP row and a folded "How
+this score works" (the math and the card guide) sit below them. Focus starts on the heading.
 
 Arithmetic presentation fixtures below are not claimed mined proofs. Different letters are
 separate card ids; names and modifiers must come from actual reconstruction in implementation.
@@ -300,15 +313,16 @@ separate card ids; names and modifiers must come from actual reconstruction in i
 | A10 B20 C35 D70 E200 | 335 / No Matches ×1 | E · 200 |
 | Historical version | Its reconstructed total/combo | No later rarity/modifier assumptions |
 
-One presentation helper returns structured total/combo/standout fields, without a second scorer.
-Results and owned/public pack detail show all fields above cards; personal/global pack rows show
-total, combo and concise standout, opening that detail. Card rows/detail show card identity/points
+`packHeadline` (`src/engine/headline.ts`) returns structured total/combo/standout fields from
+`scorePack`, without a second scorer; `PackHeadline` (`src/components/pack/PackHeadline.tsx`) renders
+them. Results and owned/public pack detail show all fields above cards, and on results the total is
+the focused heading; card detail shows Card points. **Not shipped yet:** personal/global pack rows
+show total, combo and concise standout, opening that detail. Card rows/detail show card identity/points
 and labeled original-pack context. Exact-pull captions/posters use the same fields and proof link.
 Static previews cannot read proof fragments: keep generic hand/card descriptions, stable paths and
 old images; do not imply they depict exact modifiers or regenerate history solely for new titles.
 
 At narrow/short widths, wrap the standout and keep actions reachable. Compact 40M formatting needs
-exact accessible points and full details; rankings use exact values. After approval, implement the
-helper plus consumer regressions across these surfaces. Scoring, generators, selectors, public proof
-URLs and animations do not change. Full surface/mobile/sharing acceptance stays in #339; checks are
-planned, not executed here. Figma authoring (#312) remains deferred.
+exact accessible points and full details; rankings use exact values (shipped surfaces show exact
+values). Scoring, generators, selectors, public proof URLs and animations do not change. Pack rows,
+card-row original-pack context and exact-pull captions and posters remain in #339. Figma authoring (#312) remains deferred.

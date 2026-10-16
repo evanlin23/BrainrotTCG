@@ -76,6 +76,57 @@ describe('Hall of Fame inbox', () => {
     expect(asked).toBe(1);
   });
 
+  describe('intake floor (score hint)', () => {
+    const counting = () => {
+      let checked = 0;
+      const lookup: InboxContext['lookup'] = (...args) => (checked++, getSet(...args));
+      return { lookup, checked: () => checked };
+    };
+
+    it("sets aside a pull that claims a score at or below the floor without re-deriving it or spending budget", async () => {
+      const { lookup, checked } = counting();
+      const lines: string[] = [];
+      const { ctx, filedProofs } = context({ floor: 50_000, budget: 1, lookup, log: (l) => void lines.push(l) });
+      const low = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1000, 50_000);
+      const real = hallOfFameEvent(byNote('mined 3 of a Kind'), idOf(byNote('mined 3 of a Kind')), 2000, 60_000);
+      // The skipped event costs nothing, so the one budgeted check goes to the next event.
+      expect(await processInbox([low, real], ctx)).toEqual({ added: 0, deferred: 0 });
+      expect(checked()).toBe(1);
+      expect(filedProofs).toEqual([]); // the 3 of a Kind claimed 60,000 but doesn't qualify once verified
+      expect(ctx.seen.has(low.id)).toBe(true);
+      expect(ctx.filed.has(idOf(fourOfAKind))).toBe(false);
+      expect(lines.some((l) => l.startsWith(`${low.id}: claims 50000`))).toBe(true);
+    });
+
+    it('verifies in full a pull that claims more than the floor, so a false claim gains nothing', async () => {
+      const { lookup, checked } = counting();
+      const { ctx, filedProofs } = context({ floor: 50_000, lookup });
+      const events = [hallOfFameEvent(pair, idOf(pair), 1000, 10 ** 12), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 2000, 10 ** 12)];
+      expect((await processInbox(events, ctx)).added).toBe(1);
+      expect(checked()).toBe(2);
+      expect(filedProofs).toEqual([fourOfAKind]); // the pair claimed a fortune and was still turned down
+    });
+
+    it("ignores the hint while there's room, and handles events without one (older clients) as before", async () => {
+      for (const floor of [null, undefined]) {
+        const { ctx, filedProofs } = context({ floor });
+        expect((await processInbox([hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1000, 0)], ctx)).added).toBe(1);
+        expect(filedProofs).toEqual([fourOfAKind]);
+      }
+      const { ctx, filedProofs } = context({ floor: 10 ** 12 });
+      expect((await processInbox([hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1000)], ctx)).added).toBe(1);
+      expect(filedProofs).toEqual([fourOfAKind]);
+    });
+
+    it("can't be used to block someone else's pull: a low-claim copy is a separate event", async () => {
+      const { ctx, filedProofs } = context({ floor: 1000 });
+      const copy = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1000, 1);
+      const real = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 2000, 10 ** 9);
+      expect((await processInbox([copy, real], ctx)).added).toBe(1);
+      expect(filedProofs).toEqual([fourOfAKind]);
+    });
+  });
+
   it('retries next run when filing on GitHub fails', async () => {
     let fail = true;
     const { ctx } = context({
