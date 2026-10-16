@@ -9,7 +9,7 @@ describe('bragText', () => {
     const cards = [card('COMMON'), card('UNCOMMON'), card('RARE', true), card('EPIC'), card('LEGENDARY'), card('BRAINROT', true)];
     const lines = bragText(cards, scorePack(cards), 'Peak Brain Rot', 'https://example.test/p').split('\n');
     expect(lines[0]).toBe('🧠 Brainrot TCG · Peak Brain Rot');
-    expect(lines[1]).toBe('⬜C 🟩U 🟦R✨ 🟪E 🟧L 🌈B✨');
+    expect(lines[1]).toBe('⬜C 🟩U 🟦R✨ 🟪E 🟧L 🟥B✨');
     expect(lines[3]).toBe('Verify it yourself: https://example.test/p');
   });
 

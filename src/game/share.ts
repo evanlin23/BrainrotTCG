@@ -8,7 +8,7 @@ const RARITY_MARK: Record<Rarity, string> = {
   RARE: '🟦R',
   EPIC: '🟪E',
   LEGENDARY: '🟧L',
-  BRAINROT: '🌈B',
+  BRAINROT: '🟥B',
 };
 
 /** Wordle-style one-liner: rarity squares with initials, holo sparkles, hand and value. */
