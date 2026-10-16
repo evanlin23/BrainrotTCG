@@ -5,7 +5,12 @@ import { FAIRY_DUST_SRC, WOOSH_SRC } from '../constants/audio';
 
 // Pack cutting constants
 const TEAR_LINE_RATIO = 0.19;
-const REQUIRED_CUT_RATIO = 0.72;
+/** A stroke spanning this much of the pack's width opens it while it's still moving. */
+const DRAG_CUT_RATIO = 0.45;
+/** A stroke spanning this much opens the pack when it's released: a short swipe is enough (#312). */
+const RELEASE_CUT_RATIO = 0.2;
+/** Nor less than this, in CSS pixels, however small the pack. */
+const MIN_CUT_PX = 32;
 const MAX_CUT_POINTS = 64;
 const DRAWN_CUT_OFFSET_RATIO = 0.000;
 const CUT_LINE_RATIO = TEAR_LINE_RATIO + DRAWN_CUT_OFFSET_RATIO;
@@ -15,14 +20,30 @@ export interface CutPoint {
   y: number;
 }
 
-interface CutSpan {
+/** The extent, in pack bounding-box pixels, of a stroke that started on the tear line. */
+interface CutStroke {
   minX: number;
   maxX: number;
+  minY: number;
+  maxY: number;
 }
 
-const EMPTY_CUT_SPAN: CutSpan = {
-  minX: Number.POSITIVE_INFINITY,
-  maxX: Number.NEGATIVE_INFINITY,
+/**
+ * Whether a stroke has cut far enough. Its span is everything it covered across (in either
+ * direction, so over and back counts in full), and must reach `ratio` of the pack's width and
+ * MIN_CUT_PX, and be at least its span up or down, so a mostly vertical drag or a scroll never
+ * opens the pack. This only decides when the pack opens; what's in it comes from the ticket, which
+ * never sees the gesture.
+ */
+const strokeCuts = (stroke: CutStroke, packWidth: number, ratio: number) => {
+  const across = stroke.maxX - stroke.minX;
+  return across >= Math.max(MIN_CUT_PX, packWidth * ratio) && across >= stroke.maxY - stroke.minY;
+};
+
+/** The event's points in order, including any the browser coalesced into it, so a fast flick counts. */
+const pointsOf = (event: PointerEvent): { clientX: number; clientY: number }[] => {
+  const coalesced = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
+  return coalesced.length > 0 ? coalesced : [event];
 };
 
 interface UsePackCutterOptions {
@@ -46,10 +67,19 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   const { sparks, emitSpark, clearSparks } = useSparks(particlesEnabled);
 
   const packRef = useRef<HTMLDivElement>(null);
-  const cutSpanRef = useRef<CutSpan>({ ...EMPTY_CUT_SPAN });
+  /** The stroke on the tear line so far, or null until a press reaches it. */
+  const strokeRef = useRef<CutStroke | null>(null);
   const cutCompletedRef = useRef(false);
   const isPointerDownRef = useRef(false);
-  /** This press started over something else (an open sheet), so it can't cut until it's released. */
+  /**
+   * The pointer whose press this is. Every other pointer is ignored until it's released, so a second
+   * finger can't stretch the first one's stroke.
+   */
+  const ownerRef = useRef<number | null>(null);
+  /**
+   * This press started over something else (an open sheet) or beside the pack, so it can't cut until
+   * it's released.
+   */
   const blockedRef = useRef(false);
   const fairyDustRef = useRef<HTMLAudioElement | null>(null);
 
@@ -57,7 +87,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     setIsCutting(false);
     setCutPoints([]);
     clearSparks();
-    cutSpanRef.current = { ...EMPTY_CUT_SPAN };
+    strokeRef.current = null;
     cutCompletedRef.current = false;
   }, [clearSparks]);
 
@@ -91,23 +121,27 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     onCutComplete();
   }, [onCutComplete, clearSparks, volume]);
 
-  const beginOrContinueCut = useCallback((clientX: number, clientY: number) => {
+  /**
+   * Follow one pointer position. A stroke starts where a press reaches the tear line; after that,
+   * any point over the pack's height counts (x past an edge counts as that edge), so a slanted swipe
+   * still cuts and drifting off the line doesn't end it. A release point is only measured (`draw`
+   * false): the cut line and sparks end with the press.
+   */
+  const trackPoint = useCallback((clientX: number, clientY: number, draw = true) => {
     if (cutCompletedRef.current || isOpening || isPackCut) return;
 
     const point = getLocalPoint(clientX, clientY);
     if (!point) return;
 
-    const nearTearLine = Math.abs(point.y - point.tearY) <= point.tolerance;
-    if (!nearTearLine) {
-      return;
-    }
-
+    const offLine = Math.abs(point.y - point.tearY);
     const { clampedX, cut, spark } = point;
+    const stroke = strokeRef.current;
 
-    if (!isCutting) {
+    if (!stroke) {
+      if (offLine > point.tolerance || !draw) return;
+      strokeRef.current = { minX: clampedX, maxX: clampedX, minY: point.y, maxY: point.y };
       setIsCutting(true);
       setCutPoints([cut]);
-      cutSpanRef.current = { minX: clampedX, maxX: clampedX };
       emitSpark(spark.x, spark.y);
 
       // Play fairy dust sound when cutting starts
@@ -123,30 +157,29 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       return;
     }
 
+    if (point.y < 0 || point.y > point.height) return;
+
+    stroke.minX = Math.min(stroke.minX, clampedX);
+    stroke.maxX = Math.max(stroke.maxX, clampedX);
+    stroke.minY = Math.min(stroke.minY, point.y);
+    stroke.maxY = Math.max(stroke.maxY, point.y);
+    if (!draw) return;
+
     setCutPoints((prev) => {
       const next = [...prev, cut];
       return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
     });
     emitSpark(spark.x, spark.y);
 
-    const span = cutSpanRef.current;
-    span.minX = Math.min(span.minX, clampedX);
-    span.maxX = Math.max(span.maxX, clampedX);
-    cutSpanRef.current = span;
-
-    const coveredDistance = Math.max(0, span.maxX - span.minX);
-
-    const touchedLeft = span.minX <= point.width * 0.18;
-    const touchedRight = span.maxX >= point.width * 0.82;
-
-    if (touchedLeft && touchedRight && coveredDistance >= point.width * REQUIRED_CUT_RATIO) {
+    if (strokeCuts(stroke, point.width, DRAG_CUT_RATIO)) {
       completeCut();
     }
-  }, [isCutting, isOpening, isPackCut, getLocalPoint, emitSpark, completeCut, volume]);
+  }, [isOpening, isPackCut, getLocalPoint, emitSpark, completeCut, volume]);
 
   const endCutAttempt = useCallback(() => {
     setIsCutting(false);
     isPointerDownRef.current = false;
+    ownerRef.current = null;
     clearSparks();
 
     // Stop fairy dust sound
@@ -155,38 +188,60 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       fairyDustRef.current = null;
     }
 
+    strokeRef.current = null;
     if (!cutCompletedRef.current) {
       setCutPoints([]);
-      cutSpanRef.current = { ...EMPTY_CUT_SPAN };
     }
   }, [clearSparks]);
 
   const handlePointerDown = useCallback((event: PointerEvent) => {
     if (event.button !== 0) return;
+    if (ownerRef.current !== null) {
+      // Another finger while one is down: not part of this stroke.
+      if (event.pointerId !== ownerRef.current && event.isPrimary === false) return;
+      // Otherwise the owner's release was lost (a mouse can't press twice, and a primary touch means
+      // no other is down), so this press starts afresh.
+      endCutAttempt();
+    }
+    ownerRef.current = event.pointerId;
+    blockedRef.current = false;
     // The pack's top bar (its X) can sit over the tear line on a phone: pressing it never cuts.
     if (disabled || (event.target as Element | null)?.closest?.('[role="dialog"], .sheet-backdrop, .pack-top-bar')) {
       blockedRef.current = true;
       return;
     }
-    isPointerDownRef.current = true;
     const point = getLocalPoint(event.clientX, event.clientY);
-    const onPack = !!point && point.x >= 0 && point.x <= point.width && point.y >= 0 && point.y <= point.height;
-    if (onPack && Math.abs(point.y - point.tearY) > point.tolerance && !isOpening && !isPackCut) onMiss?.();
-    beginOrContinueCut(event.clientX, event.clientY);
-  }, [beginOrContinueCut, disabled, getLocalPoint, isOpening, isPackCut, onMiss]);
+    // A press beside the pack, dragged onto it, doesn't cut either.
+    if (!point || point.x < 0 || point.x > point.width || point.y < 0 || point.y > point.height) {
+      blockedRef.current = true;
+      return;
+    }
+    isPointerDownRef.current = true;
+    if (Math.abs(point.y - point.tearY) > point.tolerance && !isOpening && !isPackCut) onMiss?.();
+    trackPoint(event.clientX, event.clientY);
+  }, [trackPoint, endCutAttempt, disabled, getLocalPoint, isOpening, isPackCut, onMiss]);
 
   const handlePointerMove = useCallback((event: PointerEvent) => {
     if (blockedRef.current || disabled || cutCompletedRef.current || isOpening || isPackCut) return;
-    const isPressed = isPointerDownRef.current || event.buttons === 1 || event.pressure > 0;
-    if (!isPressed) return;
-    beginOrContinueCut(event.clientX, event.clientY);
-  }, [beginOrContinueCut, disabled, isOpening, isPackCut]);
+    if (!isPointerDownRef.current || event.pointerId !== ownerRef.current) return;
+    for (const { clientX, clientY } of pointsOf(event)) trackPoint(clientX, clientY);
+  }, [trackPoint, disabled, isOpening, isPackCut]);
 
-  const handlePointerEnd = useCallback(() => {
+  /** On release, a stroke that started on the tear line and is wide enough finishes the cut. */
+  const handlePointerEnd = useCallback((event?: PointerEvent) => {
+    if (event && ownerRef.current !== null && event.pointerId !== ownerRef.current) return;
     blockedRef.current = false;
-    if (!isPointerDownRef.current && !isCutting) return;
+    ownerRef.current = null;
+    if (!isPointerDownRef.current && !strokeRef.current) return;
+    if (event?.type === 'pointerup' && strokeRef.current && !disabled && !isOpening && !isPackCut) {
+      // The release point (and any coalesced into it) counts, so a flick with no moves still cuts.
+      for (const { clientX, clientY } of [...pointsOf(event), event]) trackPoint(clientX, clientY, false);
+      const pack = packRef.current;
+      const stroke = strokeRef.current;
+      if (pack && stroke && strokeCuts(stroke, pack.getBoundingClientRect().width, RELEASE_CUT_RATIO)) completeCut();
+    }
     endCutAttempt();
-  }, [isCutting, endCutAttempt]);
+  }, [disabled, isOpening, isPackCut, trackPoint, completeCut, endCutAttempt]);
 
   const cleanup = useCallback(() => {
     if (fairyDustRef.current) {
