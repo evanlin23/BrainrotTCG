@@ -63,7 +63,8 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const { isOpening, showSummary, disabled, onCloseSummary, onOpenPack, handleInteractionRef, inPack, onLeave } = latest.current;
       // Ignore if disabled, or if a sheet is open over the pack (its buttons need these keys), or if
-      // focus is on a control that Space or Enter already activates.
+      // focus is on a control that Space or Enter already activates. A reveal card is a button that
+      // opts in (data-pack-keys), so a held Space keeps moving on; preventing the key stops its click.
       if (disabled) return;
       if (sheetOpen()) return;
       // Ctrl, Cmd and Alt combos belong to the browser and the system (Ctrl+Enter, Alt+Space), never the pack.
@@ -78,7 +79,7 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
         return;
       }
       const isKey = e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter';
-      if (isKey && target?.closest(`button, a, ${TEXT_FIELD}`)) return;
+      if (isKey && target?.closest(`button:not([data-pack-keys]), a, ${TEXT_FIELD}`)) return;
 
       if (!isKey) return;
       e.preventDefault();

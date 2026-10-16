@@ -5,6 +5,7 @@ import type { Settings } from '../../types';
 import type { SetDefinition } from '../../engine';
 import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../../game/pulls';
 import { holdLive } from '../../game/admission';
+import { reloadPage } from '../../game/reload';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
 import { buzz } from '../../utils/motion';
 import { usePackCutter } from '../../hooks/usePackCutter';
@@ -18,11 +19,23 @@ import CardRevealUI from './CardRevealUI';
 import PackSummaryUI from './PackSummaryUI';
 import PackTopBar from './PackTopBar';
 import ShowcaseRibbon from './ShowcaseRibbon';
+import { revealAnnouncement } from '../cards/cardLabel';
+import { REFUSAL_COPY, type PackRefusal } from './refusal';
 import { packImageUrl } from '../../content/art';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
 
 const Motion = motion;
+
+/**
+ * Focus follows the stage (#312) onto a control that just appeared, unless the player has put it
+ * somewhere else on the page: only from nowhere (the control it was on just went) or from the pack.
+ */
+const focusIfFree = (el: HTMLElement | null) => {
+  if (!el) return;
+  const active = document.activeElement;
+  if (!active || active === document.body || active.closest('.pack-opener-container')) el.focus({ preventScroll: true });
+};
 
 interface PreloadedAssets {
   brainrotVoices: HTMLAudioElement[];
@@ -59,7 +72,8 @@ interface PackOpenerProps {
 const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
-  const [openError, setOpenError] = useState<string | null>(null);
+  /** Why the last tear didn't open a pack, shown under it with a way to try again. */
+  const [refusal, setRefusal] = useState<PackRefusal | null>(null);
   const [openedCards, setOpenedCards] = useState<CardWithMeta[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPackCut, setIsPackCut] = useState(false);
@@ -105,7 +119,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         setLeavingOpen(false);
         landingRef.current.resetCutState();
       } else {
-        setOpenError('This pack refused to open. Try again!');
+        setRefusal('failed');
       }
       return;
     }
@@ -175,14 +189,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     if (openTimeoutRef.current) {
       window.clearTimeout(openTimeoutRef.current);
     }
-    setOpenError(null);
+    setRefusal(null);
     openTimeoutRef.current = window.setTimeout(() => {
       openTimeoutRef.current = null;
       if (openBlockedRef.current) {
         // Another tab changed the save since the tear: put the pack back sealed rather than spend a
-        // ticket this tab can't store.
+        // ticket this tab can't store, and say why.
         setIsPackCut(false);
         landingRef.current.resetCutState();
+        setRefusal('blocked');
         return;
       }
       // Started: from here the ticket is spent, so leaving keeps the pack rather than cancelling it.
@@ -230,10 +245,47 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const live = !disabled && (isCutting || (isOpening && !showSummary) || (isPackCut && !isOpening));
   useEffect(() => (live ? holdLive() : undefined), [live]);
 
-  // A pack that refused to open can be torn again, as its error asks.
+  // A pack that refused to open can be torn again, as its refusal offers.
   useEffect(() => {
-    if (openError) resetCutState();
-  }, [openError, resetCutState]);
+    if (refusal) resetCutState();
+  }, [refusal, resetCutState]);
+
+  /**
+   * The Open pack button (and Space or Enter with focus nowhere in particular): exactly a finished
+   * swipe, through the same cut, tear and ticket. A save another tab changed opens nothing, and says so.
+   */
+  const handleOpen = useCallback(() => {
+    if (disabled || isPackCut || isOpening) return;
+    if (openBlocked) {
+      setRefusal('blocked');
+      return;
+    }
+    completeCut();
+  }, [disabled, isPackCut, isOpening, openBlocked, completeCut]);
+
+  /** Set when the player goes back to the sealed pack, so the Open pack button takes focus once it's there. */
+  const focusOpenRef = useRef(false);
+
+  const retryOpen = useCallback(() => {
+    if (refusal === 'blocked') {
+      reloadPage();
+      return;
+    }
+    // Try again goes as the Open pack button comes back (disabled while the ticket is on its way):
+    // focus moves to it rather than falling to the page for the whole wait.
+    focusOpenRef.current = true;
+    handleOpen();
+  }, [refusal, handleOpen]);
+  const openButtonEl = useRef<HTMLButtonElement | null>(null);
+  const openButtonRef = useCallback((el: HTMLButtonElement | null) => {
+    openButtonEl.current = el;
+    if (el && focusOpenRef.current) {
+      focusOpenRef.current = false;
+      focusIfFree(el);
+    }
+  }, []);
+  // A refusal replaces the button the player was on: its Try again takes focus.
+  const retryButtonRef = useCallback((el: HTMLButtonElement | null) => focusIfFree(el), []);
 
   const finishPack = useCallback(() => {
     skippingRef.current = false;
@@ -257,6 +309,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setShowSummary(false);
     setHasMovedMouse(false);
     resetCutState();
+    focusOpenRef.current = true;
   }, [resetCutState, preloadedAssets, cleanupAudio]);
 
   // What the summary's per-card Share links to: this pull (one object, so its proof is signed once).
@@ -303,9 +356,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   /**
    * Any stage of a pack, from the tear to the summary: the pack's X, Escape and browser Back. A torn
    * pack the player left while its ticket is on its way already looks sealed again; it stays busy
-   * (isPackCut) until the ticket lands and is recorded.
+   * (isPackCut) until the ticket lands and is recorded. A pack another tab's save kept sealed isn't
+   * one: the app's banner and Settings, which offer the same reload, stay in reach.
    */
-  const stageInPack = (isPackCut && !leavingOpen) || isOpening || !!openError;
+  const stageInPack = (isPackCut && !leavingOpen) || isOpening || refusal === 'failed';
 
   // Focus mode (#312): the app's chrome stays out of the way for the whole pack, summary included, and
   // comes back as soon as the player leaves it, even while a left pack's ticket is still on its way.
@@ -336,17 +390,28 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         openTimeoutRef.current = null;
         setIsPackCut(false);
         resetCutState();
+        focusOpenRef.current = true;
       } else if (!leaveOpeningRef.current) {
         // Its ticket is spent and still on its way: startOpening records it when it lands.
         leaveOpeningRef.current = true;
         setLeavingOpen(true);
         resetCutState();
+        focusOpenRef.current = true;
       }
-    } else if (openError) {
-      setOpenError(null);
+    } else if (refusal) {
+      setRefusal(null);
       resetCutState();
+      focusOpenRef.current = true;
     }
-  }, [isOpening, showSummary, isPackCut, openError, openedCards, dealtPack, recordPack, finishPack, onLeaveEarly, resetCutState]);
+  }, [isOpening, showSummary, isPackCut, refusal, openedCards, dealtPack, recordPack, finishPack, onLeaveEarly, resetCutState]);
+
+  // Back on the sealed pack with its button already there (a torn pack put back, a refusal dismissed):
+  // the X the player left by has gone, so focus goes to Open pack rather than the page.
+  useEffect(() => {
+    if (!focusOpenRef.current || stageInPack || !openButtonEl.current) return;
+    focusOpenRef.current = false;
+    focusIfFree(openButtonEl.current);
+  });
 
   // Like skipAll: an open sheet disables the opener, so a stray press or key behind it does nothing.
   const leaveFromUi = useCallback(() => {
@@ -440,7 +505,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     showSummary,
     disabled,
     onCloseSummary: closeSummary,
-    onOpenPack: () => !isPackCut && !openBlocked && completeCut(),
+    onOpenPack: handleOpen,
     handleInteractionRef,
     inPack: stageInPack,
     onLeave: leaveFromUi,
@@ -518,8 +583,21 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     return () => onShowcaseChange?.(false);
   }, [holdNotices, onShowcaseChange]);
 
+  const waiting = slowOpen && isPackCut && !isOpening && !leavingOpen;
+  // The pack's one polite live region, for every stage: why a pack stayed sealed, the wait for a slow
+  // ticket, and each card as it turns face up (never before, so nothing is spoiled). It is always
+  // mounted, so a change is read. The summary says itself: its heading takes focus.
+  const announcement = refusal
+    ? REFUSAL_COPY[refusal].message
+    : waiting
+      ? 'Opening the pack…'
+      : isOpening && !showSummary && currentCard
+        ? revealAnnouncement(currentCard, currentIndex, openedCards.length) ?? ''
+        : '';
+
   return (
     <div className="pack-opener-container">
+      <div className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</div>
       {stageInPack && (
         <PackTopBar
           onLeave={leaveFromUi}
@@ -547,12 +625,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               packRef={packRef}
               packDesign={packDesign}
               set={set}
-              error={openError}
               isCutting={isCutting}
               pressing={isPressing}
               isPackCut={isPackCut && !leavingOpen}
-              blocked={openBlocked}
-              waiting={slowOpen && isPackCut && !isOpening && !leavingOpen}
+              waiting={waiting}
+              refusal={refusal}
+              onOpen={handleOpen}
+              onRetry={retryOpen}
+              openButtonRef={openButtonRef}
+              retryButtonRef={retryButtonRef}
               nudging={nudging === 'miss'}
               tapped={nudging === 'tap'}
               cutPoints={cutPoints}

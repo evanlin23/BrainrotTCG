@@ -262,3 +262,31 @@ describe('a held Space', () => {
     expect(interact).toHaveBeenCalledTimes(4);
   });
 });
+
+describe('Space and Enter on a focused button (#312)', () => {
+  const key = (target: HTMLElement, code: 'Space' | 'Enter') => {
+    const event = new KeyboardEvent('keydown', { key: code === 'Space' ? ' ' : 'Enter', code, bubbles: true, cancelable: true });
+    act(() => { target.dispatchEvent(event); });
+    act(() => { target.dispatchEvent(new KeyboardEvent('keyup', { key: event.key, code, bubbles: true })); });
+    return event;
+  };
+
+  it('leaves them to an ordinary button, such as Open pack, which they already press', () => {
+    const onOpenPack = vi.fn();
+    const interact = vi.fn();
+    render({ isOpening: false, inPack: false, onOpenPack, handleInteractionRef: { current: interact } });
+    const button = add(document.createElement('button'));
+    for (const code of ['Space', 'Enter'] as const) expect(key(button, code).defaultPrevented).toBe(false);
+    expect(onOpenPack).not.toHaveBeenCalled();
+    expect(interact).not.toHaveBeenCalled();
+  });
+
+  it('handles them on a reveal card, a button that opts in, so a held Space keeps moving on', () => {
+    const interact = vi.fn();
+    render({ handleInteractionRef: { current: interact } });
+    const card = add(document.createElement('button'));
+    card.setAttribute('data-pack-keys', '');
+    for (const code of ['Space', 'Enter'] as const) expect(key(card, code).defaultPrevented).toBe(true);
+    expect(interact).toHaveBeenCalledTimes(2);
+  });
+});

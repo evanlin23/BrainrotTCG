@@ -3,7 +3,7 @@ import { motion, AnimatePresence, useIsPresent, type PanInfo } from 'framer-moti
 import { FastForward } from 'lucide-react';
 import Card from '../cards/Card';
 import type { CardWithMeta } from '../cards/Card';
-import { revealAnnouncement } from '../cards/cardLabel';
+import { cardFaceLabel } from '../cards/cardLabel';
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import cardBackImage from '../../assets/images/card_back.webp';
 import RarityBadge from '../ui/RarityBadge';
@@ -23,13 +23,14 @@ const SiteAddress = () => {
 };
 
 /**
- * The card on top. One leaving keeps its last props for its exit, so it is inert until it has gone:
- * out of the Tab order and the accessibility tree. Not aria-hidden too, since it can still hold focus
- * for a moment, until the next card takes it, and Chrome blocks aria-hidden over a focused element.
+ * The card on top, a real button: Space or Enter, a click or a tap flips it, then moves on. One leaving
+ * keeps its last props for its exit, so it is inert until it has gone: out of the Tab order and the
+ * accessibility tree. Not aria-hidden too, since it can still hold focus for a moment, until the next
+ * card takes it, and Chrome blocks aria-hidden over a focused element.
  */
-const RevealCard = (props: ComponentPropsWithRef<typeof Motion.div>) => {
+const RevealCard = (props: ComponentPropsWithRef<typeof Motion.button>) => {
   const present = useIsPresent();
-  return <Motion.div {...props} inert={!present || undefined} />;
+  return <Motion.button type="button" {...props} inert={!present || undefined} />;
 };
 
 interface CardRevealUIProps {
@@ -87,10 +88,11 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   };
 
   // The card is the reveal's button for the keyboard too: Space or Enter flips it, then moves on
-  // (useKeyboardControls). Each card is a new element, so focus follows from the card leaving, or from
-  // the pack after the tear. The card leaving unmounts after the new one mounts, so its null is ignored.
-  const cardEl = useRef<HTMLDivElement | null>(null);
-  const cardRef = useCallback((el: HTMLDivElement | null) => {
+  // (useKeyboardControls, which holds Space down to repeat). Each card is a new element, so focus follows
+  // from the card leaving, or from the pack after the tear. The card leaving unmounts after the new one
+  // mounts, so its null is ignored.
+  const cardEl = useRef<HTMLButtonElement | null>(null);
+  const cardRef = useCallback((el: HTMLButtonElement | null) => {
     if (el) cardEl.current = el;
   }, []);
   const cardId = currentCard?.uniqueId;
@@ -98,7 +100,11 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
     const active = document.activeElement;
     if (!active || active === document.body || active.closest('.reveal-card')) cardEl.current?.focus({ preventScroll: true });
   }, [cardId]);
-  const cardLabel = !revealed ? `Flip card ${currentIndex + 1} of ${totalCards}` : remaining > 0 ? 'Next card' : 'See the pack summary';
+  // Face down it is only its place in the pack, so the name can't spoil the flip. Face up it carries the
+  // card and its rarity, which the art shows by colour alone (the live region says it once, as it lands).
+  const cardLabel = !revealed
+    ? `Flip card ${currentIndex + 1} of ${totalCards}`
+    : `${remaining > 0 ? 'Next card' : 'See the pack summary'}. Card ${currentIndex + 1} of ${totalCards}: ${cardFaceLabel(currentCard)}`;
 
   return (
     <>
@@ -116,8 +122,8 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
               key={currentCard.uniqueId}
               className={`reveal-card ${celebration ? 'is-celebrating' : ''}`}
               ref={cardRef}
-              role="button"
-              tabIndex={0}
+              data-pack-keys
+              onClick={onTap}
               aria-label={cardLabel}
               aria-disabled={revealLocked || undefined}
               initial={{ y: 24, opacity: 0, scale: 0.96 }}
@@ -132,14 +138,14 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
               {/* The halo glows behind the card (it paints under it), so the art stays clear for a screenshot.
                   The pull is announced once, by the ribbon in the top bar (PackOpener's ShowcaseRibbon). */}
               {celebration && <div className="showcase-halo" aria-hidden="true" />}
-              <Card card={currentCard} isFlipped={currentCard.isRevealed} onFlip={onTap} tell={big} slowFlip={slow} />
+              <Card card={currentCard} isFlipped={currentCard.isRevealed} tell={big} slowFlip={slow} />
             </RevealCard>
           )}
         </AnimatePresence>
       </div>
 
       {/* Waits for the flip to land (longer for the slow Legendary and Brainrot flips), so it can't spoil it. */}
-      {/* Seen, not read: the announcement below says the card, its rarity and its stickers once. */}
+      {/* Seen, not read: the pack's live region (PackOpener) says the card, its rarity and its stickers once. */}
       <div className={`reveal-rarity ${slow ? 'is-slow' : ''}`} aria-hidden="true">
         {revealed && <RarityBadge rarity={currentCard.rarity} isHolo={currentCard.isHolo} finish={currentCard.finish} misprint={currentCard.misprint} />}
         {revealed && currentCard.isNew && <span className="reveal-new">New</span>}
@@ -157,9 +163,6 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
           </span>
         </p>
       )}
-
-      {/* The reveal's one announcement of each card, as it turns face up ("Card 3 of 5: …"). */}
-      <div className="sr-only" aria-live="polite" aria-atomic="true">{currentCard && revealAnnouncement(currentCard, currentIndex, totalCards)}</div>
 
       <p className="tip-text">{hint}</p>
       {/* Skip sits apart from the X, at the bottom, so a press meant for one can't land on the other. */}

@@ -2,8 +2,8 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { monitor } from './support';
 
 /**
- * A whole pack by keyboard alone (#12): Tab reaches the pack, Space tears it, and the card is the one
- * button for the reveal, flip then next. Each control shows a focus ring, and a single polite live
+ * A whole pack by keyboard alone (#12): Tab reaches the Open pack button, Space tears the pack, and the
+ * card is the one button for the reveal, flip then next (#312: a real button named with the card's rarity). Each control shows a focus ring, and a single polite live
  * region names each card as it turns face up, never before. The fixture key's nonce 21 deals no big
  * pull, so nothing holds the reveal, and it repeats a card (2 and 5), so the checks meet a duplicate name.
  */
@@ -53,21 +53,20 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
 
-  // Tab, from the top of the page, reaches the pack.
-  const pack = page.getByRole('button', { name: /^Open a .* pack$/ });
+  // Tab, from the top of the page, reaches the Open pack button.
+  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
   await expect(pack).toBeVisible();
   let tabs = 0;
   while (!(await pack.evaluate((el) => el === document.activeElement))) {
-    expect(++tabs, 'Tab never reached the pack').toBeLessThan(40);
+    expect(++tabs, 'Tab never reached the Open pack button').toBeLessThan(40);
     await page.keyboard.press('Tab');
   }
-  const packRing = await ring(pack.locator('.swipe-hint'));
+  // The shared ring, over the transparent outline forced colours paint (#312 S5). The button's
+  // box-shadow eases in, so the ring is read once that transition has settled.
+  await expect.poll(async () => (await ring(pack)).boxShadow).toContain(BRAND);
+  const packRing = await ring(pack);
   expect(packRing.focusVisible).toBe(true);
-  expect(packRing.boxShadow).toContain(BRAND);
-  // The pack takes the shared ring too, over the transparent outline forced colours paint (#312 S5).
-  const packOwn = await ring(pack);
-  expect(packOwn.boxShadow).toContain(BRAND);
-  expect(packOwn.outline).toBe('solid rgba(0, 0, 0, 0)');
+  expect(packRing.outline).toBe('solid rgba(0, 0, 0, 0)');
   expect(contrast(rgb(BRAND), rgb(packRing.page))).toBeGreaterThanOrEqual(3);
 
   await page.keyboard.press('Space');
@@ -110,7 +109,9 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
     expect(liveAfter.filter((t) => t.includes(text))).toEqual([text]);
     expect(liveAfter.filter((t) => t !== text && t.includes(name) && !liveBefore.includes(t)), `card ${n} was said twice`).toEqual([]);
 
-    await expect(card).toHaveAttribute('aria-label', n < 5 ? 'Next card' : 'See the pack summary');
+    // Face up, the button's name says what it does next, then the card with its rarity (#312).
+    await expect(card).toHaveAttribute('aria-label', n < 5 ? /^Next card\. Card \d of 5: / : /^See the pack summary\. Card 5 of 5: /);
+    expect(await card.getAttribute('aria-label')).toMatch(new RegExp(`${RARITY}`));
     expect((await ring(card, '::after')).boxShadow).toContain(BRAND);
     if (n === 1) {
       // The emulated screen-reader view of the reveal, for the PR (Chromium's accessibility tree).
@@ -189,7 +190,7 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
   await seedNonce21(page, baseURL!);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
-  const pack = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
   await expect(pack).toBeVisible();
   await pack.focus();
   await page.keyboard.press('Space');
@@ -227,7 +228,7 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
 /** Opens the fixture pack by keyboard and waits for its first card, face down. */
 async function revealFirstCard(page: Page) {
   await page.goto('./');
-  const pack = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
   await expect(pack).toBeVisible();
   await pack.focus();
   await page.keyboard.press('Space');

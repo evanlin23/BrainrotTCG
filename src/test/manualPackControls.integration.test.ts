@@ -11,7 +11,8 @@ const stats = (): Stats | null => JSON.parse(localStorage.getItem(STORAGE_KEYS.S
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button')]
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label)!;
 const $ = (selector: string) => document.querySelector<HTMLElement>(selector);
-const sealed = () => $('[aria-label^="Open a "]');
+/** The sealed pack's Open pack button: there only while the pack is sealed (#312). */
+const sealed = () => $('.pack-open-button');
 const progress = () => $('.reveal-progress')?.getAttribute('aria-valuenow');
 // Nonce 22 of this key deals a special-reveal card, which a big-pull pause holds for its full reveal.
 const preferences = ({ nextNonce = 0, pauseBigPulls = false } = {}) => ({
@@ -30,12 +31,10 @@ function press(down: Element, up: Element, clicked: Element) {
 
 async function reveal() {
   await app!.interact(() => {
-    const shell = sealed()!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+    sealed()!.focus();
+    sealed()!.click();
   });
-  await app!.until('manual Enter reveals the spent pack', () => {
+  await app!.until('Open pack reveals the spent pack', () => {
     expect(progress()).toBe('1');
     // The top bar's count shows as the pack opens; the card follows once the torn pack has gone.
     expect($('.card-wrapper')).not.toBeNull();
@@ -373,15 +372,15 @@ it('puts a torn pack back sealed when it is left before its ticket is spent', as
   app = await mountedApp(preferences());
   await app.mount();
   await app.interact(() => {
-    const shell = sealed()!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+    sealed()!.focus();
+    sealed()!.click();
   });
   expect(button('Back to packs'), 'the torn pack has the pack\'s X').toBeDefined();
   await app.interact(() => button('Back to packs').click());
   await app.settle(2000);
   expect(sealed()).not.toBeNull();
+  // The X went with the torn pack: focus lands on Open pack, never the page.
+  expect(document.activeElement).toBe(sealed());
   expect(button('Back to packs')).toBeUndefined();
   expect($('.reveal-progress')).toBeNull();
   expect(stats()?.packsOpened ?? 0).toBe(0);
@@ -393,10 +392,8 @@ it('leaves a torn pack whose ticket is on its way at once, and records it once, 
   app = await mountedApp(preferences(), { tickets: () => ({ delayMs: 4000 }) });
   await app.mount();
   await app.interact(() => {
-    const shell = sealed()!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter', bubbles: true }));
+    sealed()!.focus();
+    sealed()!.click();
   });
   await app.until('the slow ticket says so', () => expect($('.pack-hint.is-waiting')).not.toBeNull());
   expect(focusMode()).toBe(true);

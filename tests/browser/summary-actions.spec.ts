@@ -26,7 +26,7 @@ async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewpo
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   if (textZoom !== 100) await page.addStyleTag({ content: `html { font-size: ${textZoom}% !important; }` });
-  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const packShell = page.getByRole('button', { name: 'Open pack', exact: true });
   await packShell.focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
@@ -197,9 +197,11 @@ for (const textZoom of [100, 200]) {
   });
 }
 
-test('each card\'s Share fits inside its card, a third of a 320px phone (#472)', async ({ page, baseURL }) => {
+// At 100% a card is a third of the phone; at 200% (on a 320x568 phone) the row holds fewer cards, so
+// each card stays as wide as its Share, and the pack's own Share still fits its row (#312).
+for (const [textZoom, viewport] of [[100, { width: 320, height: 640 }], [200, { width: 320, height: 568 }]] as const) test(`each card's Share fits inside its card on a 320px phone at ${textZoom}% text (#472)`, async ({ page, baseURL }) => {
   test.setTimeout(90000);
-  const { errors } = await openSummary(page, baseURL!, { viewport: { width: 320, height: 640 } });
+  const { errors } = await openSummary(page, baseURL!, { textZoom, viewport });
   const shares = await page.locator('.summary-cards li').evaluateAll((cards) => cards.map((card) => {
     const share = card.querySelector('.summary-card-share')!;
     const [c, s] = [card.getBoundingClientRect(), share.getBoundingClientRect()];
@@ -214,6 +216,17 @@ test('each card\'s Share fits inside its card, a third of a 320px phone (#472)',
   expect(shares).toHaveLength(5);
   for (const share of shares) expect(share, JSON.stringify(share)).toMatchObject({ inside: true, clipped: false });
   for (const share of shares) expect(share.height).toBeGreaterThanOrEqual(44);
+  const actions = await page.locator('.summary-actions .btn').evaluateAll((buttons) => buttons.map((button) => {
+    const [b, row] = [button.getBoundingClientRect(), button.parentElement!.getBoundingClientRect()];
+    return {
+      label: button.textContent!.trim(),
+      inside: b.left >= row.left - 0.5 && b.right <= row.right + 0.5 && b.left >= 0 && b.right <= innerWidth,
+      clipped: button.scrollWidth > button.clientWidth,
+    };
+  }));
+  expect(actions.map((action) => action.label)).toContain('Share');
+  for (const action of actions) expect(action, JSON.stringify(action)).toMatchObject({ inside: true, clipped: false });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   expect(errors).toEqual([]);
 });
 

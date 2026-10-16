@@ -6,14 +6,15 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  const packShell = page.getByRole('button', { name: /^Open a .* pack$/ });
+  const packShell = page.locator('.pack-shell');
+  const openButton = page.getByRole('button', { name: 'Open pack', exact: true });
   await expect(packShell).toBeVisible();
   await expectDecoded(packShell.locator('img'), 2);
   // A new player sees only the pack; the set picker comes once their first pack is saved.
   const picker = page.getByRole('navigation', { name: 'Choose a pack', exact: true });
   await expect(picker).toHaveCount(0);
   // Keyboard activation exercises the accessible opening control in both viewport projects.
-  await packShell.focus();
+  await openButton.focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
@@ -37,5 +38,6 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
   expect(await snapshot(page)).toEqual(before);
   await page.getByRole('button', { name: 'Close Cards', exact: true }).click();
   await expect(packShell).toBeVisible();
+  await expect(openButton).toBeVisible();
   expect(errors).toEqual([]);
 });

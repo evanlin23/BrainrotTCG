@@ -39,11 +39,11 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
   });
   await app.mount();
   await app.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    expect(shell).not.toBeNull();
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
   await app.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app.interact(() => button('Skip opening animation').click());
@@ -122,12 +122,13 @@ const fillStorage = (keys: string[] = [STORAGE_KEYS.COLLECTION]) => {
   });
 };
 const openOnePack = async () => {
-  await app!.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app!.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
   await app!.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
   await app!.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app!.interact(() => button('Skip opening animation').click());
@@ -140,12 +141,13 @@ it('keeps an opened pack on the pending shelf until a collection holding it is s
   app = await mountedApp({ ...SEED, [STORAGE_KEYS.STATS]: packsOpened(8) });
   await app.mount();
   const full = fillStorage();
-  await app.until('the pack shell is ready', () => expect(document.querySelector('[aria-label^="Open a "]')).not.toBeNull());
+  await app.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
   await app.interact(() => {
-    const shell = document.querySelector<HTMLElement>('[aria-label^="Open a "]')!;
-    shell.focus();
-    shell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-    shell.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+    // The Open pack button under the pack: the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    expect(open).not.toBeNull();
+    open.focus();
+    open.click();
   });
   await app.until('real ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app.interact(() => button('Skip opening animation').click());

@@ -23,7 +23,7 @@ async function expectChrome(page: Page, focus: boolean) {
 /** A page before the app, so Back has somewhere to leave to. */
 const START = 'data:text/html,<title>before</title>';
 
-const packShell = (page: Page) => page.getByRole('button', { name: /^Open a .* pack$/ });
+const packShell = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
 
 async function tear(page: Page) {
   await packShell(page).focus();
