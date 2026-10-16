@@ -240,6 +240,71 @@ class Workflows(unittest.TestCase):
         self.assertIn('python3 scripts/deploy_contract_test.py', runs)
 
 
+# A stand-in for git on PATH: answers only the tip guard's ls-remote, as STUB_TIP says. Every answer also
+# lists a suffix match carrying this run's commit, which the guard must not take for main.
+GIT_STUB = '''#!/bin/sh
+if [ "$*" != "ls-remote $GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git refs/heads/main" ]; then
+  echo "unexpected git $*" >&2
+  exit 2
+fi
+if [ "$STUB_TIP" = fail ]; then
+  echo "fatal: unable to access '$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git/'" >&2
+  exit 128
+fi
+[ -z "$STUB_TIP" ] || printf '%s\\trefs/heads/main\\n' "$STUB_TIP"
+printf '%s\\trefs/remotes/fork/refs/heads/main\\n' "$GITHUB_SHA"
+'''
+
+
+class TipGuardShells(unittest.TestCase):
+    """The tip guard refuses or passes with its own message under every shell a step can run in: the
+    default (bash -e), shell: bash (bash -eo pipefail) and shell: sh (sh -e). It never exits silently."""
+
+    SHELLS = (('bash', '-e'), ('bash', '--noprofile', '--norc', '-eo', 'pipefail'), ('sh', '-e'))
+    SHA = 'a' * 40
+    NEWER = 'b' * 40
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        (self.tmp / 'bin').mkdir()
+        git = self.tmp / 'bin/git'
+        git.write_text(GIT_STUB, encoding='utf-8')
+        git.chmod(0o755)
+        workflow = dc.load(WORKFLOWS / 'deploy.yml')
+        self.steps = {}
+        for job in ('publish', 'deploy'):
+            self.steps[job] = self.tmp / f'{job}.sh'
+            self.steps[job].write_text(step_named(workflow, job, 'Require the tip of main')['run'], encoding='utf-8')
+
+    def run_guard(self, job, shell, tip):
+        env = {'PATH': f"{self.tmp / 'bin'}{os.pathsep}{os.environ['PATH']}", 'GITHUB_SERVER_URL': 'https://github.com',
+               'GITHUB_REPOSITORY': ENV['GITHUB_REPOSITORY'], 'GITHUB_SHA': self.SHA, 'STUB_TIP': tip}
+        return subprocess.run([shutil.which(shell[0]), *shell[1:], str(self.steps[job])], env=env, capture_output=True,
+                              text=True)
+
+    def test_refuses_or_passes_with_its_own_message(self):
+        sha, newer = self.SHA, self.NEWER
+        cases = (
+            ('fail', 1, f'Could not read the tip of main, so not publishing {sha}.'),
+            (newer, 1, f'Not publishing {sha}: main is now at {newer}.'),
+            ('', 1, f'Not publishing {sha}: main is now at a commit this job could not read.'),
+            (sha, 0, None),
+        )
+        for job in self.steps:
+            for shell in self.SHELLS:
+                for tip, code, message in cases:
+                    with self.subTest(job=job, shell=' '.join(shell), tip=tip):
+                        result = self.run_guard(job, shell, tip)
+                        self.assertEqual(result.returncode, code, result)
+                        errors = [line for line in result.stdout.splitlines() if line.startswith('::error::')]
+                        if message is None:
+                            self.assertEqual(errors, [], result)
+                        else:
+                            self.assertEqual(len(errors), 1, result)
+                            self.assertIn(message, errors[0])
+
+
 class Parser(unittest.TestCase):
     def refuse(self, text):
         with self.assertRaises(dc.Rejected):

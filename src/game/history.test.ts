@@ -215,6 +215,26 @@ describe('recording a ticket before its pack is in hand', () => {
     expect(getHistory().map((e) => [e.nonce, e.openedAt])).toEqual([[1, 800], [2, 600]]);
   });
 
+  it.each([
+    ['recordPack', () => recordPack(pack(5, { openedAt: 3_000 }))],
+    ['recordMissing', () => recordMissing([pack(5, { openedAt: 3_000 })], KEY)],
+  ])('%s fills a stand-in held beside a full entry for the same assignment, leaving one, and keeps a conflicting one', (_, fill) => {
+    const data = installStorage();
+    recordPack(pack(5));
+    // Another set on the same ticket: a conflicting assignment, which stays.
+    recordPack(pack(5, { setId: 'genesis', openedAt: 2_000 }));
+    // A stand-in for the first assignment beside its full entry (an imported backup can carry both).
+    const stored = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as { k: string }[];
+    const standIn = { s: 'right-now', v: 1, n: 5, k: stored[0].k, h: '', x: 0, t: 1_200 };
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([...stored, standIn]));
+    expect(getHistory().filter((e) => e.setId === 'right-now')).toHaveLength(2);
+
+    expect(fill()).toBe(true);
+    const history = getHistory();
+    expect(history.map((e) => [e.setId, e.nonce, e.hand, e.openedAt])).toEqual([['genesis', 5, 'Pair', 2_000], ['right-now', 5, 'Pair', 1_200]]);
+    expect(history[1].cards).toHaveLength(5);
+  });
+
   it('reports a history it could not read or write', () => {
     installStorage(10);
     expect(recordTicket('right-now', 1, 0, KEY, 1)).toBe(false);

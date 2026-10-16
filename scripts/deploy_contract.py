@@ -244,10 +244,12 @@ GUARD = {'name': 'Require the main source ref', 'env': {'SOURCE_REF': '${{ githu
 # publish and deploy each start by checking this run's commit is still main's tip, so re-running a run
 # whose commit main has moved past (or only its publish or deploy job) fails instead of publishing an
 # older build. It compares commits, not runs: a re-run of an earlier run on main's current commit (an
-# older Hall of Fame refresh) still passes. A failed lookup refuses with its own error: the runner's
-# shell has -e and pipefail, so the lookup runs outside the pipe and an if catches its failure before
-# -e would end the step silently. ls-remote matches ref names by suffix, so awk keeps only
-# refs/heads/main itself; no such line leaves tip empty and refuses.
+# older Hall of Fame refresh) still passes. A failed lookup refuses with its own error. The step names
+# no shell, so on ubuntu-latest it runs as `bash -e {0}`: -e without pipefail (only `shell: bash` adds
+# pipefail, and `shell: sh` is `sh -e {0}`). The snippet relies on neither: the lookup runs outside any
+# pipe, and an if catches its failure before -e would end the step silently (deploy_contract_test.py
+# runs it under bash -e, bash -eo pipefail and sh -e). ls-remote matches ref names by suffix, so awk
+# keeps only refs/heads/main itself; no such line leaves tip empty and refuses.
 TIP = {'name': 'Require the tip of main', 'run': (
     'if ! refs=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/main); then\n'
     '  echo "::error::Could not read the tip of main, so not publishing $GITHUB_SHA. '
