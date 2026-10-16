@@ -22,8 +22,12 @@ const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
 const OLD_SITE_URL: string = import.meta.env.VITE_OLD_SITE_URL || '';
 const PLAYER_KEY = 'brainrot-player-v1';
 const BACKUP_KEY = 'brainrot-before-move-v1';
-/** While an earlier move's copy is under BACKUP_KEY, the new copy waits here until the move succeeds. */
-const PENDING_KEY = 'brainrot-before-move-pending-v1';
+/**
+ * While an earlier move's copy is under BACKUP_KEY, the new copy waits under the first free
+ * `${PENDING_PREFIX}<n>` until the move succeeds. One is left behind only when a move couldn't be
+ * undone ('partial') or its copy couldn't take BACKUP_KEY's place; the next move that succeeds clears them.
+ */
+const PENDING_PREFIX = 'brainrot-before-move-pending-v1-';
 /** These and the file import's backup (saveFile.ts): never handed over. Each move that replaces progress replaces BACKUP_KEY once it succeeds. */
 const isBackupKey = (k: string) => k.startsWith('brainrot-before-');
 /** What makes a save worth keeping: replacing any of these asks first. */
@@ -116,8 +120,11 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   if (progress && !replace()) return 'kept';
   // What the incoming writes replace (null: absent), put back if the incoming save doesn't fit.
   const previous = new Map(Object.keys(incoming).map((k): [string, string | null] => [k, localStorage.getItem(k)]));
-  // An earlier move's copy is never written over until this move has succeeded.
-  const slot = localStorage.getItem(BACKUP_KEY) === null ? BACKUP_KEY : PENDING_KEY;
+  // Earlier copies (BACKUP_KEY and any left pending) are never written over or removed until this
+  // move has succeeded, so the copy taken now goes into a free key.
+  const leftovers = brainrotKeys().filter((k) => k.startsWith(PENDING_PREFIX));
+  let slot = BACKUP_KEY;
+  for (let n = 1; localStorage.getItem(slot) !== null; n++) slot = PENDING_PREFIX + n;
   let copy: string | null = null;
   let replaced: string[] = [];
   if (progress) {
@@ -136,8 +143,8 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     for (const k of replaced) localStorage.removeItem(k);
     for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
   } catch (e) {
-    // `slot` holds the save that was here (the values `previous` puts back) and any earlier copy is
-    // untouched, so a failed restore keeps both; Save & restore then reloads ('partial').
+    // `slot` holds the save that was here (the values `previous` puts back) and earlier copies are
+    // untouched, so a failed restore keeps them all; Save & restore then reloads ('partial').
     if (!restoreKeys(previous)) return 'partial';
     // All back as it was, so the copy just taken goes (removing never needs room).
     if (copy !== null) {
@@ -145,13 +152,16 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     }
     return isQuotaError(e) ? 'full' : 'invalid';
   }
-  if (copy !== null && slot === PENDING_KEY) {
-    // Moved: the new copy replaces the earlier one. If it can't, it stays under PENDING_KEY.
+  if (copy !== null) {
+    // Moved: the new copy takes BACKUP_KEY's place in one write (so a failed write keeps the earlier
+    // one), then the pending copies go. If that write fails, every copy stays for the next move.
     try {
-      localStorage.removeItem(BACKUP_KEY);
-      localStorage.setItem(BACKUP_KEY, copy);
-      localStorage.removeItem(PENDING_KEY);
-    } catch { /* The replaced save is still under PENDING_KEY. */ }
+      if (slot !== BACKUP_KEY) {
+        localStorage.setItem(BACKUP_KEY, copy);
+        localStorage.removeItem(slot);
+      }
+      for (const k of leftovers) localStorage.removeItem(k);
+    } catch { /* The replaced save is still under `slot`. */ }
   }
   return 'saved';
 };

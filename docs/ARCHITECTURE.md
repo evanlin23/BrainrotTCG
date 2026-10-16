@@ -224,8 +224,8 @@ picks the preview; the pull is still re-derived from the proof when it's opened.
 localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainrot-player-v1`
 (identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1` and
 `brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions)
-and the `brainrot-before-import-v1`, `brainrot-before-move-v1` and `brainrot-before-move-pending-v1`
-backups (for recovery by hand: the app never reads them back). IndexedDB holds one database,
+and the `brainrot-before-import-v1`, `brainrot-before-move-v1` and numbered
+`brainrot-before-move-pending-v1-<n>` backups (for recovery by hand: the app never reads them back). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
 replaced, unreadable entries are archived byte for byte in `brainrot-collection-recovery-v1` (up to
@@ -261,13 +261,16 @@ than v3 (checked as migrations and the profile read them), and a missing `brainr
 is stored as `1` so the save's migrations run; otherwise the result is `invalid` and nothing is
 written. Neither side's `brainrot-before-*` backups are handed over. Replacing a different
 player's progress asks first and copies the current save into `brainrot-before-move-v1`, or, while
-an earlier move's copy is there, into `brainrot-before-move-pending-v1`, which replaces the earlier
-copy only once the move has succeeded (if it can't, the new copy stays pending). If the copy can't be
-stored, nothing is written and the result is `full` (storage quota) or `invalid`. Into a browser
+an earlier move's copy is there, into the first free `brainrot-before-move-pending-v1-<n>`. Earlier
+copies are never written over or removed before the move succeeds. Once it has, the new copy
+replaces the one in `brainrot-before-move-v1` in a single write and the pending copies are removed;
+if that write fails, every copy stays (the earlier one in `brainrot-before-move-v1`, the new one and
+any older pending ones) until a later move succeeds. If the copy can't be stored, nothing is written
+and the result is `full` (storage quota) or `invalid`. Into a browser
 without progress, keys the save doesn't carry stay. A failed write removes what it wrote, restores
 the previous values and then drops the copy just taken (best effort, not a transaction); an earlier
-move's copy is never touched, and the result is `full` (storage quota) or `invalid`. If the values
-can't all be restored, the result is `partial` and both copies are kept, the save that was here
+move's copies are never touched, and the result is `full` (storage quota) or `invalid`. If the values
+can't all be restored, the result is `partial` and every copy is kept, the save that was here
 among them: the player is told this browser may hold parts of both saves, Save & restore then reloads so the page shows what
 storage holds (a partial file import does the same), and the move window stays open on any failure
 so its note can be read.
