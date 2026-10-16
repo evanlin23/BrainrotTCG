@@ -2,13 +2,13 @@ import { test, expect, type Page } from '@playwright/test';
 import { monitor, expectDecoded, expectStill, fingerFor } from './support';
 
 // The sealed pack falls in without being cut off at the top or the sides, at every size from a desktop
-// down to a phone on its side. On a phone, and on a window under 900px wide or 600px tall, the whole
-// pack fits the stage: it used to be taller than the stage it sits in, so it needed scrolling to see
-// in full, and the stage's own (moving) bottom edge cut it off on the way down; on a short landscape
-// window a width floor kept it taller than the stage. On a desktop window the pack is big instead, and
+// down to a phone on its side. On a phone, on a touch tablet, and on a window under 900px wide or 600px
+// tall, the whole pack fits the stage: it used to be taller than the stage it sits in, so it needed
+// scrolling to see in full, and the stage's own (moving) bottom edge cut it off on the way down; on a
+// short landscape window a width floor kept it taller than the stage. On a desktop window the pack is big instead, and
 // its bottom runs past the stage: that is intended (#536 made it small by fitting the whole pack in).
 // The stage scrolls to the rest of it, with no fade or crop, and the page itself never scrolls; at
-// rest the top, the tear line and the buttons are on screen. Phone and desktop results here are
+// rest the top, the tear line and the buttons are on screen. Phone, tablet and desktop results here are
 // emulation: a Chromium window of that size, not a device.
 
 /** The pack art starts this share of the pack's width below the top of its box (the crimp's margin). */
@@ -304,6 +304,74 @@ for (const size of SIZES) {
           return out;
         }, desktop);
         expect(scrollable).toEqual([]);
+        expect(errors).toEqual([]);
+      });
+    }
+  });
+}
+
+// A touch tablet on its side is as wide and tall as a desktop window, but a finger can't scroll the
+// stage over the pack (`.pack-shell { touch-action: none }` is what lets it cut the pack), so the lower
+// part of a big pack would be out of reach. The big, scrolling layout needs a fine pointer; a tablet
+// keeps the phone's fit: the whole pack on the stage, with nothing to scroll. Emulation: Playwright's
+// `hasTouch` makes the Chromium window's primary pointer coarse (asserted below), not a real iPad.
+const TABLETS = [
+  { width: 1024, height: 768 },
+  { width: 1366, height: 1024 },
+];
+
+for (const tablet of TABLETS) {
+  test.describe(`${tablet.width}x${tablet.height}, touch`, () => {
+    test.use({ viewport: tablet, hasTouch: true, isMobile: true, reducedMotion: 'no-preference' });
+
+    for (const returning of [false, true]) {
+      test(`${returning ? 'a returning' : 'a new'} player's pack on a touch tablet fits the stage, with nothing to scroll`, async ({ page, baseURL }, testInfo) => {
+        test.skip(testInfo.project.name !== 'mobile-chromium', 'A touch tablet check; the mobile-chromium project runs it.');
+        const errors = await monitor(page, baseURL!, 0, { returning });
+        await page.goto('./');
+        await expect(page.locator('.app-logo')).toBeVisible();
+        // The emulation really is a touch screen: a coarse pointer that can't hover, as on an iPad.
+        const pointer = await page.evaluate(() => ({
+          coarse: matchMedia('(pointer: coarse)').matches, fine: matchMedia('(pointer: fine)').matches,
+          size: [innerWidth, innerHeight],
+        }));
+        expect(pointer, 'a coarse primary pointer, in a window the desktop layout would have claimed').toEqual({ coarse: true, fine: false, size: [tablet.width, tablet.height] });
+
+        const packShell = page.locator('.pack-shell');
+        const stageEl = page.locator('.pack-display');
+        await expect(packShell).toBeVisible();
+        await expectDecoded(packShell.locator('img'), 2);
+        await expectStill(packShell, 'the pack to land');
+
+        // The stage holds the whole pack and nothing scrolls: not the stage, not the page.
+        const box = (await packShell.boundingBox())!;
+        const stage = (await stageEl.boundingBox())!;
+        const art = { top: box.y + box.width * ART_TOP, bottom: box.y + box.height };
+        expect(art.top, 'printed top of the pack against the top of the stage').toBeGreaterThanOrEqual(stage.y - 0.5);
+        expect(art.bottom, 'bottom of the pack against the bottom of the stage').toBeLessThanOrEqual(stage.y + stage.height + 0.5);
+        expect(box.x, 'pack left edge').toBeGreaterThanOrEqual(-0.5);
+        expect(box.x + box.width, 'pack right edge').toBeLessThanOrEqual(tablet.width + 0.5);
+        const state = await stageEl.evaluate((element) => {
+          const style = getComputedStyle(element);
+          const root = document.scrollingElement!;
+          return {
+            overflowY: style.overflowY, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight,
+            scrollWidth: element.scrollWidth, clientWidth: element.clientWidth,
+            pageOverflow: Math.max(root.scrollHeight - innerHeight, root.scrollWidth - innerWidth),
+            touchAction: getComputedStyle(element.querySelector('.pack-shell')!).touchAction,
+          };
+        });
+        expect(state.overflowY, 'the stage does not scroll vertically').not.toMatch(/^(auto|scroll)$/);
+        expect(state.scrollHeight, 'the stage has nothing below it to scroll to').toBeLessThanOrEqual(state.clientHeight + 1);
+        expect(state.scrollWidth, 'nothing to scroll to sideways').toBeLessThanOrEqual(state.clientWidth + 1);
+        expect(state.pageOverflow, 'the page has nothing to scroll to').toBeLessThanOrEqual(1);
+        // The cut gesture still owns the touch over the pack.
+        expect(state.touchAction, 'the pack keeps touch-action: none for the cut').toBe('none');
+
+        // The tear line and the button are on screen, and the hint doesn't run down onto the button.
+        await expect(page.locator('.tear-guide')).toBeInViewport({ ratio: 1 });
+        await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeInViewport({ ratio: 1 });
+        await expectHintClearOfButton(page, 'at rest');
         expect(errors).toEqual([]);
       });
     }

@@ -176,10 +176,11 @@
  * is enough of a cue. overscroll-behavior keeps the wheel from chaining to the page once the stage is
  * at either end. The tear line, the hint and the Open pack button all sit in the top of the pack, so
  * at rest (scrollTop 0) the screen is the same as it would be without scrolling. PackOpener.tsx puts
- * the stage back at the top when the cards come in. Phones and a phone on its side (under 900px wide
- * or 600px tall) keep the fit above, with nothing to scroll.
+ * the stage back at the top when the cards come in. Phones, a phone on its side (under 900px wide or
+ * 600px tall) and touch tablets (a coarse pointer: .pack-shell's touch-action: none, which the cut
+ * needs, stops a finger scrolling the stage over the pack) keep the fit above, with nothing to scroll.
  */
-@media (min-width: 900px) and (min-height: 600px) {
+@media (min-width: 900px) and (min-height: 600px) and (pointer: fine) {
     .pack-display {
         overflow-x: hidden;
         overflow-y: auto;
