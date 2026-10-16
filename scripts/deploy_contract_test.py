@@ -63,10 +63,43 @@ class Workflows(unittest.TestCase):
         self.assertBroken('deploy.yml', 'needs: [site, build]', 'needs: [site]', 'job publish must need exactly')
 
     def test_secret_in_pages_deploy(self):
-        self.assertBroken('deploy.yml', '    needs: [build, publish]\n    runs-on: ubuntu-latest\n',
-                          '    needs: [build, publish]\n    runs-on: ubuntu-latest\n'
-                          '    env:\n      TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
-                          'uses a secret outside')
+        for key in ('with', 'env'):
+            with self.subTest(key):
+                self.setUp()
+                self.assertBroken('deploy.yml', '        id: deployment\n',
+                                  f'        id: deployment\n        {key}:\n          token: ${{{{ secrets.CLOUDFLARE_API_TOKEN }}}}\n',
+                                  f'jobs/deploy/steps/1/{key}/token uses a secret outside')
+
+    def test_github_host_path(self):
+        # Without the Cloudflare secrets site answers host=github: every publish step is skipped, so
+        # publish succeeds without running anything, and deploy (which needs it) uploads the game.
+        jobs = dc.load(WORKFLOWS / 'deploy.yml')['jobs']
+        cloudflare_only = lambda step: step.get('if') == dc.CLOUDFLARE
+        self.assertNotIn('if', jobs['publish'])
+        self.assertNotIn('if', jobs['deploy'])
+        self.assertTrue(jobs['publish']['steps'] and all(map(cloudflare_only, jobs['publish']['steps'])))
+        self.assertFalse(any('if' in step for step in jobs['deploy']['steps']))
+        pages = [s for s in jobs['build']['steps'] if dc.action(s) == 'actions/upload-pages-artifact']
+        self.assertEqual([s.get('if') for s in pages], [None])
+        self.assertEqual(pages[0]['with']['path'], "${{ needs.site.outputs.host == 'cloudflare' && 'pages' || 'dist' }}")
+
+    def test_github_host_path_broken(self):
+        for old, new, expected in (
+                ('    needs: [site, build]\n', "    needs: [site, build]\n    if: needs.site.outputs.host == 'cloudflare'\n",
+                 "job publish has ['if']"),
+                ('    needs: [build, publish]\n', "    needs: [build, publish]\n    if: needs.site.outputs.host == 'cloudflare'\n",
+                 "job deploy has ['if']"),
+                ('        id: deployment\n', "        id: deployment\n        if: needs.site.outputs.host == 'cloudflare'\n",
+                 'deploy must only require the tip of main'),
+                ("        if: needs.site.outputs.host == 'cloudflare'\n        with:\n          artifact-ids:",
+                 '        with:\n          artifact-ids:', 'publish must'),
+                ("          path: ${{ needs.site.outputs.host == 'cloudflare' && 'pages' || 'dist' }}",
+                 '          path: dist', 'build must always upload one Pages artifact'),
+                ('      - uses: actions/upload-pages-artifact', "      - if: needs.site.outputs.host == 'cloudflare'\n"
+                 '        uses: actions/upload-pages-artifact', 'build must always upload one Pages artifact')):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, expected)
 
     def test_runs_after_failure(self):
         self.assertBroken('deploy.yml', '        id: deployment\n', '        id: deployment\n        if: always()\n',
@@ -102,15 +135,19 @@ class Workflows(unittest.TestCase):
                           'deploy must only require the tip of main, then deploy Pages')
 
     def test_concurrency_removed(self):
-        self.assertBroken('deploy.yml', 'concurrency:\n  group: pages\n  cancel-in-progress: true\n', '',
-                          'concurrency must be the pages group')
+        self.assertBroken('deploy.yml', 'concurrency:\n  group: pages-${{ github.ref }}\n  cancel-in-progress: true\n', '',
+                          'concurrency must be one pages group per ref')
 
     def test_concurrency_weakened(self):
+        # A per-run group serializes nothing; one global group lets a run from another branch cancel a
+        # run of main before the site guard fails it.
         for old, new in (('cancel-in-progress: true', 'cancel-in-progress: false'), ('  cancel-in-progress: true\n', ''),
-                         ('  group: pages\n', '  group: pages-${{ github.run_id }}\n')):
+                         ('  group: pages-${{ github.ref }}\n', '  group: pages-${{ github.run_id }}\n'),
+                         ('  group: pages-${{ github.ref }}\n', '  group: pages\n'),
+                         ('  group: pages-${{ github.ref }}\n', '  group: pages-${{ github.workflow }}\n')):
             with self.subTest(new):
                 self.setUp()
-                self.assertBroken('deploy.yml', old, new, 'concurrency must be the pages group')
+                self.assertBroken('deploy.yml', old, new, 'concurrency must be one pages group per ref')
 
     def test_site_url_not_normalized(self):
         self.assertBroken('deploy.yml', 'echo "url=$url/"', 'echo "url=$url"', 'site lookup must end by handing on its address')
