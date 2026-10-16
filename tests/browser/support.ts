@@ -84,6 +84,17 @@ export async function expectDecoded(images: Locator, count: number) {
   }
 }
 
+/** Waits until the target's box holds still between two reads, 150ms apart (the pack drops in). */
+export async function expectStill(target: Locator, message: string) {
+  let last = '';
+  await expect.poll(async () => {
+    const box = JSON.stringify(await target.boundingBox());
+    const still = box === last;
+    last = box;
+    return still;
+  }, { message, intervals: [150] }).toBe(true);
+}
+
 export async function snapshot(page: Page) {
   return page.evaluate((keys) => ({
     stats: JSON.parse(localStorage.getItem(keys.STATS) ?? 'null'),
@@ -139,4 +150,29 @@ export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1
     .toEqual(cards.map((card) => card.key).sort());
 
   return before;
+}
+
+/** One pointer: the mouse, or a single touch point sent over CDP in a touch project. */
+export interface Finger {
+  press(x: number, y: number): Promise<void>;
+  move(x: number, y: number): Promise<void>;
+  release(): Promise<void>;
+}
+
+export async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
+  if (!touch) {
+    return {
+      press: async (x, y) => { await page.mouse.move(x, y); await page.mouse.down(); },
+      move: (x, y) => page.mouse.move(x, y),
+      release: () => page.mouse.up(),
+    };
+  }
+  const cdp = await page.context().newCDPSession(page);
+  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points }).then(() => {});
+  return {
+    press: (x, y) => send('touchStart', [{ x, y }]),
+    move: (x, y) => send('touchMove', [{ x, y }]),
+    release: () => send('touchEnd', []),
+  };
 }
