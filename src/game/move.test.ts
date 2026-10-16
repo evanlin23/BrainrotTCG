@@ -674,7 +674,9 @@ describe('bringing a save over', () => {
     ['a re-open waiting to resume', { 'brainrot-reopen-pending-v1': 'ab'.repeat(32) }],
     ['a re-open backing off', { 'brainrot-reopen-backoff-v1': JSON.stringify({ publicKeyHex: 'ab'.repeat(32), failures: 2, retryAt: 5 }) }],
     ['both', { 'brainrot-reopen-pending-v1': 'ab'.repeat(32), 'brainrot-reopen-backoff-v1': JSON.stringify({ publicKeyHex: 'ab'.repeat(32), failures: 1, retryAt: 5 }) }],
-  ])('takes no copy on a retry when all written since the partial move is re-open bookkeeping: %s', (_name, reopen: Record<string, string>) => {
+    // Derived from the packs: a reload's sync weighs them into it.
+    ['the best cards', { 'brainrot-best-cards-v1': JSON.stringify({ ['ab'.repeat(32)]: { w: 3, b: [{ s: 'right-now', v: 2, n: 0, i: 0, c: 'sigma', t: 5 }] } }) }],
+  ])('takes no copy on a retry when all written since the partial move is re-open or best-cards bookkeeping: %s', (_name, reopen: Record<string, string>) => {
     const original = {
       'brainrot-player-v1': player('bb'),
       'brainrot-found-collection-v1': '{"original":{"normalCount":2}}',

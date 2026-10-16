@@ -26,13 +26,14 @@ import {
 } from '../engine';
 import { getSet } from '../content/sets';
 import { getPlayer, getPlayerTickets } from './player';
-import { getHistory, historyForKey, type HistoryEntry } from './history';
+import { firstOpened, getHistory, historyForKey, type HistoryEntry } from './history';
 import { getReopened, putReopened } from './reopenCache';
 import { getStoredPack, hydratePackStore, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
 import { decodeCard, encodeCard, toPulled } from './cardCode';
 import { createTicketPool } from './ticketPool';
 import { admitOptional } from './admission';
 import { siteUrl } from './pulls';
+import { getBestCards, mergeBestCards, type BestCandidate, type BestCards } from './bestCards';
 
 export const profileUrl = (profile: string): string => `${siteUrl()}#/profile/${profile}`;
 
@@ -49,15 +50,6 @@ interface Ticket {
 }
 
 type PlayerTickets = ReturnType<typeof getPlayerTickets>;
-
-/**
- * One original mapping per ticket. History keeps every conflicting record of a ticket (two tabs
- * spent the same ticket number, or a backup carried both; see recordPack), and a profile admits
- * the pack opened first with it: the earliest openedAt, then setId, then setVersion. Every read on
- * every device picks the same record whatever order they are stored in, and none is deleted.
- */
-const firstOpened = (a: HistoryEntry, b: HistoryEntry): number =>
-  a.openedAt - b.openedAt || (a.setId < b.setId ? -1 : a.setId > b.setId ? 1 : 0) || a.setVersion - b.setVersion;
 
 /** Every used ticket; absent original mappings stay unknown rather than guessing a different pack. */
 function* ticketsOf({ player, nextNonce: total }: PlayerTickets): Generator<Ticket> {
@@ -314,6 +306,27 @@ export const myProfileInfo = (): MyProfile | null => {
   }
   if (packs === 0) return null;
   return { packs, filled, missing, cache: waiting ? stateFor(snapshot) : 'ready' };
+};
+
+/**
+ * Weighs every pack this device can recover for the current key into its Best cards (game/bestCards.ts)
+ * and returns them. The weighed mark moves to the first ticket with no pack here, so the list reads as
+ * complete only when every used ticket was weighed; else it's the best among the recoverable packs.
+ * Cards in the pack store count once they're read in (hydrateMyPacks), so call again after that.
+ */
+export const syncMyBestCards = (): BestCards => {
+  const snapshot = getPlayerTickets();
+  const { player, nextNonce } = snapshot;
+  const candidates: BestCandidate[] = [];
+  for (const t of ticketsOf(snapshot)) {
+    if (t.set && t.pack) candidates.push({ setId: t.set.id, setVersion: t.set.version, nonce: t.nonce, openedAt: t.openedAt, cards: t.pack.cards });
+  }
+  mergeBestCards(player.publicKeyHex, candidates, (weighed, taken) => {
+    let through = 0;
+    while (through < nextNonce && taken.has(through)) through++;
+    return Math.max(weighed, through);
+  });
+  return getBestCards(player.publicKeyHex, nextNonce);
 };
 
 /**
