@@ -20,6 +20,8 @@ export const STORAGE_KEYS = {
   /** Old notable-pulls log; migrated into HISTORY on load. */
   PULLS: 'brainrot-pulls-v1',
   HISTORY: 'brainrot-history-v1',
+  /** Each player's best cards, as rebuildable ticket/slot references (see game/bestCards.ts). */
+  BEST_CARDS: 'brainrot-best-cards-v1',
   /** Packs whose tickets are spent but which haven't reached the collection yet, as a list (see game/pulls.ts). */
   PENDING_PACKS: 'brainrot-pending-packs-v2',
   /** The one-pack entry older builds keep instead; read here, and written only to put back the pack it held (see game/pulls.ts). */

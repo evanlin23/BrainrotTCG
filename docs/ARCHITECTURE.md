@@ -302,6 +302,12 @@ saved) and `brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-
 `brainrot-before-import-v1`, `brainrot-before-move-v1` and `brainrot-before-move-pending-v1` backups
 (kept for recovery by hand: the app never restores a save from them). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
+`brainrot-best-cards-v1` (`bestCards.ts`, the save field `bestCards`) keeps each full public key's
+best cards as rebuildable references (set, version, nonce, slot) with a discardable cached card code
+and a weighed mark, so it doesn't depend on history trimming or the pack cache; it is a derived index,
+rebuilt with the engine. Like history, an unreadable store is never overwritten; a refused write is
+held in memory, shown as unsaved and retried, without marking the pack itself unsaved. Export carries
+it, import validates it, and a different player's import clears it (DESIGN.md, Best cards).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
 replaced, unreadable entries are archived byte for byte, with the identity snapshot they belonged to,
 in `brainrot-collection-recovery-v1`: each distinct payload once, the first and then the newest 10,

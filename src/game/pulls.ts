@@ -18,6 +18,7 @@ import {
 import { getSet } from '../content/sets';
 import { claimNonce, getPlayer, peekNonce } from './player';
 import { recordPack, recordTicket } from './history';
+import { recordBestCards } from './bestCards';
 import { decodeCard, encodeCard, modifiersFor } from './cardCode';
 import { STORAGE_KEYS } from '../constants';
 import { previewOf, previewPath } from './previewLinks';
@@ -104,6 +105,12 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
   };
   // Recorded now, not after the reveal: the ticket is spent either way, and a profile needs every one.
   if (!recordPack(pack)) pack.unrecorded = true;
+  // A derived index, rebuilt from the tickets: a refused write is held in memory and shown as unsaved
+  // there (game/bestCards.ts), so it doesn't mark the pack itself unrecorded. Nor can it fail the opening:
+  // the ticket is spent, and the pack still has to reach the shelf.
+  try {
+    recordBestCards(pack);
+  } catch { /* A rebuild from the tickets restores the list. */ }
   // Not kept for the next load (storage refused, or the shelf is full): warn as well.
   if (!savePendingPack(pack)) pack.unrecorded = true;
   // The counter past this number wasn't stored: after a reload this ticket could be handed out again.

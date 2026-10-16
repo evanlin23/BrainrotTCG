@@ -4,6 +4,7 @@ import { FINISH_MULTIPLIER, RARITIES_RAREST_FIRST, type Rarity } from '../engine
 import { getCard } from '../data/cards';
 import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
 import { isArchive } from './collectionRecovery';
+import { isBestCardsStore, resetBestCards } from './bestCards';
 import { isLegacyPull, isStored } from './history';
 import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
 
@@ -79,6 +80,7 @@ const SAVE_FIELDS = [
   ['hallOfFame', STORAGE_KEYS.HALL_OF_FAME, hallOfFame],
   ['pulls', STORAGE_KEYS.PULLS, pulls],
   ['history', STORAGE_KEYS.HISTORY, history],
+  ['bestCards', STORAGE_KEYS.BEST_CARDS, isBestCardsStore],
   ['settings', STORAGE_KEYS.SETTINGS, settings],
 ] as const;
 
@@ -220,6 +222,8 @@ export const importSaveFile = (raw: string): string | null => {
       const backedUp = [...previous.values()].some((value) => value !== null);
       return PARTIAL_IMPORT_NOTE + (backedUp ? ' A copy of the save from before the import is kept in this browser.' : '');
     }
+    // A list this tab couldn't store belongs to the save just replaced: never write it into this one.
+    resetBestCards();
     return null;
   } catch {
     return "Couldn't read or store that file. Is it a save exported from Save & backup?";
