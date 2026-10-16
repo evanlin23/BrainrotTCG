@@ -1,15 +1,17 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { TestModule, Vitest } from 'vitest/node';
-import TestBudgetReporter, { RUNTIME_BUDGET_SECONDS, checkRuntimeBudget } from './test-budget';
+import { createVitest, parseCLI, type TestModule, type Vitest } from 'vitest/node';
+import TestBudgetReporter, { RUNTIME_BUDGET_SECONDS, TEST_BUDGET_REPORTER, checkRuntimeBudget } from './test-budget';
 
 const fakeModule = (tests: number) => ({ children: { allTests: function* () { for (let i = 0; i < tests; i++) yield {}; } } }) as unknown as TestModule;
 
 /** Runs the reporter over two modules (3 + 2 tests) that took `seconds`, and returns what it logged. */
-const run = (seconds: number, budgetSeconds: number, config = { coverage: { enabled: true }, watch: false }) => {
+const run = (seconds: number, budgetSeconds: number, { watch = false, npmScript = 'test' } = {}) => {
   const logged: { log: string[]; error: string[] } = { log: [], error: [] };
-  const vitest = { config, logger: { log: (line: string) => logged.log.push(line), error: (line: string) => logged.error.push(line) } } as unknown as Vitest;
+  const vitest = { config: { watch }, logger: { log: (line: string) => logged.log.push(line), error: (line: string) => logged.error.push(line) } } as unknown as Vitest;
   let clock = 1000;
-  const reporter = new TestBudgetReporter({ budgetSeconds, now: () => clock });
+  const reporter = new TestBudgetReporter({ budgetSeconds, now: () => clock, env: { npm_lifecycle_event: npmScript } });
   reporter.onInit(vitest);
   clock += seconds * 1000;
   reporter.onTestRunEnd([fakeModule(3), fakeModule(2)]);
@@ -34,9 +36,10 @@ describe('test runtime budget', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it('leaves targeted and watch runs alone', () => {
-    expect(run(20.5, 20, { coverage: { enabled: false }, watch: false })).toEqual({ log: [], error: [] });
-    expect(run(20.5, 20, { coverage: { enabled: true }, watch: true })).toEqual({ log: [], error: [] });
+  it('leaves runs outside npm test, and watch runs, alone', () => {
+    expect(run(20.5, 20, { npmScript: '' })).toEqual({ log: [], error: [] });
+    expect(run(20.5, 20, { npmScript: 'test:browser' })).toEqual({ log: [], error: [] });
+    expect(run(20.5, 20, { watch: true })).toEqual({ log: [], error: [] });
     expect(process.exitCode).toBe(exitCode);
   });
 
@@ -44,4 +47,19 @@ describe('test runtime budget', () => {
     expect(checkRuntimeBudget({ seconds: RUNTIME_BUDGET_SECONDS, tests: 1, files: 1 }).over).toBe(false);
     expect(checkRuntimeBudget({ seconds: RUNTIME_BUDGET_SECONDS + 0.1, tests: 1, files: 1 }).over).toBe(true);
   });
+});
+
+describe('test budget wiring', () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const npmTest = (JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as { scripts: { test: string } }).scripts.test;
+
+  // Resolves Vitest's config for `npm test -- <flags>` the way the CLI does, without running tests.
+  it.each([[], ['--reporter=dot'], ['--reporter=json', '--coverage.enabled=false']])('keeps the budget reporter in npm test %j', async (...flags: string[]) => {
+    const { options } = parseCLI([...npmTest.split(' '), ...flags]);
+    const vitest = await createVitest('test', { ...options, root, watch: false });
+    try {
+      // createVitest loads the configured reporters, so a bad path would already have thrown.
+      expect(vitest.config.reporters.filter((reporter) => Array.isArray(reporter) && reporter[0] === TEST_BUDGET_REPORTER)).toEqual([[TEST_BUDGET_REPORTER, {}]]);
+    } finally { await vitest.close(); }
+  }, 30000);
 });

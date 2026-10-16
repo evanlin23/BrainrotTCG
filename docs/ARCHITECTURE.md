@@ -225,7 +225,7 @@ localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainro
 (identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1`,
 `brainrot-reopen-backoff-v1` (how long an automatic resume waits after re-opened packs couldn't be
 saved) and `brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions),
-`brainrot-save-stamp-v1` (changed by every import, so other open tabs can tell) and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups (kept for recovery by hand: the
+`brainrot-save-stamp-v1` (changed by every import and move, so other open tabs can tell) and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups (kept for recovery by hand: the
 app never restores a save from them). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 A failed foreground write shows a save warning and the game stays usable. Before the collection is
@@ -237,7 +237,8 @@ key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, r
 import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; if the
 copy can't be stored, nothing is imported; a failed import keeps it). Fields the file omits keep their stored values, except that a
 different player's save clears this browser's player fields (recovery archive included), which then
-stay only in that backup. It writes a new `brainrot-save-stamp-v1` first and the identity last and, on failure, removes what it wrote and
+stay only in that backup. It clears those fields, writes a new `brainrot-save-stamp-v1` before any imported field, clears
+them again (even ones that were absent, which a tab still on the old save may have just written), and writes the identity last; on failure it removes what it wrote and
 restores the previous values. That is structural validation and best-effort rollback, not a
 transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
@@ -263,7 +264,8 @@ than v3 (checked as migrations and the profile read them), and a missing `brainr
 is stored as `1` so the save's migrations run; otherwise the result is `invalid` and nothing is
 written. Neither side's `brainrot-before-*` backups are handed over. Replacing a different
 player's progress asks first and copies the current save into `brainrot-before-move-v1`, overwriting
-an earlier move's copy; if that copy can't be stored, nothing is written and the result is `full`
+an earlier move's copy, then removes that save's keys (player and stamp first, so a tab still on it
+stops writing); if that copy can't be stored, nothing is written and the result is `full`
 (storage quota) or `invalid`. Into a browser without progress, keys the save doesn't carry stay and
 no copy is taken. A failed write removes what it wrote and restores the previous values, then puts
 the earlier move's copy back, or removes the new one if there was none (best effort, not a

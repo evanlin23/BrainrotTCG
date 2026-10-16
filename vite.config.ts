@@ -1,8 +1,8 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
-import { configDefaults } from 'vitest/config'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { testBudget } from './scripts/test-budget'
 
 const GITHUB_PAGES_URL = 'https://evanlin23.github.io/BrainrotTCG/'
 const buildRevision = () => {
@@ -22,13 +22,13 @@ const siteUrl = (): Plugin => ({
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
   define: { __BUILD_REVISION__: JSON.stringify(buildRevision()) },
-  plugins: [react(), siteUrl()],
+  plugins: [react(), siteUrl(), testBudget()],
   test: {
     // Vitest's defaults (any node_modules, .git) plus the Playwright suites and build output.
     exclude: ['**/node_modules/**', '**/.git/**', 'tests/browser/**', 'tests/performance/*.spec.ts', 'dist/**'],
-    // `npm test` turns coverage on for app code only, and the budget reporter then checks the run's
-    // wall time. Both budgets sit below the measured baseline: docs/DEVELOPMENT.md, Test budgets.
-    reporters: [...configDefaults.reporters, './scripts/test-budget.ts'],
+    // `npm test` turns coverage on for app code only, and the budget reporter (added by testBudget(),
+    // after any --reporter flag) checks the run's wall time. Both budgets sit below the measured
+    // baseline: docs/DEVELOPMENT.md, Test budgets.
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],

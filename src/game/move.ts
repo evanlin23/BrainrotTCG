@@ -15,7 +15,7 @@
  * Only builds with VITE_OLD_ORIGIN (set by the deploy once the site has moved) do any of this.
  */
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
-import { parsePlayer } from './player';
+import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
 import { isValidSaveValue } from './saveFile';
 
 const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
@@ -98,7 +98,8 @@ const restoreKeys = (previous: Map<string, string | null>): boolean => {
  */
 export const importSave = (save: unknown, replace: () => boolean = askToReplace): MoveResult => {
   if (!save || typeof save !== 'object') return 'invalid';
-  const incoming = Object.fromEntries(Object.entries(save).filter(([k, v]) => k.startsWith('brainrot-') && !isBackupKey(k) && typeof v === 'string')) as Record<string, string>;
+  // Not the old address's stamp: this browser gets a fresh one below.
+  const incoming = Object.fromEntries(Object.entries(save).filter(([k, v]) => k.startsWith('brainrot-') && !isBackupKey(k) && k !== SAVE_STAMP_KEY && typeof v === 'string')) as Record<string, string>;
   if (!PROGRESS_KEYS.some((k) => k in incoming)) return 'invalid';
   const here = secretOf(localStorage.getItem(PLAYER_KEY));
   if (here && here === secretOf(incoming[PLAYER_KEY])) return 'same';
@@ -112,8 +113,10 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   incoming[DATA_VERSION_KEY] = version;
   const progress = hasProgress();
   if (progress && !replace()) return 'kept';
+  // A fresh stamp, the first incoming write, so another tab still on the save here stops writing it (see saveMark).
+  const writes: Record<string, string> = { [SAVE_STAMP_KEY]: newSaveStamp(), ...incoming };
   // What the incoming writes replace (null: absent), put back if the incoming save doesn't fit.
-  const previous = new Map(Object.keys(incoming).map((k): [string, string | null] => [k, localStorage.getItem(k)]));
+  const previous = new Map(Object.keys(writes).map((k): [string, string | null] => [k, localStorage.getItem(k)]));
   const earlierBackup = localStorage.getItem(BACKUP_KEY);
   let replaced: string[] = [];
   if (progress) {
@@ -124,12 +127,14 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     } catch (e) {
       return isQuotaError(e) ? 'full' : 'invalid';
     }
-    replaced = Object.keys(backup);
+    // Identity first, so a tab still on the save here stops writing before its other keys go (see saveMark).
+    const identity = [PLAYER_KEY, SAVE_STAMP_KEY].filter((k) => k in backup);
+    replaced = [...identity, ...Object.keys(backup).filter((k) => !identity.includes(k))];
     for (const k of replaced) previous.set(k, backup[k]);
   }
   try {
     for (const k of replaced) localStorage.removeItem(k);
-    for (const [k, v] of Object.entries(incoming)) localStorage.setItem(k, v);
+    for (const [k, v] of Object.entries(writes)) localStorage.setItem(k, v);
   } catch (e) {
     // BACKUP_KEY now holds the save that was here (the values `previous` puts back), so a failed
     // restore leaves that copy; Save & restore then reloads ('partial').

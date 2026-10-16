@@ -331,3 +331,53 @@ it.each([['an earlier stamp', 'earlier'], ['no stamp', undefined]])('puts back %
   expect(importSaveFile(JSON.stringify(fixture()))).toBe('Import failed. Your previous save data was restored.');
   expect(store.get(SAVE_STAMP_KEY)).toBe(earlier);
 });
+
+it("clears a different player's fields before the stamp, so an import that only fits after the clears succeeds", () => {
+  store.set(STORAGE_KEYS.PULLS, JSON.stringify(Array.from({ length: 2_000 }, () => 'old')));
+  const bytes = () => [...store].reduce((sum, [key, value]) => sum + key.length + value.length, 0);
+  let limit = Infinity;
+  write.mockImplementation((key, value) => {
+    const before = store.get(key);
+    store.set(key, value);
+    if (bytes() > limit) {
+      if (before === undefined) store.delete(key);
+      else store.set(key, before);
+      throw new DOMException('full', 'QuotaExceededError');
+    }
+    if (key === 'brainrot-before-import-v1') limit = bytes(); // full once the backup is in
+  });
+  const save = fixture(); // another player, without the pulls this browser holds
+  expect(importSaveFile(JSON.stringify(save))).toBeNull();
+  expect(exportPlayer()).toBe(save.player);
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+  expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+});
+
+it('clears again a field that a tab still on the old save wrote back before the stamp', () => {
+  store.set(STORAGE_KEYS.PULLS, '[]');
+  write.mockImplementation((key, value) => {
+    if (key === SAVE_STAMP_KEY) store.set(STORAGE_KEYS.PULLS, '["old tab"]');
+    store.set(key, value);
+  });
+  expect(importSaveFile(JSON.stringify(fixture()))).toBeNull();
+  expect(write.mock.calls.slice(0, 2).map(([key]) => key)).toEqual(['brainrot-before-import-v1', SAVE_STAMP_KEY]);
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+});
+
+it.each([
+  ['succeeds', null, undefined],
+  ['fails', 'Import failed. Your previous save data was restored.', STORAGE_KEYS.STATS],
+])('clears again a field that was absent until a tab still on the old save wrote it mid-import, when the import %s', (_name, result, failing) => {
+  store.set(SAVE_STAMP_KEY, 'earlier');
+  let oldTab = true;
+  write.mockImplementation((key, value) => {
+    if (key === SAVE_STAMP_KEY && oldTab) { oldTab = false; store.set(STORAGE_KEYS.PULLS, '["old tab"]'); }
+    if (key === failing) throw new Error('quota');
+    store.set(key, value);
+  });
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+  expect(importSaveFile(JSON.stringify(fixture()))).toBe(result);
+  expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
+  if (failing) expect(store.get(SAVE_STAMP_KEY)).toBe('earlier');
+  else expect(exportPlayer()).toBe(fixture().player);
+});

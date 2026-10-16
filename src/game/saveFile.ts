@@ -194,14 +194,15 @@ export const importSaveFile = (raw: string): string | null => {
     if (save.player !== undefined && save.player !== null && !incomingPlayer) {
       return 'The player identity in this save is invalid. Nothing was imported.';
     }
-    // Cleared first, which also frees space for the imported fields.
-    if (incomingPlayer && !isCurrentPlayer(incomingPlayer.secretKey)) {
-      staged.unshift(...omitted.filter((key) => PLAYER_FIELDS.has(key)).map((key): [string, null] => [key, null]));
-    }
     // Capture originals before even the backup write. Other null/omitted fields remain untouched.
     staged.push([DATA_VERSION_KEY, String(dataVersion)]);
-    // Before any other write, so another tab still on the old save stops writing it (see saveMark).
-    staged.unshift([SAVE_STAMP_KEY, newSaveStamp()]);
+    // The stamp goes before any imported value, so another tab still on the old save stops writing it
+    // (see saveMark). A different player's fields are cleared before it, which frees space for it and
+    // the imported fields, and again after it, in case such a tab wrote one in between: clears always
+    // run, even for a field that was absent when `previous` was captured.
+    const clears = incomingPlayer && !isCurrentPlayer(incomingPlayer.secretKey)
+      ? omitted.filter((key) => PLAYER_FIELDS.has(key)).map((key): [string, null] => [key, null]) : [];
+    staged.unshift(...clears, [SAVE_STAMP_KEY, newSaveStamp()], ...clears);
     const previous = new Map(staged.map(([key]) => [key, localStorage.getItem(key)]));
     if (!backUpSave('brainrot-before-import-v1')) {
       return "Couldn't keep a backup of your current save. Nothing was imported.";
@@ -209,10 +210,10 @@ export const importSaveFile = (raw: string): string | null => {
     const changed: string[] = [];
     try {
       for (const [key, value] of staged) {
-        if (previous.get(key) === value) continue;
+        if (value !== null && previous.get(key) === value) continue;
         if (value === null) localStorage.removeItem(key);
         else localStorage.setItem(key, value);
-        changed.push(key);
+        if (!changed.includes(key)) changed.push(key);
       }
       // Identity is last: no later write can fail after importPlayer adopts the new memory identity.
       if (typeof save.player === 'string' && !importPlayer(save.player)) throw new Error('Identity import failed');

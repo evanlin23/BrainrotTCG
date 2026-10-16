@@ -3,6 +3,7 @@ import { ALL_CARDS, type Card } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { hydrateCard, hydrateCollection, runMigrations } from '../utils/migrations';
 import { importSave } from './move';
+import { SAVE_STAMP_KEY } from './player';
 
 /** Just enough of localStorage and window for importSave. */
 const store = new Map<string, string>();
@@ -157,6 +158,26 @@ describe('bringing a save over', () => {
     expect(store.has('brainrot-stats-v1')).toBe(false);
   });
 
+  it.each([['no stamp', {}], ['its own stamp', { [SAVE_STAMP_KEY]: 'old address' }]])(
+    'writes a fresh stamp over an earlier import\'s when the moved save has %s', (_name, stamp) => {
+      store.set('brainrot-player-v1', player('bb'));
+      store.set('brainrot-stats-v1', '{"packsOpened":4}');
+      store.set(SAVE_STAMP_KEY, 'earlier import');
+      expect(importSave({ ...OLD, ...stamp }, () => true)).toBe('saved');
+      expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+      expect(['earlier import', 'old address']).not.toContain(store.get(SAVE_STAMP_KEY));
+    });
+
+  it('changes the stamp, first, when a save without a player key comes into a visited browser', () => {
+    const visitor = JSON.stringify({ secretKey: 'cc', name: 'Visitor', nextNonce: 0, createdAt: 2 });
+    store.set('brainrot-player-v1', visitor);
+    const write = vi.spyOn(localStorage, 'setItem');
+    expect(importSave({ 'brainrot-found-collection-v1': OLD['brainrot-found-collection-v1'] })).toBe('saved');
+    expect(store.get('brainrot-player-v1')).toBe(visitor);
+    expect(write.mock.calls[0][0]).toBe(SAVE_STAMP_KEY);
+    expect(store.get(SAVE_STAMP_KEY)).toMatch(/\S/);
+  });
+
   it('does nothing when the same player is already here', () => {
     store.set('brainrot-player-v1', player('aa'));
     store.set('brainrot-found-collection-v1', '{"newer":{"normal":9}}');
@@ -179,6 +200,16 @@ describe('bringing a save over', () => {
     const backup = JSON.parse(store.get('brainrot-before-move-v1')!) as Record<string, string>;
     expect(backup['brainrot-player-v1']).toBe(player('bb'));
     expect(backup['brainrot-stats-v1']).toBe('{"packsOpened":4}');
+  });
+
+  it('removes the replaced player and stamp before its other keys', () => {
+    store.set('brainrot-stats-v1', '{"packsOpened":4}');
+    store.set(SAVE_STAMP_KEY, 'earlier import');
+    store.set('brainrot-player-v1', player('bb'));
+    const removed: string[] = [];
+    vi.spyOn(localStorage, 'removeItem').mockImplementation((key) => { removed.push(key); store.delete(key); });
+    expect(importSave(OLD, () => true)).toBe('saved');
+    expect(removed).toEqual(['brainrot-player-v1', SAVE_STAMP_KEY, 'brainrot-stats-v1']);
   });
 
   it("doesn't ask when this browser only visited (a player key with no packs)", () => {
@@ -327,7 +358,7 @@ describe('bringing a save over', () => {
       'brainrot-before-move-v1': 'incoming must not replace backup',
       'brainrot-before-import-v1': 'nor the file import backup',
     }, () => true)).toBe('saved');
-    expect(events).toEqual(['backup', ...Object.keys(original).map(() => 'remove'), ...Object.keys(OLD).map(() => 'incoming')]);
+    expect(events).toEqual(['backup', ...Object.keys(original).map(() => 'remove'), 'incoming', ...Object.keys(OLD).map(() => 'incoming')]);
     expect(remove).toHaveBeenCalledTimes(Object.keys(original).length);
     expect(store.get('brainrot-before-move-v1')).toBe(JSON.stringify(original));
     expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
