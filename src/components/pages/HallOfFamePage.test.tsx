@@ -249,6 +249,17 @@ describe('Rankings tabs', () => {
     expect(document.querySelector('.hof-empty')?.textContent).toContain('Nothing new today yet.');
   });
 
+  it('moves on to the new day when the page stays open past midnight', async () => {
+    loadHallOfFame.mockResolvedValueOnce([{ ...ENTRY, submittedAt: at(16, 23) }]);
+    await act(async () => root.render(<HallOfFamePage />));
+    await select('Today');
+    expect(rows()).toHaveLength(1);
+    vi.setSystemTime(new Date(2026, 9, 17, 0, 5));
+    await select('All-time');
+    await select('Today');
+    expect(rows()).toHaveLength(0);
+  });
+
   it('starts each list at its first page', async () => {
     const many = Array.from({ length: 30 }, (_, i): HallOfFameEntry => ({ ...ENTRY, id: `p${i}`, proof: `p${i}`, issue: 100 + i, score: 50_000 - i, submittedAt: at(16, 8) }));
     loadHallOfFame.mockResolvedValueOnce(many);

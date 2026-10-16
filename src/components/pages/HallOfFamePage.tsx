@@ -124,8 +124,9 @@ const HallOfFamePage = () => {
   };
   // Today: pulls filed today on this device's calendar, plus any just submitted and not filed yet
   // (their own time can't be trusted, see loadPending). The published list holds only the top pulls
-  // and the firsts, so a pull filed today that made neither isn't here.
-  const today = useMemo(() => topPulls((all ?? []).filter((e) => e.pending || isToday(e.submittedAt))), [all]);
+  // and the firsts, so a pull filed today that made neither isn't here. Worked out on each render of
+  // the Today tab, not memoised, so a page left open past midnight moves on to the new day.
+  const today = tab === 'today' ? topPulls((all ?? []).filter((e) => e.pending || isToday(e.submittedAt))) : [];
   // World firsts go by when GitHub verified them, so only filed entries can be one.
   const firsts = useMemo(() => firstPulls(entries ?? []), [entries]);
 
