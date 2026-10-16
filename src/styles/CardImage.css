@@ -1,7 +1,7 @@
 /* Card art loading states (CardImage.tsx). The box keeps the card frame's shape before any pixels arrive. */
 
 .card-image {
-  aspect-ratio: 687 / 1024;
+  aspect-ratio: var(--card-aspect);
 }
 
 .card-image[data-state='rendering'],

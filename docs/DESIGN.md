@@ -76,11 +76,13 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | --- | --- | --- |
 | Surfaces | `--bg`, `--bg-elevated`, `--surface`, `--surface-2`, `--surface-3` | lighter = closer |
 | Text | `--text`, `--text-muted`, `--text-subtle` | all AA on `--bg-elevated` |
-| Accent | `--brand` (sticker yellow), `--brand-strong`, `--brand-ink` (text on yellow), `--foil` | `--foil` marks holo only (the pack's reward foil is `--pack-foil`); `--brand-gradient` is kept as an alias of the flat accent |
-| Rarity | `--rarity-common` … `--rarity-brainrot` | never redefine locally |
+| Accent | `--brand` (sticker yellow, `#ffd23f`), `--brand-strong`, `--brand-ink` (text on yellow), `--foil`, `--foil-angle` (115deg) | one yellow: `--brand` is the price sticker, the Brainrot rarity colour and the foil's second stop, so a Brainrot pull and the app's accent read as the same thing. `--foil` marks holo only (the pack's reward foil is `--pack-foil`); `--brand-gradient` is kept as an alias of the flat accent |
+| Rarity | `--rarity-common` … `--rarity-brainrot`, `--rarity-brainrot-solid`, `--rarity-brainrot-glow` | never redefine locally; `-solid` is Brainrot's one colour where a gradient can't go (borders, glows, canvas) |
+| Finish | `--finish-silver` … `--finish-diamond`, `--finish-*-glow`, `--misprint*` | the finish sticker and edge-glow colours |
 | Type | `--font-body`, `--font-display`, `--font-logo`, `--font-mono`, `--text-xs` … `--text-3xl` | `--font-mono` for IDs and fingerprints |
 | Space | `--space-1` (4 px) … `--space-7` (48 px), `--gutter` | 4 px grid |
-| Shape | `--radius-sm` … `--radius-xl`, `--radius-pill` | |
+| Shape | `--radius-sm` (4 px), `--radius-md` (6), `--radius-lg` (10), `--radius-xl` (14), `--radius-pill` | the only radii, besides `0`, `50%` and `inherit` |
+| Card | `--card-aspect` (687 / 1024, the art's own shape), `--card-tall` (its inverse) | every card face and slot uses these |
 | Depth | `--shadow-1` … `--shadow-3` | `--glow-brand` is `none` |
 | Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--ease-out`, `--ease-spring` | zero under reduced motion |
 | Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` | the page runs under the notch (`viewport-fit=cover`), so anything fixed to a screen edge pads by these; `theme-color` matches `--bg` |
@@ -98,6 +100,38 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Size.** `.btn--sm` keeps the 44 px `--touch-target`. Text never goes under 12 px (`--text-xs`);
   a size in `vw` or `cqw` takes a `max(0.75rem, …)` floor. New CSS has no raw colour, z-index or
   duration literals.
+- **Colour.** Colour literals (hex, `rgb()`/`hsl()` and the other colour functions, named colours)
+  live only in `tokens.css`. Beyond the groups above it holds small families for art and effects:
+  `--tint-*` (paper and ink washes for hovers and tracks), `--shade-*` and `--scrim-strong`,
+  `--chip-bg` and `--chip-bg-ink` (labels over card art), `--medal-*`, `--celebrate-*`, `--foil-*`
+  stops, `--seam-*` and `--pack-gold-*` (pack art), and single effects such as `--shine`, `--sheen`,
+  `--glint` and `--holo-aura`. A sheet that needs a new colour adds a token first.
+  `tests/style-scan.test.ts` fails on a literal anywhere else; its allowlist names each exception and
+  why (today only the tear sparks' per-spark `hsl(var(--hue) …)`).
+- **Canvas.** The share images draw on a canvas, which can't read CSS variables, so
+  `src/styles/palette.ts` mirrors the colours code paints with (ink, paper, brand, chip, rarity,
+  finish and foil). The same test fails if it drifts from `tokens.css`; change `tokens.css` first.
+- **Radius.** 4 px for stickers, badges and chips, 6 px for buttons and inputs, 10 px for card faces,
+  panels and toasts, 14 px for sheets, pill for toggles and tags. `style-scan` fails
+  on any other radius; the set ribbon's `1.6cqw` is the one allowlisted exception, because it is pack
+  art and scales with the pack.
+
+### Contrast
+
+WCAG ratios for text tokens on the surfaces they sit on (AA needs 4.5:1 for body text, 3:1 for
+large text and UI parts).
+
+| Text | `--bg` | `--bg-elevated` | `--surface` | `--surface-2` | `--surface-3` |
+| --- | --- | --- | --- | --- | --- |
+| `--text` | 16.4 | 15.5 | 14.4 | 13.1 | 11.3 |
+| `--text-muted` | 8.9 | 8.4 | 7.8 | 7.1 | 6.1 |
+| `--text-subtle` | 5.3 | 5.0 | 4.7 | 4.2 | 3.7 |
+| `--brand` | 13.0 | 12.4 | 11.5 | 10.4 | 9.0 |
+| `--danger` | 6.8 | 6.4 | 6.0 | 5.4 | 4.7 |
+| `--rarity-epic` (lowest rarity) | 7.5 | 7.1 | 6.6 | 6.0 | 5.2 |
+
+`--brand-ink` on `--brand` is 12.8 (11.0 on `--brand-strong`). Keep `--text-subtle` for large
+text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it falls under 4.5:1.
 
 ## Components
 

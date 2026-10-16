@@ -2,7 +2,7 @@
     perspective: 1000px;
     height: calc(100dvh - 13rem);
     max-height: 46rem;
-    aspect-ratio: 5 / 7;
+    aspect-ratio: var(--card-aspect);
     cursor: pointer;
     position: relative;
     /* A card is tapped to flip and tilted by drag; its printed text is art, not copyable text. */
@@ -23,15 +23,15 @@
     width: 100%;
     height: 100%;
     backface-visibility: hidden;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
-    border: 3px solid #333;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    border: 3px solid var(--card-edge);
+    box-shadow: 0 10px 30px var(--shade-50);
 }
 
 /* Card Back */
 .card-back {
-    background: #000;
+    background: var(--black);
 }
 
 .card-back-image {
@@ -39,7 +39,7 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     filter: var(--card-back-filter, none);
     animation: var(--card-back-anim, none);
 }
@@ -91,15 +91,9 @@
     }
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .card-back-image {
-        animation: none;
-    }
-}
-
 /* Card Front */
 .card-front {
-    background: #000;
+    background: var(--black);
     transform: rotateY(180deg);
     position: relative;
 }
@@ -109,7 +103,7 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .holo-overlay {
@@ -118,10 +112,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(135deg,
-            rgba(255, 255, 255, 0) 0%,
-            rgba(255, 255, 255, 0.2) 50%,
-            rgba(255, 255, 255, 0) 100%);
+    background: linear-gradient(135deg, transparent 0%, var(--sheen) 50%, transparent 100%);
     opacity: 0;
     transition: opacity 0.3s;
     pointer-events: none;
@@ -133,7 +124,7 @@
 
 /* Rarity: a crisp border in the rarity colour and one plain shadow. No neon glows. */
 .card-wrapper .card-face {
-    --r: #b8b4bd;
+    --r: var(--rarity-common);
 }
 
 .card-wrapper.common .card-face { --r: var(--rarity-common); }
@@ -144,28 +135,28 @@
 
 .card-wrapper:is(.common, .uncommon, .rare, .epic, .legendary) .card-face {
     border-color: var(--r);
-    box-shadow: var(--finish-glow, 0 0 #0000), 0 14px 34px rgba(0, 0, 0, 0.55);
+    box-shadow: var(--finish-glow, 0 0 transparent), 0 14px 34px var(--shade-55);
 }
 
 .card-wrapper.brainrot .card-face {
     border: 3px solid transparent;
-    background: linear-gradient(#000, #000) padding-box, var(--rarity-brainrot) border-box;
-    box-shadow: var(--finish-glow, 0 0 #0000), 0 14px 34px rgba(0, 0, 0, 0.55);
+    background: linear-gradient(var(--black), var(--black)) padding-box, var(--rarity-brainrot) border-box;
+    box-shadow: var(--finish-glow, 0 0 transparent), 0 14px 34px var(--shade-55);
 }
 
 /* Before the flip: the back's edge shows the rarity of a big pull, brighter the rarer it is. */
 .card-wrapper.tell .card-back {
     border-color: var(--tell);
-    box-shadow: 0 0 0 2px var(--tell), 0 14px 34px rgba(0, 0, 0, 0.55);
+    box-shadow: 0 0 0 2px var(--tell), 0 14px 34px var(--shade-55);
 }
 
 .card-wrapper.tell-rare { --tell: var(--rarity-rare); }
 .card-wrapper.tell-epic { --tell: var(--rarity-epic); }
 .card-wrapper.tell-legendary { --tell: var(--rarity-legendary); }
-.card-wrapper.tell-brainrot { --tell: #ffd23f; }
+.card-wrapper.tell-brainrot { --tell: var(--rarity-brainrot-solid); }
 /* A finish or misprint tells in its own colour, whatever the rarity. */
 .card-wrapper.tell-finish { --tell: var(--finish-tell); }
-.card-wrapper.tell-misprint { --tell: #ff3d8a; }
+.card-wrapper.tell-misprint { --tell: var(--misprint); }
 
 /* Legendary and Brainrot backs breathe, so you know something big is under there. */
 .card-wrapper:is(.tell-legendary, .tell-brainrot) .card-back {
@@ -173,17 +164,18 @@
 }
 
 @keyframes tellPulse {
-    0%, 100% { box-shadow: 0 0 0 2px var(--tell), 0 14px 34px rgba(0, 0, 0, 0.55); }
-    50% { box-shadow: 0 0 0 5px var(--tell), 0 14px 34px rgba(0, 0, 0, 0.55); }
+    0%, 100% { box-shadow: 0 0 0 2px var(--tell), 0 14px 34px var(--shade-55); }
+    50% { box-shadow: 0 0 0 5px var(--tell), 0 14px 34px var(--shade-55); }
 }
 
 /* A holo under the back: a foil edge instead. */
 .card-wrapper.tell-holo .card-back {
     border-color: transparent;
-    background: linear-gradient(#000, #000) padding-box, var(--foil) border-box;
+    background: linear-gradient(var(--black), var(--black)) padding-box, var(--foil) border-box;
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .card-back-image,
     .card-wrapper:is(.tell-legendary, .tell-brainrot) .card-back {
         animation: none;
     }
@@ -197,10 +189,10 @@
     /* Over the foil, shine and ghost (1), like the modifier sticker; the image retry button (3) stays on top. */
     z-index: 2;
     padding: 0.2em 0.6em;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     background: var(--brand);
     color: var(--brand-ink);
-    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+    box-shadow: 0 2px 0 var(--shade-40);
     font-family: var(--font-body);
     font-size: clamp(var(--text-xs), 3.4cqw, 16px);
     font-weight: 800;
@@ -219,7 +211,7 @@
     height: 100%;
     pointer-events: none;
     overflow: hidden;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .holo-shine-overlay::before {
@@ -229,12 +221,8 @@
     left: -100%;
     width: 50%;
     height: 100%;
-    background: linear-gradient(120deg,
-            transparent 0%,
-            rgba(255, 255, 255, 0) 30%,
-            rgba(255, 255, 255, 0.5) 50%,
-            rgba(255, 255, 255, 0) 70%,
-            transparent 100%);
+    background: var(--shine);
+    opacity: 0.5;
     transform: skewX(-20deg);
 }
 
@@ -266,21 +254,12 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(
-        45deg,
-        rgba(255, 0, 0, 0.26) 0%,
-        rgba(255, 127, 0, 0.26) 14%,
-        rgba(255, 255, 0, 0.26) 28%,
-        rgba(0, 255, 0, 0.26) 42%,
-        rgba(0, 0, 255, 0.26) 56%,
-        rgba(75, 0, 130, 0.26) 70%,
-        rgba(148, 0, 211, 0.26) 84%,
-        rgba(255, 0, 0, 0.26) 100%
-    );
+    background: var(--holo-rainbow);
+    opacity: 0.26;
     background-size: 400% 400%;
     animation: holoRainbowShimmer 3s ease infinite;
     pointer-events: none;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     mix-blend-mode: overlay;
 }
 
@@ -317,7 +296,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     opacity: 0.45;
     mix-blend-mode: screen;
     filter: hue-rotate(150deg) saturate(2.2);
@@ -335,10 +314,10 @@
     max-width: 92%;
     overflow: hidden;
     padding: 0.2em 0.6em;
-    border-radius: 3px;
-    background: rgba(18, 17, 20, 0.88);
-    color: #fff;
-    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius-sm);
+    background: var(--chip-bg);
+    color: var(--white);
+    box-shadow: 0 2px 0 var(--shade-40);
     font-family: var(--font-body);
     font-size: clamp(var(--text-xs), 3.2cqw, 15px);
     font-weight: 800;
@@ -350,19 +329,19 @@
 }
 
 .finish-gold .modifier-sticker {
-    color: #ffcf4a;
+    color: var(--finish-gold);
 }
 
 .finish-silver .modifier-sticker {
-    color: #e3e8ec;
+    color: var(--finish-silver);
 }
 
 .finish-platinum .modifier-sticker {
-    color: #a8e6ff;
+    color: var(--finish-platinum);
 }
 
 .finish-diamond .modifier-sticker {
-    color: #e2d6ff;
+    color: var(--finish-diamond);
 }
 
 /* Phones can't tilt a card to catch the light, so a holo keeps glinting on its own. */

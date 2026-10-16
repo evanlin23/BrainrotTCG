@@ -12,11 +12,11 @@
   --ring: 0 0 0 3px var(--r);
   position: relative;
   width: min(78vw, 46dvh, 24rem);
-  aspect-ratio: 687 / 1024;
+  aspect-ratio: var(--card-aspect);
   border-radius: var(--radius-md);
   overflow: hidden;
   /* Each effect is its own shadow, so rarity, finish and holo all show together. */
-  box-shadow: var(--ring), var(--finish-glow, 0 0 #0000), var(--holo-glow, 0 0 #0000), var(--shadow-3);
+  box-shadow: var(--ring), var(--finish-glow, 0 0 transparent), var(--holo-glow, 0 0 transparent), var(--shadow-3);
   transform-style: preserve-3d;
   transition: transform 0.1s ease-out;
 }
@@ -31,7 +31,7 @@
 .card-viewer-card.rare { --r: var(--rarity-rare); }
 .card-viewer-card.epic { --r: var(--rarity-epic); }
 .card-viewer-card.legendary { --r: var(--rarity-legendary); }
-.card-viewer-card.brainrot { --ring: 0 0 0 3px #ffe14d, 0 0 30px rgba(255, 225, 77, 0.5); }
+.card-viewer-card.brainrot { --ring: 0 0 0 3px var(--rarity-brainrot-solid), 0 0 30px var(--rarity-brainrot-glow); }
 
 .card-viewer-info {
   display: flex;
@@ -55,7 +55,7 @@
 }
 
 .card-viewer-card.holo {
-    --holo-glow: 0 0 30px rgba(255, 0, 255, 0.3), 0 0 60px rgba(0, 255, 255, 0.2);
+    --holo-glow: var(--holo-aura);
 }
 
 /* Rainbow shimmer for card viewer */
@@ -66,21 +66,12 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(
-        45deg,
-        rgba(255, 0, 0, 0.18) 0%,
-        rgba(255, 127, 0, 0.18) 14%,
-        rgba(255, 255, 0, 0.18) 28%,
-        rgba(0, 255, 0, 0.18) 42%,
-        rgba(0, 0, 255, 0.18) 56%,
-        rgba(75, 0, 130, 0.18) 70%,
-        rgba(148, 0, 211, 0.18) 84%,
-        rgba(255, 0, 0, 0.18) 100%
-    );
+    background: var(--holo-rainbow);
+    opacity: 0.18;
     background-size: 400% 400%;
     animation: cardViewerHoloRainbow 3s ease infinite;
     pointer-events: none;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     mix-blend-mode: overlay;
     z-index: 1;
 }
@@ -99,14 +90,8 @@
     left: -100%;
     width: 50%;
     height: 100%;
-    background: linear-gradient(
-        120deg,
-        transparent 0%,
-        rgba(255, 255, 255, 0) 30%,
-        rgba(255, 255, 255, 0.7) 50%,
-        rgba(255, 255, 255, 0) 70%,
-        transparent 100%
-    );
+    background: var(--shine);
+    opacity: 0.7;
     transform: skewX(-20deg);
     animation: cardViewerHoloShine 2.5s ease-in-out infinite;
     pointer-events: none;
@@ -159,7 +144,7 @@
 }
 
 .misprint-chip {
-  text-shadow: 1.5px 0 rgba(255, 0, 90, 0.7), -1.5px 0 rgba(0, 230, 255, 0.7);
+  text-shadow: var(--misprint-text-shadow);
 }
 
 .misprint-chip[aria-pressed='true'] {
