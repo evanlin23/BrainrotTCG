@@ -111,8 +111,11 @@ ticket number (nonce) ─┘
 ```
 
 - Opening mines the next ticket number's ticket, then claims that number, derives the cards and
-  records the mapping in one task, so a closed tab or failed miner spends no number; if another tab
-  took the number meanwhile it mines the one it claimed. `ticketMiner.ts` queues work
+  records the mapping, so a closed tab or failed miner spends no number while mining. Without Web
+  Locks the claim and the mapping land in one task; with them only the claim's lock release sits
+  between, so a tab closed in that instant can still leave a claimed number unmapped. If another tab
+  took the number meanwhile, it records the claimed number's set first, then mines that one: a failed
+  mine or a reload leaves a ticket a profile re-opens, not a gap. `ticketMiner.ts` queues work
   serially and prefetches the next ticket while a pack is shown. Prefetch can reduce waits, but slow
   devices, worker failures and competing work can still delay opening; fallback uses the main thread.
 - A **proof** is `(set, version, public key, nonce, name)` signed with the player's key and
@@ -358,13 +361,21 @@ unless the other tab has taken and stored them, so putting them back could add t
 refuses the put-back, the save warning stays up and the next change or storage event tries again.
 Settings stay last-writer-wins.
 Ticket numbers (`src/game/player.ts` `claimNonce`) are claimed under a Web Lock named for the
-player's public key and the number, so two tabs never spend one number even when one tab's storage
+player's public key and the number, so two tabs don't spend one number even when one tab's storage
 read lags. A tab holds the lock of the highest number it took per key until it closes and lets the
 lower ones go; a claim skips any number at or below a lock another tab holds. Claims for a key take
 turns under a lock named for the key, and a number's lock outlasts a turn only if that claim took it,
-so a skip never leaves a number unused (a gap in the history would break profile proofs). Without
-`query()` the number locks alone turn a claim away from a held number. Where Web Locks are missing
-or refuse (insecure pages, older browsers) a tab counts on its own, past any number it saw taken.
+so skipping a held number never leaves one unused (a gap in the history would break profile proofs).
+A number can still go unused if a tab closes between its claim and its mapping write, or storage
+refuses that write. After the claim's number lock is granted it re-reads the stored count, not
+`query()`: a tab of a build from before the key lock (which claimed without it) could take the next
+number meanwhile, and skipping to that would leave a gap; such a tab can rarely spend the same number
+instead, which a profile resolves by the first-opened pack. Without `query()` the number locks alone
+turn a claim away only from the number each tab still holds, so a lagging tab could take a lower number
+another tab took and let go. Where Web Locks are missing or refuse (insecure pages, older browsers), or
+the key's lock isn't granted within 5 seconds (a hung tab), a tab counts on its own, past any number it
+saw taken. A count with no safe successor (past `Number.MAX_SAFE_INTEGER`) is refused before anything
+is written, and history entries that high don't raise it.
 A tab never hands out a number below its own count for the same key (exports carry that count too)
 or at or below one its pack history maps for that key (a mapping stored while the count was refused),
 rewrites the stored count while the app watches the player (`watchPlayer`) when another tab's lower
