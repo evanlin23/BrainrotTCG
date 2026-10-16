@@ -3,7 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSet } from '../../content/sets';
-import { getSetCards } from '../../data/cards';
+import { getSetCards, scoreCards } from '../../data/cards';
+import { scoreAtLeastChance } from '../../engine';
 import type { CardWithMeta } from '../cards/Card';
 import PackSummaryUI from './PackSummaryUI';
 
@@ -56,21 +57,30 @@ describe('result first', () => {
     act(() => root.unmount());
     root = createRoot(container);
     act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} onShare={() => {}} holdOptional />));
-    const [title, list, foot, actions] = ['.summary-title', '.summary-cards', '.summary-foot', '.summary-actions'].map((s) => container.querySelector(s)!);
-    expect(follows(title, foot) && follows(foot, list) && follows(list, actions)).toBe(true);
+    const [title, list, guideLine, actions] = ['.summary-title', '.summary-cards', '.summary-guide-line', '.summary-actions'].map((s) => container.querySelector(s)!);
+    expect(follows(title, guideLine) && follows(guideLine, list) && follows(list, actions)).toBe(true);
     expect(actions.nextElementSibling).toBeNull();
     expect(title.textContent).toMatch(/^[\d,]+ Brainrot Score$/);
     expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Open another pack']);
-    expect([...foot.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
+    expect([...guideLine.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
     // No per-pack breakdown and no level progress: the guide explains scoring, Profile holds progress.
     expect(text()).not.toMatch(/XP|Level \d|How this score works|pts ×/);
     expect(document.activeElement).toBe(title);
   });
 
-  it('says how rare the combo is', () => {
-    const pair = cards.map((card, i) => (i === 1 ? { ...cards[0], uniqueId: 9 } : card));
+  it('says how rare a score this high is, over the whole pack', () => {
+    // A holo pair: rarer than most packs.
+    const pair = cards.map((card, i) => ({ ...(i === 1 ? cards[0] : card), uniqueId: i + 1, isHolo: i < 2 }) as CardWithMeta);
     act(() => root.render(<PackSummaryUI openedCards={pair} set={set} onClose={() => {}} />));
-    expect(container.querySelector('.pack-headline-odds')?.textContent).toMatch(/^Pair · about 1 in [\d.,]+ packs$/);
+    const odds = () => container.querySelector('.pack-headline-odds')?.textContent;
+    const chance = scoreAtLeastChance(set, scoreCards(pair).score)!;
+    expect(chance).toBeLessThan(0.5);
+    const oneIn = 1 / chance;
+    expect(odds()).toBe(`Pair · 1 in ${oneIn < 10 ? oneIn.toFixed(1) : Math.round(oneIn).toLocaleString()} packs score this high`);
+    // Five plain Commons: most packs do at least that well.
+    const commons = cards.map((card) => ({ ...card, rarity: 'COMMON' }) as CardWithMeta);
+    act(() => root.render(<PackSummaryUI openedCards={commons} set={set} onClose={() => {}} />));
+    expect(odds()).toBe('No Matches · Most packs score this high');
   });
 
   it('hints that a card opens up close until one is opened', () => {

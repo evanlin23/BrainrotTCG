@@ -15,6 +15,11 @@ const STORE = 'reopened';
 const keyOf = (setKey: string, publicKeyHex: string, nonce: number) => `${setKey}|${publicKeyHex.slice(0, 16)}|${nonce}`;
 
 const memory = new Map<string, string>();
+/** Bumped on every change to `memory`, so work built from stored packs knows when to redo it. */
+let memoryVersion = 0;
+
+/** Changes whenever a stored pack is added to memory or memory is cleared. */
+export const packStoreVersion = (): number => memoryVersion;
 let db: Promise<IDBDatabase | null> | null = null;
 
 const open = (): Promise<IDBDatabase | null> => {
@@ -72,6 +77,7 @@ export interface StoredPack {
 export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<boolean> => {
   if (packs.length === 0) return true;
   for (const p of packs) memory.set(keyOf(p.setKey, p.publicKeyHex, p.nonce), p.cards);
+  memoryVersion++;
   const database = await open();
   if (!database) return true;
   return new Promise<boolean>((resolve) => {
@@ -91,6 +97,7 @@ export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<bool
 /** For tests. */
 export const resetPackStore = () => {
   memory.clear();
+  memoryVersion++;
   // Also release an already-open connection; an abandoned pending attempt closes on success.
   void db?.then(database => database?.close());
   db = null;
@@ -188,7 +195,10 @@ export const hydratePackStore = async (
     page.forEach((pack, i) => {
       const key = keyOf(pack.setKey, pack.publicKeyHex, pack.nonce);
       const value = values[i];
-      if (value !== undefined && !memory.has(key)) memory.set(key, value);
+      if (value !== undefined && !memory.has(key)) {
+        memory.set(key, value);
+        memoryVersion++;
+      }
     });
   }
   return true;
