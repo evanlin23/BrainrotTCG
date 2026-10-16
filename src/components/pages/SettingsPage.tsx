@@ -19,9 +19,11 @@ interface SettingsPageProps {
     /** Returns an error to show, or null (the page then reloads with the imported save). */
     onImportSave: (data: string) => string | null;
     saveWarning?: string;
+    /** Shown beside the warning when only a reload fixes it (the save changed in another tab). */
+    onReload?: () => void;
 }
 
-const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveWarning, section = 'sound' }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveWarning, onReload, section = 'sound' }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const handleExportSave = () => {
@@ -130,7 +132,12 @@ const SettingsPage = ({ settings, onSettingsChange, onClose, onImportSave, saveW
 
     return (
         <Sheet title={section === 'save' ? 'Save & restore' : 'Sound & display'} onClose={onClose} size="sm" className="settings">
-            {saveWarning && <p role="alert" className="save-warning">{saveWarning}</p>}
+            {saveWarning && (
+                <p role="alert" className="save-warning">
+                    {saveWarning}
+                    {onReload && <button type="button" className="link-btn save-warning-action" onClick={onReload}>Reload</button>}
+                </p>
+            )}
             {section === 'sound' && <section className="settings-group">
                 <h3 className="section-title">Experience</h3>
                 <div className="settings-panel">

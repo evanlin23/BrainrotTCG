@@ -297,20 +297,28 @@ failed read keeps what was shown, and a resumed re-open waits for a successful r
 earned from the history and from card modifiers are worked out only once every history pack's
 cards are in, so each is credited to the pack and date that earned it; if only other players'
 packs fail to read, those count by hand and score alone rather than holding back your own. A tab
-whose player another tab switched or imported neither unlocks nor stores achievements. IndexedDB
+whose player another tab switched or imported neither unlocks achievements nor stores any progress
+(collection, stats, Hall of Fame, achievements, settings): every write compares the stored player
+with the one the tab loaded, and the banner asks for a reload. Once the tab knows, it opens no new
+pack; one opened before then waits on the pending shelf under the player it opened as, and other
+players' packs stay there when this one's change. IndexedDB
 errors can leave only memory results; writes resolve without a durable-success signal, and the pending flag
 is cleared before the final save completes. Resumption and cache retention are best effort (#87).
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
 
 Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
 opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
-on the next load, but writes can fail. It is always a list (up to 50), so an owed pack is never
+on the next load, but writes can fail. It is always a list (up to 50, other players' packs included,
+and none of theirs is dropped to make room), so an owed pack is never
 replaced by a newer one; past the cap (or if storage refuses the write), the new pack shows the save
 warning and isn't on the shelf while it reveals: it still reaches the collection when its reveal
 finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but a tab
 closed before that leaves it only in the history (if that write went through). Load
 takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
-so none is added twice) and holds them until a collection holding them is stored. If that collection
+so none is added twice) and holds them until a collection holding them is stored. Taking packs off
+rewrites the shelf in place; if storage refuses, it removes the shelf and writes it again, then
+keeps only other players' packs (this player's other owed packs drop; the history has them), then puts
+the shelf back as it was. Only if all of that is refused do other players' packs go, with an error logged. If that collection
 write is blocked, they stay owed by this tab and go into its next collection write; a copy also goes
 back on the shelf for the next load, if the shelf takes it. A tab closed before that write leaves the
 shelf copy for the next load or, if the shelf refused it, the pack only in the history. After each
