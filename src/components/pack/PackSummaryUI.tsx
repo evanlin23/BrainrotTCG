@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { motion } from 'framer-motion';
 import { RotateCcw, Share2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
@@ -6,10 +6,10 @@ import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
 import DeferredSheet from '../ui/DeferredSheet';
 import { sheetLoader } from '../ui/sheetEntry';
-import BrainrotScorePanel from '../ui/BrainrotScorePanel';
+import CardGuideButton from '../ui/CardGuideButton';
 import { modifierLabel, modifierThumb, specialCardsLine } from '../../game/modifiers';
 import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
-import type { SetDefinition } from '../../engine';
+import { comboOneIn, type SetDefinition } from '../../engine';
 import { myProgress } from '../../game/profiles';
 import type { PullRef } from '../../game/pulls';
 import { bestPullOrder } from '../../game/reveal';
@@ -17,7 +17,9 @@ import { versionOf } from '../../game/versions';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackCacheNote from '../profile/PackCacheNote';
+import PackHeadline from './PackHeadline';
 import '../../styles/CollectionLabel.css';
+import '../../styles/PackSummary.css';
 
 const Motion = motion;
 const loadCardShare = sheetLoader(() => import('../share/CardShareSheet'));
@@ -34,18 +36,22 @@ interface PackSummaryUIProps {
 }
 
 /**
- * After the last card, result first: the hand as the headline, then the five cards laid out like a
- * pack's contents on a table, best pull first (each with its collector number, rarity, a NEW sticker
- * if it's new, and its own Share for an image of it that links to this pack), then the score and
- * level, with the actions in their own row below. Sharing starts here, never mid-reveal: the link
- * carries the whole pack, so it would spoil the cards still face down.
+ * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (combo,
+ * Brainrot Score, standout card, how rare the combo is), the five cards in one compact row, best pull
+ * first (each opens up close, and has its own Share for an image of it that links to this pack), then
+ * the actions, stuck to the bottom so they never scroll away. Below them: new cards, level progress,
+ * and how the score works, folded. Sharing starts here, never mid-reveal: the link carries the whole
+ * pack, so it would spoil the cards still face down.
  */
 const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
   const [sharing, setSharing] = useState<CardWithMeta | null>(null);
+  // The "tap a card" hint stays until a card is opened on this visit.
+  const [viewed, setViewed] = useState(false);
   const shown = useMemo(() => bestPullOrder(openedCards), [openedCards]);
   const cardsRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
   useHoldUntilDecoded(cardsRef, holdOptional);
   // The keyboard starts at the result, not on an action: the heading, so the cards come next.
   useEffect(() => {
@@ -53,7 +59,21 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
     // Only as it appears; not while a sheet covers it (holdOptional is off then).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Keyboard focus never lands under the stuck actions, however tall large text makes them: the browser
+  // only scrolls focus into the scroller's box, so move it clear of them.
+  const clearActions = (event: FocusEvent<HTMLDivElement>) => {
+    const actions = actionsRef.current;
+    const target = event.target;
+    if (!actions || actions.contains(target)) return;
+    const stuck = actions.getBoundingClientRect();
+    const box = target.getBoundingClientRect();
+    if (box.bottom <= stuck.top || box.top >= stuck.bottom) return;
+    const before = actions.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_PRECEDING;
+    event.currentTarget.scrollBy({ top: before ? box.bottom - stuck.top + 8 : box.top - stuck.bottom - 8 });
+  };
   const { points, hand, score } = scoreCards(openedCards);
+  // Enumerates every pack of the set, so once per set and combo.
+  const oneIn = useMemo(() => comboOneIn(set, scoreCards(openedCards).hand), [set, openedCards]);
   const newCount = openedCards.filter((c) => c.isNew).length;
   const special = specialCardsLine(openedCards);
   // What this pack did for your level: shown here so progress isn't hidden away in the profile.
@@ -66,9 +86,10 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
-      <div className="summary-content">
+      <div className="summary-content" onFocus={clearActions}>
         <div className="summary-details">
-          <h2 className="summary-title" ref={headingRef} tabIndex={-1}>{hand.name}</h2>
+          {/* openedCards are in reveal order, which keeps pack order on ties, so the standout's tie rule holds. */}
+          <PackHeadline cards={openedCards} headingRef={headingRef} oneIn={oneIn} />
           <ul className="summary-cards" ref={cardsRef}>
             {shown.map((card) => (
               <li key={card.uniqueId}>
@@ -76,10 +97,14 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
                   type="button"
                   className={`summary-card ${card.rarity.toLowerCase()} ${card.isHolo ? 'holo' : ''} ${modifierThumb(card).className}`}
                   style={modifierThumb(card).style}
-                  onClick={() => setSelected(card)}
-                  aria-label={`${card.name}, ${CARD_RARITIES[card.rarity].name}${modifierLabel(card) ? `, ${modifierLabel(card)}` : ''}${card.isNew ? ', new' : ''}`}
+                  onClick={() => {
+                    setSelected(card);
+                    setViewed(true);
+                  }}
+                  aria-label={`View ${card.name} up close, ${CARD_RARITIES[card.rarity].name}${modifierLabel(card) ? `, ${modifierLabel(card)}` : ''}${card.isNew ? ', new' : ''}`}
                 >
                   <CardImage src={card.image} finish={card.finish} alt="" draggable="false" />
+                  <span className="summary-card-expand" aria-hidden="true">⤢</span>
                   {card.isNew && <span className="new-sticker">New</span>}
                   {modifierLabel(card, false) && <span className="mod-label">{modifierLabel(card, false)}</span>}
                 </button>
@@ -94,20 +119,32 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
                     onClick={() => setSharing(card)}
                     aria-label={`Share or save ${card.name}${modifierLabel(card) ? `, ${modifierLabel(card)}` : ''}`}
                   >
-                    <Share2 aria-hidden="true" /> Share
+                    <Share2 aria-hidden="true" /> <span className="summary-card-share-text">Share</span>
                   </button>
                 )}
               </li>
             ))}
           </ul>
+          {!viewed && <p className="summary-caption">Tap a card to see it up close</p>}
+
+          {/* Right after the result, and stuck to the bottom so they never scroll away. */}
+          <div className="summary-actions" ref={actionsRef}>
+            {onShare && (
+              <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
+                <Share2 aria-hidden="true" /> Share
+              </button>
+            )}
+            <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
+              <RotateCcw aria-hidden="true" /> Open another pack
+            </button>
+          </div>
+
           {special && <p className="summary-new">{special}</p>}
           {newCount > 0 && (
             <p className="summary-new tabular">
               {newCount} new {newCount === 1 ? 'card' : 'cards'} for your binder
             </p>
           )}
-          {/* The hand's name is the heading above the cards, so the panel doesn't repeat it. */}
-          <BrainrotScorePanel points={points} multiplier={hand.multiplier} score={score} set={set} />
           {progress ? (
             <div className="summary-xp">
               <span className="summary-xp-text tabular">
@@ -120,19 +157,15 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
           ) : (
             <PackCacheNote what="your level progress" className="summary-xp summary-xp-text" />
           )}
+          <details className="summary-how">
+            <summary>How this score works</summary>
+            <p className="summary-how-math tabular">
+              {points.toLocaleString()} pts × <strong>{hand.multiplier.toLocaleString()}</strong> for {hand.name} ={' '}
+              <strong>{score.toLocaleString()}</strong> Brainrot Score
+            </p>
+            <CardGuideButton set={set} />
+          </details>
         </div>
-      </div>
-
-      {/* After the result, in a row of their own that never scrolls away. */}
-      <div className="summary-actions">
-        {onShare && (
-          <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
-            <Share2 aria-hidden="true" /> Share
-          </button>
-        )}
-        <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
-          <RotateCcw aria-hidden="true" /> Open another pack
-        </button>
       </div>
 
       {selected && (

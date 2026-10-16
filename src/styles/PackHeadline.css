@@ -1,0 +1,42 @@
+/* A pack's headline: total, combo, standout card (components/pack/PackHeadline.tsx). */
+
+.pack-headline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+  text-align: center;
+  max-width: 100%;
+}
+
+.pack-headline p {
+  margin: 0;
+}
+
+.pack-headline .pack-headline-total {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+p.pack-headline-total {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  color: var(--text);
+}
+
+.pack-headline-combo {
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Long names and modifiers wrap on phones instead of pushing the page sideways. */
+.pack-headline-standout {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.pack-headline-card {
+  color: var(--text);
+  font-weight: 700;
+}
