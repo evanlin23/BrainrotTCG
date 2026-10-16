@@ -14,7 +14,8 @@ from a 390 px wide screen.
    gear and the pack: the tabs and the era picker come once their first pack is saved and they leave it.
    The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
    an image of it linking to the pack; nothing is shared mid-reveal. Under the revealed card, one quiet
-   line (game, site, set and card number) says where a screenshot came from.
+   line (game, site, set and card number) says where a screenshot came from; a narrow phone wraps the set
+   and number onto a second line, never cutting them off.
 2. **Nothing overlaps the game.** Navigation is a bottom tab bar on phones (in the thumb zone) and a top
    bar on wide screens, laid out around the content rather than floating over it.
 3. **Focus mode while opening.** Once a pack is cut, the tabs and the era picker get out of the way

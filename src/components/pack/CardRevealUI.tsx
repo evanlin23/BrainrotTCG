@@ -137,11 +137,16 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
         {revealed && currentCard.isNew && <span className="reveal-new">New</span>}
       </div>
       {/* Where this card is from, as a screenshot would show it. Its number waits for the flip like the
-          badge, but holds its space so nothing moves between cards. */}
+          badge, but holds its space so nothing moves between cards. Three parts that never break inside
+          (game, site, set and number), so a narrow phone wraps the line after a dot and never cuts it. */}
       {currentCard && (
         <p className="reveal-provenance" aria-hidden="true">
-          <span className="reveal-provenance-mark">Brainrot TCG</span> · {siteLabel()} · {setName ?? currentCard.setId}{' '}
-          <span className={`reveal-provenance-number tabular ${revealed ? 'is-shown' : ''} ${slow ? 'is-slow' : ''}`}>{cardNumber(currentCard)}</span>
+          <span className="reveal-provenance-part"><span className="reveal-provenance-mark">Brainrot TCG</span> ·</span>{' '}
+          <span className="reveal-provenance-part reveal-provenance-site">{siteLabel()} ·</span>{' '}
+          <span className="reveal-provenance-part reveal-provenance-set">
+            {setName ?? currentCard.setId}{' '}
+            <span className={`reveal-provenance-number tabular ${revealed ? 'is-shown' : ''} ${slow ? 'is-slow' : ''}`}>{cardNumber(currentCard)}</span>
+          </span>
         </p>
       )}
 

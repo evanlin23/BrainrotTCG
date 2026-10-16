@@ -36,18 +36,19 @@ const ring = (target: Locator, pseudo?: '::after') => target.evaluate((el, pseud
   };
 }, pseudo);
 
+/** The fixture player at nonce 21. Before monitor's own seed, which leaves a seeded player alone. */
+const seedNonce21 = (page: Page, baseURL: string) => page.addInitScript((origin) => {
+  if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
+  localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 21, createdAt: 1 }));
+  localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+}, new URL(baseURL).origin);
+
 /** Every region that speaks on its own, and what it says now. */
 const liveTexts = (page: Page) => page.locator('[aria-live]:not([aria-live="off"]), [role="status"], [role="alert"], [role="log"]').allTextContents();
 
 test('opens a pack and reveals every card by keyboard alone, with a visible focus ring and one announcement per card', async ({ page, baseURL }) => {
   test.setTimeout(90000);
-  const origin = new URL(baseURL!).origin;
-  // Before monitor's own seed, which leaves a seeded player alone.
-  await page.addInitScript((origin) => {
-    if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
-    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 21, createdAt: 1 }));
-    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
-  }, origin);
+  await seedNonce21(page, baseURL!);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
@@ -119,5 +120,79 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
   expect(new Set(names).size, `the fixture pack repeats no card: ${names.join(', ')}`).toBeLessThan(names.length);
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.summary-card')).toHaveCount(5);
+  expect(errors).toEqual([]);
+});
+
+/** The site's address as built for /BrainrotTCG/ (vite.config.ts): the longest one it's served from. */
+const AS_BUILT = 'evanlin23.github.io/BrainrotTCG';
+
+/** How the provenance line under the card lays out with the built site's address (the test server's is shorter). */
+const provenance = (page: Page) => page.locator('.reveal-provenance').evaluate((line, site) => {
+  line.querySelector('.reveal-provenance-site')!.textContent = `${site} ·`;
+  const box = (el: Element) => el.getBoundingClientRect();
+  const within = (el: Element) => {
+    const [r, l] = [box(el), box(line)];
+    return r.left >= l.left - 0.5 && r.right <= l.right + 0.5 && r.top >= l.top - 0.5 && r.bottom <= l.bottom + 0.5
+      && r.left >= 0 && r.right <= window.innerWidth;
+  };
+  const style = getComputedStyle(line);
+  // How wide it would be on one line, to know whether it should fit on one.
+  line.style.whiteSpace = 'nowrap';
+  const oneLine = line.scrollWidth;
+  line.style.whiteSpace = '';
+  const number = line.querySelector('.reveal-provenance-number')!;
+  const set = line.querySelector('.reveal-provenance-set')!;
+  const stage = box(document.querySelector('.active-card-container')!);
+  return {
+    fitsOnOne: oneLine <= line.clientWidth,
+    overflows: line.scrollWidth > line.clientWidth,
+    ellipsis: style.textOverflow === 'ellipsis',
+    lines: Math.round(box(line).height / parseFloat(style.lineHeight)),
+    // The top of each part (game, address, set and number): the line breaks only between them.
+    rows: Array.from(line.querySelectorAll('.reveal-provenance-part'), (part) => Math.round(box(part).top - box(line).top)),
+    setWhole: within(set) && within(number) && set.getClientRects().length === 1,
+    set: set.textContent,
+    numberShown: getComputedStyle(number).visibility === 'visible' && getComputedStyle(number).opacity === '1',
+    stage: [stage.x, stage.y, stage.width, stage.height].map(Math.round),
+  };
+}, AS_BUILT);
+
+test('keeps the provenance line whole on a 320px phone, wrapping the set and number under it without moving the card', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await seedNonce21(page, baseURL!);
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  const pack = page.getByRole('button', { name: /^Open a .* pack$/ });
+  await expect(pack).toBeVisible();
+  await pack.focus();
+  await page.keyboard.press('Space');
+  const card = page.locator('.reveal-card:focus');
+  await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
+
+  // Too long for 288px: the game and the address, then the set and number, moved down whole.
+  const faceDown = await provenance(page);
+  expect(faceDown).toMatchObject({ fitsOnOne: false, overflows: false, ellipsis: false, lines: 2, setWhole: true, numberShown: false });
+  expect(faceDown.rows[1]).toBe(faceDown.rows[0]);
+  expect(faceDown.rows[2]).toBeGreaterThan(faceDown.rows[0]);
+  expect(faceDown.set).toMatch(/^\S.* 001\/\d{3}$/);
+
+  // Flipped, the number shows in the space it kept; the line, and so the card, stay put. Same for the next card.
+  await page.keyboard.press('Space');
+  await expect.poll(async () => (await provenance(page)).numberShown).toBe(true);
+  expect(await provenance(page)).toEqual({ ...faceDown, numberShown: true });
+  await page.keyboard.press('Space');
+  await expect(card).toHaveAttribute('aria-label', 'Flip card 2 of 5', { timeout: 10000 });
+  const next = await provenance(page);
+  expect(next).toEqual({ ...faceDown, set: next.set });
+  expect(next.set).toMatch(/^\S.* \d{3}\/\d{3}$/);
+
+  // Wider screens: one line when it fits, never more than two, never cut.
+  for (const width of [390, 800]) {
+    await page.setViewportSize({ width, height: 640 });
+    const line = await provenance(page);
+    expect(line, `${width}px`).toMatchObject({ overflows: false, ellipsis: false, setWhole: true, lines: line.fitsOnOne ? 1 : 2 });
+    if (width === 800) expect(line.fitsOnOne).toBe(true);
+  }
   expect(errors).toEqual([]);
 });

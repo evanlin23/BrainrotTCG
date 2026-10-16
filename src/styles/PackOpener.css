@@ -752,18 +752,21 @@
     align-items: center;
 }
 
-/* Where the card is from, for screenshots: one quiet line of fixed height, so nothing moves between
-   cards. The number waits for the flip like the rarity badge (and keeps its space until then). */
+/* Where the card is from, for screenshots: one quiet line, or two on a narrow phone, and never cut
+   short. It wraps only between its three parts, so the set and number move down whole. Its text is the
+   same for every card of a pack (the number keeps its space until the flip), so its height never
+   changes mid-reveal and the card above doesn't move. */
 .reveal-provenance {
     width: 100%;
     max-width: 100%;
     margin: 0;
-    overflow: hidden;
     color: var(--text-subtle);
     font-size: var(--text-xs);
     line-height: 1.5;
     text-align: center;
-    text-overflow: ellipsis;
+}
+
+.reveal-provenance-part {
     white-space: nowrap;
 }
 

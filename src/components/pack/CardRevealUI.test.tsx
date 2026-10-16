@@ -81,6 +81,10 @@ describe('the provenance line under the card', () => {
     expect(line.textContent).toBe(`Brainrot TCG · ${siteLabel()} · Genesis ${cardNumber(card)}`);
     expect(cardNumber(card)).toMatch(/^001\/\d{3}$/);
     expect(siteLabel()).not.toMatch(/^https?:|\/$/);
+    // Three parts, wrapped between and never inside, so the set and its number move down together.
+    expect([...line.querySelectorAll('.reveal-provenance-part')].map((part) => part.textContent))
+      .toEqual(['Brainrot TCG ·', `${siteLabel()} ·`, `Genesis ${cardNumber(card)}`]);
+    expect(line.querySelector('.reveal-provenance-set > .reveal-provenance-number')).not.toBeNull();
     // The announcement already says the card; this line would only repeat it.
     expect(line.getAttribute('aria-hidden')).toBe('true');
     expect(line.querySelector('.reveal-provenance-number')!.classList).toContain('is-shown');
