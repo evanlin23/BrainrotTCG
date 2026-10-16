@@ -1,32 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded } from './support';
+import { monitor, expectDecoded, fingerFor, type Finger } from './support';
 
 // A short swipe along the tear line opens the pack when it's released (#312). The phone project
 // swipes with touch events in Pixel 5 emulation, which is not a real phone.
-
-interface Finger {
-  press(x: number, y: number): Promise<void>;
-  move(x: number, y: number): Promise<void>;
-  release(): Promise<void>;
-}
-
-async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
-  if (!touch) {
-    return {
-      press: async (x, y) => { await page.mouse.move(x, y); await page.mouse.down(); },
-      move: (x, y) => page.mouse.move(x, y),
-      release: () => page.mouse.up(),
-    };
-  }
-  const cdp = await page.context().newCDPSession(page);
-  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) =>
-    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points }).then(() => {});
-  return {
-    press: (x, y) => send('touchStart', [{ x, y }]),
-    move: (x, y) => send('touchMove', [{ x, y }]),
-    release: () => send('touchEnd', []),
-  };
-}
 
 /** Opens the app and returns the sealed pack, scrolled into view with its art loaded. */
 async function sealedPack(page: Page) {
