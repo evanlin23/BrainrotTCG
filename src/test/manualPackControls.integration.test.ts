@@ -324,7 +324,7 @@ it('keeps notices held between two big pulls that Skip shows back to back (#460)
   const frames: { ribbon: boolean; toast: string }[] = [];
   const observer = new MutationObserver(() => {
     const frame = { ribbon: !!$('.showcase-ribbon'), toast: toasts() };
-    const last = frames.at(-1);
+    const last = frames[frames.length - 1];
     if (!last || last.ribbon !== frame.ribbon || last.toast !== frame.toast) frames.push(frame);
   });
   observer.observe(document.body, { subtree: true, childList: true, characterData: true });
@@ -335,7 +335,7 @@ it('keeps notices held between two big pulls that Skip shows back to back (#460)
   const showcases = frames.filter((frame, i) => frame.ribbon && !frames[i - 1]?.ribbon);
   expect(showcases, 'Skip showed both big pulls').toHaveLength(2);
   const first = frames.findIndex((frame) => frame.ribbon);
-  const last = frames.findLastIndex((frame) => frame.ribbon);
+  const last = frames.length - 1 - [...frames].reverse().findIndex((frame) => frame.ribbon);
   expect(frames.slice(first, last + 1).filter((frame) => frame.toast), 'a notice showed between the showcases').toEqual([]);
   // The held notice comes back once they are over.
   await app.until('the held notice shows', () => expect(toasts()).toContain('Pack kept'));
