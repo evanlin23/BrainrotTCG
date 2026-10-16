@@ -455,4 +455,29 @@ describe('claiming the next ticket number', () => {
     // What storage holds is still reported as stored, for the history and profile that go with it.
     expect(player.getPlayerTickets().nextNonce).toBe(12);
   });
+
+  it.each([['with Web Locks', true], ['without them', false]])(
+    'counts past every ticket the pack history records for this key, when storage refused the counter past them (%s)',
+    async (_label, withLocks) => {
+      vi.stubGlobal('navigator', withLocks ? { locks: fakeLocks() } : {});
+      const mapping = (key: string, n: number) => ({ s: 'right-now', v: 2, n, k: key.slice(0, 16), h: 'High Card', x: 1, t: n });
+      // Tickets 12 and 13 were opened and recorded, but the counter past them never landed; 40 is another key's.
+      store.set(PLAYER_KEY, JSON.stringify(original));
+      store.set(STORAGE_KEYS.HISTORY, JSON.stringify([mapping('cc'.repeat(32), 40), mapping(ORIGINAL_KEY, 13), mapping(ORIGINAL_KEY, 12), { n: 99 }]));
+      expect(player.peekNonce()).toBe(14);
+      expect(player.getPlayerTickets()).toMatchObject({ player: { publicKeyHex: ORIGINAL_KEY }, nextNonce: 14 });
+      expect(JSON.parse(player.exportPlayer())).toEqual({ ...original, nextNonce: 14 });
+      expect(await player.claimNonce()).toMatchObject({ nonce: 14, stored: true });
+      expect(stored()).toEqual({ ...original, nextNonce: 15 });
+    },
+  );
+
+  it('keeps the stored counter when the history records nothing past it, or cannot be read', () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    store.set(STORAGE_KEYS.HISTORY, '{not json');
+    expect(player.peekNonce()).toBe(12);
+    store.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 2, n: 3, k: ORIGINAL_KEY.slice(0, 16), h: 'High Card', x: 1, t: 1 }]));
+    expect(player.allocateNonce().nonce).toBe(12);
+    expect(stored().nextNonce).toBe(13);
+  });
 });

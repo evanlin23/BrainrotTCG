@@ -190,6 +190,17 @@ export const historyForKey = (publicKeyHex: string): HistoryEntry[] =>
     .filter((e) => e.key === publicKeyHex.slice(0, KEY_PREFIX))
     .sort((a, b) => a.nonce - b.nonce);
 
+/**
+ * One past the highest ticket this key's history records (0 when none). A recorded ticket was spent
+ * even if storage refused the ticket counter past it, so the counter never hands it out again.
+ */
+export const ticketsRecorded = (publicKeyHex: string): number => {
+  const key = publicKeyHex.slice(0, KEY_PREFIX);
+  let next = 0;
+  for (const e of read()) if (isStored(e) && e.k === key && e.n >= next && Number.isSafeInteger(e.n + 1)) next = e.n + 1;
+  return next;
+};
+
 type LegacyPull = Pick<OpenedPack, 'setId' | 'setVersion' | 'nonce' | 'publicKeyHex' | 'openedAt'> & { score: number; hand: string };
 
 /** An entry of the old notable-pulls log that migratePullLog can carry over (save imports use it too). */

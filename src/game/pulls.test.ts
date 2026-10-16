@@ -2,11 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import { encodeCard } from './cardCode';
+import { generatePack, packSeedFromTicket } from '../engine';
 import { getPlayer } from './player';
 import { clearPendingPack, openPack, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
 
-// Any ticket will do: these tests are about where an opened pack is kept.
-vi.mock('./ticketMiner', () => ({ getTicket: async () => new Uint8Array(32), prefetchTicket: () => undefined }));
+// Any ticket will do: these tests are about where an opened pack is kept, and when its number is spent.
+const ticketFor = (nonce: number) => new Uint8Array(32).fill(nonce & 255);
+const miner = vi.hoisted(() => ({
+  mine: (_set: string, _key: Uint8Array, nonce: number): Promise<Uint8Array> => Promise.resolve(new Uint8Array(32).fill(nonce & 255)),
+}));
+vi.mock('./ticketMiner', () => ({
+  getTicket: (set: string, key: Uint8Array, nonce: number) => miner.mine(set, key, nonce),
+  prefetchTicket: () => undefined,
+}));
+const mineAtOnce = miner.mine;
 
 // A storage whose writes can be refused, as a browser that blocks storage (SecurityError) does.
 const data = new Map<string, string>();
@@ -37,6 +46,7 @@ const reset = () => {
   data.clear();
   refuseRemove = () => false;
   refuseWrite = () => false;
+  miner.mine = mineAtOnce;
 };
 
 describe('pending pack when storage refuses to remove it', () => {
@@ -466,6 +476,95 @@ describe('opening a pack', () => {
     // Both are still kept for the next load and recorded: only the counter was refused.
     expect(shelved().map((e: { n: number }) => e.n)).toEqual([before.nonce, before.nonce + 1, before.nonce + 2]);
     expect(JSON.parse(data.get('brainrot-player-v1')!).nextNonce).toBe(before.nonce + 1);
+    error.mockRestore();
+  });
+
+  const PLAYER = 'brainrot-player-v1';
+  const counter = () => JSON.parse(data.get(PLAYER)!).nextNonce as number;
+  const recorded = () => (JSON.parse(data.get(STORAGE_KEYS.HISTORY) ?? '[]') as { n: number; s: string; v: number }[]);
+  const nextTask = () => new Promise((resolve) => setTimeout(resolve));
+  /** Mining that waits for `release()`, as a slow phone's does. */
+  const slowMiner = () => {
+    const asked: number[] = [];
+    const releases: (() => void)[] = [];
+    miner.mine = (_set, _key, nonce) => {
+      asked.push(nonce);
+      return new Promise((resolve) => releases.push(() => resolve(ticketFor(nonce))));
+    };
+    return { asked, release: () => releases.shift()!() };
+  };
+
+  it('spends no ticket number until its ticket is mined, then stores the counter and mapping in one task', async () => {
+    const before = await openPack(SET);
+    const mining = slowMiner();
+    // What the history holds once the task that stores the counter is over (a tab closed then).
+    let atCounter: string | undefined;
+    refuseWrite = (k) => {
+      if (k === PLAYER) setTimeout(() => (atCounter = data.get(STORAGE_KEYS.HISTORY)));
+      return false;
+    };
+    const opening = openPack(SET);
+    await nextTask();
+    // Closed mid-mine: nothing spent, nothing to map.
+    expect(mining.asked).toEqual([before.nonce + 1]);
+    expect(counter()).toBe(before.nonce + 1);
+    expect(atCounter).toBeUndefined();
+    mining.release();
+    const pack = await opening;
+    await nextTask();
+    expect(pack).toMatchObject({ nonce: before.nonce + 1 });
+    expect(pack.unrecorded).toBeUndefined();
+    expect(counter()).toBe(before.nonce + 2);
+    expect(JSON.parse(atCounter!)).toContainEqual(expect.objectContaining({ n: pack.nonce, s: SET.id, v: SET.version }));
+  });
+
+  it('spends no ticket number when mining fails', async () => {
+    const before = await openPack(SET);
+    miner.mine = () => Promise.reject(new Error('miner crashed'));
+    await expect(openPack(SET)).rejects.toThrow('miner crashed');
+    expect(counter()).toBe(before.nonce + 1);
+    expect(recorded().map((e) => e.n)).toEqual([before.nonce]);
+    miner.mine = mineAtOnce;
+    expect((await openPack(SET)).nonce).toBe(before.nonce + 1);
+  });
+
+  it("mines the number it claimed when another tab took the one it mined, so cards match the recorded ticket", async () => {
+    const before = await openPack(SET);
+    const mining = slowMiner();
+    const opening = openPack(SET);
+    await nextTask();
+    // Another tab opens a pack while this one mines.
+    data.set(PLAYER, JSON.stringify({ ...JSON.parse(data.get(PLAYER)!), nextNonce: before.nonce + 2 }));
+    mining.release();
+    await nextTask();
+    expect(mining.asked).toEqual([before.nonce + 1, before.nonce + 2]);
+    mining.release();
+    const pack = await opening;
+    expect(pack.nonce).toBe(before.nonce + 2);
+    expect(pack.cards.map((c) => c.key)).toEqual(generatePack(SET, packSeedFromTicket(ticketFor(before.nonce + 2))).map((c) => `${c.setId}/${c.cardId}`));
+    expect(recorded()[0]).toMatchObject({ n: before.nonce + 2, s: SET.id, v: SET.version });
+    expect(counter()).toBe(before.nonce + 3);
+  });
+
+  it('never hands out a recorded ticket number again after a reload, even when storage refused its counter', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const before = await openPack(SET);
+    refuseWrite = (k) => k === PLAYER;
+    const refused = await openPack(SET);
+    expect(refused).toMatchObject({ nonce: before.nonce + 1, unrecorded: true });
+    expect(counter()).toBe(before.nonce + 1);
+    expect(recorded()[0]).toMatchObject({ n: refused.nonce });
+    // Reload: a fresh tab only has what storage kept.
+    refuseWrite = () => false;
+    vi.resetModules();
+    const player = await import('./player');
+    const pulls = await import('./pulls');
+    expect(player.getPlayerTickets().nextNonce).toBe(before.nonce + 2);
+    expect(JSON.parse(player.exportPlayer()).nextNonce).toBe(before.nonce + 2);
+    const after = await pulls.openPack(SET);
+    expect(after.nonce).toBe(before.nonce + 2);
+    expect(after.unrecorded).toBeUndefined();
+    expect(counter()).toBe(before.nonce + 3);
     error.mockRestore();
   });
 });
