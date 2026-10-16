@@ -6,6 +6,7 @@ import type { SetDefinition } from '../../engine';
 import { openPack, prefetchNextPack, type OpenedPack } from '../../game/pulls';
 import { holdLive } from '../../game/admission';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
+import { buzz } from '../../utils/motion';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
@@ -363,10 +364,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, set, disable
 
     setOpenedCards(openedCards.map((card, index) => index === currentIndex ? { ...card, isRevealed: true } : card));
 
-    // A short buzz on phones: a tick for any card, a double for big pulls.
-    if (typeof navigator.vibrate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      navigator.vibrate(isBigPull(currentCard) ? [18, 60, 30] : 8);
-    }
+    // A short buzz on phones: a tick for any card, a double for big pulls. None under reduced motion.
+    buzz(isBigPull(currentCard) ? [18, 60, 30] : 8);
 
     if (settings.particlesEnabled) {
       // A finish or misprint gets at least an Epic's confetti.
