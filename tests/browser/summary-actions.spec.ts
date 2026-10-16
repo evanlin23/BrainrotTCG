@@ -199,7 +199,12 @@ for (const textZoom of [200]) {
     const visited: string[] = [];
     for (let stop = 0; stop < expected.length; stop++) {
       await page.keyboard.press('Tab');
-      visited.push(await page.evaluate(() => document.activeElement!.outerHTML));
+      // data-ring-kept is state the stop gets from the Tab that placed it (inputModality.ts), not part of the control.
+      visited.push(await page.evaluate(() => {
+        const stop = document.activeElement!.cloneNode(true) as Element;
+        stop.removeAttribute('data-ring-kept');
+        return stop.outerHTML;
+      }));
       expect(await obstruction(page), `stop ${stop + 1} is covered or off screen`).toBeNull();
     }
     expect(visited).toEqual(expected);
