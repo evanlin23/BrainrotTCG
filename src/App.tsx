@@ -32,6 +32,7 @@ import { reloadPage } from './game/reload';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
 import { useProgressWriter } from './hooks/useProgressWriter';
+import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import {
@@ -120,7 +121,8 @@ function App() {
   }, [samePlayer]);
   // Stores progress once React commits it, refusing once the save changed under this tab, and owes
   // packs to the pending shelf until a stored collection holds them (see game/progressWriter.ts).
-  const { packAdded, packsTaken, putBackTaken } = useProgressWriter({ collection, achievements, stats, hallOfFame, settings }, {
+  // The writer reads its host once, so it is memoized (useProgressWriter warns in development if it changes).
+  const writerHost = useMemo<ProgressWriterHost>(() => ({
     samePlayer, progressCurrent, noted: progress.noted,
     stale: () => setStaleSave(true),
     failed: () => setSaveFailed(true),
@@ -128,7 +130,8 @@ function App() {
       setRecoveryNote(note);
       setRecoveryNoteHidden(dismissed);
     },
-  });
+  }), [samePlayer, progressCurrent, progress]);
+  const { packAdded, packsTaken, putBackTaken } = useProgressWriter({ collection, achievements, stats, hallOfFame, settings }, writerHost);
   // Download and Discard of the kept-aside data, checked on every click and again on the confirm. After
   // another tab's import or player switch the archive can hold that save's data (saveFile keeps it there):
   // discarding would delete its only copy, and a download would mix it with this tab's unsaved payloads.

@@ -26,7 +26,11 @@ export interface RankKey {
   slot?: number;
   /** Packs: the Brainrot Score. Cards: the card's own points, before the combo multiplier. */
   score: number;
-  /** When the pull was first verified, as receiptTime writes it (compared as a plain string). */
+  /**
+   * When the pull was first verified: an ISO 8601 UTC time (receiptTime). selectBoard and rebuildBoard
+   * rewrite it as receiptTime does before comparing; compareRanked compares it as a plain string, so
+   * it takes receiptTime's form only.
+   */
   firstReceivedAt: string;
   /** The SCORING_ERA the score was computed under. */
   scoringEra: number;
@@ -34,20 +38,27 @@ export interface RankKey {
 
 const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+const RECEIPT_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+
 /**
  * A receipt time in one format (toISOString's, with milliseconds), so that GitHub's "…:07Z" and the
- * client's "…:07.123Z" compare by instant as plain strings. Throws on anything that isn't a time.
+ * client's "…:07.123Z" compare by instant as plain strings. It takes only those two forms of an
+ * ISO 8601 UTC time (YYYY-MM-DDTHH:MM:SS, then optionally .fff, then Z) naming a real instant, and
+ * throws a RangeError on anything else: another offset, a date alone, or a day or hour that would
+ * roll over (Feb 30, 24:00), which Date.parse would accept.
  */
 export const receiptTime = (t: string): string => {
-  const ms = Date.parse(t);
-  if (Number.isNaN(ms)) throw new RangeError(`Not a receipt time: ${t}`);
-  return new Date(ms).toISOString();
+  const ms = RECEIPT_TIME.test(t) ? Date.parse(t) : NaN;
+  const iso = Number.isNaN(ms) ? '' : new Date(ms).toISOString();
+  if (iso !== (t.length === 20 ? `${t.slice(0, 19)}.000Z` : t)) throw new RangeError(`Not a receipt time: ${t}`);
+  return iso;
 };
 
 /**
  * The one ranking order, best first: higher score, then the earlier first receipt, then the pull id,
  * then (within one pull) the later slot, as revealOrder shows it last. The pack summary's
- * bestPullOrder lists the earlier of two equal cards first instead.
+ * bestPullOrder lists the earlier of two equal cards first instead. Receipt times are compared as
+ * plain strings, so both keys must hold receiptTime's form (selectBoard rewrites them first).
  */
 export const compareRanked = (a: RankKey, b: RankKey): number =>
   b.score - a.score || order(a.firstReceivedAt, b.firstReceivedAt) || order(a.pullId, b.pullId) || (b.slot ?? 0) - (a.slot ?? 0);
@@ -104,6 +115,19 @@ export interface BoardOptions {
 const rankKey = ({ id, pullId, slot, score, firstReceivedAt, scoringEra }: RankKey): RankKey =>
   slot === undefined ? { id, pullId, score, firstReceivedAt, scoringEra } : { id, pullId, slot, score, firstReceivedAt, scoringEra };
 
+/** The entry with its receipt time in receiptTime's form (the same object when it already is). */
+const normalized = <T extends RankKey>(e: T): T => {
+  const firstReceivedAt = receiptTime(e.firstReceivedAt);
+  return firstReceivedAt === e.firstReceivedAt ? e : { ...e, firstReceivedAt };
+};
+
+/** The coverage with a through bound's receipt time in receiptTime's form (the same object when it already is). */
+const normalizedCoverage = (coverage: Coverage): Coverage => {
+  if (coverage.kind !== 'through' || !coverage.last) return coverage;
+  const last = normalized(coverage.last);
+  return last === coverage.last ? coverage : { kind: 'through', last };
+};
+
 const covers = (coverage: Coverage, e: RankKey): boolean =>
   coverage.kind === 'all' ||
   (coverage.kind === 'min-score' ? e.score >= coverage.score : !!coverage.last && compareRanked(e, coverage.last) <= 0);
@@ -112,14 +136,17 @@ const covers = (coverage: Coverage, e: RankKey): boolean =>
  * Rank candidates into a board. Each id counts once (its earliest receipt; the first given on a tie).
  * Candidates from another scoring era can't be compared, so any of them leaves the board empty and
  * partial until they are re-derived. Otherwise the board takes the best `capacity` entries the
- * coverage certifies, and is complete when that fills it or the coverage is everything.
+ * coverage certifies, and is complete when that fills it or the coverage is everything. Receipt times
+ * (the candidates' and a through coverage's last entry's) are rewritten as receiptTime writes them
+ * before anything is compared, so they compare by instant; one that isn't a receipt time throws.
  */
 export const selectBoard = <T extends RankKey>(candidates: readonly T[], options: BoardOptions): RankingSnapshot<T> => {
-  const { scope, capacity, generatedAt, scoringEra = SCORING_ERA, coverage = { kind: 'all' } } = options;
+  const { scope, capacity, generatedAt, scoringEra = SCORING_ERA } = options;
   if (!Number.isInteger(capacity) || capacity < 1) throw new RangeError(`Board capacity must be a positive integer, got ${capacity}`);
+  const coverage = normalizedCoverage(options.coverage ?? { kind: 'all' });
   const earliest = new Map<string, T>();
   let otherEra = 0;
-  for (const c of candidates) {
+  for (const c of candidates.map(normalized)) {
     const kept = earliest.get(c.id);
     if (c.scoringEra !== scoringEra) otherEra++;
     else if (!kept || c.firstReceivedAt < kept.firstReceivedAt) earliest.set(c.id, c);
