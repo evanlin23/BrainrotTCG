@@ -530,7 +530,7 @@ const reopen = async (snapshot: PlayerTickets, auto = false): Promise<void> => {
  * unless it's still waiting after packs couldn't be saved. Returns the run it started, if any.
  */
 export const resumeReopening = (): Promise<void> | undefined => {
-  let pending: string | null = null;
+  let pending: string | null;
   try {
     pending = localStorage.getItem(REOPEN_PENDING_KEY);
   } catch {
