@@ -24,7 +24,8 @@ const block = (start: string) => {
 };
 
 it('reserves the card frame shape before any pixels arrive', () => {
-  expect(css).toMatch(/\.card-image \{\s*aspect-ratio: 687 \/ 1024;/);
+  expect(css).toMatch(/\.card-image \{\s*aspect-ratio: var\(--card-aspect\);/);
+  expect(stylesheet('tokens.css')).toMatch(/--card-aspect:\s*687 \/ 1024;/);
   for (const state of ['rendering', 'loading', 'failed']) {
     expect(css).toMatch(new RegExp(`\\.card-image\\[data-state='${state}'\\][^{]*\\{[^}]*background`));
   }

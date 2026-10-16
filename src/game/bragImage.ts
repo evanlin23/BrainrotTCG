@@ -7,6 +7,7 @@ import qrcode from 'qrcode-generator';
 import type { Finish, PackScore } from '../engine';
 import { FINISH_INFO, modifierLabel } from './modifiers';
 import { holdFinishedCardImage } from './finishImage';
+import { BRAND as YELLOW, CHIP_BG, FINISH_GLOWS, FOIL_STOPS, INK, MUTED, PAPER } from '../styles/palette';
 
 interface PosterCard {
   image: string;
@@ -104,12 +105,12 @@ const drawCard = (ctx: CanvasRenderingContext2D, img: HTMLImageElement, card: Po
     // Draw the soft finish glow outside the card before clipping its image.
     ctx.save();
     ctx.shadowOffsetY = 0;
-    ctx.shadowColor = card.finish === 'PLATINUM' ? 'rgba(168, 230, 255, 0.45)' : 'rgba(201, 182, 255, 0.65)';
+    ctx.shadowColor = FINISH_GLOWS[card.finish];
     ctx.shadowBlur = w * (card.finish === 'PLATINUM' ? 0.06 : 0.085);
-    ctx.fillStyle = '#121114';
+    ctx.fillStyle = INK;
     ctx.fill();
     if (card.finish === 'DIAMOND') {
-      ctx.shadowColor = 'rgba(126, 231, 255, 0.35)';
+      ctx.shadowColor = FINISH_GLOWS.DIAMOND_2;
       ctx.shadowBlur = w * 0.19;
       ctx.fill();
     }
@@ -137,7 +138,7 @@ const drawCard = (ctx: CanvasRenderingContext2D, img: HTMLImageElement, card: Po
   if (card.isHolo) {
     // Foil: the only gradient on the poster, as in the app.
     const shine = ctx.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
-    ['#ff7ac8', '#ffd23f', '#6ff2c6', '#7ab8ff', '#d38bff', '#ff7ac8'].forEach((c, i) => shine.addColorStop(i / 5, c));
+    FOIL_STOPS.forEach((c, i) => shine.addColorStop(i / 5, c));
     ctx.globalCompositeOperation = 'overlay';
     ctx.globalAlpha = 0.45;
     ctx.fillStyle = shine;
@@ -154,7 +155,7 @@ const drawCard = (ctx: CanvasRenderingContext2D, img: HTMLImageElement, card: Po
     const tw = Math.min(w * 0.9, ctx.measureText(label).width + size);
     const lh = size * 1.5;
     const y = h / 2 - lh - w * 0.05;
-    ctx.fillStyle = 'rgba(18, 17, 20, 0.9)';
+    ctx.fillStyle = CHIP_BG;
     roundRect(ctx, -tw / 2, y, tw, lh, 6);
     ctx.fill();
     ctx.fillStyle = card.finish ? FINISH_INFO[card.finish].color : '#ffffff';
@@ -188,10 +189,10 @@ const drawQr = (ctx: CanvasRenderingContext2D, qr: ReturnType<typeof qrcode>, x:
   const n = qr.getModuleCount();
   const quiet = 3;
   const cell = size / (n + quiet * 2);
-  ctx.fillStyle = '#f3efe6';
+  ctx.fillStyle = PAPER;
   roundRect(ctx, x, y, size, size, 6);
   ctx.fill();
-  ctx.fillStyle = '#121114';
+  ctx.fillStyle = INK;
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       if (qr.isDark(r, c)) ctx.fillRect(x + (c + quiet) * cell, y + (r + quiet) * cell, Math.ceil(cell), Math.ceil(cell));
@@ -209,10 +210,6 @@ const fitFont = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number, 
   }
 };
 
-const INK = '#121114';
-const PAPER = '#f3efe6';
-const MUTED = '#b6b0ba';
-const YELLOW = '#ffd23f';
 const LOGO_FONT = '"RubikGlitch", system-ui, sans-serif';
 const DISPLAY_FONT = '"Lilita One", system-ui, sans-serif';
 const BODY_FONT = '"Archivo Variable", system-ui, -apple-system, "Segoe UI", sans-serif';

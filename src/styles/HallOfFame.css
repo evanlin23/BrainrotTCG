@@ -75,7 +75,7 @@
 }
 
 .hof-entry:hover {
-  background: rgba(243, 239, 230, 0.05);
+  background: var(--tint-hover);
 }
 
 .hof-list li + li .hof-entry {
@@ -96,15 +96,15 @@
 }
 
 .hof-list li:nth-child(1) .hof-rank {
-  color: #ffd84a;
+  color: var(--medal-gold);
 }
 
 .hof-list li:nth-child(2) .hof-rank {
-  color: #d9e1ea;
+  color: var(--medal-silver);
 }
 
 .hof-list li:nth-child(3) .hof-rank {
-  color: #e2a26b;
+  color: var(--medal-bronze);
 }
 
 .hof-cards {
@@ -113,8 +113,8 @@
 
 .hof-cards img {
   width: 30px;
-  aspect-ratio: 687 / 1024;
-  border-radius: 3px;
+  aspect-ratio: var(--card-aspect);
+  border-radius: var(--radius-sm);
   object-fit: cover;
   box-shadow: 0 0 0 1.5px var(--bg-elevated);
 }
@@ -124,7 +124,7 @@
 }
 
 .hof-cards img.holo {
-  box-shadow: 0 0 0 1.5px var(--brand-3);
+  box-shadow: 0 0 0 1.5px var(--brand);
 }
 
 .hof-main {

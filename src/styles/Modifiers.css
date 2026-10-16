@@ -7,13 +7,13 @@
 }
 
 .finish-platinum {
-  --finish-glow: 0 0 18px rgba(168, 230, 255, 0.45);
-  --finish-thumb-glow: drop-shadow(0 0 5px rgba(168, 230, 255, 0.45));
+  --finish-glow: 0 0 18px var(--finish-platinum-glow);
+  --finish-thumb-glow: drop-shadow(0 0 5px var(--finish-platinum-glow));
 }
 
 .finish-diamond {
-  --finish-glow: 0 0 26px rgba(201, 182, 255, 0.65), 0 0 60px rgba(126, 231, 255, 0.35);
-  --finish-thumb-glow: drop-shadow(0 0 7px rgba(201, 182, 255, 0.65));
+  --finish-glow: 0 0 26px var(--finish-diamond-glow), 0 0 60px var(--finish-diamond-glow-2);
+  --finish-thumb-glow: drop-shadow(0 0 7px var(--finish-diamond-glow));
 }
 
 .mod-thumb.finish-platinum,
@@ -23,7 +23,7 @@
 
 .mod-thumb.misprint img,
 img.misprint {
-  --misprint-filter: drop-shadow(2px 0 0 rgba(255, 0, 90, 0.55)) drop-shadow(-2px 0 0 rgba(0, 230, 255, 0.55));
+  --misprint-filter: var(--misprint-drop);
 }
 
 .mod-thumb.misprint img,
@@ -41,9 +41,9 @@ img.finish-diamond {
   max-width: calc(100% - 6px);
   overflow: hidden;
   padding: 0 5px;
-  border-radius: 3px;
-  background: rgba(18, 17, 20, 0.9);
-  color: var(--finish, #fff);
+  border-radius: var(--radius-sm);
+  background: var(--chip-bg);
+  color: var(--finish, var(--white));
   font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.03em;
