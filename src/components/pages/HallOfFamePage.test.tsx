@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HallOfFameEntry } from '../../game/hallOfFameList';
 import HallOfFamePage from './HallOfFamePage';
 
-const { loadHallOfFame, loadPending } = vi.hoisted(() => ({ loadHallOfFame: vi.fn(), loadPending: vi.fn() }));
+const { loadHallOfFame, loadPending, checkPull } = vi.hoisted(() => ({ loadHallOfFame: vi.fn(), loadPending: vi.fn(), checkPull: vi.fn() }));
 vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame, loadPending }));
-// Re-verifying entries mines tickets; these tests only look at loading.
-vi.mock('../../game/pulls', () => ({ checkPull: () => new Promise(() => {}) }));
+// Re-verifying entries mines tickets: here a check only ends when it's stopped.
+vi.mock('../../game/pulls', () => ({ checkPull }));
 
 const ENTRY: HallOfFameEntry = {
   id: 'pull-1',
@@ -35,6 +35,8 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   loadHallOfFame.mockReset();
   loadPending.mockReset().mockResolvedValue(undefined);
+  checkPull.mockReset().mockImplementation((_proof: string, signal?: AbortSignal) =>
+    new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(new Error('Stopped')))));
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -131,6 +133,18 @@ describe('Hall of Fame loading', () => {
     await act(async () => root.render(<HallOfFamePage />));
     expect(loadPending).toHaveBeenCalledTimes(1);
     const signal = loadPending.mock.calls[0][2] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    act(() => root.unmount());
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('stops re-verifying a pull when the page closes, so its ticket stops waiting', async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    await act(async () => root.render(<HallOfFamePage onClose={() => {}} />));
+    expect(checkPull).toHaveBeenCalledTimes(1);
+    expect(checkPull.mock.calls[0][0]).toBe(ENTRY.proof);
+    const signal = checkPull.mock.calls[0][1] as AbortSignal;
     expect(signal.aborted).toBe(false);
 
     act(() => root.unmount());

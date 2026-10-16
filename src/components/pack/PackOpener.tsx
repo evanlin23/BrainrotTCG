@@ -207,8 +207,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
   });
 
   // From the first swipe until the summary, re-opening and checking other pulls start no new ticket
-  // (one already mining finishes), so this pack's ticket and animations get the device.
-  const live = isCutting || (isOpening && !showSummary) || (isPackCut && !isOpening);
+  // (one already mining finishes), so this pack's ticket and animations get the device; the summary
+  // then holds them until its cards have decoded (PackSummaryUI). Not while a
+  // sheet covers the pack: a check opened there (a shared pull or profile link) shouldn't wait for a
+  // reveal it hides. This pack's own ticket still holds while it mines (ticketMiner).
+  const live = !disabled && (isCutting || (isOpening && !showSummary) || (isPackCut && !isOpening));
   useEffect(() => (live ? holdLive() : undefined), [live]);
 
   // A pack that refused to open can be torn again, as its error asks.
@@ -536,6 +539,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, set, disabled = false, open
                 set={set}
                 onClose={closeSummary}
                 onShare={openedPack ? () => onShare(dealtPack()!) : undefined}
+                holdOptional={!disabled}
               />
             )}
           </Motion.div>

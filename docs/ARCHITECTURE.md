@@ -233,8 +233,9 @@ report the page by its allowlisted name, never the hash.
 ## Saves
 
 localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainrot-player-v1`
-(identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1` and
-`brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions),
+(identity), `brainrot-data-version` (migrations), `brainrot-reopen-pending-v1`,
+`brainrot-reopen-backoff-v1` (how long an automatic resume waits after re-opened packs couldn't be
+saved) and `brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions),
 `brainrot-save-stamp-v1` (changed by every import and move, so other open tabs can tell) and the `brainrot-before-import-v1`/`brainrot-before-move-v1` backups (kept for recovery by hand: the
 app never restores a save from them). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
