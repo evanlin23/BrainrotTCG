@@ -8,10 +8,11 @@ import { SUMMARY_DECODE_CAP_MS, useHoldUntilDecoded } from './useHoldUntilDecode
 let root: Root;
 let decoded: () => void;
 
-const Summary = ({ active = true }: { active?: boolean }) => {
+/** `prepared={false}` keeps the second card hidden, as CardImage does while a finish's inks render. */
+const Summary = ({ active = true, prepared = true }: { active?: boolean; prepared?: boolean }) => {
   const ref = useRef<HTMLUListElement>(null);
   useHoldUntilDecoded(ref, active);
-  return <ul ref={ref}><li><img alt="" /></li><li><img alt="" /></li></ul>;
+  return <ul ref={ref}><li><img alt="" /></li><li><img alt="" style={prepared ? {} : { visibility: 'hidden' }} /></li></ul>;
 };
 const render = (node: React.ReactNode) => act(() => root.render(node));
 /** Optional work queued now, and whether it has started. */
@@ -48,6 +49,17 @@ describe('holding optional work until the summary decodes', () => {
     expect(work).not.toHaveBeenCalled();
 
     await act(async () => decoded());
+    expect(work).toHaveBeenCalledOnce();
+  });
+
+  it('waits for a card that is still being prepared to show and decode', async () => {
+    await render(<Summary prepared={false} />);
+    const work = queue();
+    await act(async () => decoded());
+    expect(work).not.toHaveBeenCalled();
+
+    await render(<Summary />);
+    await act(async () => {});
     expect(work).toHaveBeenCalledOnce();
   });
 
