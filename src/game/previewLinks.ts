@@ -11,12 +11,16 @@
  * Every pull can't have its own picture without a server to draw it, but every hand's cards can:
  * about 2,200 pictures for all the sets.
  *
+ * A card with a modifier (a finish, a misprint or holo) also gets one page per modifier, naming it in
+ * the link text and reusing the card's picture: sha256("set/card/TOKEN"). A pack whose headline
+ * modifier is Gold or rarer (see headline) links to its headline card's page instead of its hand's.
+ *
  * The cards and hand in the path only choose the preview. The pull itself is re-derived from the
  * proof when the link is opened, as always, so a hand-edited path can dress up a preview but can't
  * change what the link proves.
  */
 import { sha256 } from '@noble/hashes/sha2.js';
-import { handFromCounts, POKER_HANDS, toHex, utf8, type HandKey } from '../engine';
+import { handFromCounts, POKER_HANDS, toHex, utf8, type Finish, type HandKey } from '../engine';
 
 /** How many copies of each face-up card a hand's preview shows, in order; card backs fill the rest. */
 export const PREVIEW_COPIES: Record<HandKey, readonly number[]> = {
@@ -57,8 +61,48 @@ export const previewOf = (cards: readonly { key: string }[]): Preview | undefine
  */
 export const previewPath = ({ setId, cardIds, hand }: Preview): string => pagePath(`${setId}/${cardIds.join('+')}/${hand}`);
 
-/** The preview page for one card, shared on its own (from the collection): just that card. */
-export const cardPreviewPath = (setId: string, cardId: string): string => pagePath(`${setId}/${cardId}`);
+/**
+ * The preview page for one card, shared on its own (from the collection): just that card. With a
+ * modifier token, the page that names that modifier (only sets with modifiers have them; see
+ * hasModifierPages). Without one, the code is the same as before.
+ */
+export const cardPreviewPath = (setId: string, cardId: string, token?: ModifierToken): string =>
+  pagePath(token ? `${setId}/${cardId}/${token}` : `${setId}/${cardId}`);
+
+/**
+ * A card's modifiers, rarest first: its finish, a misprint and holo. Equal odds (Platinum and a
+ * misprint, both 50 in 10,000) go to the finish. previewLinks.test.ts checks this order against the
+ * engine's odds.
+ */
+export const MODIFIER_TOKENS = ['DIAMOND', 'PLATINUM', 'MISPRINT', 'GOLD', 'HOLO', 'SILVER'] as const;
+export type ModifierToken = (typeof MODIFIER_TOKENS)[number];
+
+/** The modifiers rare enough to headline a pack's link (a card page instead of the hand's). */
+export const PACK_HEADLINE_TOKENS: readonly ModifierToken[] = ['DIAMOND', 'PLATINUM', 'MISPRINT', 'GOLD'];
+
+export interface ModifiedCard {
+  isHolo?: boolean;
+  finish?: Finish | null;
+  misprint?: boolean;
+}
+
+/** A card's modifier tokens, rarest first ([] for none). */
+export const modifierTokens = (card: ModifiedCard): ModifierToken[] =>
+  MODIFIER_TOKENS.filter((token) => (token === 'HOLO' ? card.isHolo : token === 'MISPRINT' ? card.misprint : card.finish === token));
+
+/** The rarest modifier among the cards and the card that has it (the first in the given order on a tie), or null. */
+export const headline = (cards: readonly ModifiedCard[]): { token: ModifierToken; cardIndex: number } | null => {
+  let best: { token: ModifierToken; cardIndex: number } | null = null;
+  cards.forEach((card, cardIndex) => {
+    const token = modifierTokens(card)[0];
+    if (token && (!best || MODIFIER_TOKENS.indexOf(token) < MODIFIER_TOKENS.indexOf(best.token))) best = { token, cardIndex };
+  });
+  return best;
+};
+
+/** Whether a set's cards have modifier pages: some version of the set rolls modifiers. */
+export const hasModifierPages = (setId: string, versions: readonly { id: string; modifiers?: number }[]): boolean =>
+  versions.some((set) => set.id === setId && !!set.modifiers);
 
 const pagePath = (key: string) => `p/${toHex(sha256(utf8(key))).slice(0, 8)}.html`;
 

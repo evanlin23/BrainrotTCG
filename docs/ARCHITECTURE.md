@@ -340,7 +340,12 @@ make it, `p/<code>.html#/pull/<proof>` (the code is 8 hex characters of
 `sha256("set/card+card/HAND")`, fixed forever). Its picture is the pack as five cards: those cards
 face up as many times as the hand has them, the rest face down. A Full House is the whole pack, Two
 Pair both pairs, 3 or 4 of a Kind or a Pair the matching card, and No Matches the best card. A card
-shared on its own gets a page with just that card (`sha256("set/card")`).
+shared on its own gets a page with just that card (`sha256("set/card")`). In sets with modifiers each
+card also has a page per modifier (`sha256("set/card/TOKEN")`, TOKEN one of DIAMOND, PLATINUM,
+MISPRINT, GOLD, HOLO, SILVER) with the same picture and a title naming it, like "💎 Diamond Jimothy ·
+Summer of Slop". A card shared on its own links its rarest modifier's page, and a pack whose rarest
+modifier is Gold or rarer links that card's (`headline()` in `src/game/previewLinks.ts`); other
+packs keep their hand's page. The share text names the pack's modifiers, rarest first.
 
 The deployed preview pages are generated ahead of time for the supported hands and cards, rather
 than generated for each unique pull. Their count and size grow with the published content.

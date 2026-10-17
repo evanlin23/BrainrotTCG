@@ -4,11 +4,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import { isOpenable, SETS } from '../src/content/sets/index.ts';
+import { ALL_SET_VERSIONS, isOpenable, SETS } from '../src/content/sets/index.ts';
 import { RARITIES_RAREST_FIRST, type SetDefinition } from '../src/engine/index.ts';
-import { cardPreviewPath, previewPath } from '../src/game/previewLinks.ts';
+import { modifierText } from '../src/game/modifierLabels.ts';
+import { cardPreviewPath, MODIFIER_TOKENS, previewPath } from '../src/game/previewLinks.ts';
 import { setIdFromHash } from '../src/game/route.ts';
-import { generatePreviews, optionsFromEnv, page, PREVIEW_CACHE_VERSION, previewCacheContract, setStubs } from './preview-pages.ts';
+import { escape, generatePreviews, optionsFromEnv, page, PREVIEW_CACHE_VERSION, previewCacheContract, setStubs } from './preview-pages.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const INDEX_HTML = readFileSync(`${ROOT}index.html`, 'utf8');
@@ -225,6 +226,44 @@ describe('generatePreviews (pages only)', () => {
       }
     }
     expect(files.filter((f) => f.startsWith('s/'))).toEqual(setStubs().map((s) => s.path).sort());
+  });
+
+  it("writes a page per modifier for each card of a set with modifiers, naming it, with the card's own picture", async () => {
+    const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'preview-pages-'))}/`;
+    dirs.push(outDir);
+    const withModifiers = ALL_SET_VERSIONS.find((set) => set.modifiers)!;
+    const genesis = ALL_SET_VERSIONS.find((set) => set.id === 'genesis')!;
+    expect(genesis.modifiers).toBeFalsy();
+    const base = '/BrainrotTCG/';
+    const { pages } = await generatePreviews({ outDir, pagesOnly: true, base, site: 'https://example.test/', versions: [genesis, withModifiers], sets: [] });
+    const html = (file: string) => readFileSync(`${outDir}${file}`, 'utf8');
+
+    const variants = new Set<string>();
+    for (const card of withModifiers.cards) {
+      const plain = tags(html(cardPreviewPath(withModifiers.id, card.id)));
+      for (const token of MODIFIER_TOKENS) {
+        const file = cardPreviewPath(withModifiers.id, card.id, token);
+        variants.add(file);
+        expect(pages.get(file)).toBe(`${withModifiers.id}/${card.id}/${token}`);
+        const meta = tags(html(file));
+        expect(meta.get('og:title')).toBe(escape(`${modifierText(token)} ${card.name} · ${withModifiers.name}`));
+        expect(meta.get('twitter:title')).toBe(meta.get('og:title'));
+        expect(meta.get('og:description')!.startsWith(escape(`${modifierText(token)} ${card.name} (`))).toBe(true);
+        expect(meta.get('twitter:description')).toBe(meta.get('og:description'));
+        expect(meta.get('og:image')).toBe(plain.get('og:image'));
+        expect(meta.get('twitter:image')).toBe(plain.get('og:image'));
+        // Like every pull page, it forwards with the pull in its '#'.
+        expect(redirectTarget(html(file))).toBe(base);
+        expect(landingOf(html(file))).toBe('');
+      }
+    }
+    expect(variants.size).toBe(withModifiers.cards.length * MODIFIER_TOKENS.length);
+    for (const card of genesis.cards) {
+      for (const token of MODIFIER_TOKENS) expect(pages.has(cardPreviewPath(genesis.id, card.id, token))).toBe(false);
+    }
+    // No new pictures: every picture a modifier page shows, a page without one shows too.
+    const pictures = (files: string[]) => new Set(files.map((file) => tags(html(file)).get('og:image')));
+    expect(pictures([...pages.keys()])).toEqual(pictures([...pages.keys()].filter((file) => !variants.has(file))));
   });
 
   it('writes a page for an archived set but none for a draft set', async () => {

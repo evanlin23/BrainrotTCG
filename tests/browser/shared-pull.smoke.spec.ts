@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { verifyProof } from '../../src/engine/proof';
 import type { PulledCard, SetDefinition } from '../../src/engine/types';
 import { STORAGE_KEYS } from '../../src/constants/config';
-import { cardPreviewPath, previewPath } from '../../src/game/previewLinks';
+import { cardPreviewPath, headline, previewPath, type ModifiedCard } from '../../src/game/previewLinks';
 import { expectDecoded, monitor, snapshot } from './support';
 
 const json = <T,>(path: string): T => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8')) as T;
@@ -303,6 +303,29 @@ for (const { vector, entry } of cases) {
     expect(loadFailures(errors, baseURL!, finishedCardIds)).toEqual([]);
   });
 }
+
+// A pack whose rarest modifier is Gold or rarer is shared through its card's page naming that
+// modifier (#612): the path only picks the preview text, and the pull still comes from the '#'.
+test('opens a pull shared through a card page naming its modifier', async ({ page, baseURL }) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+  const vector = vectors.valid.find((v) => v.note === 'modifiers: a misprint')!;
+  const [setId] = vector.set.split('@');
+  const top = headline(vector.cards as readonly ModifiedCard[])!;
+  expect(top).toEqual({ token: 'MISPRINT', cardIndex: 1 });
+  const { errors, openRoute } = await startJourney(page, baseURL!, { returning: true });
+  await openRoute('./');
+  const before = await proofState(page);
+  await openRoute(`./${cardPreviewPath(setId, vector.cards[top.cardIndex].cardId, top.token)}#/pull/${vector.proof}`);
+  await expect(page).toHaveURL(`${baseURL}#/pull/${vector.proof}`);
+  const pull = page.getByRole('dialog', { name: vector.hand, exact: true });
+  await expect(pull).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  await expect(pull).toContainText('Verified on this device');
+  await expect(pull.locator('.share-fp')).toHaveText(`#${vector.fingerprint}`);
+  await expect(pull.locator('.pack-viewer-cards > button')).toHaveCount(vector.cards.length);
+  expect(await proofState(page)).toEqual(before);
+  const finishedCardIds = vector.cards.flatMap((card) => 'finish' in card && card.finish ? [card.cardId] : []);
+  expect(loadFailures(errors, baseURL!, finishedCardIds)).toEqual([]);
+});
 
 const invalidVector = (note: string) => vectors.invalid.find((v) => v.note === note)!;
 const cutOff = { proof: 'cut-off', title: "This link doesn't work", reason: 'It looks cut off or changed' };

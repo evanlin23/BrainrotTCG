@@ -10,6 +10,7 @@ import { getPlayer } from '../../game/player';
 import { proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { cardStats } from '../../game/cardStats';
 import { copyText } from '../../game/shareActions';
+import { cardPreviewPath } from '../../game/previewLinks';
 import CardShareSheet from './CardShareSheet';
 
 vi.mock('../../game/history', async (importOriginal) => ({
@@ -115,5 +116,31 @@ describe('the per-card share text and poster', () => {
     expect(first).toMatch(new RegExp(`^\\S+ ${card.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · Gold Holo \\w+ · `));
     expect(first.endsWith(` · ${stats}`)).toBe(true);
     expect(second).toBe(`${getLatestSet(card.setId)!.name} in Brainrot TCG`);
+  });
+});
+
+describe('the link a card shares', () => {
+  const linkFor = async (setId: string, version: { isHolo: boolean; finish?: 'GOLD' | 'SILVER' | null; misprint?: boolean }) => {
+    const card = getSetCards(setId)[0];
+    const pack: PullRef = { setId, setVersion: getLatestSet(setId)!.version, nonce: 3, publicKeyHex: getPlayer().publicKeyHex };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} from={pack} onClose={() => {}} />));
+    const copy = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy text'))!;
+    await act(async () => copy.click());
+    const calls = vi.mocked(copyText).mock.calls;
+    return { link: calls[calls.length - 1][0].split('\n')[2], card, proof: proofFor(pack) };
+  };
+
+  it("goes through the page naming the card's rarest modifier", async () => {
+    const { link, card, proof } = await linkFor(DEFAULT_SET_ID, { isHolo: true, finish: 'SILVER', misprint: true });
+    expect(link).toBe(pullUrl(proof, cardPreviewPath(card.setId, card.key.split('/')[1], 'MISPRINT')));
+  });
+
+  it("keeps the card's plain page without a modifier, or in a set without modifier pages", async () => {
+    const plain = await linkFor(DEFAULT_SET_ID, { isHolo: false, finish: null, misprint: false });
+    expect(plain.link).toBe(pullUrl(plain.proof, cardPreviewPath(plain.card.setId, plain.card.key.split('/')[1])));
+    act(() => root.unmount());
+    root = createRoot(container);
+    const genesis = await linkFor('genesis', { isHolo: true });
+    expect(genesis.link).toBe(pullUrl(genesis.proof, cardPreviewPath('genesis', genesis.card.key.split('/')[1])));
   });
 });

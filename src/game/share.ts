@@ -1,4 +1,6 @@
 import type { Rarity, PackScore } from '../engine';
+import { MODIFIER_LABELS, modifierText } from './modifierLabels';
+import { MODIFIER_TOKENS, modifierTokens, type ModifiedCard } from './previewLinks';
 
 /** Each rarity's square and initial, so the row reads without colour (C U R E L B are all different). */
 export const RARITY_MARK: Record<Rarity, string> = {
@@ -10,14 +12,21 @@ export const RARITY_MARK: Record<Rarity, string> = {
   BRAINROT: '🟥B',
 };
 
-/** Wordle-style one-liner: rarity squares with initials, holo sparkles, hand and value. */
-export const bragText = (cards: { rarity: Rarity; isHolo: boolean }[], score: PackScore, setName: string, url: string) =>
-  [
+/**
+ * Wordle-style one-liner: rarity squares with initials and each card's modifier marks (✨ holo,
+ * 🥇 Gold, 🖨️ misprint...), then the pack's modifiers by name, rarest first (left out if none), hand
+ * and value.
+ */
+export const bragText = (cards: (ModifiedCard & { rarity: Rarity })[], score: PackScore, setName: string, url: string) => {
+  const tokens = new Set(cards.flatMap(modifierTokens));
+  return [
     `🧠 Brainrot TCG · ${setName}`,
-    cards.map((c) => RARITY_MARK[c.rarity] + (c.isHolo ? '✨' : '')).join(' '),
+    cards.map((c) => RARITY_MARK[c.rarity] + modifierTokens(c).map((t) => MODIFIER_LABELS[t].mark).join('')).join(' '),
+    ...(tokens.size ? [MODIFIER_TOKENS.filter((t) => tokens.has(t)).map(modifierText).join(' · ')] : []),
     `${score.hand.name}${score.hand.multiplier > 1 ? ` ×${score.hand.multiplier.toLocaleString('en-US')}` : ''} · 🧠 ${score.score.toLocaleString('en-US')} Brainrot Score`,
     `Verify it yourself: ${url}`,
   ].join('\n');
+};
 
 const SUBMITTED_KEY = 'brainrot-hof-submitted-v1';
 

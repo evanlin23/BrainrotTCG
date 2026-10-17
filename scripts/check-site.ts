@@ -11,7 +11,8 @@
  *   forwards to BASE_PATH (a set's page to #/set/<set id> there);
  * - the cache contract (docs/HOSTING.md): everything in assets/ has a content hash in its name, pages
  *   load their code and styles from there, every other file sits at the top or in p/ or s/, and a
- *   _headers file, if there is one, marks only assets/ immutable.
+ *   _headers file, if there is one, marks only assets/ immutable;
+ * - the build has at most MAX_SITE_FILES files (Cloudflare Pages takes 20,000 per deploy).
  *
  *   npm run build && npm run check:site                      (GitHub Pages, /BrainrotTCG/)
  *   BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/ npm run build    (Cloudflare Pages)
@@ -159,6 +160,12 @@ const expectedPreviewPages = async ({ base, site, versions, sets }: SiteCheckOpt
   }
 };
 
+/** Most files a build may have: Cloudflare Pages takes 20,000 per deploy, and this leaves room. */
+export const MAX_SITE_FILES = 19_000;
+
+export const checkFileCount = (count: number, max = MAX_SITE_FILES): AssetValidationError[] =>
+  count > max ? [{ path: '.', error: `Has ${count.toLocaleString('en-US')} files, over ${max.toLocaleString('en-US')} (Cloudflare Pages takes 20,000 per deploy)` }] : [];
+
 export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Promise<SiteCheckResult> => {
   const { base } = options;
   // SITE_URL may end in / or not: compare against it ending in exactly one, as the build writes it.
@@ -173,6 +180,7 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     return { pages: 0, images: 0, errors };
   }
   const files = filesIn(outDir);
+  errors.push(...checkFileCount(files.length));
   const present = new Set(files);
 
   /** A link from `from` (relative to the build) to the site's own files must stay under base and land on a file. */
