@@ -345,6 +345,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       blockedRef.current = true;
       return;
     }
+    // On a desktop window the stage scrolls and clips the pack, so a scrolled-off seam can map to a
+    // point over the app header or nav: only a press inside the stage can cut.
+    const stage = packRef.current?.closest?.('.pack-display');
+    const target = event.target;
+    if (stage && target instanceof Element && !stage.contains(target)) {
+      blockedRef.current = true;
+      return;
+    }
     measureRef.current = null;
     const point = getLocalPoint(event.clientX, event.clientY);
     // A press beside the pack, dragged onto it, doesn't cut either.
