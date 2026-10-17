@@ -24,6 +24,7 @@ const render = (sets = released, selectedId = set.id) => {
 };
 const openShelf = () => act(() => document.querySelector<HTMLButtonElement>('.set-current')!.click());
 const copyButton = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Copy link to'));
+const status = () => document.querySelector('.pack-shelf-share [role="status"]')!.textContent;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -35,6 +36,7 @@ afterEach(() => {
   host?.remove();
   root = undefined;
   copyText.mockClear();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -46,7 +48,34 @@ describe('SetPicker set link', () => {
     expect(button.textContent).toBe(`Copy link to ${set.name}`);
     await act(async () => button.click());
     expect(copyText).toHaveBeenCalledWith(`${location.origin}${import.meta.env.BASE_URL}s/${set.id}/`);
-    expect(document.querySelector('.pack-shelf-share [role="status"]')!.textContent).toBe('Link copied');
+    expect(status()).toBe('Link copied');
+  });
+
+  it('stops saying so once another set is chosen, and leaves no timer running after unmount', async () => {
+    vi.useFakeTimers();
+    const other = released[released.length - 2];
+    render();
+    openShelf();
+    const before = vi.getTimerCount();
+    await act(async () => copyButton()!.click());
+    expect(status()).toBe('Link copied');
+    expect(vi.getTimerCount()).toBe(before + 1);
+    act(() => root!.render(<SetPicker sets={released} selectedId={other.id} onSelect={() => {}} collection={{}} />));
+    expect(copyButton()!.textContent).toBe(`Copy link to ${other.name}`);
+    expect(status()).toBe('');
+    act(() => root!.unmount());
+    root = undefined;
+    expect(vi.getTimerCount()).toBe(before);
+  });
+
+  it('clears the message after a moment', async () => {
+    vi.useFakeTimers();
+    render();
+    openShelf();
+    await act(async () => copyButton()!.click());
+    expect(status()).toBe('Link copied');
+    act(() => vi.advanceTimersByTime(1800));
+    expect(status()).toBe('');
   });
 
   it('offers no link for a draft set, which has no page', () => {

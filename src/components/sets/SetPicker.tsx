@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { SetDefinition } from '../../engine';
 import { isNewSet, setCode } from '../../content/sets';
@@ -39,7 +39,13 @@ const palette = (set: SetDefinition) => {
  */
 const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }: SetPickerProps) => {
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  // The set whose link was just copied, so "Link copied" never shows under another set.
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!copiedId) return;
+    const timer = setTimeout(() => setCopiedId(null), 1800);
+    return () => clearTimeout(timer);
+  }, [copiedId]);
   if (sets.length < 2) return null;
 
   const index = Math.max(0, sets.findIndex((s) => s.id === selectedId));
@@ -51,10 +57,7 @@ const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }:
   const newElsewhere = sets.some((s) => s.id !== set.id && isNewSet(s));
   // A released set's own link previews as that set in chat apps and opens the packs screen on it.
   const copySetLink = async () => {
-    if (await copyText(`${siteUrl()}${setPagePath(set.id)}`)) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    }
+    if (await copyText(`${siteUrl()}${setPagePath(set.id)}`)) setCopiedId(set.id);
   };
 
   return (
@@ -157,7 +160,7 @@ const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }:
               <button type="button" className="btn btn--secondary btn--sm" onClick={copySetLink}>
                 Copy link to {set.name}
               </button>
-              <span role="status">{copied ? 'Link copied' : ''}</span>
+              <span role="status">{copiedId === set.id ? 'Link copied' : ''}</span>
             </p>
           )}
         </Sheet>

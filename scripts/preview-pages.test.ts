@@ -56,9 +56,11 @@ describe('optionsFromEnv', () => {
 });
 
 describe('setStubs', () => {
-  it('has a page for each set a player can open, from the set registry', () => {
+  it('has a page for each released set, archived ones included, from the set registry', () => {
     const stubs = setStubs();
-    expect(stubs.map((s) => s.setId)).toEqual(SETS.filter((s) => !s.draft && !s.archivedAt).map((s) => s.id));
+    expect(stubs.map((s) => s.setId)).toEqual(SETS.filter((s) => !s.draft).map((s) => s.id));
+    // Genesis is archived; its page stays, so the live s/genesis/ and links shared to it don't 404.
+    expect(stubs.map((s) => s.setId)).toContain('genesis');
     for (const stub of stubs) {
       expect(stub.path).toBe(`s/${stub.setId}/index.html`);
       expect(stub.url).toBe(`s/${stub.setId}/`);
@@ -68,10 +70,10 @@ describe('setStubs', () => {
     }
   });
 
-  it('leaves draft and archived sets out, which the app would not open on', () => {
-    const withClosed = [...SETS, draft(SETS[SETS.length - 1]), archived(OPENABLE)];
-    expect(setStubs(withClosed).map((s) => s.setId)).toEqual(setStubs(SETS).map((s) => s.setId));
-    expect(setStubs([draft(OPENABLE), archived(OPENABLE)])).toEqual([]);
+  it('leaves draft sets out but keeps archived ones, so shared links to them still load', () => {
+    const withMore = [...SETS, draft(SETS[SETS.length - 1]), archived(OPENABLE)];
+    expect(setStubs(withMore).map((s) => s.setId)).toEqual([...setStubs(SETS).map((s) => s.setId), `${OPENABLE.id}-archived`]);
+    expect(setStubs([draft(OPENABLE), archived(OPENABLE)]).map((s) => s.setId)).toEqual([`${OPENABLE.id}-archived`]);
   });
 
   it("shows up to five of the set's rarest cards and describes the set", () => {
@@ -180,12 +182,13 @@ describe('generatePreviews (pages only)', () => {
     expect(files.filter((f) => f.startsWith('s/'))).toEqual(setStubs().map((s) => s.path).sort());
   });
 
-  it('writes no page for a draft or archived set', async () => {
+  it('writes a page for an archived set but none for a draft set', async () => {
     const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'preview-pages-'))}/`;
     dirs.push(outDir);
     const sets = [OPENABLE, draft(SETS[SETS.length - 1]), archived(OPENABLE)];
     const { pages } = await generatePreviews({ outDir, pagesOnly: true, base: '/', site: 'https://example.test/', versions: [OPENABLE], sets });
-    expect([...pages.keys()].filter((p) => p.startsWith('s/'))).toEqual([`s/${OPENABLE.id}/index.html`]);
+    expect([...pages.keys()].filter((p) => p.startsWith('s/'))).toEqual([`s/${OPENABLE.id}/index.html`, `s/${OPENABLE.id}-archived/index.html`]);
+    expect(landingOf(readFileSync(`${outDir}s/${OPENABLE.id}-archived/index.html`, 'utf8'))).toBe(`#/set/${OPENABLE.id}-archived`);
   });
 });
 
