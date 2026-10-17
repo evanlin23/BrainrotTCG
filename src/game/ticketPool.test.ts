@@ -309,6 +309,18 @@ describe('ticket pool memory', () => {
     expect(computeTicket).not.toHaveBeenCalled();
   });
 
+  it("treats Argon2's memory that couldn't grow as running out of memory", async () => {
+    const created = pool(1);
+    const result = created.ticket('set@1', publicKey, 3);
+    const [failed] = ControlledWorker.instances;
+    failed.reply({ id: failed.requests[0].id, error: 'RangeError: Invalid typed array length: 33555456' });
+    expect(terminated(failed)).toBe(1);
+    const fresh = ControlledWorker.instances[1];
+    expect(fresh.requests.map((request) => request.nonce)).toEqual([3]);
+    fresh.reply();
+    expect(await result).toEqual(Uint8Array.of(3));
+  });
+
   it('gives up with a memory error after repeated failures, then keeps serving tickets', async () => {
     const created = pool(1);
     const outcome = created.ticket('set@1', publicKey, 3).catch((error: unknown) => error);
@@ -380,10 +392,10 @@ describe('ticket pool memory', () => {
     const created = pool(1);
     const ticket = created.ticket('set@1', publicKey, 0);
     const [worker] = ControlledWorker.instances;
-    worker.reply({ id: worker.requests[0].id, error: 'RangeError: Invalid typed array length: 4294967296' });
+    worker.reply({ id: worker.requests[0].id, error: 'RangeError: WebAssembly.Memory.grow(): Maximum memory size exceeded' });
     const error = await ticket.catch((e: unknown) => e);
     expect(error).not.toBeInstanceOf(TicketMemoryError);
-    expect(String(error)).toContain('Invalid typed array length');
+    expect(String(error)).toContain('Maximum memory size exceeded');
     expect(worker.requests).toHaveLength(1);
     expect(terminated(worker)).toBe(0);
   });
@@ -398,6 +410,10 @@ describe('ticket pool memory', () => {
       'RangeError: out of memory',
       'InternalError: out of memory',
       'Error: Out of memory',
+      // Argon2's 32 MiB view after hash-wasm's memory grow failed: Chrome, Safari, Firefox.
+      'RangeError: Invalid typed array length: 33555456',
+      'RangeError: Length out of range of buffer',
+      'RangeError: attempting to construct out-of-bounds Uint8Array on ArrayBuffer',
     ]) expect(isOutOfMemory(message), message).toBe(true);
     for (const message of [
       'invalid ticket input',
@@ -405,7 +421,6 @@ describe('ticket pool memory', () => {
       'RangeError: Maximum call stack size exceeded',
       // Other RangeErrors are a bug or a fixed limit, the same on every device: not worth a retry.
       'RangeError: Invalid array length',
-      'RangeError: Invalid typed array length: 4294967296',
       'RangeError: WebAssembly.Memory.grow(): Maximum memory size exceeded',
       'RangeError: WebAssembly.Table.get(): invalid index 7 into funcref table of size 4',
       'RangeError: offset is out of bounds',

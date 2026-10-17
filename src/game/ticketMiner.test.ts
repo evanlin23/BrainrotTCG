@@ -253,7 +253,7 @@ describe('ticket miner on the main thread', () => {
 
   it('does not retry other errors', async () => {
     noWorkers();
-    computeTicket.mockRejectedValueOnce(new RangeError('Invalid typed array length: 4294967296'));
+    computeTicket.mockRejectedValueOnce(new RangeError('WebAssembly.Memory.grow(): Maximum memory size exceeded'));
     const error = await live(7).catch((e: unknown) => e);
     expect(error).not.toBeInstanceOf(pool.TicketMemoryError);
     expect(computeTicket).toHaveBeenCalledOnce();

@@ -675,7 +675,10 @@ export interface ProfileProgress {
   error?: { rule?: ProofRule; message: string };
 }
 
-/** Counts verifyProfileLive calls: only the latest one may report. */
+/**
+ * Counts verifyProfileLive calls: only the latest one may report. This assumes one profile viewer at
+ * a time: a second caller running alongside would silently stop the first.
+ */
 let latestCheck = 0;
 
 /**
