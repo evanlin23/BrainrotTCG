@@ -494,7 +494,12 @@ put-backs are in `src/game/progressWriter.ts`), and a tab another tab
 has written past stops the same way instead of storing its older copy over that tab's packs. Packs it
 took off the pending shelf at load and hasn't stored or shelved since go back on it for the next load
 to add. Packs it opened itself aren't put back: any the shelf took when they opened are still there
-unless the other tab has taken and stored them, so putting them back could add them twice. If storage
+unless the other tab has taken and stored them, so putting them back could add them twice. The
+exception is a pack it stored that the other tab's collection then dropped (both passed the check at
+once): just before each collection write a tab records which packs that collection holds
+(`brainrot-stored-packs-v1`: the player key and nonce ranges, from the record it last read plus its new
+packs, and put back as it was if the collection write fails), and a stopped tab puts back the packs it
+stored that the record no longer lists, uncounted unless they came off the shelf counted. If storage
 refuses the put-back, the save warning stays up and the next change or storage event tries again.
 Settings stay last-writer-wins.
 Ticket numbers (`src/game/player.ts` `claimNonce`) are claimed under a Web Lock named for the
@@ -519,10 +524,30 @@ rewrites the stored count while the app watches the player (`watchPlayer`) when 
 one lands later, and shows the save warning when storage refuses the new count or that rewrite
 (after a reload that number could be handed out again).
 Limits: progress writes have no lock across tabs, so two tabs of one player writing in the same instant can
-both pass that check (the later write replaces the earlier, whose pack stays in the history; the
-earlier tab then hears the write and stops), and a tab that writes before an import's stamp reaches
-it can still overwrite an imported field (import with other tabs closed; the file and
-`brainrot-before-import-v1` remain). A tab stopped
+both pass that check; the later collection and record replace the earlier, and the earlier tab puts its
+dropped packs back as above. Each key is written on its own, the record first, so a tab that crashes
+between the record and its collection leaves the record listing packs the collection lacks. No tab has
+stored those, so no put-back asks about them, but later records keep listing them: once one is stored, a
+race that drops it can miss it. A change's writes go out together within a millisecond or so,
+so two tabs' writes reaching storage interleaved, a far narrower window than the storage event's lag,
+can leave one tab's record beside the other's collection or stats: a pack the record lists but the
+collection lacks isn't put back (the history keeps its ticket), and one the collection holds but the
+record lacks is put back and added twice. A duplicate is preferred over a loss; telling them apart would
+take a marker inside the collection's own key, which older builds would misread. Tabs of a build from
+before the record write none: one writing after a newer tab builds on that tab's collection, so the
+record stays right, but in a race with one a pack can drop out of the collection as before the record
+(the history keeps it), until those tabs reload. Builds from before #457 (served until about 2026-10-16
+07:15 UTC; the app doesn't reload itself after a deploy, so an open tab can keep running one) check
+nothing: on every change they store the progress they loaded with their own changes, so such a tab can
+drop a pack a newer tab stored, which the record and history still list; nothing puts that card back,
+though the history keeps its ticket. A collection write storage refuses (out of space) still stores the
+stats counting the packs it shelved, so when two tabs pass the check at once those stats can replace the
+other tab's count. If the record then can't be put back as it was, it also lists those shelved packs,
+which no tab has stored yet; only a later race over one of them could miss it. Putting the record back
+can also replace one another tab wrote in that instant; that tab, once stopped, then puts back that
+write's packs, which are added twice. And a tab that writes before an
+import's stamp reaches it can still overwrite an imported field (import with other tabs closed; the file
+and `brainrot-before-import-v1` remain). A tab stopped
 by an import that then failed and was undone stays stopped until it reloads. Storage cleared with no
 storage event (a browser's clear-site-data) is noticed at the next write, but a pack opened first
 stores this tab's player again, and if that save had no stamp the tab then writes its progress back. IndexedDB
