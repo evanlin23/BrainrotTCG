@@ -280,7 +280,7 @@ describe('Hall of Fame loading', () => {
       expect(status().parentElement?.classList.contains('hof-load-state--quiet')).toBe(false);
       expect(retryButton()?.disabled).toBe(true);
       expect(loadPending).not.toHaveBeenCalled();
-      expect(document.body.textContent).not.toContain('Checking for packs');
+      expect(document.body.textContent).not.toContain('Checking for');
     });
 
     it('shows the checking line as one quiet line, once the published list is loaded', async () => {
@@ -315,7 +315,7 @@ describe('Hall of Fame loading', () => {
         await act(async () => { vi.advanceTimersByTime(1); });
         expect(status().textContent).toBe('Rankings loaded.');
         expect(status().classList.contains('sr-only')).toBe(true);
-        expect(document.body.textContent).not.toContain('Checking for packs');
+        expect(document.body.textContent).not.toContain('Checking for');
         expect(retryButton()).toBeNull();
         expect(empty()).toContain('No pulls filed today yet.');
         expect(document.querySelector('.hof-yesterday')?.textContent).toContain("Yesterday's best");
