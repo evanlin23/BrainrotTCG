@@ -665,8 +665,7 @@
     }
 }
 
-.pack-shell.is-cutting .swipe-hint,
-.pack-shell.is-cut .swipe-hint {
+.pack-shell.is-cutting .swipe-hint {
     opacity: 0;
     transition: opacity var(--dur-slow) ease;
 }
@@ -741,15 +740,21 @@
     top: var(--y);
     width: calc(var(--size) * 2.5);
     height: calc(var(--size) * 2.5);
-    border-radius: var(--radius-pill);
-    background: hsl(var(--hue) 100% 65% / 1);
-    box-shadow:
-        0 0 20px hsl(var(--hue) 100% 65% / 1),
-        0 0 50px hsl(var(--hue) 100% 55% / 0.95),
-        0 0 80px var(--spark-glow);
+    /*
+     * A hot core fading through the spark's own hue to the warm glow and out, in one gradient: a
+     * swipe makes up to 220 of these, and blurred shadows plus a blend mode on each cost a phone about
+     * half its frame rate (#266). It animates only transform and opacity, so it stays on the compositor.
+     */
+    background: radial-gradient(
+        circle closest-side,
+        hsl(var(--hue) 100% 92% / 1) 0%,
+        hsl(var(--hue) 100% 78% / 1) 42%,
+        hsl(var(--hue) 100% 66% / 0.95) 62%,
+        var(--spark-glow) 78%,
+        transparent 100%
+    );
     transform: translate(-50%, -50%);
     animation: sparkPop var(--spark-life) ease-out forwards;
-    mix-blend-mode: screen;
 }
 
 @keyframes sparkPop {
