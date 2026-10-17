@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link2, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Link2, Loader2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { levelForXp, profileStats, publicName } from '../../engine';
 import { profileUrl, verifyProfileLive, type ProfileProgress } from '../../game/profiles';
 import ProfileSummary from './ProfileSummary';
@@ -22,6 +22,8 @@ type State = { status: 'invalid'; reason: string } | ({ status: 'checking' } & P
 const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
   const [state, setState] = useState<State | null>(null);
   const [copied, setCopied] = useState(false);
+  /** Bumped by "Try again": packs already re-opened are cached, so a retry picks up where it stopped. */
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -39,7 +41,7 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
       setState({ status: 'invalid', reason: error instanceof Error ? error.message : String(error) });
     }
     return () => controller.abort();
-  }, [proof]);
+  }, [proof, attempt]);
 
   // Until every pack is in: the claimed level, the (already re-opened) best packs, and the rest so far.
   const stats = useMemo(() => {
@@ -134,6 +136,18 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
               <span style={{ width: `${(packs.length / total) * 100}%` }} />
             </span>
             {highlights && <span className="profile-verify-sub">Best pulls checked. Level is as claimed until every pack is in.</span>}
+          </>
+        )}
+        {error && !fake && (
+          <>
+            <span className="profile-verify-sub">{error.message}</span>
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm profile-verify-retry"
+              onClick={() => setAttempt((n) => n + 1)}
+            >
+              <RotateCcw aria-hidden="true" /> Try again
+            </button>
           </>
         )}
       </div>
