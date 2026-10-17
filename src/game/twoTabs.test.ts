@@ -5,7 +5,7 @@ import { getSet } from '../content/sets';
 import type { CollectionItem, Settings, Stats } from '../types';
 import { guardProgress, type ProgressGuard } from './progressGuard';
 import { createProgressWriter, type HeldProgress, type ProgressWriter } from './progressWriter';
-import { onShelf, savePendingPack, type OpenedPack } from './pulls';
+import { onShelf, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
 
 const KEY = 'ab'.repeat(32);
 vi.mock('./player', () => ({
@@ -121,6 +121,53 @@ describe('two tabs of one player opening packs at once', () => {
     a.writer.commit({ ...withPack(withPack(loaded, 1), 0) });
     b.putBack();
     expect(onShelf(1)).toBe(false);
+    expect(onShelf(0)).toBe(false);
+  });
+
+  it('puts nothing back when an older build, which writes no record, stores after this tab', () => {
+    const a = tab();
+    savePendingPack(pack(0));
+    a.writer.packAdded(pack(0));
+    a.writer.commit(withPack(loaded, 0));
+    // The older build's tab reads A's collection and stores its own pack beside A's, leaving A's record.
+    const older = withPack(withPack(loaded, 0), 1);
+    localStorage.setItem(STORAGE_KEYS.COLLECTION, JSON.stringify(older.collection));
+    localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(older.stats));
+    // A's pack is in that collection, and the record still lists it: it stays off the shelf.
+    a.putBack();
+    expect(onShelf(0)).toBe(false);
+  });
+
+  it("leaves a record it couldn't restore listing only packs no tab has stored, so none is put back twice", () => {
+    // An earlier record, so restoring it after a refused collection is a write that can be refused too.
+    localStorage.setItem(STORAGE_KEYS.STORED_PACKS, JSON.stringify({ k: KEY, n: [[5, 5]] }));
+    const earlier = localStorage.getItem(STORAGE_KEYS.STORED_PACKS);
+    const a = tab();
+    savePendingPack(pack(0));
+    a.writer.packAdded(pack(0));
+    const setItem = Storage.prototype.setItem;
+    const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === STORAGE_KEYS.COLLECTION || (key === STORAGE_KEYS.STORED_PACKS && value === earlier)) {
+        throw new DOMException('full', 'QuotaExceededError');
+      }
+      setItem.call(this, key, value);
+    });
+    a.writer.commit(withPack(loaded, 0));
+    full.mockRestore();
+    // The record still lists pack 0, which went back on the shelf counted, beside the stats counting it.
+    expect(read(STORAGE_KEYS.STORED_PACKS).n).toEqual([[0, 0], [5, 5]]);
+    expect(read(STORAGE_KEYS.COLLECTION)).toBeNull();
+    expect(read(`${STORAGE_KEYS.PENDING_PACK_PREFIX}${KEY}:0`)).toHaveProperty('d', 1);
+    expect(read(STORAGE_KEYS.STATS).packsOpened).toBe(1);
+
+    // The next load adds it and stores it, which makes the record true; A, now stale, puts nothing back.
+    const b = tab();
+    const taken = takePendingPacks();
+    b.writer.packsTaken(taken);
+    for (const p of taken) b.writer.packAdded(p);
+    b.writer.commit({ ...withPack(loaded, 0), stats: stats(1) });
+    expect(Object.keys(read(STORAGE_KEYS.COLLECTION))).toEqual([cards[0].id]);
+    a.putBack();
     expect(onShelf(0)).toBe(false);
   });
 });
