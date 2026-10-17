@@ -27,6 +27,7 @@ vi.stubGlobal('localStorage', {
 vi.stubGlobal('window', new EventTarget());
 
 const RIGHT_NOW = getSet('right-now', 2)!;
+const RIGHT_NOW_V1 = getSet('right-now', 1)!;
 const GENESIS = getSet('genesis', 1)!;
 const PENDING = 'brainrot-reopen-pending-v1';
 
@@ -311,6 +312,18 @@ describe('the shared ticket list', () => {
     expect(kept).toEqual(views());
     return kept;
   };
+  const secretOf = () => (JSON.parse(data.get('brainrot-player-v1')!) as { secretKey: string }).secretKey;
+  const writeHistory = (entries: object[]) => data.set(STORAGE_KEYS.HISTORY, JSON.stringify(entries));
+  /** A history entry holding its pack's cards, as opening the pack stores it, and that pack. */
+  const opened = async (set: SetDefinition, nonce: number) => {
+    const player = getPlayer();
+    const cards = await derivePack(set, player.publicKey, nonce, computeTicket);
+    const score = scorePulled(cards);
+    const c = cards.map((x) => encodeCard({ id: x.cardId, holo: x.isHolo, finish: x.finish, misprint: x.misprint })).join(',');
+    const entry = { s: set.id, v: set.version, n: nonce, k: player.publicKeyHex.slice(0, 16), c, h: score.hand.name, x: score.score, t: nonce + 1 };
+    const pack: ProfilePack = { nonce, set, cards, score };
+    return { entry, pack };
+  };
 
   it('gives what a full rebuild gives after hydration, a new pack, an import and a player change', async () => {
     const player = setUp([GENESIS, RIGHT_NOW, RIGHT_NOW]);
@@ -368,5 +381,64 @@ describe('the shared ticket list', () => {
     const second = expectFresh();
     expect(second.stats).toEqual(profileStats([packs[1]]));
     expect(second.stats).not.toEqual(first.stats);
+  }, 30_000);
+
+  it('keeps one list through repeated reads and repeated notifications, and builds one per change', async () => {
+    setUp([]);
+    const secret = secretOf();
+    const a = await opened(GENESIS, 0);
+    const b = await opened(RIGHT_NOW, 1);
+    writeHistory([a.entry, b.entry]);
+    storePlayer(secret, 2);
+    const kept = expectFresh();
+    expect(kept.stats).toEqual(profileStats([a.pack, b.pack]));
+    // Stats live on the list, so the same object means the list wasn't built (or scored) again.
+    const stats = myStats();
+    for (let i = 0; i < 3; i++) {
+      // The same save written again (another tab, a repeated storage event) changes nothing.
+      writeHistory([a.entry, b.entry]);
+      storePlayer(secret, 2);
+      expect(views()).toEqual(kept);
+      expect(myStats()).toBe(stats);
+    }
+    const c = await opened(RIGHT_NOW, 2);
+    writeHistory([a.entry, b.entry, c.entry]);
+    storePlayer(secret, 3);
+    const next = myStats();
+    expect(next).not.toBe(stats);
+    expect(myStats()).toBe(next);
+    expect(expectFresh().stats).toEqual(profileStats([a.pack, b.pack, c.pack]));
+  }, 30_000);
+
+  it('builds the list again after a changed set version, a cache loss, a re-open landing and a reset', async () => {
+    setUp([]);
+    const secret = secretOf();
+    const a = await opened(GENESIS, 0);
+    const b = await opened(RIGHT_NOW, 1);
+    writeHistory([a.entry, b.entry]);
+    storePlayer(secret, 2);
+    // Every pack is in the history, so nothing is read and the saved packs count as read.
+    expect(await hydrateMyPacks()).toBe('ready');
+    expect(reads).toHaveLength(0);
+    expect(expectFresh().stats).toEqual(profileStats([a.pack, b.pack]));
+
+    // Changed provenance: an import maps ticket 1 to the set's first version, so it's another pack.
+    const old = await opened(RIGHT_NOW_V1, 1);
+    writeHistory([a.entry, old.entry]);
+    expect(expectFresh().stats).toEqual(profileStats([a.pack, old.pack]));
+
+    // Cache loss: out of space, the history drops ticket 1's cards (history.ts write), and this device
+    // never stored that pack, so it must be re-opened.
+    writeHistory([a.entry, { ...old.entry, c: undefined }]);
+    expect(expectFresh().info).toEqual({ packs: 2, filled: 0, missing: 1, cache: 'ready' });
+
+    // Recovery: re-opening stores the pack (as reopen's batches do), so it counts again.
+    await putStoredPacks([{ setKey: setKey(RIGHT_NOW_V1), publicKeyHex: getPlayer().publicKeyHex, nonce: 1, cards: old.entry.c }]);
+    expect(expectFresh()).toMatchObject({ stats: profileStats([a.pack, old.pack]), info: { missing: 0 }, own: 'ready' });
+
+    // Reset: a new save with no packs.
+    data.delete(STORAGE_KEYS.HISTORY);
+    storePlayer('fe'.repeat(32), 0);
+    expect(expectFresh()).toMatchObject({ stats: profileStats([]), progress: { level: 1, xp: 0, gained: 0 }, info: null });
   }, 30_000);
 });
