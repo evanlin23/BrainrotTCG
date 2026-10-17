@@ -7,12 +7,17 @@ import { monitor, expectDecoded, expectStill, fingerFor, type Finger } from './s
  * by touch or mouse saw a yellow ring round each card and took it for a selection (#312). The ring
  * stays for keyboard players who navigate: Tab, arrows, Home/End, Page keys and Escape set
  * data-input="keyboard" (components/ui/inputModality.ts). Space and Enter, which only drive the game,
- * set "press" and are as quiet as a click. Before any input it rings, for a screen reader or switch that moves focus with no key the page hears.
+ * set "press" and draw no yellow ring, but a keyboard player's control is never left with focus you
+ * can't see: it wears a thin neutral outline (tokens.css --focus-outline-quiet, WCAG 2.4.7), and a
+ * heading or note only script focuses wears nothing. Before any input it rings, for a screen reader or
+ * switch that moves focus with no key the page hears.
  * The phone check is Chromium's touch emulation at a 390px phone size, not a real phone.
  */
 
 /** The shared ring's outer edge (tokens.css --focus-ring). A rarity edge is 2px, never this. */
 const RING = 'rgb(255, 210, 63) 0px 0px 0px 4px';
+/** The quiet outline's colour (tokens.css --text-muted), on the controls Space or Enter left focused. */
+const QUIET_OUTLINE = 'rgb(182, 176, 186)';
 
 /** What an element shows as a ring: its outline and box-shadow, and its ::after's (the reveal card's ring). */
 const ringOf = (target: Locator) => target.evaluate((el) => {
@@ -21,6 +26,9 @@ const ringOf = (target: Locator) => target.evaluate((el) => {
     focusVisible: el.matches(':focus-visible'),
     input: document.documentElement.dataset.input,
     outline: own.outlineStyle,
+    outlineColor: own.outlineColor,
+    outlineWidth: own.outlineWidth,
+    outlineOffset: own.outlineOffset,
     shadows: `${own.boxShadow} | ${getComputedStyle(el, '::after').boxShadow}`,
   };
 });
@@ -39,7 +47,22 @@ async function expectRing(target: Locator, what: string, input = 'keyboard') {
   expect(await ringOf(target), what).toMatchObject({ focusVisible: true, input });
 }
 
+/** A heading or note script focused after Space or Enter: not a control, so nothing shows. */
 const expectNoRingAfterPress = (target: Locator, what: string) => expectNoRing(target, what, 'press');
+
+/** A control left focused by Space or Enter: no yellow ring, but a thin neutral outline, so focus is never invisible. */
+async function expectQuietOutlineAfterPress(target: Locator, what: string) {
+  const ring = await ringOf(target);
+  expect(ring, `${what}: focus`).toMatchObject({ focusVisible: true, input: 'press' });
+  expect(ring.shadows, `${what}: box-shadow`).not.toContain(RING);
+  expect(ring, `${what}: a neutral outline`).toMatchObject({
+    outline: 'solid',
+    outlineColor: QUIET_OUTLINE,
+    outlineWidth: '2px',
+    outlineOffset: '3px',
+  });
+  return ring;
+}
 
 const selectedText = (page: Page) => page.evaluate(() => document.getSelection()?.toString() ?? '');
 
@@ -220,18 +243,19 @@ test('opened by mouse: no ring on the cards, the pack or the result, and a drag 
   expect(errors).toEqual([]);
 });
 
-test('opened with Space alone: no ring on the pack, the cards or the result', async ({ page, baseURL }, testInfo) => {
+test('opened with Space alone: no yellow ring, but focus stays visible on the cards and the pack', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
   test.setTimeout(90000);
   const { errors } = await sealedPack(page, baseURL!);
   // The first Space opens the pack from the sealed screen, cutting it with no button pressed.
   await page.keyboard.press('Space');
-  await revealAll(page, () => page.keyboard.press('Space'), expectNoRingAfterPress);
+  await revealAll(page, () => page.keyboard.press('Space'), expectQuietOutlineAfterPress);
+  // The result is a heading, not a control: nothing shows on it.
   await expectNoRingAfterPress(page.locator('.summary-title'), 'the result');
-  // Space again closes the result; whatever focus lands on next rings nothing.
+  // Space again closes the result; the control focus lands on next wears the quiet outline, not the ring.
   await page.keyboard.press('Space');
   await expect(page.locator('.pack-summary')).toBeHidden();
-  await expectNoRingAfterPress(page.locator('.pack-open-button'), 'Open pack once the result closes');
+  await expectQuietOutlineAfterPress(page.locator('.pack-open-button'), 'Open pack once the result closes');
   expect(errors).toEqual([]);
 });
 
@@ -252,7 +276,7 @@ test('opened by keyboard: Tab rings, Space is quiet, Tab rings again, until a cl
   expect(await page.evaluate(() => document.documentElement.dataset.input)).toBe('press');
   await expectRing(pack, 'Open pack while Space is held', 'press');
   await page.keyboard.up('Space');
-  await revealAll(page, () => page.keyboard.press('Space'), expectNoRingAfterPress);
+  await revealAll(page, () => page.keyboard.press('Space'), expectQuietOutlineAfterPress);
   const title = page.locator('.summary-title');
   await expect(title).toBeFocused();
   await expectNoRingAfterPress(title, 'the result');

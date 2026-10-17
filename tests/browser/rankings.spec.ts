@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { monitor } from './support';
 
@@ -20,6 +20,16 @@ const entries = Array.from({ length: 45 }, (_, i) => ({
   cards: [],
   issue: 1000 + i,
   githubUser: 'fixture',
+}));
+
+/**
+ * Stand-in relays that answer every read with "nothing stored". `monitor` closes every socket, which the
+ * page reads as the live feed being down; this is a relay that works and has nothing, so an empty board
+ * is a real one. Nothing leaves the browser.
+ */
+const relaysAnswerEmpty = (page: Page) => page.routeWebSocket(/.*/, (socket) => socket.onMessage((message) => {
+  const [type, subscription] = JSON.parse(String(message)) as [string, string];
+  if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
 }));
 
 test('Rankings shows 20 rows, and each Show more adds 20 from the keyboard', async ({ page, baseURL }) => {
@@ -62,6 +72,7 @@ test.describe('at 320px with 200% text and reduced motion', () => {
     // 320px is an emulated phone width; 200% text doubles the root size the rem tokens use. Every
     // fixture was filed on 1 Oct 2026, so Today is empty and nothing reaches it from a relay.
     const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await relaysAnswerEmpty(page);
     await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: entries }));
     await page.goto('./#/rankings');
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
@@ -113,6 +124,32 @@ test.describe('at 320px with 200% text and reduced motion', () => {
   });
 });
 
+test('Rankings says the live feed is down, not that the board is empty, and Retry asks again', async ({ page, baseURL }) => {
+  // Every relay socket is closed (monitor), so recent pulls can't be seen. Nothing is sent or fetched.
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: entries }));
+  await page.goto('./#/rankings');
+  const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+  const panel = rankings.getByRole('tabpanel');
+  const status = rankings.getByRole('status');
+  await expect(status).toHaveText("Couldn't reach the live feed, so pulls sent recently may be missing. Try again.");
+  await expect(status).toBeVisible();
+  await expect(panel).toContainText('No filed pulls today that we can see.');
+  await expect(panel).not.toContainText('No pulls filed today yet.');
+  await expect(panel).not.toContainText('Yours could be first');
+  const retry = rankings.getByRole('button', { name: 'Retry loading rankings', exact: true });
+  await expect(retry).toBeVisible();
+  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+
+  // The relays come back with nothing stored: now an empty board is a real one.
+  await relaysAnswerEmpty(page);
+  await retry.click();
+  await expect(panel).toContainText('No pulls filed today yet.');
+  await expect(retry).toHaveCount(0);
+  await expect(status).toHaveText('Rankings loaded.');
+  expect(errors).toEqual([]);
+});
+
 test('Profile sorts best pulls first and names the filter for Rankings', async ({ page, baseURL }) => {
   // Three synthetic history rows, the same shape the performance runs use; never verified or sent.
   // They're stored newest first with the best in the middle, so Best and Newest differ.
@@ -131,6 +168,11 @@ test('Profile sorts best pulls first and names the filter for Rankings', async (
   const tabs = myCards.getByRole('tablist', { name: 'Sort packs', exact: true }).getByRole('tab');
   await expect(tabs).toHaveText(['Best', 'Newest', 'For Rankings · 0']);
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+  // "Best" is the shortest label: its text alone is about 35px wide, so the tab itself sets the 44px target.
+  for (const box of await Promise.all((await tabs.all()).map((tab) => tab.boundingBox()))) {
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+  }
   const scores = myCards.locator('.pulls-list .pull-row-score');
   await expect(scores).toHaveText(['900', '600', '300']);
   await tabs.nth(1).click();

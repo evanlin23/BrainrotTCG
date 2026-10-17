@@ -113,7 +113,8 @@ a {
 }
 
 /* Focus the app moves by script (the next card, the result, a dialog, a note after Retry) drops its
-   ring once a mouse, pen or touch press, or Space or Enter, is the player's last input. Browsers ring
+   ring once a mouse, pen or touch press, or Space or Enter, is the player's last input (after Space or
+   Enter a quiet outline stays, below). Browsers ring
    script focus that no click put there, and a tap on a phone rarely focuses anything, so to a touch
    player the ring reads as a selection (#312); the same goes for Space advancing the game. Those set
    data-input="pointer" or "press"; Tab, arrows, Home/End, Page keys and Escape set "keyboard"
@@ -125,6 +126,15 @@ a {
 :root:is([data-input='pointer'], [data-input='press']) :is([tabindex='-1'], .quiet-focus):not([data-ring-kept]):focus-visible {
   --focus-shadow: 0 0 transparent;
   outline: none;
+}
+
+/* Space or Enter is a keyboard player, so a control's focus is never left invisible (WCAG 2.4.7): no
+   yellow ring (the owner's call in #529), but a thin neutral outline, set off from the control, marks
+   where the key acts next. A mouse, pen or touch press has no such player, so it stays fully quiet
+   above, and so do the headings and notes only script focuses (tabindex -1): they are not controls. */
+:root[data-input='press'] .quiet-focus:not([data-ring-kept]):focus-visible {
+  outline: var(--focus-outline-quiet);
+  outline-offset: 3px;
 }
 
 .sr-only {
@@ -365,6 +375,7 @@ a {
 
 .tab {
   position: relative;
+  min-width: var(--touch-target);
   min-height: var(--touch-target);
   color: var(--text-muted);
   font-size: var(--text-base);

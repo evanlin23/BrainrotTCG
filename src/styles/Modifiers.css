@@ -38,15 +38,18 @@ img.finish-diamond {
   bottom: 4px;
   left: 50%;
   z-index: 3;
-  max-width: calc(100% - 6px);
+  max-width: calc(100% - 2px);
   overflow: hidden;
-  padding: 0 5px;
+  padding: 0 2px;
   border-radius: var(--radius-sm);
   background: var(--chip-bg);
   color: var(--finish, var(--white));
   font-size: var(--text-xs);
+  /* A single word ("Platinum", "Misprint") can't wrap and the text can't go under 12px, so on a
+     phone's five-across row it is set narrower rather than clipped to "PLATINU". */
+  font-stretch: 70%;
   font-weight: 800;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.01em;
   line-height: 1.25;
   text-align: center;
   text-transform: uppercase;

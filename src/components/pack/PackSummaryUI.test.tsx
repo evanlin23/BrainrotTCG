@@ -63,7 +63,7 @@ describe('result first', () => {
     expect(follows(title, guideLine) && follows(guideLine, list) && follows(list, actions)).toBe(true);
     expect(actions.nextElementSibling).toBeNull();
     expect(title.textContent).toMatch(/^[\d,]+ Brainrot Score$/);
-    expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Open another pack']);
+    expect([...actions.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Share', 'Next pack']);
     expect([...guideLine.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Card guide']);
     // No per-pack breakdown and no level progress: the guide explains scoring, Profile holds progress.
     expect(text()).not.toMatch(/XP|Level \d|How this score works|pts ×/);
@@ -89,7 +89,7 @@ describe('result first', () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     const caption = () => container.querySelector('.summary-caption')?.textContent;
-    expect(caption()).toBe('Tap a card to view');
+    expect(caption()).toBe('Select a card to view');
     const first = container.querySelector<HTMLButtonElement>('.summary-card')!;
     expect(first.getAttribute('aria-label')).toMatch(/^View .+ up close, /);
     act(() => first.click());
@@ -144,7 +144,7 @@ describe('sharing a card', () => {
 
   it('has one hint above the cards and no Share under each tile', () => {
     const caption = container.querySelector('.summary-caption')!;
-    expect(caption.textContent).toBe('Tap a card to view');
+    expect(caption.textContent).toBe('Select a card to view');
     expect(!!(caption.compareDocumentPosition(container.querySelector('.summary-cards')!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(container.querySelectorAll('.summary-cards li button')).toHaveLength(5);
     expect(container.querySelector('.summary-cards')!.textContent).not.toContain('Share');

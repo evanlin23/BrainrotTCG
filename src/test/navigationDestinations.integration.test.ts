@@ -101,10 +101,13 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
   expect(document.activeElement).toBe(hofStatus());
   published = new Response('[]', { headers: { 'content-type': 'application/json' } });
   await app.interact(() => button('Retry loading rankings').click());
-  await app.until('the retry loads the list', () => expect(hofStatus()?.textContent).toBe('Rankings loaded.'));
+  // The published list loads (empty), but the harness blocks every relay: the board says it can't see
+  // recent pulls, rather than claiming nothing was filed, and Retry stays.
+  await app.until('the retry loads the list and finds the live feed down', () => expect(hofStatus()?.textContent).toBe("Couldn't reach the live feed, so pulls sent recently may be missing. Try again."));
   expect(requested).toHaveLength(2);
-  expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).toContain('No pulls filed today yet.');
-  expect(document.querySelector('[aria-label="Retry loading rankings"]')).toBeNull();
+  expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).toContain('No filed pulls today that we can see.');
+  expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).not.toContain('Yours could be first');
+  expect(document.querySelector('[aria-label="Retry loading rankings"]')).not.toBeNull();
   // The legends are part of the app, so "Where it started" shows them whatever the network does.
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   await app.interact(() => { button('Where it started').focus(); button('Where it started').click(); });
