@@ -97,8 +97,8 @@ There is no chat, messaging, comments, friends list or profile bio. The public t
 - **Can they spend money?** No. Packs are free and there is nothing to buy (see Monetization).
 - **How do we erase local data?** Clear this site's data in the browser. That removes the saves and
   the signing key but not anything already shared or submitted.
-- **Who do we ask to remove an entry?** Open an issue on GitHub. A dedicated contact is the owner's
-  decision (see Content).
+- **Who do we ask to remove an entry?** Open an issue on GitHub. That is the project's only contact;
+  there is no email address.
 
 ### Content rating
 
@@ -115,8 +115,8 @@ for themselves.
   set's art are recorded in its `CREDITS.md` (Genesis, the archived first set, has none).
 - The licence is in [LICENSE](../LICENSE): MIT for the source code only. Art and other assets are
   covered by the notice below, not by MIT.
-- Not decided here, because it is the owner's: a dedicated takedown and removal contact such as an
-  email address. Until it is set, requests go through GitHub Issues (see the notice below).
+- Takedown and removal requests go through GitHub Issues (see the notice below). The owner chose
+  this as the only public contact; there is no email address.
 
 ### Art and assets notice
 
@@ -131,8 +131,8 @@ that every third-party item has been cleared.
   [opening an issue](https://github.com/evanlin23/BrainrotTCG/issues).
 - **Sources of card art.** Each set's `CREDITS.md` records where its images came from. Genesis,
   the archived first set, has no credits file.
-- **Fonts.** Lilita One and Rubik Glitch (`src/assets/fonts/`) are Google Fonts under the SIL Open
-  Font License 1.1 [scripts/cards/fonts/README.md].
+- **Fonts.** Lilita One [scripts/cards/fonts/README.md] and Rubik Glitch, in `src/assets/fonts/`,
+  are Google Fonts under the SIL Open Font License 1.1.
 
 #### Sound credits
 
