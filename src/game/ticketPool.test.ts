@@ -1,12 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeTicket, toHex } from '../engine';
 import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
-import { createTicketPool, poolSize, type TicketPool } from './ticketPool';
+import {
+  createTicketPool,
+  isOutOfMemory,
+  MAX_OOM_ATTEMPTS,
+  poolSize,
+  TICKETS_PER_WORKER,
+  TicketMemoryError,
+  type TicketPool,
+} from './ticketPool';
 
 vi.mock('../engine', async (importOriginal) => ({
   ...await importOriginal<typeof import('../engine')>(),
   computeTicket: vi.fn(),
 }));
+
+/** What Chrome on Android reported when verifying a long profile. */
+const OOM = 'RangeError: WebAssembly.instantiate(): Out of memory: Cannot allocate Wasm memory for new instance';
 
 class ControlledWorker {
   static instances: ControlledWorker[] = [];
@@ -15,6 +26,7 @@ class ControlledWorker {
   onerror: ((event: ErrorEvent) => void) | null = null;
   requests: TicketRequest[] = [];
   failPosts = false;
+  answered = 0;
   terminate = vi.fn();
   postMessage = vi.fn((request: TicketRequest) => {
     if (this.failPosts) throw new Error('postMessage failed');
@@ -28,7 +40,13 @@ class ControlledWorker {
 
   reply(response?: TicketResponse) {
     const request = this.requests[this.requests.length - 1];
+    this.answered++;
     this.onmessage?.({ data: response ?? { id: request.id, ticket: Uint8Array.of(request.nonce) } } as MessageEvent<TicketResponse>);
+  }
+
+  /** Answer the latest request the way a worker does when Wasm has no memory left. */
+  runOutOfMemory() {
+    this.reply({ id: this.requests[this.requests.length - 1].id, error: OOM });
   }
 
   crash() {
@@ -50,6 +68,8 @@ let computations: Computation[];
 let active: number;
 let maximumActive: number;
 const finish = (index: number) => computations[index].resolve(Uint8Array.of(computations[index].nonce));
+const terminated = (worker: ControlledWorker) => worker.terminate.mock.calls.length;
+const running = () => ControlledWorker.instances.filter((worker) => terminated(worker) === 0);
 
 beforeEach(() => {
   ControlledWorker.instances = [];
@@ -260,6 +280,122 @@ describe('ticket pool scheduling and lifecycle', () => {
   });
 });
 
+describe('ticket pool memory', () => {
+  it('retires a worker that ran out of memory and retries its ticket on a surviving worker', async () => {
+    const created = pool();
+    const requests = [0, 1].map((nonce) => created.ticket('set@1', publicKey, nonce));
+    const [survivor, failed] = ControlledWorker.instances;
+    failed.runOutOfMemory();
+    expect(terminated(failed)).toBe(1);
+    // The pool shrinks instead of starting a replacement while another worker is alive.
+    expect(ControlledWorker.instances).toHaveLength(2);
+    survivor.reply();
+    expect(survivor.requests.map((request) => request.nonce)).toEqual([1, 0]);
+    survivor.reply();
+    expect(await Promise.all(requests)).toEqual([0, 1].map((nonce) => Uint8Array.of(nonce)));
+    expect(computeTicket).not.toHaveBeenCalled();
+  });
+
+  it('starts a fresh worker when the last one runs out of memory', async () => {
+    const created = pool(1);
+    const result = created.ticket('set@1', publicKey, 3);
+    const [failed] = ControlledWorker.instances;
+    failed.runOutOfMemory();
+    expect(terminated(failed)).toBe(1);
+    const fresh = ControlledWorker.instances[1];
+    expect(fresh.requests.map((request) => request.nonce)).toEqual([3]);
+    fresh.reply();
+    expect(await result).toEqual(Uint8Array.of(3));
+    expect(computeTicket).not.toHaveBeenCalled();
+  });
+
+  it('gives up with a memory error after repeated failures, then keeps serving tickets', async () => {
+    const created = pool(1);
+    const outcome = created.ticket('set@1', publicKey, 3).catch((error: unknown) => error);
+    for (let attempt = 0; attempt < MAX_OOM_ATTEMPTS; attempt++) ControlledWorker.instances[attempt].runOutOfMemory();
+    const error = await outcome;
+    expect(error).toBeInstanceOf(TicketMemoryError);
+    expect((error as TicketMemoryError).message).toBe('This device ran out of memory. Close other tabs and try again.');
+    expect((error as TicketMemoryError).detail).toBe(OOM);
+    expect(ControlledWorker.instances).toHaveLength(MAX_OOM_ATTEMPTS + 1);
+    expect(running()).toHaveLength(1);
+    const next = created.ticket('set@1', publicKey, 4);
+    running()[0].reply();
+    expect(await next).toEqual(Uint8Array.of(4));
+    expect(computeTicket).not.toHaveBeenCalled();
+  });
+
+  it('replaces each worker after a few tickets and never runs more workers than its size', async () => {
+    const created = pool(2);
+    const total = TICKETS_PER_WORKER * 3;
+    const requests = Array.from({ length: total }, (_, nonce) => created.ticket('set@1', publicKey, nonce));
+    for (let done = 0; done < total; done++) {
+      expect(running().length).toBeLessThanOrEqual(2);
+      running().find((worker) => worker.requests.length > worker.answered)!.reply();
+    }
+    expect(await Promise.all(requests)).toEqual(Array.from({ length: total }, (_, nonce) => Uint8Array.of(nonce)));
+    expect(running()).toHaveLength(2);
+    const retired = ControlledWorker.instances.filter((worker) => terminated(worker) > 0);
+    expect(retired.length).toBeGreaterThanOrEqual(2);
+    expect(retired.every((worker) => terminated(worker) === 1 && worker.requests.length === TICKETS_PER_WORKER)).toBe(true);
+    expect(ControlledWorker.instances.every((worker) => worker.requests.length <= TICKETS_PER_WORKER)).toBe(true);
+    expect(computeTicket).not.toHaveBeenCalled();
+  });
+
+  it('rejects cleanly and leaves no worker running when closed after a recycle and a retry', async () => {
+    const created = pool(1);
+    const requests = Array.from({ length: TICKETS_PER_WORKER + 2 }, (_, nonce) => created.ticket('set@1', publicKey, nonce));
+    const outcomes = Promise.allSettled(requests);
+    for (let i = 0; i < TICKETS_PER_WORKER; i++) ControlledWorker.instances[0].reply();
+    // Recycled: a replacement took the next ticket, then ran out of memory and handed it on.
+    expect(ControlledWorker.instances).toHaveLength(2);
+    ControlledWorker.instances[1].runOutOfMemory();
+    expect(ControlledWorker.instances).toHaveLength(3);
+    const retry = ControlledWorker.instances[2];
+    expect(retry.requests.map((request) => request.nonce)).toEqual([TICKETS_PER_WORKER]);
+    const lateReply = retry.onmessage!;
+    created.close();
+    lateReply({ data: { id: retry.requests[0].id, ticket: Uint8Array.of(99) } } as MessageEvent<TicketResponse>);
+    const settled = await outcomes;
+    expect(settled.slice(0, TICKETS_PER_WORKER)).toEqual(
+      Array.from({ length: TICKETS_PER_WORKER }, (_, nonce) => ({ status: 'fulfilled', value: Uint8Array.of(nonce) })),
+    );
+    expect(settled.slice(TICKETS_PER_WORKER)).toEqual(
+      Array.from({ length: 2 }, () => ({ status: 'rejected', reason: new Error('Ticket pool closed') })),
+    );
+    expect(ControlledWorker.instances).toHaveLength(3);
+    expect(ControlledWorker.instances.every((worker) => terminated(worker) === 1)).toBe(true);
+    expect(computeTicket).not.toHaveBeenCalled();
+  });
+
+  it('reports a main-thread out-of-memory failure as a memory error', async () => {
+    vi.stubGlobal('Worker', undefined);
+    const created = pool();
+    const result = created.ticket('set@1', publicKey, 0);
+    computations[0].reject(new RangeError('WebAssembly.Memory(): could not allocate memory'));
+    await expect(result).rejects.toBeInstanceOf(TicketMemoryError);
+  });
+
+  it('recognises the ways browsers report running out of memory, and nothing else', () => {
+    for (const message of [
+      OOM,
+      'RangeError: WebAssembly.Memory(): could not allocate memory',
+      'RangeError: WebAssembly.Memory.grow(): Maximum memory size exceeded',
+      'RangeError: Array buffer allocation failed',
+      'RangeError: Invalid typed array length: 4294967296',
+      'RangeError: out of memory',
+      'InternalError: out of memory',
+      'Error: Out of memory',
+    ]) expect(isOutOfMemory(message), message).toBe(true);
+    for (const message of [
+      'invalid ticket input',
+      'Error: Invalid nonce',
+      'RangeError: Maximum call stack size exceeded',
+      'TypeError: Failed to fetch dynamically imported module',
+    ]) expect(isOutOfMemory(message), message).toBe(false);
+  });
+});
+
 describe('pool size', () => {
   const size = (deviceMemory: number | undefined, hardwareConcurrency: number) => {
     vi.stubGlobal('navigator', { deviceMemory, hardwareConcurrency });
@@ -275,5 +411,14 @@ describe('pool size', () => {
     expect(size(8, 16)).toBe(8);
     expect(size(8, 4)).toBe(3);
     expect(size(4, 16)).toBe(4);
+  });
+
+  it('gives small devices 2 workers and phones at most 4', () => {
+    expect(size(2, 8)).toBe(2);
+    expect(size(0.5, 8)).toBe(2);
+    vi.stubGlobal('navigator', { deviceMemory: 8, hardwareConcurrency: 8, userAgentData: { mobile: true } });
+    expect(poolSize()).toBe(4);
+    vi.stubGlobal('navigator', { deviceMemory: 8, hardwareConcurrency: 8, userAgentData: { mobile: false } });
+    expect(poolSize()).toBe(7);
   });
 });
