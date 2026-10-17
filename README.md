@@ -99,6 +99,11 @@ covers is in [Development and verification](docs/DEVELOPMENT.md#browser-smoke).
 Contributing? Start with [Development and verification](docs/DEVELOPMENT.md) before taking an issue.
 Policy on money, privacy and kids, and content and IP is in [docs/POLICIES.md](docs/POLICIES.md).
 
+## License
+
+The source code is [MIT](LICENSE). Card and pack art is all rights reserved, and memes, likenesses and sounds
+belong to their owners: see the [art and assets notice](docs/POLICIES.md#art-and-assets-notice).
+
 ## Adding cards and sets
 
 Sets are data: `src/content/sets/<set>/set.json` plus images. Every card uses the Genesis frame
