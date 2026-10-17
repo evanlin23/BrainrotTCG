@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, useEffect } from 'react';
+import { act, useEffect, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FAIRY_DUST_SRC, WOOSH_SRC, soundGain } from '../constants/audio';
@@ -716,6 +716,34 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('drops a queued frame as the tree is removed, so none can run flushSync after the unmount', () => {
+    // A layout cleanup runs while the tree is removed, parents before the siblings after them. A passive
+    // one waits until later, and a frame could run in between, so look from a sibling's layout cleanup.
+    const queuedAtRemoval: number[] = [];
+    const Witness = () => {
+      useLayoutEffect(() => () => { queuedAtRemoval.push(frames.size); }, []);
+      return null;
+    };
+    act(() => root.render(
+      <>
+        <Probe hold={(latest) => { cutter = latest; }} particles />
+        <Witness />
+      </>,
+    ));
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame');
+    down(at(0.3));
+    move(at(0.34));
+    move(at(0.36));
+    expect(frames.size).toBe(1);
+    const [queued] = frames.keys();
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    expect(queuedAtRemoval).toEqual([0]);
+    expect(cancel).toHaveBeenCalledWith(queued);
+    expect(frames.size).toBe(0);
   });
 
   it('stops listening for resizes and scrolls on unmount', () => {

@@ -146,6 +146,12 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     pendingSparkRef.current = null;
   }, []);
 
+  // Unmounting drops a frame that hasn't drawn. A layout cleanup runs as the tree is removed, but a
+  // passive one waits until after the next paint, and a frame could run its flushSync in between.
+  // Only this effect's own dependency (the stable cancelFrame) re-runs it, so a re-render can't drop
+  // a frame early.
+  useLayoutEffect(() => () => cancelFrame(), [cancelFrame]);
+
   const drawFrame = useCallback(() => {
     frameRef.current = null;
     const cuts = pendingCutsRef.current;
@@ -167,8 +173,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   }, []);
 
   // A resize or a scroll can move the pack under a press: measure it again at the next point. So can
-  // a pinch zoom or an on-screen keyboard, which move only the visual viewport. Unmounting drops a
-  // frame that hasn't drawn.
+  // a pinch zoom or an on-screen keyboard, which move only the visual viewport.
   useEffect(() => {
     const remeasure = () => { measureRef.current = null; };
     const viewport = window.visualViewport;
@@ -181,9 +186,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       window.removeEventListener('scroll', remeasure, { capture: true });
       viewport?.removeEventListener('resize', remeasure);
       viewport?.removeEventListener('scroll', remeasure);
-      cancelFrame();
     };
-  }, [cancelFrame]);
+  }, []);
 
   const resetCutState = useCallback(() => {
     cancelFrame();
