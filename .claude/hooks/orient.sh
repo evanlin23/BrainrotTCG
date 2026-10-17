@@ -11,6 +11,8 @@ state=.claude/state/NOW.md
 if [ -f "$state" ]; then
   echo "--- $state ---"
   head -80 "$state"
+  lines=$(wc -l < "$state")
+  [ "$lines" -gt 80 ] && echo "--- $state has $lines lines; only 80 shown. Trim done and history to fit before other work. ---"
 else
   echo "No $state here. /work rebuilds it from the \"Claude work ledger\" issue; merge nothing until it does."
 fi

@@ -65,10 +65,13 @@ The owner wants hands-off engineering from one Claude window, within a weekly us
   one PR only when you need its merge state.
 - Command output: summarize it. On failure quote only the failing test or lines.
 - Don't re-run checks that passed on unchanged code, or re-read files already in context.
-- Subagents: `implementer` and `reviewer` for tasks; `scout` (cheap search), `researcher` (web) and
-  `pr-triage` (queue sizing) run on cheaper models. The built-in Explore and general-purpose agents
-  use the main model, so prefer these. Brief each one with only what it needs and ask for a short
-  report. Run implementers one at a time: they share the checkout.
+- Subagents: `implementer` and `reviewer` for tasks, on Sonnet unless the coordinator passes
+  `model: "opus"` for engine, spec, storage or workflow changes; `scout` (cheap search),
+  `researcher` (web) and `pr-triage` (queue sizing) run on cheaper models too. The built-in Explore
+  and general-purpose agents use the main model, so prefer these. Brief each one with only what it
+  needs and ask for a short report. Run implementers one at a time: they share the checkout.
+- Don't start other sessions with `create_session`. They run on the main model, each pays the full
+  system prompt again, and their cost doesn't show up in this session's reports.
 - Long handoff docs, audits and issue threads: have a subagent distill them into the ledger instead
   of reading them in the main thread.
 - Reports, PR bodies and issue comments: what changed, what ran (pass or fail), what didn't run.
