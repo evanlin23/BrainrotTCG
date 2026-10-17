@@ -131,8 +131,9 @@ that every third-party item has been cleared.
   [opening an issue](https://github.com/evanlin23/BrainrotTCG/issues).
 - **Sources of card art.** Each set's `CREDITS.md` records where its images came from. Genesis,
   the archived first set, has no credits file.
-- **Fonts.** Lilita One [scripts/cards/fonts/README.md] and Rubik Glitch, in `src/assets/fonts/`,
-  are Google Fonts under the SIL Open Font License 1.1.
+- **Fonts.** Lilita One and Rubik Glitch, in `src/assets/fonts/` and, for card and pack art,
+  `scripts/cards/fonts/` [scripts/cards/fonts/README.md], are Google Fonts under the SIL Open Font
+  License 1.1.
 
 #### Sound credits
 

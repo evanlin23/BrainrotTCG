@@ -39,9 +39,10 @@ from a 390 px wide screen.
    a shared pull or profile, the broken-link notice and confirms. Every sheet is the same: a bottom
    sheet on phones, a centred dialog on wide screens, with the same header, close button, Escape key,
    focus handling and backdrop.
-5. **Readable before flashy.** Rubik Glitch is for the logo's wordmark only. The mark beside it
-   (nine squares, `src/styles/logoMark.ts`) is one path drawn everywhere: header, icons, pack
-   wrappers, share and link images. Headings and big numbers use Lilita One; everything else is
+5. **Readable before flashy.** Rubik Glitch is for the logo's wordmark only, misprinted ink then
+   brand in the header and on pack wrappers. The mark beside it (nine squares,
+   `src/styles/logoMark.ts`) is one path drawn everywhere: header, icons, pack wrappers, share and
+   link images. Headings and big numbers use Lilita One; everything else is
    Archivo, whose condensed widths set labels like a grading slab. Numbers are tabular.
 6. **Colour carries meaning.** Surfaces are a binder-black ramp with card-stock white text. There is
    one accent, price-sticker yellow, and it only marks the thing to do next (primary buttons,
