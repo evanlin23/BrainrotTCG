@@ -73,9 +73,7 @@ export interface CardsByRarity {
 }
 
 export interface Settings {
-  /** Music volume slider, 0 (off) to 1 (utils/settings.ts). */
-  musicVolume: number;
-  /** Sound effects volume slider (cards, the pack, voices), 0 (off) to 1. */
+  /** Sound effects volume slider (cards, the pack, voices), 0 (off) to 1 (utils/settings.ts). */
   effectsVolume: number;
   particlesEnabled: boolean;
   /** Hold good pulls for three seconds; defaults to on for older saves. Effects still play when off. */

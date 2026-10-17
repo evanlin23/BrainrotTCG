@@ -44,7 +44,8 @@ const hallOfFame = (value: unknown) => record(value)
     && boolean(v.achieved) && number(v.date) && optional(v, 'cardId', text) && optional(v, 'cards', (c) => values(c, count))));
 const settings = (value: unknown) => record(value)
   && ['soundEnabled', 'particlesEnabled', 'pauseBigPulls', 'showDraftSets', 'showAllPages'].every((key) => optional(value, key, boolean))
-  // readSettings clamps any finite slider value into 0..1, so accept what it can read.
+  // readSettings clamps any finite slider value into 0..1, so accept what it can read. musicVolume is the
+  // removed music slider: older saves still carry it and readSettings drops it.
   && ['musicVolume', 'effectsVolume'].every((key) => optional(value, key, (v) => typeof v === 'number' && Number.isFinite(v)))
   && ['cardBack', 'packFoil'].every((key) => optional(value, key, text));
 // Same rule as recordPack: an entry it would refuse must never be imported, or every later pack write fails.

@@ -29,7 +29,7 @@ test('shows a big pull with its ribbon clear of the card, and holds notices unti
   await page.addInitScript((origin) => {
     if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
     localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 21, createdAt: 1 }));
-    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
   }, origin);
   // Records every change to the ribbon and the notice in the page, so the checks below don't race
   // the showcase's timers or the notices'.
@@ -147,7 +147,7 @@ test('keeps the halo still and the ribbon unscaled when motion is reduced, with 
   await page.addInitScript((origin) => {
     if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
     localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 22, createdAt: 1 }));
-    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
   }, origin);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
@@ -208,7 +208,7 @@ test('keeps the ribbon a full touch target, and clear of the card, at 200% text 
   await page.addInitScript((origin) => {
     if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
     localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 22, createdAt: 1 }));
-    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
   }, origin);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');

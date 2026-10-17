@@ -22,7 +22,7 @@ import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE }
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, dismissCollectionRecovery } from './game/collectionRecovery';
-import { musicLevel, readSettings } from './utils/settings';
+import { readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
@@ -45,7 +45,6 @@ import {
   checkHistoryAchievements,
 } from './utils/achievementChecks';
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
-import swedenSrc from './assets/audio/Sweden.mp3';
 
 // Keep loaders stable. A page or sheet is requested when its route or state opens it, or a moment
 // earlier when the player points at, focuses or presses what opens it: never at startup (unless the
@@ -186,35 +185,6 @@ function App() {
     target?.focus({ preventScroll: true });
   }, [route, routeMoved]);
 
-  const bgMusicRef = useRef<HTMLAudioElement | null>(null);
-
-  // Background music. Browsers (phones always) only allow sound after a tap or a key, so it starts on
-  // the first one if it couldn't start on load; and it isn't downloaded until it plays, so it doesn't
-  // hold up the pack art on a slow connection.
-  useEffect(() => {
-    const bgMusic = new Audio();
-    bgMusic.preload = 'none';
-    bgMusic.src = swedenSrc;
-    bgMusic.volume = musicLevel(settings.musicVolume);
-    bgMusic.loop = true;
-    bgMusicRef.current = bgMusic;
-
-    const events = ['pointerdown', 'keydown'] as const;
-    const startOnInput = () => {
-      events.forEach((e) => window.removeEventListener(e, startOnInput));
-      if (bgMusic.volume > 0 && bgMusic.paused) bgMusic.play().catch(() => { });
-    };
-    if (settings.musicVolume > 0) {
-      bgMusic.play().catch(() => events.forEach((e) => window.addEventListener(e, startOnInput)));
-    }
-
-    return () => {
-      events.forEach((e) => window.removeEventListener(e, startOnInput));
-      bgMusic.pause();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Saved packs (IndexedDB) are read a page at a time while the app runs, aborted on unmount.
   useEffect(() => watchMyPacks(), []);
   // Hear about another tab's import, player switch or clear before this one next writes (see samePlayer),
@@ -276,15 +246,6 @@ function App() {
     document.documentElement.dataset.cardBack = usable(CARD_BACKS, settings.cardBack, rewardLevel);
     document.documentElement.dataset.packFoil = usable(PACK_FOILS, settings.packFoil, rewardLevel);
   }, [settings.cardBack, settings.packFoil, rewardLevel]);
-
-  // Follow the music slider (0 is off)
-  useEffect(() => {
-    const bgMusic = bgMusicRef.current;
-    if (!bgMusic) return;
-    bgMusic.volume = musicLevel(settings.musicVolume);
-    if (settings.musicVolume === 0) bgMusic.pause();
-    else if (bgMusic.paused) bgMusic.play().catch(() => { });
-  }, [settings.musicVolume]);
 
   // Apply retroactive achievements (without notifications to avoid spam on load)
   const applyRetroactive = useCallback((ids: readonly string[]) => {

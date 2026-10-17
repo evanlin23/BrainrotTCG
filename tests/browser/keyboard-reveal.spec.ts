@@ -41,7 +41,7 @@ const ring = (target: Locator, pseudo?: '::after') => target.evaluate((el, pseud
 const seedNonce21 = (page: Page, baseURL: string) => page.addInitScript((origin) => {
   if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
   localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 21, createdAt: 1 }));
-  localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+  localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
 }, new URL(baseURL).origin);
 
 /** Every region that speaks on its own, and what it says now. */

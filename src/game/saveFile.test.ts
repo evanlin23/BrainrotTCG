@@ -15,7 +15,7 @@ const fixture = () => ({
   player: player(),
   collection: JSON.stringify({ [ALL_CARDS[0].key]: { card: ALL_CARDS[0], normalCount: 1, holoCount: 0 } }),
   stats: JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackCards: [] }),
-  achievements: '{}', hallOfFame: '{}', settings: '{"particlesEnabled":true,"musicVolume":0.5,"effectsVolume":1}',
+  achievements: '{}', hallOfFame: '{}', settings: '{"particlesEnabled":true,"effectsVolume":1}',
   history: JSON.stringify([{ s: ALL_CARDS[0].setId, v: 1, n: 0, k: 'abc', c: ALL_CARDS[0].id, h: 'No Match', x: 10, t: 1 }]),
 });
 
@@ -116,7 +116,8 @@ describe('Save & backup preflight', () => {
     ['settings array', { settings: '[]' }],
     ['invalid settings flag', { settings: '{"particlesEnabled":"yes"}' }],
     ['invalid show-every-page flag', { settings: '{"showAllPages":"yes"}' }],
-    ['non-numeric volume', { settings: '{"musicVolume":"loud"}' }],
+    ['non-numeric volume', { settings: '{"effectsVolume":"loud"}' }],
+    ['non-numeric legacy music volume', { settings: '{"musicVolume":"loud"}' }],
     ['non-finite volume', { settings: '{"effectsVolume":1e999}' }],
     ['Hall of Fame array', { hallOfFame: '[]' }],
     ['invalid Hall of Fame date', { hallOfFame: '{"first4OfAKind":{"achieved":true,"date":"now"}}' }],
@@ -206,7 +207,18 @@ describe('Save & backup preflight', () => {
     const settings = '{"musicVolume":1.5,"effectsVolume":-0.25}';
     expect(importSaveFile(JSON.stringify({ ...fixture(), settings }))).toBeNull();
     expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
-    expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!))).toMatchObject({ musicVolume: 1, effectsVolume: 0 });
+    expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!))).toMatchObject({ effectsVolume: 0 });
+  });
+
+  it("imports an older build's settings with the removed music slider and the old sound switch", () => {
+    const settings = '{"musicVolume":0.5,"soundEnabled":true,"effectsVolume":0.4,"particlesEnabled":false,"pauseBigPulls":false,"cardBack":"midnight"}';
+    expect(importSaveFile(JSON.stringify({ ...fixture(), settings }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
+    const read = readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!));
+    expect(read).toEqual({ effectsVolume: 0.4, particlesEnabled: false, pauseBigPulls: false, cardBack: 'midnight' });
+    // The sound switch alone, from before the sliders: off still mutes effects.
+    expect(importSaveFile(JSON.stringify({ ...fixture(), settings: '{"soundEnabled":false}' }))).toBeNull();
+    expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).effectsVolume).toBe(0);
   });
 
   it("moves the previous player's omitted data and recovery archive to the backup when the save brings another player", () => {

@@ -165,12 +165,6 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                 <h2 id="settings-sound" className="section-title">Sound &amp; display</h2>
                 <div className="settings-panel">
                     <SliderRow
-                        label="Music"
-                        desc="Background music"
-                        value={settings.musicVolume}
-                        onChange={(musicVolume) => onSettingsChange({ ...settings, musicVolume })}
-                    />
-                    <SliderRow
                         label="Sound effects"
                         desc="Cards, the pack and voices"
                         value={settings.effectsVolume}

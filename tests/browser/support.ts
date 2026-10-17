@@ -58,7 +58,7 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
       localStorage.setItem('brainrot-player-v1', JSON.stringify({
         secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: historyRecords, createdAt: 1,
       }));
-      localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+      localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
       if (returning) {
         localStorage.setItem(keys.STATS, JSON.stringify({ packsOpened: Math.max(historyRecords, 1), holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
       }

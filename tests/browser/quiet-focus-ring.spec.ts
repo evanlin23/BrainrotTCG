@@ -82,7 +82,7 @@ async function expectNothingRingedAtBoot(page: Page) {
 const seedNonce21 = (page: Page, baseURL: string) => page.addInitScript((origin) => {
   if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
   localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 21, createdAt: 1 }));
-  localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+  localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
 }, new URL(baseURL).origin);
 
 async function sealedPack(page: Page, baseURL: string) {

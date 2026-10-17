@@ -142,4 +142,5 @@ that every third-party item has been cleared.
 | Ding, card flip, woosh, fairy dust | `src/assets/effects/ding.mp3`, `src/assets/audio/Card-flip-sound-effect.mp3`, `src/assets/audio/woosh.mp3`, `src/assets/audio/fairy-dust-sound-effect.mp3` | [Pixabay](https://pixabay.com/), under the [Pixabay Content License](https://pixabay.com/service/license-summary/) |
 | Voice lines | `src/assets/voices/ElevenLabs_*.mp3`, `src/assets/voices/what-brainrot.mp3` | Generated with [ElevenLabs](https://elevenlabs.io/) |
 | Meme sound clips | `src/assets/effects/rizz-sound-effect.mp3`, `src/assets/effects/taco-bell-bong-sfx.mp3`, `src/assets/effects/vine-boom.mp3` | Sourced via [MyInstants](https://www.myinstants.com/). Rights belong to their owners; removed on request |
-| Background music | `src/assets/audio/Sweden.mp3` | Source is being replaced with a Pixabay track. No licence is claimed for the current file |
+
+The game has no background music.
