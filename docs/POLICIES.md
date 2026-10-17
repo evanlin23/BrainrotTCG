@@ -112,5 +112,29 @@ for themselves.
   packs, so new players can't get its cards; old pulls and proofs stay valid [docs/ADDING_A_SET.md].
 - The owner approves tone, rights and art for every new set or draft flag removal; sources for each
   set's art are recorded in its `CREDITS.md`.
-- Not decided here, because they are the owner's: the licence for code and art, and the takedown
-  and removal contact. Until they are set, nothing in this repository states either.
+- The licence is in [LICENSE](../LICENSE): MIT for the source code only. Art and other assets are
+  covered by the notice below, not by MIT.
+- Not decided here, because it is the owner's: a dedicated takedown and removal contact such as an
+  email address. Until it is set, requests go through GitHub Issues (see the notice below).
+
+### Art and assets notice
+
+This is a statement of what the project claims and uses. It is not legal advice and does not claim
+that every third-party item has been cleared.
+
+- **Original art.** Original card and pack art is all rights reserved by Evan Lin. It is not covered
+  by the MIT licence, and the MIT licence gives no right to copy or reuse it.
+- **Memes, characters and likenesses.** Meme references, characters and real-person likenesses
+  belong to their respective owners. The game is a non-commercial parody and fan project. Rights
+  holders and depicted people can ask for removal by
+  [opening an issue](https://github.com/evanlin23/BrainrotTCG/issues).
+- **Sources of card art.** Each set's `CREDITS.md` records where its images came from.
+
+#### Sound credits
+
+| Sound | Files | Source and terms |
+|---|---|---|
+| Ding, card flip, woosh, fairy dust | `src/assets/effects/ding.mp3`, `src/assets/audio/Card-flip-sound-effect.mp3`, `src/assets/audio/woosh.mp3`, `src/assets/audio/fairy-dust-sound-effect.mp3` | [Pixabay](https://pixabay.com/), under the [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| Voice lines | `src/assets/voices/ElevenLabs_*.mp3`, `src/assets/voices/what-brainrot.mp3` | Generated with [ElevenLabs](https://elevenlabs.io/) |
+| Meme sound clips | `src/assets/effects/rizz-sound-effect.mp3`, `src/assets/effects/taco-bell-bong-sfx.mp3`, `src/assets/effects/vine-boom.mp3` | Sourced via [MyInstants](https://www.myinstants.com/). Rights belong to their owners; removed on request |
+| Background music | `src/assets/audio/Sweden.mp3` | Source is being replaced with a Pixabay track. No licence is claimed for the current file |
