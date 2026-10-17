@@ -323,4 +323,20 @@ describe('checkCacheContract', () => {
     // The same shape that isn't any source file's name is Vite's: an all-lowercase hash is one.
     expect(checkCacheContract(['assets/finish-rainbowz.webp'], '/', undefined, new Set(['finish-rainbows.webp']))).toEqual([]);
   });
+
+  it("passes a hashed file's sourcemap, but not the sourcemap of a file that keeps its name", () => {
+    const maps = ['assets/index-AbCd1234.js.map', 'assets/index-AbCd_-12.css.map', 'assets/chunks/pack-Zz9_Yy8-.js.map'];
+    expect(checkCacheContract([...files, ...maps], '/', undefined, new Set(['index.ts', 'index.css']))).toEqual([]);
+    expect(checkCacheContract(['assets/index.js.map', 'assets/cards/x/card.webp.map'], '/', undefined)).toEqual(
+      ['assets/index.js.map', 'assets/cards/x/card.webp.map'].map((path) => ({ path, error: 'Has no content hash in its name, but assets/ is cached as if it never changes' })),
+    );
+  });
+
+  it("fails the sourcemap of a file whose hashed-looking name is a source file's own name", () => {
+    const map = 'assets/finish-rainbows.webp.map';
+    expect(checkCacheContract([...files, map], '/', undefined, new Set(['finish-rainbows.webp']))).toEqual([
+      { path: map, error: 'Has no content hash in its name, but assets/ is cached as if it never changes' },
+    ]);
+    expect(checkCacheContract([map], '/', undefined, new Set(['finish-rainbowz.webp']))).toEqual([]);
+  });
 });

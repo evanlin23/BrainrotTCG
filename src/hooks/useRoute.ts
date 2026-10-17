@@ -16,6 +16,7 @@ export const isBrokenLink = (hash: string) => !pageForHash(hash) && isLinkHash(h
  * - `brainrotOverPack`: that Open entry is a pack's, still showing its summary.
  * - `brainrotLinks`: how many shared-link entries this one sits on above the page they opened over.
  * - `brainrotRoute`: that page, which stays behind the link's viewer.
+ * - `brainrotSetLink`: a set's link typed over the app, already followed (useSetLink). It's an Open entry.
  */
 type EntryState = {
   brainrotPack?: boolean;
@@ -23,6 +24,7 @@ type EntryState = {
   brainrotOverPack?: boolean;
   brainrotLinks?: number;
   brainrotRoute?: Page;
+  brainrotSetLink?: boolean;
 };
 
 /** An entry nothing has marked yet: one the browser just made for a link or page typed, pasted or followed. */

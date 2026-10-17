@@ -80,8 +80,8 @@ const withNonces = (ranges: readonly [number, number][], nonces: readonly number
  * that then stored what it holds would drop that tab's packs, cards and unlocks. Checked before every
  * write, so the tab refuses instead and the player reloads to continue with the newer progress.
  * Storage has no lock across tabs: two tabs writing in the same instant can both pass the check, and
- * the later write replaces the earlier (the history keeps that pack). The tab that wrote first then
- * hears the other's write (watchProgress) and stops.
+ * the later write replaces the earlier. The tab that wrote first then hears the other's write
+ * (watchProgress), stops, and puts back the packs that write dropped (see dropped).
  */
 export const guardProgress = (): ProgressGuard => {
   const seen = new Map(GUARDED_PROGRESS.map((key) => [key, stored(key)]));
@@ -110,7 +110,10 @@ export const guardProgress = (): ProgressGuard => {
         if (seenPacks === null) localStorage.removeItem(STORAGE_KEYS.STORED_PACKS);
         else localStorage.setItem(STORAGE_KEYS.STORED_PACKS, seenPacks);
       } catch {
-        // It stays claiming packs the collection doesn't hold: a tab that went stale keeps those off the shelf.
+        // It then also lists this tab's packs that the collection doesn't hold. No tab has stored those, so no
+        // put-back asks about them (see dropped) until one is stored. Records built on this one keep listing them
+        // though, so a tab whose collection lacks one can still list it, and if that tab's write drops the stored
+        // pack in a race, the pack isn't put back (the history keeps its ticket).
       }
     },
     dropped: (player, nonces) => {
