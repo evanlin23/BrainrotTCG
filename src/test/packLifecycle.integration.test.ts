@@ -2,6 +2,7 @@
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
+import { shelfKeys, shelvedPacks } from './pendingShelf';
 import { STORAGE_KEYS } from '../constants/config';
 import type { CollectionItem, Stats } from '../types';
 import { getSet } from '../content/sets';
@@ -12,11 +13,15 @@ afterEach(async () => { await app?.dispose(); app = undefined; });
 
 const read = <T,>(key: string): T => JSON.parse(localStorage.getItem(key) ?? 'null');
 type Shelved = { n: number; d?: number }[] | null;
-/** Packs on the pending shelf (the list key; older builds' one-pack key is checked separately). */
-const shelf = () => read<Shelved>(STORAGE_KEYS.PENDING_PACKS);
+/** Packs on the pending shelf, by nonce, or null when it has none (earlier builds' keys are checked separately). */
+const shelf = (): Shelved => {
+  const packs = shelvedPacks();
+  return packs.length > 0 ? packs : null;
+};
 /** The pack in older builds' one-pack entry. */
 const legacyEntry = () => read<{ n: number; d?: number } | null>(STORAGE_KEYS.PENDING_PACK);
 const expectShelvesEmpty = () => {
+  expect(shelfKeys()).toEqual([]);
   expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).toBeNull();
   expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACK)).toBeNull();
 };
@@ -27,7 +32,7 @@ const button = (label: string) => {
   return element!;
 };
 const snapshot = () => Object.fromEntries([STORAGE_KEYS.COLLECTION, STORAGE_KEYS.STATS, STORAGE_KEYS.HISTORY,
-  STORAGE_KEYS.PENDING_PACKS, STORAGE_KEYS.PENDING_PACK, 'brainrot-player-v1'].map((key) => [key, localStorage.getItem(key)]));
+  STORAGE_KEYS.PENDING_PACKS, STORAGE_KEYS.PENDING_PACK, 'brainrot-player-v1', ...shelfKeys()].map((key) => [key, localStorage.getItem(key)]));
 
 it('records and awards one real pack, preserving exact cards/modifiers and keeping the save byte-identical after reconstructed reload', async () => {
   app = await mountedApp({
@@ -114,10 +119,11 @@ const SEED = {
 };
 const packsOpened = (packs: number) => JSON.stringify({ packsOpened: packs, holoCards: {}, highestPackValue: 0, highestPackCards: [] });
 /** Storage too full for the collection (or the given keys); everything else still fits. */
+/** Storage refuses writes to these keys, and to any key under a prefix among them. */
 const fillStorage = (keys: string[] = [STORAGE_KEYS.COLLECTION]) => {
   const setItem = Storage.prototype.setItem;
   return vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
-    if (keys.includes(key)) throw new DOMException('Full', 'QuotaExceededError');
+    if (keys.some((k) => key.startsWith(k))) throw new DOMException('Full', 'QuotaExceededError');
     setItem.call(this, key, value);
   });
 };
@@ -267,7 +273,7 @@ it('keeps a pack taken off the shelf in this tab, and says so, when neither the 
     [STORAGE_KEYS.PENDING_PACKS]: JSON.stringify([{ s: set.id, v: set.version, n: 4, c: cards, t: 1 }]),
   });
   // Storage is near full: the shelf can be emptied, but nothing can be put back on it.
-  const full = fillStorage([STORAGE_KEYS.COLLECTION, STORAGE_KEYS.PENDING_PACKS]);
+  const full = fillStorage([STORAGE_KEYS.COLLECTION, STORAGE_KEYS.PENDING_PACKS, STORAGE_KEYS.PENDING_PACK_PREFIX]);
   await app.mount();
   await app.until('the blocked collection reports the pack it could not shelve', () =>
     expect(app!.takeErrors(/couldn't be put back on the pending shelf/)).toHaveLength(1));
@@ -299,7 +305,7 @@ it('says the shelf holds a counted copy when the stats counting it, and then the
   let shelfWrites = 0;
   const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
     if (key === STORAGE_KEYS.COLLECTION || key === STORAGE_KEYS.STATS) throw new DOMException('Full', 'QuotaExceededError');
-    if (key === STORAGE_KEYS.PENDING_PACKS && shelfWrites++ > 0) throw new DOMException('Full', 'QuotaExceededError');
+    if (key.startsWith(STORAGE_KEYS.PENDING_PACK_PREFIX) && shelfWrites++ > 0) throw new DOMException('Full', 'QuotaExceededError');
     setItem.call(this, key, value);
   });
   await app.mount();

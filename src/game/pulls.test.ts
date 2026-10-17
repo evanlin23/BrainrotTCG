@@ -36,31 +36,49 @@ vi.mock('./bestCards', async (importOriginal) => {
 const data = new Map<string, string>();
 let refuseRemove: (key: string) => boolean = () => false;
 let refuseWrite: (key: string, value: string) => boolean = () => false;
+/** Every write in order, while a test records them (see inStaleTab). */
+let writes: [string, string | null][] | null = null;
 vi.stubGlobal('localStorage', {
   getItem: (k: string) => data.get(k) ?? null,
   setItem: (k: string, v: string) => {
     if (refuseWrite(k, v)) throw new DOMException('Full', 'QuotaExceededError');
     data.set(k, v);
+    writes?.push([k, v]);
   },
   removeItem: (k: string) => {
     if (refuseRemove(k)) throw new DOMException('Denied', 'SecurityError');
     data.delete(k);
+    writes?.push([k, null]);
   },
+  get length() {
+    return data.size;
+  },
+  key: (i: number) => [...data.keys()][i] ?? null,
 });
 
 const SET = getSet('right-now', 2)!;
 const PENDING = JSON.stringify({
   s: SET.id, v: SET.version, n: 4, c: SET.cards.slice(0, 5).map((c) => encodeCard({ id: c.id, holo: false })).join(','), t: 1,
 });
-/** The packs this build keeps (a list), and the one-pack entry older builds keep. */
+/** The list of packs earlier builds of this one kept, and the one-pack entry older builds keep. */
 const LIST = STORAGE_KEYS.PENDING_PACKS;
 const LEGACY = STORAGE_KEYS.PENDING_PACK;
 const shelved = () => JSON.parse(data.get(LIST) ?? 'null');
 const entry = (n: number, extra: object = {}) => ({ ...JSON.parse(PENDING), n, ...extra });
+/** Each pack this build keeps has an entry of its own. */
+const PREFIX = STORAGE_KEYS.PENDING_PACK_PREFIX;
+const ME = () => getPlayer().publicKeyHex;
+const keyOf = (p: { k: string; n: number }) => `${PREFIX}${p.k}:${p.n}`;
+/** This player's pack as this build keeps it. */
+const mine = (n: number, extra: object = {}) => entry(n, { k: ME(), ...extra });
+const put = (...packs: { k: string; n: number }[]) => packs.forEach((p) => data.set(keyOf(p), JSON.stringify(p)));
+/** The packs in entries of their own, by number. */
+const own = () => [...data.keys()].filter((k) => k.startsWith(PREFIX)).map((k) => JSON.parse(data.get(k)!)).sort((a, b) => a.n - b.n);
 const reset = () => {
   data.clear();
   refuseRemove = () => false;
   refuseWrite = () => false;
+  writes = null;
   miner.mine = mineAtOnce;
   bestCards.throws = false;
 };
@@ -78,6 +96,26 @@ describe('pending pack when storage refuses to remove it', () => {
     refuseRemove = () => false;
     expect(takePendingPacks()).toMatchObject([{ setId: SET.id, nonce: 4, cards: expect.any(Array) }]);
     expect(data.has(LIST)).toBe(false);
+
+    // The same for a pack in an entry of its own.
+    data.delete(LEGACY);
+    put(mine(5));
+    refuseRemove = (k) => k.startsWith(PREFIX);
+    expect(takePendingPacks()).toEqual([]);
+    expect(own()).toEqual([mine(5)]);
+    refuseRemove = () => false;
+    expect(takePendingPacks().map((p) => p.nonce)).toEqual([5]);
+    expect(own()).toEqual([]);
+  });
+
+  it("says so when a stored pack's entry can't be removed", () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    put(mine(4));
+    refuseRemove = (k) => k.startsWith(PREFIX);
+    clearPendingPack(4, 5);
+    expect(own()).toEqual([mine(4)]);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('the next load may add 1 stored pack(s) again'));
+    error.mockRestore();
   });
 
   it("drops an older build's entry it can't add on load, as older builds do", () => {
@@ -142,29 +180,29 @@ describe('a pack put back on the shelf', () => {
     data.set(LIST, `[${PENDING}]`);
     const [pack] = takePendingPacks();
     savePendingPack(pack);
-    expect(shelved()[0]).not.toHaveProperty('d');
+    expect(own()).toEqual([mine(4)]);
     savePendingPack({ ...pack, counted: true });
-    expect(shelved()[0].d).toBe(1);
+    expect(own()).toEqual([mine(4, { d: 1 })]);
     expect(takePendingPacks()).toMatchObject([{ nonce: 4, counted: true, cards: pack.cards.map(({ key }) => expect.objectContaining({ key })) }]);
 
     for (const d of [0, true, '1', null]) {
       data.set(LIST, JSON.stringify([{ ...JSON.parse(PENDING), d }]));
       expect(takePendingPacks()[0].counted).toBeUndefined();
+      put(mine(4, { d }));
+      expect(takePendingPacks()[0].counted).toBeUndefined();
     }
   });
 
   it('leaves the shelf as it was when the counted flag tips storage over its quota, and the uncounted copies still fit', () => {
-    const owed = [entry(4), entry(5), entry(6)];
-    data.set(LIST, JSON.stringify(owed));
-    const [four, five] = takePendingPacks();
-    // Room for the shelf as it was, not for the few bytes the flag adds.
-    const room = JSON.stringify(owed).length;
-    data.set(LIST, JSON.stringify([entry(6)]));
-    refuseWrite = (k, v) => k === LIST && v.length > room;
+    data.set(LIST, JSON.stringify([entry(4), entry(5), entry(6)]));
+    const [four, five, six] = takePendingPacks();
+    savePendingPack(four, six);
+    // Room for five as it was, not for the few bytes the flag adds; four's flag was already written.
+    refuseWrite = (k, v) => k === keyOf(mine(5)) && v.includes('"d":1');
     expect(savePendingPack({ ...four, counted: true }, { ...five, counted: true })).toBe(false);
-    expect(shelved()).toEqual([entry(6)]);
+    expect(own()).toEqual([mine(4), mine(6)]);
     expect(savePendingPack(four, five)).toBe(true);
-    expect(shelved()).toEqual([entry(6), entry(4), entry(5)]);
+    expect(own()).toEqual([mine(4), mine(5), mine(6)]);
     expect(takePendingPacks().map((p) => p.counted)).toEqual([undefined, undefined, undefined]);
   });
 });
@@ -183,14 +221,14 @@ describe('several packs owed at once', () => {
     // An owed pack an older build stored in its one-pack entry.
     data.set(LEGACY, JSON.stringify(entry(4, { d: 1 })));
     expect(savePendingPack(next)).toBe(true);
-    expect(shelved()).toEqual([expect.objectContaining({ n: 5 })]);
+    expect(own()).toEqual([mine(5)]);
     // Putting a pack back replaces its own entry.
     savePendingPack({ ...next, counted: true });
-    expect(shelved()).toEqual([expect.objectContaining({ n: 5, d: 1 })]);
+    expect(own()).toEqual([mine(5, { d: 1 })]);
     expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(4, { d: 1 }));
 
     expect(takePendingPacks()).toMatchObject([{ nonce: 4, counted: true, legacy: true }, { nonce: 5, counted: true }]);
-    expect(data.has(LIST)).toBe(false);
+    expect(own()).toEqual([]);
     // The older build's entry stays until a stored collection holds its pack.
     expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(4, { d: 1 }));
     clearPendingPack(4, 5);
@@ -204,7 +242,7 @@ describe('several packs owed at once', () => {
     clearPendingPack(5);
     savePendingPack(five);
     expect(data.has(LEGACY)).toBe(false);
-    expect(shelved()).toEqual([expect.objectContaining({ n: 6 }), expect.objectContaining({ n: 5 })]);
+    expect(own()).toEqual([mine(5), mine(6)]);
 
     // An older tab's pack: this build leaves its entry as that tab wrote it, and copies it nowhere,
     // so once that tab clears it (it reached that tab's collection) no one adds it again.
@@ -237,6 +275,13 @@ describe('several packs owed at once', () => {
     expect(shelved()).toEqual([other]);
     clearPendingPack(7);
     expect(shelved()).toEqual([other]);
+  });
+
+  it("clears only the stored packs' own entries, never another player's", () => {
+    const other = entry(5, { k: 'ab'.repeat(32) });
+    put(mine(4), mine(5), mine(6), other);
+    clearPendingPack(5, 6);
+    expect(own()).toEqual([mine(4), other]);
   });
 
   it('keeps the other owed packs when the shorter shelf fits only once the old one is gone', () => {
@@ -285,32 +330,34 @@ describe('several packs owed at once', () => {
     error.mockRestore();
   });
 
-  it("keeps another player's packs the shelf couldn't keep, and writes them back once with the next shelf write", () => {
+  it("keeps another player's packs the list couldn't keep, and writes each to an entry of its own with the next shelf write", () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const [four, six] = [pack(4), pack(6)];
     const other = entry(7, { k: 'ab'.repeat(32) });
     data.set(LIST, JSON.stringify([other, entry(4), entry(5)]));
-    refuseWrite = (k) => k === LIST;
+    refuseWrite = (k) => k === LIST || k.startsWith(PREFIX);
     clearPendingPack(5);
     expect(data.has(LIST)).toBe(false);
     // Nothing of this player's is left to take off, but the held packs get another try.
     clearPendingPack(4);
-    expect(data.has(LIST)).toBe(false);
+    expect(own()).toEqual([]);
     refuseWrite = () => false;
     clearPendingPack(4);
-    expect(shelved()).toEqual([other]);
-    // Once stored, this tab no longer holds them, so later writes don't add them again.
+    expect(own()).toEqual([other]);
+    expect(data.has(LIST)).toBe(false);
+    // That player's next load takes it. This tab no longer holds it, so later writes don't put it back.
+    data.delete(keyOf(other));
     expect(savePendingPack(six)).toBe(true);
-    expect(shelved()).toEqual([other, expect.objectContaining({ n: 6 })]);
+    expect(own()).toEqual([mine(6)]);
 
-    // The same when a save puts this player's packs back: the held packs go on the shelf with them.
+    // The same when a save puts this player's packs back: the held packs are written with them.
     data.set(LIST, JSON.stringify([other, entry(4)]));
     refuseWrite = (k) => k === LIST;
-    expect(takePendingPacks().map((p) => p.nonce)).toEqual([4]);
+    expect(takePendingPacks().map((p) => p.nonce)).toEqual([4, 6]);
     expect(data.has(LIST)).toBe(false);
     refuseWrite = () => false;
     expect(savePendingPack({ ...four, counted: true })).toBe(true);
-    expect(shelved()).toEqual([other, expect.objectContaining({ n: 4, d: 1 })]);
+    expect(own()).toEqual([mine(4, { d: 1 }), other]);
     error.mockRestore();
   });
 
@@ -347,15 +394,21 @@ describe('several packs owed at once', () => {
   it('keeps every owed pack when the shelf is full, and reports the new one as not saved', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const [five, ten] = [pack(5), pack(10)];
-    const full = Array.from({ length: 50 }, (_, i) => entry(i + 10));
-    data.set(LIST, JSON.stringify(full));
+    const full = Array.from({ length: 50 }, (_, i) => mine(i + 10));
+    put(...full);
     expect(savePendingPack(five)).toBe(false);
-    expect(shelved()).toEqual(full);
+    expect(own()).toEqual(full);
     expect(error).toHaveBeenCalledOnce();
     // Owed packs are still updated beside it.
     expect(savePendingPack({ ...ten, counted: true }, five)).toBe(false);
-    expect(shelved()).toEqual([entry(10, { d: 1 }), ...full.slice(1)]);
+    expect(own()).toEqual([mine(10, { d: 1 }), ...full.slice(1)]);
     expect(savePendingPack(ten)).toBe(true);
+    // Packs still on the list earlier builds kept count too.
+    data.clear();
+    data.set(LIST, JSON.stringify(full));
+    expect(savePendingPack(five)).toBe(false);
+    expect(own()).toEqual([]);
+    expect(shelved()).toEqual(full);
     error.mockRestore();
   });
 
@@ -363,19 +416,21 @@ describe('several packs owed at once', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const [five, ten] = [pack(5), pack(10)];
     const theirs = Array.from({ length: 45 }, (_, i) => entry(i + 100, { k: 'ab'.repeat(32) }));
-    const full = [...theirs, ...Array.from({ length: 5 }, (_, i) => entry(i + 10))];
-    data.set(LIST, JSON.stringify(full));
+    const ours = Array.from({ length: 5 }, (_, i) => mine(i + 10));
+    // Some of theirs in entries of their own, the rest still on the list earlier builds kept.
+    put(...ours, ...theirs.slice(20));
+    data.set(LIST, JSON.stringify(theirs.slice(0, 20)));
     expect(savePendingPack(five)).toBe(false);
-    expect(shelved()).toEqual(full);
+    expect(own()).toEqual([...ours, ...theirs.slice(20)]);
     expect(error).toHaveBeenCalledOnce();
     // An owed pack is still updated in place.
     expect(savePendingPack({ ...ten, counted: true })).toBe(true);
-    expect(shelved()).toEqual([...theirs, entry(10, { d: 1 }), ...full.slice(46)]);
+    expect(own()).toEqual([mine(10, { d: 1 }), ...ours.slice(1), ...theirs.slice(20)]);
     // Once one is cleared, there is room again.
     clearPendingPack(10);
     expect(savePendingPack(five)).toBe(true);
-    expect(shelved()).toHaveLength(50);
-    expect(shelved().slice(0, 45)).toEqual(theirs);
+    expect(own()).toEqual([mine(5), ...ours.slice(1), ...theirs.slice(20)]);
+    expect(shelved()).toEqual(theirs.slice(0, 20));
     error.mockRestore();
   });
 
@@ -385,18 +440,69 @@ describe('several packs owed at once', () => {
     const five = { ...pack(5), publicKeyHex: me };
     // Another player's pack, with a nonce of this player's too (each player counts their own).
     const theirs = entry(5, { k: 'ab'.repeat(32) });
-    data.set(LIST, JSON.stringify([theirs, entry(5, { k: me })]));
+    put(theirs);
     savePendingPack(six, { ...five, counted: true });
-    expect(shelved()).toEqual([theirs, expect.objectContaining({ n: 5, k: me, d: 1 }), expect.objectContaining({ n: 6 })]);
+    expect(own().filter((p) => p.k === me)).toEqual([mine(5, { d: 1 }), mine(6)]);
+    expect(JSON.parse(data.get(keyOf(theirs))!)).toEqual(theirs);
     data.set(LIST, JSON.stringify([theirs, entry(5, { k: me }), 'junk']));
-    expect(takePendingPacks().map((p) => p.nonce)).toEqual([5]);
+    expect(takePendingPacks()).toMatchObject([{ nonce: 5, counted: true }, { nonce: 6 }]);
     expect(shelved()).toEqual([theirs]);
+    expect(own()).toEqual([theirs]);
   });
 
   it('reports a shelf it could not write', () => {
     const next = pack(5);
-    refuseWrite = (k) => k === LIST;
+    refuseWrite = (k) => k.startsWith(PREFIX);
     expect(savePendingPack(next)).toBe(false);
+    expect(own()).toEqual([]);
+  });
+});
+
+describe('two tabs of one player at once (#87)', () => {
+  beforeEach(reset);
+
+  /**
+   * Runs `act` as another tab whose storage still reads as `seen` (Chromium hands one tab's writes
+   * to the others a little later), then applies its writes to storage in order, as the browser does.
+   */
+  const inStaleTab = (seen: Map<string, string>, act: () => void) => {
+    const current = new Map(data);
+    data.clear();
+    seen.forEach((v, k) => data.set(k, v));
+    writes = [];
+    act();
+    const made = writes;
+    writes = null;
+    data.clear();
+    current.forEach((v, k) => data.set(k, v));
+    for (const [k, v] of made) {
+      if (v === null) data.delete(k);
+      else data.set(k, v);
+    }
+  };
+
+  it("keeps this tab's pack when the other, not having seen it yet, shelves and stores its own", () => {
+    const [zero, one] = [pack(0), pack(1)];
+    const before = new Map(data);
+    expect(savePendingPack(one)).toBe(true);
+    inStaleTab(before, () => {
+      expect(savePendingPack(zero)).toBe(true);
+      clearPendingPack(0);
+    });
+    expect(own()).toEqual([mine(1)]);
+    expect(takePendingPacks().map((p) => p.nonce)).toEqual([1]);
+  });
+
+  it('never puts back a pack this tab stored when the other, not having seen that, puts its own back', () => {
+    const [zero, one] = [pack(0), pack(1)];
+    expect(savePendingPack(zero, one)).toBe(true);
+    const both = new Map(data);
+    clearPendingPack(1);
+    inStaleTab(both, () => {
+      expect(savePendingPack({ ...zero, counted: true })).toBe(true);
+    });
+    expect(own()).toEqual([mine(0, { d: 1 })]);
+    expect(takePendingPacks()).toMatchObject([{ nonce: 0, counted: true }]);
   });
 });
 
@@ -415,7 +521,7 @@ describe("an older tab's pack", () => {
     expect(data.get(LEGACY)).toBe(PENDING);
     expect(savePendingPack({ ...four, counted: true })).toBe(true);
     expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(4, { d: 1 }));
-    expect(data.has(LIST)).toBe(false);
+    expect(own()).toEqual([]);
     // The older tab stores a collection holding it and clears its entry: nothing is left to add again.
     olderClear(4);
     expect(takePendingPacks()).toEqual([]);
@@ -428,7 +534,7 @@ describe("an older tab's pack", () => {
     expect(savePendingPack({ ...four, counted: true })).toBe(true);
     expect(savePendingPack(four)).toBe(true);
     expect(data.has(LEGACY)).toBe(false);
-    expect(data.has(LIST)).toBe(false);
+    expect(own()).toEqual([]);
     // Nor does it replace that tab's next pack.
     data.set(LEGACY, JSON.stringify(entry(5)));
     expect(savePendingPack({ ...four, counted: true })).toBe(true);
@@ -446,10 +552,10 @@ describe("an older tab's pack", () => {
     // Put back, it goes to the older build's entry only.
     expect(savePendingPack(...packs)).toBe(true);
     expect(JSON.parse(data.get(LEGACY)!)).toEqual(entry(4, { d: 1 }));
-    expect(shelved()).toEqual([expect.objectContaining({ n: 5 })]);
+    expect(own()).toEqual([mine(5)]);
     clearPendingPack(4, 5);
     expect(data.has(LEGACY)).toBe(false);
-    expect(data.has(LIST)).toBe(false);
+    expect(own()).toEqual([]);
   });
 
   it('reports an entry it could not put back, which stays as it was', () => {
@@ -468,15 +574,16 @@ describe('opening a pack', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const first = await openPack(SET);
     expect(first.unrecorded).toBeUndefined();
-    expect(shelved()).toEqual([expect.objectContaining({ n: first.nonce })]);
+    expect(own()).toEqual([expect.objectContaining({ n: first.nonce, k: ME() })]);
     // A full shelf keeps its owed packs, so the new one isn't kept.
     const full = Array.from({ length: 50 }, (_, i) => entry(i + 1000));
     data.set(LIST, JSON.stringify(full));
     expect((await openPack(SET)).unrecorded).toBe(true);
+    expect(own()).toHaveLength(1);
     expect(shelved()).toEqual(full);
     // Nor when storage refuses the shelf.
     data.delete(LIST);
-    refuseWrite = (k) => k === LIST;
+    refuseWrite = (k) => k.startsWith(PREFIX);
     expect((await openPack(SET)).unrecorded).toBe(true);
     error.mockRestore();
   });
@@ -511,7 +618,7 @@ describe('opening a pack', () => {
     bestCards.throws = true;
     const second = await openPack(SET);
     expect(second.unrecorded).toBeUndefined();
-    expect(shelved().map((p: { n: number }) => p.n)).toEqual([first.nonce, second.nonce]);
+    expect(own().map((p: { n: number }) => p.n)).toEqual([first.nonce, second.nonce]);
     resetBestCards();
     error.mockRestore();
   });
@@ -525,7 +632,7 @@ describe('opening a pack', () => {
     expect(opened.map((p) => p.nonce)).toEqual([before.nonce + 1, before.nonce + 2]);
     expect(opened.map((p) => p.unrecorded)).toEqual([true, true]);
     // Both are still kept for the next load and recorded: only the counter was refused.
-    expect(shelved().map((e: { n: number }) => e.n)).toEqual([before.nonce, before.nonce + 1, before.nonce + 2]);
+    expect(own().map((e: { n: number }) => e.n)).toEqual([before.nonce, before.nonce + 1, before.nonce + 2]);
     expect(JSON.parse(data.get('brainrot-player-v1')!).nextNonce).toBe(before.nonce + 1);
     error.mockRestore();
   });

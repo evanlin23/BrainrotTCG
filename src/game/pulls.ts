@@ -123,15 +123,22 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
  * ticket is spent the moment it opens. Until the collection has it, the pack waits here, so a reload,
  * a closed tab or a dead phone mid-reveal can't lose it: the app adds it on the next load.
  *
- * The shelf is a list under PENDING_PACKS, so no owed pack replaces another. Older builds keep one
- * pack under PENDING_PACK instead, and would delete a list found there (or fail to clear it), so this
- * build never puts a list or a new pack there. An older tab or a rollback never sees the list, so it
- * can't drop or re-add a listed pack; the next load of this build still adds them.
+ * Each owed pack has an entry of its own, PENDING_PACK_PREFIX + its player's key + ':' + its number,
+ * written by the tab that opened or took it and removed by the tab that stores it, so no tab rewrites
+ * another tab's pack. A tab reads storage as it was a moment ago (Chromium hands one tab's writes to
+ * the others a little later), so a shared list rewritten by two tabs at once lost the other tab's
+ * newest pack, or put back one that tab had just stored, to be counted twice (#87). Earlier builds of
+ * this one kept that list under PENDING_PACKS: load still takes this player's packs off it, and
+ * nothing new goes on it.
+ *
+ * Older builds keep one pack under PENDING_PACK instead, and would delete a list found there (or fail
+ * to clear it), so this build never puts a list or a new pack there. An older tab or a rollback never
+ * sees the entries, so it can't drop or re-add one; the next load of this build still adds them.
  * A pack an older build left under PENDING_PACK is added on load but stays there until a stored
  * collection holds it, so an older tab that stores and clears that pack still reaches the only copy.
  * If the collection can't be stored, it is put back there (marked), only while that entry still holds
- * it: otherwise the tab that took or stored it has it. It never moves to the list, where an older tab's
- * clear can't reach it and the next load would add it again.
+ * it: otherwise the tab that took or stored it has it. It never moves to an entry of its own, where an
+ * older tab's clear can't reach it and the next load would add it again.
  */
 interface PendingPack {
   s: string;
@@ -165,12 +172,13 @@ const isMine = (p: PendingPack) => !p.k || p.k === getPlayer().publicKeyHex;
 const readPacks = (key: string): PendingPack[] => readEntries(key).filter(isMine);
 const samePack = (a: PendingPack, b: PendingPack) => a.k === b.k && a.n === b.n;
 /**
- * Another player's packs that storage refused to keep on the shelf (see takeOff). This tab holds them
- * and writes them back with its next shelf write; one that turns up on the shelf again isn't held.
+ * Another player's packs that storage refused to keep on the list (see takeOff). This tab holds them
+ * and writes each to an entry of its own with its next shelf write; one that turns up on the list again
+ * isn't held.
  */
 let unshelved: PendingPack[] = [];
 /**
- * Another player's packs on the shelf, and any this tab holds for it. They stay for that player's next
+ * Another player's packs on the list, and any this tab holds for it. They stay for that player's next
  * load: a tab whose player another tab switched leaves the packs it opened there (see App).
  */
 const readOthers = (): PendingPack[] => {
@@ -179,11 +187,12 @@ const readOthers = (): PendingPack[] => {
   return [...stored.filter((p) => typeof p.k === 'string' && !isMine(p)), ...unshelved];
 };
 
+/** This player's packs on the list earlier builds kept. */
 const readShelf = () => readPacks(STORAGE_KEYS.PENDING_PACKS);
 /** The pack an older build left in its one-pack entry, if any. */
 const readLegacy = () => readPacks(STORAGE_KEYS.PENDING_PACK);
 
-/** False when storage refuses (out of space, or a SecurityError), so the shelf is as it was. */
+/** False when storage refuses (out of space, or a SecurityError), so the list is as it was. */
 const setShelf = (shelf: PendingPack[]): boolean => {
   try {
     if (shelf.length === 0) localStorage.removeItem(STORAGE_KEYS.PENDING_PACKS);
@@ -195,20 +204,20 @@ const setShelf = (shelf: PendingPack[]): boolean => {
   }
 };
 
-/** Replaces this player's packs on the shelf with `mine`; another player's stay (readOthers). */
+/** Replaces this player's packs on the list with `mine`; another player's stay (readOthers). */
 const writeShelf = (mine: PendingPack[]): boolean => setShelf([...readOthers(), ...mine]);
 
 /**
- * Takes this player's packs that aren't in `mine` off the shelf: they are going into a collection, and
- * one left there would be added again on the next load. If storage won't write the shelf in place, the
- * shelf is removed and written again, since a quota that counts the old value beside the new one takes
- * the shorter shelf once the old one is gone. If it still refuses, the shelf keeps another player's packs
+ * Takes this player's packs that aren't in `mine` off the list: they are going into a collection, and
+ * one left there would be added again on the next load. If storage won't write the list in place, the
+ * list is removed and written again, since a quota that counts the old value beside the new one takes
+ * the shorter list once the old one is gone. If it still refuses, the list keeps another player's packs
  * and drops this player's other owed ones (the history still has them). If it refuses even that, the
- * shelf goes back as it was if storage takes it: another player's owed packs aren't this tab's to drop,
+ * list goes back as it was if storage takes it: another player's owed packs aren't this tab's to drop,
  * though a pack taken off may then be added again.
- * - written: the shelf holds another player's packs and `mine`.
- * - kept: the shelf is as it was (storage wouldn't remove it, or it went back).
- * - others: the shelf holds another player's packs only, so `mine` were dropped.
+ * - written: the list holds another player's packs and `mine`.
+ * - kept: the list is as it was (storage wouldn't remove it, or it went back).
+ * - others: the list holds another player's packs only, so `mine` were dropped.
  * - gone: nothing could be written back, so `mine` were dropped and this tab holds another player's
  *   packs till a shelf write takes them (see unshelved).
  */
@@ -258,17 +267,54 @@ const toPending = (pack: OpenedPack): PendingPack => ({
   ...(pack.counted ? { d: 1 as const } : {}),
 });
 
+/** A player's pack's own entry. */
+const packKey = (player: string, nonce: number) => `${STORAGE_KEYS.PENDING_PACK_PREFIX}${player}:${nonce}`;
+
+/** The keys of the packs in entries of their own, all players' or those starting `prefix` (none if storage can't be read). */
+const packKeys = (prefix: string = STORAGE_KEYS.PENDING_PACK_PREFIX): string[] => {
+  const keys: string[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(prefix)) keys.push(key);
+    }
+  } catch { /* Unreadable storage holds no entries this tab can take. */ }
+  return keys;
+};
+
+/** Every owed pack, any player's: in entries of their own, on the list, and held by this tab. */
+const shelfSize = () => packKeys().length + readShelf().length + readOthers().length;
+
+/** Another player's packs this tab holds go to entries of their own, where that player's next load finds them. */
+const shelveHeld = () => {
+  if (unshelved.length === 0) return;
+  readOthers();
+  unshelved = unshelved.filter((p) => {
+    try {
+      localStorage.setItem(packKey(p.k ?? '', p.n), JSON.stringify(p));
+      return false;
+    } catch {
+      return true;
+    }
+  });
+};
+
 /**
  * Puts packs (back) on the shelf, beside the ones already owed; App does this when the collection
- * holding them couldn't be stored. A pack already there is replaced. False when storage refuses, or
- * when the shelf is full and a new pack couldn't go on it (the history still has that one).
+ * holding them couldn't be stored. A pack already there is replaced. False when storage refuses, and
+ * then none of these packs' entries changed, or when the shelf is full and a new pack couldn't go on it
+ * (the history still has that one).
  */
 export const savePendingPack = (...packs: OpenedPack[]): boolean => {
-  const shelf = readShelf();
+  shelveHeld();
+  const me = getPlayer().publicKeyHex;
   // Another player's packs take room too, and are never dropped for this player's.
-  const room = SHELF_LIMIT - readOthers().length;
+  let size = shelfSize();
   let dropped = 0;
   let saved = true;
+  let refused = false;
+  // The entries written so far, with what each held before, for putting back if storage refuses one.
+  const written: [string, string | null][] = [];
   for (const pack of packs) {
     const pending = toPending(pack);
     if (pack.legacy) {
@@ -281,37 +327,66 @@ export const savePendingPack = (...packs: OpenedPack[]): boolean => {
       }
       continue;
     }
-    const at = shelf.findIndex((p) => p.n === pack.nonce);
-    // A full shelf never drops an owed pack for a new one.
-    if (at >= 0) shelf[at] = pending;
-    else if (shelf.length < room) shelf.push(pending);
-    else dropped++;
+    if (refused) continue;
+    const player = pack.publicKeyHex ?? me;
+    const key = packKey(player, pack.nonce);
+    try {
+      const before = localStorage.getItem(key);
+      // A full shelf never drops an owed pack for a new one.
+      if (before === null && size >= SHELF_LIMIT) {
+        dropped++;
+        continue;
+      }
+      localStorage.setItem(key, JSON.stringify({ ...pending, k: player }));
+      written.push([key, before]);
+      if (before === null) size++;
+    } catch {
+      refused = true;
+    }
+  }
+  // All or none, as one write was: App stores the stats counting marked packs only once they're all kept.
+  if (refused) {
+    for (const [key, before] of written.reverse()) {
+      try {
+        if (before === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, before);
+      } catch { /* What it holds is the same pack, put back once more. */ }
+    }
   }
   if (dropped > 0) console.error(`The pending pack shelf is full (${SHELF_LIMIT}): ${dropped} pack(s) not kept for the next load.`);
-  return writeShelf(shelf) && saved && dropped === 0;
+  return !refused && saved && dropped === 0;
 };
 
 /** The collection has these packs now. */
 export const clearPendingPack = (...nonces: number[]) => {
   if (nonces.length === 0) return;
+  shelveHeld();
   if (readLegacy().some((p) => nonces.includes(p.n)) && !removeLegacy()) {
     console.error("The older builds' pending pack couldn't be removed or blanked: the next load may add it again, though the collection has it.");
   }
+  const me = getPlayer().publicKeyHex;
+  const left = nonces.filter((nonce) => {
+    try {
+      localStorage.removeItem(packKey(me, nonce));
+      return false;
+    } catch {
+      return readEntries(packKey(me, nonce)).length > 0;
+    }
+  }).length;
+  if (left > 0) console.error(`The pending pack shelf couldn't be cleared: the next load may add ${left} stored pack(s) again.`);
+  // The list earlier builds kept, if it still has one of them.
   const shelf = readShelf();
   const kept = shelf.filter((p) => !nonces.includes(p.n));
-  if (kept.length === shelf.length) {
-    // Nothing to take off, but another player's packs this tab holds get another try.
-    if (unshelved.length > 0) writeShelf(shelf);
-    return;
-  }
+  if (kept.length === shelf.length) return;
   const result = takeOff(kept);
   if (result === 'kept') console.error(`The pending pack shelf couldn't be cleared: the next load may add ${shelf.length - kept.length} stored pack(s) again.`);
   else if (result === 'others') console.error(`The pending pack shelf couldn't be rewritten: ${kept.length} owed pack(s) dropped (the history still has them).`);
   else if (result === 'gone') console.error(`The pending pack shelf couldn't be rewritten: ${kept.length} owed pack(s) dropped (the history still has them); another player's owed packs are kept in this tab till the shelf can be written.`);
 };
 
-/** Whether this player's pending shelf holds this pack (not the older builds' one-pack entry). */
-export const onShelf = (nonce: number): boolean => readShelf().some((p) => p.n === nonce);
+/** Whether this player's pack waits on the shelf, in its own entry or on the list (not in the older builds' one-pack entry). */
+export const onShelf = (nonce: number): boolean =>
+  readPacks(packKey(getPlayer().publicKeyHex, nonce)).length > 0 || readShelf().some((p) => p.n === nonce);
 
 /**
  * The packs opened but never added to the collection (this player's only), taken off the shelf; other
@@ -320,16 +395,26 @@ export const onShelf = (nonce: number): boolean => readShelf().some((p) => p.n =
 export const takePendingPacks = (): OpenedPack[] => {
   const legacy = readLegacy();
   const listed = readShelf();
-  // If they can't be taken off the shelf, adding them now would add them again on the next load. With
-  // none of this player's listed, a shelf holding another player's packs is left as it is.
+  // If they can't be taken off the list, adding them now would add them again on the next load. With
+  // none of this player's listed, a list holding another player's packs is left as it is.
   if (listed.length > 0 || readOthers().length === 0) {
     const result = takeOff([]);
     if (result === 'kept') return [];
     if (result === 'gone') console.error("The pending pack shelf couldn't be rewritten: another player's owed packs are kept in this tab till the shelf can be written.");
   }
+  // The same for each pack in an entry of its own: one storage won't remove waits for a later load.
+  const own: PendingPack[] = [];
+  for (const key of packKeys(`${STORAGE_KEYS.PENDING_PACK_PREFIX}${getPlayer().publicKeyHex}:`)) {
+    const entries = readPacks(key);
+    try {
+      localStorage.removeItem(key);
+      own.push(...entries);
+    } catch { /* Left for a later load. */ }
+  }
+  own.sort((a, b) => a.n - b.n);
   const packs: OpenedPack[] = [];
-  for (const pending of [...legacy, ...listed]) {
-    // One pack in both places is added once, and counts once if either copy says it has.
+  for (const pending of [...legacy, ...listed, ...own]) {
+    // One pack in two places is added once, and counts once if any copy says it has.
     const same = packs.find((p) => p.nonce === pending.n);
     if (same) {
       if (pending.d === 1) same.counted = true;

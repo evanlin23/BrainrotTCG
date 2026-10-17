@@ -69,7 +69,7 @@ describe('PackHeadline on the results screen', () => {
     results(pair, 0.51);
     expect(lines().slice(1)).toEqual(['Pair · Most packs score this high']);
     results(pair, 0.5);
-    expect(lines().slice(1)).toEqual(['Pair · 1 in 2.0 packs score this high']);
+    expect(lines().slice(1)).toEqual(['Pair · 1 in 2 packs score this high']);
   });
 
   it('says just No Matches when the combo has no odds', () => {

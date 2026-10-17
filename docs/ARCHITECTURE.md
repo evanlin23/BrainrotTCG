@@ -510,24 +510,32 @@ is cleared before the final save completes. Resumption and cache retention are b
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
 
 Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
-opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
-on the next load, but writes can fail. It is always a list (up to 50, other players' packs included,
-and none of theirs is dropped to make room), so an owed pack is never
-replaced by a newer one. Other players' packs don't expire either: one can be the only copy of a pack
+opener unmounts. The pending shelf supports unfinished-reveal recovery on the next load, but writes
+can fail. Each owed pack has an entry of its own, `brainrot-pending-pack-v3:<player key>:<nonce>`,
+written by the tab that opened or took it and removed by the tab that stores it, so an owed pack is
+never replaced by a newer one and no tab rewrites another tab's pack. Chromium hands one tab's
+localStorage writes to its other tabs tens to hundreds of milliseconds later, so the one shared list
+earlier builds rewrote, `brainrot-pending-packs-v2`, lost packs when two tabs stored at once: a tab
+removed it from a view that didn't have the other tab's newest pack yet, or put a pack back into a
+view that still listed one the other tab had just stored, which the next load then counted twice
+(#87). Load still takes this player's packs off that list, and nothing new goes on it. The shelf holds
+up to 50 packs, other players' included, and none of theirs is dropped to make room. Other players' packs don't expire either: one can be the only copy of a pack
 owed to that player's collection, which this browser can't check, and they come only from a tab that
 opened a pack before it knew another tab had changed the save; past the cap (or if storage refuses the write), the new pack shows the save
 warning and isn't on the shelf while it reveals: it still reaches the collection when its reveal
 finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but nothing
 keeps it for the next load: a tab closed before that leaves it only in the history, if that write went
 through. Load
-takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
-so none is added twice) and holds them until a collection holding them is stored. Taking packs off
-rewrites the shelf in place; if storage refuses, it removes the shelf and writes it again, then
-keeps only other players' packs (this player's other owed packs drop; the history has them), then puts
-the shelf back as it was: load then adds none and leaves them listed, while a pack taken off after its
-reveal stays listed and the next load may add it again (an error is logged). If even that is refused,
-the shelf is gone and this tab holds other players' packs, writing them back with its next shelf
-write; they are lost only if it closes first (an error is logged). If that collection
+takes every one of this player's packs off the shelf before adding any (if the list can't be emptied,
+it adds none, so none is added twice; an entry storage won't remove waits for a later load) and holds
+them until a collection holding them is stored. Taking packs off the list rewrites it in place; if
+storage refuses, it removes the list and writes it again, then keeps only other players' packs (this
+player's other listed packs drop; the history has them), then puts the list back as it was: load then
+adds none and leaves them listed, while a pack taken off after its reveal stays listed and the next
+load may add it again (an error is logged). If even that is refused, the list is gone and this tab
+holds other players' packs, writing each to an entry of its own with its next shelf write; they are
+lost only if it closes first (an error is logged). Putting several packs on the shelf is all or none:
+if storage refuses one, the entries already written go back as they were. If that collection
 write is blocked, they stay owed by this tab and go into its next collection write; a copy also goes
 back on the shelf for the next load, if the shelf takes it. A tab closed before that write leaves the
 shelf copy for the next load or, if the shelf refused it, the pack only in the history. After each
@@ -539,12 +547,12 @@ then the unmarked copy are both refused, the shelf keeps the marked copy, and th
 pack without counting it unless this tab stores it first.
 `brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never puts a list or
 a new or listed pack there, so an older build (another tab or a rollback) never finds a list to
-discard, and never sees or clears listed packs. It adds the pack in that entry on load but leaves the
+discard, and never sees or clears packs in entries of their own. It adds the pack in that entry on load but leaves the
 entry in place until a stored collection holds that pack, so an older tab that stores and clears it
 still reaches the only copy; if storage won't remove the entry then, it is blanked to `null`, which
 every build reads as no pack. If the collection write is blocked, the pack goes back into that entry
 (marked) only while the entry still holds it; otherwise the tab that took or stored it has it. It is
-never copied into the list, which an older tab's clear can't reach. A pack in both forms is added
+never copied into an entry of its own, which an older tab's clear can't reach. A pack in both forms is added
 once, and counts as counted if either copy is marked. An entry with nothing to add (unreadable, or
 another player's) is removed on load, as older builds do. Accepted risk: an older tab still writes
 each pack it opens into that entry, so it can replace a pack owed there, which then stays only in
