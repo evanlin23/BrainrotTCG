@@ -97,7 +97,8 @@ There is no chat, messaging, comments, friends list or profile bio. The public t
 - **Can they spend money?** No. Packs are free and there is nothing to buy (see Monetization).
 - **How do we erase local data?** Clear this site's data in the browser. That removes the saves and
   the signing key but not anything already shared or submitted.
-- **Who do we ask to remove an entry?** The contact route is an open owner decision (see Content).
+- **Who do we ask to remove an entry?** Open an issue on GitHub. A dedicated contact is the owner's
+  decision (see Content).
 
 ### Content rating
 
@@ -111,7 +112,7 @@ for themselves.
 - Genesis was archived on 2026-10-12 and keeps its cards as they are. Nobody can open new Genesis
   packs, so new players can't get its cards; old pulls and proofs stay valid [docs/ADDING_A_SET.md].
 - The owner approves tone, rights and art for every new set or draft flag removal; sources for each
-  set's art are recorded in its `CREDITS.md`.
+  set's art are recorded in its `CREDITS.md` (Genesis, the archived first set, has none).
 - The licence is in [LICENSE](../LICENSE): MIT for the source code only. Art and other assets are
   covered by the notice below, not by MIT.
 - Not decided here, because it is the owner's: a dedicated takedown and removal contact such as an
@@ -128,7 +129,10 @@ that every third-party item has been cleared.
   belong to their respective owners. The game is a non-commercial parody and fan project. Rights
   holders and depicted people can ask for removal by
   [opening an issue](https://github.com/evanlin23/BrainrotTCG/issues).
-- **Sources of card art.** Each set's `CREDITS.md` records where its images came from.
+- **Sources of card art.** Each set's `CREDITS.md` records where its images came from. Genesis,
+  the archived first set, has no credits file.
+- **Fonts.** Lilita One and Rubik Glitch (`src/assets/fonts/`) are Google Fonts under the SIL Open
+  Font License 1.1 [scripts/cards/fonts/README.md].
 
 #### Sound credits
 
