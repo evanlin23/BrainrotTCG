@@ -94,11 +94,12 @@ const CardImage = ({
     let cancelled = false;
     finished.image.then((result) => {
       if (!cancelled) update({ rendered: result });
-    }).catch((error) => {
-      // A render this image let go of may be dropped before it starts; that is not a failure.
-      if (cancelled) return;
+    }).catch((error: unknown) => {
+      // A render this image let go of may be dropped before it starts (an AbortError); that is not a failure.
+      if (cancelled && error instanceof Error && error.name === 'AbortError') return;
+      // Any other failure is still reported after unmount, but only a mounted image falls back to the plain art.
       console.error('Could not render card finish', error);
-      update({ rendered: src });
+      if (!cancelled) update({ rendered: src });
     });
     // Effects clean up after the commit that stopped showing this URL, so it is never released while mounted.
     return () => {

@@ -382,7 +382,7 @@ describe('finish render concurrency', () => {
     expect(vi.getTimerCount()).toBe(2);
   });
 
-  it('starts a queued render\'s load deadline only when its turn comes', async () => {
+  it('starts a queued render\'s load deadline only when its turn comes, and frees the slot when it times out', async () => {
     const { hold, outcome, started, art } = await setup();
     const outcomes = [0, 1, 2].map((i) => outcome(hold(i)));
     const mask = images[1];
@@ -401,6 +401,10 @@ describe('finish render concurrency', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(await outcomes[2]).toBe('Image load timed out: /card-2.webp');
     expect(vi.getTimerCount()).toBe(0);
+    // Both timed-out renders gave their slots back: the next two start at once, and a third waits.
+    for (const i of [3, 4, 5]) hold(i);
+    expect(started().slice(3)).toEqual(['/card-3.webp', '/card-4.webp']);
+    expect(vi.getTimerCount()).toBe(2);
   });
 
   it('drops a queued render nothing holds by its turn, and renders it afresh when asked again', async () => {
@@ -433,5 +437,29 @@ describe('finish render concurrency', () => {
     await vi.advanceTimersByTimeAsync(0);
     art(2).load();
     expect(await Promise.all([outcomes[3], outcomes[4], againOutcome])).toEqual(['shown', 'shown', 'shown']);
+  });
+
+  it('keeps a newer render of the same card when an evicted queued one is dropped', async () => {
+    const { hold, outcome, started, art, max } = await setup();
+    const { MAX_CACHED_FINISHES } = await import('./finishImage');
+    // Both slots stay busy while card 2's queued render is let go of and evicted from the cache.
+    hold(0);
+    hold(1);
+    const old = hold(2);
+    const dropped = old.image.catch((error: unknown) => error);
+    old.release();
+    for (let i = max + 1; i <= MAX_CACHED_FINISHES; i++) hold(i);
+    const newer = hold(2);
+    expect(newer.image).not.toBe(old.image);
+    void outcome(newer);
+
+    // Card 0 finishing hands its slot to the old card 2 render, which nothing wants any more.
+    images[1].load(); // The frame mask.
+    art(0).load();
+    expect(await dropped).toMatchObject({ name: 'AbortError', message: 'Finish render no longer needed' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started()).toEqual(['/card-0.webp', '/card-1.webp', '/card-3.webp']);
+    // Dropping it left the newer render in the cache, so asking for card 2 again reuses it.
+    expect(hold(2).image).toBe(newer.image);
   });
 });

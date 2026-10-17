@@ -426,24 +426,34 @@ describe('finish render holds', () => {
     expect(holds.extraReleases()).toBe(0);
   });
 
-  it('stays quiet when a render it let go of is dropped, and still reports a failure it shows', async () => {
+  it('stays quiet when a render it let go of is dropped, and still reports any other failure', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     const fail = new Map<string, (error: Error) => void>();
     holdFinishedCardImage.mockImplementation((src: string) => ({
       image: new Promise<string>((_, reject) => fail.set(src, reject)),
       release: () => {},
     }));
+    const third = ALL_CARDS[2];
     try {
       await act(async () => root.render(<CardImage src={first.image} finish="GOLD" alt="" />));
       await act(async () => root.render(<CardImage src={second.image} finish="GOLD" alt="" />));
-      // finishImage drops a queued render nothing holds any more (#226).
-      await act(async () => fail.get(first.image)!(new Error('Finish render no longer needed')));
-      expect(logged).not.toHaveBeenCalled();
+      const img = container.querySelector('img')!;
+      // A render that already started and fails after its image moved on is still reported, but
+      // never lands on the image now showing another card.
+      await act(async () => fail.get(first.image)!(new Error('Could not load first')));
+      expect(logged).toHaveBeenCalledExactlyOnceWith('Could not render card finish', new Error('Could not load first'));
+      expect(img.dataset.state).toBe('rendering');
 
-      await act(async () => fail.get(second.image)!(new Error('Could not load')));
-      expect(logged).toHaveBeenCalledWith('Could not render card finish', new Error('Could not load'));
+      await act(async () => root.render(<CardImage src={third.image} finish="GOLD" alt="" />));
+      // finishImage drops a queued render nothing holds any more (#226), as an AbortError.
+      const dropped = Object.assign(new Error('Finish render no longer needed'), { name: 'AbortError' });
+      await act(async () => fail.get(second.image)!(dropped));
+      expect(logged).toHaveBeenCalledTimes(1);
+
+      await act(async () => fail.get(third.image)!(new Error('Could not load')));
+      expect(logged).toHaveBeenLastCalledWith('Could not render card finish', new Error('Could not load'));
       // The plain art stands in for the finish.
-      expect(container.querySelector('img')!.getAttribute('src')).toBe(second.image);
+      expect(img.getAttribute('src')).toBe(third.image);
     } finally {
       logged.mockRestore();
     }
