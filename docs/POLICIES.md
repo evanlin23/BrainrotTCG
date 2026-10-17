@@ -64,8 +64,11 @@ not claimed.
 The code cleans control characters from names and checks them against a word list of slurs, sexual
 terms and hate [`src/engine/nameFilter.ts`]. Settings and save import refuse a blocked name; the
 Hall of Fame intake skips it or labels its issue `rejected`; Rankings, shared pulls and shared
-profiles show "Player" in its place. A word list misses odd spellings (such as "sl00t"), so a
-maintainer removes those by hand, and a shared link's proof still carries the name it was signed with.
+profiles show "Player" in its place. A word list misses some names, so a maintainer removes those by
+hand: odd spellings (such as "sl00t"), words split into pieces of more than one letter ("Fu ck"),
+some short words run into others ("hugedick"), phrase spellings not on the list ("killurself"), and a
+hate number split up ("14 88") or written in other digits (such as Arabic-Indic). A shared link's
+proof still carries the name it was signed with.
 
 ### Chat and public text
 

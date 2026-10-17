@@ -385,6 +385,9 @@ describe('verify-issue (issue workflow)', () => {
     // The issue itself, one past the 8 days, and one under another label don't hold it back.
     const own = fakeGitHub({ issues: [daily(7, '2026-10-16T11:00:00Z'), daily(5, '2026-10-08T11:59:59Z'), issue(6, fourOfAKind, { updated: '2026-10-15T00:00:00Z' })], published });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily', rejected: 'false' });
+    // Nor does one whose display name isn't allowed: it's out of the list, so the pull may come back under a new name.
+    const renamed = fakeGitHub({ issues: [issue(5, blockedName, { labels: ['hall-of-fame', 'daily'], updated: '2026-10-14T09:00:00Z' })], published });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily', rejected: 'false' });
     // Nor does a GitHub error: the pull goes ahead.
     const down = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published, fail: (r) => r.path === '/issues' });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily', rejected: 'false' });
@@ -392,7 +395,7 @@ describe('verify-issue (issue workflow)', () => {
     const allTime = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published: [] });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified', rejected: 'false' });
     expect(allTime.requests.some((r) => r.path === '/issues')).toBe(false);
-    expect([again, own, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
+    expect([again, own, renamed, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
   });
 
   it("turns down a real pull whose display name isn't allowed, and asks for the rejected label", async () => {
@@ -470,6 +473,15 @@ describe('inbox (scheduled workflow)', () => {
     await inbox();
     expect(gh.writes()).toEqual([]);
     expect(outputs()).toEqual({ added: '0' });
+  });
+
+  it("files a pull again under a new name when its earlier issue's display name is now blocked", async () => {
+    // The deploy drops that issue's entry, so it doesn't count as filed (verified, or unfinished).
+    const gh = fakeGitHub({ issues: [issue(1, blockedName), issue(2, blockedName, { labels: ['hall-of-fame'], login: BOT, updated: '2026-10-12T00:00:00Z' })], published: [] });
+    relaysHold(fourOfAKind);
+    await inbox();
+    expect(gh.writes()).toEqual(FILED);
+    expect(outputs()).toEqual({ added: '1' });
   });
 
   it('files nothing for a pull already verified on an issue or already in the published list', async () => {

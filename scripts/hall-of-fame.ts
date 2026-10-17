@@ -305,22 +305,30 @@ const byNumber = (issues: readonly Issue[]) => [...new Map(issues.map((i) => [i.
 const recentIssuesSince = () => new Date(Date.now() - (INBOX_WINDOW_S + 24 * 60 * 60) * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
 
 /**
+ * The pull id an issue holds, or null if it holds no valid proof or its display name isn't allowed:
+ * `build` leaves that entry out, so the pull doesn't count as filed and may be submitted again under
+ * a new name.
+ */
+const listedPullId = (issue: Issue): string | null => {
+  const proof = extractProof(issue.body ?? '');
+  if (!proof) return null;
+  try {
+    const decoded = decodeProof(proof);
+    return isNameAllowed(decoded.name) ? pullId(decoded) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Whether an issue other than `number` carries pull `id` under the `daily` label and was updated
- * since `recentIssuesSince`. If GitHub can't be read, it says no (as with the published list,
- * nothing is held back).
+ * since `recentIssuesSince` (and its display name is allowed, see `listedPullId`). If GitHub can't
+ * be read, it says no (as with the published list, nothing is held back).
  */
 const filedDailyElsewhere = async (id: string, number: number, token: string): Promise<boolean> => {
   try {
     const issues = await listIssues(`labels=hall-of-fame,daily&since=${recentIssuesSince()}`, token);
-    return issues.some((i) => {
-      if (i.number === number) return false;
-      try {
-        const proof = extractProof(i.body ?? '');
-        return !!proof && pullId(decodeProof(proof)) === id;
-      } catch {
-        return false;
-      }
-    });
+    return issues.some((i) => i.number !== number && listedPullId(i) === id);
   } catch (error) {
     console.warn(`Could not list recent daily issues; not checking for this pull on an earlier day. ${error}`);
     return false;
@@ -446,19 +454,14 @@ export const inbox = async () => {
   // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't
   // keep a pull out. Every `verified` issue is read; for the rest, the ones changed within the relay
   // window and a day: a `daily` pull or an unfinished issue from the events read now is among them.
+  // An issue whose display name isn't allowed counts as neither (see `listedPullId`).
   const filed = new Set<string>();
   // Issues this job opened but didn't finish (it stopped before labelling them): finished next.
   const unfinished = new Map<string, Issue>();
   const listed = byNumber([...(await listIssues('labels=hall-of-fame,verified', token)), ...(await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token))]);
   for (const issue of listed) {
-    const proof = extractProof(issue.body ?? '');
-    if (!proof) continue;
-    let id: string;
-    try {
-      id = pullId(decodeProof(proof));
-    } catch {
-      continue; // not a valid proof; nothing to dedupe against
-    }
+    const id = listedPullId(issue);
+    if (!id) continue; // no valid proof, or a name that's out of the list; nothing to dedupe against
     if (labelNames(issue).includes('verified') || labelNames(issue).includes('daily')) filed.add(id);
     else if (issue.user?.login === BOT && !unfinished.has(id)) unfinished.set(id, issue);
   }

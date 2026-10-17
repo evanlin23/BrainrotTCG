@@ -210,6 +210,8 @@ beside the key fingerprint in Rankings, shared pull links and shared profiles.
   Appeal).
 - A name the check refused: the player renames in Profile, shares the pull again (a new link to the
   same pull) and submits it again.
+- An entry verified before the word list blocked its name drops out at the next deploy and no longer
+  counts as filed (for the relay inbox or a day's top), so the player can resubmit it under a new name.
 - Appeal: the player opens an issue. The owner takes `rejected` off a wrongly removed entry, or fixes
   the word list for a wrongly blocked name so the pull can be submitted again.
 

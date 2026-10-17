@@ -34,7 +34,8 @@
   justify-content: center;
   gap: var(--space-1) var(--space-2);
   /* The same height loading, empty or in any state, so the cards below never move. */
-  min-height: calc(var(--touch-target) + var(--space-1) + var(--text-xs) * var(--leading-tight));
+  /* The public-name notice can wrap to two lines on a 320px phone. */
+  min-height: calc(var(--touch-target) + var(--space-1) + 2 * var(--text-xs) * var(--leading-tight));
   margin: var(--space-1) 0 0;
   color: var(--text-muted);
   font-size: var(--text-sm);

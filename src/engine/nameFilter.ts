@@ -6,13 +6,21 @@
  * The check folds a name the ways people dodge filters (accents, full-width, small-caps and
  * look-alike letters, leetspeak, punctuation or spaces between letters, repeated letters, camelCase
  * and xX decorations), then matches a curated list in two tiers:
- * - STRONG terms are blocked anywhere inside a word ("xXfuckXx"), except inside ALLOWED words.
+ * - STRONG terms are blocked anywhere inside a word ("xXfuckXx", "hotpussy"), except inside ALLOWED
+ *   words ("Pussycat", "Thorny").
  * - WHOLE terms are short words that hide inside ordinary ones ("Dickens", "cocktail", "Sussex",
  *   "Scunthorpe", "grape"), so they are blocked only as a whole word (plurals included), and not
  *   inside a few ALLOWED_PHRASES ("Moby Dick").
+ * - PHRASES are blocked anywhere in the name with its spaces removed: phrases usually written as
+ *   separate words, and a few common run-together names built on a WHOLE term ("bigdick").
  * Hate numbers are blocked only as a number of their own. Mild swearing (shit, damn, crap, ass, hell)
- * is allowed; slurs, sexual terms and hate are not. A word list misses some spellings ("sl00t"), so a
- * maintainer still removes those by hand (docs/ARCHITECTURE.md, Hall of Fame).
+ * is allowed; slurs, sexual terms and hate are not.
+ *
+ * Known gaps, which a maintainer removes by hand (docs/ARCHITECTURE.md, Hall of Fame): odd spellings
+ * ("sl00t"); words split into pieces longer than one letter ("Fu ck"); WHOLE terms run into other
+ * words beyond the PHRASES list ("hugedick", "sexlord", "cumlord": dick, sex and cum hide inside too
+ * many ordinary words to block them anywhere); phrase spellings not listed ("killurself"); a hate
+ * number split up ("14 88") or written in other digits (Arabic-Indic); and terms not on the list.
  */
 import { normalizeName } from './identity';
 
@@ -25,39 +33,51 @@ export const ANONYMOUS_NAME = 'Anonymous';
 const STRONG = [
   // slurs and hate
   'nigger', 'nigga', 'niqqer', 'niqqa', 'faggot', 'tranny', 'shemale', 'wetback', 'raghead', 'towelhead',
-  'jigaboo', 'zipperhead', 'golliwog', 'mongoloid', 'hitler',
+  'jigaboo', 'zipperhead', 'golliwog', 'mongoloid', 'hitler', 'nazi',
   // sexual
-  'porn', 'hentai', 'vagina', 'jizz', 'dildo', 'blowjob', 'handjob', 'rimjob', 'orgasm', 'cumshot',
-  'creampie', 'gangbang', 'deepthroat', 'masturbat', 'fellatio', 'cunnilingus', 'bdsm', 'bestiality',
-  'zoophil', 'pedophil', 'paedophil', 'molest', 'whore', 'cocksucker',
+  'porn', 'hentai', 'vagina', 'penis', 'pussy', 'slut', 'milf', 'boob', 'horny', 'jizz', 'dildo', 'blowjob',
+  'handjob', 'rimjob', 'orgasm', 'cumshot', 'creampie', 'gangbang', 'deepthroat', 'masturbat', 'fellatio',
+  'cunnilingus', 'bdsm', 'bestiality', 'zoophil', 'pedophil', 'paedophil', 'lolicon', 'molest', 'whore',
+  'cocksucker',
   // abuse
   'fuck', 'cunt', 'bitch', 'asshole', 'dickhead',
 ];
 
-/** Phrases usually written as separate words, blocked across the whole name. */
-const PHRASES = ['killyourself', 'siegheil', 'heilhitler', 'whitepower', 'whitepride', 'chingchong', 'porchmonkey'];
+/** Blocked anywhere in the name with its spaces removed. */
+const PHRASES = [
+  // usually written as separate words
+  'killyourself', 'siegheil', 'heilhitler', 'whitepower', 'whitepride', 'chingchong', 'porchmonkey',
+  // common run-together names built on a WHOLE term (see "Known gaps" above)
+  'bigdick', 'suckdick', 'dickpic', 'ilovesex', 'hotsex', 'sextoy', 'sexyboi', 'sexyboy', 'sexygirl',
+  'cumslut', 'cumdump',
+];
 
 /** Words blocked only on their own (with an optional plural s or z). */
 const WHOLE = [
   // slurs and hate
   'fag', 'kike', 'chink', 'chinky', 'retard', 'retarded', 'tard', 'spic', 'spick', 'beaner', 'gook', 'coon',
-  'paki', 'dyke', 'spaz', 'nazi', 'kkk', 'kys',
+  'paki', 'dyke', 'spaz', 'kkk', 'kys',
   // sexual
-  'sex', 'sexy', 'penis', 'penises', 'dick', 'cock', 'pussy', 'clit', 'tits', 'titty', 'titties', 'boob',
-  'boobie', 'boobies', 'cum', 'anal', 'anus', 'orgy', 'milf', 'slut', 'slutty', 'rape', 'raped',
-  'rapist', 'pedo', 'incest', 'horny', 'boner', 'semen', 'nude', 'thot', 'skank',
+  'sex', 'sexy', 'dick', 'cock', 'clit', 'tits', 'titty', 'titties', 'cum', 'anal', 'anus', 'orgy', 'rape',
+  'raped', 'rapist', 'pedo', 'incest', 'boner', 'semen', 'nude', 'thot', 'skank',
   // abuse
   'fuk', 'fuq', 'fck', 'fcuk', 'twat', 'wank', 'wanker', 'wanking',
 ];
 
 /** Ordinary words that contain a STRONG term (removed before matching). */
-const ALLOWED = ['scunthorpe', 'snigger'];
+const ALLOWED = [
+  'scunthorpe', 'snigger', 'pussycat', 'pussywillow', 'pussyfoot', 'penistone', 'milford', 'booboo', 'booby',
+  'thorny', 'nazir', 'nazia', 'nazim',
+];
 
 /** Ordinary words that a WHOLE pattern would catch (its letters may repeat). */
 const ALLOWED_WHOLE = ['annal', 'annals', 'annus', 'bonner', 'rappe'];
 
-/** Ordinary phrases holding a WHOLE word, removed before matching ("Moby Dick", not "Big Dick"). */
-const ALLOWED_PHRASES = ['moby dick', 'philip k dick', 'dick van dyke', 'van dyke', 'cum laude', 'spic and span'];
+/** Ordinary phrases holding a blocked word, removed before matching ("Moby Dick", not "Big Dick"). */
+const ALLOWED_PHRASES = [
+  'moby dick', 'philip k dick', 'dick van dyke', 'van dyke', 'dick grayson', 'cum laude', 'spic and span',
+  'pussy cat', 'pussy willow',
+];
 
 /** Hate numbers, blocked only as a number of their own ("Kid1488", not "21488" or "Flabby" read as leetspeak). */
 const NUMBER_RE = /(?<!\d)(?:1488)(?!\d)/;

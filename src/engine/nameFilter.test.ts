@@ -18,6 +18,17 @@ describe('isNameAllowed', () => {
 
   it('blocks a bad word inside a longer word or a name', () => {
     expect(blocked(['xXfuckXx', 'BigDick', 'Pussy Slayer', 'Big Boobies', 'Dicks', 'Nazis', 'Sexxx', 'Cocksucker', 'dickhead'])).toEqual([]);
+    // Run together in one word, any case.
+    expect(
+      blocked([
+        'hotpussy', 'pussylover', 'SLUTGIRL', 'cumslut', 'nazikid', 'Neonazi', 'xXboobXx', 'Lolicon',
+        'bigdick', 'BIGDICK', 'bIgDiCk', 'ilovesex', 'sexyboi', 'cumdump',
+      ]),
+    ).toEqual([]);
+  });
+
+  it('keeps blocking a few words that only look ordinary', () => {
+    expect(blocked(['Grammar Nazi', 'Niggardly', 'Pakki', 'Glasshole', 'Pussy Cats'])).toEqual([]);
   });
 
   it('sees through leetspeak, spacing, punctuation and repeated letters', () => {
@@ -50,7 +61,8 @@ describe('isNameAllowed', () => {
         'Titan', 'Tit for Tat', 'Matsushita', 'Arsenal', 'Cumberland', 'Document', 'cucumber', 'Speculum', 'Spice',
         'raccoon', 'Cocoon', 'tycoon', 'Snigger', 'Niger', 'Nigeria', 'Niggle', 'Bigger', 'Digger', 'Fagin', 'Bobs',
         'Kikeriki', 'Shitzu', 'Pistachio', 'Hitachi', 'Clitheroe', 'Penal', 'Kitty', 'Pussycat', 'Wankel', 'Tranquil',
-        'Rapper', 'Thorny', 'Uranus', 'Orbit Chaser', 'Epic Untamed',
+        'Rapper', 'Thorny', 'Uranus', 'Orbit Chaser', 'Epic Untamed', 'pussywillow', 'Pussyfooting', 'Milford',
+        'Booboo', 'BooBoo', 'Booby Trap', 'Nazir', 'Benazir', 'Nazia', 'Nazim', 'Kanazawa', 'Hawthorny',
       ]),
     ).toEqual([]);
   });
@@ -58,11 +70,14 @@ describe('isNameAllowed', () => {
   it('allows a few ordinary phrases and numbers holding a blocked word, but not what is added to them', () => {
     expect(
       allowed([
-        'Moby Dick', 'MobyDick', 'Philip K. Dick', 'Dick Van Dyke', 'Van Dyke', 'Summa Cum Laude', 'Spic and Span',
-        'Flabby Cat', 'Blabbermouth', 'Annus Mirabilis', 'Bonner', 'Rappe', 'Gamer21488',
+        'Moby Dick', 'MobyDick', 'Philip K. Dick', 'Dick Van Dyke', 'Van Dyke', 'Dick Grayson', 'Summa Cum Laude',
+        'Spic and Span', 'Pussy Cat', 'Pussy Willow', 'Flabby', 'Flabby Cat', 'Blabbermouth', 'Annus Mirabilis',
+        'Bonner', 'Rappe', '21488', 'Gamer21488',
       ]),
     ).toEqual([]);
-    expect(blocked(['Moby Dick Fuck', 'MobyDickhead', 'Moby Dicks', 'Van Dyke Sex', 'Kid1488', 'xX1488Xx', '１４８８'])).toEqual([]);
+    expect(
+      blocked(['Moby Dick Fuck', 'MobyDickhead', 'Moby Dicks', 'Van Dyke Sex', 'Dick Grayson Sex', 'Pussy Cat Slut', 'Kid1488', 'xX1488Xx', '１４８８']),
+    ).toEqual([]);
   });
 
   it('allows brainrot names, gamer tags and mild swearing', () => {
