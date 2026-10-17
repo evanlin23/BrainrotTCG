@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
-import { exportSaveFile, FILE_TOO_BIG_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE } from './saveFile';
+import { COPIES_NOTE, exportSaveFile, FILE_TOO_BIG_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE } from './saveFile';
 import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY } from './player';
 import { recordPack } from './history';
@@ -454,6 +454,16 @@ describe('a nearly full browser storage', () => {
     expect(store).toEqual(before);
   });
 
+  it('names copies of earlier saves when the file is too big for the room they leave', () => {
+    const save = { ...fixture(), collection: bigCollection() };
+    store.set('brainrot-before-move-v1', 'x'.repeat(save.collection.length));
+    quota(bytes() + 10);
+    const before = new Map(store);
+    expect(importSaveFile(JSON.stringify(save))).toBe(FILE_TOO_BIG_NOTE + COPIES_NOTE);
+    expect(importSaveFile(JSON.stringify(save), { keepCopy: false })).toBe(FILE_TOO_BIG_NOTE + COPIES_NOTE);
+    expect(store).toEqual(before);
+  });
+
   it('gives the no-room answer, naming earlier copies, when the identity write is what storage refuses', () => {
     store.set('brainrot-before-import-v1', '{"earlier":"copy"}');
     const before = new Map(store);
@@ -476,7 +486,7 @@ describe('a nearly full browser storage', () => {
       store.set(key, value);
     });
     // Replaced values are removed before any is written, so a refusal without a copy proves the file can't fit.
-    expect(importSaveFile(JSON.stringify(save), { keepCopy })).toBe(keepCopy ? NO_ROOM_FOR_COPY_NOTE : FILE_TOO_BIG_NOTE);
+    expect(importSaveFile(JSON.stringify(save), { keepCopy })).toBe(keepCopy ? NO_ROOM_FOR_COPY_NOTE : FILE_TOO_BIG_NOTE + COPIES_NOTE);
     expect(store).toEqual(before);
     expect(write.mock.calls.some(([key, value]) => key === STORAGE_KEYS.STATS && value === save.stats)).toBe(true); // it got partway
   });

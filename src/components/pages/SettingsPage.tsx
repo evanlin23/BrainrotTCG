@@ -102,14 +102,15 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         }
     };
 
-    const runImport = (content: string, keepCopy = true) => {
+    /** `saves` names the two saves the player agreed to swap; null when nothing asked first. */
+    const runImport = (content: string, keepCopy = true, saves: string | null = null) => {
         setPendingImport(null);
         setWithoutCopy(false);
         const error = onImportSave(content, keepCopy);
         if (!error) return;
         // Nothing changed; the player may export first, then choose to replace without the copy.
         if (keepCopy && error === NO_ROOM_FOR_COPY_NOTE) {
-            setImportNote(replacing ? `${error} Replace ${replacing} without keeping a copy?` : error);
+            setImportNote(saves ? `${error} Replace ${saves} without keeping a copy?` : error);
             setPendingImport(content);
             setWithoutCopy(true);
         } else setImportNote(error);
@@ -242,7 +243,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                 >
                                     Keep mine
                                 </button>
-                                <button type="button" className="btn btn--primary btn--sm" onClick={() => runImport(pendingImport, !withoutCopy)}>
+                                <button type="button" className="btn btn--primary btn--sm" onClick={() => runImport(pendingImport, !withoutCopy, replacing)}>
                                     {withoutCopy ? 'Replace without a copy' : 'Replace'}
                                 </button>
                             </span>
