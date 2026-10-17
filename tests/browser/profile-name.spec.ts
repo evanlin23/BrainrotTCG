@@ -15,7 +15,8 @@ test.describe('Profile display name in emulated Chromium (not real devices)', ()
     const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('brainrot-player-v1')!) as { name: string; secretKey: string });
     const edit = profile.getByRole('button', { name: 'Edit name', exact: true });
     const field = profile.getByRole('textbox', { name: 'Name shown on shared pulls', exact: true });
-    const status = profile.getByRole('status');
+    // The name section's own status: the page has others, such as the background re-open note.
+    const status = profile.locator('#player').getByRole('status');
     const sideScroll = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
     // Escape closes only the field: the page stays, focus returns to Edit name, nothing is written.
