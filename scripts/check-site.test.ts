@@ -3,8 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SETS } from '../src/content/sets/index.ts';
-import { checkSite, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { isOpenable, SETS } from '../src/content/sets/index.ts';
+import { checkCacheContract, checkSite, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
 import { generatePreviews } from './preview-pages.ts';
 
 interface Host {
@@ -18,7 +18,8 @@ const GITHUB: Host = { name: 'GitHub Pages', base: '/BrainrotTCG/', site: 'https
 const CLOUDFLARE: Host = { name: 'Cloudflare Pages', base: '/', site: 'https://brainrottcg.pages.dev/' };
 
 // Two cards of one set: 19 share pages and a set page, and no card art drawn.
-const SET = { ...SETS[0], cards: SETS[0].cards.slice(0, 2) };
+const OPENABLE = SETS.find(isOpenable)!;
+const SET = { ...OPENABLE, cards: OPENABLE.cards.slice(0, 2) };
 
 const picture = (width = 1200, height = 630) => sharp({ create: { width, height, channels: 3, background: '#121114' } });
 let JPEG: Buffer;
@@ -59,23 +60,25 @@ const build = async (host: Host) => {
 <html lang="en">
   <head>
     <link rel="icon" type="image/svg+xml" href="${base}favicon.svg" />
+    <meta property="og:title" content="Brainrot TCG" />
     <meta property="og:url" content="${site}" />
     <meta property="og:image" content="${site}og-image.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="${site}og-image.jpg" />
-    <script type="module" crossorigin src="${base}assets/index.js"></script>
-    <link rel="stylesheet" crossorigin href="${base}assets/index.css">
+    <script type="module" crossorigin src="${base}assets/index-AbCd1234.js"></script>
+    <link rel="stylesheet" crossorigin href="${base}assets/index-AbCd1234.css">
   </head>
   <body><div id="root"></div></body>
 </html>
 `,
   );
   write(`${outDir}favicon.svg`, 'icon');
-  write(`${outDir}assets/index.js`, 'app');
-  write(`${outDir}assets/index.css`, `@font-face{src:url(${base}assets/font.woff2) format("woff2")}body{background:url("./paper.webp")}`);
-  write(`${outDir}assets/font.woff2`, 'font');
-  write(`${outDir}assets/paper.webp`, 'paper');
+  write(`${outDir}assets/index-AbCd1234.js`, 'app');
+  write(`${outDir}assets/index-AbCd1234.css`, `@font-face{src:url(${base}assets/font-AbCd1234.woff2) format("woff2")}body{background:url("./paper-AbCd1234.webp")}`);
+  write(`${outDir}assets/font-AbCd1234.woff2`, 'font');
+  write(`${outDir}assets/paper-AbCd1234.webp`, 'paper');
   write(`${outDir}og-image.jpg`, JPEG);
   const { pages, images } = await writePages(outDir, host);
   const options: SiteCheckOptions = { outDir, base, site, versions: [SET], sets: [SET] };
@@ -196,7 +199,7 @@ describe('checkSite', () => {
     const { errors } = await checkSite(options);
     expect(errors).toEqual(
       expect.arrayContaining([
-        { path: share, error: expect.stringMatching(/^Missing: the preview page for genesis\//) },
+        { path: share, error: expect.stringMatching(new RegExp(`^Missing: the preview page for ${SET.id}/`)) },
         { path: setPage, error: `Missing: the preview page for set ${SET.id}` },
       ]),
     );
@@ -205,12 +208,48 @@ describe('checkSite', () => {
 
   it('fails a build missing what its pages or stylesheets load', async () => {
     const { options, outDir } = await build(GITHUB);
-    unlinkSync(`${outDir}assets/index.js`);
-    unlinkSync(`${outDir}assets/paper.webp`);
+    unlinkSync(`${outDir}assets/index-AbCd1234.js`);
+    unlinkSync(`${outDir}assets/paper-AbCd1234.webp`);
     const { errors } = await checkSite(options);
     expect(errors).toEqual([
-      { path: 'index.html', error: "Links to /BrainrotTCG/assets/index.js, which isn't in the build (assets/index.js)" },
-      { path: 'assets/index.css', error: "Links to ./paper.webp, which isn't in the build (assets/paper.webp)" },
+      { path: 'index.html', error: "Links to /BrainrotTCG/assets/index-AbCd1234.js, which isn't in the build (assets/index-AbCd1234.js)" },
+      { path: 'assets/index-AbCd1234.css', error: "Links to ./paper-AbCd1234.webp, which isn't in the build (assets/paper-AbCd1234.webp)" },
+    ]);
+  });
+
+  it('fails a page that previews without a large picture or a title', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    const file = `${outDir}index.html`;
+    writeFileSync(file, readFileSync(file, 'utf8')
+      .replace('content="summary_large_image"', 'content="summary"')
+      .replace(/\s*<meta property="og:title"[^>]*>/, ''));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: 'Has no og:title' },
+      { path: 'index.html', error: 'twitter:card is summary, not summary_large_image' },
+    ]);
+  });
+
+  it("fails a set's page that opens the app somewhere other than that set", async () => {
+    const { options, outDir } = await build(GITHUB);
+    const setPage = `s/${SET.id}/index.html`;
+    const file = `${outDir}${setPage}`;
+    writeFileSync(file, readFileSync(file, 'utf8').replace(`"#/set/${SET.id}"`, '""'));
+    expect((await checkSite(options)).errors).toEqual([{ path: setPage, error: `Opens the app at '', not '#/set/${SET.id}'` }]);
+  });
+
+  it('fails code or styles a page loads from outside assets/, and unhashed files that would be cached forever', async () => {
+    const { options, outDir } = await build(GITHUB);
+    const file = `${outDir}index.html`;
+    writeFileSync(file, readFileSync(file, 'utf8').replace('</head>', '<script src="/BrainrotTCG/app.js"></script><script type="module" src="assets/index-AbCd1234.js"></script><link rel="stylesheet" href="https://cdn.example/x.css"></head>'));
+    write(`${outDir}app.js`, 'app');
+    write(`${outDir}assets/logo.png`, 'logo');
+    write(`${outDir}cards/a.webp`, 'card');
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: "Loads /BrainrotTCG/app.js, outside /BrainrotTCG/assets/, so it isn't hashed" },
+      { path: 'index.html', error: "Loads assets/index-AbCd1234.js, outside /BrainrotTCG/assets/, so it isn't hashed" },
+      { path: 'index.html', error: "Loads https://cdn.example/x.css, outside /BrainrotTCG/assets/, so it isn't hashed" },
+      { path: 'assets/logo.png', error: "Has no content hash in its name, but assets/ is cached as if it never changes" },
+      { path: 'cards/a.webp', error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' },
     ]);
   });
 
@@ -242,9 +281,46 @@ describe('checkSite', () => {
     it(`fails the whole build when checked as ${other.name}'s`, async () => {
       const { options } = await build(built);
       const { errors } = await checkSite({ ...options, base: other.base, site: other.site });
-      expect(errors).toContainEqual({ path: 'index.html', error: expect.stringMatching(/^Links to .*assets\/index\.js/) });
+      expect(errors).toContainEqual({ path: 'index.html', error: expect.stringMatching(/^Links to .*assets\/index-AbCd1234\.js/) });
       expect(errors).toContainEqual({ path: 'index.html', error: `og:image is ${built.site}og-image.jpg, not under SITE_URL ${other.site}` });
       expect(errors).toContainEqual({ path: `s/${SET.id}/index.html`, error: `Forwards to ${built.base}, not BASE_PATH ${other.base}` });
     });
+  });
+});
+
+describe('checkCacheContract', () => {
+  const files = ['index.html', 'og-image.jpg', 'assets/index-AbCd1234.js', 'assets/cards/genesis/a-AbCd_-12.webp', 'p/genesis.html', 's/genesis/index.html', '_headers'];
+
+  it('passes the files a build names, with no _headers or one that keeps only assets/ forever', () => {
+    expect(checkCacheContract(files, '/', undefined)).toEqual([]);
+    expect(checkCacheContract(files, '/', '# cache\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/*\n  Cache-Control: no-cache\n')).toEqual([]);
+  });
+
+  it('fails a _headers that keeps a renamable file forever, or leaves assets/ out', () => {
+    expect(checkCacheContract(files, '/BrainrotTCG/', '/BrainrotTCG/*\n  Cache-Control: max-age=31536000, immutable\n')).toEqual([
+      { path: '_headers', error: 'Marks /BrainrotTCG/* immutable; only /BrainrotTCG/assets/* is hashed' },
+      { path: '_headers', error: 'Caches /BrainrotTCG/* for 31536000s; only /BrainrotTCG/assets/* is hashed, so the rest must revalidate within 86400s' },
+      { path: '_headers', error: "Doesn't mark /BrainrotTCG/assets/* immutable" },
+    ]);
+  });
+
+  it('fails a _headers that caches a renamable file for longer than a day, even without immutable', () => {
+    const assets = '/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n';
+    expect(checkCacheContract(files, '/', `${assets}/*\n  Cache-Control: max-age=31536000\n`)).toEqual([
+      { path: '_headers', error: 'Caches /* for 31536000s; only /assets/* is hashed, so the rest must revalidate within 86400s' },
+    ]);
+    expect(checkCacheContract(files, '/', `${assets}/index.html\n  Cache-Control: public, max-age=3600, s-maxage=604800\n`)).toEqual([
+      { path: '_headers', error: 'Caches /index.html for 604800s; only /assets/* is hashed, so the rest must revalidate within 86400s' },
+    ]);
+    expect(checkCacheContract(files, '/', `${assets}/*\n  Cache-Control: public, max-age=3600\n/s/*\n  Cache-Control: max-age=86400\n`)).toEqual([]);
+  });
+
+  it("fails a name in assets/ that only looks hashed, because it's a source file's own name", () => {
+    const words = ['assets/finish-rainbows.webp', 'assets/cards/x/card-backside.webp'];
+    expect(checkCacheContract([...files, ...words], '/', undefined, new Set(['finish-rainbows.webp', 'card-backside.webp']))).toEqual(
+      words.map((path) => ({ path, error: 'Has no content hash in its name, but assets/ is cached as if it never changes' })),
+    );
+    // The same shape that isn't any source file's name is Vite's: an all-lowercase hash is one.
+    expect(checkCacheContract(['assets/finish-rainbowz.webp'], '/', undefined, new Set(['finish-rainbows.webp']))).toEqual([]);
   });
 });

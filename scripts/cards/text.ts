@@ -76,6 +76,8 @@ export const balancedLines = (font: opentype.Font, text: string, maxWidth: numbe
 /**
  * Lay text along a curve y = f(x): each glyph is centred on the curve and
  * rotated to its slope, optionally squeezed horizontally (condensed look).
+ * The squeeze is applied to the outline itself, not the transform, so a stroke
+ * around the glyph stays the same thickness on every side.
  * Returns one path per glyph with its transform.
  */
 export const textOnCurve = (
@@ -101,7 +103,11 @@ export const textOnCurve = (
     const gx = x + width / 2;
     x += width;
     const angle = (Math.atan(slope(gx)) * 180) / Math.PI;
-    const d = toPathData(glyph.getPath(-width / 2 / squeeze, capHeight / 2, size).commands);
-    return { d, transform: `translate(${fmt(gx)} ${fmt(curve(gx))}) rotate(${fmt(angle)}) scale(${fmt(squeeze)} 1)` };
+    // Undefined x values (see toPathData) stay undefined, so they still fall back to the previous point.
+    const squeezeX = (v: number | undefined) => (v === undefined ? v : v * squeeze);
+    const commands = glyph.getPath(-width / 2 / squeeze, capHeight / 2, size).commands.map((c) =>
+      c.type === 'Z' ? c : { ...c, x: squeezeX(c.x), ...('x1' in c ? { x1: squeezeX(c.x1) } : {}), ...('x2' in c ? { x2: squeezeX(c.x2) } : {}) },
+    ) as opentype.PathCommand[];
+    return { d: toPathData(commands), transform: `translate(${fmt(gx)} ${fmt(curve(gx))}) rotate(${fmt(angle)})` };
   });
 };

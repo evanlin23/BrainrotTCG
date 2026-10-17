@@ -10,6 +10,20 @@ The site is static files: no server, nothing to scale. It's built and deployed b
 
 Either way, nothing on the free plans can charge you: there's no payment method to charge.
 
+## Caching
+
+- **Hashed, safe to keep forever:** everything in `assets/` (code, styles, fonts, card art, sounds).
+  Vite names each file by a hash of its content (`name-XXXXXXXX.ext`), so a changed file is a new URL.
+- **Revalidated, same name every deploy:** `index.html`, the files from `public/` beside it (icons,
+  `og-image.jpg`, `hall-of-fame.json`), and the preview pages and pictures in `p/` and `s/`.
+- **Headers:** there is no `_headers` file. GitHub Pages sends a short `max-age` on every file, and
+  Cloudflare Pages revalidates every file by default, so neither can serve a stale `index.html`
+  pointing at code that's gone. If a `_headers` file is added, it may mark only `<base>assets/*`
+  `immutable`.
+- `npm run check:site` enforces this: unhashed `assets/` files, renamable files in other
+  folders, code or styles loaded from outside `assets/`, and a `_headers` that breaks the rule all
+  fail. CI runs it, and the browser test `tests/browser/built-site.spec.ts`, for both base paths.
+
 ## Moving to Cloudflare Pages
 
 About five minutes, all in your browser:
