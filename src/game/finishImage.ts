@@ -61,6 +61,38 @@ const trimCache = () => {
   }
 };
 
+// Each render holds a full-size canvas, a copy of its pixels and a PNG encode at once; a phone opening a
+// screen of finished cards must not start them all together (#226). Queued renders wait their turn
+// in order, and their load deadline starts only once they run.
+export const MAX_CONCURRENT_RENDERS = 2;
+
+let running = 0;
+const waiting: (() => void)[] = [];
+
+/** Hands the slot to the next queued render, or frees it. */
+const nextRender = () => {
+  const next = waiting.shift();
+  if (next) next();
+  else running -= 1;
+};
+
+/**
+ * Runs `render` now when a slot is free, otherwise once one is. A queued render that nothing wants
+ * by its turn (`wanted` is false) gives its slot straight on and rejects without starting.
+ */
+const limitRenders = <T>(render: () => Promise<T>, wanted: () => boolean): Promise<T> => {
+  const run = () => new Promise<T>((resolve) => resolve(render())).finally(nextRender);
+  if (running < MAX_CONCURRENT_RENDERS) {
+    running += 1;
+    return run();
+  }
+  return new Promise<void>((resolve) => waiting.push(resolve)).then(() => {
+    if (wanted()) return run();
+    nextRender();
+    throw new Error('Finish render no longer needed');
+  });
+};
+
 const renderFinish = (src: string, finish: Finish): Promise<string> =>
   Promise.all([loadImage(src), getFrameMask()]).then(async ([image, mask]) => {
     const canvas = document.createElement('canvas');
@@ -110,7 +142,13 @@ export const holdFinishedCardImage = (src: string, finish?: Finish | null): Fini
     cache.set(key, entry);
   } else {
     const created: CachedFinish = { image: Promise.resolve(''), holders: 0 };
-    created.image = renderFinish(src, finish).then((url) => {
+    // Released before its turn came: drop it from the cache now, so a later request starts afresh.
+    const wanted = () => {
+      if (created.holders > 0) return true;
+      if (cache.get(key) === created) cache.delete(key);
+      return false;
+    };
+    created.image = limitRenders(() => renderFinish(src, finish), wanted).then((url) => {
       created.url = url;
       // Evicted while rendering, with nobody waiting: nothing will ever show it.
       if (cache.get(key) !== created && created.holders === 0) URL.revokeObjectURL(url);

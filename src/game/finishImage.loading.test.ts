@@ -341,3 +341,97 @@ describe('finished image cache', () => {
     expect(revoke).toHaveBeenCalledWith(url);
   });
 });
+
+describe('finish render concurrency', () => {
+  const setup = async () => {
+    const { holdFinishedCardImage, MAX_CONCURRENT_RENDERS } = await import('./finishImage');
+    const hold = (i: number) => holdFinishedCardImage(`/card-${i}.webp`, 'GOLD');
+    /** What each request ended as, so a rejection is read rather than left unhandled. */
+    const outcome = (held: ReturnType<typeof hold>) => held.image.then(() => 'shown', (error: Error) => error.message);
+    /** Card art requests in the order they started (the frame mask is left out). */
+    const started = () => images.map((image) => image.src).filter((src) => src.startsWith('/card-'));
+    const art = (i: number) => images.find((image) => image.src === `/card-${i}.webp`)!;
+    return { hold, outcome, started, art, max: MAX_CONCURRENT_RENDERS };
+  };
+
+  it('runs at most two renders at once, starts queued ones in order, and frees a slot on failure', async () => {
+    const { hold, outcome, started, art, max } = await setup();
+    expect(max).toBe(2);
+    const outcomes = [0, 1, 2, 3].map((i) => outcome(hold(i)));
+    expect(started()).toEqual(['/card-0.webp', '/card-1.webp']);
+    const mask = images[1];
+
+    art(0).fail();
+    expect(await outcomes[0]).toBe('Could not load /card-0.webp');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started()).toEqual(['/card-0.webp', '/card-1.webp', '/card-2.webp']);
+
+    mask.load();
+    art(1).load();
+    expect(await outcomes[1]).toBe('shown');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started()).toEqual(['/card-0.webp', '/card-1.webp', '/card-2.webp', '/card-3.webp']);
+
+    art(2).load();
+    art(3).load();
+    expect(await Promise.all(outcomes.slice(2))).toEqual(['shown', 'shown']);
+    // No slot was lost along the way: the next two start at once.
+    hold(4);
+    hold(5);
+    expect(started().slice(4)).toEqual(['/card-4.webp', '/card-5.webp']);
+    expect(vi.getTimerCount()).toBe(2);
+  });
+
+  it('starts a queued render\'s load deadline only when its turn comes', async () => {
+    const { hold, outcome, started, art } = await setup();
+    const outcomes = [0, 1, 2].map((i) => outcome(hold(i)));
+    const mask = images[1];
+    await vi.advanceTimersByTimeAsync(10_000);
+    mask.load();
+    art(0).load();
+    expect(await outcomes[0]).toBe('shown');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started()).toEqual(['/card-0.webp', '/card-1.webp', '/card-2.webp']);
+
+    // Card 1 has waited since the start; card 2 only since card 0 finished, 10s in.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await outcomes[1]).toBe('Image load timed out: /card-1.webp');
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(art(2).onload).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await outcomes[2]).toBe('Image load timed out: /card-2.webp');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('drops a queued render nothing holds by its turn, and renders it afresh when asked again', async () => {
+    const { hold, outcome, started, art } = await setup();
+    const [first, second, third, fourth, fifth] = [0, 1, 2, 3, 4].map(hold);
+    const outcomes = [first, second, third, fourth, fifth].map(outcome);
+    third.release();
+    // Let go and taken again before its turn (a StrictMode remount): still wanted.
+    fourth.release();
+    const fourthAgain = hold(3);
+    expect(fourthAgain.image).toBe(fourth.image);
+
+    images[1].load(); // The frame mask.
+    art(0).load();
+    expect(await outcomes[0]).toBe('shown');
+    expect(await outcomes[2]).toBe('Finish render no longer needed');
+    await vi.advanceTimersByTimeAsync(0);
+    // Card 2 never asked for its art; its slot went straight to card 3.
+    expect(started()).toEqual(['/card-0.webp', '/card-1.webp', '/card-3.webp']);
+
+    const again = hold(2);
+    expect(again.image).not.toBe(third.image);
+    const againOutcome = outcome(again);
+    art(1).load();
+    expect(await outcomes[1]).toBe('shown');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(started()).toEqual(['/card-0.webp', '/card-1.webp', '/card-3.webp', '/card-4.webp']);
+    art(3).load();
+    art(4).load();
+    await vi.advanceTimersByTimeAsync(0);
+    art(2).load();
+    expect(await Promise.all([outcomes[3], outcomes[4], againOutcome])).toEqual(['shown', 'shown', 'shown']);
+  });
+});
