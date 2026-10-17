@@ -133,10 +133,10 @@ const PackCuttingUI = ({
             ))}
           </div>
         </div>
-        {/* Seen, not read: the pack's live region (PackOpener) says it once. */}
+        {/* Seen, not read: the pack's live region (PackOpener) says it once. The button under the pack already says Opening…, so this says why it is taking a while. */}
         {waiting && !refusal && !leaving && (
           <p className="pack-hint is-waiting" aria-hidden="true">
-            Opening…
+            Taking a moment…
           </p>
         )}
       </div>
