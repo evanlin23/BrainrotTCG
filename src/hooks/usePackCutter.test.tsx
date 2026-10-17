@@ -506,6 +506,46 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(frames.size).toBe(0);
   });
 
+  it('commits a frame\'s drawing inside that frame, so it paints in the same frame', () => {
+    renderCounting(true);
+    down(at(0.3));
+    move(at(0.34));
+    move(at(0.36));
+    commits = 0;
+    // The browser runs the frame outside act: an ordinary update there waits for React's scheduler,
+    // which commits after the frame has painted, so the cut would show a frame late.
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', false);
+    try {
+      const [callback] = frames.values();
+      frames.clear();
+      callback(Date.now());
+      expect(commits).toBe(1);
+      expect(drawnX()).toEqual([30, 34, 36]);
+      expect(cutter.isCutting).toBe(true);
+      expect(cutter.sparks.length).toBeGreaterThan(0);
+    } finally {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    }
+  });
+
+  it('opens once for a swipe, its release, the Open pack button and a second swipe, all before the pack re-renders as cut', () => {
+    renderCounting(true);
+    down(at(0.2));
+    move(at(0.4));
+    move(at(0.66));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+    move(at(0.8));
+    up(at(0.8));
+    act(() => cutter.completeCut());
+    swipe(at(0.2), at(0.5), at(0.8));
+    up(at(0.8));
+    runFrame();
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+    expect(frames.size).toBe(0);
+    expect(cutter.cutPoints).toEqual([]);
+    expect(cutter.sparks).toHaveLength(0);
+  });
+
   it('draws one spark burst a frame, at the latest point', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5); // no spark jitter
     renderCounting(true);

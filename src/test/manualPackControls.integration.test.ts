@@ -371,6 +371,24 @@ it('leaves the summary with Escape, as Next pack does, without recording it agai
   expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
 }, 30_000);
 
+it('opens and records one pack when Open pack and Enter land together, before the tear re-renders (#266)', async () => {
+  app = await mountedApp(preferences());
+  await app.mount();
+  await app.interact(() => {
+    const open = sealed()!;
+    open.click();
+    open.click();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true }));
+    open.click();
+  });
+  await app.until('the pack opens', () => expect(progress()).toBe('1'));
+  await summary();
+  await app.settle(1000);
+  expect(stats()?.packsOpened).toBe(1);
+  expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]')).toHaveLength(1);
+  expect(JSON.parse(localStorage.getItem('brainrot-player-v1') ?? '{}').nextNonce).toBe(1);
+}, 30_000);
+
 it('puts a torn pack back sealed when it is left before its ticket is spent', async () => {
   app = await mountedApp(preferences());
   await app.mount();

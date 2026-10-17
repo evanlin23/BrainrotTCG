@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { useSparks } from './useSparks';
 import { mapPackPointer, type PackLayout, type PackRect } from './packCutCoordinates';
 import { FAIRY_DUST_SRC, WOOSH_SRC, soundVolume } from '../constants/audio';
@@ -153,12 +154,16 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     pendingSparkRef.current = null;
     // A sheet, the opening or the cut can arrive between the move and its frame: then it draws nothing.
     if (cutCompletedRef.current || closedRef.current || !strokeRef.current?.across || cuts.length === 0) return;
-    setIsCutting(true);
-    setCutPoints((prev) => {
-      const next = prev.concat(cuts);
-      return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
+    // Commit now, inside this frame, so the browser paints it in the same frame. Left to React, an
+    // update from a frame callback commits after that frame's paint and shows a frame late (#266).
+    flushSync(() => {
+      setIsCutting(true);
+      setCutPoints((prev) => {
+        const next = prev.concat(cuts);
+        return next.length > MAX_CUT_POINTS ? next.slice(next.length - MAX_CUT_POINTS) : next;
+      });
+      if (spark) emitSparkRef.current(spark.x, spark.y);
     });
-    if (spark) emitSparkRef.current(spark.x, spark.y);
   }, []);
 
   // A resize or a scroll can move the pack under a press: measure it again at the next point. So can
