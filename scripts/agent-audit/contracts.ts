@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 export const tasks = {
   opening: 'You found this game for the first time. Try to open a pack and find out what you received.',
@@ -55,6 +57,20 @@ const agentVariables = [
 ];
 export function agentEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(agentVariables.flatMap((name) => env[name] === undefined ? [] : [[name, env[name]]]));
+}
+
+// Instruction files a CLI session loads as memory: managed and user memory and rules, and
+// CLAUDE.md, CLAUDE.local.md, AGENTS.md and .claude/ memory or rules in the working directory and
+// every directory above it. In 2.1.302 --restricted skipped all of them (checked with marker files),
+// but its help promises only to skip settings files, so the runner refuses while any exist.
+export function instructionFiles(home: string | undefined, cwd: string): string[] {
+  const paths = ['/etc/claude-code/CLAUDE.md', '/Library/Application Support/ClaudeCode/CLAUDE.md'];
+  if (home) paths.push(join(home, '.claude', 'CLAUDE.md'), join(home, '.claude', 'rules'));
+  for (let directory = resolve(cwd); ; directory = dirname(directory)) {
+    paths.push(...['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude/CLAUDE.md', '.claude/rules'].map((name) => join(directory, name)));
+    if (dirname(directory) === directory) break;
+  }
+  return paths.filter((path) => existsSync(path));
 }
 
 // The registry imports sets explicitly, but Vite globs set art (src/content/sets/*/...) and copies

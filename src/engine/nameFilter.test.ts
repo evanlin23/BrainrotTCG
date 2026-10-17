@@ -80,6 +80,16 @@ describe('isNameAllowed', () => {
     ).toEqual([]);
   });
 
+  it('excuses a match only inside the allowed word or phrase itself, not a blocked word sharing its letters', () => {
+    expect(
+      blocked([
+        'pussycatslut', 'nazirnazi', 'boobyboob', 'pornazir', 'nazirimjob', 'naziasshole', 'nazimilf', 'pussycatranny',
+        'pussywillowhore', 'booboorgasm', 'milfordildo', 'Moby Dick Pic', 'Big Dick Grayson', 'Moby Dick.head', 'Hot.Pussy Cat',
+      ]),
+    ).toEqual([]);
+    expect(allowed(['Nazir Nazia', 'Booboo Booby', 'PussycatPussyfoot', 'Moby Dick!', 'Moby-Dick', 'Moby Dick 2'])).toEqual([]);
+  });
+
   it('allows brainrot names, gamer tags and mild swearing', () => {
     expect(
       allowed([

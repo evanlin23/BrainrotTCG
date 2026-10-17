@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { describe, expect, it } from 'vitest';
 import { bridgeHandler, browserCommand, stepBudget } from './browser';
-import { agentEnvironment, clean, isBasePath, parseOptions, parseOutcome, uncommittedBuildInputs } from './contracts';
+import { agentEnvironment, clean, instructionFiles, isBasePath, parseOptions, parseOutcome, uncommittedBuildInputs } from './contracts';
 
 describe('local audit evidence contracts', () => {
   it('supports root and prefixed hosting while refusing URL/path escapes', () => {
@@ -79,6 +79,24 @@ describe('local audit runner boundary', () => {
       rmSync(join(directory, 'public'), { recursive: true });
       write('src/content/sets/genesis/set.json', '{"draft":true}');
       expect(uncommittedBuildInputs(directory)).toMatch(/tracked changes/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('finds every memory or rules file a reviewer session could load from its home or folders', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'brainrot-audit-memory-'));
+    const home = join(directory, 'home');
+    const task = join(directory, 'run', 'opening');
+    // The real temporary directory or / may hold such files too; only this fixture is checked.
+    const found = () => instructionFiles(home, task).filter((path) => path.startsWith(directory));
+    try {
+      mkdirSync(task, { recursive: true });
+      mkdirSync(join(home, '.claude', 'rules'), { recursive: true });
+      expect(found()).toEqual([join(home, '.claude', 'rules')]);
+      rmSync(join(home, '.claude', 'rules'), { recursive: true });
+      expect(found()).toEqual([]);
+      mkdirSync(join(task, '.claude'));
+      for (const path of [join(home, '.claude', 'CLAUDE.md'), join(directory, 'run', 'CLAUDE.local.md'), join(task, 'AGENTS.md'), join(task, '.claude', 'CLAUDE.md')]) writeFileSync(path, 'Coaching');
+      expect(found()).toEqual([join(home, '.claude', 'CLAUDE.md'), join(task, 'AGENTS.md'), join(task, '.claude', 'CLAUDE.md'), join(directory, 'run', 'CLAUDE.local.md')]);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });

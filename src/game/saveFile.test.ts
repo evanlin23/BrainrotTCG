@@ -124,6 +124,14 @@ describe('Save & backup preflight', () => {
     expectRejectedWithoutWrites(JSON.stringify({ ...fixture(), ...change }));
   });
 
+  it('keeps the show-every-page flag through an export and import', () => {
+    store.set(STORAGE_KEYS.SETTINGS, '{"particlesEnabled":false,"showAllPages":true}');
+    const saved = exportSaveFile();
+    store.set(STORAGE_KEYS.SETTINGS, '{"particlesEnabled":false}');
+    expect(importSaveFile(saved)).toBeNull();
+    expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).showAllPages).toBe(true);
+  });
+
   it('imports a current real-card fixture and preserves the previous save as a backup', () => {
     const save = fixture();
     expect(importSaveFile(JSON.stringify(save))).toBeNull();
