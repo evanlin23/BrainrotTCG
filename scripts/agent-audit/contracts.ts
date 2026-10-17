@@ -16,16 +16,19 @@ export function clean(value: unknown): string {
 export function parseOptions(args: string[]) {
   const selected: Task[] = [];
   let seconds = 90;
+  let turns = 15;
   for (const argument of args) {
     if (argument.startsWith('--task=')) {
       const task = argument.slice(7);
       if (!Object.hasOwn(tasks, task) || selected.includes(task as Task)) throw Error('Unknown or duplicate task');
       selected.push(task as Task);
     } else if (/^--seconds=\d+$/.test(argument)) seconds = Number(argument.slice(10));
-    else throw Error('Use --task=opening|sharing|results|recovery and --seconds=30..180');
+    else if (/^--turns=\d+$/.test(argument)) turns = Number(argument.slice(8));
+    else throw Error('Use --task=opening|sharing|results|recovery, --seconds=30..180 and --turns=3..40');
   }
   if (seconds < 30 || seconds > 180) throw Error('Task limit must be 30..180 seconds');
-  return { selected: selected.length ? selected : ['opening'] as Task[], seconds };
+  if (turns < 3 || turns > 40) throw Error('Turn limit must be 3..40');
+  return { selected: selected.length ? selected : ['opening'] as Task[], seconds, turns };
 }
 export function parseOutcome(raw: string, steps: string[]) {
   if (raw.length > 16384) throw Error('Oversized agent report');
@@ -47,8 +50,7 @@ export function isBasePath(value: string) {
 // reaches the MCP adapter through its config, not this environment.
 const agentVariables = [
   'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'TMPDIR', 'TZ', 'LANG', 'LC_ALL', 'LC_CTYPE',
-  'CODEX_HOME', 'CODEX_API_KEY', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORGANIZATION', 'OPENAI_PROJECT',
-  'CODEX_CA_CERTIFICATE', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
   'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'all_proxy', 'no_proxy',
 ];
 export function agentEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
