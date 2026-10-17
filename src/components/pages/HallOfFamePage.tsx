@@ -74,6 +74,10 @@ const HallOfFamePage = () => {
   // True once a check of the live relays found every one unreachable: the published rankings still
   // show, but anything sent since the last deploy can't be seen, so an empty board mustn't claim it's empty.
   const [relaysDown, setRelaysDown] = useState(false);
+  // True from the moment the published rankings arrive until the live relays have answered (or failed
+  // to). The published pulls show meanwhile, but an empty board can't say it's empty, or the status
+  // that the rankings loaded, before it knows which: the status stays "Loading rankings…" until then.
+  const [checking, setChecking] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const loadingRef = useRef(true);
 
@@ -82,24 +86,28 @@ const HallOfFamePage = () => {
     loadingRef.current = true;
     loadHallOfFame().then((list) => {
       if (controller.signal.aborted) return;
-      loadingRef.current = false;
       if (list === null) {
+        loadingRef.current = false;
         setLoadState('failed');
         return;
       }
       setEntries(list);
       setPending([]);
       setRelaysDown(false);
+      setChecking(true);
       setLoadState('loaded');
       // Then anything sent since the last deploy, re-derived here before it shows (see loadPending).
+      // The published pulls show meanwhile; the empty-board copy and the "loaded" announcement wait
+      // for the answer. A check that fails outright (its code couldn't load) is as good as no relay.
+      const settle = (reached: boolean) => {
+        if (controller.signal.aborted) return;
+        loadingRef.current = false;
+        if (!reached) setRelaysDown(true);
+        setChecking(false);
+      };
       loadPending(list, (entry) => {
         if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
-      }, controller.signal).then(
-        (reached) => {
-          if (reached === false && !controller.signal.aborted) setRelaysDown(true);
-        },
-        () => {},
-      );
+      }, controller.signal).then((reached) => settle(reached !== false), () => settle(false));
     });
     return () => controller.abort();
   }, [attempt]);
@@ -115,14 +123,14 @@ const HallOfFamePage = () => {
   const statusRef = useRef<HTMLParagraphElement>(null);
   const retryRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (loadState !== 'failed' && !(loadState === 'loaded' && attempt > 0)) return;
+    if (loadState !== 'failed' && !(loadState === 'loaded' && !checking && attempt > 0)) return;
     const status = statusRef.current;
     const active = document.activeElement;
     const opened = status?.closest('.page')?.querySelector('.page-title');
     if (status && (!active || active === document.body || active === retryRef.current || active === opened)) {
       status.focus({ preventScroll: true });
     }
-  }, [loadState, attempt]);
+  }, [loadState, checking, attempt]);
   const all = useMemo(() => (entries ? [...entries, ...pending] : null), [entries, pending]);
 
   // The same rules the deploy used to pick these entries (src/engine/hallOfFame.ts): one entry per
@@ -218,9 +226,9 @@ const HallOfFamePage = () => {
         ]}
       />
 
-      <div className={loadState === 'loaded' && !relaysDown ? 'sr-only' : 'hof-load-state'}>
+      <div className={loadState === 'loaded' && !checking && !relaysDown ? 'sr-only' : 'hof-load-state'}>
         <p role="status" tabIndex={-1} ref={statusRef}>
-          {loadState === 'loading'
+          {loadState === 'loading' || (loadState === 'loaded' && checking)
             ? 'Loading rankings…'
             : loadState !== 'loaded'
               ? "Couldn't load the rankings. Try again."
@@ -228,8 +236,8 @@ const HallOfFamePage = () => {
                 ? "Couldn't reach the live feed, so pulls sent recently may be missing. Try again."
                 : 'Rankings loaded.'}
         </p>
-        {(loadState !== 'loaded' || relaysDown) && (
-          <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading rankings">
+        {(loadState !== 'loaded' || checking || relaysDown) && (
+          <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading' || checking} aria-label="Retry loading rankings">
             Retry
           </button>
         )}
@@ -246,7 +254,7 @@ const HallOfFamePage = () => {
             </p>
             {today.length > 0 ? (
               rankedList(today)
-            ) : (
+            ) : checking ? null : (
               <>
                 <div className="hof-empty">
                   <Crown aria-hidden="true" />
@@ -285,7 +293,7 @@ const HallOfFamePage = () => {
                 </p>
                 {rankedList(ranked)}
               </>
-            ) : (
+            ) : checking ? null : (
               <div className="hof-empty">
                 <Crown aria-hidden="true" />
                 <p>

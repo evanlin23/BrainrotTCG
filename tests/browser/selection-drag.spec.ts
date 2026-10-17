@@ -61,6 +61,9 @@ async function tryTouchDrag(page: Page, finger: Finger, target: Locator, dx: num
   await finger.release();
 }
 
+/** Short enough that the pack summary has to scroll on every project. */
+const SHORT_WINDOW = 240;
+
 /** Scroll offset and range of the nearest ancestor that scrolls (or the page). */
 const scrollOf = (target: Locator) => target.evaluate((element) => {
   let scroller: Element | null = element.parentElement;
@@ -73,10 +76,12 @@ const scrollOf = (target: Locator) => target.evaluate((element) => {
 
 /**
  * Shortens the window until the summary overflows, then scrolls by a gesture that starts on one of
- * its no-drag card images: suppressing the native drag must not take the scroll with it.
+ * its no-drag card images: suppressing the native drag must not take the scroll with it. The summary
+ * is compact now (the phone's overflowed by only 67px at 340px), so the window is short enough that
+ * it still overflows by well over the 120px asked of it, on the phone and the desktop alike.
  */
 async function expectSummaryScrolls(page: Page, scroll: (x: number, y: number, down: boolean) => Promise<void>) {
-  await page.setViewportSize({ width: page.viewportSize()!.width, height: 340 });
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: SHORT_WINDOW });
   const image = page.locator('.summary-cards img').first();
   await expect.poll(async () => (await scrollOf(image)).max).toBeGreaterThan(120);
   await image.scrollIntoViewIfNeeded();

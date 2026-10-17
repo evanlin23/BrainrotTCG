@@ -188,6 +188,104 @@ describe('Hall of Fame loading', () => {
     expect(document.querySelector('.hof-empty')).toBeNull();
   });
 
+  describe('while the live relays are still being asked', () => {
+    const empty = () => document.querySelector('.hof-empty')?.textContent;
+    const OFFLINE = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
+    /** Every text the status ever held, so a premature "Rankings loaded." can't slip past between two checks. */
+    const watchStatus = () => {
+      const seen: string[] = [];
+      const record = () => { const text = status().textContent!; if (seen[seen.length - 1] !== text) seen.push(text); };
+      record();
+      new MutationObserver(record).observe(status(), { childList: true, characterData: true, subtree: true });
+      return seen;
+    };
+
+    it('shows a loading state, not the empty board or "Rankings loaded.", until the relays answer', async () => {
+      let answer!: (reached: boolean) => void;
+      loadHallOfFame.mockResolvedValueOnce([]);
+      loadPending.mockImplementationOnce(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+      await act(async () => root.render(<HallOfFamePage />));
+      const seen = watchStatus();
+
+      expect(status().textContent).toBe('Loading rankings…');
+      expect(status().parentElement?.classList.contains('sr-only')).toBe(false);
+      expect(retryButton()?.disabled).toBe(true);
+      expect(empty()).toBeUndefined();
+      expect(document.body.textContent).not.toMatch(/No pulls filed today yet|Nothing filed here yet|could be first/);
+      await select('All-time');
+      expect(empty()).toBeUndefined();
+
+      await act(async () => answer(false));
+      expect(status().textContent).toBe(OFFLINE);
+      expect(retryButton()?.disabled).toBe(false);
+      expect(empty()).toContain('Nothing filed here that we can see.');
+      expect(seen).not.toContain('Rankings loaded.');
+    });
+
+    it('announces "Rankings loaded." and the plain empty board once the relays answer', async () => {
+      let answer!: (reached: boolean) => void;
+      loadHallOfFame.mockResolvedValueOnce([]);
+      loadPending.mockImplementationOnce(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+      await act(async () => root.render(<HallOfFamePage />));
+      const seen = watchStatus();
+      expect(empty()).toBeUndefined();
+
+      await act(async () => answer(true));
+      expect(status().textContent).toBe('Rankings loaded.');
+      expect(status().parentElement?.classList.contains('sr-only')).toBe(true);
+      expect(retryButton()).toBeNull();
+      expect(empty()).toContain('No pulls filed today yet.');
+      expect(seen).toEqual(['Loading rankings…', 'Rankings loaded.']);
+    });
+
+    it('does the same again after Retry', async () => {
+      let answer!: (reached: boolean) => void;
+      loadHallOfFame.mockResolvedValue([]);
+      loadPending.mockResolvedValueOnce(false).mockImplementationOnce(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+      await act(async () => root.render(<HallOfFamePage />));
+      expect(status().textContent).toBe(OFFLINE);
+
+      await act(async () => clickRetry());
+      const seen = watchStatus();
+      expect(loadHallOfFame).toHaveBeenCalledTimes(2);
+      expect(status().textContent).toBe('Loading rankings…');
+      expect(retryButton()?.disabled).toBe(true);
+      expect(empty()).toBeUndefined();
+      expect(document.body.textContent).not.toMatch(/No pulls filed today yet|could be first/);
+
+      await act(async () => answer(true));
+      expect(status().textContent).toBe('Rankings loaded.');
+      expect(empty()).toContain('No pulls filed today yet.');
+      expect(seen).not.toContain(OFFLINE);
+    });
+
+    it('lists the published pulls straight away, without waiting for the relays', async () => {
+      loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+      loadPending.mockImplementationOnce(() => new Promise<boolean>(() => {}));
+      await act(async () => root.render(<HallOfFamePage />));
+      await select('All-time');
+      expect(labels()).toEqual(['Number 1: Full House by Alice in Original, score 12345']);
+      expect(status().textContent).toBe('Loading rankings…');
+      expect(retryButton()?.disabled).toBe(true);
+    });
+
+    it('treats a check that fails outright (its code never loaded) as the relays being down', async () => {
+      loadHallOfFame.mockResolvedValue([]);
+      loadPending.mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module')).mockResolvedValueOnce(true);
+      await act(async () => root.render(<HallOfFamePage />));
+      expect(status().textContent).toBe(OFFLINE);
+      expect(status().parentElement?.classList.contains('sr-only')).toBe(false);
+      expect(retryButton()?.disabled).toBe(false);
+      expect(empty()).toContain('No filed pulls today that we can see.');
+      expect(empty()).not.toMatch(/No pulls filed today yet|could be first/);
+
+      await act(async () => clickRetry());
+      expect(status().textContent).toBe('Rankings loaded.');
+      expect(retryButton()).toBeNull();
+      expect(empty()).toContain('No pulls filed today yet.');
+    });
+  });
+
   it("doesn't re-derive published pulls: no ticket is mined, and each row links to its proof instead", async () => {
     // The day these pulls were filed, so both lists show them.
     vi.useFakeTimers({ toFake: ['Date'] });
