@@ -95,8 +95,10 @@ const CardImage = ({
     finished.image.then((result) => {
       if (!cancelled) update({ rendered: result });
     }).catch((error) => {
+      // A render this image let go of may be dropped before it starts; that is not a failure.
+      if (cancelled) return;
       console.error('Could not render card finish', error);
-      if (!cancelled) update({ rendered: src });
+      update({ rendered: src });
     });
     // Effects clean up after the commit that stopped showing this URL, so it is never released while mounted.
     return () => {
