@@ -9,7 +9,7 @@ from a 390 px wide screen.
 ## Principles
 
 1. **The pack is the hero.** Each screen has one primary action: on the home screen it's opening the
-   pack; during a reveal it's the next card; in the summary it's opening another pack. Everything else
+   pack; during a reveal it's the next card; in the summary it's moving on to the next pack. Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
    and wordmark), the gear, the pack and the quiet Card guide link under it: the tabs and the era
    picker come once their first pack is saved and they leave it. There the Open pack button is brand
@@ -97,7 +97,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--dur-reveal` (450 ms), `--dur-celebrate` (1200), `--dur-loop` (3000), `--dur-spin` (900), `--ease-out`, `--ease-spring` | zero under reduced motion, except loops and spinners, which reduced motion stops outright; new CSS uses these, not raw durations |
 | Breakpoints | 380 px (small phone), 720 px (dialogs), 900 px (nav in the header), 1024 px (desktop) | variables can't go in a media query, so use these widths as `min-width` (or one pixel under as `max-width`) |
 | Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` | the page runs under the notch (`viewport-fit=cover`), so anything fixed to a screen edge pads by these; `theme-color` matches `--bg` |
-| States | `--focus-ring`, `--focus-outline`, `--opacity-disabled` | see the rules below |
+| States | `--focus-ring`, `--focus-outline`, `--focus-outline-quiet`, `--opacity-disabled` | see the rules below |
 | Layers | `--z-stage-fx` (5), `--z-header` (40), `--z-nav` (50), `--z-hud` (60), `--z-sheet` (100), `--z-toast` (200) | the only z-index values above 3 |
 
 - **Layers.** Inside a component, stack with 1-3 under `isolation: isolate` (DOM order breaks ties).
@@ -108,7 +108,11 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   or `outline: none`; one with its own box-shadow appends `var(--focus-shadow)`, empty until focused.
   Focus the app moves by script (next card, result, dialog) shows no ring once a mouse, pen or touch
   press, or Space or Enter, was the last input (`data-input="pointer"` or `"press"`,
-  `components/ui/inputModality.ts`); Tab, arrows, Home/End, Page keys or Escape bring it back. A
+  `components/ui/inputModality.ts`); Tab, arrows, Home/End, Page keys or Escape bring it back. After
+  Space or Enter there is still no yellow ring (the owner doesn't want one, #529), but a control's
+  focus is never invisible (WCAG 2.4.7): a `.quiet-focus` control wears a thin neutral outline,
+  `--focus-outline-quiet`, set off 3 px. After a mouse, pen or touch press, and on headings and notes
+  that only script focuses, nothing shows. A
   control Tab reached keeps its ring through Space or Enter (`data-ring-kept`). Covers `[tabindex=-1]` and `.quiet-focus` targets; mark such a control
   `.quiet-focus` and draw its ring with `var(--focus-shadow)`.
 - **Disabled.** `--opacity-disabled` with `cursor: not-allowed` and a dashed edge (the border, or an
@@ -323,10 +327,10 @@ points added up × combo multiplier. There is no per-pack breakdown.
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
 no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
-Fame line), the tap hint (**Tap a card to view**) and the **Card guide** link, the five cards in one
+Fame line), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
 compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
 shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
-actions: **Open another pack** primary, **Share** secondary, stuck to the bottom of the summary's
+actions: **Next pack** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's
 scroller above the safe area. The cards are the last content: only the actions sit below them,
 nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
 or level here: level-ups toast and progress lives on Profile. Keyboard focus is scrolled clear of

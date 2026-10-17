@@ -243,6 +243,34 @@ describe('loadPending', () => {
     expect(onEntry).not.toHaveBeenCalled();
   });
 
+  describe('whether any relay could be read', () => {
+    const run = async (signal = new AbortController().signal) => (await import('./hallOfFameList')).loadPending([], vi.fn(), signal);
+
+    it('is false when every relay failed', async () => {
+      fetchEvents.mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'connection failed' }, { relay: 'wss://b', count: 0, error: 'timed out' }] });
+      expect(await run()).toBe(false);
+    });
+
+    it('is true when a relay answered with nothing, so the board really is empty', async () => {
+      fetchEvents.mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'timed out' }, { relay: 'wss://b', count: 0 }] });
+      expect(await run()).toBe(true);
+    });
+
+    it('is true when events came back, whatever the per-relay report says', async () => {
+      fetchEvents.mockResolvedValue({ events: [{ created_at: 1 }], perRelay: [{ relay: 'wss://a', count: 1, error: 'closed' }] });
+      expect(await run()).toBe(true);
+    });
+
+    it('is true when aborted, since nobody is waiting on the answer', async () => {
+      const controller = new AbortController();
+      fetchEvents.mockImplementation(async () => {
+        controller.abort();
+        return { events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'aborted' }] };
+      });
+      expect(await run(controller.signal)).toBe(true);
+    });
+  });
+
   describe('a pull that only makes today’s top', () => {
     afterEach(() => vi.useRealTimers());
 
@@ -298,6 +326,19 @@ describe('loadPending', () => {
       expect(await pending(board(0), sentTwoDaysAgo)).not.toHaveBeenCalled();
       expect(await pending(board(49), Date.parse('2026-10-15T23:59:59Z') / 1000)).not.toHaveBeenCalled();
       expect(await pending(board(49), Date.parse('2026-10-16T00:00:00Z') / 1000)).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks only a pull this device sent as its own', async () => {
+      const { wasSubmitted } = await import('./share');
+      vi.mocked(wasSubmitted).mockReturnValue(true);
+      const mine = await pending(board(0));
+      expect(mine.mock.calls[0][0]).toMatchObject({ pending: true, mine: true });
+
+      vi.mocked(wasSubmitted).mockReturnValue(false);
+      const theirs = await pending(board(0));
+      expect(theirs).toHaveBeenCalledTimes(1);
+      expect(theirs.mock.calls[0][0]).toMatchObject({ pending: true });
+      expect(theirs.mock.calls[0][0]).not.toHaveProperty('mine');
     });
 
     it('still shows an older one that would join the all-time list', async () => {

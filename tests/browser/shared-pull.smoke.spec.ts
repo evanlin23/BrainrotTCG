@@ -266,6 +266,12 @@ for (const { vector, entry } of cases) {
       if (!finish) {
         await expect(card.locator('img')).toHaveAttribute('src', new RegExp(`/assets/${expected.cardId}-[\\w-]+\\.webp$`));
       }
+      // The caption is a word that can't wrap ("Misprint"): it fits its thumbnail rather than reading "MISPRIN".
+      if (finish || misprint) {
+        const caption = card.locator('.mod-label');
+        await expect(caption).toBeVisible();
+        expect(await caption.evaluate((el) => el.scrollWidth - el.clientWidth), 'the caption is not clipped').toBeLessThanOrEqual(0);
+      }
       // A finish shows a placeholder until its modified frame is ready; expectDecoded waits for that.
       await card.click();
       const detail = page.getByRole('dialog', { name: definition.name, exact: true });

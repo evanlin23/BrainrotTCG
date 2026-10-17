@@ -59,9 +59,9 @@ test('keeps the chrome out of the way through the reveal and the summary, which 
   });
   expect(order).toEqual({ cardsFirst: true, focused: true });
   await expect(page.locator('.summary-title')).toBeInViewport();
-  await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Next pack' })).toBeInViewport();
 
-  await page.getByRole('button', { name: 'Open another pack' }).click();
+  await page.getByRole('button', { name: 'Next pack' }).click();
   await expect(packShell(page)).toBeVisible();
   await expectChrome(page, false);
   await expect.poll(() => onPackEntry(page), 'leaving kept the pack\'s entry').toBe(false);

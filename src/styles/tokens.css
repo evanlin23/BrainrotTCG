@@ -58,6 +58,9 @@
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--brand);
   /* The ring above is the look; this transparent outline is what forced-colours mode paints. */
   --focus-outline: 2px solid transparent;
+  /* Where the ring is held back after Space or Enter (base.css), focus still shows as this thin neutral
+     outline: no yellow, but never invisible. Light on --bg, over 3:1. */
+  --focus-outline-quiet: 2px solid var(--text-muted);
   /* Holo foil: holo cards, holo copies, holo packs and the Master badge. One angle for every sweep. */
   --foil-angle: 115deg;
   --foil-pink: #ff7ac8;

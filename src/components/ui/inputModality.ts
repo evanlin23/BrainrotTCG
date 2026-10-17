@@ -8,8 +8,10 @@
  * script focus that no click put there, and on a phone a tap rarely does, so that ring reads as a
  * selection; so does the ring after Space or Enter has merely advanced the game. CSS drops the ring
  * on those targets after a pointer press or Space/Enter (base.css, #312), and navigation keys bring it
- * back. It starts as keyboard: a screen reader, switch or voice control can move focus with no key
- * heard here, while a touch or mouse player presses before the app moves focus for them.
+ * back. After Space or Enter a thin neutral outline stays on a control, so keyboard focus is never
+ * invisible; after a pointer press nothing shows. It starts as keyboard: a screen reader, switch or voice control can
+ * move focus with no key heard here, while a touch or mouse player presses before the app moves focus
+ * for them.
  *
  * Focus a navigation key placed (Tab onto Open pack) is marked `data-ring-kept` until it leaves, so
  * pressing Space or Enter on it keeps its ring; the next script move after the press stays quiet.
