@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 import { monitor, expectDecoded, expectRecordedPack } from '../browser/support';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { PROFILE, REPETITIONS } from './report';
-import { ARGON2_BYTES_PER_JOB, OPTIONAL_HISTORY_RECORDS, OPTIONAL_SCENARIOS, type OptionalMeasurement } from './optional-work';
+import { ARGON2_BYTES_PER_JOB, OPTIONAL_HISTORY_RECORDS, OPTIONAL_SCENARIOS, responsivenessBetween, type OptionalMeasurement, type ResponsivenessSamples } from './optional-work';
 
 type TicketEvent = { t: number; kind: 'start' | 'done'; worker: number; nonce: number };
 declare global {
-  interface Window { ticketEvents: TicketEvent[] }
+  interface Window { ticketEvents: TicketEvent[]; responsiveness: ResponsivenessSamples & { flush(): void } }
 }
 
 const N = OPTIONAL_HISTORY_RECORDS;
@@ -29,6 +29,21 @@ for (const scenario of OPTIONAL_SCENARIOS) for (let repetition = 1; repetition <
         localStorage.setItem('brainrot-reopen-pending-v1', publicKeyHex);
       }, { keys: STORAGE_KEYS, origin: new URL(baseURL!).origin, records: N, publicKeyHex: SEED01_PUBLIC_KEY });
     }
+    // Main-thread responsiveness from page start: long tasks, and the timestamp of every animation
+    // frame (a loop that only reads the clock, the same in both scenarios).
+    await page.addInitScript(() => {
+      const longTasks: ResponsivenessSamples['longTasks'] = [];
+      const frames: number[] = [];
+      let flush = () => {};
+      try {
+        const observer = new PerformanceObserver((list) => { for (const e of list.getEntries()) longTasks.push({ start: e.startTime, duration: e.duration }); });
+        observer.observe({ type: 'longtask', buffered: true });
+        flush = () => { for (const e of observer.takeRecords()) longTasks.push({ start: e.startTime, duration: e.duration }); };
+      } catch { /* no Long Tasks API: the counts stay 0 and the frame gaps still show stalls */ }
+      window.responsiveness = { longTasks, frames, flush };
+      const tick = (t: number) => { frames.push(t); requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
     // Every ticket job a worker is given, and its answer: the live lane mines nonce N (the next
     // pack), optional work mines the older nonces.
     await page.addInitScript(() => {
@@ -97,10 +112,11 @@ for (const scenario of OPTIONAL_SCENARIOS) for (let repetition = 1; repetition <
       const summaryAt = Number(await (await summaryShown).jsonValue());
       await expectDecoded(page.locator('.summary-cards img'), 5);
       const resultAt = await page.evaluate(() => performance.now());
-      const { events, device } = await page.evaluate(() => ({
-        events: window.ticketEvents,
-        device: { hardwareConcurrency: navigator.hardwareConcurrency, deviceMemory: (navigator as { deviceMemory?: number }).deviceMemory ?? null },
-      }));
+      const { events, samples, device } = await page.evaluate(() => {
+        window.responsiveness.flush();
+        const { longTasks, frames } = window.responsiveness;
+        return { events: window.ticketEvents, samples: { longTasks, frames }, device: { hardwareConcurrency: navigator.hardwareConcurrency, deviceMemory: (navigator as { deviceMemory?: number }).deviceMemory ?? null } };
+      });
 
       const busyAt = (t: number) => {
         const open = new Map<string, TicketEvent>();
@@ -134,6 +150,7 @@ for (const scenario of OPTIONAL_SCENARIOS) for (let repetition = 1; repetition <
           optionalStartedAfterSummary: between(summaryAt, resultAt).filter((e) => e.kind === 'start').length,
         },
         estimatedArgon2PeakBytes: peakBusy * ARGON2_BYTES_PER_JOB,
+        responsiveness: responsivenessBetween(samples, pressedAt, resultAt),
         memory,
       };
       await testInfo.attach('performance-measurement', { body: Buffer.from(JSON.stringify(measurement)), contentType: 'application/json' });
