@@ -85,12 +85,15 @@ const PackCuttingUI = ({
             </div>
           </div>
           <div className="tear-guide" />
-          <div className="swipe-hint">
-            <MoveHorizontal className="swipe-hint-icon" aria-hidden="true" />
-            <span className="swipe-hint-text">
-              {nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across to open'}
-            </span>
-          </div>
+          {/* Only while there is a pack left to tear. */}
+          {!isPackCut && (
+            <div className="swipe-hint">
+              <MoveHorizontal className="swipe-hint-icon" aria-hidden="true" />
+              <span className="swipe-hint-text">
+                {nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across to open'}
+              </span>
+            </div>
+          )}
           {/* The cut shows as a thin foil seam that fades out behind the finger (#267). */}
           {cutPoints.length > 1 && (
             <svg className="cut-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -155,7 +158,7 @@ const PackCuttingUI = ({
             onClick={onOpen}
             aria-disabled={isPackCut || undefined}
           >
-            Open pack
+            {isPackCut ? 'Opening…' : 'Open pack'}
           </button>
         )}
       </div>

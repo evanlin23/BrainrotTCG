@@ -78,8 +78,19 @@ describe('the controls under the pack (#312)', () => {
     expect(shellClasses(html)).toEqual(['pack-shell']);
   });
 
-  it('keeps the button while the pack is torn, done but still holding focus', () => {
-    expect(render([], { isPackCut: true })).toMatch(/<button type="button" class="[^"]*pack-open-button quiet-focus" aria-disabled="true">Open pack<\/button>/);
+  it('keeps the button while the pack is torn, done but still holding focus, and says it is opening', () => {
+    const html = render([], { isPackCut: true });
+    expect(html).toMatch(/<button type="button" class="[^"]*pack-open-button quiet-focus" aria-disabled="true">Opening…<\/button>/);
+    expect(html).not.toContain('Open pack');
+  });
+
+  it('shows the swipe hint only while there is a pack left to tear', () => {
+    expect(render([])).toContain('swipe-hint-text');
+    expect(render([20, 30])).toContain('swipe-hint-text');
+    expect(render([], { nudging: true })).toMatch(/along the dotted line/);
+    const torn = render([], { isPackCut: true });
+    expect(torn).not.toContain('swipe-hint');
+    expect(torn).not.toMatch(/Swipe across|Drag across|dotted line/);
   });
 
   it('says why a refused pack stayed sealed, with a button to try again, in place of Open pack', () => {

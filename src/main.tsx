@@ -11,8 +11,17 @@ import { receiveSave } from './game/move'
 import { resumeReopening } from './game/profiles'
 import { warmUpFirstPack } from './game/warmUp'
 
+// If the hand-over itself fails (it throws, or its promise rejects), the game starts here as usual
+// instead of leaving a blank page.
+const handedOver = Promise.resolve()
+  .then(receiveSave)
+  .catch((error: unknown) => {
+    console.error('Bringing the save over failed; starting the game here.', error)
+    return false
+  })
+
 // A window the site's old address opened to hand over a save does only that (see game/move.ts).
-receiveSave().then((receiver) => {
+handedOver.then((receiver) => {
   if (receiver) return
   runMigrations()
   migratePullLog()
