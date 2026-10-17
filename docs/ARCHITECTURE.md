@@ -649,9 +649,12 @@ coverage.
 `results`, `recovery`; 30 to 180 seconds and 3 to 40 turns each, at most four, run one after
 another) lets a local Claude Code 2.1.302 reviewer try a newcomer task. It needs Unix, Node 22, a
 git checkout, that CLI signed in and Playwright's Chromium; any other CLI version, a signed-out CLI
-or a user `~/.claude/CLAUDE.md` fails closed before any agent runs. It is not part of `npm run
-check` or Actions, which need no agent account; unit tests mock the CLI, and
-`tests/browser/agent-audit.spec.ts` checks only the browser boundary, with no agent.
+or an instruction file a reviewer could load fails closed before any agent runs. Those files are a
+managed or user `CLAUDE.md`, `~/.claude/rules`, and `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` or
+`.claude/` memory or rules in the temporary directory or any folder above it (`instructionFiles` in
+`contracts.ts`). It is not part of `npm run check` or Actions, which need no agent account; unit
+tests mock the CLI, and `tests/browser/agent-audit.spec.ts` checks only the browser boundary, with
+no agent.
 
 The runner refuses uncommitted tracked changes and untracked files under `src/` or `public/` (Vite
 would bundle them, such as a draft set's art), builds that revision and owns a strict-port preview
@@ -661,7 +664,8 @@ and locale; proxy and CA-certificate settings; and `ANTHROPIC_API_KEY` or `CLAUD
 CI, GitHub and other tokens, base-URL overrides and the parent session's variables never reach it,
 and the browser endpoint reaches the MCP adapter through a private config file, not the
 environment or argv. The reviewer has no built-in tools (no Bash, Edit, Write or web), ignores
-settings, hooks, skills and other MCP servers, and is denied anything outside the four audit tools
+user, project and local settings files and their hooks (managed settings still apply), loads no
+skills, slash commands or other MCP servers, and is denied anything outside the four audit tools
 (flags: `claudeArgs` in `scripts/agent-audit/claude.ts`; docs/DEVELOPMENT.md lists them). Each task
 gets a fresh disposable identity and a restricted MCP adapter (`scripts/agent-audit/`):
 accessibility snapshots, clicks on the one button or link with an exact, non-empty accessible name

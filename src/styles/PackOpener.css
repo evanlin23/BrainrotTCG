@@ -665,8 +665,7 @@
     }
 }
 
-.pack-shell.is-cutting .swipe-hint,
-.pack-shell.is-cut .swipe-hint {
+.pack-shell.is-cutting .swipe-hint {
     opacity: 0;
     transition: opacity var(--dur-slow) ease;
 }

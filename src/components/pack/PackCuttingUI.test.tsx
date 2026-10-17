@@ -5,7 +5,7 @@ import { SETS } from '../../content/sets';
 import PackCuttingUI from './PackCuttingUI';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 
-const render = (xs: number[], { pressing = false, nudging = false, tapped = false, isPackCut = false, refusal = null as PackRefusal | null } = {}) =>
+const render = (xs: number[], { pressing = false, nudging = false, tapped = false, isPackCut = false, waiting = false, refusal = null as PackRefusal | null } = {}) =>
   renderToStaticMarkup(
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()}
@@ -18,6 +18,7 @@ const render = (xs: number[], { pressing = false, nudging = false, tapped = fals
       nudging={nudging}
       tapped={tapped}
       isPackCut={isPackCut}
+      waiting={waiting}
       cutPoints={xs.map((x) => ({ x, y: 19 }))}
       sparks={[]}
     />,
@@ -78,8 +79,25 @@ describe('the controls under the pack (#312)', () => {
     expect(shellClasses(html)).toEqual(['pack-shell']);
   });
 
-  it('keeps the button while the pack is torn, done but still holding focus', () => {
-    expect(render([], { isPackCut: true })).toMatch(/<button type="button" class="[^"]*pack-open-button quiet-focus" aria-disabled="true">Open pack<\/button>/);
+  it('keeps the button while the pack is torn, done but still holding focus, and says it is opening', () => {
+    const html = render([], { isPackCut: true });
+    expect(html).toMatch(/<button type="button" class="[^"]*pack-open-button quiet-focus" aria-disabled="true">Opening…<\/button>/);
+    expect(html).not.toContain('Open pack');
+  });
+
+  it('says something different on the slow-ticket pill than on the button, so it never reads Opening… twice', () => {
+    const html = render([], { isPackCut: true, waiting: true });
+    expect(html).toMatch(/<p class="pack-hint is-waiting" aria-hidden="true">Taking a moment…<\/p>/);
+    expect(html.match(/Opening…/g)).toHaveLength(1);
+  });
+
+  it('shows the swipe hint only while there is a pack left to tear', () => {
+    expect(render([])).toContain('swipe-hint-text');
+    expect(render([20, 30])).toContain('swipe-hint-text');
+    expect(render([], { nudging: true })).toMatch(/along the dotted line/);
+    const torn = render([], { isPackCut: true });
+    expect(torn).not.toContain('swipe-hint');
+    expect(torn).not.toMatch(/Swipe across|Drag across|dotted line/);
   });
 
   it('says why a refused pack stayed sealed, with a button to try again, in place of Open pack', () => {

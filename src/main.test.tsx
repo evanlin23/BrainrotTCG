@@ -1,0 +1,80 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/** The startup steps main.tsx runs, with the real work (storage, IndexedDB, the engine) left out. */
+const startup = vi.hoisted(() => ({
+  receiveSave: vi.fn<() => Promise<boolean>>(),
+  runMigrations: vi.fn(),
+  migratePullLog: vi.fn(),
+  resumeReopening: vi.fn(),
+  warmUpFirstPack: vi.fn(),
+}));
+
+vi.mock('./game/move', () => ({ receiveSave: startup.receiveSave }));
+vi.mock('./utils/migrations', () => ({ runMigrations: startup.runMigrations }));
+vi.mock('./game/history', () => ({ migratePullLog: startup.migratePullLog }));
+vi.mock('./game/profiles', () => ({ resumeReopening: startup.resumeReopening }));
+vi.mock('./game/warmUp', () => ({ warmUpFirstPack: startup.warmUpFirstPack }));
+vi.mock('./App', () => ({ default: () => <p data-testid="app">The game</p> }));
+
+const HANDOVER_FAILED = expect.stringContaining('Bringing the save over failed');
+const app = () => document.querySelector('[data-testid="app"]');
+
+let errors: ReturnType<typeof vi.spyOn>;
+
+beforeEach(() => {
+  vi.resetModules();
+  vi.clearAllMocks();
+  document.body.innerHTML = '<div id="root"></div>';
+  errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  document.body.innerHTML = '';
+  vi.restoreAllMocks();
+});
+
+/** A fresh run of main.tsx, as a page load would be. */
+const load = () => import('./main');
+
+describe('starting the game when the save hand-over fails', () => {
+  const failures = {
+    'rejects': () => Promise.reject(new Error('hand-over rejected')),
+    'throws before it returns': () => {
+      throw new Error('hand-over threw');
+    },
+  };
+
+  it.each(Object.entries(failures))('still starts the game, and says why, when the hand-over %s', async (_name, fail) => {
+    startup.receiveSave.mockImplementation(fail);
+    await load();
+
+    await vi.waitFor(() => expect(app()).not.toBeNull());
+    expect(errors).toHaveBeenCalledWith(HANDOVER_FAILED, expect.any(Error));
+    // The startup steps ran as they do for any other page load.
+    expect(startup.runMigrations).toHaveBeenCalledTimes(1);
+    expect(startup.migratePullLog).toHaveBeenCalledTimes(1);
+    expect(startup.resumeReopening).toHaveBeenCalledTimes(1);
+    expect(startup.warmUpFirstPack).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts the game without a word when there was no hand-over to make', async () => {
+    startup.receiveSave.mockResolvedValue(false);
+    await load();
+
+    await vi.waitFor(() => expect(app()).not.toBeNull());
+    expect(errors).not.toHaveBeenCalledWith(HANDOVER_FAILED, expect.anything());
+  });
+
+  it('leaves the game unstarted in the window that received a save', async () => {
+    startup.receiveSave.mockResolvedValue(true);
+    await load();
+
+    await vi.waitFor(() => expect(startup.receiveSave).toHaveBeenCalledTimes(1));
+    // Let the hand-over's promise settle before checking that nothing started.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(app()).toBeNull();
+    expect(startup.runMigrations).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+  });
+});

@@ -6,11 +6,11 @@
  * The check folds a name the ways people dodge filters (accents, full-width, small-caps and
  * look-alike letters, leetspeak, punctuation or spaces between letters, repeated letters, camelCase
  * and xX decorations), then matches a curated list in two tiers:
- * - STRONG terms are blocked anywhere inside a word ("xXfuckXx", "hotpussy"), except inside ALLOWED
- *   words ("Pussycat", "Thorny").
+ * - STRONG terms are blocked anywhere inside a word ("xXfuckXx", "hotpussy"), except wholly inside
+ *   one ALLOWED word ("Pussycat", "Thorny", but not "Pornazir").
  * - WHOLE terms are short words that hide inside ordinary ones ("Dickens", "cocktail", "Sussex",
  *   "Scunthorpe", "grape"), so they are blocked only as a whole word (plurals included), and not
- *   inside a few ALLOWED_PHRASES ("Moby Dick").
+ *   inside a few ALLOWED_PHRASES ("Moby Dick", but not "Moby Dick.head").
  * - PHRASES are blocked anywhere in the name with its spaces removed: phrases usually written as
  *   separate words, and a few common run-together names built on a WHOLE term ("bigdick").
  * Hate numbers are blocked only as a number of their own. Mild swearing (shit, damn, crap, ass, hell)
@@ -64,7 +64,7 @@ const WHOLE = [
   'fuk', 'fuq', 'fck', 'fcuk', 'twat', 'wank', 'wanker', 'wanking',
 ];
 
-/** Ordinary words that contain a STRONG term (removed before matching). */
+/** Ordinary words that contain a STRONG term (a match wholly inside one is ignored). */
 const ALLOWED = [
   'scunthorpe', 'snigger', 'pussycat', 'pussywillow', 'pussyfoot', 'penistone', 'milford', 'booboo', 'booby',
   'thorny', 'nazir', 'nazia', 'nazim',
@@ -119,18 +119,35 @@ const pattern = (term: string) =>
   (fold(term, true).match(/(.)\1*/g) ?? []).map((run) => (run.length === 1 ? `${run}+` : `${run[0]}{${run.length},}`)).join('');
 
 const STRONG_RE = new RegExp(STRONG.map(pattern).join('|'));
+const STRONG_EXACT_RE = new RegExp(`^(?:${STRONG.map(pattern).join('|')})$`);
 const PHRASE_RE = new RegExp(PHRASES.map(pattern).join('|'));
 const WHOLE_RE = new RegExp(`^(?:${WHOLE.map(pattern).join('|')})(?:s+|z+)?$`);
-const ALLOWED_RE = new RegExp(ALLOWED.map((w) => fold(w, true)).join('|'), 'g');
+const ALLOWED_FOLDED = ALLOWED.map((w) => fold(w, true));
 const ALLOWED_WHOLE_SET = new Set(ALLOWED_WHOLE.map((w) => fold(w, true)));
-// Longest first, so "dick van dyke" goes before "van dyke".
+// Longest first, so "dick van dyke" goes before "van dyke". It must start and end a word (letters
+// after punctuation belong to the same word), so "Moby Dick.head" keeps its "dickhead".
 const ALLOWED_PHRASE_RE = new RegExp(
-  `(?<![a-z])(?:${[...ALLOWED_PHRASES]
+  `(?<![a-z]\\S*)(?:${[...ALLOWED_PHRASES]
     .sort((a, b) => b.length - a.length)
     .map((phrase) => phrase.split(' ').map((w) => fold(w, true)).join('[^a-z]+'))
-    .join('|')})(?![a-z])`,
+    .join('|')})(?!\\S*[a-z])`,
   'g',
 );
+
+/** Whether a STRONG term matches in a word other than wholly inside one ALLOWED word ("Nazir", not "Pornazir"). */
+const strongOutsideAllowed = (word: string) => {
+  if (!STRONG_RE.test(word)) return false;
+  const spans: [number, number][] = [];
+  for (const a of ALLOWED_FOLDED) for (let i = word.indexOf(a); i >= 0; i = word.indexOf(a, i + 1)) spans.push([i, i + a.length]);
+  if (!spans.length) return true;
+  for (let start = 0; start < word.length; start++) {
+    // A match from here is excused only if it ends within an allowed word that covers its start.
+    let end = start;
+    for (const [a, b] of spans) if (a <= start && b > end) end = b;
+    for (let stop = end + 1; stop <= word.length; stop++) if (STRONG_EXACT_RE.test(word.slice(start, stop))) return true;
+  }
+  return false;
+};
 
 /** Runs of two or more one-letter tokens joined ("f u c k" -> "fuck"). */
 const joinSingles = (tokens: readonly string[]) => {
@@ -154,12 +171,14 @@ const readings = (name: string) => {
   const whole: string[] = [];
   for (const text of [base, splitCamel(base)]) {
     for (const leet of [true, false]) {
-      const folded = fold(text, leet).replace(ALLOWED_PHRASE_RE, ' ');
+      const folded = fold(text, leet);
+      const kept = folded.replace(ALLOWED_PHRASE_RE, ' ');
       // Punctuation inside a word is ignored ("f.u.c.k"); spaces separate words.
-      const ws = folded.split(/\s+/).map((w) => w.replace(/[^a-z]/g, '')).filter(Boolean);
-      const ps = folded.split(/[^a-z]+/).filter(Boolean);
+      const ws = kept.split(/\s+/).map((w) => w.replace(/[^a-z]/g, '')).filter(Boolean);
+      const ps = kept.split(/[^a-z]+/).filter(Boolean);
       for (const w of [...ws, ...joinSingles(ws), ...joinSingles(ps)]) words.add(w);
       for (const p of [...ps, ...ws, ...joinSingles(ws), ...joinSingles(ps)]) pieces.add(p);
+      // No allowed phrase holds a PHRASE, so allowed phrases stay in: "Moby Dick Pic" still reads "dickpic".
       whole.push(folded.replace(/[^a-z]/g, ''));
     }
   }
@@ -178,7 +197,7 @@ const readings = (name: string) => {
 export const isNameAllowed = (name: string): boolean => {
   if (NUMBER_RE.test(plain(name))) return false;
   const { words, pieces, whole } = readings(name);
-  for (const w of words) if (STRONG_RE.test(w.replace(ALLOWED_RE, ''))) return false;
+  for (const w of words) if (strongOutsideAllowed(w)) return false;
   for (const p of pieces) if (WHOLE_RE.test(p) && !ALLOWED_WHOLE_SET.has(p)) return false;
   return !whole.some((w) => PHRASE_RE.test(w));
 };

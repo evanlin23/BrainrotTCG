@@ -1,5 +1,4 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
@@ -9,7 +8,7 @@ import { chromium } from '@playwright/test';
 import { preview as startPreview } from 'vite';
 import { bridgeHandler, browserCommand, isolate, stepBudget } from './browser';
 import { claudeArgs, claudeVersion, runClaude, stopGroup } from './claude';
-import { agentEnvironment, clean, coordinatorPrompt, isBasePath, parseOptions, parseOutcome, tasks, uncommittedBuildInputs } from './contracts';
+import { agentEnvironment, clean, coordinatorPrompt, instructionFiles, isBasePath, parseOptions, parseOutcome, tasks, uncommittedBuildInputs } from './contracts';
 
 const root = process.cwd();
 const output = resolve('test-results/agent-audit.json');
@@ -31,7 +30,8 @@ async function command(command: string, args: string[], cwd: string, seconds: nu
   try {
     await new Promise<void>((resolve, reject) => {
       child.once('error', reject);
-      child.once('exit', (code) => code === 0 ? resolve() : reject(Error(controller.signal.aborted ? 'cancelled' : timedOut ? 'time budget exhausted' : `command incomplete (exit ${code ?? 'signal'})`)));
+      // Clear anything the command left behind in its group, whatever its exit code.
+      child.once('exit', (code) => { stop(child); if (code === 0) resolve(); else reject(Error(controller.signal.aborted ? 'cancelled' : timedOut ? 'time budget exhausted' : `command incomplete (exit ${code ?? 'signal'})`)); });
     });
   } finally {
     clearTimeout(timer);
@@ -70,8 +70,12 @@ try {
   let signedIn = false;
   try { signedIn = auth.status === 0 && JSON.parse(auth.stdout).loggedIn === true; } catch { /* Not signed in. */ }
   if (!signedIn) throw Error('Claude Code is not signed in; no agent ran');
-  // Restricted mode skips settings files but not user memory, which would coach the reviewer.
-  if (agentEnv.HOME && existsSync(join(agentEnv.HOME, '.claude', 'CLAUDE.md'))) throw Error('User CLAUDE.md would coach reviewers; no agent ran');
+  // Memory or rules files would coach the reviewer; reviewers run in folders under `temporary`.
+  const coaching = instructionFiles(agentEnv.HOME, temporary);
+  if (coaching.length) {
+    console.error(`Move these Claude instruction files away before auditing:\n${coaching.join('\n')}`);
+    throw Error('Claude instruction files (CLAUDE.md, CLAUDE.local.md, AGENTS.md or rules) would coach reviewers; no agent ran');
+  }
   await command('npm', ['run', 'build'], root, 300, process.env);
   const port = 4197;
   const basePath = process.env.BASE_PATH ?? '/BrainrotTCG/';
