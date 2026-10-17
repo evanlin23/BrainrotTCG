@@ -8,8 +8,8 @@ argument-hint: "[max tasks this run, default 5] [focus or handoff, e.g. phase 1]
 
 You coordinate; subagents read and edit. Your context holds only the ledger, briefs and short
 reports, so a long run stays cheap and sharp. Stop after the max task count (default 5) so one run
-can't spend the week's budget. If the owner lifts the cap or hands over a whole phase, keep going
-but checkpoint (section 2) every five merges, so a compaction or lost container costs nothing.
+can't spend the week's budget. Only an explicit lift of the cap from the owner removes it; then keep
+going but checkpoint (section 2) every five merges, so a compaction or lost container costs little.
 
 ## 1. Set up
 
@@ -45,8 +45,8 @@ or notes on finished items. If it grows past 80 lines (the SessionStart hook war
 
 Edit NOW.md as things change. Mirror it to the ledger issue's body only at a checkpoint: when
 authority, holds or needs owner change, after every fifth merge, and before ending a turn. Don't
-read old or backup copies of the ledger; apart from the holds check before a merge, the issue is
-only read when NOW.md is missing.
+read old or backup copies of the ledger. Read the issue only at setup (section 1, which takes its
+authority and holds) and for the holds check before a merge.
 
 ## 3. Loop
 
