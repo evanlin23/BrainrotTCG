@@ -13,24 +13,24 @@
  */
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { ROUTE_HASH } from '../src/game/route.ts';
+import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
-const [newUrl, outDir] = process.argv.slice(2);
-if (!/^https?:\/\//.test(newUrl ?? '') || !newUrl.endsWith('/') || !outDir) {
-  console.error('Usage: npx tsx scripts/redirect-site.ts https://new.example/ <out-dir>');
-  process.exit(2);
-}
-const OLD_BASE = process.env.OLD_BASE_PATH ?? '/BrainrotTCG/';
-const shortName = newUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-// Plain ES2017, so it runs on anything that could have run the game.
-const script = `(function () {
-  var NEW = ${JSON.stringify(newUrl)}, NEW_ORIGIN = new URL(NEW).origin, BASE = ${JSON.stringify(OLD_BASE)};
+const shortNameOf = (newUrl: string) => newUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+/**
+ * The script that sends a visit on, or first offers to bring its save. Plain ES2017, so it runs on
+ * anything that could have run the game.
+ */
+export const redirectScript = (newUrl: string, oldBase: string) => `(function () {
+  var NEW = ${JSON.stringify(newUrl)}, NEW_ORIGIN = new URL(NEW).origin, BASE = ${JSON.stringify(oldBase)};
   var MOVED = 'brainrot-moved-v1';
   var path = location.pathname.indexOf(BASE) === 0 ? location.pathname.slice(BASE.length) : '';
   if (path === 'index.html' || path === '404.html') path = '';
-  // Only links worth following are passed on.
-  var hash = /^#\\/(pull|profile)\\//.test(location.hash) ? location.hash : '';
+  // Only the app's own routes (src/game/route.ts) are passed on.
+  var hash = ${String(ROUTE_HASH)}.test(location.hash) ? location.hash : '';
   var go = function () { location.replace(NEW + path + hash); };
   var status = document.getElementById('status');
 
@@ -48,7 +48,7 @@ const script = `(function () {
   if (location.hash === '#/send' && window.opener) {
     window.opener.postMessage(has ? { type: 'brainrot-save', save: save } : { type: 'brainrot-no-save' }, NEW_ORIGIN);
     if (has) markMoved();
-    status.textContent = has ? 'Sent to ' + ${JSON.stringify(shortName)} + '. You can close this window.' : 'There is no save here.';
+    status.textContent = has ? 'Sent to ' + ${JSON.stringify(shortNameOf(newUrl))} + '. You can close this window.' : 'There is no save here.';
     return;
   }
 
@@ -74,7 +74,8 @@ const script = `(function () {
   };
 })();`;
 
-const page = `<!doctype html>
+/** The page every address at the old base gets: index.html and 404.html. */
+export const redirectPage = (newUrl: string, oldBase = '/BrainrotTCG/') => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -96,7 +97,7 @@ button{display:block;width:100%;margin:.75rem 0 0;padding:.85rem 1rem;border-rad
 <body>
 <main>
 <h1>Brainrot TCG has moved</h1>
-<p>It now lives at <a href="${newUrl}">${shortName}</a>.</p>
+<p>It now lives at <a href="${newUrl}">${shortNameOf(newUrl)}</a>.</p>
 <div id="choice" hidden>
 <p>Your save (cards, packs and player key) is stored at this old address. Bring it along?</p>
 <button type="button" id="bring">Bring my save and go</button>
@@ -104,14 +105,22 @@ button{display:block;width:100%;margin:.75rem 0 0;padding:.85rem 1rem;border-rad
 </div>
 <p id="status" role="status"></p>
 </main>
-<script>${script}</script>
+<script>${redirectScript(newUrl, oldBase)}</script>
 </body>
 </html>
 `;
 
-mkdirSync(outDir, { recursive: true });
-writeFileSync(`${outDir}/index.html`, page);
-writeFileSync(`${outDir}/404.html`, page);
-const hof = `${ROOT}dist/hall-of-fame.json`;
-if (existsSync(hof)) copyFileSync(hof, `${outDir}/hall-of-fame.json`);
-console.log(`${outDir}: redirects to ${newUrl}`);
+if (isMainModule(import.meta.url)) {
+  const [newUrl, outDir] = process.argv.slice(2);
+  if (!/^https?:\/\//.test(newUrl ?? '') || !newUrl.endsWith('/') || !outDir) {
+    console.error('Usage: npx tsx scripts/redirect-site.ts https://new.example/ <out-dir>');
+    process.exit(2);
+  }
+  const page = redirectPage(newUrl, process.env.OLD_BASE_PATH ?? '/BrainrotTCG/');
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(`${outDir}/index.html`, page);
+  writeFileSync(`${outDir}/404.html`, page);
+  const hof = `${ROOT}dist/hall-of-fame.json`;
+  if (existsSync(hof)) copyFileSync(hof, `${outDir}/hall-of-fame.json`);
+  console.log(`${outDir}: redirects to ${newUrl}`);
+}

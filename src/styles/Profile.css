@@ -264,6 +264,10 @@
   font-size: var(--text-xs);
 }
 
+.profile-verify-retry {
+  justify-self: start;
+}
+
 /* Level rewards (RewardsPanel.tsx) */
 
 .rewards {

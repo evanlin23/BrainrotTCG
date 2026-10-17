@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
+import { encodeProfile, signProfile, XP_PER_PACK } from '../engine';
 import { holdLive, waitingOptional } from './admission';
 import { putStoredPacks, resetPackStore, type StoredPack } from './packStore';
 import { getPlayer } from './player';
-import { reopenMyPacks, reopenStatus, resumeReopening } from './profiles';
-import { createTicketPool } from './ticketPool';
+import { reopenMyPacks, reopenStatus, resumeReopening, verifyProfileLive, type ProfileProgress } from './profiles';
+import { createTicketPool, TicketMemoryError } from './ticketPool';
 
 // Re-opening as optional work: tickets come from a pool the test answers by hand, and writes to
 // disk finish when the test says, so the resume flag can be checked at each step.
@@ -236,5 +237,38 @@ describe('re-opening after packs could not be saved', () => {
     expect(reopenKeys()).toEqual([]);
     expect(resumeReopening()).toBeUndefined();
     vi.mocked(localStorage.setItem).mockRestore();
+  });
+});
+
+describe('verifying a profile on a device that runs out of memory', () => {
+  /** A one-pack profile signed by the test player. */
+  const proof = () => {
+    const { publicKey, secretKey, name } = getPlayer();
+    const runs = [{ setId: SET.id, setVersion: SET.version, count: 1 }];
+    return encodeProfile(signProfile({ publicKey, name, runs, xp: XP_PER_PACK, highlights: [0] }, secretKey));
+  };
+
+  const failWith = async (error: Error) => {
+    vi.mocked(createTicketPool).mockImplementation(() => ({ size: 1, ticket: () => Promise.reject(error), close: () => {} }));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reports: ProfileProgress[] = [];
+    verifyProfileLive(proof(), (p) => reports.push(p), new AbortController().signal);
+    await vi.waitFor(() => expect(reports[reports.length - 1]?.error).toBeDefined());
+    expect(logged).toHaveBeenCalledWith('Profile verification failed', error);
+    logged.mockRestore();
+    return reports[reports.length - 1].error!;
+  };
+
+  it('says what to do instead of showing the browser\'s error', async () => {
+    const raw = 'RangeError: WebAssembly.instantiate(): Out of memory: Cannot allocate Wasm memory for new instance';
+    const error = await failWith(new TicketMemoryError(raw));
+    expect(error).toEqual({ message: 'This device ran out of memory while checking. Close other tabs and try again.' });
+    expect(error.message).not.toContain('WebAssembly');
+  });
+
+  it('keeps other failures generic and never calls them fake', async () => {
+    const error = await failWith(new Error('Invalid hex string'));
+    expect(error.rule).toBeUndefined();
+    expect(error.message).toBe('Something went wrong while re-opening the packs. Try again.');
   });
 });

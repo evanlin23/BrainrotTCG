@@ -8,8 +8,17 @@
 import { computeTicket, toHex } from '../engine';
 import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
 import { holdLive, requestSlot, stopped } from './admission';
+import { isOutOfMemory, TicketMemoryError } from './ticketPool';
 
-type Pending = { resolve: (t: Uint8Array) => void; reject: (e: Error) => void; setKey: string; publicKey: Uint8Array; nonce: number };
+type Pending = {
+  resolve: (t: Uint8Array) => void;
+  reject: (e: Error) => void;
+  setKey: string;
+  publicKey: Uint8Array;
+  nonce: number;
+  /** Already sent again after its worker ran out of memory. */
+  retried?: boolean;
+};
 
 let worker: Worker | null | undefined;
 let nextId = 0;
@@ -24,6 +33,7 @@ const getWorker = (): Worker | null => {
       if (!job) return;
       pending.delete(event.data.id);
       if ('ticket' in event.data) job.resolve(event.data.ticket);
+      else if (isOutOfMemory(event.data.error)) restart(job, event.data.error);
       else job.reject(new Error(event.data.error));
     };
     // If the worker fails to load or crashes, finish its jobs on the main thread instead of hanging.
@@ -42,14 +52,44 @@ const getWorker = (): Worker | null => {
   return worker;
 };
 
-const run = (setKey: string, publicKey: Uint8Array, nonce: number): Promise<Uint8Array> => {
+const send = (job: Pending) => {
   const w = getWorker();
-  if (!w) return computeTicket(setKey, publicKey, nonce);
-  return new Promise((resolve, reject) => {
-    const id = nextId++;
-    pending.set(id, { resolve, reject, setKey, publicKey, nonce });
-    w.postMessage({ id, setKey, publicKeyHex: toHex(publicKey), nonce } satisfies TicketRequest);
-  });
+  if (!w) {
+    computeTicket(job.setKey, job.publicKey, job.nonce).then(job.resolve, job.reject);
+    return;
+  }
+  const id = nextId++;
+  pending.set(id, job);
+  w.postMessage({ id, setKey: job.setKey, publicKeyHex: toHex(job.publicKey), nonce: job.nonce } satisfies TicketRequest);
+};
+
+/**
+ * The worker ran out of Wasm memory. Ending it frees everything it held (see ticketPool's
+ * TICKETS_PER_WORKER), so its jobs go to a fresh worker and the failed ticket gets one more try.
+ */
+const restart = (failed: Pending, error: string) => {
+  if (worker) {
+    worker.onmessage = null;
+    worker.onerror = null;
+    worker.terminate();
+  }
+  worker = undefined;
+  const jobs = [...pending.values()];
+  pending.clear();
+  if (failed.retried) failed.reject(new TicketMemoryError(error));
+  else jobs.unshift({ ...failed, retried: true });
+  for (const job of jobs) {
+    try {
+      send(job);
+    } catch (sendError) {
+      job.reject(sendError instanceof Error ? sendError : new Error(String(sendError)));
+    }
+  }
+};
+
+const run = (setKey: string, publicKey: Uint8Array, nonce: number): Promise<Uint8Array> => {
+  if (!getWorker()) return computeTicket(setKey, publicKey, nonce);
+  return new Promise((resolve, reject) => send({ resolve, reject, setKey, publicKey, nonce }));
 };
 
 export type Lane = 'live' | 'optional';

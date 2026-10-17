@@ -124,11 +124,18 @@ jobs:
           path: hof-build-cache.json
           key: hof-build-${{ hashFiles('src/engine/**', 'src/content/sets/**/*.json', 'src/content/sets/index.ts', 'scripts/hall-of-fame.ts') }}-${{ github.run_id }}
       # Link-preview pictures (scripts/preview-pages.ts) take minutes to draw from scratch; keep them.
+      # The key covers everything that decides which pictures there are and how they look. Their
+      # cache contract (the script, sharp's versions, PREVIEW_CACHE_VERSION) starts the restore
+      # prefix too, so pictures drawn under an older contract are never restored.
+      - id: previews
+        run: |
+          contract=$(npx tsx scripts/preview-pages.ts --cache-contract)
+          echo "contract=$contract" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/previews
-          key: previews-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp') }}
-          restore-keys: previews-
+          key: previews-${{ steps.previews.outputs.contract }}-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/engine/**', 'src/content/sets/index.ts', 'src/content/sets/*/*.json', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp', 'package-lock.json') }}
+          restore-keys: previews-${{ steps.previews.outputs.contract }}-
       # After a move, the build knows the old address, so it can take saves handed over from it
       # (src/game/move.ts); a build that hasn't moved has no old address and takes nothing.
       - run: npm run build

@@ -78,6 +78,19 @@ describe('SetPicker set link', () => {
     expect(status()).toBe('');
   });
 
+  it('starts the time over when the same link is copied again', async () => {
+    vi.useFakeTimers();
+    render();
+    openShelf();
+    await act(async () => copyButton()!.click());
+    act(() => vi.advanceTimersByTime(1200));
+    await act(async () => copyButton()!.click());
+    act(() => vi.advanceTimersByTime(1200));
+    expect(status()).toBe('Link copied');
+    act(() => vi.advanceTimersByTime(600));
+    expect(status()).toBe('');
+  });
+
   it('offers no link for a draft set, which has no page', () => {
     const draft = { ...set, id: 'draft-preview', draft: true };
     render([...released, draft], draft.id);

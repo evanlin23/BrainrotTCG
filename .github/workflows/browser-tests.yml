@@ -19,11 +19,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      # Link-preview pictures (scripts/preview-pages.ts) take minutes to draw from scratch; keep them.
+      # The key covers everything that decides which pictures there are and how they look. Their
+      # cache contract (the script, sharp's versions, PREVIEW_CACHE_VERSION) starts the restore
+      # prefix too, so pictures drawn under an older contract are never restored.
+      - id: previews
+        run: |
+          contract=$(npx tsx scripts/preview-pages.ts --cache-contract)
+          echo "contract=$contract" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/previews
-          key: previews-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp') }}
-          restore-keys: previews-
+          key: previews-${{ steps.previews.outputs.contract }}-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/engine/**', 'src/content/sets/index.ts', 'src/content/sets/*/*.json', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp', 'package-lock.json') }}
+          restore-keys: previews-${{ steps.previews.outputs.contract }}-
       - run: npm run test:browser
       # The deploy also builds for the root on Cloudflare Pages (docs/HOSTING.md): smoke that build too.
       - name: Smoke the build for the root path

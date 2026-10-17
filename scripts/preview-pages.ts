@@ -6,9 +6,13 @@
  *
  *   npx tsx scripts/preview-pages.ts        (part of `npm run build`)
  *
- * Drawing them all takes a couple of minutes, so they're kept between builds in .cache/previews/
- * (CI caches it too), named by a hash of everything that decides them, and only new or changed ones
- * are drawn.
+ * Drawing them all takes a couple of minutes, so they're kept between builds in .cache/previews/,
+ * named by a hash of everything that decides them, and only new or changed ones are drawn. Part of
+ * that hash is the cache contract (this script, sharp and the libraries it draws with, and
+ * PREVIEW_CACHE_VERSION); CI keys its cache on it, so a cache drawn under another contract is never
+ * restored:
+ *
+ *   npx tsx scripts/preview-pages.ts --cache-contract
  *
  * It also writes a page per released set at s/<set id>/ (with a picture of the set's rarest cards),
  * so a link to a set unfurls as that set. Like the pull pages, it forwards to the app, opening the
@@ -166,6 +170,16 @@ const art = (setId: string, cardId: string) => `${ROOT}src/content/sets/${setId}
 const CARD_BACK = `${ROOT}src/assets/images/card_back.webp`;
 const CACHE = `${ROOT}.cache/previews/`;
 const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
+
+/** Bump to redraw every cached picture when something outside this script and sharp changes how they look. */
+export const PREVIEW_CACHE_VERSION = 1;
+
+/** What every cached picture was drawn under: this script, sharp's own versions (libvips, mozjpeg, ...) and PREVIEW_CACHE_VERSION. */
+export const previewCacheContract = (
+  script: string | Buffer = readFileSync(fileURLToPath(import.meta.url)),
+  versions: object = sharp.versions,
+  version = PREVIEW_CACHE_VERSION,
+) => sha(JSON.stringify([version, sha(script), versions]));
 const rarityName = (rarity: string) => RARITY_NAMES[rarity] ?? rarity;
 const SEE = 'Open the link to see the whole pack and re-check it on your own device.';
 
@@ -185,7 +199,7 @@ export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions
     if (!faces.has(file)) faces.set(file, sharp(file).resize(CARD_W, CARD_H).png().toBuffer());
     return faces.get(file)!;
   };
-  const SCRIPT = sha(readFileSync(fileURLToPath(import.meta.url)));
+  const CONTRACT = previewCacheContract();
   const fileHashes = new Map<string, string>();
   const fileHash = (file: string) => {
     if (!fileHashes.has(file)) fileHashes.set(file, sha(readFileSync(file)));
@@ -195,7 +209,7 @@ export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions
   let drawn = 0;
 
   const writeImage = async (path: string, layers: { file: string; left: number; top: number; size?: [number, number] }[]) => {
-    const name = `${sha([SCRIPT, ...layers.map((l) => `${fileHash(l.file)}@${l.left},${l.top},${l.size ?? ''}`)].join('|'))}.jpg`;
+    const name = `${sha([CONTRACT, ...layers.map((l) => `${fileHash(l.file)}@${l.left},${l.top},${l.size ?? ''}`)].join('|'))}.jpg`;
     cacheUsed.add(name);
     if (!existsSync(`${CACHE}${name}`)) {
       const inputs = await Promise.all(layers.map(async (l) => ({ input: l.size ? await sharp(l.file).resize(...l.size).toBuffer() : await face(l.file), left: l.left, top: l.top })));
@@ -274,7 +288,9 @@ export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions
   return { pages: written, images: pagesOnly ? 0 : images.length, drawn };
 };
 
-if (isMainModule(import.meta.url)) {
+if (isMainModule(import.meta.url) && process.argv.includes('--cache-contract')) {
+  console.log(previewCacheContract());
+} else if (isMainModule(import.meta.url)) {
   const options = optionsFromEnv();
   const { pages, images, drawn } = await generatePreviews(options);
   console.log(`${options.pagesOnly ? 0 : `${images} (${drawn} drawn, the rest cached)`} preview images and ${pages.size} preview pages in ${options.outDir}p/ and s/ (images at ${options.site}, forwarding to ${options.base})`);

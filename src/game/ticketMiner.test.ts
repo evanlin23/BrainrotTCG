@@ -6,6 +6,8 @@ vi.mock('../engine', async (importOriginal) => ({
   computeTicket: vi.fn(),
 }));
 
+const OOM = 'RangeError: WebAssembly.instantiate(): Out of memory: Cannot allocate Wasm memory for new instance';
+
 /** The miner's one worker: it answers only when the test says so. */
 class ControlledWorker {
   static instances: ControlledWorker[] = [];
@@ -23,6 +25,12 @@ class ControlledWorker {
   reply() {
     const request = this.requests[this.requests.length - 1];
     this.onmessage?.({ data: { id: request.id, ticket: Uint8Array.of(request.nonce) } } as MessageEvent<TicketResponse>);
+  }
+
+  /** Answer the latest request the way a worker does when Wasm has no memory left. */
+  runOutOfMemory() {
+    const request = this.requests[this.requests.length - 1];
+    this.onmessage?.({ data: { id: request.id, error: OOM } } as MessageEvent<TicketResponse>);
   }
 
   crash() {
@@ -160,5 +168,36 @@ describe('ticket miner lanes', () => {
     expect(await live(9)).toEqual(Uint8Array.of(9));
     // Neither the pack's hold nor the check's slot is left behind.
     expect(await admission.admitOptional(async () => 'free')).toBe('free');
+  });
+
+  it('restarts its worker after running out of memory and tries the ticket once more', async () => {
+    const pack = live(7);
+    const [first] = ControlledWorker.instances;
+    first.runOutOfMemory();
+    expect(first.terminate).toHaveBeenCalledOnce();
+    const fresh = ControlledWorker.instances[1];
+    expect(fresh.requests.map((request) => request.nonce)).toEqual([7]);
+    fresh.reply();
+    expect(await pack).toEqual(Uint8Array.of(7));
+    // The fresh worker carries on with later tickets.
+    const after = check(8);
+    await flush();
+    fresh.reply();
+    expect(await after).toEqual(Uint8Array.of(8));
+    expect(ControlledWorker.instances).toHaveLength(2);
+    expect(computeTicket).not.toHaveBeenCalled();
+  });
+
+  it('gives up with a clear error when the fresh worker runs out of memory too, then carries on', async () => {
+    const pack = live(7);
+    ControlledWorker.instances[0].runOutOfMemory();
+    ControlledWorker.instances[1].runOutOfMemory();
+    await expect(pack).rejects.toThrow('This device ran out of memory. Close other tabs and try again.');
+    expect(ControlledWorker.instances.every((w) => w.terminate.mock.calls.length === 1)).toBe(true);
+    const next = live(8);
+    expect(ControlledWorker.instances).toHaveLength(3);
+    ControlledWorker.instances[2].reply();
+    expect(await next).toEqual(Uint8Array.of(8));
+    expect(computeTicket).not.toHaveBeenCalled();
   });
 });
