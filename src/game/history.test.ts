@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
-import { byBest, findPackByCards, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, recordTicket, type HistoryEntry } from './history';
+import { byBest, findPackByCards, findPackWithCard, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, recordTicket, type HistoryEntry } from './history';
 import { HALL_OF_FAME_MIN_SCORE, scorePulled } from '../engine';
 import { getSet } from '../content/sets';
 import { decodeCard, toPulled } from './cardCode';
@@ -227,12 +227,28 @@ describe('recording a ticket before its pack is in hand', () => {
     const stored = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as { k: string }[];
     const standIn = { s: 'right-now', v: 1, n: 5, k: stored[0].k, h: '', x: 0, t: 1_200 };
     data.set(STORAGE_KEYS.HISTORY, JSON.stringify([...stored, standIn]));
-    expect(getHistory().filter((e) => e.setId === 'right-now')).toHaveLength(2);
+    // Listed once even before the fill, from the full entry.
+    expect(getHistory().filter((e) => e.setId === 'right-now').map((e) => [e.openedAt, e.cards?.length])).toEqual([[1_005, 5]]);
 
     expect(fill()).toBe(true);
     const history = getHistory();
     expect(history.map((e) => [e.setId, e.nonce, e.hand, e.openedAt])).toEqual([['genesis', 5, 'Pair', 2_000], ['right-now', 5, 'Pair', 1_200]]);
     expect(history[1].cards).toHaveLength(5);
+  });
+
+  it('lists a stand-in stored beside its own full entry once, without writing, and keeps every other stand-in', () => {
+    const data = installStorage();
+    recordPack(pack(5));
+    expect(recordTicket('right-now', 1, 6, KEY, 1_600)).toBe(true);
+    const stored = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as { k: string }[];
+    const standIn = (s: string, n: number) => ({ s, v: 1, n, k: stored[0].k, h: '', x: 0, t: 1_200 });
+    // Beside its own pack's entry (an imported backup or an older build kept both), and beside it
+    // for another set on the same ticket, which is a different assignment.
+    const raw = JSON.stringify([...stored, standIn('right-now', 5), standIn('genesis', 5)]);
+    data.set(STORAGE_KEYS.HISTORY, raw);
+    expect(getHistory().map((e) => [e.setId, e.nonce, e.cards?.length ?? null])).toEqual([['right-now', 6, null], ['right-now', 5, 5], ['genesis', 5, null]]);
+    expect(historyForKey(KEY).map((e) => [e.setId, e.nonce])).toEqual([['right-now', 5], ['genesis', 5], ['right-now', 6]]);
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(raw);
   });
 
   it('reports a history it could not read or write', () => {
@@ -283,6 +299,43 @@ describe('a stand-in whose pack this device re-opened', () => {
       { setKey: 'right-now@1', publicKeyHex: 'cd'.repeat(32), nonce: 7, cards: CODE },
     ]);
     expect(historyForKey(KEY)[0]).toMatchObject({ hand: '', score: 0 });
+  });
+
+  it('decodes the history once for every read of one pack open, and again only when it or the re-opened packs change', async () => {
+    const data = installStorage();
+    expect(recordTicket('right-now', 1, 7, KEY, 900)).toBe(true);
+    recordPack(pack(8, { openedAt: 1_000 }));
+    const parse = vi.spyOn(JSON, 'parse');
+    // Each decode parses the stored history; nothing else here does.
+    const decodes = () => parse.mock.calls.filter(([text]) => text === data.get(STORAGE_KEYS.HISTORY)).length;
+    const readAll = () => {
+      historyForKey(KEY);
+      findPackWithCard(KEY, 'right-now', 'tung-tung-sahur');
+      findPackByCards([], 'right-now', 1_000);
+      return getHistory();
+    };
+    try {
+      const first = getHistory();
+      expect(readAll()).toBe(first);
+      expect(decodes()).toBe(1);
+
+      // The stand-in's pack re-opened on this device: decoded again, with its cards.
+      await putStoredPacks([{ setKey: 'right-now@1', publicKeyHex: KEY, nonce: 7, cards: CODE }]);
+      const reopened = readAll();
+      expect(reopened).not.toBe(first);
+      expect(reopened.find((e) => e.nonce === 7)?.cards).toHaveLength(5);
+      expect(decodes()).toBe(2);
+
+      // Another write (here or in another tab) changes the stored history: decoded again.
+      parse.mockClear();
+      recordPack(pack(9, { openedAt: 1_100 }));
+      parse.mockClear();
+      expect(readAll().map((e) => e.nonce)).toEqual([9, 8, 7]);
+      expect(readAll()).toBe(getHistory());
+      expect(decodes()).toBe(1);
+    } finally {
+      parse.mockRestore();
+    }
   });
 });
 

@@ -9,7 +9,7 @@ import { STORAGE_KEYS } from '../constants';
 import { POKER_HANDS, qualifiesForHallOfFame, scorePulled, type Finish } from '../engine';
 import { getSet } from '../content/sets';
 import { decodeCard, encodeCard, toPulled, type StoredCard } from './cardCode';
-import { getStoredPack } from './packStore';
+import { getStoredPack, packStoreVersion } from './packStore';
 import type { OpenedPack } from './pulls';
 import type { CardWithMeta } from '../components/cards/Card';
 import { getCard } from '../data/cards';
@@ -99,8 +99,6 @@ const parseHistory = (raw: string | null): Stored[] => {
   }
 };
 
-const read = (): Stored[] => parseHistory(rawHistory());
-
 const save = (entries: Stored[]) => {
   try {
     localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(entries));
@@ -127,8 +125,34 @@ const write = (entries: Stored[]): boolean => {
 const sameTicket = (a: Stored, b: Stored) => a.k === b.k && a.n === b.n;
 const sameAssignment = (a: Stored, b: Stored) => sameTicket(a, b) && a.s === b.s && a.v === b.v;
 
-/** Newest first. */
-export const getHistory = (): HistoryEntry[] => read().map(decode);
+const assignmentOf = (e: Stored) => `${e.k}:${e.n}:${e.s}@${e.v}`;
+
+/**
+ * A stand-in stored beside its own pack's full entry (an imported backup or an older build kept both)
+ * is the same pack, so it is listed once. Read-side only: the stored history stays as it is until
+ * recordPack or recordMissing replaces the stand-in.
+ */
+const withoutSpareStandIns = (entries: Stored[]): Stored[] => {
+  const full = new Set(entries.filter((e) => !isTicketOnly(e)).map(assignmentOf));
+  return entries.filter((e) => !isTicketOnly(e) || !full.has(assignmentOf(e)));
+};
+
+/** getHistory's entries, with the stored history and pack-store version they were decoded from. */
+let decoded: { raw: string | null; packs: number; entries: readonly HistoryEntry[] } | null = null;
+
+/**
+ * Newest first. Decoded again only when the stored history or the re-opened packs change, so a pack
+ * open's many readers share one decode. Each call reads the stored history, so another tab's write
+ * is never missed.
+ */
+export const getHistory = (): readonly HistoryEntry[] => {
+  const raw = rawHistory();
+  const packs = packStoreVersion();
+  if (decoded?.raw !== raw || decoded.packs !== packs) {
+    decoded = { raw, packs, entries: withoutSpareStandIns(parseHistory(raw)).map(decode) };
+  }
+  return decoded.entries;
+};
 
 /** A pack's cards as the app shows them, or null if the history has none for it. */
 export const historyCards = (entry: HistoryEntry): CardWithMeta[] | null =>
