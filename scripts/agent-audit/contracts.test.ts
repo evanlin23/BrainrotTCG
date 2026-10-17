@@ -16,10 +16,10 @@ describe('local audit evidence contracts', () => {
     expect(isBasePath('/BrainrotTCG/')).toBe(true);
     for (const value of ['//', '/../../', 'https://example.com/', '/no-trailing-slash']) expect(isBasePath(value)).toBe(false);
   });
-  it('bounds sequential tasks/time and rejects unknown and duplicate requests', () => {
-    expect(parseOptions([])).toEqual({ selected: ['opening'], seconds: 90 });
-    expect(parseOptions(['--task=opening', '--task=results', '--seconds=180']).selected).toHaveLength(2);
-    for (const args of [['--task=constructor'], ['--task=opening', '--task=opening'], ['--seconds=999'], ['--parallel=20']]) {
+  it('bounds sequential tasks, time and turns and rejects unknown and duplicate requests', () => {
+    expect(parseOptions([])).toEqual({ selected: ['opening'], seconds: 90, turns: 15 });
+    expect(parseOptions(['--task=opening', '--task=results', '--seconds=180', '--turns=8'])).toEqual({ selected: ['opening', 'results'], seconds: 180, turns: 8 });
+    for (const args of [['--task=constructor'], ['--task=opening', '--task=opening'], ['--seconds=999'], ['--turns=1'], ['--turns=99'], ['--turns=x'], ['--parallel=20']]) {
       expect(() => parseOptions(args)).toThrow();
     }
   });
@@ -43,11 +43,12 @@ describe('local audit evidence contracts', () => {
 describe('local audit runner boundary', () => {
   it('gives the agent CLI an allowlisted environment without CI or GitHub secrets', () => {
     const env = agentEnvironment({
-      PATH: '/usr/bin', HOME: '/home/audit', OPENAI_API_KEY: 'agent-key', CODEX_API_KEY: 'codex-key', HTTPS_PROXY: 'http://proxy.invalid',
-      GITHUB_TOKEN: 'secret', GH_TOKEN: 'secret', ACTIONS_RUNTIME_TOKEN: 'secret', NPM_TOKEN: 'secret', AWS_SECRET_ACCESS_KEY: 'secret',
-      ANTHROPIC_API_KEY: 'secret', CI: 'true', BASE_PATH: '/BrainrotTCG/', TERM: undefined,
+      PATH: '/usr/bin', HOME: '/home/audit', ANTHROPIC_API_KEY: 'agent-key', CLAUDE_CODE_OAUTH_TOKEN: 'oauth', HTTPS_PROXY: 'http://proxy.invalid',
+      NODE_EXTRA_CA_CERTS: '/etc/ca.pem', GITHUB_TOKEN: 'secret', GH_TOKEN: 'secret', ACTIONS_RUNTIME_TOKEN: 'secret', NPM_TOKEN: 'secret',
+      AWS_SECRET_ACCESS_KEY: 'secret', OPENAI_API_KEY: 'secret', CODEX_API_KEY: 'secret', ANTHROPIC_BASE_URL: 'http://relay.invalid',
+      CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'parent', CLAUDE_CODE_MESSAGING_TOKEN: 'secret', CI: 'true', BASE_PATH: '/BrainrotTCG/', TERM: undefined,
     });
-    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/audit', OPENAI_API_KEY: 'agent-key', CODEX_API_KEY: 'codex-key', HTTPS_PROXY: 'http://proxy.invalid' });
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/audit', ANTHROPIC_API_KEY: 'agent-key', CLAUDE_CODE_OAUTH_TOKEN: 'oauth', HTTPS_PROXY: 'http://proxy.invalid', NODE_EXTRA_CA_CERTS: '/etc/ca.pem' });
   });
 
   it('refuses tracked edits and untracked build inputs such as a draft set, but not ignored or unrelated files', () => {

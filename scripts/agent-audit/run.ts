@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
@@ -6,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 import { preview as startPreview } from 'vite';
-import { bridgeHandler, browserCommand, isolate } from './browser';
+import { bridgeHandler, browserCommand, isolate, stepBudget } from './browser';
+import { claudeArgs, claudeVersion, runClaude, stopGroup } from './claude';
 import { agentEnvironment, clean, coordinatorPrompt, isBasePath, parseOptions, parseOutcome, tasks, uncommittedBuildInputs } from './contracts';
 
 const root = process.cwd();
@@ -16,11 +18,7 @@ const controller = new AbortController();
 const cancel = () => controller.abort();
 process.once('SIGINT', cancel);
 process.once('SIGTERM', cancel);
-const stop = (child: ChildProcess) => {
-  if (child.exitCode === null && child.pid) {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already stopped. */ }
-  }
-};
+const stop = stopGroup;
 async function command(command: string, args: string[], cwd: string, seconds: number, env: NodeJS.ProcessEnv) {
   if (controller.signal.aborted) throw Error('cancelled');
   const child = spawn(command, args, { cwd, detached: true, stdio: 'ignore', env });
@@ -42,10 +40,11 @@ async function command(command: string, args: string[], cwd: string, seconds: nu
   }
 }
 const report: Record<string, unknown> = {
-  outcome: 'unrun', tasks: [], limitations: [
-    'Local Codex CLI audit, not human participants or actual phones; no native share, screen reader or real save evidence.',
+  outcome: 'unrun', label: 'Simulated agent reviewers (Claude Code), not human newcomers; Chromium browser emulation, not a real device.',
+  tasks: [], limitations: [
+    'No native share, screen reader, real phone or real save evidence.',
     'Browser actions are limited to disposable local state; sharing/export/clipboard actions are deliberately blocked.',
-    'One sequential agent per task, at most four tasks and 40 browser calls each; optional provider usage is not metered by this runner.',
+    `One sequential agent per task, at most four tasks, the turn and time limits below and ${stepBudget} browser calls each; provider usage is not metered by this runner.`,
     'No screenshots, raw model/provider streams, private storage or authentication material are retained.',
   ], coordinatorPrompt,
 };
@@ -54,18 +53,25 @@ let preview: Awaited<ReturnType<typeof startPreview>> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
   if (process.platform === 'win32') throw Error('This runner currently supports Unix process cleanup only');
-  const { selected, seconds } = parseOptions(process.argv.slice(2));
-  report.limits = { agents: selected.length, sequential: true, taskSeconds: seconds, buildSeconds: 300 };
+  const { selected, seconds, turns } = parseOptions(process.argv.slice(2));
+  report.tasks = selected.map((task) => ({ task, prompt: tasks[task], outcome: 'unrun', reason: 'Not started' }));
+  report.limits = { agents: selected.length, sequential: true, taskSeconds: seconds, turns, browserCalls: stepBudget, buildSeconds: 300 };
   const revision = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
   if (revision.status !== 0 || !/^[a-f0-9]{40}\s*$/.test(revision.stdout)) throw Error('Revision unavailable');
   report.revision = revision.stdout.trim();
   const drift = uncommittedBuildInputs(root);
   if (drift) throw Error(drift);
   const agentEnv = agentEnvironment(process.env);
-  const version = spawnSync('codex', ['--version'], { encoding: 'utf8', timeout: 10000, env: agentEnv });
-  if (version.status !== 0 || version.stdout.trim() !== 'codex-cli 0.159.2') throw Error('Supported Codex CLI 0.159.2 unavailable; no agent ran');
-  report.runner = version.stdout.trim();
   temporary = await mkdtemp(join(tmpdir(), 'brainrot-audit-'));
+  const version = spawnSync('claude', ['--version'], { cwd: temporary, encoding: 'utf8', timeout: 10000, env: agentEnv });
+  if (version.status !== 0 || version.stdout.trim() !== claudeVersion) throw Error(`Claude Code ${claudeVersion} unavailable; no agent ran`);
+  report.runner = claudeVersion;
+  const auth = spawnSync('claude', ['auth', 'status', '--json'], { cwd: temporary, encoding: 'utf8', timeout: 20000, env: agentEnv });
+  let signedIn = false;
+  try { signedIn = auth.status === 0 && JSON.parse(auth.stdout).loggedIn === true; } catch { /* Not signed in. */ }
+  if (!signedIn) throw Error('Claude Code is not signed in; no agent ran');
+  // Restricted mode skips settings files but not user memory, which would coach the reviewer.
+  if (agentEnv.HOME && existsSync(join(agentEnv.HOME, '.claude', 'CLAUDE.md'))) throw Error('User CLAUDE.md would coach reviewers; no agent ran');
   await command('npm', ['run', 'build'], root, 300, process.env);
   const port = 4197;
   const basePath = process.env.BASE_PATH ?? '/BrainrotTCG/';
@@ -79,9 +85,7 @@ try {
   report.build = 'Fresh npm run build; owned strict-port preview index matched dist/index.html';
   browser = await chromium.launch();
   report.conditions = { basePath, engine: `Chromium ${browser.version()}`, viewport: { width: 393, height: 727 }, touch: true, reducedMotion: true, cache: 'fresh context with routing', network: 'local only; no throttling', cpu: 'no throttling', fixture: 'disposable deterministic identity; no pre-existing pulls' };
-  const schema = join(temporary, 'report-schema.json');
-  await writeFile(schema, JSON.stringify({ type: 'object', properties: { outcome: { type: 'string', enum: ['completed', 'blocked', 'ambiguous'] }, observations: { type: 'string' } }, required: ['outcome', 'observations'], additionalProperties: false }));
-  for (const task of selected) {
+  for (const [index, task] of selected.entries()) {
     if (controller.signal.aborted) throw Error('cancelled');
     const context = await browser.newContext({ viewport: { width: 393, height: 727 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce', serviceWorkers: 'block', acceptDownloads: false });
     const steps: string[] = [];
@@ -95,7 +99,7 @@ try {
     const token = randomBytes(24).toString('hex');
     const bridge = createServer(bridgeHandler(token, (command) => browserCommand(page, command, steps)));
     const taskReport: Record<string, unknown> = { task, prompt: tasks[task], outcome: 'unrun', steps, errors, blockedNetwork: blocked };
-    (report.tasks as unknown[]).push(taskReport);
+    (report.tasks as unknown[])[index] = taskReport;
     try {
       await new Promise<void>((resolve) => bridge.listen(0, '127.0.0.1', resolve));
       const address = bridge.address();
@@ -103,18 +107,18 @@ try {
       await page.goto(baseURL, { waitUntil: 'domcontentloaded', timeout: 15000 });
       const taskDirectory = join(temporary, task);
       await mkdir(taskDirectory);
-      const last = join(temporary, `${task}.json`);
-      const disabled = ['shell_tool', 'unified_exec', 'apps', 'plugins', 'multi_agent', 'browser_use', 'browser_use_external', 'computer_use', 'in_app_browser', 'view_image', 'hooks', 'skill_search', 'workspace_dependencies', 'remote_plugin', 'browser_use_full_cdp_access', 'code_mode_host', 'sleep_tool'];
-      const args = ['--no-daemon', '--ask-for-approval', 'never', 'exec', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', taskDirectory, '--output-schema', schema, '-o', last];
-      for (const feature of disabled) args.push('--disable', feature);
-      args.push('-c', 'web_search="disabled"', '-c', 'mcp_servers.audit.command="' + process.execPath + '"', '-c', `mcp_servers.audit.args=${JSON.stringify([join(root, 'scripts/agent-audit/browser-mcp.mjs')])}`, '-c', `mcp_servers.audit.env.BRAINROT_AUDIT_ENDPOINT="http://127.0.0.1:${address.port}/${token}"`);
-      args.push(`${tasks[task]}\nUse only the audit browser tools. Describe what you actually did, detours, confusing labels and errors. If you cannot finish, report blocked or ambiguous. Do not infer success. Do not inspect source, files, saves or credentials. Do not submit, copy, download, export or send anything.`);
-      await command('codex', args, taskDirectory, seconds, agentEnv);
-      Object.assign(taskReport, parseOutcome(await readFile(last, 'utf8'), steps));
+      // The token stays in a private file, not in the agent's argv.
+      const mcpConfig = join(temporary, `${task}-mcp.json`);
+      await writeFile(mcpConfig, JSON.stringify({ mcpServers: { audit: { command: process.execPath, args: [join(root, 'scripts/agent-audit/browser-mcp.mjs')], env: { BRAINROT_AUDIT_ENDPOINT: `http://127.0.0.1:${address.port}/${token}` } } } }), { mode: 0o600 });
+      const run = await runClaude('claude', claudeArgs(tasks[task], mcpConfig), { cwd: taskDirectory, env: agentEnv, seconds, maxTurns: turns, signal: controller.signal });
+      Object.assign(taskReport, { model: run.model, turns: run.turns });
+      if (run.reason || !run.report) throw Error(run.reason ?? 'agent did not finish');
+      Object.assign(taskReport, parseOutcome(run.report, steps));
     } catch (error) { taskReport.reason = clean(error instanceof Error ? error.message : 'Task incomplete'); }
     finally { await context.close(); bridge.closeAllConnections(); await new Promise<void>((resolve) => bridge.close(() => resolve())); }
   }
-  report.outcome = (report.tasks as { outcome: string }[]).every((task) => task.outcome === 'completed') ? 'completed' : 'incomplete';
+  const outcomes = (report.tasks as { outcome: string }[]).map((task) => task.outcome);
+  report.outcome = outcomes.every((outcome) => outcome === 'completed') ? 'completed' : outcomes.every((outcome) => outcome === 'unrun') ? 'unrun' : 'incomplete';
 } catch (error) {
   report.reason = clean(error instanceof Error ? error.message : 'Audit incomplete');
 } finally {
