@@ -15,13 +15,13 @@ import {
   type SetDefinition,
   type VerifiedPull,
 } from '../engine';
-import { getSet } from '../content/sets';
+import { ALL_SET_VERSIONS, getSet } from '../content/sets';
 import { claimNonce, getPlayer, peekNonce } from './player';
 import { recordPack, recordTicket } from './history';
 import { recordBestCards } from './bestCards';
 import { decodeCard, encodeCard, modifiersFor } from './cardCode';
 import { STORAGE_KEYS } from '../constants';
-import { previewOf, previewPath } from './previewLinks';
+import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADLINE_TOKENS, previewOf, previewPath, type ModifiedCard } from './previewLinks';
 import { revealOrder } from './reveal';
 import { getTicket, prefetchTicket } from './ticketMiner';
 import type { CardWithMeta } from '../components/cards/Card';
@@ -455,16 +455,29 @@ export const siteUrl = (): string => `${window.location.origin}${import.meta.env
 export const siteLabel = (): string => siteUrl().replace(/^[a-z]+:\/\//i, '').replace(/\/+$/, '');
 
 /**
- * A pull link. With a link-preview page (previewFor, or cardPreviewPath for one card), it goes
+ * A pull link. With a link-preview page (previewFor, or cardPreviewFor for one card), it goes
  * through that page (src/game/previewLinks.ts), so chat apps show the cards instead of the site.
  */
 export const pullUrl = (proof: string, previewPage?: string): string => `${siteUrl()}${previewPage ?? ''}#/pull/${proof}`;
 
-/** A pack's link-preview page: the cards that make its hand, or its best card. */
-export const previewFor = (cards: readonly { key: string; rarity: Rarity; isHolo: boolean }[]): string | undefined => {
+/**
+ * A pack's link-preview page: the cards that make its hand, or its best card. A pack whose rarest
+ * modifier is Gold or rarer (headline, over the cards in pack order) goes through that card's page
+ * for the modifier instead, so the link text names it.
+ */
+export const previewFor = (cards: readonly ({ key: string; rarity: Rarity; isHolo: boolean } & ModifiedCard)[]): string | undefined => {
+  const top = headline(cards);
+  if (top && PACK_HEADLINE_TOKENS.includes(top.token)) {
+    const [setId, cardId] = cards[top.cardIndex].key.split('/');
+    if (hasModifierPages(setId, ALL_SET_VERSIONS)) return cardPreviewPath(setId, cardId, top.token);
+  }
   const preview = previewOf(revealOrder(cards));
   return preview && previewPath(preview);
 };
+
+/** A card's link-preview page when shared on its own: the page naming its rarest modifier, if its set has those. */
+export const cardPreviewFor = (setId: string, cardId: string, card: ModifiedCard): string =>
+  cardPreviewPath(setId, cardId, hasModifierPages(setId, ALL_SET_VERSIONS) ? modifierTokens(card)[0] : undefined);
 
 export interface CheckedPull extends VerifiedPull {
   cardsWithMeta: CardWithMeta[];

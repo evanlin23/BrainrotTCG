@@ -5,8 +5,7 @@ import { CARD_RARITIES, cardNumber } from '../../data/cards';
 import { getLatestSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
 import { findPackWithCard } from '../../game/history';
-import { cardPreviewPath } from '../../game/previewLinks';
-import { canShare, proofFor, pullUrl, type PullRef } from '../../game/pulls';
+import { canShare, cardPreviewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
 import { modifierLabel } from '../../game/modifiers';
 import { cardStats } from '../../game/cardStats';
@@ -49,7 +48,7 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
   const proof = useMemo(() => (pack ? proofFor(pack) : undefined), [pack]);
   // The QR code opens the pull directly; the pasted link previews as this card.
   const url = proof ? pullUrl(proof) : undefined;
-  const link = proof ? pullUrl(proof, cardPreviewPath(card.setId, cardId)) : undefined;
+  const link = proof ? pullUrl(proof, cardPreviewFor(card.setId, cardId, version)) : undefined;
   const rarity = CARD_RARITIES[card.rarity];
   const stats = cardStats(card, version).line;
   const text = [

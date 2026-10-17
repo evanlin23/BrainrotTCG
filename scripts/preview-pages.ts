@@ -2,7 +2,10 @@
  * Link previews for shared pulls (see src/game/previewLinks.ts): after `vite build`, writes into
  * dist/p/ a 1200x630 preview image and a tiny page for every hand each set's cards can make: the
  * cards that make it face up, the rest of the pack face down. Opening a page forwards to the pull
- * in its '#'. The one-card pages earlier Full House and Two Pair links went to are kept.
+ * in its '#'. The one-card pages earlier Full House and Two Pair links went to are kept. In sets
+ * with modifiers, each card also gets a page per modifier (🥇 Gold, 🖨️ Misprint...), with the same
+ * one-card picture: only the title and description name the modifier. The path just picks that
+ * text; the pull itself is always re-derived from the '#'.
  *
  *   npx tsx scripts/preview-pages.ts        (part of `npm run build`)
  *
@@ -29,7 +32,8 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { ALL_SET_VERSIONS, SETS } from '../src/content/sets/index.ts';
 import { POKER_HANDS, RARITIES_RAREST_FIRST, type HandKey, type SetDefinition } from '../src/engine/index.ts';
-import { cardPreviewPath, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
+import { modifierText } from '../src/game/modifierLabels.ts';
+import { cardPreviewPath, hasModifierPages, MODIFIER_TOKENS, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
 import { setLinkHash } from '../src/game/route.ts';
 import { isMainModule } from './main-module.ts';
 
@@ -265,6 +269,13 @@ export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions
       // pages are the new ones, at the same address).
       for (const hand of ['FULL_HOUSE', 'TWO_PAIR'] as const) {
         writePage(previewPath({ setId, cardIds: [cardId], hand }), `${setId}/${cardId}/${hand}`, { title: previewTitle(hand, set.name), description: `${card.name} (${rarityName(card.rarity)}). ${SEE}`, image });
+      }
+      // The same card with a modifier: the text names it, the picture stays the card's own.
+      if (hasModifierPages(setId, versions)) {
+        for (const token of MODIFIER_TOKENS) {
+          const named = `${modifierText(token)} ${card.name}`;
+          writePage(cardPreviewPath(setId, cardId, token), `${setId}/${cardId}/${token}`, { title: `${named} · ${set.name}`, description: `${named} (${rarityName(card.rarity)}). Open the link to see the pack it came from and re-check it on your own device.`, image });
+        }
       }
       images.push(() => singleImage(setId, cardId));
     }

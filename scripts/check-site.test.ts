@@ -4,7 +4,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
-import { checkCacheContract, checkSite, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { checkCacheContract, checkFileCount, checkSite, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
 import { generatePreviews } from './preview-pages.ts';
 
 interface Host {
@@ -17,7 +17,8 @@ interface Host {
 const GITHUB: Host = { name: 'GitHub Pages', base: '/BrainrotTCG/', site: 'https://evanlin23.github.io/BrainrotTCG/' };
 const CLOUDFLARE: Host = { name: 'Cloudflare Pages', base: '/', site: 'https://brainrottcg.pages.dev/' };
 
-// Two cards of one set: 19 share pages and a set page, and no card art drawn.
+// Two cards of one set: 19 share pages (and 6 per card naming a modifier, in a set with modifiers),
+// a set page, and no card art drawn.
 const OPENABLE = SETS.find(isOpenable)!;
 const SET = { ...OPENABLE, cards: OPENABLE.cards.slice(0, 2) };
 
@@ -114,7 +115,7 @@ describe('pageUrl', () => {
 describe('checkSite', () => {
   it.each([GITHUB, CLOUDFLARE])('passes a build for $name', async (host) => {
     const { options, pages, images } = await build(host);
-    expect(pages).toHaveLength(20);
+    expect(pages).toHaveLength(20 + (SET.modifiers ? 12 : 0));
     expect(images).toContain(SET_PICTURE);
     expect(await checkSite(options)).toEqual({ pages: pages.length + 1, images: images.length + 1, errors: [] });
   });
@@ -285,6 +286,16 @@ describe('checkSite', () => {
       expect(errors).toContainEqual({ path: 'index.html', error: `og:image is ${built.site}og-image.jpg, not under SITE_URL ${other.site}` });
       expect(errors).toContainEqual({ path: `s/${SET.id}/index.html`, error: `Forwards to ${built.base}, not BASE_PATH ${other.base}` });
     });
+  });
+});
+
+describe('checkFileCount', () => {
+  it('passes up to 19,000 files and fails a build with more, under Cloudflare Pages\' 20,000', () => {
+    expect(MAX_SITE_FILES).toBe(19_000);
+    expect(checkFileCount(7_800)).toEqual([]);
+    expect(checkFileCount(MAX_SITE_FILES)).toEqual([]);
+    expect(checkFileCount(MAX_SITE_FILES + 1)).toEqual([{ path: '.', error: 'Has 19,001 files, over 19,000 (Cloudflare Pages takes 20,000 per deploy)' }]);
+    expect(checkFileCount(4, 3)).toHaveLength(1);
   });
 });
 
