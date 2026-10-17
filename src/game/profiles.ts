@@ -30,7 +30,7 @@ import { firstOpened, getHistory, historyForKey, storedHistory, type HistoryEntr
 import { getReopened, putReopened } from './reopenCache';
 import { getStoredPack, hydratePackStore, packRefKey, packStoreVersion, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
 import { decodeCard, encodeCard, toPulled } from './cardCode';
-import { createTicketPool } from './ticketPool';
+import { createTicketPool, isOutOfMemory, TicketMemoryError } from './ticketPool';
 import { admitOptional } from './admission';
 import { siteUrl } from './pulls';
 import { getBestCards, mergeBestCards, type BestCandidate, type BestCards } from './bestCards';
@@ -755,8 +755,13 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
     })
     .catch((error) => {
       if (signal.aborted) return;
+      // The browser's own words stay in the console; the viewer gets something to act on. Packs
+      // re-opened so far are cached, so trying again carries on from where this stopped.
       console.error('Profile verification failed', error);
-      onProgress(snapshot({ error: { message: String(error) } }));
+      const message = error instanceof TicketMemoryError || isOutOfMemory(String(error))
+        ? 'This device ran out of memory while checking. Close other tabs and try again.'
+        : 'Something went wrong while re-opening the packs. Try again.';
+      onProgress(snapshot({ error: { message } }));
     })
     .finally(() => pool?.close());
   report(true);
