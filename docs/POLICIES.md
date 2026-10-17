@@ -97,7 +97,8 @@ There is no chat, messaging, comments, friends list or profile bio. The public t
 - **Can they spend money?** No. Packs are free and there is nothing to buy (see Monetization).
 - **How do we erase local data?** Clear this site's data in the browser. That removes the saves and
   the signing key but not anything already shared or submitted.
-- **Who do we ask to remove an entry?** The contact route is an open owner decision (see Content).
+- **Who do we ask to remove an entry?** Open an issue on GitHub. That is the project's only contact;
+  there is no email address.
 
 ### Content rating
 
@@ -111,6 +112,33 @@ for themselves.
 - Genesis was archived on 2026-10-12 and keeps its cards as they are. Nobody can open new Genesis
   packs, so new players can't get its cards; old pulls and proofs stay valid [docs/ADDING_A_SET.md].
 - The owner approves tone, rights and art for every new set or draft flag removal; sources for each
-  set's art are recorded in its `CREDITS.md`.
-- Not decided here, because they are the owner's: the licence for code and art, and the takedown
-  and removal contact. Until they are set, nothing in this repository states either.
+  set's art are recorded in its `CREDITS.md` (Genesis, the archived first set, has none).
+- The licence is in [LICENSE](../LICENSE): MIT for the source code only. Art and other assets are
+  covered by the notice below, not by MIT.
+- Takedown and removal requests go through GitHub Issues (see the notice below). The owner chose
+  this as the only public contact; there is no email address.
+
+### Art and assets notice
+
+This is a statement of what the project claims and uses. It is not legal advice and does not claim
+that every third-party item has been cleared.
+
+- **Original art.** Original card and pack art is all rights reserved by Evan Lin. It is not covered
+  by the MIT licence, and the MIT licence gives no right to copy or reuse it.
+- **Memes, characters and likenesses.** Meme references, characters and real-person likenesses
+  belong to their respective owners. The game is a non-commercial parody and fan project. Rights
+  holders and depicted people can ask for removal by
+  [opening an issue](https://github.com/evanlin23/BrainrotTCG/issues).
+- **Sources of card art.** Each set's `CREDITS.md` records where its images came from. Genesis,
+  the archived first set, has no credits file.
+- **Fonts.** Lilita One [scripts/cards/fonts/README.md] and Rubik Glitch, in `src/assets/fonts/`,
+  are Google Fonts under the SIL Open Font License 1.1.
+
+#### Sound credits
+
+| Sound | Files | Source and terms |
+|---|---|---|
+| Ding, card flip, woosh, fairy dust | `src/assets/effects/ding.mp3`, `src/assets/audio/Card-flip-sound-effect.mp3`, `src/assets/audio/woosh.mp3`, `src/assets/audio/fairy-dust-sound-effect.mp3` | [Pixabay](https://pixabay.com/), under the [Pixabay Content License](https://pixabay.com/service/license-summary/) |
+| Voice lines | `src/assets/voices/ElevenLabs_*.mp3`, `src/assets/voices/what-brainrot.mp3` | Generated with [ElevenLabs](https://elevenlabs.io/) |
+| Meme sound clips | `src/assets/effects/rizz-sound-effect.mp3`, `src/assets/effects/taco-bell-bong-sfx.mp3`, `src/assets/effects/vine-boom.mp3` | Sourced via [MyInstants](https://www.myinstants.com/). Rights belong to their owners; removed on request |
+| Background music | `src/assets/audio/Sweden.mp3` | Source is being replaced with a Pixabay track. No licence is claimed for the current file |
