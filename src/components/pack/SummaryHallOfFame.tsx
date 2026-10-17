@@ -82,6 +82,8 @@ const SummaryHallOfFame = ({ pack, score }: { pack: PullRef; score: PackScore })
     <p className="summary-hof" ref={lineRef} tabIndex={-1}>
       <span aria-hidden="true">🏆</span>
       <span role="status">{text}</span>
+      {/* Read before Submit, and kept in every state so the line's height never changes. */}
+      <span className="summary-hof-public">Your display name and public key become public.</span>
       {(state === 'idle' || state === 'failed') && (
         <>
           <span aria-hidden="true">·</span>

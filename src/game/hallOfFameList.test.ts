@@ -287,11 +287,11 @@ describe('loadPending', () => {
     const sentToday = Date.parse('2026-10-16T09:00:00Z') / 1000;
     const sentTwoDaysAgo = Date.parse('2026-10-14T09:00:00Z') / 1000;
 
-    const pending = async (published: ReturnType<typeof board>, createdAt = sentToday) => {
+    const pending = async (published: ReturnType<typeof board>, createdAt = sentToday, name = 'Alice') => {
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
       const { secretKey, publicKey } = generateKeypair();
-      const proof = encodeProof(signProof({ setId: 'test-set', setVersion: 1, publicKey, nonce: 1, name: 'Alice' }, secretKey));
+      const proof = encodeProof(signProof({ setId: 'test-set', setVersion: 1, publicKey, nonce: 1, name }, secretKey));
       const { proofFromEvent } = await import('./nostrInbox');
       const { checkPull } = await import('./pulls');
       vi.mocked(proofFromEvent).mockReturnValue(proof);
@@ -313,6 +313,13 @@ describe('loadPending', () => {
       const onEntry = await pending(board(49));
       expect(onEntry).toHaveBeenCalledTimes(1);
       expect(onEntry.mock.calls[0][0]).toMatchObject({ score: 10_000, pending: true, submittedAt: '2026-10-16T12:00:00.000Z' });
+    });
+
+    it("leaves out a pull whose display name isn't allowed, without checking it (the inbox never files it)", async () => {
+      const { checkPull } = await import('./pulls');
+      const before = vi.mocked(checkPull).mock.calls.length;
+      expect(await pending(board(0), sentToday, 'xXfuckXx')).not.toHaveBeenCalled();
+      expect(vi.mocked(checkPull).mock.calls.length).toBe(before);
     });
 
     it('leaves it out once today’s top 50 is full of better pulls', async () => {

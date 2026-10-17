@@ -416,6 +416,16 @@ describe('Hall of Fame loading', () => {
     expect(document.querySelector('.hof-panel .hof-note')?.textContent).toContain('Filed pulls were re-derived from their proofs when they were filed, and newer ones on this device. Open one to check it yourself.');
     expect(document.body.textContent).not.toMatch(/Checking|Failed|re-checked on your device/);
   });
+
+  it("shows a display name that isn't allowed as Player, beside its fingerprint", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse(ENTRY.submittedAt) + 3_600_000);
+    loadHallOfFame.mockResolvedValueOnce([{ ...ENTRY, name: 'xXfuckXx' }, { ...ENTRY, id: 'pull-2', proof: 'proof-2', name: '  ', issue: 8, score: 1_000 }]);
+    await act(async () => root.render(<HallOfFamePage />));
+    expect([...document.querySelectorAll('.hof-who')].map((el) => el.textContent)).toEqual(['Player #abcd', 'Anonymous #abcd']);
+    expect(labels()[0]).toBe('Number 1: Full House by Player in Original, score 12345');
+    expect(document.body.textContent).not.toMatch(/fuck/i);
+  });
 });
 
 describe('Rankings paging', () => {

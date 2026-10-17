@@ -3,7 +3,7 @@
  * deploy): the top pulls and the daily tops of the last two UTC days. The page shows the published
  * entries as built, and re-checks only the pending ones it reads from the relays (`loadPending`).
  */
-import { decodeProof, hallOfFameJoin, pullId, utcDay, type Finish, type RankableEntry } from '../engine';
+import { decodeProof, hallOfFameJoin, isNameAllowed, pullId, utcDay, type Finish, type RankableEntry } from '../engine';
 import { checkPull } from './pulls';
 import { wasSubmitted } from './share';
 
@@ -83,7 +83,10 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
       const proof = proofFromEvent(event);
       if (!proof) return [];
       try {
-        const id = pullId(decodeProof(proof));
+        const decoded = decodeProof(proof);
+        // The inbox never files a pull whose display name isn't allowed, so it is never pending either.
+        if (!isNameAllowed(decoded.name)) return [];
+        const id = pullId(decoded);
         if (listed.has(id) || seen.has(id)) return [];
         seen.add(id);
         return [{ event, proof, id, mine: wasSubmitted(id) }];

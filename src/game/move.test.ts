@@ -63,6 +63,15 @@ describe('bringing a save over', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it('brings a save over without a blocked display name, keeping its key and tickets', () => {
+    const blocked = JSON.stringify({ ...JSON.parse(player('aa')), name: 'xXfuckXx' });
+    expect(importSave({ ...OLD, 'brainrot-player-v1': blocked })).toBe('saved');
+    const moved = JSON.parse(store.get('brainrot-player-v1')!) as { secretKey: string; name: string; nextNonce: number };
+    expect(moved).toMatchObject({ secretKey: 'aa'.repeat(32), nextNonce: 3 });
+    expect(moved.name).not.toBe('xXfuckXx');
+    expect(moved.name).toMatch(/^\w+ \w+ \d\d$/);
+  });
+
   it('takes an old save from before player keys', () => {
     expect(importSave({ 'brainrot-found-collection-v1': '{}', 'brainrot-stats-v1': '{}' })).toBe('saved');
     expect(store.has('brainrot-stats-v1')).toBe(true);

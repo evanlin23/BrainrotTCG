@@ -71,8 +71,14 @@ const render = async (sheet = false) => {
   ));
   return container.querySelector('.summary-hof');
 };
-/** The line as read, one space between its parts (the gaps are CSS). */
-const line = () => [...(container.querySelector('.summary-hof')?.children ?? [])].map((el) => el.textContent).join(' ');
+const PUBLIC_NOTICE = 'Your display name and public key become public.';
+/** The line as read, one space between its parts (the gaps are CSS), without the public-name notice. */
+const line = () =>
+  [...(container.querySelector('.summary-hof')?.children ?? [])]
+    .filter((el) => !el.classList.contains('summary-hof-public'))
+    .map((el) => el.textContent)
+    .join(' ');
+const notice = () => container.querySelector('.summary-hof .summary-hof-public');
 const button = () => container.querySelector<HTMLButtonElement>('.summary-hof button');
 const sheetButton = () => document.querySelector<HTMLButtonElement>('.share-hof button');
 /** A relay answer the test gives when it wants. */
@@ -120,6 +126,15 @@ describe('the Hall of Fame line on the pack summary', () => {
     await render();
     expect(line()).toBe("🏆 Makes today's Rankings · Submit to the Hall of Fame");
     expect(button()?.textContent).toBe('Submit to the Hall of Fame');
+  });
+
+  it('says the display name and public key become public, read before Submit and kept after it', async () => {
+    await render();
+    expect(notice()?.textContent).toBe(PUBLIC_NOTICE);
+    expect(notice()!.compareDocumentPosition(button()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await act(async () => button()!.click());
+    expect(line()).toBe('🏆 Submitted · #1 today');
+    expect(notice()?.textContent).toBe(PUBLIC_NOTICE);
   });
 
   it("says the Hall of Fame, not today's Rankings, for a pull that only makes the all-time list", async () => {

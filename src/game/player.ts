@@ -2,7 +2,7 @@
  * The local player: an Ed25519 key (their identity in pull proofs), a display
  * name, and the next ticket number. Stored in localStorage; exported with saves.
  */
-import { fingerprint, fromHex, generateKeypair, normalizeName, publicKeyFromSecret, toHex } from '../engine';
+import { fingerprint, fromHex, generateKeypair, isNameAllowed, normalizeName, publicKeyFromSecret, toHex } from '../engine';
 import { ticketsRecorded } from './history';
 
 const STORAGE_KEY = 'brainrot-player-v1';
@@ -22,12 +22,25 @@ export interface Player {
   fingerprint: string;
 }
 
-const ADJECTIVES = ['Sigma', 'Skibidi', 'Rizzy', 'Goated', 'Mewing', 'Unhinged', 'Feral', 'Bussin', 'Aura', 'Cooked', 'Delulu', 'Cracked', 'Based', 'Zesty', 'Chopped', 'Lowkey'];
-const NOUNS = ['Toaster', 'Noodle', 'Gremlin', 'Goblin', 'Capybara', 'Pigeon', 'Banana', 'Raccoon', 'Shrimp', 'Croissant', 'Wizard', 'Penguin', 'Meatball', 'Frog', 'Biscuit', 'Cactus'];
+export const ADJECTIVES = ['Sigma', 'Skibidi', 'Rizzy', 'Goated', 'Mewing', 'Unhinged', 'Feral', 'Bussin', 'Aura', 'Cooked', 'Delulu', 'Cracked', 'Based', 'Zesty', 'Chopped', 'Lowkey'];
+export const NOUNS = ['Toaster', 'Noodle', 'Gremlin', 'Goblin', 'Capybara', 'Pigeon', 'Banana', 'Raccoon', 'Shrimp', 'Croissant', 'Wizard', 'Penguin', 'Meatball', 'Frog', 'Biscuit', 'Cactus'];
 
 const randomName = () => {
   const pick = <T,>(list: T[]) => list[Math.floor(Math.random() * list.length)];
   return `${pick(ADJECTIVES)} ${pick(NOUNS)} ${Math.floor(Math.random() * 90) + 10}`;
+};
+
+/**
+ * The name an imported identity is stored with: its own, unless that is blank or not allowed (see
+ * isNameAllowed). A blocked name falls back to `kept` (this browser's name for the same key) when that
+ * is allowed, so one player's name never lands on another key; otherwise a random name.
+ */
+const importedName = (name: string, kept?: string): string => {
+  const clean = normalizeName(name);
+  if (!clean) return randomName();
+  if (isNameAllowed(clean)) return clean;
+  const own = kept === undefined ? '' : normalizeName(kept);
+  return own && isNameAllowed(own) ? own : randomName();
 };
 
 const read = (): StoredPlayer | null => {
@@ -255,13 +268,13 @@ export const claimNonce = async (): Promise<NonceClaim> => {
 };
 
 /**
- * What a rename did, with the player as it is now stored: `saved`; `blank` or `unchanged` (nothing
- * written); or `failed` (this browser refused the write, so the old name stays). `stale` means the
+ * What a rename did, with the player as it is now stored: `saved`; `blank`, `unchanged` or `blocked`
+ * (a name other players aren't shown, see isNameAllowed; nothing written); or `failed` (this browser refused the write, so the old name stays). `stale` means the
  * stored player is no longer the one the rename was meant for (another tab switched or imported a
  * save), so nothing was written and that player isn't handed back.
  */
 export type RenameResult =
-  | { status: 'saved' | 'blank' | 'unchanged' | 'failed'; player: Player }
+  | { status: 'saved' | 'blank' | 'unchanged' | 'blocked' | 'failed'; player: Player }
   | { status: 'stale' };
 
 /**
@@ -275,6 +288,7 @@ export const renamePlayer = (name: string, expectedKey: string): RenameResult =>
   const player = toPlayer(record);
   if (player.publicKeyHex !== expectedKey) return { status: 'stale' };
   if (!clean) return { status: 'blank', player };
+  if (!isNameAllowed(clean)) return { status: 'blocked', player };
   if (clean === record.name) return { status: 'unchanged', player };
   const next = { ...record, name: clean };
   // Adopt the name only once it is stored, so the page never shows a name the next read would undo.
@@ -309,6 +323,16 @@ export const parsePlayer = (raw: string): StoredPlayer | null => {
   } catch {
     return null;
   }
+};
+
+/**
+ * A stored player record (its raw value) moving in from elsewhere, with a name other players may be
+ * shown: unchanged when its name is allowed or the record isn't valid, else with a random name.
+ */
+export const withAllowedName = (raw: string): string => {
+  const record = parsePlayer(raw);
+  if (!record || isNameAllowed(normalizeName(record.name))) return raw;
+  return JSON.stringify({ ...record, name: importedName(record.name) });
 };
 
 /** Whether `secretKey` is this browser's player, without creating one. */
@@ -385,7 +409,7 @@ export const importPlayer = (raw: string, onWriteError?: (error: unknown) => voi
     const existing = read() ?? memory;
     const next = {
       ...incoming,
-      name: normalizeName(incoming.name) || randomName(),
+      name: importedName(incoming.name, existing?.secretKey === incoming.secretKey ? existing.name : undefined),
       // Never move the ticket counter backwards for the same key (that would replay old packs).
       nextNonce: existing?.secretKey === incoming.secretKey ? Math.max(existing.nextNonce, incoming.nextNonce) : incoming.nextNonce,
     };
