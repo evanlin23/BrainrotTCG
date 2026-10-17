@@ -65,6 +65,36 @@ describe('useSetLink', () => {
     expect(select).not.toHaveBeenCalled();
   });
 
+  it("doesn't mark a link that arrived while a pack was open as followed, so it still applies once the pack is done", () => {
+    const select = vi.fn();
+    mount(true, select);
+    typeHash(`#/set/${released.id}`);
+    expect(select).not.toHaveBeenCalled();
+    expect(history.state?.brainrotSetLink).toBeFalsy();
+    expect(location.hash).toBe(`#/set/${released.id}`);
+
+    // The pack is done, and the player comes back to that entry (Forward, or a Back from a page over it).
+    act(() => root!.render(<Harness busy={false} select={select} />));
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(select).toHaveBeenCalledWith(released.id);
+    expect(history.state?.brainrotSetLink).toBe(true);
+  });
+
+  it('applies a link left unmarked by a busy pack when the app reloads on it', () => {
+    const select = vi.fn();
+    mount(true, select);
+    typeHash(`#/set/${released.id}`);
+    expect(select).not.toHaveBeenCalled();
+
+    act(() => root?.unmount());
+    mount(false, select);
+    expect(select).toHaveBeenCalledWith(released.id);
+    expect(location.hash).toBe('');
+  });
+
   it.each([
     ['a draft set', draft.id],
     ['an archived set', archived.id],

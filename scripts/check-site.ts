@@ -114,7 +114,7 @@ export const checkCacheContract = (files: readonly string[], base: string, heade
   for (const file of files) {
     if (file === '_headers') continue;
     if (file.startsWith('assets/')) {
-      if (!HASHED_ASSET.test(file) || sources.has(path.posix.basename(file))) errors.push({ path: file, error: "Has no content hash in its name, but assets/ is cached as if it never changes" });
+      if (!HASHED_ASSET.test(file) || sources.has(path.posix.basename(file).replace(/\.map$/, ''))) errors.push({ path: file, error: "Has no content hash in its name, but assets/ is cached as if it never changes" });
     } else if (!REVALIDATED.test(file)) {
       errors.push({ path: file, error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' });
     }

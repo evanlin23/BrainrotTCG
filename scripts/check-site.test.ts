@@ -331,4 +331,12 @@ describe('checkCacheContract', () => {
       ['assets/index.js.map', 'assets/cards/x/card.webp.map'].map((path) => ({ path, error: 'Has no content hash in its name, but assets/ is cached as if it never changes' })),
     );
   });
+
+  it("fails the sourcemap of a file whose hashed-looking name is a source file's own name", () => {
+    const map = 'assets/finish-rainbows.webp.map';
+    expect(checkCacheContract([...files, map], '/', undefined, new Set(['finish-rainbows.webp']))).toEqual([
+      { path: map, error: 'Has no content hash in its name, but assets/ is cached as if it never changes' },
+    ]);
+    expect(checkCacheContract([map], '/', undefined, new Set(['finish-rainbowz.webp']))).toEqual([]);
+  });
 });
