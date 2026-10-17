@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import { expect, type Page, type Locator } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
@@ -106,6 +107,63 @@ export async function expectDecoded(images: Locator, count: number) {
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }
 }
+
+const sets = new URL('../../src/content/sets/', import.meta.url);
+const cardIds = readdirSync(sets, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .flatMap((set) => readdirSync(new URL(`${set.name}/cards/`, sets)).filter((file) => file.endsWith('.webp')))
+  .map((file) => file.slice(0, -'.webp'.length).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+/** A card's built art, plain or as a finish thumbnail; never the pack, its thumbnail or the frame mask. */
+const ART = `/assets/(?:${cardIds.join('|')})(?:\\.[a-z]+)?-[\\w-]{8}\\.webp`;
+export const artUrl = new RegExp(`${ART}$`);
+/** A logged failure that names a card's art (request failures and the errors that carry its URL). */
+export const namesArt = new RegExp(ART);
+
+type ArtMode = 'serve' | 'hold' | 'drop';
+
+/**
+ * Decides what happens to every card art request, now and later: `serve` it, `hold` it until the mode
+ * changes, or `drop` it (a failed load). Switching modes settles the held requests; the rest of the app
+ * loads as usual. Call before the page loads.
+ */
+export async function routeArt(page: Page, start: ArtMode) {
+  let mode = start;
+  let requests = 0;
+  let failed = 0;
+  const waiting: (() => void)[] = [];
+  await page.route(artUrl, async (route) => {
+    requests += 1;
+    while (mode === 'hold') await new Promise<void>((resolve) => waiting.push(resolve));
+    if (mode === 'drop') {
+      failed += 1;
+      return route.abort();
+    }
+    return route.continue();
+  });
+  return {
+    /** Art requests the page has made, held or not. */
+    requests: () => requests,
+    /** Art requests dropped so far. */
+    failed: () => failed,
+    set(next: ArtMode) {
+      mode = next;
+      waiting.splice(0).forEach((wake) => wake());
+    },
+  };
+}
+
+/** Fails every card art request until restored; the rest of the app loads as usual. */
+export async function dropArt(page: Page) {
+  const art = await routeArt(page, 'drop');
+  return { failed: art.failed, restore: () => art.set('serve') };
+}
+
+/** Holds every card art request until `set('serve')` or `set('drop')`. */
+export const holdArt = (page: Page) => routeArt(page, 'hold');
+
+/** Errors other than the art that was meant to fail. */
+export const unexpectedArtErrors = (errors: string[]) =>
+  errors.filter((error) => !namesArt.test(error) && error !== 'Failed to load resource: net::ERR_FAILED');
 
 /** Waits until the target's box holds still between two reads, 150ms apart (the pack drops in). */
 export async function expectStill(target: Locator, message: string) {

@@ -1,6 +1,5 @@
-import { readdirSync } from 'node:fs';
-import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectRecordedPack } from './support';
+import { test, expect } from '@playwright/test';
+import { monitor, expectDecoded, expectRecordedPack, dropArt, unexpectedArtErrors as unexpected } from './support';
 
 /**
  * Card art that won't load (#226): a phone that drops its connection, or runs out of memory, mid-pack.
@@ -8,33 +7,6 @@ import { monitor, expectDecoded, expectRecordedPack } from './support';
  * poster says it couldn't be drawn instead of sharing a blank image, and the cards come back when the
  * device is online again or the player presses Retry. Every wait is on a card's state, never on time.
  */
-
-const sets = new URL('../../src/content/sets/', import.meta.url);
-const cardIds = readdirSync(sets, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .flatMap((set) => readdirSync(new URL(`${set.name}/cards/`, sets)).filter((file) => file.endsWith('.webp')))
-  .map((file) => file.slice(0, -'.webp'.length).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-/** A card's built art, plain or as a finish thumbnail; never the pack, its thumbnail or the frame mask. */
-const ART = `/assets/(?:${cardIds.join('|')})(?:\\.[a-z]+)?-[\\w-]{8}\\.webp`;
-const artUrl = new RegExp(`${ART}$`);
-/** A logged failure that names a card's art (request failures and the errors that carry its URL). */
-const namesArt = new RegExp(ART);
-
-/** Fails every card art request until restored; the rest of the app loads as usual. */
-async function dropArt(page: Page) {
-  let failing = true;
-  let failed = 0;
-  await page.route(artUrl, (route) => {
-    if (!failing) return route.continue();
-    failed += 1;
-    return route.abort();
-  });
-  return { failed: () => failed, restore: () => { failing = false; } };
-}
-
-/** Errors other than the art that was meant to fail. */
-const unexpected = (errors: string[]) =>
-  errors.filter((error) => !namesArt.test(error) && error !== 'Failed to load resource: net::ERR_FAILED');
 
 test('a pack whose art will not load still opens and saves, and its cards come back online', async ({ page, baseURL }) => {
   test.setTimeout(60000);
