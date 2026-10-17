@@ -11,9 +11,10 @@ export const reviewerSystemPrompt = 'You are trying a web game in a browser. Use
 const reportSchema = { type: 'object', properties: { outcome: { type: 'string', enum: ['completed', 'blocked', 'ambiguous'] }, observations: { type: 'string' } }, required: ['outcome', 'observations'], additionalProperties: false };
 
 // Read-only reviewer: --tools '' removes every built-in tool (Bash, Edit, Write, WebFetch...),
-// --restricted ignores user/project/local settings and hooks, --strict-mcp-config loads only the
-// audit browser server, and dontAsk denies anything outside the allowlist. The task is the only
-// user prompt.
+// --restricted ignores user, project and local settings files and their hooks (in 2.1.302 it also
+// skipped every CLAUDE.md, AGENTS.md and rules file; run.ts refuses while any exist anyway),
+// --strict-mcp-config loads only the audit browser server, and dontAsk denies anything outside the
+// allowlist. The task is the only user prompt.
 export function claudeArgs(task: string, mcpConfig: string) {
   return [
     '-p', '--restricted', '--tools', '', '--strict-mcp-config', '--mcp-config', mcpConfig,
@@ -24,10 +25,10 @@ export function claudeArgs(task: string, mcpConfig: string) {
   ];
 }
 
+// Kills the child's whole process group, even after the leader exits: an MCP adapter or other
+// descendant may outlive it.
 export function stopGroup(child: ChildProcess) {
-  if (child.exitCode === null && child.signalCode === null && child.pid) {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Already stopped. */ }
-  }
+  if (child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Group already gone. */ }
 }
 
 export type ClaudeRun = { turns: number; model?: string; report?: string; reason?: string };
@@ -39,6 +40,9 @@ export async function runClaude(command: string, args: string[], options: { cwd:
   const run: ClaudeRun = { turns: 0 };
   if (options.signal.aborted) return { ...run, reason: 'cancelled' };
   const child = spawn(command, args, { cwd: options.cwd, env: options.env, detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  // The CLI may exit before its MCP adapter or another descendant that holds stdout open, which
+  // would keep 'close' from firing; clear the group as soon as the CLI itself exits.
+  child.once('exit', () => stopGroup(child));
   let stopped: string | undefined;
   const stop = (reason: string) => { stopped ??= reason; stopGroup(child); };
   const timer = setTimeout(() => stop('time budget exhausted'), options.seconds * 1000);
@@ -68,8 +72,7 @@ export async function runClaude(command: string, args: string[], options: { cwd:
   });
   clearTimeout(timer);
   options.signal.removeEventListener('abort', abort);
-  // The CLI may exit before its MCP adapter does; clear whatever is left of its group.
-  if (child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch { /* Group already gone. */ }
+  stopGroup(child);
   if (stopped) return { ...run, reason: stopped };
   if (exit.error) return { ...run, reason: exit.error.code === 'ENOENT' ? 'Claude CLI unavailable' : 'Claude CLI could not start' };
   if (exit.code !== 0) return { ...run, reason: `agent CLI incomplete (exit ${exit.code ?? 'signal'})` };

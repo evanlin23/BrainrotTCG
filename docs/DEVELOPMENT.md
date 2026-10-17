@@ -55,7 +55,9 @@ tar -xzf "${TARBALL}" actionlint
 cd - && /tmp/actionlint/actionlint -shellcheck=''
 ```
 
-Keep the version and hash the same as CI; a new `VERSION` needs its new hash in both places. With Docker,
+Keep the version and hash the same as CI; a new `VERSION` needs its new hash in both places. The
+tarball and hash are for Linux on x86-64 (linux_amd64), as CI uses; elsewhere use Docker, or your
+platform's release asset checked against the release's published checksums. With Docker,
 `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12 -shellcheck=''` runs the same release,
 but the image isn't hash-checked. Both ignore ShellCheck (`-shellcheck=''`), as CI does.
 
@@ -106,8 +108,10 @@ emulation, not human newcomers or a real device, and anything that cites one say
 boundary in docs/ARCHITECTURE.md) runs one fresh reviewer per task, one after another. Tasks are
 `opening`, `sharing`, `results` and `recovery`, each limited to 30 to 180 seconds, 3 to 40 turns
 (model responses) and 40 browser calls. It needs Unix, Node 22, Playwright's Chromium and Claude
-Code 2.1.302 signed in (`claude auth status`). Another version, a signed-out CLI or a
-`~/.claude/CLAUDE.md` (user memory would coach the reviewer) stops it before any agent runs. A task
+Code 2.1.302 signed in (`claude auth status`). Another version, a signed-out CLI or any
+instruction file a reviewer could load stops it before any agent runs, since memory would coach the
+reviewer: a managed or user `CLAUDE.md` or `~/.claude/rules`, or a `CLAUDE.md`, `CLAUDE.local.md`,
+`AGENTS.md` or `.claude/` memory or rules in the temporary directory or above it. A task
 that hits a limit, is cancelled, or starts with missing or extra tools is recorded as unrun with
 the reason, never as passed. It is not part of `npm run check` or CI; unit tests use a fake CLI.
 
@@ -116,7 +120,8 @@ in `scripts/agent-audit/claude.ts`): `-p --restricted --tools "" --strict-mcp-co
 <audit server> --allowed-tools <mcp__audit__ snapshot, click, press, wait> --permission-mode dontAsk
 --disable-slash-commands --no-chrome --no-session-persistence --output-format stream-json --verbose
 --json-schema <report> --system-prompt <reviewer rules> <task sentence>`. That leaves no Bash, Edit,
-Write, web or other built-in tools, no settings, hooks, skills or other MCP servers, and an empty
+Write, web or other built-in tools, no user, project or local settings files or their hooks
+(managed settings still apply), no skills, slash commands or other MCP servers, and an empty
 temporary working directory. The task sentence from `contracts.ts` is the only user prompt: no
 source, docs, history or hints, since coaching would test the coach, not the page. The coordinator
 prompt in `contracts.ts` is separate and goes only into the report. 2.1.302 has no turn flag, so the
@@ -136,6 +141,11 @@ at 393x727 with touch and reduced motion, external requests blocked, model claud
 
 Not run: the other three tasks, and a signed-out or missing CLI with the real runner (covered by the
 fake-CLI tests). Screen readers, native share and a physical phone are out of scope.
+
+When to audit: before a release, and for any change to a player flow (opening, sharing, recovery,
+settings or first run), with the tasks that flow touches. Trivial copy or style edits don't need
+one. After fixes, rerun the affected tasks, each in a fresh task-only session: the reviewer gets
+the task sentence alone, with no notes, observations or hints from the earlier run.
 
 Using the results:
 

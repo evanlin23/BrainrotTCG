@@ -34,13 +34,19 @@ const [mode, pidFile] = process.argv.slice(1);
 const out = (message) => process.stdout.write(JSON.stringify(message) + '\n');
 const browser = ['mcp__audit__click', 'mcp__audit__press', 'mcp__audit__snapshot', 'mcp__audit__wait'];
 const tools = mode === 'extra' ? ['Bash', 'StructuredOutput', ...browser] : mode === 'nobrowser' ? ['StructuredOutput'] : ['StructuredOutput', ...browser];
-out({ type: 'system', subtype: 'init', model: 'claude-test', tools });
+if (mode !== 'noinit') out({ type: 'system', subtype: 'init', model: 'claude-test', tools });
 const report = { outcome: 'blocked', observations: 'Saw the heading' };
-if (mode === 'success' || mode === 'noreport') {
+if (mode === 'orphan') {
+  // An adapter that outlives the CLI and keeps the CLI's output open.
+  const adapter = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'ignore'] });
+  writeFileSync(pidFile, String(adapter.pid));
+  adapter.unref();
+}
+if (['success', 'noreport', 'noinit', 'orphan'].includes(mode)) {
   out({ type: 'assistant', message: { id: 'a1', content: [{ type: 'tool_use', name: 'mcp__audit__snapshot' }] } });
   out({ type: 'assistant', message: { id: 'a2', content: [{ type: 'text', text: 'Done' }] } });
   out({ type: 'assistant', message: { id: 'a2', content: [{ type: 'tool_use', name: 'StructuredOutput' }] } });
-  out({ type: 'result', subtype: 'success', is_error: false, ...(mode === 'success' ? { structured_output: report } : {}) });
+  out({ type: 'result', subtype: 'success', is_error: false, ...(mode === 'noreport' ? {} : { structured_output: report }) });
 } else if (mode === 'error') out({ type: 'result', subtype: 'error_during_execution', is_error: true });
 else if (mode === 'exit') process.exit(3);
 else {
@@ -88,14 +94,21 @@ describe('Claude reviewer runs (mocked CLI)', () => {
     expect(await fake('success', { signal: aborted.signal })).toEqual({ turns: 0, reason: 'cancelled' });
   });
 
+  it('clears a descendant that outlives the CLI and holds its output open', async () => {
+    const pidFile = join(scratch, 'orphan.pid');
+    expect((await fake('orphan', { seconds: 3, pidFile })).report).toBe(JSON.stringify({ outcome: 'blocked', observations: 'Saw the heading' }));
+    expect(await gone(Number(readFileSync(pidFile, 'utf8')))).toBe(true);
+  });
+
   it('leaves unavailable tools and unfinished runs without a report', async () => {
     expect((await fake('extra')).reason).toBe('reviewer had tools outside the allowlist');
     expect((await fake('nobrowser')).reason).toBe('audit browser tools unavailable');
     expect((await fake('error')).reason).toBe('agent did not finish (error_during_execution)');
     expect((await fake('noreport')).reason).toBe('agent did not finish (no report)');
+    expect((await fake('noinit')).reason).toBe('agent did not report its tools');
     expect((await fake('exit')).reason).toBe('agent CLI incomplete (exit 3)');
     const missing = await runClaude(join(scratch, 'no-such-claude'), [], { cwd: scratch, env: {}, seconds: 5, maxTurns: 5, signal: new AbortController().signal });
     expect(missing).toEqual({ turns: 0, reason: 'Claude CLI unavailable' });
-    for (const mode of ['extra', 'nobrowser', 'error', 'noreport', 'exit']) expect((await fake(mode)).report).toBeUndefined();
+    for (const mode of ['extra', 'nobrowser', 'error', 'noreport', 'noinit', 'exit']) expect((await fake(mode)).report).toBeUndefined();
   }, 20000);
 });

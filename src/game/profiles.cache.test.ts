@@ -410,6 +410,19 @@ describe('the shared ticket list', () => {
     expect(expectFresh().stats).toEqual(profileStats([a.pack, b.pack, c.pack]));
   }, 30_000);
 
+  it('builds the list again when only the ticket count moves on', async () => {
+    setUp([]);
+    const secret = secretOf();
+    const a = await opened(GENESIS, 0);
+    const b = await opened(RIGHT_NOW, 1);
+    writeHistory([a.entry, b.entry]);
+    storePlayer(secret, 2);
+    expect(expectFresh().info).toMatchObject({ packs: 2 });
+    // Another tab took ticket 2 and hasn't written its history yet: the same history, one more ticket.
+    storePlayer(secret, 3);
+    expect(expectFresh().info).toMatchObject({ packs: 3 });
+  }, 30_000);
+
   it('builds the list again after a changed set version, a cache loss, a re-open landing and a reset', async () => {
     setUp([]);
     const secret = secretOf();
