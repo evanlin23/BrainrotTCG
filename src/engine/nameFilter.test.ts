@@ -55,6 +55,16 @@ describe('isNameAllowed', () => {
     ).toEqual([]);
   });
 
+  it('allows a few ordinary phrases and numbers holding a blocked word, but not what is added to them', () => {
+    expect(
+      allowed([
+        'Moby Dick', 'MobyDick', 'Philip K. Dick', 'Dick Van Dyke', 'Van Dyke', 'Summa Cum Laude', 'Spic and Span',
+        'Flabby Cat', 'Blabbermouth', 'Annus Mirabilis', 'Bonner', 'Rappe', 'Gamer21488',
+      ]),
+    ).toEqual([]);
+    expect(blocked(['Moby Dick Fuck', 'MobyDickhead', 'Moby Dicks', 'Van Dyke Sex', 'Kid1488', 'xX1488Xx', '１４８８'])).toEqual([]);
+  });
+
   it('allows brainrot names, gamer tags and mild swearing', () => {
     expect(
       allowed([

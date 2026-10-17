@@ -19,8 +19,8 @@ and the rules keep changing.
 - Belgium: its Gaming Commission concluded in 2018 that loot boxes bought with real money are
   gambling, with prosecution risk for publishers
   ([Verdict, 10 May 2018](https://www.verdict.co.uk/belgium-loot-box-ban/)).
-- Netherlands: the Kansspelautoriteit fined Electronic Arts over FIFA packs in 2019, and the Council
-  of State overturned that in March 2022 because the packs were not a standalone game of chance and
+- Netherlands: the Kansspelautoriteit ordered Electronic Arts in 2019 to change its FIFA packs or pay
+  penalties, and the Council of State overturned that in March 2022 because the packs were not a standalone game of chance and
   their contents could not be turned into money
   ([SBC News](https://sbcnews.co.uk/europe/uk/2022/03/10/ea-wins-long-standing-loot-box-drama-against-dutch-ksa/),
   [Council of State case page](https://www.raadvanstate.nl/uitspraken/@130150/202005769-1-a3/);
@@ -45,7 +45,7 @@ between the two addresses window to window, never in a URL [`src/game/move.ts`].
 | When | What | Where it goes |
 |---|---|---|
 | Player copies or shares a pull or profile link | The whole proof after `#`: display name, public key, signature, pack inputs. The poster image also shows the name. | To whoever receives it. A `#` fragment is not sent in page requests, so the host sees only the generic preview path for the hand [ARCHITECTURE: Sharing and link previews]. |
-| Player taps Submit on the share sheet | A Nostr event holding the proof (name, public key), signed by a throwaway key | Five public relays: relay.damus.io, nos.lol, relay.primal.net, offchain.pub, relay.nostr.net [`src/game/nostrInbox.ts`]. A GitHub Action then files a public issue as a bot and the pull enters `public/hall-of-fame.json` with name, fingerprint, proof, cards and a `githubUser` field (`nostr` for relay submissions). |
+| Player taps Submit on the share sheet or the pack summary (both say the name and public key become public first) | A Nostr event holding the proof (name, public key), signed by a throwaway key | Five public relays: relay.damus.io, nos.lol, relay.primal.net, offchain.pub, relay.nostr.net [`src/game/nostrInbox.ts`]. A GitHub Action then files a public issue as a bot and the pull enters `public/hall-of-fame.json` with name, fingerprint, proof, cards and a `githubUser` field (`nostr` for relay submissions). |
 | Someone files the Hall of Fame issue form by hand (not linked from the game) | The proof, plus their GitHub login on the issue and in `hall-of-fame.json` | GitHub; needs an account |
 | Player opens a bug report on GitHub | Only what they paste. The generated report excludes keys, saves, names, proof links and raw errors. | GitHub; needs an account |
 | Any visit | IP address, user agent and requested paths, as for any website | The host, Cloudflare Pages (the old GitHub Pages address redirects). Both keep logs under their own policies. |
@@ -58,8 +58,14 @@ Renaming only changes future signatures; old proofs keep the name they were sign
 The game loads no third-party scripts, fonts or images: fonts, art and audio are bundled and served
 from the same origin, and the only other `fetch` is `hall-of-fame.json` from that origin
 [`src/styles/tokens.css`, `src/game/hallOfFameList.ts`]. A display name is free text up to 24
-characters; the code cleans control characters but has no profanity filter, and the name can be
-a real name if the player types one. So "no personal data is collected" is not claimed.
+characters and can be a real name if the player types one, so "no personal data is collected" is
+not claimed.
+
+The code cleans control characters from names and checks them against a word list of slurs, sexual
+terms and hate [`src/engine/nameFilter.ts`]. Settings and save import refuse a blocked name; the
+Hall of Fame intake skips it or labels its issue `rejected`; Rankings, shared pulls and shared
+profiles show "Player" in its place. A word list misses odd spellings (such as "sl00t"), so a
+maintainer removes those by hand, and a shared link's proof still carries the name it was signed with.
 
 ### Chat and public text
 
@@ -68,6 +74,8 @@ There is no chat, messaging, comments, friends list or profile bio. The public t
 - the display name: Rankings and its pending list, pull and profile viewer sheets, the share poster,
   shared links, Nostr events, Hall of Fame issues and `hall-of-fame.json`;
 - the early players' names credited on Rankings, hard-coded in `HallOfFamePage.tsx`;
+- the optional "story" field of the manual Hall of Fame issue form, public on the issue but not
+  copied into `hall-of-fame.json` [`.github/ISSUE_TEMPLATE/hall-of-fame.yml`];
 - text a player writes themselves in a GitHub issue (bug reports); there is no card-proposal form in
   the game.
 
@@ -75,21 +83,28 @@ There is no chat, messaging, comments, friends list or profile bio. The public t
 
 - **Can strangers message my child?** No. The game has no chat or messaging.
 - **Does my child need an account?** No. Playing, sharing and Hall of Fame submission use no account.
-- **What do we publish?** Only what is in the table above, mainly the display name and a key
-  fingerprint when a pull is shared or submitted. Pick a name that is not a real name.
+- **What do we publish?** Only what is in the table above, mainly the display name and public key
+  when a pull is shared or submitted. Pick a name that is not a real name.
 - **Does GitHub come into it?** Only for bug reports and the manual issue form. GitHub requires
-  users to be 13 or older ([GitHub Terms of Service, B.3](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service)),
+  users to be 13 or older, or older where local law requires
+  ([GitHub Terms of Service, B.3](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service)),
   and the bug-report screens say so before the link.
 - **Can they spend money?** No. Packs are free and there is nothing to buy (see Monetization).
 - **How do we erase local data?** Clear this site's data in the browser. That removes the saves and
-  the key but not anything already shared or submitted.
+  the signing key but not anything already shared or submitted.
 - **Who do we ask to remove an entry?** The contact route is an open owner decision (see Content).
+
+### Content rating
+
+The game has no formal age rating: it has not been rated by ESRB, PEGI or IARC. As a guide, it has
+cartoon meme humour, no gore, no sexual content and no gambling for money, but parents should judge
+for themselves.
 
 ## Content and IP (#22)
 
 - This section is where the content and IP policy lives; there is no separate document.
-- Genesis (archived 2026-10-12, so new players cannot open it) keeps its cards as they are. Archiving
-  stops new packs but keeps old pulls and proofs valid [docs/ADDING_A_SET.md].
+- Genesis was archived on 2026-10-12 and keeps its cards as they are. Nobody can open new Genesis
+  packs, so new players can't get its cards; old pulls and proofs stay valid [docs/ADDING_A_SET.md].
 - The owner approves tone, rights and art for every new set or draft flag removal; sources for each
   set's art are recorded in its `CREDITS.md`.
 - Not decided here, because they are the owner's: the licence for code and art, and the takedown

@@ -25,7 +25,8 @@
   overflow-wrap: anywhere;
 }
 
-/* One line, only for a pull that makes today's Rankings: "🏆 Makes today's Rankings · Submit". */
+/* Only for a pull that makes today's Rankings: "🏆 Makes today's Rankings · Submit", with the
+   public-name notice under it. */
 .pack-summary .summary-hof {
   display: flex;
   flex-wrap: wrap;
@@ -33,7 +34,7 @@
   justify-content: center;
   gap: var(--space-1) var(--space-2);
   /* The same height loading, empty or in any state, so the cards below never move. */
-  min-height: var(--touch-target);
+  min-height: calc(var(--touch-target) + var(--space-1) + var(--text-xs) * var(--leading-tight));
   margin: var(--space-1) 0 0;
   color: var(--text-muted);
   font-size: var(--text-sm);
@@ -45,6 +46,15 @@
 
 .pack-summary .summary-hof-submit {
   min-height: var(--touch-target);
+}
+
+/* Before Submit when read, on its own row under the line when seen. */
+.pack-summary .summary-hof-public {
+  order: 1;
+  flex-basis: 100%;
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+  text-align: center;
 }
 
 /* Focus brought into view by the keyboard stops above the stuck actions, not under them. */

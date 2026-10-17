@@ -8,8 +8,11 @@
  * and xX decorations), then matches a curated list in two tiers:
  * - STRONG terms are blocked anywhere inside a word ("xXfuckXx"), except inside ALLOWED words.
  * - WHOLE terms are short words that hide inside ordinary ones ("Dickens", "cocktail", "Sussex",
- *   "Scunthorpe", "grape"), so they are blocked only as a whole word (plurals included).
- * Mild swearing (shit, damn, crap, ass, hell) is allowed; slurs, sexual terms and hate are not.
+ *   "Scunthorpe", "grape"), so they are blocked only as a whole word (plurals included), and not
+ *   inside a few ALLOWED_PHRASES ("Moby Dick").
+ * Hate numbers are blocked only as a number of their own. Mild swearing (shit, damn, crap, ass, hell)
+ * is allowed; slurs, sexual terms and hate are not. A word list misses some spellings ("sl00t"), so a
+ * maintainer still removes those by hand (docs/ARCHITECTURE.md, Hall of Fame).
  */
 import { normalizeName } from './identity';
 
@@ -22,7 +25,7 @@ export const ANONYMOUS_NAME = 'Anonymous';
 const STRONG = [
   // slurs and hate
   'nigger', 'nigga', 'niqqer', 'niqqa', 'faggot', 'tranny', 'shemale', 'wetback', 'raghead', 'towelhead',
-  'jigaboo', 'zipperhead', 'golliwog', 'mongoloid', 'hitler', '1488',
+  'jigaboo', 'zipperhead', 'golliwog', 'mongoloid', 'hitler',
   // sexual
   'porn', 'hentai', 'vagina', 'jizz', 'dildo', 'blowjob', 'handjob', 'rimjob', 'orgasm', 'cumshot',
   'creampie', 'gangbang', 'deepthroat', 'masturbat', 'fellatio', 'cunnilingus', 'bdsm', 'bestiality',
@@ -51,7 +54,13 @@ const WHOLE = [
 const ALLOWED = ['scunthorpe', 'snigger'];
 
 /** Ordinary words that a WHOLE pattern would catch (its letters may repeat). */
-const ALLOWED_WHOLE = ['annal', 'annals'];
+const ALLOWED_WHOLE = ['annal', 'annals', 'annus', 'bonner', 'rappe'];
+
+/** Ordinary phrases holding a WHOLE word, removed before matching ("Moby Dick", not "Big Dick"). */
+const ALLOWED_PHRASES = ['moby dick', 'philip k dick', 'dick van dyke', 'van dyke', 'cum laude', 'spic and span'];
+
+/** Hate numbers, blocked only as a number of their own ("Kid1488", not "21488" or "Flabby" read as leetspeak). */
+const NUMBER_RE = /(?<!\d)(?:1488)(?!\d)/;
 
 /** Letters that look alike or stand in for each other, after lowercasing; one key per character. */
 const LETTERS: Record<string, string> = {
@@ -94,6 +103,14 @@ const PHRASE_RE = new RegExp(PHRASES.map(pattern).join('|'));
 const WHOLE_RE = new RegExp(`^(?:${WHOLE.map(pattern).join('|')})(?:s+|z+)?$`);
 const ALLOWED_RE = new RegExp(ALLOWED.map((w) => fold(w, true)).join('|'), 'g');
 const ALLOWED_WHOLE_SET = new Set(ALLOWED_WHOLE.map((w) => fold(w, true)));
+// Longest first, so "dick van dyke" goes before "van dyke".
+const ALLOWED_PHRASE_RE = new RegExp(
+  `(?<![a-z])(?:${[...ALLOWED_PHRASES]
+    .sort((a, b) => b.length - a.length)
+    .map((phrase) => phrase.split(' ').map((w) => fold(w, true)).join('[^a-z]+'))
+    .join('|')})(?![a-z])`,
+  'g',
+);
 
 /** Runs of two or more one-letter tokens joined ("f u c k" -> "fuck"). */
 const joinSingles = (tokens: readonly string[]) => {
@@ -117,7 +134,7 @@ const readings = (name: string) => {
   const whole: string[] = [];
   for (const text of [base, splitCamel(base)]) {
     for (const leet of [true, false]) {
-      const folded = fold(text, leet);
+      const folded = fold(text, leet).replace(ALLOWED_PHRASE_RE, ' ');
       // Punctuation inside a word is ignored ("f.u.c.k"); spaces separate words.
       const ws = folded.split(/\s+/).map((w) => w.replace(/[^a-z]/g, '')).filter(Boolean);
       const ps = folded.split(/[^a-z]+/).filter(Boolean);
@@ -139,6 +156,7 @@ const readings = (name: string) => {
  * show as ANONYMOUS_NAME). Only for display and publishing: proof verification never calls it.
  */
 export const isNameAllowed = (name: string): boolean => {
+  if (NUMBER_RE.test(plain(name))) return false;
   const { words, pieces, whole } = readings(name);
   for (const w of words) if (STRONG_RE.test(w.replace(ALLOWED_RE, ''))) return false;
   for (const p of pieces) if (WHOLE_RE.test(p) && !ALLOWED_WHOLE_SET.has(p)) return false;

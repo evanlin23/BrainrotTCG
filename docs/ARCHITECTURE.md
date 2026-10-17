@@ -205,7 +205,9 @@ beside the key fingerprint in Rankings, shared pull links and shared profiles.
 
 - Removal, including a reported name the check missed: the owner adds the `rejected` label to the
   entry's issue and the next deploy leaves it out. The workflows never take that label off, and the
-  issue still counts as filed, so the relays can't file the same pull again.
+  issue still counts as filed, so the relays can't file the same pull again. To restore an entry,
+  the owner removes `rejected` and the next deploy lists it again (a blocked name stays out; see
+  Appeal).
 - A name the check refused: the player renames in Profile, shares the pull again (a new link to the
   same pull) and submits it again.
 - Appeal: the player opens an issue. The owner takes `rejected` off a wrongly removed entry, or fixes
