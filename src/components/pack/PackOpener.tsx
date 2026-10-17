@@ -632,7 +632,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         <PackTopBar
           onLeave={leaveFromUi}
           progress={isOpening && !showSummary ? { index: currentIndex, total: openedCards.length } : undefined}
-          showcase={showcase ? <ShowcaseRibbon card={currentCard} /> : undefined}
+          showcase={showcase ? <ShowcaseRibbon card={currentCard} holding={revealLocked && pauseBigPulls} /> : undefined}
         />
       )}
       {/* The torn pack flies off as the first card back fades in, not before it: waiting for the exit

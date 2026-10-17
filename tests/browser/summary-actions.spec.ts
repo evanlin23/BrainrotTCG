@@ -177,14 +177,14 @@ for (const textZoom of [200]) {
       expect(button.bottom).toBeLessThanOrEqual(before.actions.bottom);
       expect(button.bottom - button.top).toBeGreaterThanOrEqual(44);
     }
-    await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: 'Next pack' })).toBeInViewport({ ratio: 1 });
 
     // Scrolled to the end, the actions are still whole on screen and the last card is clear of them.
     await page.locator('.summary-content').evaluate((list) => { list.scrollTop = list.scrollHeight; });
     const after = await layout(page);
     expect(after.scrollTop).toBeGreaterThan(0);
     expect(after.actions.bottom).toBeLessThanOrEqual(after.content.bottom);
-    await expect(page.getByRole('button', { name: 'Open another pack' })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: 'Next pack' })).toBeInViewport({ ratio: 1 });
     expect(after.lastCard.bottom).toBeLessThanOrEqual(after.actions.top);
 
     // Focus order is the page's: the heading, the Card guide, every card, then the actions.
@@ -208,7 +208,7 @@ for (const textZoom of [200]) {
       expect(await obstruction(page), `stop ${stop + 1} is covered or off screen`).toBeNull();
     }
     expect(visited).toEqual(expected);
-    expect(visited.at(-1)).toContain('Open another pack');
+    expect(visited.at(-1)).toContain('Next pack');
     expect(errors).toEqual([]);
   });
 }
@@ -226,7 +226,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
     page.locator('.pack-headline-odds'),
     ...Array.from({ length: 5 }, (_, index) => page.locator('.summary-card').nth(index)),
     page.getByRole('button', { name: 'Share', exact: true }),
-    page.getByRole('button', { name: 'Open another pack' }),
+    page.getByRole('button', { name: 'Next pack' }),
   ]) await expect(locator).toBeInViewport({ ratio: 1 });
   // Nothing in the actions' way: the last card ends above them.
   const { lastCard, actions, buttons, pageOverflow } = await layout(page);

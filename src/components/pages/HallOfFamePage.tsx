@@ -71,6 +71,9 @@ const HallOfFamePage = () => {
 
   const [pending, setPending] = useState<HallOfFameEntry[]>([]);
   const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  // True once a check of the live relays found every one unreachable: the published rankings still
+  // show, but anything sent since the last deploy can't be seen, so an empty board mustn't claim it's empty.
+  const [relaysDown, setRelaysDown] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const loadingRef = useRef(true);
 
@@ -86,11 +89,17 @@ const HallOfFamePage = () => {
       }
       setEntries(list);
       setPending([]);
+      setRelaysDown(false);
       setLoadState('loaded');
       // Then anything sent since the last deploy, re-derived here before it shows (see loadPending).
       loadPending(list, (entry) => {
         if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
-      }, controller.signal).catch(() => {});
+      }, controller.signal).then(
+        (reached) => {
+          if (reached === false && !controller.signal.aborted) setRelaysDown(true);
+        },
+        () => {},
+      );
     });
     return () => controller.abort();
   }, [attempt]);
@@ -165,7 +174,7 @@ const HallOfFamePage = () => {
               {who} <span className="share-fp">#{entry.fingerprint}</span>
             </span>
             <span className="hof-meta">
-              {entry.pending && <span className="hof-pending">Just submitted · </span>}
+              {entry.mine && <span className="hof-pending">Just submitted · </span>}
               {entry.setName}
             </span>
           </span>
@@ -193,7 +202,7 @@ const HallOfFamePage = () => {
       Pull a Full House or better (or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+), share it, and submit it from the share sheet.
     </>
   );
-  const proofNote = 'Filed pulls were re-derived from their proofs when they were filed, and “Just submitted” ones on this device. Open one to check it yourself.';
+  const proofNote = 'Filed pulls were re-derived from their proofs when they were filed, and newer ones on this device. Open one to check it yourself.';
 
   return (
     <div className="hall-of-fame">
@@ -209,11 +218,17 @@ const HallOfFamePage = () => {
         ]}
       />
 
-      <div className={loadState === 'loaded' ? 'sr-only' : 'hof-load-state'}>
+      <div className={loadState === 'loaded' && !relaysDown ? 'sr-only' : 'hof-load-state'}>
         <p role="status" tabIndex={-1} ref={statusRef}>
-          {loadState === 'loading' ? 'Loading rankings…' : loadState === 'loaded' ? 'Rankings loaded.' : "Couldn't load the rankings. Try again."}
+          {loadState === 'loading'
+            ? 'Loading rankings…'
+            : loadState !== 'loaded'
+              ? "Couldn't load the rankings. Try again."
+              : relaysDown
+                ? "Couldn't reach the live feed, so pulls sent recently may be missing. Try again."
+                : 'Rankings loaded.'}
         </p>
-        {loadState !== 'loaded' && (
+        {(loadState !== 'loaded' || relaysDown) && (
           <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading rankings">
             Retry
           </button>
@@ -236,7 +251,13 @@ const HallOfFamePage = () => {
                 <div className="hof-empty">
                   <Crown aria-hidden="true" />
                   <p>
-                    <strong>No pulls filed today yet.</strong> {guidance} Yours could be first.
+                    {relaysDown ? (
+                      <strong>No filed pulls today that we can see.</strong>
+                    ) : (
+                      <>
+                        <strong>No pulls filed today yet.</strong> {guidance} Yours could be first.
+                      </>
+                    )}
                   </p>
                 </div>
                 {yesterday.length > 0 && (
@@ -268,7 +289,13 @@ const HallOfFamePage = () => {
               <div className="hof-empty">
                 <Crown aria-hidden="true" />
                 <p>
-                  <strong>Nothing filed here yet.</strong> {guidance} You could be first.
+                  {relaysDown ? (
+                    <strong>Nothing filed here that we can see.</strong>
+                  ) : (
+                    <>
+                      <strong>Nothing filed here yet.</strong> {guidance} You could be first.
+                    </>
+                  )}
                 </p>
               </div>
             )}

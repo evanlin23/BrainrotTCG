@@ -31,7 +31,7 @@ interface PackSummaryUIProps {
 /**
  * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (Brainrot
  * Score, then "[combo] · 1 in X packs score this high" or "Most packs score this high", then the Hall of
- * Fame line), one line with the tap hint and the Card guide link, the five cards in one compact row, in
+ * Fame line), one line with the card hint and the Card guide link, the five cards in one compact row, in
  * the order they were revealed (each wears its New and special badges and opens up close, where it can be
  * shared as an image that links to this pack; the summary has no per-card Share), then the actions, stuck
  * to the bottom so they never scroll away. Nothing follows them: level progress lives on Profile. Sharing
@@ -40,7 +40,7 @@ interface PackSummaryUIProps {
  */
 const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional = false }: PackSummaryUIProps) => {
   const [selected, setSelected] = useState<CardWithMeta | null>(null);
-  // The "tap a card" hint stays until a card is opened on this visit.
+  // The "select a card" hint stays until a card is opened on this visit.
   const [viewed, setViewed] = useState(false);
   const cardsRef = useRef<HTMLUListElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -76,7 +76,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
             {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
           </PackHeadline>
           <div className="summary-guide-line">
-            {!viewed && <p className="summary-caption">Tap a card to view</p>}
+            {!viewed && <p className="summary-caption">Select a card to view</p>}
             <CardGuideButton set={set} />
           </div>
           <ul className="summary-cards" ref={cardsRef}>
@@ -113,7 +113,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
               </button>
             )}
             <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
-              <RotateCcw aria-hidden="true" /> Open another pack
+              <RotateCcw aria-hidden="true" /> Next pack
             </button>
           </div>
         </div>

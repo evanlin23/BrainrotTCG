@@ -26,7 +26,7 @@ vi.mock('../../engine', async (importOriginal) => ({
   wouldJoinHallOfFame: vi.fn(() => true),
   dailyRank: vi.fn((...args: Parameters<typeof import('../../engine').dailyRank>) => realDailyRank(...args)),
 }));
-vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => []), loadPending: vi.fn(async () => {}) }));
+vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => []), loadPending: vi.fn(async () => true) }));
 vi.mock('../../game/nostrInbox', () => ({
   hallOfFameEvent: vi.fn(() => ({})),
   publishUntilAccepted: vi.fn(async () => ({ accepted: {}, all: Promise.resolve([]) })),
@@ -137,7 +137,7 @@ describe('the Hall of Fame line on the pack summary', () => {
   it('ranks against the pending sends too, as Rankings does', async () => {
     const today = new Date().toISOString();
     const higher = { id: 'other', setId: DEFAULT_SET_ID, hand: 'Royal Rot', multiplier: 50, score: 9000, submittedAt: today } as HallOfFameEntry;
-    vi.mocked(loadPending).mockImplementationOnce(async (_published, onEntry) => onEntry(higher));
+    vi.mocked(loadPending).mockImplementationOnce(async (_published, onEntry) => { onEntry(higher); return true; });
     await render();
     expect(loadPending).toHaveBeenCalledWith([], expect.any(Function), expect.any(AbortSignal));
     await act(async () => button()!.click());
