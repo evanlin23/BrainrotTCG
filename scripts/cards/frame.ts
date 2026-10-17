@@ -26,16 +26,32 @@ export const ART_BOX = LAYOUT.art;
 /** Bleed so art reaches under the frame's irregular inner edge. */
 const BLEED = 8;
 
-const textOverlaySvg = (title: string, caption: string) => {
+/**
+ * Title lettering on the pink banner: a near-white fill inside one dark outline, over a dark drop
+ * shadow. No light stroke between fill and outline, so letter counters stay open at small sizes.
+ */
+export const TITLE_STYLE = {
+  fillTop: '#ffffff',
+  fillBottom: '#ffe3f7',
+  outline: '#2a0638',
+  /** Outline stroke width as a fraction of the font size (half of it shows outside the letter). */
+  outlineWidth: 0.2,
+  /** Drop shadow offset (down) as a fraction of the font size. */
+  shadowOffset: 0.06,
+  /** Narrowest condensing before a long title shrinks instead. */
+  minSqueeze: 0.85,
+} as const;
+
+export const textOverlaySvg = (title: string, caption: string) => {
   const { arc, xMin, xMax, height } = LAYOUT.title;
   const curve = (x: number) => arc[0] * x * x + arc[1] * x + arc[2];
   const slope = (x: number) => 2 * arc[0] * x + arc[1];
   const titleText = title.toUpperCase();
-  // Like the Genesis titles: tall letters first, condensed (down to 72% width) before shrinking.
+  // Like the Genesis titles: tall letters first, a little condensed before shrinking.
   const preferred = Math.min(46, height * 0.95);
   const available = xMax - xMin;
   const natural = titleFont.getAdvanceWidth(titleText, preferred);
-  const squeeze = Math.max(0.72, Math.min(1, available / natural));
+  const squeeze = Math.max(TITLE_STYLE.minSqueeze, Math.min(1, available / natural));
   const titleSize = fitSize(titleFont, titleText, available / squeeze, preferred, 18);
   const glyphs = textOnCurve(titleFont, titleText, titleSize, (xMin + xMax) / 2, curve, slope, squeeze);
   const glyphPaths = glyphs.map((g) => `<path transform="${g.transform}" d="${g.d}"/>`).join('');
@@ -54,12 +70,12 @@ const textOverlaySvg = (title: string, caption: string) => {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${CARD_WIDTH}" height="${CARD_HEIGHT}">
 <defs>
   <linearGradient id="title-fill" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#fff0fc"/><stop offset="0.55" stop-color="#ffb3ef"/><stop offset="1" stop-color="#ff5fd6"/>
+    <stop offset="0" stop-color="${TITLE_STYLE.fillTop}"/><stop offset="1" stop-color="${TITLE_STYLE.fillBottom}"/>
   </linearGradient>
   <g id="title-glyphs">${glyphPaths}</g>
 </defs>
-<use href="#title-glyphs" fill="none" stroke="#2a0638" stroke-width="${(titleSize * 0.26).toFixed(1)}" stroke-linejoin="round"/>
-<use href="#title-glyphs" fill="none" stroke="#ffffff" stroke-width="${(titleSize * 0.12).toFixed(1)}" stroke-linejoin="round"/>
+<use href="#title-glyphs" y="${(titleSize * TITLE_STYLE.shadowOffset).toFixed(1)}" fill="${TITLE_STYLE.outline}" stroke="${TITLE_STYLE.outline}" stroke-width="${(titleSize * TITLE_STYLE.outlineWidth).toFixed(1)}" stroke-linejoin="round"/>
+<use href="#title-glyphs" fill="none" stroke="${TITLE_STYLE.outline}" stroke-width="${(titleSize * TITLE_STYLE.outlineWidth).toFixed(1)}" stroke-linejoin="round"/>
 <use href="#title-glyphs" fill="url(#title-fill)"/>
 <path d="${capPaths}" fill="none" stroke="#ffffff" stroke-width="${(capSize * 0.14).toFixed(1)}" stroke-linejoin="round"/>
 <path d="${capPaths}" fill="#2a0845"/>
