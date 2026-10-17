@@ -85,4 +85,6 @@ export interface Settings {
   packFoil?: string;
   /** Show draft sets (placeholder art) in the set picker. */
   showDraftSets?: boolean;
+  /** Show the tabs and set picker before a first pack is saved (#222); a new player's default is to hide them. */
+  showAllPages?: boolean;
 }

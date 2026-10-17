@@ -43,7 +43,7 @@ const hallOfFame = (value: unknown) => record(value)
   && ['first4OfAKind', 'firstFullHouse'].every((key) => optional(value, key, (v) => record(v)
     && boolean(v.achieved) && number(v.date) && optional(v, 'cardId', text) && optional(v, 'cards', (c) => values(c, count))));
 const settings = (value: unknown) => record(value)
-  && ['soundEnabled', 'particlesEnabled', 'pauseBigPulls', 'showDraftSets'].every((key) => optional(value, key, boolean))
+  && ['soundEnabled', 'particlesEnabled', 'pauseBigPulls', 'showDraftSets', 'showAllPages'].every((key) => optional(value, key, boolean))
   // readSettings clamps any finite slider value into 0..1, so accept what it can read.
   && ['musicVolume', 'effectsVolume'].every((key) => optional(value, key, (v) => typeof v === 'number' && Number.isFinite(v)))
   && ['cardBack', 'packFoil'].every((key) => optional(value, key, text));

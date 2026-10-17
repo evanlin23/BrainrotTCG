@@ -3,7 +3,7 @@
  * same place at the new address. A save lives in the storage of the address it was made on, so a
  * player who has one here is first offered to bring it: one tap opens the new address in a small
  * window, and the two pages hand the save over with postMessage, each checking the other's origin
- * (src/game/move.ts). It never goes in a URL. The new address's Save & restore can also ask for it, by
+ * (src/game/move.ts). It never goes in a URL. The new address's Save & backup can also ask for it, by
  * opening this page at #/send.
  *
  *   npx tsx scripts/redirect-site.ts <new-url> <out-dir>     (deploy, when the site lives elsewhere)
@@ -43,7 +43,7 @@ const script = `(function () {
   } catch (e) {}
   var markMoved = function () { try { localStorage.setItem(MOVED, new Date().toISOString()); } catch (e) {} };
 
-  // Asked by the new address's Save & restore: send the save to the window that opened this one (which
+  // Asked by the new address's Save & backup: send the save to the window that opened this one (which
   // closes this one straight away). Old links then go straight through.
   if (location.hash === '#/send' && window.opener) {
     window.opener.postMessage(has ? { type: 'brainrot-save', save: save } : { type: 'brainrot-no-save' }, NEW_ORIGIN);

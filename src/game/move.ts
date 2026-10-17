@@ -212,7 +212,7 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
     for (const k of replaced) localStorage.removeItem(k);
     for (const [k, v] of Object.entries(writes)) localStorage.setItem(k, v);
   } catch (e) {
-    // A failed restore keeps every copy, the one just taken included; Save & restore then reloads ('partial').
+    // A failed restore keeps every copy, the one just taken included; Save & backup then reloads ('partial').
     if (!restoreKeys(previous)) return 'partial';
     // All back as it was, so the copy just taken goes (removing never needs room).
     if (staged !== null) {

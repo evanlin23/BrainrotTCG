@@ -51,11 +51,11 @@ What keeps working:
   save over directly (`scripts/redirect-site.ts`, `src/game/move.ts`). Each side checks the other's
   origin, which browsers enforce, so no other site can plant or take a save, and the save never goes
   in a URL (URLs end up in browser history and history sync). Players who arrive through a new link
-  can do the same from **Player → Save & restore → From the old address**. If a player already has
+  can do the same from **Settings → Save & backup → From the old address**. If a player already has
   a different save at the new address, they're asked first and the replaced save is kept as a backup;
   if the backup can't be stored, nothing is replaced. The old address keeps its copy and marks it
   moved (`brainrot-moved-v1`) once the new address reports that it stored the save or already had
-  that player's save, or as soon as it sends the save to Save & restore; after that, old links go
+  that player's save, or as soon as it sends the save to Save & backup; after that, old links go
   straight to the new address without offering the move. **Go without it** marks nothing, so the
   next old link offers it again.
 - **The Hall of Fame.** The old address keeps serving `hall-of-fame.json` for the scripts, and the

@@ -392,7 +392,7 @@ domains or additional services can cost money. See `docs/HOSTING.md` for configu
 redirects. Save transfer (`move.ts`, `scripts/redirect-site.ts`) uses origin-checked
 window-to-window postMessage, not URL contents. The old address never deletes its save: it sets
 `brainrot-moved-v1` (a timestamp) once the new address reports `saved` or `same`, or once it sends
-its save to Save & restore (`#/send`), and from then on old links go straight through without offering
+its save to Save & backup (`#/send`), and from then on old links go straight through without offering
 the move. At the new address, the handed-over player and fields must pass the same checks as an
 imported file, except for collection entries that storage keeps on purpose (first-format entries
 migrations rebuild, and entries hydration hides for recovery) and best-pack cards in a save older
@@ -418,7 +418,7 @@ without progress, keys the save doesn't carry stay and no copy is taken. A faile
 it wrote, restores the previous values and drops only the copy just taken, as the save it holds is
 back in place (best effort, not a transaction), and the result is `full` (storage quota) or
 `invalid`. If the values can't all be restored, the result is `partial` and every copy is kept: the
-player is told this browser may hold parts of both saves, Save & restore then reloads so the page
+player is told this browser may hold parts of both saves, Save & backup then reloads so the page
 shows what storage holds (a partial file import does the same), and the move window stays open on
 any failure so its note can be read.
 
