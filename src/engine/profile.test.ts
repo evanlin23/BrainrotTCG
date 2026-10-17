@@ -205,9 +205,17 @@ describe('early claims checks', () => {
     const { tickets, inOrder } = await reopen(proof);
     expect(firstReason({ ...proof, xp: Number.MAX_SAFE_INTEGER }, tickets, inOrder)?.at).toBe(0);
     expect(firstReason({ ...proof, xp: 30 * XP_PER_PACK - 1 }, tickets, inOrder)?.at).toBe(0);
-    const short = firstReason({ ...proof, xp: proof.xp - 100 }, tickets, inOrder);
-    expect(short?.reason).toMatch(/at least/);
-    expect(short!.at).toBeLessThan(30);
+    // XP the first k re-opened packs already prove: what they earn, plus XP_PER_PACK for each pack still unopened.
+    const provenAfter = (k: number) => profileStats(inOrder.slice(0, k)).xp + XP_PER_PACK * (inOrder.length - k);
+    const showsAt = (claim: number) => Array.from({ length: inOrder.length + 1 }, (_, k) => k).find((k) => provenAfter(k) > claim);
+    // Random packs decide where a fixed shortfall shows (sometimes only at the last pack), so pin the exact pack.
+    for (const claim of [proof.xp - 1, proof.xp - 100, provenAfter(1) - 1]) {
+      const short = firstReason({ ...proof, xp: claim }, tickets, inOrder);
+      expect(short?.reason).toMatch(/at least/);
+      expect(short?.at).toBe(showsAt(claim));
+    }
+    // The first pack always proves more than the flat per-pack XP (it has at least one new card).
+    expect(firstReason({ ...proof, xp: provenAfter(1) - 1 }, tickets, inOrder)?.at).toBe(1);
   });
 
   it('rules out made-up highlights once a better pack turns up', async () => {
