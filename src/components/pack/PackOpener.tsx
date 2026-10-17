@@ -169,7 +169,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // From the tear on, the ticket is spent: the app mustn't swap sets (or open a sheet over it) until
   // the pack is recorded. The ticket can still be mining here on a slow phone.
   // The summary comes after it's recorded, so it isn't busy (focus mode still hides the chrome there).
-  useEffect(() => onBusyChange?.((isOpening && !showSummary) || (isPackCut && !isOpening)), [isOpening, isPackCut, showSummary, onBusyChange]);
+  // It changes before paint, as the stage below lets go of its size.
+  const busy = (isOpening && !showSummary) || (isPackCut && !isOpening);
+  useLayoutEffect(() => onBusyChange?.(busy), [busy, onBusyChange]);
 
   // Mining taking a while: say so, rather than leave a torn pack sitting still.
   const [slowOpen, setSlowOpen] = useState(false);
@@ -386,11 +388,59 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const stageInPack = (isPackCut && !leavingOpen) || isOpening || refusal === 'failed';
 
   // Focus mode (#312): the app's chrome stays out of the way for the whole pack, summary included, and
-  // comes back as soon as the player leaves it, even while a left pack's ticket is still on its way.
-  useEffect(() => onFocusChange?.(stageInPack), [stageInPack, onFocusChange]);
+  // comes back as soon as the player leaves it, even while a left pack's ticket is still on its way. It
+  // changes before paint, in the same frame as the stage below takes or lets go of its size.
+  useLayoutEffect(() => onFocusChange?.(stageInPack), [stageInPack, onFocusChange]);
   // Unmounted mid-pack (the set changed under its summary): the pack is gone, so the chrome comes back.
   // onFocusChange is a state setter, so this runs on unmount only, never between renders.
   useEffect(() => () => onFocusChange?.(false), [onFocusChange]);
+
+  // The pack is fitted to its stage, and the stage would grow into the room the chrome leaves as the
+  // pack tears: the pack got bigger as it opened. The stage keeps the size and place it had at rest
+  // until the pack is done, unless the window itself resizes, or chrome that wasn't there at rest comes
+  // in above or below it (a new player's first pack, left while its ticket is on its way, brings the
+  // set picker and tabs): either fits the pack to the room it has now. A pack left while its ticket is
+  // on its way is done when the ticket lands (the card guide comes back then).
+  const holdStage = stageInPack || busy;
+  /** Moves the held stage back to its place at rest as the room around it moves. */
+  const followRoomRef = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const room = stage?.parentElement;
+    if (!holdStage || !stage || !room) return;
+    const height = parseFloat(getComputedStyle(stage).height);
+    if (!(height > 0)) return; // Not laid out (jsdom).
+    const rest = room.getBoundingClientRect();
+    let held = true;
+    stage.style.flex = 'none';
+    stage.style.height = `${height}px`;
+    const follow = () => {
+      if (!held) return;
+      const now = room.getBoundingClientRect();
+      // Held there, the stage would run under that chrome.
+      if (now.top > rest.top + 0.5 || now.height < rest.height - 0.5) release();
+      else stage.style.top = `${rest.top - now.top}px`;
+    };
+    followRoomRef.current = follow;
+    const observer = new ResizeObserver(follow);
+    observer.observe(room);
+    const release = () => {
+      held = false;
+      followRoomRef.current = null;
+      observer.disconnect();
+      window.removeEventListener('resize', release);
+      stage.style.flex = stage.style.height = stage.style.top = '';
+    };
+    window.addEventListener('resize', release);
+    return release;
+  }, [holdStage]);
+  // The room moves as the chrome above it goes or comes back, in the app's render of the focus change
+  // above, which ends before this task does: the held stage follows it in the same task. The observer
+  // catches anything else that moves the room, before paint.
+  useLayoutEffect(() => {
+    const follow = followRoomRef.current;
+    if (follow) queueMicrotask(follow);
+  }, [stageInPack]);
 
   /**
    * Back to the packs screen from any stage, keeping whatever the pack already spent. It works during
