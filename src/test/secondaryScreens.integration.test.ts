@@ -147,7 +147,7 @@ it('contains an import rejection and retries with a new request without losing t
 
 const PLAYER = (name: string) => ({
   'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name, nextNonce: 0, createdAt: 1 }),
-  'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+  'brainrot-settings-v1': JSON.stringify({ effectsVolume: 0 }),
 });
 /** A player who has saved a pack, so the tabs show (#222). */
 const RETURNING = { 'brainrot-stats-v1': JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }) };
@@ -211,7 +211,7 @@ it('fetches a page on intent, but not while a pack is opening', async () => {
   app = await mountedApp({
     ...PLAYER('Prefetch fixture'),
     ...RETURNING,
-    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
     [STORAGE_KEYS.SELECTED_SET]: 'right-now',
   }, { tickets: () => ({ delayMs: 4000 }) });
   await app.mount();

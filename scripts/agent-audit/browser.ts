@@ -25,7 +25,7 @@ export async function isolate(context: BrowserContext, baseURL: string) {
   });
   await context.addInitScript(() => {
     if (!localStorage.getItem('brainrot-player-v1')) localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Disposable local audit', nextNonce: 0, createdAt: 1 }));
-    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ musicVolume: 0, effectsVolume: 0 }));
+    localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
     const denied = () => Promise.reject(new Error('Unavailable in a read-only audit'));
     Object.defineProperty(navigator, 'clipboard', { configurable: false, value: { writeText: denied, write: denied, readText: denied, read: denied } });
     Object.defineProperty(navigator, 'share', { configurable: false, value: denied });

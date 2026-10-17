@@ -17,10 +17,11 @@ const PUBLIC = toHex(publicKeyFromSecret(fromHex(SECRET)));
 const OPENED = Date.UTC(2025, 5, 1);
 
 // A save from before sets and verifiable pulls: no data version, cards keyed by their old image names,
-// a best pack with no proof, and the old notable-pulls log holding one pack this key opened.
+// a best pack with no proof, the old notable-pulls log holding one pack this key opened, and settings
+// with the removed music slider.
 const LEGACY_SAVE = {
   'brainrot-player-v1': JSON.stringify({ secretKey: SECRET, name: 'Legacy fixture', nextNonce: 1, createdAt: 1 }),
-  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0.5, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
   [STORAGE_KEYS.SELECTED_SET]: 'right-now',
   [STORAGE_KEYS.COLLECTION]: JSON.stringify({
     image: { card: { id: 'image' }, normalCount: 2, holoCount: 1 },

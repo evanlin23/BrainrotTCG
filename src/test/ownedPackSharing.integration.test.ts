@@ -12,7 +12,7 @@ const button = (label: string) => [...document.querySelectorAll<HTMLButtonElemen
 it('shares the exact owned modifier from a history pack, retaining pack sharing and nested close behavior', async () => {
   app = await mountedApp({
     'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Owned share fixture', nextNonce: 0, createdAt: 1 }),
-    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
   });
   let drawCard!: ReturnType<typeof vi.fn>;
   await app.mount(async () => {

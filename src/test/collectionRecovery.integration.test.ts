@@ -23,7 +23,7 @@ const RAW = JSON.stringify({
 });
 const SEED = {
   'brainrot-player-v1': PLAYER,
-  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
   [STORAGE_KEYS.SELECTED_SET]: 'right-now',
   [STORAGE_KEYS.COLLECTION]: RAW,
   // A current save: the v2 migration would rewrite the collection before the app reads it.

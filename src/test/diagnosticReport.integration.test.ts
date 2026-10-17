@@ -83,7 +83,7 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
 it('opens from the real Settings page as a labelled dialog that never touches the network', async () => {
   app = await mountedApp({
     'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Diagnostics fixture', nextNonce: 0, createdAt: 1 }),
-    'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }),
+    'brainrot-settings-v1': JSON.stringify({ effectsVolume: 0 }),
   });
   await app.mount();
   await app.interact(() => { button('Settings').focus(); button('Settings').click(); });

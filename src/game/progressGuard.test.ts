@@ -64,7 +64,7 @@ describe('guardProgress', () => {
 
   it('ignores settings, the history and the pending shelf, which are not stored whole from load', () => {
     const tab = guardProgress();
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, '{"musicVolume":0}');
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, '{"effectsVolume":0}');
     localStorage.setItem(STORAGE_KEYS.HISTORY, '[]');
     localStorage.setItem(STORAGE_KEYS.PENDING_PACKS, '[]');
     expect(tab.current()).toBe(true);

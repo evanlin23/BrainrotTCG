@@ -293,7 +293,7 @@ describe('bringing a save over', () => {
     { name: 'into a visited browser, after an earlier move', progress: false, previousBackup: true },
   ])('reports full and puts back what was here when the incoming save runs out of space: $name', ({ progress, previousBackup }) => {
     store.set('brainrot-player-v1', progress ? player('bb') : JSON.stringify({ secretKey: 'cc', name: 'Visitor', nextNonce: 0, createdAt: 2 }));
-    store.set('brainrot-settings-v1', '{"musicVolume":0.2}');
+    store.set('brainrot-settings-v1', '{"effectsVolume":0.2}');
     if (progress) store.set('brainrot-stats-v1', '{"packsOpened":4}');
     if (previousBackup) store.set(BACKUP, '{"previous":"backup"}');
     store.set('unrelated-key', 'leave alone');

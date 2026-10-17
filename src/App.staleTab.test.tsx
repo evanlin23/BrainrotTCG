@@ -85,7 +85,7 @@ beforeEach(() => {
   // jsdom has no matchMedia or ResizeObserver; the pack opener only uses them for motion and layout.
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
-  // jsdom has no media playback (the background music).
+  // jsdom has no media playback (the sound effects).
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   localStorage.clear();
