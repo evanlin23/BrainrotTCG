@@ -291,6 +291,11 @@ test('levels a tilted card as soon as reduced motion turns on mid-reveal, and ke
 
   // Turned back off, the card waits for the mouse instead of snapping to its old angle.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // emulateMedia resolves once the page has the new setting, not once the app has reacted: the media
+  // query's change event reaches React in the page's next rendering update, which runs after that frame's
+  // input events, and only then does the card listen for the mouse again. A move sent sooner is dropped
+  // and never repeated, so wait out two frames (the change, then the effect it schedules) before moving.
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
   expect(await transform()).toBe(LEVEL);
   if (!hasTouch) {
     await page.mouse.move(box.x + box.width, box.y + box.height);
