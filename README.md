@@ -97,6 +97,7 @@ The browser smoke needs Chromium once (`npx playwright install --with-deps chrom
 covers is in [Development and verification](docs/DEVELOPMENT.md#browser-smoke).
 
 Contributing? Start with [Development and verification](docs/DEVELOPMENT.md) before taking an issue.
+Policy on money, privacy and kids, and content and IP is in [docs/POLICIES.md](docs/POLICIES.md).
 
 ## Adding cards and sets
 
