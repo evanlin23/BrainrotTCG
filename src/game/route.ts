@@ -17,8 +17,10 @@ export const pageForHash = (hash: string): Exclude<Page, 'open'> | null => PAGES
 /** The hash that opens a page; Open has none. */
 export const pageHash = (page: Page) => (page === 'open' ? '' : `#/${page}`);
 
+const LINK_HASH = /^#\/(pull|profile)\//;
+
 /** A shared pull or profile link, whole or cut off. */
-export const isLinkHash = (hash: string) => /^#\/(pull|profile)\//.test(hash);
+export const isLinkHash = (hash: string) => LINK_HASH.test(hash);
 
 /** The document title while a page shows; Open keeps the page's own (index.html's). */
 export const PAGE_TITLES: Record<Exclude<Page, 'open'>, string> = {
@@ -34,5 +36,19 @@ export const HISTORY_ENTRY_EVENT = 'brainrot:history-entry';
 /** The hash a set's link (s/<set id>/, scripts/preview-pages.ts) opens: Open, with that set chosen. */
 export const setLinkHash = (setId: string) => `#/set/${setId}`;
 
+const SET_LINK_HASH = /^#\/set\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
+
 /** The set a set link names, or null. Set ids are lowercase words joined by '-'. */
-export const setIdFromHash = (hash: string): string | null => /^#\/set\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/.exec(hash)?.[1] ?? null;
+export const setIdFromHash = (hash: string): string | null => SET_LINK_HASH.exec(hash)?.[1] ?? null;
+
+/**
+ * Every hash the app acts on, as one pattern: a page, a shared link (whole or cut off) or a set's
+ * link. It's a RegExp so a page that can't import this module can carry it: the old address after a
+ * move (scripts/redirect-site.ts) passes these on and drops anything else.
+ */
+export const ROUTE_HASH = new RegExp(
+  [`^(?:${[...PAGES.keys()].map((hash) => hash.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})$`, LINK_HASH.source, SET_LINK_HASH.source].join('|'),
+);
+
+/** Whether a hash is one the app acts on (ROUTE_HASH). */
+export const isRouteHash = (hash: string) => ROUTE_HASH.test(hash);

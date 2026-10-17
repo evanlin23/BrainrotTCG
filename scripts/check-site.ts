@@ -94,8 +94,9 @@ const filesIn = (dir: string): string[] =>
  * Vite's names are `<source name>-<8 base64url characters>.<ext>`. The shape alone can't tell a hash
  * from a word (`finish-rainbows.webp`), and a hash can be all lowercase letters too, so a name in
  * assets/ that is also a source file's name (in src/ or public/) is one copied there as it was.
+ * A sourcemap, if a build emits one, is named after its file plus `.map`, so it's hashed too.
  */
-export const HASHED_ASSET = /^assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$/;
+export const HASHED_ASSET = /^assets\/(?:[^/]+\/)*[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+(?:\.map)?$/;
 const REVALIDATED = /^(?:[^/]+|[ps]\/.+)$/;
 /** The longest a file that keeps its name may be cached without revalidating: a day. */
 export const MAX_REVALIDATED_AGE = 86400;

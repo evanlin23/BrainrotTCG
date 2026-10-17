@@ -8,7 +8,7 @@ import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { RARITIES_RAREST_FIRST, type SetDefinition } from '../src/engine/index.ts';
 import { cardPreviewPath, previewPath } from '../src/game/previewLinks.ts';
 import { setIdFromHash } from '../src/game/route.ts';
-import { generatePreviews, optionsFromEnv, page, setStubs } from './preview-pages.ts';
+import { generatePreviews, optionsFromEnv, page, PREVIEW_CACHE_VERSION, previewCacheContract, setStubs } from './preview-pages.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const INDEX_HTML = readFileSync(`${ROOT}index.html`, 'utf8');
@@ -89,6 +89,51 @@ describe('setStubs', () => {
       expect(stub.description).toContain(set.tagline ?? set.name);
       expect(stub.description).toContain(`${set.cards.length} cards`);
     }
+  });
+
+  // Every set registered today has a tagline and at least five cards, so the loop above can't see these.
+  it('names a set without a tagline, and shows every card of a set smaller than a pack', () => {
+    const { tagline: _tagline, ...untagged } = OPENABLE;
+    const small = { ...untagged, id: 'small', name: 'Small Set', cards: OPENABLE.cards.slice(0, 3) };
+    const [stub] = setStubs([small]);
+    expect(stub.description).toBe(`Small Set (${small.era}, 3 cards). Every pull is verifiable.`);
+    expect([...stub.cardIds].sort()).toEqual(small.cards.map((c) => c.id).sort());
+  });
+});
+
+describe('previewCacheContract', () => {
+  const script = 'the script';
+  const versions = { vips: '8.18.7', sharp: '0.35.5' };
+
+  it('is a stable SHA-256 of the script, sharp and the cache version', () => {
+    expect(previewCacheContract(script, versions)).toMatch(/^[0-9a-f]{64}$/);
+    expect(previewCacheContract(script, versions)).toBe(previewCacheContract(script, { ...versions }, PREVIEW_CACHE_VERSION));
+    expect(previewCacheContract()).toBe(previewCacheContract());
+  });
+
+  it('changes with the script, any of sharp\'s versions, or PREVIEW_CACHE_VERSION', () => {
+    const base = previewCacheContract(script, versions);
+    expect(previewCacheContract(`${script} `, versions)).not.toBe(base);
+    expect(previewCacheContract(script, { ...versions, vips: '8.18.8' })).not.toBe(base);
+    expect(previewCacheContract(script, { ...versions, sharp: '0.35.6' })).not.toBe(base);
+    expect(previewCacheContract(script, versions, PREVIEW_CACHE_VERSION + 1)).not.toBe(base);
+  });
+
+  // A cache drawn under another contract must never come back, not even through restore-keys.
+  it.each(['ci', 'deploy', 'browser-tests', 'performance-baseline'])('starts every preview cache key and restore prefix with it in %s.yml', (name) => {
+    const workflow = readFileSync(`${ROOT}.github/workflows/${name}.yml`, 'utf8');
+    const caches = [...workflow.matchAll(/- uses: actions\/cache[^\n]*\n\s+with:\n\s+path: \.cache\/previews\n\s+key: (.*)\n\s+restore-keys: (.*)\n/g)];
+    expect(caches.length).toBe(1);
+    const [step, key, restore] = caches[0];
+    const contract = '${{ steps.previews.outputs.contract }}';
+    expect(restore).toBe(`previews-${contract}-`);
+    expect(key.startsWith(restore)).toBe(true);
+    for (const input of ["'scripts/preview-pages.ts'", "'src/game/previewLinks.ts'", "'src/engine/**'", "'src/content/sets/index.ts'", "'src/content/sets/*/*.json'", "'src/content/sets/*/cards/*'", "'src/assets/images/card_back.webp'", "'package-lock.json'"]) {
+      expect(key).toContain(input);
+    }
+    const before = workflow.slice(0, workflow.indexOf(step));
+    expect(before).toMatch(/- id: previews\n\s+run: \|\n\s+contract=\$\(npx tsx scripts\/preview-pages\.ts --cache-contract\)\n\s+echo "contract=\$contract" >> "\$GITHUB_OUTPUT"\n\s*$/);
+    expect(before.indexOf('- run: npm ci')).toBeGreaterThan(-1);
   });
 });
 

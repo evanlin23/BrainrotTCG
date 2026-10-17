@@ -10,7 +10,9 @@ import { setIdFromHash } from '../game/route';
  * Arriving that way, the hash only carries the choice, so it's dropped from the loaded entry, leaving
  * the plain Open address. Typed over a running app, the browser has already added an entry for it on
  * top of the one showing: that entry keeps its hash, since dropping it would leave two identical
- * entries and the next Back would seem to do nothing.
+ * entries and the next Back would seem to do nothing. It's marked as followed instead
+ * (`brainrotSetLink`), so coming back to it (closing a page opened over it, Back or Forward) doesn't
+ * choose its set again over one the player has picked since.
  */
 export const useSetLink = (sets: readonly SetDefinition[], busy: boolean, select: (setId: string) => void) => {
   const latest = useRef({ sets, busy, select });
@@ -21,9 +23,13 @@ export const useSetLink = (sets: readonly SetDefinition[], busy: boolean, select
     const follow = (loaded: boolean) => {
       const setId = setIdFromHash(location.hash);
       if (!setId) return;
+      const state: unknown = history.state;
+      const entry = state && typeof state === 'object' ? state as { brainrotSetLink?: boolean } : {};
+      if (entry.brainrotSetLink) return;
       const { sets, busy, select } = latest.current;
       if (!busy && sets.some((s) => s.id === setId && isOpenable(s))) select(setId);
       if (loaded) history.replaceState(history.state, '', location.pathname + location.search);
+      else history.replaceState({ ...entry, brainrotSetLink: true }, '');
     };
     follow(true);
     const onHashChange = () => follow(false);
