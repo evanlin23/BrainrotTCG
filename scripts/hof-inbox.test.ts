@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
-import { decodeProof, pullId } from '../src/engine/index.ts';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { decodeProof, encodeProof, pullId, signProof, utf8 } from '../src/engine/index.ts';
 import { hallOfFameEvent } from '../src/game/nostrInbox.ts';
 import { buildSkipLine, logSafeError, probeLine, processInbox, relayReadLine, type InboxContext } from './hof-inbox.ts';
 
@@ -9,6 +10,11 @@ const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.pro
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
 const pair = byNote('simple'); // real, doesn't qualify
 const idOf = (proof: string) => pullId(decodeProof(proof));
+/** The same 4 of a Kind, signed again with the vectors' key under a display name that isn't allowed. */
+const blockedName = (() => {
+  const { setId, setVersion, publicKey, nonce } = decodeProof(fourOfAKind);
+  return encodeProof(signProof({ setId, setVersion, publicKey, nonce, name: 'xXfuckXx' }, sha256(utf8('brainrot-tcg/vector-key/1'))));
+})();
 
 const context = (overrides: Partial<InboxContext> = {}) => {
   const filedProofs: string[] = [];
@@ -47,6 +53,16 @@ describe('Hall of Fame inbox', () => {
     ];
     expect((await processInbox(events, ctx)).added).toBe(0);
     expect(filedProofs).toEqual([]);
+  });
+
+  it("sets aside a pull whose display name isn't allowed without checking it or spending budget", async () => {
+    const log: string[] = [];
+    const { ctx, filedProofs } = context({ budget: 1, log: (line) => log.push(line) });
+    const events = [hallOfFameEvent(blockedName, idOf(blockedName), 1000), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 2000)];
+    expect(await processInbox(events, ctx)).toEqual({ added: 1, deferred: 0 });
+    expect(filedProofs).toEqual([fourOfAKind]);
+    expect(ctx.seen.has(events[0].id)).toBe(true);
+    expect(log).toEqual([`${events[0].id}: display name isn't allowed; not filed`]);
   });
 
   it('stops at the budget and leaves the rest for the next run', async () => {

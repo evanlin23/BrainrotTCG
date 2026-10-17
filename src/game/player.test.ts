@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
-import { fromHex, publicKeyFromSecret, toHex } from '../engine';
+import { fromHex, isNameAllowed, publicKeyFromSecret, toHex } from '../engine';
 
 const PLAYER_KEY = 'brainrot-player-v1';
 const identity = (secretKey = 'aa'.repeat(32), nextNonce = 7, name = 'Incoming Player') => ({ secretKey, name, nextNonce, createdAt: 1 });
@@ -112,6 +112,32 @@ describe('durable player imports', () => {
     expect(player.peekNonce()).toBe(12);
   });
 
+  it('keeps this browser\'s allowed name when the same key comes back with a blocked one', () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    expect(player.importPlayer(JSON.stringify(identity(original.secretKey, 3, 'xXfuckXx')))).toBe(true);
+    expect(JSON.parse(store.get(PLAYER_KEY)!)).toEqual({ ...original, nextNonce: 12 });
+  });
+
+  it('gives a different key with a blocked name a random name, never this browser\'s', () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const incoming = identity(undefined, 7, 'f u c k');
+    expect(player.importPlayer(JSON.stringify(incoming))).toBe(true);
+    const stored = JSON.parse(store.get(PLAYER_KEY)!) as typeof incoming;
+    expect({ ...stored, name: '' }).toEqual({ ...incoming, name: '' });
+    expect(stored.name).not.toBe(original.name);
+    expect(stored.name).toMatch(/^\w+ \w+ \d\d$/);
+  });
+
+  it('only rewrites a moved-in record whose name is blocked', () => {
+    const fine = JSON.stringify(identity());
+    expect(player.withAllowedName(fine)).toBe(fine);
+    expect(player.withAllowedName('not json')).toBe('not json');
+    const moved = JSON.parse(player.withAllowedName(JSON.stringify(identity(undefined, 7, 'B1gD1ck')))) as ReturnType<typeof identity>;
+    expect(moved.secretKey).toBe(identity().secretKey);
+    expect(moved.nextNonce).toBe(7);
+    expect(moved.name).toMatch(/^\w+ \w+ \d\d$/);
+  });
+
   it('returns a save-file error when valid incoming identity persistence fails', async () => {
     store.set(PLAYER_KEY, JSON.stringify(original));
     const before = player.getPlayer();
@@ -162,6 +188,19 @@ describe('renaming the player', () => {
     expect(result.status).toBe(status);
     expect(nameOf(result)).toBe('Original Player');
     expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it.each(['xXfuckXx', 'N.I.G.G.E.R', 'Ｐｏｒｎ'])('refuses a blocked name (%s), writing nothing and keeping the current one', (name) => {
+    const result = player.renamePlayer(name, ORIGINAL_KEY);
+    expect(result.status).toBe('blocked');
+    expect(nameOf(result)).toBe('Original Player');
+    expect(setItem).not.toHaveBeenCalled();
+    expect(player.getPlayer().name).toBe('Original Player');
+  });
+
+  it('never picks a blocked random name', () => {
+    const names = player.ADJECTIVES.flatMap((adjective) => player.NOUNS.map((noun) => `${adjective} ${noun} 10`));
+    expect(names.filter((name) => !isNameAllowed(name))).toEqual([]);
   });
 
   it('writes nothing when another player is stored now, and hands that player back to no one', () => {

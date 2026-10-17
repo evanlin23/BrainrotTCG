@@ -116,6 +116,13 @@ describe('Hall of Fame workflows (offline contracts)', () => {
     });
   }
 
+  it('labels a pull refused for its display name `rejected`, and never takes that label off', () => {
+    const verify = jobs(read('hall-of-fame.yml')).verify.join('\n');
+    expect(verify).toContain('REJECTED: ${{ steps.check.outputs.rejected }}');
+    expect(verify).toContain('if [ "$REJECTED" = "true" ]; then gh issue edit "$ISSUE" --add-label rejected; fi');
+    expect(verify).not.toContain('--remove-label rejected');
+  });
+
   it('the issue workflow only runs on Hall of Fame issues', () => {
     expect(triggers(read('hall-of-fame.yml'))).toMatch(/issues:\s*\n\s*types: \[opened, edited, reopened\]/);
     expect(jobs(read('hall-of-fame.yml')).verify.join('\n')).toContain(

@@ -4,7 +4,7 @@
  *
  *   npx tsx scripts/hall-of-fame.ts verify-issue   (Actions, on an issue event)
  *     Reads the issue from $GITHUB_EVENT_PATH, verifies its pull link and writes
- *     hof-comment.md plus `verified`, `changed` and `label` to $GITHUB_OUTPUT. A
+ *     hof-comment.md plus `verified`, `changed`, `label` and `rejected` to $GITHUB_OUTPUT. A
  *     verified comment carries a marker with the pull id. `label` is `verified`
  *     for a pull that makes the all-time top pulls, or `daily`
  *     for one that only makes the day's top (see "Labels" below).
@@ -38,6 +38,8 @@
  * turn it down while another issue updated in the last 8 days carries it under
  * `daily` (`recentIssuesSince`); one filed again after that can count again.
  * Every issue listing reads all its pages, and fails rather than stop short.
+ * An issue labelled `rejected` is never listed: verify-issue adds that label to a pull whose display
+ * name isn't allowed (src/engine/nameFilter.ts), and the owner adds it to remove an entry by hand.
  *
  * Ties (and a pull's UTC day) use the time the bot first verified that exact
  * pull on the issue (its marker comment), not the issue's creation date:
@@ -58,7 +60,9 @@ import {
   hallOfFameFloor,
   hallOfFameJoin,
   hallOfFameList,
+  isNameAllowed,
   previousUtcDay,
+  publicName,
   pullId,
   qualifiesForHallOfFame,
   utcDay,
@@ -140,13 +144,18 @@ const toEntry = (pull: VerifiedPull, proof: string, issue: Issue, verifiedAt: st
   submittedAt: verifiedAt,
 });
 
-type Checked = { ok: true; entry: HallOfFameEntry; pull: VerifiedPull } | { ok: false; reason: string };
+/** `rejected` marks a refusal that also gets the `rejected` label (a display name that isn't allowed). */
+type Checked = { ok: true; entry: HallOfFameEntry; pull: VerifiedPull } | { ok: false; reason: string; rejected?: true };
 
 const checkIssue = async (issue: Issue): Promise<Checked> => {
   const proof = extractProof(issue.body ?? '');
   if (!proof) return { ok: false, reason: 'No pull link found. Paste the link from **Share this pull**.' };
   try {
     const pull = await verifyProof(proof, getSet);
+    // The pull stays valid; only publishing it is refused (see isNameAllowed).
+    if (!isNameAllowed(pull.proof.name)) {
+      return { ok: false, rejected: true, reason: "The pull is real, but its display name isn't allowed in the Hall of Fame. Change your name in Profile, share the pull again, and post the new link in a new issue." };
+    }
     if (!qualifiesForHallOfFame(pull.score)) {
       return { ok: false, reason: `The pull is real, but a ${pull.score.hand.name} with a Brainrot Score of ${pull.score.score.toLocaleString('en-US')} doesn't qualify yet (Full House or better, or ${HALL_OF_FAME_MIN_SCORE.toLocaleString('en-US')}+ Brainrot Score).` };
     }
@@ -262,7 +271,7 @@ export const verifyIssue = async () => {
   }
   const body = result.ok ? verifiedComment(result.entry, result.pull) : `❌ **Not added.** ${result.reason}${FOOTER}`;
   writeFileSync('hof-comment.md', body);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `verified=${result.ok}\nchanged=${!already}\nlabel=${label}\n`);
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `verified=${result.ok}\nchanged=${!already}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`);
   console.log(already ? 'Already verified this pull on this issue; nothing to do.' : body);
 };
 
@@ -296,22 +305,30 @@ const byNumber = (issues: readonly Issue[]) => [...new Map(issues.map((i) => [i.
 const recentIssuesSince = () => new Date(Date.now() - (INBOX_WINDOW_S + 24 * 60 * 60) * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
 
 /**
+ * The pull id an issue holds, or null if it holds no valid proof or its display name isn't allowed:
+ * `build` leaves that entry out, so the pull doesn't count as filed and may be submitted again under
+ * a new name.
+ */
+const listedPullId = (issue: Issue): string | null => {
+  const proof = extractProof(issue.body ?? '');
+  if (!proof) return null;
+  try {
+    const decoded = decodeProof(proof);
+    return isNameAllowed(decoded.name) ? pullId(decoded) : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Whether an issue other than `number` carries pull `id` under the `daily` label and was updated
- * since `recentIssuesSince`. If GitHub can't be read, it says no (as with the published list,
- * nothing is held back).
+ * since `recentIssuesSince` (and its display name is allowed, see `listedPullId`). If GitHub can't
+ * be read, it says no (as with the published list, nothing is held back).
  */
 const filedDailyElsewhere = async (id: string, number: number, token: string): Promise<boolean> => {
   try {
     const issues = await listIssues(`labels=hall-of-fame,daily&since=${recentIssuesSince()}`, token);
-    return issues.some((i) => {
-      if (i.number === number) return false;
-      try {
-        const proof = extractProof(i.body ?? '');
-        return !!proof && pullId(decodeProof(proof)) === id;
-      } catch {
-        return false;
-      }
-    });
+    return issues.some((i) => i.number !== number && listedPullId(i) === id);
   } catch (error) {
     console.warn(`Could not list recent daily issues; not checking for this pull on an earlier day. ${error}`);
     return false;
@@ -437,19 +454,14 @@ export const inbox = async () => {
   // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't
   // keep a pull out. Every `verified` issue is read; for the rest, the ones changed within the relay
   // window and a day: a `daily` pull or an unfinished issue from the events read now is among them.
+  // An issue whose display name isn't allowed counts as neither (see `listedPullId`).
   const filed = new Set<string>();
   // Issues this job opened but didn't finish (it stopped before labelling them): finished next.
   const unfinished = new Map<string, Issue>();
   const listed = byNumber([...(await listIssues('labels=hall-of-fame,verified', token)), ...(await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token))]);
   for (const issue of listed) {
-    const proof = extractProof(issue.body ?? '');
-    if (!proof) continue;
-    let id: string;
-    try {
-      id = pullId(decodeProof(proof));
-    } catch {
-      continue; // not a valid proof; nothing to dedupe against
-    }
+    const id = listedPullId(issue);
+    if (!id) continue; // no valid proof, or a name that's out of the list; nothing to dedupe against
     if (labelNames(issue).includes('verified') || labelNames(issue).includes('daily')) filed.add(id);
     else if (issue.user?.login === BOT && !unfinished.has(id)) unfinished.set(id, issue);
   }
@@ -481,7 +493,7 @@ export const inbox = async () => {
       const issue =
         earlier ??
         (await github<Issue>(`/repos/${REPO}/issues`, token, {
-          title: `[Hall of Fame] ${pull.score.hand.name} by ${safe(pull.proof.name) || 'Anonymous'}`,
+          title: `[Hall of Fame] ${pull.score.hand.name} by ${safe(publicName(pull.proof.name))}`,
           body: `${siteUrl()}#/pull/${proof}\n\nSubmitted without a GitHub account, through public Nostr relays (event \`${event.id}\`).`,
           labels: ['hall-of-fame'],
         }));

@@ -10,3 +10,4 @@ export * from './hallOfFame';
 export * from './rankings';
 export * from './odds';
 export * from './profile';
+export * from './nameFilter';
