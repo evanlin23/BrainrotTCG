@@ -30,6 +30,13 @@
   text-align: center;
 }
 
+/* Once the rankings show, the status is one quiet line that keeps its room whether it says "Checking…" or is only spoken, so the rows don't move when it comes and goes. */
+.hof-load-state--quiet {
+  min-height: calc(var(--text-sm) * var(--leading));
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+}
+
 .hof-empty {
   display: grid;
   justify-items: center;

@@ -74,6 +74,28 @@ export async function monitor(page: Page, baseURL: string, historyRecords = 0, {
   return errors;
 }
 
+/**
+ * Holds the ticket worker's jobs until `releaseTickets`, so a torn pack waits on a ticket that's still
+ * mining. Call before the page loads.
+ */
+export async function holdTickets(page: Page) {
+  await page.addInitScript(() => {
+    const held: (() => void)[] = [];
+    let holding = true;
+    const native = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (this: Worker, ...args: Parameters<Worker['postMessage']>) {
+      const send = () => (native as (...a: unknown[]) => void).apply(this, args);
+      if (holding) held.push(send);
+      else send();
+    } as Worker['postMessage'];
+    Object.defineProperty(window, '__releaseTickets', { value: () => { holding = false; held.splice(0).forEach((send) => send()); } });
+  });
+}
+
+export async function releaseTickets(page: Page) {
+  await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
+}
+
 /** Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. */
 export async function expectDecoded(images: Locator, count: number) {
   await expect(images).toHaveCount(count);
