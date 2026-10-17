@@ -59,8 +59,9 @@ authority and holds) and for the holds check before a merge.
    that, move the item to `needs owner`. Stacked PRs: merge the base first, then retarget to main.
 4. Merge only under CLAUDE.md's merge bar. Approval is tied to the head commit the reviewer saw.
    If the PR is behind main, update it with a merge from main (an implementer resolves conflicts,
-   which then need a new review) and wait for CI on the new head. Re-read the ledger issue's holds,
-   mark the PR ready, merge, then check that the latest deploy run on main succeeds.
+   which then need a new review) and wait for CI on the new head. Re-read the ledger issue's holds
+   and copy any new ones into NOW.md, so a later mirror can't drop them. Then mark the PR ready,
+   merge, and check that the latest deploy run on main succeeds.
    Wait for CI and deploys by event, not by polling: `subscribe_pr_activity` on PRs you opened, or a
    Monitor on the run, then take the next item or end the turn. No `sleep` loops or repeated status
    calls; each one re-reads the whole context.
