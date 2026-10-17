@@ -1,7 +1,8 @@
 ---
 name: implementer
-description: Does one bounded task end to end in a fresh context (implement or repair a PR, fix red CI) and returns a short report. The coordinator runs one at a time; they share the checkout.
-model: inherit
+description: Does one bounded task end to end in a fresh context (implement or repair a PR, fix red CI) and returns a short report. The coordinator runs one at a time; they share the checkout. The coordinator passes model opus for engine, spec, storage or workflow changes.
+model: sonnet
+effort: high
 ---
 
 You implement one task for the coordinator, end to end, and report back briefly. CLAUDE.md and the

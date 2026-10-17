@@ -8,7 +8,8 @@ argument-hint: "[max tasks this run, default 5] [focus or handoff, e.g. phase 1]
 
 You coordinate; subagents read and edit. Your context holds only the ledger, briefs and short
 reports, so a long run stays cheap and sharp. Stop after the max task count (default 5) so one run
-can't spend the week's budget.
+can't spend the week's budget. Only an explicit lift of the cap from the owner removes it; then keep
+going but checkpoint (section 2) every five merges, so a compaction or lost container costs little.
 
 ## 1. Set up
 
@@ -34,30 +35,40 @@ ledger issue: #<n>
 authority: what the owner allowed (phases, merge, close) and what still needs them
 holds: PR or issue numbers that must not merge, with the reason
 order: numbered queue, one line each: issue or PR, outcome, risk tier
-done: PR, merge commit, one line
+done: count merged this run, then the last five: PR, merge commit, one line
 needs owner: one line each; keep working around them
 current: item, branch or PR, step
 ```
 
-Whenever authority, holds or order change, and after every merge, write the same text to the
-ledger issue's body.
+The ledger is state, not history: git log and the merged PRs are the record. No review text, logs
+or notes on finished items. If it grows past 80 lines (the SessionStart hook warns), trim it first.
+
+Edit NOW.md as things change. Mirror it to the ledger issue's body only at a checkpoint: when
+authority, holds or needs owner change, after every fifth merge, and before ending a turn. Don't
+read old or backup copies of the ledger. Read the issue only at setup (section 1, which takes its
+authority and holds) and for the holds check before a merge.
 
 ## 3. Loop
 
 1. Take the first item in `order` that isn't held or blocked.
 2. Brief one `implementer`: the issue or PR, acceptance criteria, where to look, the checks that
-   matter, and the holds or constraints that apply to it. Not your history.
-3. Send its PR to a `reviewer` with the same acceptance criteria. Pass `model: "opus"` when it
-   touches `src/engine`, `spec/`, save or storage code, or workflows. Blocking findings go back to an
-   implementer, at most twice; after that, move the item to `needs owner`. Stacked PRs: merge the
-   base first, then retarget to main.
+   matter, and the holds or constraints that apply to it. Not your history. It runs on Sonnet; pass
+   `model: "opus"` when the task touches `src/engine`, `spec/`, save or storage code, or workflows.
+3. Send its PR to a `reviewer` with the same acceptance criteria, with the same `model` rule.
+   Blocking findings go back to a fresh implementer with just the findings, at most twice; after
+   that, move the item to `needs owner`. Stacked PRs: merge the base first, then retarget to main.
 4. Merge only under CLAUDE.md's merge bar. Approval is tied to the head commit the reviewer saw.
    If the PR is behind main, update it with a merge from main (an implementer resolves conflicts,
-   which then need a new review) and wait for CI on the new head. Re-read the ledger issue's holds,
-   mark the PR ready, merge, then check that the latest deploy run on main succeeds.
+   which then need a new review) and wait for CI on the new head. Retry any mirror that failed, then
+   re-read the ledger issue's holds and make NOW.md's holds match them, adding new ones and dropping
+   removed ones, so a later mirror can't undo the owner's edits. Then mark the PR ready, merge, and
+   check that the latest deploy run on main succeeds.
+   Wait for CI and deploys by event, not by polling: `subscribe_pr_activity` on PRs you opened, or a
+   Monitor on the run, then take the next item or end the turn. No `sleep` loops or repeated status
+   calls; each one re-reads the whole context.
 5. Comment on the canonical issue in a few lines (what shipped, PR, what remains). Close it only if
    its whole scope shipped.
-6. Update the ledger and its issue, then continue.
+6. Update NOW.md, mirror it if this is a checkpoint, then continue.
 
 Stop early when a change could lose saves or break old proofs or published data: hold it and report.
 
