@@ -53,12 +53,16 @@ The site check (`npm run check:site`, after a build, about 30 s) reads `dist/` w
 forward to `BASE_PATH`, and each page's `og:image` must be under `SITE_URL` and decode as a JPEG of
 its `og:image:width`x`og:image:height`. `scripts/check-site.test.ts` covers it offline with fixtures.
 
-Two fixture suites in `npm run check` cover the hosting and Hall of Fame contracts without a build,
+Three fixture suites in `npm run check` cover the hosting and Hall of Fame contracts without a build,
 a token or the network. `scripts/preview-pages.test.ts` writes the share pages (`p/`) and set pages
 (`s/<id>/`, released sets only) for GitHub Pages (`/BrainrotTCG/`), Cloudflare (`BASE_PATH=/`) and
 the old address after a move. It checks where each file lands, its redirect and its link-preview
 tags against `index.html` and `vite.config.ts`. `scripts/hall-of-fame.test.ts` runs the `build`,
-`verify-issue` and `inbox` modes against a stubbed GitHub API and relay. Whether Discord, Slack or X
+`verify-issue` and `inbox` modes against a stubbed GitHub API and relay.
+`scripts/hof-intake.fixtures.test.ts` (alone: `npx vitest run scripts/hof-intake.fixtures.test.ts`)
+runs the real relay reader, inbox and build against in-memory GitHub and relays
+(`scripts/fixtures/hof/`): duplicates, malformed input, per-run caps, interrupted runs, `rejected`
+issues and byte-identical output. Whether Discord, Slack or X
 actually unfurl a page is still checked by hand, against a deployed address.
 
 ## Browser smoke
