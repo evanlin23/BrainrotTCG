@@ -41,6 +41,24 @@ deploying main. CI uploads files only from failed runs, kept for 7 days.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
+To run actionlint locally (it is not part of `npm run check` and isn't assumed to be installed),
+repeat what the `workflow-validation` job in `.github/workflows/ci.yml` does, from the repo root. Put
+the download in a throwaway directory, not the checkout:
+
+```sh
+VERSION="1.7.12"
+TARBALL="actionlint_${VERSION}_linux_amd64.tar.gz"
+mkdir -p /tmp/actionlint && cd /tmp/actionlint
+curl -fsSL -O "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${TARBALL}"
+echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  ${TARBALL}" | sha256sum -c -
+tar -xzf "${TARBALL}" actionlint
+cd - && /tmp/actionlint/actionlint -shellcheck=''
+```
+
+Keep the version and hash the same as CI; a new `VERSION` needs its new hash in both places. With Docker,
+`docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12 -shellcheck=''` runs the same release,
+but the image isn't hash-checked. Both ignore ShellCheck (`-shellcheck=''`), as CI does.
+
 The card asset check (`npm run check:card-assets`) decodes every registered card WebP and checks
 generated geometry. It covers openable pack wrappers/thumbnails, retained pack art when present,
 finish thumbnails declared by the generator manifest (or present for registered cards), the

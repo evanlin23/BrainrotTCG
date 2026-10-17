@@ -6,6 +6,9 @@ describe('settings', () => {
     expect(readSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(readSettings(null)).toMatchObject({ musicVolume: 0, effectsVolume: 1 });
     expect(readSettings({ particlesEnabled: false, showDraftSets: true })).toEqual({ ...DEFAULT_SETTINGS, particlesEnabled: false, showDraftSets: true });
+    // A new player's pages stay gated unless they chose to show every one (#222).
+    expect(readSettings(null).showAllPages).toBeUndefined();
+    expect(readSettings({ showAllPages: true }).showAllPages).toBe(true);
   });
 
   it('turns the old sound switch into the two sliders', () => {

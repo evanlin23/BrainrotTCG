@@ -194,6 +194,42 @@ test('a new player sees no tabs until their first pack is saved', async ({ page,
   expect(errors).toEqual([]);
 });
 
+test('a new player who turns on Show every page gets the tabs and the pack picker before any pack is saved (#222)', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  await expect(opener(page)).toBeEnabled();
+  await expect(nav(page)).toHaveCount(0);
+  const picker = page.getByRole('navigation', { name: 'Choose a pack', exact: true });
+  await expect(picker).toHaveCount(0);
+
+  await gear(page).click();
+  const everyPage = pageNamed(page, 'Settings').getByRole('switch', { name: 'Show every page', exact: true });
+  await expect(everyPage).toHaveAttribute('aria-checked', 'false');
+  await everyPage.click();
+  await expect(everyPage).toHaveAttribute('aria-checked', 'true');
+  await expect(nav(page)).toBeVisible();
+  // The switch is the whole change: no pack was saved, so the player is still a new one.
+  expect((await snapshot(page)).stats).toBeNull();
+
+  for (const target of PAGES.filter(({ route }) => route !== 'settings')) {
+    await tab(page, target.name).click();
+    await onPage(page, baseURL!, target, true);
+  }
+  await tab(page, 'Open').click();
+  await expect(opener(page)).toBeVisible();
+  await expect(picker).toBeVisible();
+
+  // It is a saved setting: it survives a reload, and turning it off hides both again.
+  await page.reload();
+  await expect(nav(page)).toBeVisible();
+  await expect(picker).toBeVisible();
+  await gear(page).click();
+  await everyPage.click();
+  await expect(everyPage).toHaveAttribute('aria-checked', 'false');
+  await expect(nav(page)).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('the card guide link fits a 320 px phone at 200% text, under the pack it leaves alone', async ({ page, baseURL, hasTouch }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
   await page.setViewportSize({ width: 320, height: 568 });

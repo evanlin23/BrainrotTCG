@@ -185,7 +185,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   current one marked `aria-current="page"`. A fixed bottom bar on phones (under 900px, with
   safe-area padding) and part of the header from 900px, where the logo scales from 36px to 52px
   (by about 1060px, all in rem so a larger root font only moves the ramp) so it never runs into the tabs; 44px targets. It stays hidden for a new
-  player until their first pack is saved (#222) and while a pack is open. The header's gear
+  player until their first pack is saved (#222) and while a pack is open. Someone who already knows the
+  game can skip that: Settings → Sound & display → "Show every page" (off by default, kept in the
+  settings and the save file) shows the tabs and the pack picker at once, so no page or feature is
+  gated behind a first pack. The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem).
 - **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit
