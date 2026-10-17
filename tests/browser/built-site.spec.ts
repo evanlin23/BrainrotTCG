@@ -53,11 +53,17 @@ test("a set's link opens the packs screen on that set, and leaves the address cl
   await expect(current).toHaveText(SET.name);
   await expect(page).toHaveURL(baseURL!);
 
-  // A set link followed inside the app does the same; an unknown set stays put.
+  // A set link followed inside the app picks that set too, but keeps the history entry the browser
+  // added for it (useSetLink), so Back still steps back to the plain address. An unknown set stays put.
   await page.evaluate(() => { location.hash = '#/set/vine-and-dank'; });
   await expect(current).toHaveText('Vine & Dank');
-  await expect(page).toHaveURL(baseURL!);
+  await expect(page).toHaveURL(`${baseURL}#/set/vine-and-dank`);
   await page.evaluate(() => { location.hash = '#/set/not-a-set'; });
+  await expect(page).toHaveURL(`${baseURL}#/set/not-a-set`);
+  await expect(current).toHaveText('Vine & Dank');
+  await page.goBack();
+  await expect(page).toHaveURL(`${baseURL}#/set/vine-and-dank`);
+  await page.goBack();
   await expect(page).toHaveURL(baseURL!);
   await expect(current).toHaveText('Vine & Dank');
   expect(errors).toEqual([]);
