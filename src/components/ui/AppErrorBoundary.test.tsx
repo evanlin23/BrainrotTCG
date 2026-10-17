@@ -96,7 +96,10 @@ describe('app error boundary', () => {
     const link = container.querySelector('a')!;
     expect(link.href).toMatch(/^https:\/\/github\.com\/.+\/issues\/new\?template=bug\.yml$/);
     expect(link.rel).toBe('noopener noreferrer');
-    expect(link.closest('details')!.textContent).toContain('Posting requires a GitHub account.');
+    const note = Array.from(container.querySelectorAll('p')).find((p) => p.textContent!.includes('Posting requires a GitHub account'))!;
+    expect(note.textContent).toContain('GitHub requires users to be 13 or older.');
+    expect(note.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link.closest('details')!.contains(note)).toBe(true);
   });
 
   it('keeps secrets in the address and storage out of the report', () => {
