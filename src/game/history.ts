@@ -125,16 +125,32 @@ const write = (entries: Stored[]): boolean => {
 const sameTicket = (a: Stored, b: Stored) => a.k === b.k && a.n === b.n;
 const sameAssignment = (a: Stored, b: Stored) => sameTicket(a, b) && a.s === b.s && a.v === b.v;
 
-const assignmentOf = (e: Stored) => `${e.k}:${e.n}:${e.s}@${e.v}`;
+const assignmentOf = (e: Stored) => JSON.stringify([e.k, e.n, e.s, e.v]);
 
 /**
  * A stand-in stored beside its own pack's full entry (an imported backup or an older build kept both)
- * is the same pack, so it is listed once. Read-side only: the stored history stays as it is until
- * recordPack or recordMissing replaces the stand-in.
+ * is the same pack, so it is listed once, as recordPack or recordMissing will store it: the pack in the
+ * first stand-in's place with that stand-in's time (replaceStandIn), so a profile's firstOpened picks
+ * the same ticket before and after. Read-side only: the stored history stays as it is until then.
  */
 const withoutSpareStandIns = (entries: Stored[]): Stored[] => {
-  const full = new Set(entries.filter((e) => !isTicketOnly(e)).map(assignmentOf));
-  return entries.filter((e) => !isTicketOnly(e) || !full.has(assignmentOf(e)));
+  const stubs = new Set(entries.filter(isTicketOnly).map(assignmentOf));
+  if (stubs.size === 0) return entries;
+  // The newest full entry of each assignment that also has a stand-in.
+  const full = new Map<string, Stored>();
+  for (const e of entries) {
+    const a = assignmentOf(e);
+    if (!isTicketOnly(e) && stubs.has(a) && !full.has(a)) full.set(a, e);
+  }
+  const filled = new Set<string>();
+  return entries.flatMap((e) => {
+    const a = assignmentOf(e);
+    const pack = full.get(a);
+    if (!pack) return [e];
+    if (filled.has(a) || !isTicketOnly(e)) return [];
+    filled.add(a);
+    return [fillStandIn(e, pack)];
+  });
 };
 
 /** getHistory's entries, with the stored history and pack-store version they were decoded from. */

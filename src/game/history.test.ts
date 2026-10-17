@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
-import { byBest, findPackByCards, findPackWithCard, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, recordTicket, type HistoryEntry } from './history';
+import { byBest, findPackByCards, findPackWithCard, firstOpened, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, recordTicket, type HistoryEntry } from './history';
 import { HALL_OF_FAME_MIN_SCORE, scorePulled } from '../engine';
 import { getSet } from '../content/sets';
 import { decodeCard, toPulled } from './cardCode';
@@ -227,8 +227,8 @@ describe('recording a ticket before its pack is in hand', () => {
     const stored = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as { k: string }[];
     const standIn = { s: 'right-now', v: 1, n: 5, k: stored[0].k, h: '', x: 0, t: 1_200 };
     data.set(STORAGE_KEYS.HISTORY, JSON.stringify([...stored, standIn]));
-    // Listed once even before the fill, from the full entry.
-    expect(getHistory().filter((e) => e.setId === 'right-now').map((e) => [e.openedAt, e.cards?.length])).toEqual([[1_005, 5]]);
+    // Listed once even before the fill, as the fill will store it: the pack, at the stand-in's time.
+    expect(getHistory().filter((e) => e.setId === 'right-now').map((e) => [e.openedAt, e.cards?.length])).toEqual([[1_200, 5]]);
 
     expect(fill()).toBe(true);
     const history = getHistory();
@@ -249,6 +249,27 @@ describe('recording a ticket before its pack is in hand', () => {
     expect(getHistory().map((e) => [e.setId, e.nonce, e.cards?.length ?? null])).toEqual([['right-now', 6, null], ['right-now', 5, 5], ['genesis', 5, null]]);
     expect(historyForKey(KEY).map((e) => [e.setId, e.nonce])).toEqual([['right-now', 5], ['genesis', 5], ['right-now', 6]]);
     expect(data.get(STORAGE_KEYS.HISTORY)).toBe(raw);
+  });
+
+  it('lists a stand-in beside its full entry at the stand-in\'s time, so a profile admits the same set on a conflicting ticket before and after the fill', () => {
+    const data = installStorage();
+    recordPack(pack(5, { setId: 'genesis', openedAt: 2_000 }));
+    recordPack(pack(5, { openedAt: 3_000 }));
+    const stored = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as { k: string }[];
+    // The ticket was claimed for right-now at 1200, before genesis took the same nonce.
+    const raw = JSON.stringify([...stored, { s: 'right-now', v: 1, n: 5, k: stored[0].k, h: '', x: 0, t: 1_200 }]);
+    data.set(STORAGE_KEYS.HISTORY, raw);
+    // The rule a profile admits one assignment per ticket by (profiles.ts ticketsOf).
+    const admitted = () => historyForKey(KEY).reduce((a, b) => (firstOpened(b, a) < 0 ? b : a));
+    const listed = () => getHistory().map((e) => [e.setId, e.openedAt, e.cards?.length ?? null]);
+    const before = listed();
+    expect(before).toEqual([['genesis', 2_000, 5], ['right-now', 1_200, 5]]);
+    expect(admitted()).toMatchObject({ setId: 'right-now', openedAt: 1_200 });
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(raw);
+
+    expect(recordPack(pack(5, { openedAt: 3_000 }))).toBe(true);
+    expect(listed()).toEqual(before);
+    expect(admitted()).toMatchObject({ setId: 'right-now', openedAt: 1_200 });
   });
 
   it('reports a history it could not read or write', () => {
