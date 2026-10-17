@@ -264,6 +264,29 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
+  it('never cuts from a press outside the stage, where a scrolled-away seam can map to the app header', () => {
+    // A desktop stage scrolls and clips the pack, so the pack's measured box can run under the header.
+    container.classList.add('pack-display');
+    const header = document.createElement('header');
+    document.body.append(header);
+    down(at(0.2), { target: header });
+    move(at(0.5));
+    move(at(0.9));
+    up(at(0.9));
+    expect(onCutComplete).not.toHaveBeenCalled();
+    header.remove();
+  });
+
+  it('still cuts from a press inside the stage', () => {
+    container.classList.add('pack-display');
+    const pack = container.firstElementChild as HTMLDivElement;
+    down(at(0.2), { target: pack });
+    move(at(0.5));
+    move(at(0.9));
+    up(at(0.9));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
   it('needs at least 32px on a pack too narrow for 20% to reach it', () => {
     // 20% of 120px is 24px, so the floor decides. 30px is 25% of the pack and still too short.
     sizePack(120);

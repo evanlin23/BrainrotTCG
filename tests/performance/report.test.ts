@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarize, validateRun, type Run } from './report';
+import { repetitionsFrom, summarize, validateRun, type Run } from './report';
 
 const run = (): Run => ({
   scenario: 'first-cold', repetition: 1, status: 'passed',
@@ -20,7 +20,13 @@ describe('performance report contract', () => {
     expect(summary.openToResultMs).toEqual({ count: 2, median: 30, min: 20, max: 40 });
     expect(summary.mainTargetHeapUsedBytes).toEqual({ count: 0, median: null, min: null, max: null });
     expect(summary.recordedRuns).toBe(2);
-    expect(summary.expectedRuns).toBe(3);
+    expect(summary.expectedRuns).toBe(repetitionsFrom(process.env.PERF_REPETITIONS));
+  });
+  it('takes the repetition count from PERF_REPETITIONS, 3 by default, and rejects anything else', () => {
+    expect(repetitionsFrom(undefined)).toBe(3);
+    expect(repetitionsFrom('')).toBe(3);
+    expect(repetitionsFrom('7')).toBe(7);
+    for (const bad of ['0', '-1', '2.5', 'seven', '51']) expect(() => repetitionsFrom(bad)).toThrow('PERF_REPETITIONS');
   });
   it('does not turn a functional failure or unfinished run into a timing success', () => {
     const failed = run(); failed.status = 'failed'; failed.error = 'intentional collection mismatch';

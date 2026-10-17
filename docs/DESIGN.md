@@ -16,7 +16,10 @@ from a 390 px wide screen.
    filled, the one obvious action (#80); once the nav is in it steps back to secondary under the swipe.
    The tear line is the wrapper's seam (#267): a white perforation over a soft brand-and-foil band, with
    a brand arrowhead at each end. A swipe along it covering a fifth of the pack opens it on release (over
-   and back counts by its span), three tenths while still moving; a vertical drag never does.
+   and back counts by its span), three tenths while still moving; a vertical drag never does, and a
+   swipe under a fifth is let go without opening. These are design choices (`RELEASE_CUT_RATIO` 0.2,
+   `DRAG_CUT_RATIO` 0.3 and a 32px floor in `usePackCutter.ts`, checked in `tests/browser/pack-swipe.spec.ts`).
+   The Open pack button under the pack opens it for a tap, a key or a screen reader.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
    The summary lists the cards in the order they were revealed (best last), each opening up close, where
@@ -228,9 +231,9 @@ Rendering): every stop still shows an outline (`tests/browser/forced-colors-focu
 
 ## Local Best cards contract (#337)
 
-Slice 1 (the selector, storage and save coverage, in `src/game/bestCards.ts`) has shipped; it has no UI
-yet. A short list of individual card instances, headed **Best cards** and capped at 10
-(`BEST_CARDS_CAP`), will sit on the Profile page next to the shipped **All packs** list (its Newest /
+Slice 1 (the selector, storage and save coverage, in `src/game/bestCards.ts`) and the Profile list
+(slice 2) have shipped. A short list of individual card instances, headed **Best cards** and capped at 10
+(`BEST_CARDS_CAP`), sits on the Profile page under the **All packs** list (its Newest /
 Best / Hall of Fame tabs), with no extra primary destination or global board. Ranking uses each
 card's own `cardPoints` in its original set version, before the pack combo multiplier, with
 finish/holo/misprint kept together. Distinct slots may both qualify; offering a pack again never
@@ -278,11 +281,19 @@ sharing the history prefix included), double-spent tickets, and an export/import
 fresh browser; `src/game/pulls.test.ts` covers recording on open. An external different-key proof
 is a viewed shared pull, not an owned opening. Public proof/generator formats are unchanged.
 
-**Slice 2 proposals, not shipped:** the Profile list itself, wired to sync and rebuild on load.
-Rows open shared card detail with the shipped Share card action plus a proposed View original pack;
-pack detail offers a proposed Share pack (#185). Listed proofs establish those instances, not
-complete lifetime totals or the absence of a stronger undeclared pull. The rest of the acceptance
-matrix (interruption and UI states) remains in #337.
+**The Profile list** (`BestCardsSection`) shows only your own device's list, for the current full key. Each
+row is a button: card name, set code, version words ("Plain" when none), ticket and points. It opens the
+card viewer with the shipped Share card action for that exact version, and focus returns to the row when
+the viewer closes. Rows are `quiet-focus` like the summary cards: no ring after a click, Space or Enter,
+the ring back after Tab, an arrow or Escape. With no packs there is no section; with packs but no winners,
+one line says none are here yet. When the list isn't **complete** a note says it is the best among the
+packs saved on this device. Winners without a cached card are rebuilt once per key as the page loads. Old
+saves with no list render the empty line. The Best pulls rows and the All packs rows are one component
+(`PullRow`), so both show the Hall of Fame trophy, and your own profile shows the Submitted badge on both.
+
+**Not shipped:** View original pack on a row, Share pack on pack detail (#185), and a visible state for an
+**unsaved** list. Listed proofs establish those instances, not complete lifetime totals or the absence of a
+stronger undeclared pull. The rest of the acceptance matrix (interruption and UI states) remains in #337.
 
 ## Pull headline rule (#339)
 

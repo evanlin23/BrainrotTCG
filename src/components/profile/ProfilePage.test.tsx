@@ -3,9 +3,12 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ProfilePage from './ProfilePage';
+import ProfileSummary from './ProfileSummary';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import { ACHIEVEMENTS } from '../../data/achievements';
-import { pullId } from '../../engine';
+import { getSet } from '../../content/sets';
+import { HALL_OF_FAME_MIN_MULTIPLIER, pullId, scorePulled, type ProfilePack, type ProfileStats } from '../../engine';
+import { toPulled } from '../../game/cardCode';
 import { getPlayer } from '../../game/player';
 import { submitToHallOfFame } from '../../game/share';
 
@@ -292,5 +295,78 @@ describe('Hall of Fame submitted badge', () => {
     getHistory.mockReturnValue([{ ...entry(1, 1e9), key: '' }]);
     render();
     expect(badges()).toEqual([]);
+  });
+});
+
+describe('Hall of Fame submitted badge on Best pulls', () => {
+  const SET = getSet('right-now', 1)!;
+  const NONCE = 7;
+  const bestPack = (cardIds: string[], nonce = NONCE): ProfilePack => {
+    const cards = toPulled(cardIds.map((id) => ({ id, holo: false })), SET)!;
+    return { nonce, set: SET, cards, score: scorePulled(cards) };
+  };
+  const five = bestPack(Array(SET.packSize).fill(SET.cards[0].id));
+  const statsWith = (best: ProfilePack[]): ProfileStats => ({
+    packs: best.length, xp: 0, level: 1, uniqueBySet: {}, holoUniqueBySet: {}, unique: 0, holos: 0, totalScore: 0, points: 0, hands: {}, best,
+  });
+  const entryFor = (pack: ProfilePack, key = getPlayer().publicKeyHex.slice(0, 16)) =>
+    ({ setId: SET.id, setVersion: SET.version, nonce: pack.nonce, key, cards: null, hand: pack.score.hand.name, score: pack.score.score, openedAt: 1000 + pack.nonce });
+  /** The badges inside the Best pulls list (the pack list further down carries its own). */
+  const bestBadges = () => {
+    const section = [...document.querySelectorAll('section.profile-block')].find((s) => s.querySelector('h3')?.textContent === 'Best pulls');
+    return [...(section?.querySelectorAll('.pull-row-sent') ?? [])].map((el) => el.textContent);
+  };
+
+  it('shows the same Not submitted, then Submitted, on a worthy best pull of your own', async () => {
+    vi.doMock('../../game/nostrInbox', () => ({
+      hallOfFameEvent: () => ({}),
+      publishUntilAccepted: () => Promise.resolve({ accepted: 'wss://relay' }),
+    }));
+    myStats.mockReturnValue(statsWith([five]));
+    getHistory.mockReturnValue([entryFor(five)]);
+    render();
+    expect(five.score.hand.multiplier).toBeGreaterThanOrEqual(HALL_OF_FAME_MIN_MULTIPLIER);
+    expect(bestBadges()).toEqual(['Not submitted']);
+
+    await act(async () => {
+      await submitToHallOfFame('proof', pullId({ setId: SET.id, setVersion: SET.version, publicKey: getPlayer().publicKey, nonce: NONCE }));
+    });
+    expect(bestBadges()).toEqual(['Submitted']);
+    // The row still reads the hand first.
+    expect(document.querySelector('section.profile-block .pull-row-hand')?.firstChild?.textContent).toBe(five.score.hand.name);
+  });
+
+  it('draws a best pull the way the pack list draws the same pack: trophy, badge and set line', () => {
+    myStats.mockReturnValue(statsWith([five]));
+    getHistory.mockReturnValue([entryFor(five)]);
+    render();
+    const best = document.querySelector('section.profile-block .pull-row')!;
+    const listed = document.querySelector('section[aria-labelledby="pulls-history-title"] .pull-row')!;
+    // Same parts in the same order, whatever the thumbnails and the last words of the set line say.
+    const shape = (row: Element) => [...row.querySelectorAll('.pull-row-hand > *, .pull-row-meta > .set-code, .pull-row-meta > .pull-row-setname')].map((el) => el.getAttribute('class'));
+    expect(shape(best)).toEqual(shape(listed));
+    expect(best.querySelector('.pull-row-hof')).not.toBeNull();
+    expect(best.querySelector('.pull-row-hand .sr-only')?.textContent).toBe(', qualifies for Rankings');
+    expect(best.querySelector('.pull-row-meta')?.textContent).toContain(`ticket #${NONCE}`);
+  });
+
+  it("shows nothing on a best pull that can't qualify, or that another player on this device opened", () => {
+    const weak = bestPack(SET.cards.slice(0, SET.packSize).map((c) => c.id), 8);
+    expect(weak.score.hand.multiplier).toBeLessThan(HALL_OF_FAME_MIN_MULTIPLIER);
+    myStats.mockReturnValue(statsWith([five, weak]));
+    getHistory.mockReturnValue([entryFor(five, 'b'.repeat(16)), entryFor(weak)]);
+    render();
+    expect(bestBadges()).toEqual([]);
+    // The trophy follows the score alone: the weak pack gets none, the qualifying one has it whoever opened it.
+    const hof = [...document.querySelectorAll('section.profile-block .pull-row')].map((row) => row.querySelector('.pull-row-hof') !== null);
+    expect(hof).toEqual([true, false]);
+  });
+
+  it("shows no badge when the profile is someone else's, which never passes one in", () => {
+    getHistory.mockReturnValue([entryFor(five)]);
+    act(() => root.render(<ProfileSummary stats={statsWith([five])} />));
+    expect(document.querySelector('.profile-block .pull-row-hand')?.firstChild?.textContent).toBe(five.score.hand.name);
+    expect(document.querySelector('.profile-block .pull-row-hof')).not.toBeNull();
+    expect(document.querySelector('.pull-row-sent')).toBeNull();
   });
 });
