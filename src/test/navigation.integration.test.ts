@@ -27,10 +27,53 @@ it('shows a new player only the packs screen and Settings until their first pack
   expect(document.querySelector('.app-nav')).toBeNull();
   expect(document.querySelector('.app')!.classList).toContain('no-nav');
   expect(button('Settings')).toBeDefined();
-  expect(button('Player')).toBeUndefined();
+  expect(button('Profile')).toBeUndefined();
 }, 30_000);
 
 const picker = () => document.querySelector('nav.set-picker[aria-label="Choose a pack"]');
+const showEveryPage = () => [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
+  .find((el) => document.getElementById(el.getAttribute('aria-labelledby') ?? '')?.textContent === 'Show every page');
+
+// #222: gating is only for people who haven't opened a pack; someone who knows the game can skip it.
+it('lets an experienced player show every page and the pack picker before saving a pack, and keeps the choice across a reload', async () => {
+  app = await mountedApp({ ...PLAYER, ...QUIET });
+  await app.mount();
+  expect(document.querySelector('.app-nav')).toBeNull();
+  expect(picker()).toBeNull();
+
+  // The gear is always there; its Show every page switch is off for a new player.
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
+  expect(showEveryPage()!.getAttribute('aria-checked')).toBe('false');
+  expect(document.querySelector('.app-nav')).toBeNull();
+  await app.interact(() => showEveryPage()!.click());
+  await app.until('the tabs show', () => expect(document.querySelector('.app-nav')).not.toBeNull());
+  expect(document.querySelector('.app')!.classList).not.toContain('no-nav');
+  expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS)!).showAllPages).toBe(true);
+  // No pack was saved, so this is only the setting: the player is still a new one.
+  expect(localStorage.getItem(STORAGE_KEYS.STATS)).toBeNull();
+
+  // Every page opens from the tabs; the packs screen shows the set picker again.
+  for (const [label, hash] of [['Cards', '#/cards'], ['Rankings', '#/rankings'], ['Profile', '#/profile']] as const) {
+    await app.interact(() => tab(label).click());
+    expect(location.hash).toBe(hash);
+    expect(currentTab()).toBe(label);
+    expect(pageTitle()).toBe(label);
+  }
+  await app.interact(() => tab('Open').click());
+  await app.until('Open shows again', () => expect(packsHidden()).toBe(false));
+  expect(picker()).not.toBeNull();
+
+  await app.reload();
+  await app.until('the tabs return after a reload', () => expect(document.querySelector('.app-nav')).not.toBeNull());
+  expect(picker()).not.toBeNull();
+
+  // Switching it off puts a player with no saved pack back to the packs screen alone.
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(showEveryPage()!.getAttribute('aria-checked')).toBe('true'));
+  await app.interact(() => showEveryPage()!.click());
+  await app.until('the tabs hide again', () => expect(document.querySelector('.app-nav')).toBeNull());
+}, 30_000);
 const packLabel = () => (document.querySelector('.pack-open-button') && document.querySelector('.pack-set-name')?.textContent) || null;
 /** An old save, or one whose stats couldn't be read: cards but no pack count. */
 const CARDS_ONLY = {

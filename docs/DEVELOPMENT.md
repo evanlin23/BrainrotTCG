@@ -41,6 +41,24 @@ deploying main. CI uploads files only from failed runs, kept for 7 days.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
+To run actionlint locally (it is not part of `npm run check` and isn't assumed to be installed),
+repeat what the `workflow-validation` job in `.github/workflows/ci.yml` does, from the repo root. Put
+the download in a throwaway directory, not the checkout:
+
+```sh
+VERSION="1.7.12"
+TARBALL="actionlint_${VERSION}_linux_amd64.tar.gz"
+mkdir -p /tmp/actionlint && cd /tmp/actionlint
+curl -fsSL -O "https://github.com/rhysd/actionlint/releases/download/v${VERSION}/${TARBALL}"
+echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  ${TARBALL}" | sha256sum -c -
+tar -xzf "${TARBALL}" actionlint
+cd - && /tmp/actionlint/actionlint -shellcheck=''
+```
+
+Keep the version and hash the same as CI; a new `VERSION` needs its new hash in both places. With Docker,
+`docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12 -shellcheck=''` runs the same release,
+but the image isn't hash-checked. Both ignore ShellCheck (`-shellcheck=''`), as CI does.
+
 The card asset check (`npm run check:card-assets`) decodes every registered card WebP and checks
 generated geometry. It covers openable pack wrappers/thumbnails, retained pack art when present,
 finish thumbnails declared by the generator manifest (or present for registered cards), the
@@ -80,37 +98,54 @@ physical-device checks by hand against the preview and describe them in the PR.
 
 ## Local agent usability audit
 
-Owner decision, 2026-10-17: usability audits use Claude Code subagents only (no Codex or other
-providers), driving the built site with Playwright. They are model audits in Chromium emulation, not
-human or real-device evidence, and anything that cites one says so.
+Owner decision, 2026-10-17: usability audits use Claude Code only (no Codex or other providers),
+driving the built site with Playwright. Results come from simulated agent reviewers in Chromium
+emulation, not human newcomers or a real device, and anything that cites one says so.
 
-Status: no audit has been run, and no Claude runner exists. The checked-in runner (`npm run
-audit:agent`, `scripts/agent-audit/run.ts`, described in docs/ARCHITECTURE.md) launches only Codex
-CLI 0.159.2, so this policy does not use it. Its provider-neutral parts are the starting point for a
-Claude version: the four task prompts and the coordinator prompt in `contracts.ts`, the network and
-read-only boundary in `browser.ts`, and the snapshot, click, press and wait tools in
-`browser-mcp.mjs`. `tests/browser/agent-audit.spec.ts` checks that boundary without any agent.
-Connecting a Claude Code subagent to those tools is not built. Until an audit is run and recorded,
-don't say one was.
+`npm run audit:agent -- --task=opening --turns=12 --seconds=180` (`scripts/agent-audit/run.ts`;
+boundary in docs/ARCHITECTURE.md) runs one fresh reviewer per task, one after another. Tasks are
+`opening`, `sharing`, `results` and `recovery`, each limited to 30 to 180 seconds, 3 to 40 turns
+(model responses) and 40 browser calls. It needs Unix, Node 22, Playwright's Chromium and Claude
+Code 2.1.302 signed in (`claude auth status`). Another version, a signed-out CLI or a
+`~/.claude/CLAUDE.md` (user memory would coach the reviewer) stops it before any agent runs. A task
+that hits a limit, is cancelled, or starts with missing or extra tools is recorded as unrun with
+the reason, never as passed. It is not part of `npm run check` or CI; unit tests use a fake CLI.
 
-How an audit is run:
+Each reviewer is started with these flags, all listed by `claude --help` in 2.1.302 (`claudeArgs`
+in `scripts/agent-audit/claude.ts`): `-p --restricted --tools "" --strict-mcp-config --mcp-config
+<audit server> --allowed-tools <mcp__audit__ snapshot, click, press, wait> --permission-mode dontAsk
+--disable-slash-commands --no-chrome --no-session-persistence --output-format stream-json --verbose
+--json-schema <report> --system-prompt <reviewer rules> <task sentence>`. That leaves no Bash, Edit,
+Write, web or other built-in tools, no settings, hooks, skills or other MCP servers, and an empty
+temporary working directory. The task sentence from `contracts.ts` is the only user prompt: no
+source, docs, history or hints, since coaching would test the coach, not the page. The coordinator
+prompt in `contracts.ts` is separate and goes only into the report. 2.1.302 has no turn flag, so the
+runner counts responses and stops the process group when the cap is passed; it also stops if the
+session reports any tool outside the allowlist. To move the pin, re-check every flag in
+`claude --help` first, then update `claudeVersion`.
 
-1. The coordinator (the main Claude thread) works from a clean commit, runs `npm run build`, serves
-   it with `npm run preview` and notes the revision, base path and phone-size viewport.
-2. Each reviewer is a fresh subagent given only a task sentence from `contracts.ts` (for example
-   "You found this game for the first time. Try to open a pack and find out what you received.") and
-   the page address. No source, docs, hints about where things are, or earlier reports: coaching
-   would test the coach, not the page. It reports what it did, its detours, confusing labels and
-   errors, and whether it completed, was blocked or found it ambiguous.
-3. Reviewers are read-only. Use a disposable browser profile, never a real save, key or identity.
-   Nothing is submitted, copied, downloaded, exported or imported, and external requests and
-   WebSockets stay blocked, so the Hall of Fame, relays and GitHub are out of reach. No posting,
-   merging or deploying from an audit.
-4. The coordinator reproduces each observation on the same revision, separates blocked tasks from
+Recorded runs, 2026-10-17, revision e993944, in a cloud container: base `/BrainrotTCG/`, Chromium 156
+at 393x727 with touch and reduced motion, external requests blocked, model claude-opus-5-5.
+
+- `opening`, 12 turns, 180 s: completed in 11 turns and 13 browser calls. It opened a pack, flipped
+  all five cards and reached the summary. Observation: after "Open pack" the button disables while
+  the wrapper and "Swipe across to open" stay for about a second, so it looked like the click had
+  failed. The browser logged one page error (not yet reproduced).
+- `opening`, 3 turns, 60 s: unrun, "turn budget exhausted" after 3 browser calls (the expected
+  incomplete case).
+
+Not run: the other three tasks, and a signed-out or missing CLI with the real runner (covered by the
+fake-CLI tests). Screen readers, native share and a physical phone are out of scope.
+
+Using the results:
+
+1. Run from a clean commit; the runner refuses tracked edits and untracked `src/` or `public/`
+   files. Never point it at a real save, key or identity, and never post, merge or deploy from it.
+2. The coordinator reproduces each observation on the same revision, separates blocked tasks from
    product defects, dedupes against open issues, and retests a fix with a fresh reviewer. Only
    reproduced findings go into an issue or PR.
-5. The write-up gives the revision, conditions, task outcomes and what could not be checked (screen
-   readers, native share, a physical phone). One agent's result is an observation, not a rate.
+3. The write-up gives the revision, conditions, task outcomes and what could not be checked. One
+   agent's result is an observation, not a rate.
 
 ## Mounted integration tests
 

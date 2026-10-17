@@ -115,6 +115,7 @@ describe('Save & backup preflight', () => {
     ['negative pull log score', { pulls: '[{"setId":"genesis","setVersion":1,"nonce":0,"score":-1,"hand":"No Match","openedAt":1}]' }],
     ['settings array', { settings: '[]' }],
     ['invalid settings flag', { settings: '{"particlesEnabled":"yes"}' }],
+    ['invalid show-every-page flag', { settings: '{"showAllPages":"yes"}' }],
     ['non-numeric volume', { settings: '{"musicVolume":"loud"}' }],
     ['non-finite volume', { settings: '{"effectsVolume":1e999}' }],
     ['Hall of Fame array', { hallOfFame: '[]' }],

@@ -195,6 +195,12 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                         checked={!!settings.showDraftSets}
                         onChange={() => onSettingsChange({ ...settings, showDraftSets: !settings.showDraftSets })}
                     />
+                    <SwitchRow
+                        label="Show every page"
+                        desc="Cards, Rankings, Profile and the pack picker, before your first pack is saved"
+                        checked={settings.showAllPages === true}
+                        onChange={() => onSettingsChange({ ...settings, showAllPages: settings.showAllPages !== true })}
+                    />
                 </div>
             </section>
 

@@ -476,8 +476,10 @@ function App() {
   // is theirs already: both come back with the chrome then, not later under the player when it lands.
   // A pack whose save failed still counts in memory, so its cards stay reachable this session. If the
   // pending shelf kept it, the next load restores and counts it, so the tabs show at once; only a total
-  // storage refusal makes the next load a new player's.
-  const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0 || (packBusy && !packFocus);
+  // storage refusal makes the next load a new player's. Settings' "Show every page" switch brings both
+  // back at once for someone who knows the game (#222).
+  const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0 || (packBusy && !packFocus)
+    || settings.showAllPages === true;
   const onPage = route !== 'open';
   const logoMark = (
     <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
