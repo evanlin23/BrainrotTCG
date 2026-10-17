@@ -16,7 +16,7 @@ const SAVED = 'locked-in-alien,locked-in-alien,chimpanzini-bananini,amogus,gigac
 const SEED = {
   'brainrot-player-v1': JSON.stringify({ secretKey: '0a'.repeat(32), name: 'Mounted fixture', nextNonce: 2, createdAt: 1 }),
   // A card back the save's level hasn't reached, chosen when it was known (or by an older build).
-  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false, cardBack: 'midnight' }),
+  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false, cardBack: 'midnight' }),
   [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
 };
 

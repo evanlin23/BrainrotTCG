@@ -20,7 +20,7 @@ const MINE = '01'.repeat(32);
 const THEIRS = '02'.repeat(32);
 const SEED = {
   [PLAYER_KEY]: record(MINE, 'This tab'),
-  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
   [STORAGE_KEYS.SELECTED_SET]: 'right-now',
 };
 // The progress this tab holds in memory and stores from its persistence effect.

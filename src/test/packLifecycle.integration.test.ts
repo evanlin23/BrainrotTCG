@@ -38,7 +38,7 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
   app = await mountedApp({
     // Same disposable seed as #304; never import a developer's save. Only identity/preferences are seeded.
     'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Mounted fixture', nextNonce: 0, createdAt: 1 }),
-    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
     // Pin the set the golden values below come from, so a new release (DEFAULT_SET_ID) cannot change them.
     [STORAGE_KEYS.SELECTED_SET]: 'right-now',
   });
@@ -114,7 +114,7 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
 
 const SEED = {
   'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Mounted fixture', nextNonce: 0, createdAt: 1 }),
-  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
   [STORAGE_KEYS.SELECTED_SET]: 'right-now',
 };
 const packsOpened = (packs: number) => JSON.stringify({ packsOpened: packs, holoCards: {}, highestPackValue: 0, highestPackCards: [] });

@@ -17,7 +17,7 @@ let NO_COPY_NOTE: string;
 const fixture = () => ({
   version: 2, dataVersion: 3, exportedAt: '2026-10-14T00:00:00Z',
   collection: '{}', achievements: '{"new":2}', stats: '{"packsOpened":3,"holoCards":{}}',
-  settings: '{"musicVolume":0.6}', player: identity('aa', 3),
+  settings: '{"effectsVolume":0.6}', player: identity('aa', 3),
 });
 const INCOMPLETE = "Import failed partway and couldn't be fully undone, so this browser may now hold parts of both saves."
   + ' A copy of the save from before the import is kept in this browser.';
@@ -42,7 +42,7 @@ beforeEach(async () => {
   store.set(STORAGE_KEYS.COLLECTION, JSON.stringify({ [ALL_CARDS[0].key]: { card: ALL_CARDS[0], normalCount: 2, holoCount: 0 } }));
   store.set(STORAGE_KEYS.ACHIEVEMENTS, '{"old":1}');
   store.set(STORAGE_KEYS.STATS, '{"packsOpened":8,"holoCards":{}}');
-  store.set(STORAGE_KEYS.SETTINGS, '{"musicVolume":0.1}');
+  store.set(STORAGE_KEYS.SETTINGS, '{"effectsVolume":0.1}');
   store.set(VERSION_KEY, '1');
   ({ importSaveFile, backUpSave, NO_COPY_NOTE } = await import('./saveFile'));
   player = await import('./player');
@@ -133,7 +133,7 @@ describe('synchronous Settings import recovery', () => {
   it.each(['progress', 'guest', 'settings only'])('aborts before replacement when the %s backup cannot be stored', (kind) => {
     if (kind !== 'progress') {
       store.clear();
-      store.set(STORAGE_KEYS.SETTINGS, '{"musicVolume":0.1}');
+      store.set(STORAGE_KEYS.SETTINGS, '{"effectsVolume":0.1}');
       if (kind === 'guest') store.set(PLAYER_KEY, identity('bb', 0));
     }
     const original = new Map(store);

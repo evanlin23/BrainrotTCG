@@ -17,7 +17,7 @@ const pageTitle = () => document.querySelector('main.page h1')?.textContent ?? n
 const packsHidden = () => document.querySelector<HTMLElement>('main.app-main')!.hidden;
 
 const PLAYER = { 'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Navigation fixture', nextNonce: 0, createdAt: 1 }) };
-const QUIET = { 'brainrot-settings-v1': JSON.stringify({ musicVolume: 0, effectsVolume: 0 }) };
+const QUIET = { 'brainrot-settings-v1': JSON.stringify({ effectsVolume: 0 }) };
 /** A player who has saved a pack, so the tabs show (#222). */
 const RETURNING = { 'brainrot-stats-v1': JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }) };
 
@@ -82,7 +82,7 @@ const CARDS_ONLY = {
 };
 
 it('shows a new player the set picker only once their first pack is saved, and never mid-reveal', async () => {
-  app = await mountedApp({ ...PLAYER, [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }) });
+  app = await mountedApp({ ...PLAYER, [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }) });
   await app.mount();
   const first = packLabel();
   expect(first).not.toBeNull();
@@ -110,7 +110,7 @@ it('shows a new player the set picker only once their first pack is saved, and n
 }, 30_000);
 
 it('brings a new player the set picker and tabs as they leave a first pack whose ticket is still on its way, not when it lands (#464)', async () => {
-  app = await mountedApp({ ...PLAYER, [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }) },
+  app = await mountedApp({ ...PLAYER, [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }) },
     { tickets: () => ({ delayMs: 4000 }) });
   await app.mount();
   await app.interact(() => {
@@ -188,7 +188,7 @@ it('gives Open, Cards, Rankings and Profile a page each, with an address, a titl
   await app.until('Save & backup loads', () => expect(button('Import')).toBeDefined());
   expect(document.activeElement?.textContent).toBe('Save & backup');
   expect(button('Export')).toBeDefined();
-  expect(document.querySelectorAll('input[type="range"]')).toHaveLength(2);
+  expect(document.querySelectorAll('input[type="range"]')).toHaveLength(1);
   expect(currentTab()).toBeNull();
   expect(button('Settings').getAttribute('aria-current')).toBe('page');
 

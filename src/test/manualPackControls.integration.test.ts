@@ -17,7 +17,7 @@ const progress = () => $('.reveal-progress')?.getAttribute('aria-valuenow');
 // Nonce 22 of this key deals a special-reveal card, which a big-pull pause holds for its full reveal.
 const preferences = ({ nextNonce = 0, pauseBigPulls = false } = {}) => ({
   'brainrot-player-v1': JSON.stringify({ secretKey: '01'.repeat(32), name: 'Manual fixture', nextNonce, createdAt: 1 }),
-  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls }),
+  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls }),
 });
 
 /** A mouse press from one element to another; the browser then clicks their nearest shared ancestor. */

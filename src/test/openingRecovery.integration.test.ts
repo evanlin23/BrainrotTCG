@@ -14,7 +14,7 @@ afterEach(async () => { await app?.dispose(); app = undefined; });
 const PLAYER_KEY = 'brainrot-player-v1';
 const SEED = {
   [PLAYER_KEY]: JSON.stringify({ secretKey: '01'.repeat(32), name: 'Mounted fixture', nextNonce: 0, createdAt: 1 }),
-  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
   [STORAGE_KEYS.SELECTED_SET]: 'right-now',
 };
 /** The seed identity's first right-now v2 pack (as in packLifecycle), so a match proves whose key opened it. */

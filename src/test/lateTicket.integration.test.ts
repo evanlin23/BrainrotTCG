@@ -15,7 +15,7 @@ const SECRET = '01'.repeat(32);
 const PUBLIC = toHex(publicKeyFromSecret(fromHex(SECRET)));
 const SEED = {
   'brainrot-player-v1': JSON.stringify({ secretKey: SECRET, name: 'Mounted fixture', nextNonce: 0, createdAt: 1 }),
-  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ musicVolume: 0, effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+  [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
   [STORAGE_KEYS.SELECTED_SET]: 'right-now',
   // A player who has saved a pack, so the set picker shows (a new player sees only the pack).
   [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
