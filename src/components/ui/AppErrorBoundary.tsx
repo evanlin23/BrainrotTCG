@@ -52,11 +52,11 @@ function CrashFallback({ report, reload }: { report: string; reload: () => void 
         <label htmlFor="app-crash-report-text">Report details</label>
         <textarea id="app-crash-report-text" readOnly value={report} spellCheck={false} />
         <p role="status">{note}</p>
+        <p>Posting requires a GitHub account, and GitHub requires users to be 13 or older. Paste only the details you want to make public and describe what you were trying to do.</p>
         <div className="app-crash-actions">
           <button className="btn btn--secondary btn--sm" type="button" onClick={() => void copy()}>Copy report</button>
           <a className="btn btn--secondary btn--sm" href={`https://github.com/${REPO}/issues/new?template=bug.yml`} target="_blank" rel="noopener noreferrer">Open GitHub issues</a>
         </div>
-        <p>Posting requires a GitHub account. Paste only the details you want to make public and describe what you were trying to do.</p>
       </details>
     </main>
   );
