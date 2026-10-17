@@ -526,8 +526,9 @@ one lands later, and shows the save warning when storage refuses the new count o
 Limits: progress writes have no lock across tabs, so two tabs of one player writing in the same instant can
 both pass that check; the later collection and record replace the earlier, and the earlier tab puts its
 dropped packs back as above. Each key is written on its own, the record first, so a tab that crashes
-between the record and its collection leaves the record listing packs the collection lacks, which no tab
-has stored and so no put-back asks about. A change's writes go out together within a millisecond or so,
+between the record and its collection leaves the record listing packs the collection lacks. No tab has
+stored those, so no put-back asks about them, but later records keep listing them: once one is stored, a
+race that drops it can miss it. A change's writes go out together within a millisecond or so,
 so two tabs' writes reaching storage interleaved, a far narrower window than the storage event's lag,
 can leave one tab's record beside the other's collection or stats: a pack the record lists but the
 collection lacks isn't put back (the history keeps its ticket), and one the collection holds but the
@@ -535,10 +536,16 @@ record lacks is put back and added twice. A duplicate is preferred over a loss; 
 take a marker inside the collection's own key, which older builds would misread. Tabs of a build from
 before the record write none: one writing after a newer tab builds on that tab's collection, so the
 record stays right, but in a race with one a pack can drop out of the collection as before the record
-(the history keeps it), until those tabs reload. A collection write storage refuses (out of space) still
-stores the stats counting the packs it shelved, so in that same race those stats can replace the other
-tab's count. If the record then can't be put back as it was, it also lists those shelved packs, which no
-tab has stored yet; only a later race over one of them could miss it. And a tab that writes before an
+(the history keeps it), until those tabs reload. Builds from before #457 (served until about 2026-10-16
+07:15 UTC; the app doesn't reload itself after a deploy, so an open tab can keep running one) check
+nothing: on every change they store the progress they loaded with their own changes, so such a tab can
+drop a pack a newer tab stored, which the record and history still list; nothing puts that card back,
+though the history keeps its ticket. A collection write storage refuses (out of space) still stores the
+stats counting the packs it shelved, so when two tabs pass the check at once those stats can replace the
+other tab's count. If the record then can't be put back as it was, it also lists those shelved packs,
+which no tab has stored yet; only a later race over one of them could miss it. Putting the record back
+can also replace one another tab wrote in that instant; that tab, once stopped, then puts back that
+write's packs, which are added twice. And a tab that writes before an
 import's stamp reaches it can still overwrite an imported field (import with other tabs closed; the file
 and `brainrot-before-import-v1` remain). A tab stopped
 by an import that then failed and was undone stays stopped until it reloads. Storage cleared with no

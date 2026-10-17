@@ -138,7 +138,7 @@ describe('two tabs of one player opening packs at once', () => {
     expect(onShelf(0)).toBe(false);
   });
 
-  it("leaves a record it couldn't restore listing only packs no tab has stored, so none is put back twice", () => {
+  it("leaves a record it couldn't restore listing the pack it shelved, and puts nothing back once the next load stores it", () => {
     // An earlier record, so restoring it after a refused collection is a write that can be refused too.
     localStorage.setItem(STORAGE_KEYS.STORED_PACKS, JSON.stringify({ k: KEY, n: [[5, 5]] }));
     const earlier = localStorage.getItem(STORAGE_KEYS.STORED_PACKS);

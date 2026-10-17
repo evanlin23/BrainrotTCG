@@ -111,7 +111,9 @@ export const guardProgress = (): ProgressGuard => {
         else localStorage.setItem(STORAGE_KEYS.STORED_PACKS, seenPacks);
       } catch {
         // It then also lists this tab's packs that the collection doesn't hold. No tab has stored those, so no
-        // put-back asks about them (see dropped) until one is stored, which makes the record true for it.
+        // put-back asks about them (see dropped) until one is stored. Records built on this one keep listing them
+        // though, so a tab whose collection lacks one can still list it, and if that tab's write drops the stored
+        // pack in a race, the pack isn't put back (the history keeps its ticket).
       }
     },
     dropped: (player, nonces) => {
