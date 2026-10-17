@@ -192,7 +192,7 @@ describe('Hall of Fame loading', () => {
   describe('while the live relays are still being asked', () => {
     const empty = () => document.querySelector('.hof-empty')?.textContent;
     const OFFLINE = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
-    const CHECKING = 'Checking for packs sent since the last update…';
+    const CHECKING = 'Checking for new packs…';
     /** Every text the status ever held, so a premature "Rankings loaded." can't slip past between two checks. */
     const watchStatus = () => {
       const seen: string[] = [];

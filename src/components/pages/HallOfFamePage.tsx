@@ -253,7 +253,7 @@ const HallOfFamePage = () => {
             : loadState === 'failed'
               ? "Couldn't load the rankings. Try again."
               : checking
-                ? 'Checking for packs sent since the last update…'
+                ? 'Checking for new packs…'
                 : relaysDown
                   ? "Couldn't reach the live feed, so pulls sent recently may be missing. Try again."
                   : 'Rankings loaded.'}
