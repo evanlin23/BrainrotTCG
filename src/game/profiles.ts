@@ -30,7 +30,7 @@ import { firstOpened, getHistory, historyForKey, storedHistory, type HistoryEntr
 import { getReopened, putReopened } from './reopenCache';
 import { getStoredPack, hydratePackStore, packRefKey, packStoreVersion, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
 import { decodeCard, encodeCard, toPulled } from './cardCode';
-import { createTicketPool, isOutOfMemory, TicketMemoryError } from './ticketPool';
+import { createTicketPool, isMemoryError, OUT_OF_MEMORY_ADVICE } from './ticketPool';
 import { admitOptional } from './admission';
 import { siteUrl } from './pulls';
 import { getBestCards, mergeBestCards, type BestCandidate, type BestCards } from './bestCards';
@@ -676,13 +676,22 @@ export interface ProfileProgress {
 }
 
 /**
+ * Counts verifyProfileLive calls: only the latest one may report. This assumes one profile viewer at
+ * a time: a second caller running alongside would silently stop the first.
+ */
+let latestCheck = 0;
+
+/**
  * Check a profile, then re-open its packs on a pool of workers, its claimed best packs first,
  * reporting as they finish; when every pack is in, check its claims. Packs this device has
  * re-opened before come from its cache. `checkProfile` errors (bad signature, unknown set, ...)
- * are thrown before anything is re-opened.
+ * are thrown before anything is re-opened. A call stops reporting, and re-opening, once `signal`
+ * aborts or a later call starts, so a pack that finishes late can't overwrite the newer check.
  */
 export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress) => void, signal: AbortSignal): CheckedProfile => {
   const checked = checkProfile(text, getSet);
+  const run = ++latestCheck;
+  const current = () => run === latestCheck && !signal.aborted;
   const { profile, tickets } = checked;
   const total = tickets.length;
   const keyHex = toHex(profile.publicKey);
@@ -707,6 +716,7 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
     };
   };
   const report = (force = false) => {
+    if (!current()) return;
     const now = performance.now();
     if (!force && now - lastReport < 150) return;
     lastReport = now;
@@ -726,7 +736,7 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
   };
 
   const work = async () => {
-    while (!signal.aborted && !ruledOut && next < total) {
+    while (current() && !ruledOut && next < total) {
       const nonce = order[next++];
       const pack = await open(nonce);
       results[nonce] = pack;
@@ -740,7 +750,7 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
   const workers = Math.min(total, 8);
   Promise.all(Array.from({ length: workers }, work))
     .then(() => {
-      if (signal.aborted) return;
+      if (!current()) return;
       if (ruledOut) {
         onProgress(snapshot({ error: { rule: 'claims', message: ruledOut } }));
         return;
@@ -754,13 +764,11 @@ export const verifyProfileLive = (text: string, onProgress: (p: ProfileProgress)
       }
     })
     .catch((error) => {
-      if (signal.aborted) return;
+      if (!current()) return;
       // The browser's own words stay in the console; the viewer gets something to act on. Packs
       // re-opened so far are cached, so trying again carries on from where this stopped.
       console.error('Profile verification failed', error);
-      const message = error instanceof TicketMemoryError || isOutOfMemory(String(error))
-        ? 'This device ran out of memory while checking. Close other tabs and try again.'
-        : 'Something went wrong while re-opening the packs. Try again.';
+      const message = isMemoryError(error) ? OUT_OF_MEMORY_ADVICE : 'Something went wrong while re-opening the packs. Try again.';
       onProgress(snapshot({ error: { message } }));
     })
     .finally(() => pool?.close());

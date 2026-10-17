@@ -28,14 +28,26 @@ export const TICKETS_PER_WORKER = 4;
 export const MAX_OOM_ATTEMPTS = 3;
 
 const NO_MEMORY = /out of memory|(?:cannot|could not|couldn't|failed to|unable to) allocate|allocation failed/i;
-const WASM_RANGE = /RangeError\b.*\b(?:WebAssembly|wasm|memory|buffer|typed array)/i;
+/** Wasm memory the browser couldn't enlarge: Chrome's "Unable to grow instance memory", Firefox's "failed to grow memory". */
+const NO_GROWTH = /(?:cannot|could not|couldn't|failed to|unable to) grow (?:instance )?memory/i;
+/**
+ * A typed array past the end of Wasm memory. hash-wasm grows its memory inside the module, which
+ * can't report a failed grow, then views the 32 MiB it asked for, so the browser complains about
+ * the view: V8's "Invalid typed array length: 33555456", Safari's "Length out of range of buffer",
+ * Firefox's "attempting to construct out-of-bounds Uint8Array on ArrayBuffer". The engine's sizes
+ * are fixed, so only a grow that failed gets here.
+ */
+const NO_ROOM = /invalid typed array length|length out of range of buffer|out-of-bounds \w*Array on \w*ArrayBuffer/i;
 
 /**
  * Whether an error's text means the browser had no memory to give, e.g. Chrome's "RangeError:
  * WebAssembly.instantiate(): Out of memory: Cannot allocate Wasm memory for new instance". Workers
- * send errors as text, so this matches the text rather than the error's type.
+ * send errors as text, so this matches the text rather than the error's type. Other RangeErrors
+ * (Wasm's declared maximum size, a stack overflow) are the same on every device, so they aren't
+ * memory errors: a retry or a fresh worker wouldn't help.
  */
-export const isOutOfMemory = (message: string) => NO_MEMORY.test(message) || WASM_RANGE.test(message);
+export const isOutOfMemory = (message: string) =>
+  NO_MEMORY.test(message) || NO_GROWTH.test(message) || NO_ROOM.test(message);
 
 /** A ticket that ran out of memory on fresh workers too. `detail` keeps the browser's own error. */
 export class TicketMemoryError extends Error {
@@ -47,6 +59,12 @@ export class TicketMemoryError extends Error {
     this.detail = detail;
   }
 }
+
+/** A check (a pull or a profile) that stopped because this device ran out of memory. */
+export const isMemoryError = (error: unknown) => error instanceof TicketMemoryError || isOutOfMemory(String(error));
+
+/** What a viewer is told when checking stopped for want of memory. */
+export const OUT_OF_MEMORY_ADVICE = 'This device ran out of memory while checking. Close other tabs and try again.';
 
 const toError = (error: unknown): Error => {
   if (error instanceof TicketMemoryError) return error;

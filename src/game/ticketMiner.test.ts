@@ -44,9 +44,14 @@ const SET = 'set@1';
 
 let miner: typeof import('./ticketMiner');
 let admission: typeof import('./admission');
+/** Loaded with the miner, so its TicketMemoryError is the one the miner throws. */
+let pool: typeof import('./ticketPool');
 let computeTicket: ReturnType<typeof vi.fn>;
-const worker = () => ControlledWorker.instances[0];
-const nonces = () => worker().requests.map((r) => r.nonce);
+/** The worker now in use: the miner swaps in a fresh one every few tickets. */
+const worker = () => ControlledWorker.instances[ControlledWorker.instances.length - 1];
+const nonces = () => ControlledWorker.instances.flatMap((w) => w.requests.map((r) => r.nonce));
+const posts = () => ControlledWorker.instances.reduce((sum, w) => sum + w.postMessage.mock.calls.length, 0);
+const running = () => ControlledWorker.instances.filter((w) => w.terminate.mock.calls.length === 0);
 const live = (nonce: number) => miner.getTicket(SET, publicKey, nonce);
 const check = (nonce: number, signal?: AbortSignal) => miner.getTicket(SET, publicKey, nonce, 'optional', signal);
 
@@ -60,6 +65,7 @@ beforeEach(async () => {
   computeTicket.mockImplementation(async (_set: string, _key: Uint8Array, nonce: number) => Uint8Array.of(nonce));
   admission = await import('./admission');
   miner = await import('./ticketMiner');
+  pool = await import('./ticketPool');
 });
 
 afterEach(() => {
@@ -109,9 +115,9 @@ describe('ticket miner lanes', () => {
       worker().reply();
       expect(await ticket).toEqual(Uint8Array.of(nonce));
     }
-    const posted = worker().postMessage.mock.calls.length;
+    const posted = posts();
     expect(await live(100)).toEqual(Uint8Array.of(100));
-    expect(worker().postMessage.mock.calls.length).toBe(posted);
+    expect(posts()).toBe(posted);
   });
 
   it('lets a pack take over a ticket that is waiting to be checked', async () => {
@@ -199,5 +205,66 @@ describe('ticket miner lanes', () => {
     ControlledWorker.instances[2].reply();
     expect(await next).toEqual(Uint8Array.of(8));
     expect(computeTicket).not.toHaveBeenCalled();
+  });
+
+  it('replaces its worker every few tickets, never running two at once', async () => {
+    for (let nonce = 0; nonce < pool.TICKETS_PER_WORKER * 2 + 1; nonce++) {
+      const ticket = live(nonce);
+      await flush();
+      expect(running()).toHaveLength(1);
+      worker().reply();
+      expect(await ticket).toEqual(Uint8Array.of(nonce));
+    }
+    const [first, second, third] = ControlledWorker.instances;
+    expect(ControlledWorker.instances).toHaveLength(3);
+    expect(first.requests.map((r) => r.nonce)).toEqual([0, 1, 2, 3]);
+    expect(second.requests.map((r) => r.nonce)).toEqual([4, 5, 6, 7]);
+    expect(third.requests.map((r) => r.nonce)).toEqual([8]);
+    expect([first, second].every((w) => w.terminate.mock.calls.length === 1)).toBe(true);
+    expect(running()).toEqual([third]);
+  });
+});
+
+describe('ticket miner on the main thread', () => {
+  const oom = () => new RangeError('WebAssembly.Memory(): could not allocate memory');
+  const noWorkers = () =>
+    vi.stubGlobal('Worker', class {
+      constructor() {
+        throw new Error('Workers unavailable');
+      }
+    });
+
+  it('tries a ticket that ran out of memory once more, like the worker path', async () => {
+    noWorkers();
+    computeTicket.mockRejectedValueOnce(oom());
+    expect(await live(7)).toEqual(Uint8Array.of(7));
+    expect(computeTicket.mock.calls.map((call) => call[2])).toEqual([7, 7]);
+  });
+
+  it('gives up with a memory error when the retry runs out of memory too, then carries on', async () => {
+    noWorkers();
+    computeTicket.mockRejectedValueOnce(oom()).mockRejectedValueOnce(oom());
+    const error = await live(7).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(pool.TicketMemoryError);
+    expect((error as InstanceType<typeof pool.TicketMemoryError>).detail).toContain('could not allocate memory');
+    expect(computeTicket).toHaveBeenCalledTimes(2);
+    expect(await live(8)).toEqual(Uint8Array.of(8));
+  });
+
+  it('does not retry other errors', async () => {
+    noWorkers();
+    computeTicket.mockRejectedValueOnce(new RangeError('WebAssembly.Memory.grow(): Maximum memory size exceeded'));
+    const error = await live(7).catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(pool.TicketMemoryError);
+    expect(computeTicket).toHaveBeenCalledOnce();
+  });
+
+  it('retries a ticket that ran out of memory after the worker crashed', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    computeTicket.mockRejectedValueOnce(oom());
+    const pack = live(7);
+    worker().crash();
+    expect(await pack).toEqual(Uint8Array.of(7));
+    expect(computeTicket).toHaveBeenCalledTimes(2);
   });
 });
