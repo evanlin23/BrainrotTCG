@@ -91,6 +91,11 @@ export default function PlayerSection({ onRenamed, canSave, onSaveFailed }: Play
         setNameDraft(result.player.name);
         setNameStatus("A name can't be blank, so your current name stays.");
         break;
+      case 'blocked':
+        // The draft stays in the field to edit; nothing was written.
+        setNameStatus("That name isn't allowed here. Try another one; your current name stays.");
+        setFailures((count) => count + 1);
+        break;
       case 'unchanged':
         // Nothing was written, so whatever the status line says stays true.
         setNameDraft(result.player.name);

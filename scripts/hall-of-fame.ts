@@ -4,7 +4,7 @@
  *
  *   npx tsx scripts/hall-of-fame.ts verify-issue   (Actions, on an issue event)
  *     Reads the issue from $GITHUB_EVENT_PATH, verifies its pull link and writes
- *     hof-comment.md plus `verified`, `changed` and `label` to $GITHUB_OUTPUT. A
+ *     hof-comment.md plus `verified`, `changed`, `label` and `rejected` to $GITHUB_OUTPUT. A
  *     verified comment carries a marker with the pull id. `label` is `verified`
  *     for a pull that makes the all-time top pulls, or `daily`
  *     for one that only makes the day's top (see "Labels" below).
@@ -38,6 +38,8 @@
  * turn it down while another issue updated in the last 8 days carries it under
  * `daily` (`recentIssuesSince`); one filed again after that can count again.
  * Every issue listing reads all its pages, and fails rather than stop short.
+ * An issue labelled `rejected` is never listed: verify-issue adds that label to a pull whose display
+ * name isn't allowed (src/engine/nameFilter.ts), and the owner adds it to remove an entry by hand.
  *
  * Ties (and a pull's UTC day) use the time the bot first verified that exact
  * pull on the issue (its marker comment), not the issue's creation date:
@@ -58,7 +60,9 @@ import {
   hallOfFameFloor,
   hallOfFameJoin,
   hallOfFameList,
+  isNameAllowed,
   previousUtcDay,
+  publicName,
   pullId,
   qualifiesForHallOfFame,
   utcDay,
@@ -140,13 +144,18 @@ const toEntry = (pull: VerifiedPull, proof: string, issue: Issue, verifiedAt: st
   submittedAt: verifiedAt,
 });
 
-type Checked = { ok: true; entry: HallOfFameEntry; pull: VerifiedPull } | { ok: false; reason: string };
+/** `rejected` marks a refusal that also gets the `rejected` label (a display name that isn't allowed). */
+type Checked = { ok: true; entry: HallOfFameEntry; pull: VerifiedPull } | { ok: false; reason: string; rejected?: true };
 
 const checkIssue = async (issue: Issue): Promise<Checked> => {
   const proof = extractProof(issue.body ?? '');
   if (!proof) return { ok: false, reason: 'No pull link found. Paste the link from **Share this pull**.' };
   try {
     const pull = await verifyProof(proof, getSet);
+    // The pull stays valid; only publishing it is refused (see isNameAllowed).
+    if (!isNameAllowed(pull.proof.name)) {
+      return { ok: false, rejected: true, reason: "The pull is real, but its display name isn't allowed in the Hall of Fame. Change your name in Profile, share the pull again, and post the new link in a new issue." };
+    }
     if (!qualifiesForHallOfFame(pull.score)) {
       return { ok: false, reason: `The pull is real, but a ${pull.score.hand.name} with a Brainrot Score of ${pull.score.score.toLocaleString('en-US')} doesn't qualify yet (Full House or better, or ${HALL_OF_FAME_MIN_SCORE.toLocaleString('en-US')}+ Brainrot Score).` };
     }
@@ -262,7 +271,7 @@ export const verifyIssue = async () => {
   }
   const body = result.ok ? verifiedComment(result.entry, result.pull) : `❌ **Not added.** ${result.reason}${FOOTER}`;
   writeFileSync('hof-comment.md', body);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `verified=${result.ok}\nchanged=${!already}\nlabel=${label}\n`);
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `verified=${result.ok}\nchanged=${!already}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`);
   console.log(already ? 'Already verified this pull on this issue; nothing to do.' : body);
 };
 
@@ -481,7 +490,7 @@ export const inbox = async () => {
       const issue =
         earlier ??
         (await github<Issue>(`/repos/${REPO}/issues`, token, {
-          title: `[Hall of Fame] ${pull.score.hand.name} by ${safe(pull.proof.name) || 'Anonymous'}`,
+          title: `[Hall of Fame] ${pull.score.hand.name} by ${safe(publicName(pull.proof.name))}`,
           body: `${siteUrl()}#/pull/${proof}\n\nSubmitted without a GitHub account, through public Nostr relays (event \`${event.id}\`).`,
           labels: ['hall-of-fame'],
         }));

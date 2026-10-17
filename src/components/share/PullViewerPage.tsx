@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link2, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { checkPull, previewFor, pullUrl, type CheckedPull } from '../../game/pulls';
-import { normalizeName } from '../../engine';
+import { publicName } from '../../engine';
 import { setCode } from '../../content/sets';
 import PackCardViewer from '../ui/PackCardViewer';
 import Sheet from '../ui/Sheet';
@@ -80,7 +80,7 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
       title={hand}
       subtitle={
         <>
-          {pull.set.name} · {normalizeName(pull.proof.name) || 'Anonymous'} <span className="share-fp">#{pull.fingerprint}</span>
+          {pull.set.name} · {publicName(pull.proof.name)} <span className="share-fp">#{pull.fingerprint}</span>
         </>
       }
       onClose={onClose}

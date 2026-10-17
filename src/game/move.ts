@@ -16,7 +16,7 @@
  */
 import { STORAGE_KEYS } from '../constants';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
-import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY, ticketCount } from './player';
+import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY, ticketCount, withAllowedName } from './player';
 import { isQuotaError, isValidSaveValue } from './saveFile';
 
 const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
@@ -172,6 +172,8 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   if (here && here === secretOf(incoming[PLAYER_KEY])) return 'same';
   // The same checks as an imported file (saveFile.ts), before asking or writing anything.
   if (PLAYER_KEY in incoming && !parsePlayer(incoming[PLAYER_KEY])) return 'invalid';
+  // A blocked display name isn't brought over (see isNameAllowed): this is never the player here (see 'same').
+  if (PLAYER_KEY in incoming) incoming[PLAYER_KEY] = withAllowedName(incoming[PLAYER_KEY]);
   // No version key means the first format (runMigrations reads it so). Written explicitly, so this
   // browser's own version can't stand in for an older save's and skip its migrations.
   const version = incoming[DATA_VERSION_KEY] ?? '1';

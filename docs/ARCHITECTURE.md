@@ -195,6 +195,22 @@ what a valid ticket derives; server/build verification and the UI checks describ
 those proof rules, rather than delivery or mining fairness. A maintainer can drop an entry using
 its issue's `rejected` label.
 
+**Display names.** A name is signed into every proof and proofs are permanent, so moderation never
+changes what verifies: `isNameAllowed` (`src/engine/nameFilter.ts`) only decides what is saved,
+published and shown. Settings rename and save import refuse a blocked name. The relay inbox skips a
+blocked-name pull before verifying it (no budget spent), `verify-issue` refuses one and labels its
+issue `rejected`, the build leaves `rejected` issues and blocked names out, and the page's pending
+check skips them. Other players' names show through `publicName`: a blocked one reads "Player"
+beside the key fingerprint in Rankings, shared pull links and shared profiles.
+
+- Removal, including a reported name the check missed: the owner adds the `rejected` label to the
+  entry's issue and the next deploy leaves it out. The workflows never take that label off, and the
+  issue still counts as filed, so the relays can't file the same pull again.
+- A name the check refused: the player renames in Profile, shares the pull again (a new link to the
+  same pull) and submits it again.
+- Appeal: the player opens an issue. The owner takes `rejected` off a wrongly removed entry, or fixes
+  the word list for a wrongly blocked name so the pull can be submitted again.
+
 **Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score. The published file also
 keeps the best 50 pulls filed on the build's UTC day and the day before (`dailyPulls`, by
 `submittedAt`), which Rankings' Today tab and its "yesterday's best" read. So it holds at most

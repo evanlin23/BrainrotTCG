@@ -42,11 +42,13 @@ jobs:
           ISSUE: ${{ github.event.issue.number }}
           VERIFIED: ${{ steps.check.outputs.verified }}
           LABEL: ${{ steps.check.outputs.label }}
+          REJECTED: ${{ steps.check.outputs.rejected }}
         run: |
           gh label create hall-of-fame --color FF3DF2 --description "Hall of Fame submission" 2>/dev/null || true
           gh label create verified --color 2BFF6A --description "Pull verified" 2>/dev/null || true
           gh label create daily --color 2BD9FF --description "Pull verified for the daily top" 2>/dev/null || true
           gh label create not-verified --color 999999 --description "Pull did not verify or qualify" 2>/dev/null || true
+          gh label create rejected --color B60205 --description "Kept out of the Hall of Fame" 2>/dev/null || true
           gh issue comment "$ISSUE" --body-file hof-comment.md
           if [ "$VERIFIED" = "true" ]; then
             # `daily`: it only made the day's top, so deploys list it for a day or two. Anything
@@ -62,6 +64,9 @@ jobs:
             gh issue edit "$ISSUE" --add-label hall-of-fame,not-verified
             gh issue edit "$ISSUE" --remove-label verified 2>/dev/null || true
             gh issue edit "$ISSUE" --remove-label daily 2>/dev/null || true
+            # A display name that isn't allowed keeps the issue out of every deploy. Only the owner
+            # removes `rejected`, since they add it by hand too.
+            if [ "$REJECTED" = "true" ]; then gh issue edit "$ISSUE" --add-label rejected; fi
           fi
 
   # The only job that can start a deploy, and all it can do. It runs only if verify succeeded.

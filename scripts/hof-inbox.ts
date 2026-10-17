@@ -3,7 +3,7 @@
  * GitHub so it can be tested: which relay events become Hall of Fame entries, and the log lines
  * that carry relay or issue text.
  */
-import { decodeProof, pullId, qualifiesForHallOfFame, verifyProof, type SetLookup, type TicketFn, type VerifiedPull } from '../src/engine/index.ts';
+import { decodeProof, isNameAllowed, pullId, qualifiesForHallOfFame, verifyProof, type PullProof, type SetLookup, type TicketFn, type VerifiedPull } from '../src/engine/index.ts';
 import { proofFromEvent, scoreHintFromEvent, verifyEvent, type NostrEvent, type PublishResult } from '../src/game/nostrInbox.ts';
 
 export interface InboxContext {
@@ -65,14 +65,23 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
   for (const [i, event] of ordered.entries()) {
     if (ctx.seen.has(event.id)) continue;
     const proof = verifyEvent(event) ? proofFromEvent(event) : null;
+    let decoded: PullProof | null;
     let id: string | null;
     try {
-      id = proof ? pullId(decodeProof(proof)) : null;
+      decoded = proof ? decodeProof(proof) : null;
+      id = decoded ? pullId(decoded) : null;
     } catch {
+      decoded = null;
       id = null;
     }
-    if (!proof || !id || ctx.filed.has(id)) {
+    if (!proof || !decoded || !id || ctx.filed.has(id)) {
       ctx.seen.add(event.id);
+      continue;
+    }
+    // A blocked display name is never filed (see isNameAllowed), so its proof isn't worth checking.
+    if (!isNameAllowed(decoded.name)) {
+      ctx.seen.add(event.id);
+      ctx.log?.(`${event.id}: display name isn't allowed; not filed`);
       continue;
     }
     const hint = scoreHintFromEvent(event);

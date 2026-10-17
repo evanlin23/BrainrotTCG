@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link2, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react';
-import { levelForXp, normalizeName, profileStats } from '../../engine';
+import { levelForXp, profileStats, publicName } from '../../engine';
 import { profileUrl, verifyProfileLive, type ProfileProgress } from '../../game/profiles';
 import ProfileSummary from './ProfileSummary';
 import Sheet from '../ui/Sheet';
@@ -84,7 +84,7 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
   const { checked, packs, done, error, highlights } = state;
   const fake = error?.rule === 'claims';
   const total = checked.tickets.length;
-  const name = normalizeName(checked.profile.name) || 'Anonymous';
+  const name = publicName(checked.profile.name);
   return (
     <Sheet
       title={name}

@@ -161,6 +161,21 @@ describe('saving the display name', () => {
     expect(playerWrites()).toEqual([]);
     expect(storedName()).toBe('Original Player');
   });
+
+  it('refuses a name that is not allowed, keeping the current one and the draft to edit', () => {
+    type('xXfuckXx');
+    clickSave();
+    expect(status()).toBe("That name isn't allowed here. Try another one; your current name stays.");
+    expect(input().value).toBe('xXfuckXx');
+    expect(heading()).toBe('Original Player');
+    expect(playerWrites()).toEqual([]);
+    expect(storedName()).toBe('Original Player');
+    expect(onRenamed).not.toHaveBeenCalled();
+    // Leaving with it doesn't write it either, or report a failed save.
+    leave();
+    expect(playerWrites()).toEqual([]);
+    expect(onSaveFailed).not.toHaveBeenCalled();
+  });
 });
 
 describe('the status line', () => {
