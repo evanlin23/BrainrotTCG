@@ -1,11 +1,11 @@
 /**
  * Booster pack wrapper for a set, built from the set itself: its colours, the
- * logo mark (src/styles/logoMark.ts) and its three rarest cards. Written to `src/content/sets/<set>/pack.webp`, with a small
+ * site logo (the mark in src/styles/logoMark.ts and the Rubik Glitch wordmark) and its three rarest cards. Written to `src/content/sets/<set>/pack.webp`, with a small
  * `pack-thumb.webp` for the pack picker.
  *
  * Layout (768x1376, same shape as the pack opener): crimped foil edges, the
  * flap above the tear line (19%) is left clear for the set ribbon the app
- * draws, then the mark, a fan of cards and the era.
+ * draws, then the logo, a fan of cards and the era.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -13,12 +13,13 @@ import sharp, { type OverlayOptions } from 'sharp';
 import { RARITIES_RAREST_FIRST, type SetDefinition } from '../../src/engine/index.ts';
 import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../../src/styles/logoMark.ts';
 import { SETS_DIR } from './lib.ts';
+import { logoFont, trackedText } from './logo.ts';
 import { bodyFont, centredText, fitSize, titleFont } from './text.ts';
 
 export const PACK_WIDTH = 768;
 export const PACK_HEIGHT = 1376;
 /** Bump when the design changes, so `npm run cards` rebuilds every pack. */
-const DESIGN_VERSION = 5;
+const DESIGN_VERSION = 6;
 
 const W = PACK_WIDTH;
 const H = PACK_HEIGHT;
@@ -131,16 +132,51 @@ const cardLayer = async (path: string, height: number, angle: number) => {
     .toBuffer({ resolveWithObject: true });
 };
 
-/** The logo slot under the ribbon, where the old badge sat. */
-const LOGO_SLOT = { size: 280, top: 278 };
+/** The logo's band: under the flap the set ribbon covers (19%), above the centre card (568). */
+export const LOGO_SLOT = { top: 288, bottom: 540, width: 660 };
 
 /**
- * The mark filling the slot, white outlined in the era text's ink so it reads on every set's
- * colours. (The black favicon tile read too, but sat on the foil as a heavy block.)
+ * The site header's wordmark (src/styles/index.css `.app-logo`): Rubik Glitch capitals in --text,
+ * tracked 0.06em with a 0.3em word gap, misprinted in --brand-ink at 0.06em then --brand at 0.09em.
  */
-const logoSvg = () =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${LOGO_SLOT.size}" height="${LOGO_SLOT.size}" viewBox="-4 -4 ${LOGO_MARK_SIZE + 8} ${LOGO_MARK_SIZE + 8}">` +
-  `<path d="${LOGO_MARK_PATH}" fill="#fff" stroke="#12002a" stroke-width="3.6" stroke-linejoin="round" paint-order="stroke"/></svg>`;
+export const LOGO_STYLE = {
+  text: 'BRAINROT TCG',
+  face: '#f3efe6',
+  ink: '#17130a',
+  brand: '#ffd23f',
+  inkOffset: 0.06,
+  brandOffset: 0.09,
+  tracking: 0.06,
+  space: 0.3,
+};
+
+/**
+ * The logo for the slot: the wordmark as wide as the slot allows along its bottom, and the mark
+ * centred above it. Stacked rather than the header's single row, where the mark would be a 50px
+ * chip on a 768px wrapper. Both get the wordmark's misprint, as the header's mark does. Returns the
+ * W x H overlay, the wordmark's size, and where the mark and the wordmark's ink sit.
+ */
+export const logoLockup = () => {
+  const s = LOGO_STYLE;
+  const unit = trackedText(logoFont, s.text, 0, 0, 1, s.tracking, s.space).ink;
+  const size = Math.floor(LOGO_SLOT.width / (unit.right - unit.left + s.brandOffset));
+  const misprint = s.brandOffset * size;
+  // The printed ink, misprint included, centred across the face and resting on the slot's bottom.
+  const x = W / 2 - ((unit.left + unit.right) * size + misprint) / 2;
+  const baseline = LOGO_SLOT.bottom - misprint - unit.bottom * size;
+  const text = trackedText(logoFont, s.text, x, baseline, size, s.tracking, s.space);
+  const markSize = text.ink.top - 0.4 * size - LOGO_SLOT.top;
+  const mark = { x: W / 2 - (markSize + misprint) / 2, y: LOGO_SLOT.top, size: markSize };
+  const markPath = `<path transform="translate(${mark.x.toFixed(2)} ${mark.y.toFixed(2)}) scale(${(markSize / LOGO_MARK_SIZE).toFixed(4)})" d="${LOGO_MARK_PATH}"/>`;
+  const layer = (offset: number, fill: string) => `<use href="#logo" x="${(offset * size).toFixed(2)}" y="${(offset * size).toFixed(2)}" fill="${fill}"/>`;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+    `<defs><g id="logo">${markPath}<path d="${text.d}"/></g></defs>` +
+    `${layer(s.brandOffset, s.brand)}${layer(s.inkOffset, s.ink)}${layer(0, s.face)}</svg>`;
+  return { svg, size, mark, text };
+};
+
+const logoSvg = () => logoLockup().svg;
 
 const inputHash = (set: SetDefinition, cardFiles: string[]) => {
   const h = createHash('sha256').update(JSON.stringify({ DESIGN_VERSION, palette: set.palette, era: set.era, packSize: set.packSize }));
@@ -171,7 +207,7 @@ export const buildSetPack = async (set: SetDefinition, manifest: Record<string, 
   }
 
   const layers: OverlayOptions[] = [];
-  layers.push({ input: Buffer.from(logoSvg()), left: Math.round(W / 2 - LOGO_SLOT.size / 2), top: LOGO_SLOT.top });
+  layers.push({ input: Buffer.from(logoSvg()), left: 0, top: 0 });
   // Fan: sides first, rarest card last so it sits on top in the middle.
   const fan = [
     { file: cards[1], dx: -200, top: 610, angle: -10, height: 470 },
