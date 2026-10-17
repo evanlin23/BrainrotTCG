@@ -272,6 +272,29 @@ describe('recording a ticket before its pack is in hand', () => {
     expect(admitted()).toMatchObject({ setId: 'right-now', openedAt: 1_200 });
   });
 
+  it('lists a pack stored as several stand-ins and full entries once, in its first stand-in\'s place, as the fill will store it', () => {
+    const data = installStorage();
+    recordPack(pack(5, { openedAt: 3_000 }));
+    const [full] = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as { k: string }[];
+    const standIn = (n: number, t: number) => ({ s: 'right-now', v: 1, n, k: full.k, h: '', x: 0, t });
+    // Pack 5 as two full entries (the older one without its cards, as a full store leaves it) and two
+    // stand-ins; pack 6 as two stand-ins with no full entry. Imported backups or older builds can leave either.
+    const raw = JSON.stringify([
+      standIn(6, 2_800), full, standIn(5, 1_500), { ...full, c: undefined, t: 1_400 }, standIn(6, 1_300), standIn(5, 1_200),
+    ]);
+    data.set(STORAGE_KEYS.HISTORY, raw);
+    const listed = () => getHistory().map((e) => [e.nonce, e.openedAt]);
+    expect(listed()).toEqual([[6, 2_800], [5, 1_500]]);
+    // Filled from the first full entry stored, which still has its cards.
+    expect(getHistory().map((e) => e.cards?.length ?? null)).toEqual([null, 5]);
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(raw);
+
+    expect(recordPack(pack(5, { openedAt: 4_000 }))).toBe(true);
+    expect(recordPack(pack(6, { openedAt: 4_000 }))).toBe(true);
+    expect(listed()).toEqual([[6, 2_800], [5, 1_500]]);
+    expect(JSON.parse(data.get(STORAGE_KEYS.HISTORY)!)).toHaveLength(2);
+  });
+
   it('reports a history it could not read or write', () => {
     installStorage(10);
     expect(recordTicket('right-now', 1, 0, KEY, 1)).toBe(false);

@@ -128,28 +128,31 @@ const sameAssignment = (a: Stored, b: Stored) => sameTicket(a, b) && a.s === b.s
 const assignmentOf = (e: Stored) => JSON.stringify([e.k, e.n, e.s, e.v]);
 
 /**
- * A stand-in stored beside its own pack's full entry (an imported backup or an older build kept both)
- * is the same pack, so it is listed once, as recordPack or recordMissing will store it: the pack in the
- * first stand-in's place with that stand-in's time (replaceStandIn), so a profile's firstOpened picks
- * the same ticket before and after. Read-side only: the stored history stays as it is until then.
+ * A stand-in stored beside its own pack's full entry, or beside another stand-in for it (an imported
+ * backup or an older build kept both), is the same pack, so it is listed once, as recordPack or
+ * recordMissing will store it: in the first stand-in's place with that stand-in's time (replaceStandIn),
+ * filled by the pack's full entry if there is one, so a profile's firstOpened picks the same ticket
+ * before and after. Read-side only: the stored history stays as it is until then.
  */
 const withoutSpareStandIns = (entries: Stored[]): Stored[] => {
   const stubs = new Set(entries.filter(isTicketOnly).map(assignmentOf));
   if (stubs.size === 0) return entries;
-  // The newest full entry of each assignment that also has a stand-in.
+  // The first full entry stored for each assignment that also has a stand-in. Every copy is the same
+  // pack; the history is kept newest first and a full store drops cards from the end (write), so the
+  // first is the likeliest to still carry its cards.
   const full = new Map<string, Stored>();
   for (const e of entries) {
     const a = assignmentOf(e);
     if (!isTicketOnly(e) && stubs.has(a) && !full.has(a)) full.set(a, e);
   }
-  const filled = new Set<string>();
+  const listed = new Set<string>();
   return entries.flatMap((e) => {
     const a = assignmentOf(e);
+    if (!stubs.has(a)) return [e];
+    if (listed.has(a) || !isTicketOnly(e)) return [];
+    listed.add(a);
     const pack = full.get(a);
-    if (!pack) return [e];
-    if (filled.has(a) || !isTicketOnly(e)) return [];
-    filled.add(a);
-    return [fillStandIn(e, pack)];
+    return [pack ? fillStandIn(e, pack) : e];
   });
 };
 

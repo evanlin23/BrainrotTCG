@@ -78,7 +78,8 @@ const nextRender = () => {
 
 /**
  * Runs `render` now when a slot is free, otherwise once one is. A queued render that nothing wants
- * by its turn (`wanted` is false) gives its slot straight on and rejects without starting.
+ * by its turn (`wanted` is false) gives its slot straight on and rejects without starting, with an
+ * AbortError so a holder that let go of it can tell it from a failed render.
  */
 const limitRenders = <T>(render: () => Promise<T>, wanted: () => boolean): Promise<T> => {
   const run = () => new Promise<T>((resolve) => resolve(render())).finally(nextRender);
@@ -89,7 +90,9 @@ const limitRenders = <T>(render: () => Promise<T>, wanted: () => boolean): Promi
   return new Promise<void>((resolve) => waiting.push(resolve)).then(() => {
     if (wanted()) return run();
     nextRender();
-    throw new Error('Finish render no longer needed');
+    const dropped = new Error('Finish render no longer needed');
+    dropped.name = 'AbortError';
+    throw dropped;
   });
 };
 
