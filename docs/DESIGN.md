@@ -15,10 +15,13 @@ from a 390 px wide screen.
    picker come once their first pack is saved and they leave it. There the Open pack button is brand
    filled, the one obvious action (#80); once the nav is in it steps back to secondary under the swipe.
    The tear line is the wrapper's seam (#267): a white perforation over a soft brand-and-foil band, with
-   a brand arrowhead at each end. A swipe along it covering a fifth of the pack opens it on release (over
-   and back counts by its span), three tenths while still moving; a vertical drag never does, and a
-   swipe under a fifth is let go without opening. These are design choices (`RELEASE_CUT_RATIO` 0.2,
-   `DRAG_CUT_RATIO` 0.3 and a 32px floor in `usePackCutter.ts`, checked in `tests/browser/pack-swipe.spec.ts`).
+   a brand arrowhead at each end. A swipe can start anywhere in the top third of the pack (at least 80px
+   under the seam), not only on it, and may drift up or down by up to 1.5 times its distance across
+   (#626). One covering an eighth of the pack opens it on release (over and back counts by its span),
+   three tenths while still moving; a mostly vertical drag never does, and a swipe under an eighth is
+   let go without opening. These are design choices (`RELEASE_CUT_RATIO` 0.12, `DRAG_CUT_RATIO` 0.3,
+   `MAX_DRIFT_RATIO` 1.5, the start band and a 32px floor in `usePackCutter.ts`, checked in
+   `tests/browser/pack-swipe.spec.ts`).
    The Open pack button under the pack opens it for a tap, a key or a screen reader.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.

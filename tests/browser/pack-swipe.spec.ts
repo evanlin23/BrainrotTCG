@@ -1,8 +1,10 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { monitor, expectDecoded, fingerFor, type Finger } from './support';
 
-// A short swipe along the tear line opens the pack when it's released (#312), one under a fifth of
-// the pack doesn't, and the Open pack button opens it for a tap (#267). The phone project swipes with
+// A short swipe along the tear line opens the pack when it's released (#312), one under an eighth of
+// the pack doesn't, and the Open pack button opens it for a tap (#267). A press can start anywhere in
+// the top third of the pack, and a stroke can drift up or down (#626): usePackCutter.test.tsx drives
+// those at every size, this file the real browser. The phone project swipes with
 // touch events in Pixel 5 emulation, which is not a real phone.
 
 /** Opens the app and returns the sealed pack, scrolled into view with its art loaded. */
@@ -18,7 +20,7 @@ async function sealedPack(page: Page) {
 /**
  * Presses the tear line at the first fraction of the pack's width, moves through the rest in small
  * steps, and checks the stroke is still cutting, not yet torn, before it's released. The full swipes
- * below span 25% of the pack's width (0.375 to 0.625): past RELEASE_CUT_RATIO (20%) so release tears
+ * below span 25% of the pack's width (0.375 to 0.625): past RELEASE_CUT_RATIO (12%) so release tears
  * it, and short of DRAG_CUT_RATIO (30%) so the stroke is still cutting, not torn, until then.
  */
 async function swipeTearLine(page: Page, packShell: Locator, finger: Finger, ...across: number[]) {
@@ -58,13 +60,13 @@ test('a swipe that goes over and comes back opens the pack on release', async ({
   expect(errors).toEqual([]);
 });
 
-test('a swipe under a fifth of the pack is let go without opening it, and a real swipe still does', async ({ page, baseURL, hasTouch }) => {
+test('a swipe under an eighth of the pack is let go without opening it, and a real swipe still does', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   const packShell = await sealedPack(page);
   const finger = await fingerFor(page, hasTouch);
-  // 15% draws the cut while the finger moves (it is plainly across) but is short of the release ratio.
-  await swipeTearLine(page, packShell, finger, 0.42, 0.57);
+  // 10% draws the cut while the finger moves (it is plainly across) but is short of the release ratio.
+  await swipeTearLine(page, packShell, finger, 0.45, 0.55);
   // Long enough for a release that would open the pack to have started the tear.
   await page.waitForTimeout(400);
   await expect(packShell).not.toHaveClass(/\bis-cut\b/);
@@ -164,8 +166,8 @@ test.describe('at a phone size', () => {
     const box = (await packShell.boundingBox())!;
     const xAt = (fraction: number) => box.x + box.width * fraction;
     const tearY = box.y + box.height * 0.19;
-    // Further below the tear line than its widest tolerance (52px), on the art.
-    const startY = tearY + 80;
+    // Well below the start band (the top third of the pack, or 80px under the tear line), on the art.
+    const startY = box.y + box.height * 0.6;
     const onPack = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.pack-shell'), [xAt(0.15), startY]);
     expect(onPack, 'the swipe starts on the pack').toBe(true);
     await watchForCut(packShell);
