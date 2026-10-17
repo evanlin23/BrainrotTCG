@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, snapshot } from './support';
+import { monitor, snapshot, holdTickets, releaseTickets } from './support';
 
 /**
  * Focus mode (#312): from the tear to leaving the pack, summary included, the chrome steps aside. On a
@@ -77,18 +77,8 @@ test('keeps the chrome out of the way through the reveal and the summary, which 
 test('the X while the ticket is still on its way brings the chrome straight back', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!, 0, { returning: true });
-  // Hold the ticket worker's jobs until released, so the tear waits on a ticket that's still mining.
-  await page.addInitScript(() => {
-    const held: (() => void)[] = [];
-    let holding = true;
-    const native = Worker.prototype.postMessage;
-    Worker.prototype.postMessage = function (this: Worker, ...args: Parameters<Worker['postMessage']>) {
-      const send = () => (native as (...a: unknown[]) => void).apply(this, args);
-      if (holding) held.push(send);
-      else send();
-    } as Worker['postMessage'];
-    Object.defineProperty(window, '__releaseTickets', { value: () => { holding = false; held.splice(0).forEach((send) => send()); } });
-  });
+  // The tear waits on a ticket that's still mining.
+  await holdTickets(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
 
@@ -100,7 +90,7 @@ test('the X while the ticket is still on its way brings the chrome straight back
   await expect(packShell(page)).toBeVisible();
 
   // The torn pack still lands and is recorded once, without taking the screen back.
-  await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
+  await releaseTickets(page);
   await expect.poll(async () => (await snapshot(page)).stats?.packsOpened, { timeout: 20000 }).toBe(2);
   await expectChrome(page, false);
   expect(errors).toEqual([]);
