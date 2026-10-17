@@ -32,6 +32,7 @@ import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
+import { useSetLink } from './hooks/useSetLink';
 import { useProgressWriter } from './hooks/useProgressWriter';
 import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
@@ -171,6 +172,8 @@ function App() {
     setSelectedSetId(setId);
     saveSelectedSet(setId);
   }, [setSelectedSetId]);
+  // A set's link opens the packs screen on that set (see useSetLink).
+  useSetLink(playableSets, packBusy, selectSet);
 
   // Each page names the tab; back on the packs screen, focus returns to the top of it (the page's
   // own heading takes focus itself, see Page). Back over a pack, the chrome has stepped aside (on a

@@ -30,3 +30,9 @@ export const PAGE_TITLES: Record<Exclude<Page, 'open'>, string> = {
 
 /** Fired after something else in the app adds a history entry (a pack's), so the route knows what's current. */
 export const HISTORY_ENTRY_EVENT = 'brainrot:history-entry';
+
+/** The hash a set's link (s/<set id>/, scripts/preview-pages.ts) opens: Open, with that set chosen. */
+export const setLinkHash = (setId: string) => `#/set/${setId}`;
+
+/** The set a set link names, or null. Set ids are lowercase words joined by '-'. */
+export const setIdFromHash = (hash: string): string | null => /^#\/set\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/.exec(hash)?.[1] ?? null;

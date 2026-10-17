@@ -11,7 +11,8 @@
  * are drawn.
  *
  * It also writes a page per released set at s/<set id>/ (with a picture of the set's rarest cards),
- * so a link to a set unfurls as that set. Like the pull pages, it forwards to the app.
+ * so a link to a set unfurls as that set. Like the pull pages, it forwards to the app, opening the
+ * packs screen on that set (#/set/<set id>).
  *
  * SITE_URL (the site's absolute address, for the image) and BASE_PATH (its path) default to the
  * GitHub Pages address, like vite.config.ts. After a move, the deploy also writes the pages (without
@@ -24,7 +25,8 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { ALL_SET_VERSIONS, SETS } from '../src/content/sets/index.ts';
 import { POKER_HANDS, RARITIES_RAREST_FIRST, type HandKey, type SetDefinition } from '../src/engine/index.ts';
-import { cardPreviewPath, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
+import { cardPreviewPath, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
+import { setLinkHash } from '../src/game/route.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -76,10 +78,15 @@ export interface PageMeta {
   image: string;
   /** The page's own absolute address, for pages a link can point at as they are (not the pull pages, whose links carry the pull). */
   url?: string;
+  /** Where in the app the page opens when its link carries no pull: a set's page opens on that set. */
+  landing?: string;
 }
 
-/** A tiny page with link-preview tags (as index.html has them) that forwards to the app at `base`, keeping a pull in its '#'. */
-export const page = ({ title, description, image, url }: PageMeta, base: string) => `<!doctype html>
+/**
+ * A tiny page with link-preview tags (as index.html has them) that forwards to the app at `base`,
+ * keeping a pull in its '#', or else opening at `landing`.
+ */
+export const page = ({ title, description, image, url, landing = '' }: PageMeta, base: string) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -99,10 +106,10 @@ ${url ? `<meta property="og:url" content="${escape(url)}">\n` : ''}<meta propert
 <meta name="twitter:image" content="${escape(image)}">
 <meta name="theme-color" content="#121114">
 <meta name="robots" content="noindex">
-<script>location.replace(${JSON.stringify(base)} + (location.hash.indexOf('#/pull/') === 0 ? location.hash : ''));</script>
+<script>location.replace(${JSON.stringify(base)} + (location.hash.indexOf('#/pull/') === 0 ? location.hash : ${JSON.stringify(landing)}));</script>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#121114;color:#f2efe9;font:16px system-ui,sans-serif}a{color:#ffd23f}</style>
 </head>
-<body><a href="${escape(base)}">Open Brainrot TCG</a></body>
+<body><a href="${escape(base + landing)}">Open Brainrot TCG</a></body>
 </html>
 `;
 
@@ -112,6 +119,8 @@ export interface SetStub {
   path: string;
   /** Its address, relative to the site's root. */
   url: string;
+  /** Where in the app it opens: the packs screen on this set. */
+  landing: string;
   /** Its picture, relative to the site's root. */
   imagePath: string;
   title: string;
@@ -120,14 +129,19 @@ export interface SetStub {
   cardIds: string[];
 }
 
-/** A page for each released set (drafts have none): s/<set id>/, showing its rarest cards. */
+/**
+ * A page for each released set (drafts have none): s/<set id>/, showing its rarest cards. An
+ * archived set keeps its page, so links already shared to it still load; the app opens on its
+ * default set when the linked one can't be opened.
+ */
 export const setStubs = (sets: readonly SetDefinition[] = SETS): SetStub[] =>
   sets
     .filter((set) => !set.draft)
     .map((set) => ({
       setId: set.id,
-      path: `s/${set.id}/index.html`,
-      url: `s/${set.id}/`,
+      path: `${setPagePath(set.id)}index.html`,
+      url: setPagePath(set.id),
+      landing: setLinkHash(set.id),
       imagePath: `s/${set.id}/preview.jpg`,
       title: set.name,
       description: `${set.tagline ?? set.name} (${set.era}, ${set.cards.length} cards). Every pull is verifiable.`,
@@ -243,7 +257,7 @@ export const generatePreviews = async ({ outDir, pagesOnly, base, site, versions
   }
   // A link to a set.
   for (const stub of setStubs(current)) {
-    writePage(stub.path, `set ${stub.setId}`, { title: stub.title, description: stub.description, image: `${site}${stub.imagePath}`, url: `${site}${stub.url}` });
+    writePage(stub.path, `set ${stub.setId}`, { title: stub.title, description: stub.description, image: `${site}${stub.imagePath}`, url: `${site}${stub.url}`, landing: stub.landing });
     images.push(() => rowImage(stub.imagePath, stub.cardIds.map((id) => art(stub.setId, id))));
   }
 
