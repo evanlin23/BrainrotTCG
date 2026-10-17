@@ -1,7 +1,7 @@
 /**
  * The published Hall of Fame (public/hall-of-fame.json, built by scripts/hall-of-fame.ts during
- * deploy): the top pulls, each set's firsts and the daily tops. The page shows the published entries
- * as built, and re-checks only the pending ones it reads from the relays (`loadPending`).
+ * deploy): the top pulls and the daily tops of the last two UTC days. The page shows the published
+ * entries as built, and re-checks only the pending ones it reads from the relays (`loadPending`).
  */
 import { decodeProof, hallOfFameJoin, pullId, utcDay, type Finish, type RankableEntry } from '../engine';
 import { checkPull } from './pulls';
@@ -18,6 +18,8 @@ export interface HallOfFameEntry extends RankableEntry {
   githubUser: string;
   /** On the relays and checked on this device, but not filed yet (see `loadPending`). */
   pending?: boolean;
+  /** A pending entry that this device sent itself: the only one the page calls "Just submitted". */
+  mine?: boolean;
 }
 
 /** Entries from before ids were published get theirs from the proof (a bad proof keys on its text). */
@@ -63,13 +65,16 @@ const PENDING_LIMIT = 10;
  * them on their own device, so a pull shows as soon as it's sent. Each one that would join the list
  * is handed to `onEntry` as it's checked. One that would only join today's top (UTC) counts only if
  * it was sent today: a daily pull leaves the published list after about two days, and an older
- * event must not come back as today's.
+ * event must not come back as today's. Resolves to whether any relay could be read: false when every
+ * one failed, so the page can say the live feed is down rather than let that look like an empty board.
  */
-export const loadPending = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal) => {
+export const loadPending = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal): Promise<boolean> => {
   const { fetchEvents, proofFromEvent, HOF_KIND, HOF_TAG } = await import('./nostrInbox');
-  if (signal.aborted) return;
+  if (signal.aborted) return true;
   const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
-  const { events } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: 100 }, undefined, 5000, undefined, 1, signal);
+  const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: 100 }, undefined, 5000, undefined, 1, signal);
+  // An aborted read fails every relay too, but nobody is waiting on that answer.
+  const reached = signal.aborted || events.length > 0 || perRelay.some((relay) => !relay.error);
   const listed = new Set(published.map((e) => e.id));
   const seen = new Set<string>();
   const candidates = events
@@ -92,11 +97,11 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
   const list: RankableEntry[] = [...published];
   const today = utcDay(new Date().toISOString());
   const todayStart = Date.parse(`${today}T00:00:00.000Z`) / 1000;
-  for (const [i, { event, proof, id }] of candidates.entries()) {
-    if (signal.aborted) return;
+  for (const [i, { event, proof, id, mine }] of candidates.entries()) {
+    if (signal.aborted) return true;
     try {
       const pull = await checkPull(proof, signal);
-      // The same test the inbox applies before filing it: the top pulls, a first, or today's top (UTC).
+      // The same test the inbox applies before filing it: the top pulls or today's top (UTC).
       const join = hallOfFameJoin({ id, setId: pull.set.id, score: pull.score }, list, today);
       if (!join || (join === 'daily' && event.created_at < todayStart)) continue;
       const entry: HallOfFameEntry = {
@@ -116,6 +121,7 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
         // already filed: it counts as now.
         submittedAt: new Date().toISOString(),
         pending: true,
+        ...(mine ? { mine: true } : {}),
       };
       list.push(entry);
       if (!signal.aborted) onEntry(entry);
@@ -123,4 +129,5 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
       // didn't verify: never shown
     }
   }
+  return reached;
 };

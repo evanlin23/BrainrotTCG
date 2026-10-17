@@ -38,7 +38,7 @@ flowchart LR
 ```
 
 GitHub keeps verified submission issues used to build the Hall of Fame list; public Nostr relays
-carry submissions from players without a GitHub account. Either can omit or delay submissions. The build verifies issues
+carry the game's submissions, which need no GitHub account. Either can omit or delay submissions. The build verifies issues
 (or reuses cached verification). The Rankings page doesn't re-derive published entries again: each
 row links to its pull, and opening a pull link verifies its proof. Relay submissions not filed yet
 are re-derived on the device before they show.
@@ -57,7 +57,8 @@ src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the brows
   scoring.ts         Brainrot Score: rarity points x combo multipliers, all derived from the odds
   odds.ts            exact combo odds for any set (powers the in-game scoring guide)
   hallOfFame.ts      what qualifies for the Hall of Fame (shared by UI and CI)
-  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors
+  rankings.ts        ranking boards: one snapshot schema, Best packs and Best cards selectors,
+                     `cardVersionBoards`
 
 src/content/       Set data, art and registry; existing schemas use the existing engine.
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
@@ -137,14 +138,17 @@ hardware-fairness guarantee.
 
 Known limits: a proof cannot establish how many tickets someone searched, that they used the
 browser or that a human opened a pack. "Verified" means *these cards derive from the signed ticket
-inputs*. Hall of Fame "world firsts" use the bot's verification time, not a witnessed opening time.
+inputs*. Hall of Fame order between equal scores uses the bot's verification time, not a witnessed
+opening time.
 
 Strict key/signature validation and canonical encoding rules are specified in `spec/PULL_SPEC.md`
 section 7 and covered by the vectors, including small-order key and malleable-encoding cases.
 
 ## Hall of Fame (no server)
 
-There are two submission paths; the default relay path needs no GitHub account.
+The game submits through public relays, so players need no GitHub account. The GitHub issue form
+(`.github/ISSUE_TEMPLATE/hall-of-fame.yml`) and its `verify-issue` workflow still work for an issue
+opened by hand, but the game no longer links to the form.
 
 ```
 player ─► Share ─► "Submit"  ─► signed Nostr event ─► 5 public relays
@@ -152,13 +156,13 @@ player ─► Share ─► "Submit"  ─► signed Nostr event ─► 5 public r
                     .github/workflows/hall-of-fame-inbox.yml
                     scripts/hall-of-fame.ts inbox  ─► bot-filed issue + comment + labels (+ redeploy)
                                    │
-player ─► Share ─► "on GitHub" ─► GitHub issue form (pull link; needs an account)
+by hand  ─► GitHub issue form (pull link; needs an account; not linked from the game)
                                    │
                     .github/workflows/hall-of-fame.yml
                     scripts/hall-of-fame.ts verify-issue  ─► comment + labels (+ redeploy)
                                    │
                     .github/workflows/deploy.yml
-                    scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + firsts + daily top 50)
+                    scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + two days' daily top 50)
                                    │
                     Rankings page shows it as published; pull links verify individually
 ```
@@ -191,18 +195,27 @@ what a valid ticket derives; server/build verification and the UI checks describ
 those proof rules, rather than delivery or mining fairness. A maintainer can drop an entry using
 its issue's `rejected` label.
 
-**Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score plus the first Full
-House, 4 of a Kind and 5 of a Kind in each set. The published file also keeps the best 50 pulls filed
-on the build's UTC day and the day before (`dailyPulls`, by `submittedAt`), which Rankings' Today tab
-and its "yesterday's best" read. The output is bounded by 100, plus three firsts per set, plus 100
-daily entries, with overlapping entries deduplicated; it grows with the number of sets. The rules
-live in `src/engine/hallOfFame.ts`. The share sheet, intake and the page's pending check test whether
-a qualifying pull would join the available published snapshot (`hallOfFameJoin`): beat the 100th
-place, be a first, or make the top 50 of the current UTC day. When the snapshot cannot be loaded,
+**Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score. The published file also
+keeps the best 50 pulls filed on the build's UTC day and the day before (`dailyPulls`, by
+`submittedAt`), which Rankings' Today tab and its "yesterday's best" read. So it holds at most
+`HALL_OF_FAME_MAX_ENTRIES` (200) entries, however many sets or submissions there are: the page loads
+it whole on every visit. Per-set world firsts were dropped (the page no longer shows them, and they
+grew the file with every set); older files that still carry them, or entries without an `id`, read
+as before. The rules live in `src/engine/hallOfFame.ts`. The share sheet, intake and the page's
+pending check test whether a qualifying pull would join the available published snapshot
+(`hallOfFameJoin`): beat the 100th place or make the top 50 of the current UTC day. When the snapshot cannot be loaded,
 they fall back to qualification. A pull that joins only through the daily top gets the `daily` label
 instead of `verified` (both workflows create the label if it's missing); intake refusals name the
 lowest of those bars. The proof checks are the same for both labels: `verifyProof` at intake, the
 bot's marker comment, and the re-check in the build.
+
+**Score floor.** Once both boards are full, `hallOfFameFloor` is the lower of the 100th place and
+the day's 50th; a pull at or below it can't join. Re-deriving a pack is the expensive step, so the
+relay inbox reads the score the sender's event claims and skips (marks seen, logs, spends no budget
+on) any event claiming the floor or less. The claim is untrusted: one claiming more is fully verified
+and refused if its real score doesn't join, so lying only costs the liar a check. An event with no
+claim is verified as before. Issue intake has no claim to read and low volume, so it verifies first
+and then refuses below the floor.
 The deploy writes the ranked list. Workflows attempt to close verified issues, and the build reads
 both open and closed states. It lists every `verified` issue, but `daily` issues only when updated
 since 00:00 UTC the day before (`since=`), and keeps a daily-only entry only when its `submittedAt`
@@ -219,10 +232,10 @@ verification result, but the build still lists verified issues across open and c
 misses, changed inputs and API failures affect work and freshness.
 
 Issue text is untrusted: it's only parsed by the script, never put into a shell command, and only
-echoed back through a sanitiser. The submitter's GitHub username comes from GitHub. "World first"
-order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
+echoed back through a sanitiser. The submitter's GitHub username comes from GitHub.
+Tie order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
 the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
-counts once in the top 100 and the firsts, however many times it's submitted or re-signed (the daily
+counts once in the top 100, however many times it's submitted or re-signed (the daily
 tops follow the eight-day rule above). A maintainer can drop an entry by adding
 the `rejected` label to its issue.
 
@@ -243,13 +256,14 @@ times are compared as instants: `selectBoard` and `rebuildBoard` rewrite every r
 coverage bound's included, in `receiptTime`'s millisecond form first, so GitHub's `…07Z` and a
 client's `…07.123Z` sort correctly. `receiptTime` takes only ISO 8601 UTC ending in `Z` and throws
 on anything else. Two equal cards in one pack rank the later slot first, the card `revealOrder` shows
-last. The pack summary's `bestPullOrder` lists the earlier slot first instead; boards don't follow it.
+last. The pack summary and the reopened pack's sheet (ShareSheet) show the cards in that same reveal
+order; the shared-pull page keeps engine order.
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
-| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | Rankings page |
-| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | Rankings page |
-| Best versions of this card (#224) | one card's instances | `pullId#slot` | - | card details |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | planned: Rankings page |
+| Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | planned: Rankings page |
+| Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
 Best packs and Best cards are tabs or sections of the existing Rankings page, not new primary nav
 destinations. Best versions of this card opens from a card's details.
@@ -260,6 +274,19 @@ destinations. Best versions of this card opens from a card's details.
   modifiers, set id and version, proof and slot.
 - **Independent cutoffs.** One proof can feed both boards. A weak pack with one great card makes
   Best cards without making Best packs.
+- **Best versions.** `cardVersionBoards` builds one all-time board per card, keyed by `cardKey`
+  (`setId/cardId`, as the collection, combos and card pages key it), so every version of a set holds
+  one board and another set's card of the same id stays apart. Each board has its own cutoff, ties
+  and completeness: an other-era instance makes only its card's board partial. A `through` bound
+  certifies one board, so it is refused here; rebuild a card's board with `rebuildBoard`. A card's
+  board takes only that card's instances: `selectBoard` and `rebuildBoard` throw on another card's.
+  Each pull holds at most one place on a card's board, its best copy of that card; the pull's other
+  copies count as duplicates. One instance received twice at the same instant with different proofs
+  keeps the lower proof, so the result doesn't depend on input order. These boards are complete only
+  with coverage `all`. Under `min-score` coverage (the pack intake minimum), a card missing from the
+  Map means unknown, not empty: none of its instances may have been filed, so it has no board at all,
+  and a card worth less than the bound that is present has a partial (`below-intake-minimum`) board.
+  Daily card boards and the card-details view come later.
 - **Scoring eras.** Eras are never merged. Bump `SCORING_ERA` whenever scoring changes any existing
   pull's points. A board holding older-era candidates is empty and partial (`scoring-changed`)
   until they are re-derived from their proofs.
@@ -335,12 +362,19 @@ download it. Nothing discards kept-aside data silently; the player can download 
 save warning or Settings. Export includes that archive. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
-import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; if the
-copy can't be stored, nothing is imported; a failed import keeps it). Fields the file omits keep their stored values, except that a
+import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; a failed
+import keeps it). If the copy can't be stored, or storage fills while it is there, everything is put back
+(the earlier copy too) and Settings offers "Replace without a copy", which imports with `keepCopy: false`
+after telling the player to export first. A storage refusal proves the quota is below what that write
+asked for; when the save with the file in place (no new copy) would need at least that, the answer is
+instead that the file is too big for this browser, and nothing is offered. Without a copy, App downloads
+the save from before on request if the import is left half done. Fields the file omits keep their stored values, except that a
 different player's save clears this browser's player fields (recovery archive included), which then
 stay only in that backup. It clears those fields, writes a new `brainrot-save-stamp-v1` before any imported field, clears
-them again (even ones that were absent, which a tab still on the old save may have just written), and writes the identity last; on failure it removes what it wrote and
-restores the previous values. That is structural validation and best-effort rollback, not a
+them again (even ones that were absent, which a tab still on the old save may have just written), removes
+every stored value the file replaces, so the old and new saves never both take up the ~5 MB quota, then
+writes the new values and the identity last; on failure it removes what it wrote and restores the previous
+values from memory. That is structural validation and best-effort rollback, not a
 transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
 A render error after React mounts shows `AppErrorBoundary`, which writes nothing except the opt-in
@@ -476,24 +510,32 @@ is cleared before the final save completes. Resumption and cache retention are b
 The cache stores reconstructed cards, not a server account or a backup of all history provenance.
 
 Collection, stats and achievements normally receive a pack when its reveal finishes, skips or the
-opener unmounts. The pending shelf, `brainrot-pending-packs-v2`, supports unfinished-reveal recovery
-on the next load, but writes can fail. It is always a list (up to 50, other players' packs included,
-and none of theirs is dropped to make room), so an owed pack is never
-replaced by a newer one. Other players' packs don't expire either: one can be the only copy of a pack
+opener unmounts. The pending shelf supports unfinished-reveal recovery on the next load, but writes
+can fail. Each owed pack has an entry of its own, `brainrot-pending-pack-v3:<player key>:<nonce>`,
+written by the tab that opened or took it and removed by the tab that stores it, so an owed pack is
+never replaced by a newer one and no tab rewrites another tab's pack. Chromium hands one tab's
+localStorage writes to its other tabs tens to hundreds of milliseconds later, so the one shared list
+earlier builds rewrote, `brainrot-pending-packs-v2`, lost packs when two tabs stored at once: a tab
+removed it from a view that didn't have the other tab's newest pack yet, or put a pack back into a
+view that still listed one the other tab had just stored, which the next load then counted twice
+(#87). Load still takes this player's packs off that list, and nothing new goes on it. The shelf holds
+up to 50 packs, other players' included, and none of theirs is dropped to make room. Other players' packs don't expire either: one can be the only copy of a pack
 owed to that player's collection, which this browser can't check, and they come only from a tab that
 opened a pack before it knew another tab had changed the save; past the cap (or if storage refuses the write), the new pack shows the save
 warning and isn't on the shelf while it reveals: it still reaches the collection when its reveal
 finishes in this tab (or, if that collection write is blocked, the shelf then, as below), but nothing
 keeps it for the next load: a tab closed before that leaves it only in the history, if that write went
 through. Load
-takes every listed pack off the shelf before adding any (if the shelf can't be emptied, it adds none,
-so none is added twice) and holds them until a collection holding them is stored. Taking packs off
-rewrites the shelf in place; if storage refuses, it removes the shelf and writes it again, then
-keeps only other players' packs (this player's other owed packs drop; the history has them), then puts
-the shelf back as it was: load then adds none and leaves them listed, while a pack taken off after its
-reveal stays listed and the next load may add it again (an error is logged). If even that is refused,
-the shelf is gone and this tab holds other players' packs, writing them back with its next shelf
-write; they are lost only if it closes first (an error is logged). If that collection
+takes every one of this player's packs off the shelf before adding any (if the list can't be emptied,
+it adds none, so none is added twice; an entry storage won't remove waits for a later load) and holds
+them until a collection holding them is stored. Taking packs off the list rewrites it in place; if
+storage refuses, it removes the list and writes it again, then keeps only other players' packs (this
+player's other listed packs drop; the history has them), then puts the list back as it was: load then
+adds none and leaves them listed, while a pack taken off after its reveal stays listed and the next
+load may add it again (an error is logged). If even that is refused, the list is gone and this tab
+holds other players' packs, writing each to an entry of its own with its next shelf write; they are
+lost only if it closes first (an error is logged). Putting several packs on the shelf is all or none:
+if storage refuses one, the entries already written go back as they were. If that collection
 write is blocked, they stay owed by this tab and go into its next collection write; a copy also goes
 back on the shelf for the next load, if the shelf takes it. A tab closed before that write leaves the
 shelf copy for the next load or, if the shelf refused it, the pack only in the history. After each
@@ -505,12 +547,12 @@ then the unmarked copy are both refused, the shelf keeps the marked copy, and th
 pack without counting it unless this tab stores it first.
 `brainrot-pending-pack-v1` is the one-pack entry older builds keep. This build never puts a list or
 a new or listed pack there, so an older build (another tab or a rollback) never finds a list to
-discard, and never sees or clears listed packs. It adds the pack in that entry on load but leaves the
+discard, and never sees or clears packs in entries of their own. It adds the pack in that entry on load but leaves the
 entry in place until a stored collection holds that pack, so an older tab that stores and clears it
 still reaches the only copy; if storage won't remove the entry then, it is blanked to `null`, which
 every build reads as no pack. If the collection write is blocked, the pack goes back into that entry
 (marked) only while the entry still holds it; otherwise the tab that took or stored it has it. It is
-never copied into the list, which an older tab's clear can't reach. A pack in both forms is added
+never copied into an entry of its own, which an older tab's clear can't reach. A pack in both forms is added
 once, and counts as counted if either copy is marked. An entry with nothing to add (unreadable, or
 another player's) is removed on load, as older builds do. Accepted risk: an older tab still writes
 each pack it opens into that entry, so it can replace a pack owed there, which then stays only in
@@ -530,7 +572,7 @@ versioned generation rules. Its claims can be recomputed for the range in a veri
 - **Collection score**: the points of every card pulled, holos at holo points, with named milestones
   (Bronze 1,000 up to Brainrot 2,000,000).
 - **Sets**: each set is *Complete* with every card and *Master* with every card as a holo, shown on
-  the set picker and profiles, with an achievement for each.
+  the set picker, the Collection's set headers and profiles, with an achievement for each.
 - **Profile card** (`src/game/playerCard.ts`): a 9:16 image of all this plus the best pull, with a QR
   code for the profile link.
 

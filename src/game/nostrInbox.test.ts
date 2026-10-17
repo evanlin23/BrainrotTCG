@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { toHex } from '../engine/bytes';
-import { fetchEvents, hallOfFameEvent, HOF_KIND, HOF_TAG, proofFromEvent, publishEvent, publishUntilAccepted, signEvent, verifyEvent, type Filter, type NostrEvent, type SocketFactory } from './nostrInbox';
+import { fetchEvents, hallOfFameEvent, HOF_KIND, HOF_TAG, proofFromEvent, publishEvent, publishUntilAccepted, scoreHintFromEvent, signEvent, verifyEvent, type Filter, type NostrEvent, type SocketFactory } from './nostrInbox';
 
 /** Shaped like a pull link's proof (base64url, 100–400 characters); these tests don't decode it. */
 const PROOF = `AQ${'abcXYZ09_-'.repeat(13)}`;
@@ -103,6 +103,18 @@ describe('nostr inbox', () => {
     expect(verifyEvent({ ...event, content: event.content.replace('AQ', 'AR') })).toBe(false);
     expect(verifyEvent({ ...event, sig: '00'.repeat(64) })).toBe(false);
     expect(proofFromEvent(event)).toBe(PROOF);
+  });
+
+  it('carries an optional score hint that leaves the proof readable', () => {
+    const hinted = hallOfFameEvent(PROOF, 'x', 1_700_000_000_000, 4200);
+    expect(verifyEvent(hinted)).toBe(true);
+    expect(proofFromEvent(hinted)).toBe(PROOF);
+    expect(scoreHintFromEvent(hinted)).toBe(4200);
+    const plain = hallOfFameEvent(PROOF, 'x');
+    expect(JSON.parse(plain.content)).toEqual({ v: 1, proof: PROOF }); // older submissions look exactly like this
+    expect(scoreHintFromEvent(plain)).toBeNull();
+    for (const score of [-1, 1.5, '4200', null, Number.MAX_SAFE_INTEGER + 1]) expect(scoreHintFromEvent({ ...plain, content: JSON.stringify({ v: 1, proof: PROOF, score }) })).toBeNull();
+    expect(scoreHintFromEvent({ ...plain, content: 'not json' })).toBeNull();
   });
 
   it('uses a fresh key for every submission', () => {

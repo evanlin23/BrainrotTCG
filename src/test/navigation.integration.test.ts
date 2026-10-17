@@ -59,7 +59,7 @@ it('shows a new player the set picker only once their first pack is saved, and n
   // Saved at the summary, which is still focus mode: its CSS keeps the picker and tabs out of the way.
   expect(document.querySelector('.app')!.classList).toContain('is-focus');
 
-  await app.interact(() => button('Open another pack').click());
+  await app.interact(() => button('Next pack').click());
   await app.until('the picker shows once the pack is left', () => expect(picker()).not.toBeNull());
   expect(document.querySelector('.app')!.classList).not.toContain('is-focus');
   expect(document.querySelector('.app-nav')).not.toBeNull();
@@ -111,10 +111,10 @@ it('gives Open, Cards, Rankings and Profile a page each, with an address, a titl
   expect(location.hash).toBe('#/cards');
   expect(document.title).toBe('Cards - Brainrot TCG');
   expect(document.activeElement).toBe(document.querySelector('main.page h1'));
-  // One h1 per view: on a page it is the page's title, and the logo is a named image instead.
+  // One h1 per view: on a page it is the page's title, and the logo is a link home instead.
   expect(document.querySelectorAll('h1')).toHaveLength(1);
-  expect(document.querySelector('.app-logo')!.tagName).toBe('DIV');
-  expect(document.querySelector('.app-logo')!.getAttribute('role')).toBe('img');
+  expect(document.querySelector('.app-logo')!.tagName).toBe('A');
+  expect(document.querySelector('.app-logo')!.getAttribute('aria-label')).toBe('Brainrot TCG, home');
   // The packs screen stays mounted under the page, hidden and inert, so a pack in progress survives.
   expect(packsHidden()).toBe(true);
   expect(document.querySelector('main.app-main')!.hasAttribute('inert')).toBe(true);

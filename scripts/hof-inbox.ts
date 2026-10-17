@@ -4,7 +4,7 @@
  * that carry relay or issue text.
  */
 import { decodeProof, pullId, qualifiesForHallOfFame, verifyProof, type SetLookup, type TicketFn, type VerifiedPull } from '../src/engine/index.ts';
-import { proofFromEvent, verifyEvent, type NostrEvent, type PublishResult } from '../src/game/nostrInbox.ts';
+import { proofFromEvent, scoreHintFromEvent, verifyEvent, type NostrEvent, type PublishResult } from '../src/game/nostrInbox.ts';
 
 export interface InboxContext {
   /** Event ids already handled; updated as events are handled. */
@@ -19,6 +19,14 @@ export interface InboxContext {
   ticketFn?: TicketFn;
   /** Whether a verified pull goes in (default: it qualifies); the Hall of Fame also keeps a pull only if it would join the list. */
   accepts?: (pull: VerifiedPull) => boolean;
+  /**
+   * The score a pull must beat to join the list (`hallOfFameFloor`), or null while there's room. An
+   * event whose score hint is at or below it is set aside without re-deriving it or spending budget.
+   * The hint is the sender's claim: one that claims too little only loses its own pull, and one that
+   * claims more is verified in full like any other. A function is asked again for each event, with
+   * its pull id, so the floor can rise as pulls are filed and can differ from pull to pull.
+   */
+  floor?: number | null | ((id: string) => number | null);
   /** Files one verified, accepted pull. */
   file: (proof: string, pull: VerifiedPull, event: NostrEvent) => Promise<void>;
   log?: (line: string) => void;
@@ -65,6 +73,13 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
     }
     if (!proof || !id || ctx.filed.has(id)) {
       ctx.seen.add(event.id);
+      continue;
+    }
+    const hint = scoreHintFromEvent(event);
+    const floor = typeof ctx.floor === 'function' ? ctx.floor(id) : ctx.floor;
+    if (floor != null && hint !== null && hint <= floor) {
+      ctx.seen.add(event.id);
+      ctx.log?.(`${event.id}: claims ${hint}, at or below the floor of ${floor}; not checked`);
       continue;
     }
     // The rest wait for the next run.

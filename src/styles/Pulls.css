@@ -1,7 +1,8 @@
 .pulls-rewards,
 .profile-section,
 .pulls-legacy,
-.pulls-history {
+.pulls-history,
+.best-cards {
   margin-top: var(--space-6);
 }
 
@@ -19,7 +20,8 @@
   color: var(--text-muted);
 }
 
-.pulls-history-title {
+.pulls-history-title,
+.best-cards-title {
   margin-bottom: var(--space-2);
 }
 
@@ -105,6 +107,28 @@
   color: var(--brand);
 }
 
+/* Whether this device sent the pack to the Hall of Fame inbox: text always, the check only once sent. */
+.pull-row-sent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+}
+
+.pull-row-sent--done {
+  color: var(--success);
+}
+
+.pull-row-sent svg {
+  width: 12px;
+  height: 12px;
+}
+
 .pulls-panel {
   margin-top: var(--space-3);
 }
@@ -133,6 +157,17 @@
   width: 18px;
   height: 18px;
   color: var(--text-subtle);
+}
+
+/* Best cards: one larger thumbnail per row, and the points with their unit. */
+.best-card-row .pull-row-thumbs img {
+  width: 36px;
+}
+
+.pull-row-unit {
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
 }
 
 /* On phones the coloured set code is enough. */

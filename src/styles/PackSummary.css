@@ -1,0 +1,146 @@
+/*
+ * The one-screen pack summary (components/pack/PackSummaryUI.tsx, docs/DESIGN.md one-screen summary
+ * rule): headline, the Card guide link, the five cards in one row, then the actions stuck to the
+ * bottom. Scoped to .pack-summary so it wins over the older summary rules in PackOpener.css.
+ */
+
+.pack-summary .pack-headline {
+  gap: 2px;
+  margin-bottom: var(--space-3);
+}
+
+.pack-summary .pack-headline-heading {
+  margin: 0;
+  line-height: 1.15;
+  font-size: var(--text-3xl);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+/* "[combo] · 1 in [n] packs score this high" ("Most packs score this high" past even odds), or just the combo without odds. */
+.pack-summary .pack-headline-odds {
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/* One line, only for a pull that makes today's Rankings: "🏆 Makes today's Rankings · Submit". */
+.pack-summary .summary-hof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1) var(--space-2);
+  /* The same height loading, empty or in any state, so the cards below never move. */
+  min-height: var(--touch-target);
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.pack-summary .summary-hof:focus {
+  outline: none;
+}
+
+.pack-summary .summary-hof-submit {
+  min-height: var(--touch-target);
+}
+
+/* Focus brought into view by the keyboard stops above the stuck actions, not under them. */
+.pack-summary .summary-content {
+  scroll-padding-bottom: calc(var(--touch-target) + var(--space-3) + var(--space-2));
+}
+
+/*
+ * One row of five at default text on every width: smaller gaps on phones so each card stays as big as
+ * it can.
+ */
+.pack-summary .summary-cards {
+  gap: var(--space-2);
+  /* The last content: clear of the actions' faded strip when scrolled to the end. */
+  margin-bottom: var(--space-2);
+}
+
+.pack-summary .summary-cards li {
+  width: min(9.5rem, calc((100% - 4 * var(--space-2)) / 5));
+  gap: 2px;
+}
+
+/* Decorative (aria-hidden): cut short rather than widen a card. */
+.pack-summary .collection-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+}
+
+/* Says the card opens up close: bottom left, clear of the New sticker in the top right. */
+.summary-card-expand {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--radius-sm);
+  background: var(--shade-55);
+  color: var(--text);
+  font-size: var(--text-xs);
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* Above the cards, under the headline: the tap hint and the Card guide on one line, wrapping on narrow screens. */
+.summary-guide-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.summary-caption {
+  margin: 0;
+  /* Muted, not subtle: the summary can sit on a lighter surface, where subtle falls under 4.5:1. */
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/*
+ * The actions never scroll away: stuck to the bottom of the summary's scroller, above the home bar.
+ * When what follows them is taller than the screen (large text on a phone), they stick to the top.
+ */
+.pack-summary .summary-actions {
+  position: sticky;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  padding-top: var(--space-3);
+  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--bg) var(--space-3));
+  /* The faded strip above the buttons is see-through to taps too: what shows through it stays tappable. */
+  pointer-events: none;
+}
+
+.pack-summary .summary-actions > * {
+  pointer-events: auto;
+}
+
+@media (max-width: 480px) {
+  .pack-summary .summary-actions {
+    gap: var(--space-2);
+  }
+
+  .pack-summary .summary-actions .btn--secondary {
+    flex: 0 0 auto;
+  }
+
+  .pack-summary .summary-actions .btn--primary {
+    flex: 1 1 auto;
+  }
+}

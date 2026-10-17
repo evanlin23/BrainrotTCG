@@ -1,22 +1,23 @@
 import { useEffect, useId, useMemo, useState } from 'react';
-import { ChevronRight, IdCard, Link2, Trophy } from 'lucide-react';
+import { IdCard, Link2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
-import CardImage from '../cards/CardImage';
 import PackCardViewer from '../ui/PackCardViewer';
 import type { PageSection } from '../ui/Page';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
+import BestCardsSection from './BestCardsSection';
 import ProfileSummary from './ProfileSummary';
 import PackCacheNote from './PackCacheNote';
 import PlayerSection from './PlayerSection';
+import PullRow from './PullRow';
 import RewardsSection from './RewardsSection';
+import SubmittedBadge from './SubmittedBadge';
 import AchievementsSection from '../achievements/AchievementsSection';
 import SharePreviewSheet from '../share/SharePreviewSheet';
-import { modifierClasses } from '../../game/modifiers';
 import { renderPlayerCard } from '../../game/playerCard';
-import { getLatestSet, setCode } from '../../content/sets';
+import { getLatestSet } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
-import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
+import { HALL_OF_FAME_MIN_SCORE, type ProfilePack } from '../../engine';
 import { STORAGE_KEYS } from '../../constants';
 import { getPlayer } from '../../game/player';
 import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
@@ -177,6 +178,16 @@ const ProfilePage = ({
     if (link) setCardUrl(link.url);
   };
 
+  /** The history record of one of the profile's best packs (the profile lists only the current key's). */
+  const entryOf = (pack: ProfilePack) =>
+    history.find(
+      (e) =>
+        e.nonce === pack.nonce &&
+        e.setId === pack.set.id &&
+        e.setVersion === pack.set.version &&
+        player.publicKeyHex.startsWith(e.key),
+    );
+
   const openEntry = (entry: HistoryEntry | undefined) => {
     const cards = entry && historyCards(entry);
     if (entry && cards) onSharePull(entry, cards);
@@ -200,15 +211,11 @@ const ProfilePage = ({
         ) : mine && summary ? (
           <ProfileSummary
             stats={summary}
-            onOpenPack={(pack) => openEntry(
-                history.find(
-                  (e) =>
-                    e.nonce === pack.nonce &&
-                    e.setId === pack.set.id &&
-                    e.setVersion === pack.set.version &&
-                    player.publicKeyHex.startsWith(e.key),
-                ),
-              )}
+            onOpenPack={(pack) => openEntry(entryOf(pack))}
+            packBadge={(pack) => {
+              const entry = entryOf(pack);
+              return entry && <SubmittedBadge entry={entry} />;
+            }}
             actions={
               <>
                 <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>
@@ -310,46 +317,20 @@ const ProfilePage = ({
                 </p>
               )}
               <ul className="pulls-list">
-                {listed.slice(0, shown).map((entry) => {
-                  const cards = historyCards(entry);
-                  const set = getLatestSet(entry.setId);
-                  const [a = '#ff3df2', b = '#29f0ff'] = set?.palette ?? [];
-                  return (
-                    <li key={`${entry.key}-${entry.nonce}-${entry.setId}@${entry.setVersion}-${entry.openedAt}`}>
-                      <button
-                        type="button"
-                        className="pull-row"
-                        style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}
-                        onClick={() => openEntry(entry)}
-                        disabled={!cards}
-                      >
-                        <span className="pull-row-thumbs" aria-hidden="true">
-                          {cards
-                            ? cards.map((c, i) => <CardImage key={i} src={c.image} finish={c.finish} alt="" loading="lazy" className={`${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} />)
-                            : Array.from({ length: 5 }, (_, i) => <span key={i} className="pull-row-blank" />)}
-                        </span>
-                        <span className="pull-row-main">
-                          <span className="pull-row-hand">
-                            {entry.hand}
-                            {isHallOfFameWorthy(entry) && (
-                              <>
-                                <Trophy className="pull-row-hof" aria-hidden="true" />
-                                <span className="sr-only">, qualifies for Rankings</span>
-                              </>
-                            )}
-                          </span>
-                          <span className="pull-row-meta">
-                            {set && <span className="set-code">{setCode(set)}</span>}
-                            <span className="pull-row-setname">{set?.name ?? entry.setId} · </span>
-                            {timeAgo(entry.openedAt)}
-                          </span>
-                        </span>
-                        <span className="pull-row-score tabular">{entry.score.toLocaleString()}</span>
-                        {cards && <ChevronRight className="pull-row-chevron" aria-hidden="true" />}
-                      </button>
-                    </li>
-                  );
-                })}
+                {listed.slice(0, shown).map((entry) => (
+                  <PullRow
+                    key={`${entry.key}-${entry.nonce}-${entry.setId}@${entry.setVersion}-${entry.openedAt}`}
+                    cards={historyCards(entry)}
+                    set={getLatestSet(entry.setId)}
+                    setId={entry.setId}
+                    hand={entry.hand}
+                    score={entry.score}
+                    meta={timeAgo(entry.openedAt)}
+                    worthy={isHallOfFameWorthy(entry)}
+                    badge={<SubmittedBadge entry={entry} />}
+                    onClick={() => openEntry(entry)}
+                  />
+                ))}
               </ul>
               {shown < listed.length && (
                 <button type="button" className="btn btn--ghost btn--block" onClick={() => setShown((n) => n + PAGE)}>
@@ -359,6 +340,8 @@ const ProfilePage = ({
             </div>
           </section>
         )}
+
+        {mine && <BestCardsSection refreshKey={`${packCache}:${reopenRuns}`} cacheReady={mine.cache === 'ready'} />}
 
         <p className="profile-save-note">
           <span>Saved in this browser ·</span>

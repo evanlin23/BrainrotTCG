@@ -6,13 +6,14 @@ import type { SetDefinition } from '../../engine';
 import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../../game/pulls';
 import { holdLive } from '../../game/admission';
 import { reloadPage } from '../../game/reload';
+import { whenIdle } from '../../game/idle';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
 import { buzz } from '../../utils/motion';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
 import { usePackHistory } from '../../hooks/usePackHistory';
-import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC } from '../../constants/audio';
+import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import PackCuttingUI from './PackCuttingUI';
 import CardRevealUI from './CardRevealUI';
@@ -87,13 +88,14 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const effectsVolume = effectsLevel(settings.effectsVolume);
   const pauseBigPulls = settings.pauseBigPulls !== false;
 
-  const { playAndCleanup, preloadAudio, cleanupAudio, playRandom } = useAudio();
+  const { playAndCleanup, preloadAudio, loadDeferred, cleanupAudio, playRandom } = useAudio();
 
   const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleInteractionRef = useRef<() => void>(() => {});
   // Set synchronously before React renders: rapid taps and held keys share the same guard.
   const revealLockedUntilRef = useRef(0);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const effectTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const skippingRef = useRef(false);
   /** Whether this pack has been handed to onOpen; a pack is recorded once, however it's finished. */
   const recordedRef = useRef(false);
@@ -136,9 +138,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       reset();
       return;
     }
-    const brainrotVoices = preloadAudio(BRAINROT_VOICES);
-    const cardFlip = preloadAudio([CARD_FLIP_SRC])[0];
-    const effects = preloadAudio(EFFECT_SOUNDS);
+    // Fetched once the reveal is on screen (below), so they don't hold up its card backs.
+    const brainrotVoices = preloadAudio(BRAINROT_VOICES, { defer: true });
+    const cardFlip = preloadAudio([CARD_FLIP_SRC], { defer: true })[0];
+    const effects = preloadAudio(EFFECT_SOUNDS, { defer: true });
 
     setPreloadedAssets({ brainrotVoices, cardFlip, effects });
     recordedRef.current = false;
@@ -149,6 +152,14 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setCurrentIndex(0);
     setIsOpening(true);
   }, [set, preloadAudio, isOwned]);
+
+  // The reveal's sounds download once it has been drawn and the page is idle, and not at all while
+  // effects are muted (each one only plays when effectsVolume > 0).
+  const effectsOn = effectsVolume > 0;
+  useEffect(() => {
+    if (!isOpening || !preloadedAssets || !effectsOn) return;
+    return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
+  }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
 
   // Mine the next pack's ticket while this one is on screen.
   useEffect(() => {
@@ -276,6 +287,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     focusOpenRef.current = true;
     handleOpen();
   }, [refusal, handleOpen]);
+  /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
+  const stageRef = useRef<HTMLDivElement>(null);
+  // The stage is on its way out when the cards come in, and the reveal must not inherit anything it
+  // scrolled to: it goes back to the top as opening starts.
+  useLayoutEffect(() => {
+    if (isOpening && stageRef.current) stageRef.current.scrollTop = 0;
+  }, [isOpening]);
   const openButtonEl = useRef<HTMLButtonElement | null>(null);
   const openButtonRef = useCallback((el: HTMLButtonElement | null) => {
     openButtonEl.current = el;
@@ -287,7 +305,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // A refusal replaces the button the player was on: its Try again takes focus.
   const retryButtonRef = useCallback((el: HTMLButtonElement | null) => focusIfFree(el), []);
 
+  const clearEffectTimers = useCallback(() => {
+    effectTimersRef.current.forEach(clearTimeout);
+    effectTimersRef.current.clear();
+  }, []);
+
   const finishPack = useCallback(() => {
+    clearEffectTimers();
     skippingRef.current = false;
     setSkipping(false);
     if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
@@ -310,9 +334,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setHasMovedMouse(false);
     resetCutState();
     focusOpenRef.current = true;
-  }, [resetCutState, preloadedAssets, cleanupAudio]);
+  }, [resetCutState, preloadedAssets, cleanupAudio, clearEffectTimers]);
 
-  // What the summary's per-card Share links to: this pull (one object, so its proof is signed once).
+  // What a card shared from the summary links to: this pull (one object, so its proof is signed once).
   const pullRef = useMemo((): PullRef | undefined => openedPack
     ? { setId: openedPack.setId, setVersion: openedPack.setVersion, nonce: openedPack.nonce, publicKeyHex: openedPack.publicKeyHex }
     : undefined, [openedPack]);
@@ -441,7 +465,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
 
     if (effectsVolume > 0) {
       playAndCleanup(preloadedAssets.cardFlip, effectsVolume);
-      playRandom(preloadedAssets.effects, effectsVolume);
+      const effects = preloadedAssets.effects;
+      const timer = setTimeout(() => {
+        effectTimersRef.current.delete(timer);
+        playRandom(effects, effectsVolume);
+      }, EFFECT_DELAY_MS);
+      effectTimersRef.current.add(timer);
     }
 
     setOpenedCards(openedCards.map((card, index) => index === currentIndex ? { ...card, isRevealed: true } : card));
@@ -563,11 +592,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Cleanup on unmount
   useEffect(() => () => {
     if (celebrationTimerRef.current) clearTimeout(celebrationTimerRef.current);
+    clearEffectTimers();
     if (openTimeoutRef.current) {
       window.clearTimeout(openTimeoutRef.current);
     }
     cleanupCutter();
-  }, [cleanupCutter]);
+  }, [cleanupCutter, clearEffectTimers]);
 
   const currentCard = openedCards[currentIndex];
   // The showcase lasts as long as the celebration: its timer, moving on, the X or the summary ends it.
@@ -602,13 +632,17 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         <PackTopBar
           onLeave={leaveFromUi}
           progress={isOpening && !showSummary ? { index: currentIndex, total: openedCards.length } : undefined}
-          showcase={showcase ? <ShowcaseRibbon card={currentCard} /> : undefined}
+          showcase={showcase ? <ShowcaseRibbon card={currentCard} holding={revealLocked && pauseBigPulls} /> : undefined}
         />
       )}
-      <AnimatePresence mode="wait">
+      {/* The torn pack flies off as the first card back fades in, not before it: waiting for the exit
+          left an empty stage between the tear and the reveal (#312 P2-6). popLayout lifts the leaving
+          pack out of the flow, so the two overlap in place. */}
+      <AnimatePresence mode="popLayout">
         {!isOpening ? (
           <Motion.div
             key="pack"
+            ref={stageRef}
             initial={{ y: '-100vh', opacity: 0, rotate: -10 }}
             animate={{ y: 0, opacity: 1, rotate: 0 }}
             // Quick, on its own timing: the drop-in spring's long tail left the screen blank before the reveal.

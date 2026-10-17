@@ -9,14 +9,21 @@ from a 390 px wide screen.
 ## Principles
 
 1. **The pack is the hero.** Each screen has one primary action: on the home screen it's opening the
-   pack; during a reveal it's the next card; in the summary it's opening another pack. Everything else
+   pack; during a reveal it's the next card; in the summary it's moving on to the next pack. Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
    and wordmark), the gear, the pack and the quiet Card guide link under it: the tabs and the era
-   picker come once their first pack is saved and they leave it.
+   picker come once their first pack is saved and they leave it. There the Open pack button is brand
+   filled, the one obvious action (#80); once the nav is in it steps back to secondary under the swipe.
+   The tear line is the wrapper's seam (#267): a white perforation over a soft brand-and-foil band, with
+   a brand arrowhead at each end. A swipe along it covering a fifth of the pack opens it on release (over
+   and back counts by its span), three tenths while still moving; a vertical drag never does, and a
+   swipe under a fifth is let go without opening. These are design choices (`RELEASE_CUT_RATIO` 0.2,
+   `DRAG_CUT_RATIO` 0.3 and a 32px floor in `usePackCutter.ts`, checked in `tests/browser/pack-swipe.spec.ts`).
+   The Open pack button under the pack opens it for a tap, a key or a screen reader.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
-   The summary lists the cards best pull first (ties keep pack order), each with a quiet Share that makes
-   an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
+   The summary lists the cards in the order they were revealed (best last), each opening up close, where
+   its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
    revealed card, one quiet line (game, site, set and card number) says where a screenshot came from; a
    narrow phone wraps the set and number onto a second line, never cutting them off.
@@ -87,9 +94,10 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | Shape | `--radius-sm` (4 px), `--radius-md` (6), `--radius-lg` (10), `--radius-xl` (14), `--radius-pill` | the only radii, besides `0`, `50%` and `inherit` |
 | Card | `--card-aspect` (687 / 1024, the art's own shape), `--card-tall` (its inverse) | every card face and slot uses these |
 | Depth | `--shadow-1` … `--shadow-3` | `--glow-brand` is `none` |
-| Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--ease-out`, `--ease-spring` | zero under reduced motion |
+| Motion | `--dur-fast`, `--dur`, `--dur-slow`, `--dur-reveal` (450 ms), `--dur-celebrate` (1200), `--dur-loop` (3000), `--dur-spin` (900), `--ease-out`, `--ease-spring` | zero under reduced motion, except loops and spinners, which reduced motion stops outright; new CSS uses these, not raw durations |
+| Breakpoints | 380 px (small phone), 720 px (dialogs), 900 px (nav in the header), 1024 px (desktop) | variables can't go in a media query, so use these widths as `min-width` (or one pixel under as `max-width`) |
 | Layout | `--touch-target`, `--nav-height`, `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` | the page runs under the notch (`viewport-fit=cover`), so anything fixed to a screen edge pads by these; `theme-color` matches `--bg` |
-| States | `--focus-ring`, `--focus-outline`, `--opacity-disabled` | see the rules below |
+| States | `--focus-ring`, `--focus-outline`, `--focus-outline-quiet`, `--opacity-disabled` | see the rules below |
 | Layers | `--z-stage-fx` (5), `--z-header` (40), `--z-nav` (50), `--z-hud` (60), `--z-sheet` (100), `--z-toast` (200) | the only z-index values above 3 |
 
 - **Layers.** Inside a component, stack with 1-3 under `isolation: isolate` (DOM order breaks ties).
@@ -98,6 +106,15 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 - **Focus.** One ring for every control: `:focus-visible` draws `--focus-ring` as a box-shadow over
   the transparent `--focus-outline`, which forced colours paint instead. No control sets its own ring
   or `outline: none`; one with its own box-shadow appends `var(--focus-shadow)`, empty until focused.
+  Focus the app moves by script (next card, result, dialog) shows no ring once a mouse, pen or touch
+  press, or Space or Enter, was the last input (`data-input="pointer"` or `"press"`,
+  `components/ui/inputModality.ts`); Tab, arrows, Home/End, Page keys or Escape bring it back. After
+  Space or Enter there is still no yellow ring (the owner doesn't want one, #529), but a control's
+  focus is never invisible (WCAG 2.4.7): a `.quiet-focus` control wears a thin neutral outline,
+  `--focus-outline-quiet`, set off 3 px. After a mouse, pen or touch press, and on headings and notes
+  that only script focuses, nothing shows. A
+  control Tab reached keeps its ring through Space or Enter (`data-ring-kept`). Covers `[tabindex=-1]` and `.quiet-focus` targets; mark such a control
+  `.quiet-focus` and draw its ring with `var(--focus-shadow)`.
 - **Disabled.** `--opacity-disabled` with `cursor: not-allowed` and a dashed edge (the border, or an
   inset dashed outline on a borderless button), so colour is never the only cue.
 - **Size.** `.btn--sm` keeps the 44 px `--touch-target`. Text never goes under 12 px (`--text-xs`);
@@ -153,9 +170,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   scroll lock, focus returns to the opener. Sheets stack (a card opened from the collection sits on
   top of it). Sizes: `sm` (the scoring guide, short notices such as an invalid link, Report a
   problem), `md` (one pull, share previews, the pack behind an achievement), `lg` (shared profiles,
-  pack shelf), `full` (full-viewport variant, unused for now); `bare` for a single big card (the card
-  viewer), which also closes on a tap on its empty space or the backdrop, never on the card or its
-  text (a press must start and end there, so selecting the text never closes it).
+  pack shelf), `full` (full-viewport variant, unused for now). The `bare` prop drops the panel for a
+  single big card (the card viewer), which also closes on a tap on its empty space or the backdrop,
+  never on the card or its text (a press must start and end there, so selecting the text never
+  closes it).
 - **Tabs** (`ui/Tabs.tsx`): text with a yellow underline, like binder dividers, when one page holds
   several lists, so only one shows at a time. Arrow keys move between tabs.
 - **Set code** (`.set-code`, `setCode()`): a set's initials in its colour, next to its name in rows.
@@ -166,7 +184,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
 - **App nav** (`ui/AppNav.tsx`): Open, Cards, Rankings and Profile, each an icon plus a label, the
   current one marked `aria-current="page"`. A fixed bottom bar on phones (under 900px, with
   safe-area padding) and part of the header from 900px, where the logo scales from 36px to 52px
-  (by about 1060px) so it never runs into the tabs; 44px targets. It stays hidden for a new
+  (by about 1060px, all in rem so a larger root font only moves the ramp) so it never runs into the tabs; 44px targets. It stays hidden for a new
   player until their first pack is saved (#222) and while a pack is open. The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem).
@@ -186,8 +204,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   today yet", shows up to 3 of yesterday's best and how to submit. All-time is the published top 100
   by Brainrot Score. Rows aren't re-checked on the page: each links to its pull, which re-derives it.
   A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
-  before pulls were verifiable, so unranked) in a sheet. World firsts stay in the published data but
-  have no section.
+  before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
@@ -218,9 +235,9 @@ Rendering): every stop still shows an outline (`tests/browser/forced-colors-focu
 
 ## Local Best cards contract (#337)
 
-Slice 1 (the selector, storage and save coverage, in `src/game/bestCards.ts`) has shipped; it has no UI
-yet. A short list of individual card instances, headed **Best cards** and capped at 10
-(`BEST_CARDS_CAP`), will sit on the Profile page next to the shipped **All packs** list (its Newest /
+Slice 1 (the selector, storage and save coverage, in `src/game/bestCards.ts`) and the Profile list
+(slice 2) have shipped. A short list of individual card instances, headed **Best cards** and capped at 10
+(`BEST_CARDS_CAP`), sits on the Profile page under the **All packs** list (its Newest /
 Best / Hall of Fame tabs), with no extra primary destination or global board. Ranking uses each
 card's own `cardPoints` in its original set version, before the pack combo multiplier, with
 finish/holo/misprint kept together. Distinct slots may both qualify; offering a pack again never
@@ -268,25 +285,56 @@ sharing the history prefix included), double-spent tickets, and an export/import
 fresh browser; `src/game/pulls.test.ts` covers recording on open. An external different-key proof
 is a viewed shared pull, not an owned opening. Public proof/generator formats are unchanged.
 
-**Slice 2 proposals, not shipped:** the Profile list itself, wired to sync and rebuild on load.
-Rows open shared card detail with the shipped Share card action plus a proposed View original pack;
-pack detail offers a proposed Share pack (#185). Listed proofs establish those instances, not
-complete lifetime totals or the absence of a stronger undeclared pull. The rest of the acceptance
-matrix (interruption and UI states) remains in #337.
+**The Profile list** (`BestCardsSection`) shows only your own device's list, for the current full key. Each
+row is a button: card name, set code, version words ("Plain" when none), ticket and points. It opens the
+card viewer with the shipped Share card action for that exact version, and focus returns to the row when
+the viewer closes. Rows are `quiet-focus` like the summary cards: no ring after a click, Space or Enter,
+the ring back after Tab, an arrow or Escape. With no packs there is no section; with packs but no winners,
+one line says none are here yet. When the list isn't **complete** a note says it is the best among the
+packs saved on this device. Winners without a cached card are rebuilt once per key as the page loads. Old
+saves with no list render the empty line. The Best pulls rows and the All packs rows are one component
+(`PullRow`), so both show the Hall of Fame trophy, and your own profile shows the Submitted badge on both.
 
-## Proposed pull headline rule (#339)
+**Not shipped:** View original pack on a row, Share pack on pack detail (#185), and a visible state for an
+**unsaved** list. Listed proofs establish those instances, not complete lifetime totals or the absence of a
+stronger undeclared pull. The rest of the acceptance matrix (interruption and UI states) remains in #337.
 
-**Proposal, not implemented.** Choose a consistent pack headline over a dominance threshold:
-**Pack total: [score]**, then **[true combo] ×[multiplier]**, then **Standout card: [finish] [Holo]
-[Misprint] [name] · [card points]** (omit absent modifiers). Card surfaces lead with identity/modifiers
-and Card points. The labels "Pack total", "Standout card" and "Card points" are proposals for the
-owner to confirm, not shipped UI text. Individual points exclude the pack multiplier; neither title
-claims record rarity. Select maximum original-version `cardPoints`; on ties take the **higher** slot
-(the last of the tied cards in engine pack order). That is the shipped best-card rule: `revealOrder`
+## Pull headline rule (#339)
+
+**Shipped** on the results screen, owned and public pack detail (`PackCardViewer`, so profile packs
+and shared pulls) and card detail. A consistent pack headline, not a dominance threshold:
+**Pack total: [score]**, then **[true combo] ×[multiplier]**. No surface shows a standout line: the
+engine's standout only picks previews; the summary and a reopened profile pack show cards in reveal
+order (best last), shared pulls in engine order. Card surfaces lead with
+identity/modifiers and Card points, which exclude the pack multiplier. The standout is the maximum
+original-version `cardPoints`; on ties take the **higher** slot (the last of the tied cards in engine
+pack order). That is the shipped best-card rule: `revealOrder`
 (`src/game/reveal.ts`) sorts by `cardPoints` ascending and keeps pack order on ties, and `previewOf`
 (`src/game/previewLinks.ts`, called from `previewFor` in `src/game/pulls.ts`) takes its last card
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
+
+On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · 1 in
+[n] packs score this high** from `scoreAtLeastChance` (`src/engine/odds.ts`), the exact share of all
+packs of the set that score at least this much over the whole pack (rarity, holo, finish, misprint and
+combo). Past even odds it reads **[combo] · Most packs score this high**, and it is just the combo
+when the set's modifier table is unknown. Then the Hall of Fame line when the pull
+qualifies. The combo is named once and no multiplier shows: the Card guide (one tap, no fold) has
+points per rarity, the holo, finish and misprint bonuses, the combo multipliers, and Score = card
+points added up × combo multiplier. There is no per-pack breakdown.
+
+### One-screen summary rule (#339)
+
+After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
+no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
+Fame line), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
+compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
+shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
+actions: **Next pack** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's
+scroller above the safe area. The cards are the last content: only the actions sit below them,
+nothing sits below the actions, and at default text a 5-card pack needs no scroll at 390x844. No XP
+or level here: level-ups toast and progress lives on Profile. Keyboard focus is scrolled clear of
+the stuck actions, whose faded strip passes taps through. Focus starts on the heading.
 
 Arithmetic presentation fixtures below are not claimed mined proofs. Different letters are
 separate card ids; names and modifiers must come from actual reconstruction in implementation.
@@ -300,15 +348,16 @@ separate card ids; names and modifiers must come from actual reconstruction in i
 | A10 B20 C35 D70 E200 | 335 / No Matches ×1 | E · 200 |
 | Historical version | Its reconstructed total/combo | No later rarity/modifier assumptions |
 
-One presentation helper returns structured total/combo/standout fields, without a second scorer.
-Results and owned/public pack detail show all fields above cards; personal/global pack rows show
-total, combo and concise standout, opening that detail. Card rows/detail show card identity/points
+`packHeadline` (`src/engine/headline.ts`) returns structured total/combo/standout fields from
+`scorePack`, without a second scorer; `PackHeadline` (`src/components/pack/PackHeadline.tsx`) renders
+them. Results and owned/public pack detail show the total and combo above cards, and on results the total
+is the focused heading; card detail shows Card points. **Not shipped yet:** personal/global pack rows
+show total and combo, opening that detail. Card rows/detail show card identity/points
 and labeled original-pack context. Exact-pull captions/posters use the same fields and proof link.
 Static previews cannot read proof fragments: keep generic hand/card descriptions, stable paths and
 old images; do not imply they depict exact modifiers or regenerate history solely for new titles.
 
-At narrow/short widths, wrap the standout and keep actions reachable. Compact 40M formatting needs
-exact accessible points and full details; rankings use exact values. After approval, implement the
-helper plus consumer regressions across these surfaces. Scoring, generators, selectors, public proof
-URLs and animations do not change. Full surface/mobile/sharing acceptance stays in #339; checks are
-planned, not executed here. Figma authoring (#312) remains deferred.
+At narrow/short widths, wrap long lines and keep actions reachable. Compact 40M formatting needs
+exact accessible points and full details; rankings use exact values (shipped surfaces show exact
+values). Scoring, generators, selectors, public proof URLs and animations do not change. Pack rows,
+card-row original-pack context and exact-pull captions and posters remain in #339. Figma authoring (#312) remains deferred.

@@ -12,12 +12,13 @@ import SetPicker from './components/sets/SetPicker';
 import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
 import CardGuideButton from './components/ui/CardGuideButton';
-import { cardPoints, scoreCards } from './data/cards';
+import { scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
-import { importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
+import { recordPack, type PackProgress } from './game/packProgress';
+import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, dismissCollectionRecovery } from './game/collectionRecovery';
@@ -41,8 +42,6 @@ import {
   checkPackMilestones,
   checkCollectionAchievements,
   checkModifierAchievements,
-  checkPackAchievements,
-  checkPackScoreAchievements,
   checkHistoryAchievements,
 } from './utils/achievementChecks';
 import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
@@ -67,7 +66,6 @@ const OPEN_TITLE = document.title;
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
 const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
 /** What adding a pack changes, so several packs can be added before React renders. */
-type PackProgress = { stats: Stats; collection: Record<string, CollectionItem>; hallOfFame: HallOfFameData };
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
@@ -126,6 +124,7 @@ function App() {
   // The writer reads its host once, so it is memoized (useProgressWriter warns in development if it changes).
   const writerHost = useMemo<ProgressWriterHost>(() => ({
     samePlayer, progressCurrent, noted: progress.noted,
+    storing: progress.storing, unstored: progress.unstored, dropped: progress.dropped,
     stale: () => setStaleSave(true),
     failed: () => setSaveFailed(true),
     keptAside: (note, dismissed) => {
@@ -133,7 +132,7 @@ function App() {
       setRecoveryNoteHidden(dismissed);
     },
   }), [samePlayer, progressCurrent, progress]);
-  const { packAdded, packsTaken, putBackTaken } = useProgressWriter({ collection, achievements, stats, hallOfFame, settings }, writerHost);
+  const { packAdded, packsTaken, putBack } = useProgressWriter({ collection, achievements, stats, hallOfFame, settings }, writerHost);
   // Download and Discard of the kept-aside data, checked on every click and again on the confirm. After
   // another tab's import or player switch the archive can hold that save's data (saveFile keeps it there):
   // discarding would delete its only copy, and a download would mix it with this tab's unsaved payloads.
@@ -142,9 +141,9 @@ function App() {
   const recoveryCurrent = useCallback(() => {
     if (samePlayer() && progressCurrent()) return true;
     setStaleSave(true);
-    putBackTaken();
+    putBack();
     return false;
-  }, [samePlayer, progressCurrent, putBackTaken]);
+  }, [samePlayer, progressCurrent, putBack]);
 
   // The page showing (Open has no hash), and any shared link open over it: see useRoute.
   const { route, proof: viewProof, profile: viewProfile, broken: brokenLink, navigate, closePage, closeLink } = useRoute();
@@ -227,8 +226,8 @@ function App() {
   useEffect(() => watchProgress(() => {
     if (progressCurrent()) return;
     setStaleSave(true);
-    putBackTaken();
-  }), [progressCurrent, putBackTaken]);
+    putBack();
+  }), [progressCurrent, putBack]);
   const packCache = usePackCacheVersion();
   // Level rewards in use (game/progression.ts), checked against the level this save has reached.
   // Re-read after every pack (myStats reads the pack history, which each pack adds to), and when
@@ -398,148 +397,36 @@ function App() {
   }, []);
 
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
-  const handleImportSave = useCallback((data: string): string | null => {
-    const error = importSaveFile(data);
+  const handleImportSave = useCallback((data: string, keepCopy = true): string | null => {
+    // Without a copy in storage, this file is all that would keep the save if the import is left half done.
+    const before = keepCopy ? null : exportSaveFile();
+    const error = importSaveFile(data, { keepCopy });
     if (!error) window.location.reload();
     else if (error.startsWith(PARTIAL_IMPORT_NOTE)) {
       // The app still holds the save from before; only a reload shows what storage now holds.
-      window.alert(error);
-      reloadPage();
+      if (before !== null && window.confirm(`${error}\n\nDownload the save from before the import first? OK downloads it, then reloads.`)) {
+        downloadSaveFile(before);
+        setTimeout(reloadPage, 1000); // give the download a moment to start
+      } else {
+        if (before === null) window.alert(error);
+        reloadPage();
+      }
     }
     return error;
   }, []);
 
-  const checkAllAchievements = useCallback((newCards: CardWithMeta[], pullRef: PullRef, updatedCollection: Record<string, CollectionItem>, updatedStats: Stats, currentAchievements: Record<string, AchievementData | number>, newPack = true) => {
-    // Use shared achievement checking functions - pass current achievements to avoid stale state
-    const packMilestones = newPack ? checkPackMilestones(updatedStats.packsOpened, currentAchievements) : [];
-    const collectionAchievements = checkCollectionAchievements(updatedCollection, updatedStats, currentAchievements);
-    const packAchievements = checkPackAchievements(newCards, currentAchievements);
-
-    // Combine all achievements and unlock them with the pack data
-    const allNewAchievements = [...packMilestones, ...collectionAchievements, ...packAchievements];
-    allNewAchievements.forEach(id => unlockAchievement(id, newCards, pullRef));
-  }, [unlockAchievement]);
-
   const handlePackOpened = useCallback((pack: OpenedPack, from: PackProgress = { stats, collection, hallOfFame }): PackProgress => {
     packAdded(pack);
     if (pack.unrecorded) setSaveFailed(true);
-    // A pack put back on the shelf counted when it opened (stats, pack milestones): it only adds its cards.
-    const counted = pack.counted === true;
-    const newCards = pack.cards;
-    const pullRef = { setId: pack.setId, setVersion: pack.setVersion, nonce: pack.nonce, publicKeyHex: pack.publicKeyHex };
-    const { points: packValue, hand: pokerHand, score } = scoreCards(newCards);
-
     // Compute progress in the event handler; React state updaters stay free of side effects.
-    const updatedStats: Stats = {
-      ...from.stats,
-      packsOpened: (from.stats.packsOpened || 0) + 1,
-      holoCards: { ...from.stats.holoCards }
-    };
-
-    // Update highest pack value - compare against previous state
-    if (score > (from.stats.highestPackFlexValue || from.stats.highestPackValue || 0)) {
-      updatedStats.highestPackFlexValue = score;
-      updatedStats.highestPackBaseValue = packValue;
-      updatedStats.highestPackMultiplier = pokerHand.multiplier;
-      updatedStats.highestPackHandName = pokerHand.name;
-      updatedStats.highestPackCards = newCards;
-      updatedStats.highestPackRef = pullRef;
-      updatedStats.highestPackLegacy = false;
-    }
-
-    // Track holo cards
-    newCards.forEach(card => {
-      if (card.isHolo) {
-        updatedStats.holoCards[card.key] = true;
-      }
-    });
-
-    if (!counted) setStats(updatedStats);
-
-    // Update collection - track holo and normal counts separately
-    const updatedCollection = { ...from.collection };
-
-    // Count normal and holo cards separately
-    const normalCounts: Record<string, number> = {};
-    const holoCounts: Record<string, number> = {};
-    newCards.forEach((card) => {
-      if (card.isHolo) {
-        holoCounts[card.key] = (holoCounts[card.key] || 0) + 1;
-      } else {
-        normalCounts[card.key] = (normalCounts[card.key] || 0) + 1;
-      }
-    });
-
-    // Get all unique card IDs from this pack
-    const cardIds = new Set(newCards.map(c => c.key));
-    cardIds.forEach((cardId) => {
-      const card = newCards.find(c => c.key === cardId);
-      if (!card) return;
-      const existing = updatedCollection[cardId];
-      const finishes = { ...existing?.finishes };
-      let misprints = existing?.misprints ?? 0;
-      let modifierPoints = existing?.modifierPoints ?? 0;
-      for (const copy of newCards.filter((c) => c.key === cardId)) {
-        if (copy.finish) finishes[copy.finish] = (finishes[copy.finish] ?? 0) + 1;
-        if (copy.misprint) misprints++;
-        modifierPoints += cardPoints(copy.rarity, copy.isHolo, copy.finish, copy.misprint) - cardPoints(copy.rarity, copy.isHolo);
-      }
-      updatedCollection[cardId] = {
-        card: { key: card.key, setId: card.setId, id: card.id, name: card.name, rarity: card.rarity, image: card.image },
-        normalCount: (existing?.normalCount || 0) + (normalCounts[cardId] || 0),
-        holoCount: (existing?.holoCount || 0) + (holoCounts[cardId] || 0),
-        ...(Object.keys(finishes).length ? { finishes } : {}),
-        ...(misprints ? { misprints } : {}),
-        ...(modifierPoints ? { modifierPoints } : {}),
-      };
-    });
-
-    setCollection(updatedCollection);
-
-    // Check Hall of Fame milestones
-    const updatedHallOfFame = { ...from.hallOfFame };
-    const cardCounts: Record<string, number> = {};
-    newCards.forEach(c => {
-      cardCounts[c.id] = (cardCounts[c.id] || 0) + 1;
-    });
-    const maxCount = Math.max(...Object.values(cardCounts));
-
-    // First 4 of a kind
-    if (maxCount >= 4 && !from.hallOfFame.first4OfAKind) {
-      const cardId = Object.entries(cardCounts).find(([, count]) => count >= 4)?.[0];
-      if (cardId) {
-        updatedHallOfFame.first4OfAKind = {
-          achieved: true,
-          date: Date.now(),
-          cardId
-        };
-      }
-    }
-
-    // First full house
-    const counts = Object.values(cardCounts);
-    const hasThree = counts.some(c => c >= 3);
-    const hasTwo = counts.filter(c => c >= 2).length >= 2;
-    if (hasThree && hasTwo && !from.hallOfFame.firstFullHouse) {
-      updatedHallOfFame.firstFullHouse = {
-        achieved: true,
-        date: Date.now(),
-        cards: cardCounts
-      };
-    }
-
-    if (updatedHallOfFame !== from.hallOfFame) {
-      setHallOfFame(updatedHallOfFame);
-    }
-
-    // Check pack value achievements - unlockAchievement handles duplicates internally
-    const packValueAchievements = checkPackScoreAchievements(score, {});
-    packValueAchievements.forEach(id => unlockAchievement(id, newCards, pullRef));
-
-    // Check other achievements - get current state to avoid stale closure
-    checkAllAchievements(newCards, pullRef, updatedCollection, counted ? from.stats : updatedStats, achievementsRef.current, !counted);
-    return { stats: counted ? from.stats : updatedStats, collection: updatedCollection, hallOfFame: updatedHallOfFame };
-  }, [stats, hallOfFame, collection, checkAllAchievements, unlockAchievement, packAdded]);
+    const { progress, unlocks } = recordPack(from, pack, achievementsRef.current);
+    if (progress.stats !== from.stats) setStats(progress.stats);
+    setCollection(progress.collection);
+    setHallOfFame(progress.hallOfFame);
+    const pullRef = { setId: pack.setId, setVersion: pack.setVersion, nonce: pack.nonce, publicKeyHex: pack.publicKeyHex };
+    unlocks.forEach(id => unlockAchievement(id, pack.cards, pullRef));
+    return progress;
+  }, [stats, hallOfFame, collection, unlockAchievement, packAdded]);
 
   // Packs whose reveal never finished (a reload, a closed tab): their tickets are spent, so they still count.
   // Once per mount: an older build's pack stays in its entry until stored, so a second take would add it again.
@@ -587,6 +474,9 @@ function App() {
   // not a new player's. A pack is saved in focus mode (which hides both) or as the player leaves it, so
   // neither appears mid-reveal. A torn pack left while its ticket is on its way (busy, out of focus mode)
   // is theirs already: both come back with the chrome then, not later under the player when it lands.
+  // A pack whose save failed still counts in memory, so its cards stay reachable this session. If the
+  // pending shelf kept it, the next load restores and counts it, so the tabs show at once; only a total
+  // storage refusal makes the next load a new player's.
   const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0 || (packBusy && !packFocus);
   const onPage = route !== 'open';
   const logoMark = (
@@ -609,7 +499,7 @@ function App() {
       {bannerWarning && route !== 'settings' && (
         <p role="alert" className="save-warning">
           {bannerWarning}
-          {staleSave && <button type="button" ref={reloadRef} className="link-btn save-warning-action" onClick={() => reloadPage()}>Reload</button>}
+          {staleSave && <button type="button" ref={reloadRef} className="link-btn save-warning-action quiet-focus" onClick={() => reloadPage()}>Reload</button>}
           {showRecoveryNote && (
             <>
               <KeptAsideActions variant="banner" canAct={recoveryCurrent} onGone={() => {
@@ -631,7 +521,17 @@ function App() {
       <header className="app-header">
         {/* One h1 per view: the logo on the packs screen; on a page, that page's title (see Page). */}
         {onPage ? (
-          <div className="app-logo" role="img" aria-label="Brainrot TCG">{logoMark}{logoChars}</div>
+          <a
+            className="app-logo app-logo--link"
+            href={import.meta.env.BASE_URL}
+            aria-label="Brainrot TCG, home"
+            onClick={(e) => {
+              // Let the browser handle modified clicks (new tab, window); a plain one is the Packs tab.
+              if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              openPage('open');
+            }}
+          >{logoMark}{logoChars}</a>
         ) : (
           <h1 ref={logoRef} className="app-logo" aria-label="Brainrot TCG" tabIndex={-1}>{logoMark}{logoChars}</h1>
         )}

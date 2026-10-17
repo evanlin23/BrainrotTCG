@@ -8,13 +8,14 @@ on:
 # Each job asks for its own token scopes; none is granted by default.
 permissions: {}
 
-# One deploy at a time: a newer push to main cancels this run. With the main-ref guard in site
-# and the tip-of-main guard that starts publish and deploy (so re-running a run whose commit main
-# has moved past, or just its publish or deploy job, fails), this is what keeps an older commit's
-# build from publishing over a newer one. Runs on main's current commit, such as Hall of Fame
-# refreshes, are not told apart: re-running an earlier one still passes.
+# One deploy of main at a time: a newer push to main cancels this run. The group is per ref, so a
+# manual run from another branch (which the site guard then fails) can't cancel a run of main. With
+# the main-ref guard in site and the tip-of-main guard that starts publish and deploy (so re-running
+# a run whose commit main has moved past, or just its publish or deploy job, fails), this is what
+# keeps an older commit's build from publishing over a newer one. Runs on main's current commit,
+# such as Hall of Fame refreshes, are not told apart: re-running an earlier one still passes.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 # Who holds what (docs/HOSTING.md; scripts/deploy_contract.py checks it on every pull request):
@@ -170,6 +171,7 @@ jobs:
           include-hidden-files: true
           retention-days: 1
 
+      # Always runs: on GitHub Pages it is the game itself, on Cloudflare the redirect pages.
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: ${{ needs.site.outputs.host == 'cloudflare' && 'pages' || 'dist' }}
@@ -205,7 +207,7 @@ jobs:
             /tools/wrangler/
           sparse-checkout-cone-mode: false
       # By ID, so it's the exact upload build made in this run.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.site.outputs.host == 'cloudflare'
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}

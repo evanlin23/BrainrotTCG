@@ -36,9 +36,11 @@ async function reveal() {
   });
   await app!.until('Open pack reveals the spent pack', () => {
     expect(progress()).toBe('1');
-    // The top bar's count shows as the pack opens; the card follows once the torn pack has gone.
+    // The top bar's count shows as the pack opens; the card comes in as the torn pack flies off.
     expect($('.card-wrapper')).not.toBeNull();
   });
+  // The leaving pack drops its focused button at once, so focus goes on to the card, not the page.
+  expect(document.activeElement?.closest('.reveal-card')).not.toBeNull();
 }
 
 const pressA = () => app!.interact(() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', key: 'a', bubbles: true })));
@@ -217,10 +219,10 @@ it('shares from the summary, which leads with the result and puts its actions af
   const cards = $('.summary-cards')!;
   expect(cards.compareDocumentPosition($('.summary-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the actions came before the cards').toBeTruthy();
   expect($('.summary-title')!.compareDocumentPosition(cards) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(cards.compareDocumentPosition($('.pack-summary .score-panel')!) & Node.DOCUMENT_POSITION_FOLLOWING, 'the score came before the cards').toBeTruthy();
+  expect($('.summary-actions')!.nextElementSibling, 'something followed the actions').toBeNull();
   // Keyboard focus starts at the result, not on a button below it.
   expect(document.activeElement).toBe($('.summary-title'));
-  expect(button('Open another pack')).toBeDefined();
+  expect(button('Next pack')).toBeDefined();
   expect(stats()?.packsOpened).toBe(1);
   expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
 
@@ -241,7 +243,7 @@ it('hides the app chrome from the tear through the summary, and brings it back w
   expect(focusMode(), 'the summary brought the chrome back').toBe(true);
   // Focus mode is not "busy": the summary still leaves Settings and the set picker usable.
   expect(button('Settings').disabled).toBe(false);
-  await app.interact(() => button('Open another pack').click());
+  await app.interact(() => button('Next pack').click());
   await app.until('sealed pack is available again', () => expect(sealed()).not.toBeNull());
   expect(focusMode(), 'the packs screen kept the chrome hidden').toBe(false);
 }, 30_000);
@@ -253,7 +255,8 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
   await app.interact(() => button('Skip opening animation').click());
   await app.until('skip stops on the big pull', () => expect($('.active-card-container')?.getAttribute('aria-busy')).toBe('true'));
   // The showcase: a ribbon in the top bar, above the card, and a halo behind it.
-  expect($('.pack-top-bar .showcase-ribbon[role="status"]')?.textContent).toMatch(/Big pull!.*points/);
+  // Its announcement reads as words, and says presses wait (they do nothing during the hold).
+  expect($('.pack-top-bar .showcase-ribbon[role="status"]')?.textContent).toMatch(/^Big pull! [\d,]+ points\. Continue in a moment\.$/);
   expect($('.reveal-card .showcase-halo')).not.toBeNull();
   const area = $('.card-reveal-area')!;
   const card = progress();
@@ -289,7 +292,7 @@ it('lets the X end a big pull\'s hold and leave, recording the pack once; nothin
 
 it('holds the last pack\'s notices while a big pull is on show, and shows them all once it ends', async () => {
   // Nonce 21 has no big pull; the next pack, nonce 22, does.
-  app = await mountedApp(preferences({ nextNonce: 21, pauseBigPulls: true }));
+  app = await mountedApp(preferences({ nextNonce: 21, pauseBigPulls: true }), { hallOfFame: [] });
   await app.mount();
   await reveal();
   await escape();
@@ -312,7 +315,7 @@ it('holds the last pack\'s notices while a big pull is on show, and shows them a
 
 it('keeps notices held between two big pulls that Skip shows back to back (#460)', async () => {
   // Nonce 973 leaves a notice behind; nonce 974 deals two big pulls, the last two cards.
-  app = await mountedApp(preferences({ nextNonce: 973, pauseBigPulls: true }));
+  app = await mountedApp(preferences({ nextNonce: 973, pauseBigPulls: true }), { hallOfFame: [] });
   await app.mount();
   await reveal();
   await escape();
@@ -353,7 +356,7 @@ it('still shows the save warning at once over a big pull, since it needs action 
   expect($('.app > p[role="alert"].save-warning')?.textContent).toContain('This save changed in another tab');
 }, 30_000);
 
-it('leaves the summary with Escape, as Open another pack does, without recording it again', async () => {
+it('leaves the summary with Escape, as Next pack does, without recording it again', async () => {
   app = await mountedApp(preferences());
   await app.mount();
   await reveal();
@@ -458,7 +461,7 @@ describe('browser Back in a pack', () => {
     app = await mountedApp(preferences());
     let length = 0;
     await app.mount();
-    for (const leave of ['X', 'Escape', 'Open another pack']) {
+    for (const leave of ['X', 'Escape', 'Next pack']) {
       await reveal();
       expect(packEntry()).toBe(true);
       if (leave === 'X') length = history.length;
@@ -468,7 +471,7 @@ describe('browser Back in a pack', () => {
       else {
         await app.interact(() => button('Skip opening animation').click());
         await app.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
-        await app.interact(() => button('Open another pack').click());
+        await app.interact(() => button('Next pack').click());
       }
       await app.until(`${leave} returns to the packs screen`, () => expect(sealed()).not.toBeNull());
       await app.until(`${leave} steps back over the pack's entry`, () => expect(packEntry()).toBe(false));

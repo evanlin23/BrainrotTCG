@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, type ComponentPropsWithRef } from 'react';
-import { motion, AnimatePresence, useIsPresent, type PanInfo } from 'framer-motion';
+import { motion, AnimatePresence, useIsPresent } from 'framer-motion';
 import { FastForward } from 'lucide-react';
 import Card from '../cards/Card';
 import type { CardWithMeta } from '../cards/Card';
@@ -8,6 +8,7 @@ import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import cardBackImage from '../../assets/images/card_back.webp';
 import RarityBadge from '../ui/RarityBadge';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
+import { useCardSwipe, useSidewaysFlickGuard } from '../../hooks/useRevealGestures';
 import { isBigPull, isSpecialReveal, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import { siteLabel } from '../../game/pulls';
 import { cardNumber } from '../../data/cards';
@@ -51,10 +52,6 @@ interface CardRevealUIProps {
   setName?: string;
 }
 
-/** How far (px) or how fast (px/s) a flipped card has to be flung to move on. */
-const SWIPE_DISTANCE = 80;
-const SWIPE_SPEED = 500;
-
 /**
  * One card at a time off the top of the stack, rarest last. Big pulls light the back's edge before
  * the flip and get a spotlight after it; a flipped card can be swiped away or tapped.
@@ -76,16 +73,9 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
       ? 'Click or press Space for the next card'
       : 'Click or press Space to flip';
 
-  // A mouse drag ends with a click on the card; that click isn't a tap, so it mustn't advance again.
-  const draggedAt = useRef(0);
-  const onDragEnd = (_: unknown, info: PanInfo) => {
-    draggedAt.current = performance.now();
-    if (revealLocked) return;
-    if (Math.abs(info.offset.x) > SWIPE_DISTANCE || Math.abs(info.velocity.x) > SWIPE_SPEED) onInteraction();
-  };
-  const onTap = () => {
-    if (!revealLocked && performance.now() - draggedAt.current > 300) onInteraction();
-  };
+  const { onDragEnd, onTap } = useCardSwipe(currentCard?.uniqueId, revealLocked, onInteraction);
+  const stageEl = useRef<HTMLDivElement | null>(null);
+  useSidewaysFlickGuard(stageEl, '.reveal-card');
 
   // The card is the reveal's button for the keyboard too: Space or Enter flips it, then moves on
   // (useKeyboardControls, which holds Space down to repeat). Each card is a new element, so focus follows
@@ -109,7 +99,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   return (
     <>
       {/* The way out and the card count are in the pack's top bar (PackTopBar), the same on every stage. */}
-      <div className={`active-card-container ${cardBack ? `back-${cardBack}` : ''} ${revealed && big ? 'is-spotlit' : ''}`} aria-busy={revealLocked} style={{ '--special-reveal-duration': `${SPECIAL_REVEAL_DURATION_MS}ms` } as React.CSSProperties}>
+      <div ref={stageEl} className={`active-card-container ${cardBack ? `back-${cardBack}` : ''} ${revealed && big ? 'is-spotlit' : ''}`} aria-busy={revealLocked} style={{ '--special-reveal-duration': `${SPECIAL_REVEAL_DURATION_MS}ms` } as React.CSSProperties}>
         {/* The cards still to come, as a stack behind the current one. */}
         {Array.from({ length: Math.min(remaining, 3) }, (_, i) => (
           <div key={`stack-${i}`} className="reveal-stack-card" style={{ '--depth': i + 1 } as React.CSSProperties} aria-hidden="true">
@@ -120,7 +110,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
           {currentCard && (
             <RevealCard
               key={currentCard.uniqueId}
-              className={`reveal-card ${celebration ? 'is-celebrating' : ''}`}
+              className={`reveal-card quiet-focus ${celebration ? 'is-celebrating' : ''}`}
               ref={cardRef}
               data-pack-keys
               onClick={onTap}

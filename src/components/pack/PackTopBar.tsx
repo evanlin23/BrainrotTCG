@@ -19,7 +19,7 @@ interface PackTopBarProps {
  */
 const PackTopBar = ({ onLeave, progress, showcase }: PackTopBarProps) => (
   <div className="pack-top-bar">
-    <button type="button" className="icon-btn pack-close" aria-label="Back to packs" title="Back to packs" onClick={onLeave}>
+    <button type="button" className="icon-btn pack-close quiet-focus" aria-label="Back to packs" title="Back to packs" onClick={onLeave}>
       <X aria-hidden="true" />
     </button>
     {showcase ?? (progress && (

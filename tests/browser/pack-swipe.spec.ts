@@ -1,8 +1,9 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { monitor, expectDecoded, fingerFor, type Finger } from './support';
 
-// A short swipe along the tear line opens the pack when it's released (#312). The phone project
-// swipes with touch events in Pixel 5 emulation, which is not a real phone.
+// A short swipe along the tear line opens the pack when it's released (#312), one under a fifth of
+// the pack doesn't, and the Open pack button opens it for a tap (#267). The phone project swipes with
+// touch events in Pixel 5 emulation, which is not a real phone.
 
 /** Opens the app and returns the sealed pack, scrolled into view with its art loaded. */
 async function sealedPack(page: Page) {
@@ -16,7 +17,9 @@ async function sealedPack(page: Page) {
 
 /**
  * Presses the tear line at the first fraction of the pack's width, moves through the rest in small
- * steps, and checks the stroke is still cutting, not yet torn, before it's released.
+ * steps, and checks the stroke is still cutting, not yet torn, before it's released. The full swipes
+ * below span 25% of the pack's width (0.375 to 0.625): past RELEASE_CUT_RATIO (20%) so release tears
+ * it, and short of DRAG_CUT_RATIO (30%) so the stroke is still cutting, not torn, until then.
  */
 async function swipeTearLine(page: Page, packShell: Locator, finger: Finger, ...across: number[]) {
   const box = (await packShell.boundingBox())!;
@@ -37,11 +40,11 @@ async function swipeTearLine(page: Page, packShell: Locator, finger: Finger, ...
   await finger.release();
 }
 
-test('a 30% swipe along the tear line opens the pack on release', async ({ page, baseURL, hasTouch }) => {
+test('a 25% swipe along the tear line opens the pack on release', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   const packShell = await sealedPack(page);
-  await swipeTearLine(page, packShell, await fingerFor(page, hasTouch), 0.35, 0.65);
+  await swipeTearLine(page, packShell, await fingerFor(page, hasTouch), 0.375, 0.625);
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   expect(errors).toEqual([]);
 });
@@ -51,6 +54,36 @@ test('a swipe that goes over and comes back opens the pack on release', async ({
   const errors = await monitor(page, baseURL!);
   const packShell = await sealedPack(page);
   await swipeTearLine(page, packShell, await fingerFor(page, hasTouch), 0.3, 0.55, 0.3);
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  expect(errors).toEqual([]);
+});
+
+test('a swipe under a fifth of the pack is let go without opening it, and a real swipe still does', async ({ page, baseURL, hasTouch }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!);
+  const packShell = await sealedPack(page);
+  const finger = await fingerFor(page, hasTouch);
+  // 15% draws the cut while the finger moves (it is plainly across) but is short of the release ratio.
+  await swipeTearLine(page, packShell, finger, 0.42, 0.57);
+  // Long enough for a release that would open the pack to have started the tear.
+  await page.waitForTimeout(400);
+  await expect(packShell).not.toHaveClass(/\bis-cut\b/);
+  await expect(packShell).not.toHaveClass(/\bis-cutting\b/);
+  await expect(page.locator('.card-reveal-area')).toHaveCount(0);
+
+  await swipeTearLine(page, packShell, finger, 0.375, 0.625);
+  await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  expect(errors).toEqual([]);
+});
+
+test('tapping the Open pack button opens the pack without a swipe', async ({ page, baseURL, hasTouch }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!);
+  await sealedPack(page);
+  const openButton = page.getByRole('button', { name: 'Open pack', exact: true });
+  // A real tap on the phone project (touch events), a click with the mouse on desktop.
+  if (hasTouch) await openButton.tap();
+  else await openButton.click();
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   expect(errors).toEqual([]);
 });
@@ -65,7 +98,7 @@ test('a tap on the tear line pulses the swipe hint, then a swipe still opens (#4
   await finger.release();
   await expect(packShell).toHaveClass(/\bis-tapped\b/);
   await expect(packShell).not.toHaveClass(/\bis-cut\b/);
-  await swipeTearLine(page, packShell, finger, 0.35, 0.65);
+  await swipeTearLine(page, packShell, finger, 0.375, 0.625);
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   expect(errors).toEqual([]);
 });
@@ -119,7 +152,7 @@ test.describe('at a phone size', () => {
     await expectNoCut(page, packShell);
 
     // The pack still opens with a real swipe.
-    await swipeTearLine(page, packShell, finger, 0.35, 0.65);
+    await swipeTearLine(page, packShell, finger, 0.375, 0.625);
     await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
     expect(errors).toEqual([]);
   });
@@ -146,7 +179,7 @@ test.describe('at a phone size', () => {
     await finger.release();
     await expectNoCut(page, packShell);
 
-    await swipeTearLine(page, packShell, finger, 0.35, 0.65);
+    await swipeTearLine(page, packShell, finger, 0.375, 0.625);
     await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
     expect(errors).toEqual([]);
   });

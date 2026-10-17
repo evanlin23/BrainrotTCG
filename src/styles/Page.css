@@ -91,7 +91,7 @@
 .page-skeleton-item {
   border-radius: var(--radius-lg);
   background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%) 0 0 / 200% 100%;
-  animation: page-skeleton 1.4s ease-in-out infinite;
+  animation: page-skeleton var(--dur-shimmer) ease-in-out infinite;
 }
 
 .page-skeleton--rows .page-skeleton-item {

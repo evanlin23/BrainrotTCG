@@ -10,6 +10,7 @@ import type { PullRef } from '../../game/pulls';
 import RarityBadge from '../ui/RarityBadge';
 import Sheet from '../ui/Sheet';
 import CardImage from './CardImage';
+import CardVersionStats from './CardVersionStats';
 import '../../styles/CardViewer.css';
 
 interface CardViewerModalProps {
@@ -65,7 +66,8 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: Ca
         {label && <span className="modifier-sticker">{label}</span>}
       </div>
       <div className="card-viewer-info">
-        <RarityBadge rarity={card.rarity} isHolo={isHolo} finish={finish} misprint={misprint} />
+        <CardVersionStats card={card} version={shown} />
+        <RarityBadge rarity={card.rarity} isHolo={isHolo} finish={finish} misprint={misprint} showPoints={false} />
         {card.flavor && <p className="card-viewer-flavor">{card.flavor}</p>}
         {versions && versions.length > 1 && (
           <div className="card-viewer-versions" role="group" aria-label="Your versions of this card">

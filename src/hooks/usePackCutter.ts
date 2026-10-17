@@ -1,12 +1,15 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { useSparks } from './useSparks';
 import { mapPackPointer, type PackLayout, type PackRect } from './packCutCoordinates';
-import { FAIRY_DUST_SRC, WOOSH_SRC } from '../constants/audio';
+import { FAIRY_DUST_SRC, WOOSH_SRC, soundVolume } from '../constants/audio';
 
 // Pack cutting constants
 const TEAR_LINE_RATIO = 0.19;
-/** A stroke spanning this much of the pack's width opens it while it's still moving. */
-const DRAG_CUT_RATIO = 0.45;
+/**
+ * A stroke spanning this much of the pack's width opens it while it's still moving. A steady swipe opens
+ * a third of the way across instead of past halfway, so the pack answers before the thumb runs out (#267).
+ */
+const DRAG_CUT_RATIO = 0.3;
 /** A stroke spanning this much opens the pack when it's released: a short swipe is enough (#312). */
 const RELEASE_CUT_RATIO = 0.2;
 /** Nor less than this, in CSS pixels, however small the pack. */
@@ -226,7 +229,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     // Play woosh sound
     if (volume > 0) {
       const woosh = new Audio(WOOSH_SRC);
-      woosh.volume = volume;
+      woosh.volume = soundVolume(WOOSH_SRC, volume);
       woosh.onended = () => { woosh.src = ''; };
       woosh.play().catch(() => { });
     }
@@ -274,7 +277,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
             fairyDustRef.current.currentTime = 0;
           }
           fairyDustRef.current = new Audio(FAIRY_DUST_SRC);
-          fairyDustRef.current.volume = volume;
+          fairyDustRef.current.volume = soundVolume(FAIRY_DUST_SRC, volume);
           fairyDustRef.current.play().catch(() => { });
         }
       }
@@ -339,6 +342,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     // The pack's top bar (its X) can sit over the tear line on a phone, and the Open pack and Try again
     // buttons under the pack can meet its art: pressing them never cuts.
     if (disabled || (event.target as Element | null)?.closest?.('[role="dialog"], .sheet-backdrop, .pack-top-bar, .pack-actions')) {
+      blockedRef.current = true;
+      return;
+    }
+    // On a desktop window the stage scrolls and clips the pack, so a scrolled-off seam can map to a
+    // point over the app header or nav: only a press inside the stage can cut.
+    const stage = packRef.current?.closest?.('.pack-display');
+    const target = event.target;
+    if (stage && target instanceof Element && !stage.contains(target)) {
       blockedRef.current = true;
       return;
     }

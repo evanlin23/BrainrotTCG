@@ -2,10 +2,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { wouldJoinHallOfFame, type PackScore } from '../../engine';
-import { DEFAULT_SET_ID } from '../../content/sets';
+import { pullId, wouldJoinHallOfFame, type PackScore } from '../../engine';
+import { DEFAULT_SET_ID, getSet } from '../../content/sets';
+import { getSetCards } from '../../data/cards';
+import type { CardWithMeta } from '../cards/Card';
+import { revealOrder } from '../../game/reveal';
 import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
-import { submitToHallOfFame } from '../../game/share';
+import { hallOfFameEvent, publishUntilAccepted } from '../../game/nostrInbox';
 import ShareSheet from './ShareSheet';
 
 // The proof and the list are stand-ins: this checks where the Hall of Fame offer sits in the sheet.
@@ -26,8 +29,10 @@ vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame: vi.fn(async () => 
 vi.mock('../../game/share', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/share')>()),
   bragText: vi.fn(() => 'Look at this pull'),
-  wasSubmitted: vi.fn(() => false),
-  submitToHallOfFame: vi.fn(async () => true),
+}));
+vi.mock('../../game/nostrInbox', () => ({
+  hallOfFameEvent: vi.fn(() => ({})),
+  publishUntilAccepted: vi.fn(async () => ({ accepted: {}, all: Promise.resolve([]) })),
 }));
 vi.mock('../../game/bragImage', () => ({ renderPoster: vi.fn(async () => new Blob(['poster'], { type: 'image/png' })) }));
 
@@ -35,6 +40,7 @@ const score = { points: 100, hand: { name: 'Royal Rot' }, score: 1000 } as unkno
 const target = { ref: { setId: DEFAULT_SET_ID, setVersion: 1, nonce: 3 }, cards: [], score };
 let root: Root;
 let container: HTMLElement;
+let pull = 0;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -43,6 +49,8 @@ beforeEach(() => {
     static createObjectURL() { return 'blob:poster'; }
     static revokeObjectURL() {}
   });
+  // Sends are remembered for the page's life, so each test sends its own pull.
+  vi.mocked(pullId).mockReturnValue(`pull-${++pull}`);
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -50,6 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  localStorage.clear();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
@@ -67,8 +76,17 @@ describe('Hall of Fame in the pack share sheet', () => {
     expect(inOrder(['.share-actions-main', '.share-hof', '.share-preview', '.share-pack-cards'])).toBe(true);
   });
 
+  it('has no GitHub route for the submit: one button, no issue link', async () => {
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    const offer = document.querySelector('.share-hof')!;
+    expect(offer.querySelector('a')).toBeNull();
+    expect(offer.textContent).not.toMatch(/github/i);
+    expect(document.querySelector('a[href*="github.com"]')).toBeNull();
+    expect([...offer.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Submit']);
+  });
+
   it('puts the already-listed note in the same place', async () => {
-    vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: 'pull-1' } as HallOfFameEntry]);
+    vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
     expect(document.querySelector('.share-hof')).toBeNull();
     const listed = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('in the Hall of Fame'));
@@ -84,7 +102,8 @@ describe('Hall of Fame in the pack share sheet', () => {
 
   it('shows the pull as submitted once a relay takes it, without a relay count', async () => {
     const button = await clickSubmit();
-    expect(submitToHallOfFame).toHaveBeenCalledTimes(1);
+    expect(publishUntilAccepted).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(hallOfFameEvent).mock.calls[0][3]).toBe(1000); // the score hint the inbox can skip on
     expect(button.textContent).toBe('Submitted');
     expect(button.disabled).toBe(true);
     const status = document.querySelector('.share-hof [role="status"]')!.textContent!;
@@ -93,11 +112,14 @@ describe('Hall of Fame in the pack share sheet', () => {
   });
 
   it('offers a retry when no relay takes it', async () => {
-    vi.mocked(submitToHallOfFame).mockResolvedValueOnce(false);
+    vi.mocked(publishUntilAccepted).mockResolvedValueOnce({ accepted: null, all: Promise.resolve([]) });
     const button = await clickSubmit();
     expect(button.textContent).toBe('Submit');
     expect(button.disabled).toBe(false);
-    expect(document.querySelector('.share-hof [role="status"]')!.textContent).toContain("Couldn't reach any relay");
+    const status = document.querySelector('.share-hof [role="status"]')!.textContent!;
+    expect(status).toContain("Couldn't reach any relay. Try again.");
+    expect(status).not.toMatch(/github/i);
+    expect(document.querySelector('.share-hof a')).toBeNull();
   });
 
   it('counts today’s top (UTC) when deciding whether to offer the submit', async () => {
@@ -108,6 +130,20 @@ describe('Hall of Fame in the pack share sheet', () => {
     } finally {
       vi.useRealTimers();
     }
-    expect(vi.mocked(wouldJoinHallOfFame)).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'pull-1' }), [], '2026-10-17');
+    expect(vi.mocked(wouldJoinHallOfFame)).toHaveBeenLastCalledWith(expect.objectContaining({ id: `pull-${pull}` }), [], '2026-10-17');
+  });
+});
+
+describe('cards in this pack', () => {
+  it('shows a reopened pack in the order it was revealed, best last, not the order it was stored', async () => {
+    const set = getSet(DEFAULT_SET_ID, 1)!;
+    // Stored (engine) order: a Gold, a Holo, then plain cards, so revealing moves the extras to the end.
+    const stored = getSetCards(set.id).slice(0, 5).map((card, i) => ({
+      ...card, rarity: 'COMMON', uniqueId: i + 1, isRevealed: true, isHolo: i === 1, finish: i === 0 ? 'GOLD' : null,
+    }) as CardWithMeta);
+    await act(async () => root.render(<ShareSheet target={{ ...target, cards: stored }} onClose={() => {}} />));
+    const shown = [...document.querySelectorAll('.share-pack-cards .pack-viewer-card-grid')].map((el) => el.getAttribute('aria-label')!.replace(/ \(.*\)$/, ''));
+    expect(shown).toEqual(revealOrder(stored).map((card) => card.name));
+    expect(shown).not.toEqual(stored.map((card) => card.name));
   });
 });

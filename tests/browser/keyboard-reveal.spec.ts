@@ -3,8 +3,9 @@ import { monitor } from './support';
 
 /**
  * A whole pack by keyboard alone (#12): Tab reaches the Open pack button, Space tears the pack, and the
- * card is the one button for the reveal, flip then next (#312: a real button named with the card's rarity). Each control shows a focus ring, and a single polite live
- * region names each card as it turns face up, never before. The fixture key's nonce 21 deals no big
+ * card is the one button for the reveal, flip then next (#312: a real button named with the card's rarity). Tab
+ * shows a focus ring on the pack button; Space paints none on the cards it moves to or flips (#529), and an arrow key
+ * brings it back. A single polite live region names each card as it turns face up, never before. The fixture key's nonce 21 deals no big
  * pull, so nothing holds the reveal, and it repeats a card (2 and 5), so the checks meet a duplicate name.
  */
 const RARITY = '(?:Holo )?(?:Common|Uncommon|Rare|Epic|Legendary|Brainrot)';
@@ -80,9 +81,13 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
   for (let n = 1; n <= 5; n++) {
     // The tear, and each move on, leave focus on the card, ready to flip.
     await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 10000 });
+    // Space only drove the game here, so the card has focus and no ring (#529); an arrow key, which does
+    // nothing on the reveal, is navigation and puts the shared ring back on the card that has focus.
+    expect((await ring(card, '::after')).boxShadow, `card ${n} rang after Space`).not.toContain(BRAND);
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => (await ring(card, '::after')).boxShadow).toContain(BRAND);
     const cardRing = await ring(card, '::after');
     expect(cardRing.focusVisible).toBe(true);
-    expect(cardRing.boxShadow).toContain(BRAND);
     expect(contrast(rgb(BRAND), rgb(cardRing.page))).toBeGreaterThanOrEqual(3);
     // Nothing is said about a card still face down, and nothing on the screen names it yet.
     await expect(live).toHaveCount(1);
@@ -112,7 +117,10 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
     // Face up, the button's name says what it does next, then the card with its rarity (#312).
     await expect(card).toHaveAttribute('aria-label', n < 5 ? /^Next card\. Card \d of 5: / : /^See the pack summary\. Card 5 of 5: /);
     expect(await card.getAttribute('aria-label')).toMatch(new RegExp(`${RARITY}`));
-    expect((await ring(card, '::after')).boxShadow).toContain(BRAND);
+    // The flip was Space too: no ring until a navigation key brings it back.
+    expect((await ring(card, '::after')).boxShadow, `card ${n} rang after the flip`).not.toContain(BRAND);
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => (await ring(card, '::after')).boxShadow).toContain(BRAND);
     if (n === 1) {
       // The emulated screen-reader view of the reveal, for the PR (Chromium's accessibility tree).
       console.log(`--- face down, card 1 ---\n${areaBefore}\n--- face up, card 1 ---\n${await area.ariaSnapshot()}`);
@@ -283,6 +291,11 @@ test('levels a tilted card as soon as reduced motion turns on mid-reveal, and ke
 
   // Turned back off, the card waits for the mouse instead of snapping to its old angle.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // emulateMedia resolves once the page has the new setting, not once the app has reacted: the media
+  // query's change event reaches React in the page's next rendering update, which runs after that frame's
+  // input events, and only then does the card listen for the mouse again. A move sent sooner is dropped
+  // and never repeated, so wait out two frames (the change, then the effect it schedules) before moving.
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
   expect(await transform()).toBe(LEVEL);
   if (!hasTouch) {
     await page.mouse.move(box.x + box.width, box.y + box.height);

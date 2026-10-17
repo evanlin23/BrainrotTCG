@@ -5,8 +5,8 @@ The site is static files: no server, nothing to scale. It's built and deployed b
 
 | | Address | Cost | Limits |
 |---|---|---|---|
-| GitHub Pages (now) | `evanlin23.github.io/BrainrotTCG` | Free, never billed | Soft limit of 100 GB of traffic a month; past it GitHub may slow the site or ask you to move |
-| Cloudflare Pages | `brainrottcg.pages.dev` | Free, no card needed, never billed | None for static files: traffic and requests are unmetered |
+| GitHub Pages (before the move; now redirects) | `evanlin23.github.io/BrainrotTCG` | Free, never billed | Soft limit of 100 GB of traffic a month; past it GitHub may slow the site or ask you to move |
+| Cloudflare Pages (now) | `brainrottcg.pages.dev` | Free, no card needed, never billed | None for static files: traffic and requests are unmetered |
 
 Either way, nothing on the free plans can charge you: there's no payment method to charge.
 
@@ -76,6 +76,25 @@ the game again. Saves made at the Cloudflare address stay there, so do this befo
 or not at all. This is a host change, not a release rollback; for a bad release, see
 [Recover on the same origin](#recover-on-the-same-origin).
 
+## Who can publish with the Cloudflare secrets
+
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are plain repository secrets. Pull requests from
+forks never see them, but any workflow run in this repository can: a manual run from a branch runs
+that branch's own `deploy.yml`, so the main-ref guard and the deploy contract only bind the file on
+`main`, and the publish job has no main-only environment. Anyone who can push a branch here could
+therefore publish to the Cloudflare project.
+
+Closing that is a settings change only the owner can make, in this order:
+
+1. **Settings → Environments → New environment**, named `cloudflare-production`. Under
+   **Deployment branches and tags** choose **Selected branches and tags** and add the rule `main`.
+2. In that environment, **Add environment secret** for `CLOUDFLARE_API_TOKEN` and
+   `CLOUDFLARE_ACCOUNT_ID` (same values, or a fresh token as in step 3 of the move).
+3. Merge a PR that adds `environment: cloudflare-production` to the `site` and `publish` jobs and to
+   `scripts/deploy_contract.py`, and check that its deploy on `main` reaches Cloudflare.
+4. Only then delete the two repository secrets. Deleting them first, or before step 3 deploys, makes
+   the next deploy fall back to GitHub Pages as host ([switching back](#switching-back-to-github-pages)).
+
 ## Release evidence
 
 Deploys are automatic on pushes to `main`, and only the owner may use the administrator bypass. This
@@ -90,8 +109,9 @@ an approval gate:
   [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
   builds (`npm run check`, `npm run build`) and deploys only if it passes. The build job holds no
   secrets and seals what it built; the Cloudflare job publishes only those sealed files. Only the
-  last job may write Pages. Deploys run one at a time (the `pages` concurrency group): a newer push
-  to `main` cancels an older run, and the site job stops any run not started from `main`. The publish
+  last job may write Pages. Deploys of `main` run one at a time (one `pages-<ref>` concurrency group
+  per ref, so a run from another branch can't cancel one of `main`): a newer push to `main` cancels
+  an older run, and the site job stops any run not started from `main`. The publish
   and deploy jobs each first check that the run's commit is still the tip of `main`, so re-running a
   run whose commit `main` has moved past fails rather than publishing an older build over a newer
   one. A failed check can leave the site stale: a `[skip ci]` merge that lands mid-run starts no new
@@ -144,7 +164,7 @@ and migration origins consistent with the selected release.
    submitted pull verifies and wasn't already verified on that issue, and [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
    when a run (dispatched about every 15 minutes) files new entries. Land the forward-fix PR first, or
    pause those workflows, before they redeploy a bad `main`. Avoid overlapping recovery and deploy
-   runs; the workflow's `pages` concurrency group does not serialize dashboard rollbacks.
+   runs; the workflow's concurrency group does not serialize dashboard rollbacks.
 
 Cloudflare's deployment history is the artifact rollback source. On its Cloudflare path, the workflow
 uploads only the GitHub Pages **redirect** directory (`pages/`) as `github-pages`; it does not archive
@@ -160,10 +180,29 @@ old UI. The GitHub redirect's copy may differ until refreshed; record that expli
 
 ## Read-only checks after deployment or recovery
 
-At the recorded production URL, confirm the hashed entry script in `index.html` matches the selected
-build and loads, then check required card images and a `/p/` preview page. The deploy workflow checks
-that the address's `deployment-id.json` matches the build it sealed before updating the old-site
-redirect, which doesn't prove assets decode or the game works. In a disposable browser context, open a known valid historical pull, a current-version
+Smoke check, GETs only (`curl -fsS`), each with a fresh `?run=<anything>` so no cache answers (as
+the publish job does). Paths are relative to the site address: <https://brainrottcg.pages.dev/> (or
+the recorded URL) on Cloudflare, <https://evanlin23.github.io/BrainrotTCG/> when GitHub Pages hosts
+the game.
+
+| GET | Passes when |
+|---|---|
+| `deployment-id.json` (Cloudflare only) | 200 JSON whose `url` is this address and whose `sha` and `run_id` match the deployment you expect (below) |
+| the address itself | 200 HTML naming a hashed `assets/index-*.js` entry script |
+| that entry script | 200, `text/javascript` or `application/javascript`, non-empty |
+| `hall-of-fame.json` | 200 JSON |
+| `s/genesis/` and `s/genesis/preview.jpg` (a set's preview page and its `og:image`) | 200 each, the image non-empty |
+
+`deployment-id.json` names the run that last published, which need not be the release you are
+checking: a later Hall of Fame refresh republishes the same `sha` from a new `run_id`, and a dashboard
+rollback serves the marker of the deployment rolled back to. Expect the latest successful deploy run
+on `main` (whose publish job already waited for this marker), or after a rollback the recorded
+target's `sha` and `run_id`; any other value means the address serves something you didn't intend.
+GitHub Pages builds no marker: there, match the commit against the latest successful deploy run's
+`deploy` job. While Cloudflare hosts the game, the GitHub address serves only redirects: check its
+`hall-of-fame.json` as above and that its page names the Cloudflare address.
+None of this proves assets decode or the game works.
+In a disposable browser context, open a known valid historical pull, a current-version
 pull and a profile link, and check invalid-proof recovery, ranking freshness and the old URL's
 forwarding. Use public test proofs, don't open new packs, submit, reset or import real saves, and
 record the tested deployment and any failures.

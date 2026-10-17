@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack } from '../../game/pulls';
@@ -33,15 +34,26 @@ vi.mock('../../hooks/usePackCutter', () => ({
     };
   },
 }));
-vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn() }));
+vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
 vi.mock('../../utils/confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
 let root: Root;
+// An opener that unmounts mid-pack steps browser history back over the pack's entry, and jsdom delivers that
+// a couple of timer turns later as a popstate. Left to arrive on its own it lands in a later test, where it
+// reads as the player pressing Back: that test's pack ends and its sounds are cleaned up. So every test
+// counts the steps it took and the popstates that came of them, and waits for them all before it ends.
+let stepsBack: MockInstance<typeof history.back>;
+let popstates = 0;
+let popstated = () => {};
+const countPopstate = () => {
+  popstates += 1;
+  popstated();
+};
 
-const render = (disabled: boolean, openBlocked = false) =>
+const render = (disabled: boolean, openBlocked = false, settings = DEFAULT_SETTINGS) =>
   act(() => root.render(
-    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={DEFAULT_SETTINGS} disabled={disabled} openBlocked={openBlocked} />,
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} />,
   ));
 
 beforeEach(() => {
@@ -53,11 +65,20 @@ beforeEach(() => {
   cutter.endCutAttempt.mockReset();
   cutter.completeCut.mockReset().mockImplementation(() => cutter.tear());
   vi.mocked(openPack).mockReset().mockImplementation(() => new Promise(() => {}));
+  popstates = 0;
+  popstated = () => {};
+  window.addEventListener('popstate', countPopstate);
+  stepsBack = vi.spyOn(history, 'back');
   root = createRoot(document.body.appendChild(document.createElement('div')));
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount());
+  // jsdom's traversal runs on real timers, which a test may still have faked.
+  vi.useRealTimers();
+  while (popstates < stepsBack.mock.calls.length) await new Promise<void>((resolve) => { popstated = resolve; });
+  window.removeEventListener('popstate', countPopstate);
+  stepsBack.mockRestore();
   document.body.innerHTML = '';
   vi.unstubAllGlobals();
 });
@@ -150,9 +171,7 @@ describe('the controls under the pack (#312)', () => {
     await act(async () => {});
   };
 
-  beforeEach(async () => {
-    // A test that unmounts mid-pack steps browser history back; let that land before this one starts.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   });
   afterEach(() => vi.useRealTimers());
@@ -221,5 +240,145 @@ describe('the controls under the pack (#312)', () => {
     await act(async () => { vi.advanceTimersByTime(1300); });
     expect(announced()).toBe('Opening the pack…');
     expect(document.querySelectorAll('[aria-live]')).toHaveLength(1);
+  });
+});
+
+describe('the reveal sounds on a first pack', () => {
+  // Opens a pack and returns which sounds started downloading, before and after the page goes idle.
+  const openAndIdle = async (settings = DEFAULT_SETTINGS) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const idle: (() => void)[] = [];
+    vi.stubGlobal('requestIdleCallback', (task: () => void) => idle.push(task));
+    vi.stubGlobal('cancelIdleCallback', () => {});
+    const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    // Raising preload is what starts a deferred download, so track which sounds asked for one.
+    const preload = vi.spyOn(HTMLMediaElement.prototype, 'preload', 'set');
+    const downloading = () => new Set(preload.mock.calls.flatMap(([value], i) => (value === 'auto' ? [preload.mock.contexts[i]] : [])));
+    const set = SETS[0];
+    const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+    vi.mocked(openPack).mockResolvedValue({
+      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
+    } as unknown as Awaited<ReturnType<typeof openPack>>);
+    try {
+      await render(false, false, settings);
+      act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+      await act(async () => { vi.advanceTimersByTime(500); });
+      await act(async () => {});
+      // Dealt, and the reveal is drawn while the torn pack is still leaving, with no empty stage between.
+      expect(openPack).toHaveBeenCalledOnce();
+      expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
+      const before = downloading().size;
+      const waiting = idle.length;
+      act(() => idle.splice(0).forEach((task) => task()));
+      return {
+        before, waiting, after: downloading().size,
+        starts: preload.mock.calls.filter(([value]) => value === 'auto').length,
+        loads: load.mock.calls.length,
+      };
+    } finally {
+      preload.mockRestore();
+      load.mockRestore();
+      vi.useRealTimers();
+    }
+  };
+
+  it('download only once the reveal is drawn and the page is idle, not ahead of its card backs', async () => {
+    const { before, waiting, after, starts, loads } = await openAndIdle();
+    // Its sounds wait for the page to go idle rather than racing its card backs.
+    expect(waiting).toBeGreaterThan(0);
+    expect(before).toBe(0);
+    expect(after).toBeGreaterThan(0);
+    // Each starts once, in place: load() would abort the download and fetch it again.
+    expect(starts).toBe(after);
+    expect(loads).toBe(0);
+  });
+
+  it('download nothing while effects are muted, since none of them would play', async () => {
+    const { before, after, loads } = await openAndIdle({ ...DEFAULT_SETTINGS, effectsVolume: 0 });
+    expect(before).toBe(0);
+    expect(after).toBe(0);
+    expect(loads).toBe(0);
+  });
+});
+
+describe('the sealed pack stage on a desktop window', () => {
+  it('goes back to the top as the cards come in, so the reveal inherits no scroll', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const set = SETS[0];
+    const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+    vi.mocked(openPack).mockResolvedValue({
+      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
+    } as unknown as Awaited<ReturnType<typeof openPack>>);
+    try {
+      await render(false);
+      // The stage scrolls here (PackOpener.css); the player has wheeled down to the bottom of the pack.
+      const stage = document.querySelector<HTMLElement>('.pack-display')!;
+      stage.scrollTop = 420;
+      expect(stage.scrollTop).toBe(420);
+
+      act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+      // Tearing and waiting on the ticket leave the stage where the player scrolled it.
+      expect(stage.scrollTop).toBe(420);
+      await act(async () => { vi.advanceTimersByTime(500); });
+      await act(async () => {});
+      expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
+      expect(stage.scrollTop).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('the random effect after a flip', () => {
+  const deal = async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.stubGlobal('requestIdleCallback', (task: () => void) => task());
+    vi.stubGlobal('cancelIdleCallback', () => {});
+    const plays: string[] = [];
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
+      plays.push(this.getAttribute('src') ?? '');
+      return Promise.resolve();
+    });
+    const set = SETS[0];
+    const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+    vi.mocked(openPack).mockResolvedValue({
+      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
+    } as unknown as Awaited<ReturnType<typeof openPack>>);
+    await render(false);
+    act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+    await act(async () => { vi.advanceTimersByTime(500); });
+    await act(async () => {});
+    return plays;
+  };
+  afterEach(() => vi.useRealTimers());
+
+  const flip = () => act(() => void document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true })));
+
+  it('plays the flip at once and the effect EFFECT_DELAY_MS later', async () => {
+    const plays = await deal();
+    flip();
+    expect(plays).toEqual([CARD_FLIP_SRC]);
+    await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS - 1); });
+    expect(plays).toHaveLength(1);
+    await act(async () => { vi.advanceTimersByTime(1); });
+    expect(plays).toHaveLength(2);
+  });
+
+  it('drops an effect still waiting when the pack is closed', async () => {
+    const plays = await deal();
+    flip();
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    act(() => document.querySelector<HTMLButtonElement>('.pack-close')!.click());
+    await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+    expect(plays).toEqual([CARD_FLIP_SRC]);
+  });
+
+  it('drops an effect still waiting when the opener unmounts', async () => {
+    const plays = await deal();
+    flip();
+    act(() => root.unmount());
+    await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+    expect(plays).toEqual([CARD_FLIP_SRC]);
   });
 });

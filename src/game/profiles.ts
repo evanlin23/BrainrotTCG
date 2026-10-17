@@ -26,9 +26,9 @@ import {
 } from '../engine';
 import { getSet } from '../content/sets';
 import { getPlayer, getPlayerTickets } from './player';
-import { firstOpened, getHistory, historyForKey, type HistoryEntry } from './history';
+import { firstOpened, getHistory, historyForKey, storedHistory, type HistoryEntry } from './history';
 import { getReopened, putReopened } from './reopenCache';
-import { getStoredPack, hydratePackStore, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
+import { getStoredPack, hydratePackStore, packRefKey, packStoreVersion, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
 import { decodeCard, encodeCard, toPulled } from './cardCode';
 import { createTicketPool } from './ticketPool';
 import { admitOptional } from './admission';
@@ -36,6 +36,9 @@ import { siteUrl } from './pulls';
 import { getBestCards, mergeBestCards, type BestCandidate, type BestCards } from './bestCards';
 
 export const profileUrl = (profile: string): string => `${siteUrl()}#/profile/${profile}`;
+
+/** A ticket whose cards are in the pack store but not read into memory yet (or never re-opened). */
+const awaitsCache = (t: Ticket): boolean => !!t.set && t.fromCache && !t.pack;
 
 interface Ticket {
   nonce: number;
@@ -69,11 +72,12 @@ function* ticketsOf({ player, nextNonce: total }: PlayerTickets): Generator<Tick
     const fromHistory = entry?.cards && setOf(entry) ? toPulled(entry.cards, set) : null;
     // Packs re-opened by an older build were stored without their finishes and misprints; their
     // saved score gives them away. Treat them as unknown so they're re-opened properly.
-    const intact = fromHistory && !(set.modifiers === 1 && scorePulled(fromHistory).score !== entry!.score);
+    const historyScore = fromHistory && scorePulled(fromHistory);
+    const intact = fromHistory && !(set.modifiers === 1 && historyScore!.score !== entry!.score);
     // Else the cards this device re-opened (game/packStore.ts).
     const reopened = intact ? null : getStoredPack(setKey(set), player.publicKeyHex, nonce);
     const cards = intact ? fromHistory : reopened ? toPulled(reopened.split(',').map(decodeCard), set) : null;
-    const score = cards && scorePulled(cards);
+    const score = intact ? historyScore : cards && scorePulled(cards);
     yield {
       nonce,
       set,
@@ -85,10 +89,61 @@ function* ticketsOf({ player, nextNonce: total }: PlayerTickets): Generator<Tick
   }
 }
 
-const myTickets = (snapshot: PlayerTickets = getPlayerTickets()): Ticket[] => [...ticketsOf(snapshot)];
+/**
+ * The last ticket list built, with what it was built from: the stored history, the player, the
+ * ticket count and the pack store's contents. Any change to one builds the list again, so it never
+ * goes stale; it saves rebuilding (and re-scoring) every pack several times for one pack opened.
+ * Whether saved packs are still loading is never kept here: callers ask the pack cache each time.
+ * The list (one ticket per pack this player opened) stays in memory until one of those changes.
+ */
+interface TicketList {
+  history: number;
+  publicKeyHex: string;
+  total: number;
+  store: number;
+  tickets: readonly Ticket[];
+  /** Some ticket waits on the pack store (awaitsCache). */
+  waiting: boolean;
+  stats?: ProfileStats;
+  progress?: Omit<MyProgress, 'levelXp' | 'nextXp'>;
+}
+let lastTickets: TicketList | null = null;
 
-/** A ticket whose cards are in the pack store but not read into memory yet (or never re-opened). */
-const awaitsCache = (t: Ticket): boolean => !!t.set && t.fromCache && !t.pack;
+/**
+ * Counts changes to the stored history, so the caches below compare a number and keep one copy of
+ * the history string between them rather than one each.
+ */
+let seenHistory: string | null | undefined;
+let historyChanges = 0;
+const historyVersion = (): number => {
+  const raw = storedHistory();
+  if (raw !== seenHistory) {
+    seenHistory = raw;
+    historyChanges++;
+  }
+  return historyChanges;
+};
+
+const ticketList = ({ player, nextNonce }: PlayerTickets): TicketList => {
+  const history = historyVersion();
+  const store = packStoreVersion();
+  const last = lastTickets;
+  if (last && last.history === history && last.publicKeyHex === player.publicKeyHex && last.total === nextNonce && last.store === store) return last;
+  const tickets = [...ticketsOf({ player, nextNonce })];
+  // Building can read stored packs but never changes them, so `store` still names what was read.
+  return lastTickets = { history, publicKeyHex: player.publicKeyHex, total: nextNonce, store, tickets, waiting: tickets.some(awaitsCache) };
+};
+
+/** Shared and read-only: don't change the list or its tickets. */
+const myTickets = (snapshot: PlayerTickets = getPlayerTickets()): readonly Ticket[] => ticketList(snapshot).tickets;
+
+/** For tests: forget the last ticket list. */
+export const resetTicketList = () => {
+  lastTickets = null;
+  allCards = null;
+  seenHistory = undefined;
+};
+
 
 /*
  * Packs whose cards the history dropped live in IndexedDB (game/packStore.ts). Nothing loads the
@@ -136,8 +191,16 @@ const stateFor = (snapshot: PlayerTickets): PackCacheState =>
 /** Whether this player's saved packs are all readable now: 'ready' when no ticket waits on the store. */
 export const myPackCacheState = (): PackCacheState => {
   const snapshot = getPlayerTickets();
-  for (const t of ticketsOf(snapshot)) if (awaitsCache(t)) return stateFor(snapshot);
-  return 'ready';
+  return ticketList(snapshot).waiting ? stateFor(snapshot) : 'ready';
+};
+
+/** Whether every history entry has its cards, worked out again only when the history or pack store changes. */
+let allCards: { history: number; store: number; value: boolean } | null = null;
+const historyHasAllCards = (): boolean => {
+  const history = historyVersion();
+  const store = packStoreVersion();
+  if (allCards?.history !== history || allCards.store !== store) allCards = { history, store, value: getHistory().every(e => e.cards) };
+  return allCards.value;
 };
 
 /**
@@ -147,7 +210,7 @@ export const myPackCacheState = (): PackCacheState => {
 export const historyPacksState = (): PackCacheState => {
   const own = myPackCacheState();
   if (own !== 'ready') return own;
-  if (getHistory().every(e => e.cards)) return 'ready';
+  if (historyHasAllCards()) return 'ready';
   return cache.owner === getPlayer().publicKeyHex ? cache.history : 'loading';
 };
 
@@ -163,14 +226,12 @@ export const historyAchievementsReady = (): boolean => {
   return getHistory().every(e => e.cards || !publicKeyHex.startsWith(e.key));
 };
 
-const refId = (key: string, publicKeyHex: string, nonce: number) => `${key}|${publicKeyHex.slice(0, 16)}|${nonce}`;
-
 /** Your tickets waiting on the store. */
 const myCacheRefs = (snapshot: PlayerTickets): Map<string, StoredPackRef> => {
   const refs = new Map<string, StoredPackRef>();
   const { publicKeyHex } = snapshot.player;
-  for (const t of ticketsOf(snapshot)) {
-    if (t.set && awaitsCache(t)) refs.set(refId(setKey(t.set), publicKeyHex, t.nonce), { setKey: setKey(t.set), publicKeyHex, nonce: t.nonce });
+  for (const t of myTickets(snapshot)) {
+    if (t.set && awaitsCache(t)) refs.set(packRefKey(setKey(t.set), publicKeyHex, t.nonce), { setKey: setKey(t.set), publicKeyHex, nonce: t.nonce });
   }
   return refs;
 };
@@ -181,7 +242,7 @@ const historyCacheRefs = (skip: ReadonlyMap<string, StoredPackRef>): StoredPackR
   for (const e of getHistory()) {
     if (e.cards) continue;
     const key = `${e.setId}@${e.setVersion}`;
-    const id = refId(key, e.key, e.nonce);
+    const id = packRefKey(key, e.key, e.nonce);
     if (!skip.has(id) && !refs.has(id)) refs.set(id, { setKey: key, publicKeyHex: e.key, nonce: e.nonce });
   }
   return [...refs.values()];
@@ -265,11 +326,11 @@ export const watchMyPacks = (): (() => void) => {
   };
 };
 
-const requireOriginalMappings = (tickets: Ticket[]): (Ticket & { set: SetDefinition })[] => {
+const requireOriginalMappings = (tickets: readonly Ticket[]): readonly (Ticket & { set: SetDefinition })[] => {
   if (tickets.some((ticket) => !ticket.set || ticket.filled)) {
     throw new Error('Some original pack set/version mappings are missing. A complete profile cannot be proved from this save.');
   }
-  return tickets as (Ticket & { set: SetDefinition })[];
+  return tickets as readonly (Ticket & { set: SetDefinition })[];
 };
 
 const runsOf = (tickets: readonly { set: SetDefinition }[]): ProfileRun[] => {
@@ -298,7 +359,7 @@ export const myProfileInfo = (): MyProfile | null => {
   let filled = 0;
   let missing = 0;
   let waiting = false;
-  for (const t of ticketsOf(snapshot)) {
+  for (const t of myTickets(snapshot)) {
     packs++;
     if (t.filled) filled++;
     if (!t.pack) missing++;
@@ -318,7 +379,7 @@ export const syncMyBestCards = (): BestCards => {
   const snapshot = getPlayerTickets();
   const { player, nextNonce } = snapshot;
   const candidates: BestCandidate[] = [];
-  for (const t of ticketsOf(snapshot)) {
+  for (const t of myTickets(snapshot)) {
     if (t.set && t.pack) candidates.push({ setId: t.set.id, setVersion: t.set.version, nonce: t.nonce, openedAt: t.openedAt, cards: t.pack.cards });
   }
   mergeBestCards(player.publicKeyHex, candidates, (weighed, taken) => {
@@ -551,17 +612,13 @@ export const resumeReopening = (): Promise<void> | undefined => {
 };
 
 /**
- * Your packs in ticket order, one at a time (no array of every pack). False while saved packs are
- * still being read, or couldn't be: stats then are null, since zero would read as lost progress.
+ * Your ticket list when its packs can all be counted. Null while saved packs are still being read,
+ * or couldn't be: stats then are null, since zero would read as lost progress.
  */
-const eachMyPack = (onPack: (pack: ProfilePack) => void): boolean => {
+const countableTickets = (): TicketList | null => {
   const snapshot = getPlayerTickets();
-  let waiting = false;
-  for (const t of ticketsOf(snapshot)) {
-    if (awaitsCache(t)) waiting = true;
-    if (t.pack) onPack(t.pack);
-  }
-  return !waiting || stateFor(snapshot) === 'ready';
+  const list = ticketList(snapshot);
+  return !list.waiting || stateFor(snapshot) === 'ready' ? list : null;
 };
 
 export interface MyProgress {
@@ -574,23 +631,36 @@ export interface MyProgress {
 
 /** Your level and XP now, and how much the newest pack added (the pack summary shows it). Null while loading. */
 export const myProgress = (): MyProgress | null => {
-  const tracker = profileStatsTracker();
-  const held: { pack: ProfilePack | null } = { pack: null };
-  const ready = eachMyPack((pack) => {
-    if (held.pack) tracker.add(held.pack);
-    held.pack = pack;
-  });
-  if (!ready) return null;
-  const before = tracker.snapshot();
-  if (held.pack) tracker.add(held.pack);
-  const now = tracker.snapshot();
-  return { level: now.level, xp: now.xp, gained: now.xp - before.xp, levelXp: xpForLevel(now.level), nextXp: xpForLevel(now.level + 1) };
+  const list = countableTickets();
+  if (!list) return null;
+  if (!list.progress) {
+    const tracker = profileStatsTracker();
+    let held: ProfilePack | null = null;
+    for (const t of list.tickets) {
+      if (!t.pack) continue;
+      if (held) tracker.add(held);
+      held = t.pack;
+    }
+    const before = tracker.snapshot();
+    if (held) tracker.add(held);
+    const now = tracker.snapshot();
+    list.progress = { level: now.level, xp: now.xp, gained: now.xp - before.xp };
+  }
+  const { level, xp, gained } = list.progress;
+  return { level, xp, gained, levelXp: xpForLevel(level), nextXp: xpForLevel(level + 1) };
 };
 
 /** Your stats from this device's history (no mining): what viewers of your profile will see. Null while loading. */
+/** Shared with every caller until the list changes, so it's frozen: copy it before changing it. */
 export const myStats = (): ProfileStats | null => {
-  const tracker = profileStatsTracker();
-  return eachMyPack((pack) => tracker.add(pack)) ? tracker.snapshot() : null;
+  const list = countableTickets();
+  if (!list) return null;
+  if (!list.stats) {
+    const tracker = profileStatsTracker();
+    for (const t of list.tickets) if (t.pack) tracker.add(t.pack);
+    list.stats = Object.freeze(tracker.snapshot());
+  }
+  return list.stats;
 };
 
 export interface ProfileProgress {

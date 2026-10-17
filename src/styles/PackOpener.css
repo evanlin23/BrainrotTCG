@@ -105,8 +105,11 @@
 }
 
 /*
- * The pack is huge on purpose: too big for the screen, held up from below. Its top (the set ribbon
- * and the tear line) always shows; the rest runs off the bottom of the space.
+ * The stage the whole sealed pack sits in. It is both the box the drop-in animation moves and the
+ * clip for the torn top strip. On a phone the pack fits inside it (see --pack-fit below): a pack
+ * taller than the stage was cut off by this box's moving bottom edge on the way down. On a desktop
+ * window the pack is bigger than the stage and the stage scrolls (the block at the end of this
+ * section), so it still clips here, and never sideways.
  */
 .pack-display {
     position: relative;
@@ -115,36 +118,82 @@
     width: 100%;
     container-type: size;
     overflow: hidden;
-    /* The pack is a gesture surface: taps, cuts and double taps must not highlight its labels. */
+    /* The pack is a gesture surface: taps, cuts and double taps must not highlight its labels, and a
+       long press must not open the phone's text or image menu. */
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
 }
 
 /*
- * 80% of the screen across (wider than it on phones). The wrapper image is 1536:2752 with clear
- * space above the crimp, so it's pulled up by a tenth of its width to put the set ribbon just
- * under the picker; the tear line then sits about 0.24 widths down, and on short screens the
- * pack shrinks to keep it in view. Opening needs a drag from 18% to 82% of the width, so it never
- * gets wider than 1.5 screens. The Open pack button under it (.pack-actions) follows the same width.
+ * The whole pack fits the stage, so on a phone nothing needs scrolling or reaching. The wrapper image is
+ * 1536:2752 with clear space above the crimp, so it's pulled up by a tenth of its width to put the
+ * set ribbon just under the picker; the printed pack is then 1.7 widths tall, and --pack-fit is the
+ * width at which that height fills the stage less a gap above and below. The gap is a space-4, and at
+ * most a twentieth of the stage's height, so on a short landscape stage (a phone on its side) it
+ * shrinks with the stage and the width never goes negative. The width is also capped at 80% of the
+ * screen (100% on phones, below). There is no floor: one taller than the stage cut the bottom of the
+ * pack off at rest and while it fell in. A pack on a stage that short is small but whole, and the
+ * Open pack button under it (.pack-actions, which follows the same width) still opens it.
  */
 .pack-shell-wrap,
 .pack-actions {
-    --pack-w: min(80vw, 1600px, (100cqh - 7rem) * 4);
+    --pack-gap: min(var(--space-4), 5cqh);
+    --pack-fit: calc((100cqh - var(--pack-gap) * 2) / 1.7);
+    --pack-w: min(80vw, 1600px, var(--pack-fit));
 }
 
 .pack-shell-wrap {
     position: absolute;
-    top: calc(var(--space-4) - var(--pack-w) * 0.1);
+    top: calc(var(--pack-gap) - var(--pack-w) * 0.1);
     left: 50%;
     transform: translateX(-50%);
     width: var(--pack-w);
 }
 
-@media (max-width: 700px) {
+@media (max-width: 719px) {
     .pack-shell-wrap,
     .pack-actions {
-        /* The full width of the phone: big, without running off both sides. */
-        --pack-w: min(100vw, (100cqh - 7rem) * 4);
+        /* The full width of the phone when the height allows: big, without running off both sides. */
+        --pack-w: min(100vw, var(--pack-fit));
+    }
+}
+
+/*
+ * A desktop window is wide enough that the whole pack at the stage's height is small (a third of the
+ * screen, #536), and the owner wants the big pack back, wide and tall enough to scroll down. So here
+ * the pack is sized to the part of it a player needs to see, and its bottom runs on past the stage:
+ * --pack-share is the share of the printed pack, from the crimp down, that is on the stage at rest.
+ * The wrapper art's printed pack starts 0.184 widths down its box (0.084 below --pack-fit's top, after
+ * the pull-up above) and is 1.575 widths tall; half of it shows the crimp, the set ribbon, the tear
+ * line, the logo and the top of the cards, and the rest is a wheel, trackpad or key press away.
+ * --pack-fit stays the floor, so the pack is never smaller than the whole of it on the stage. The 80%
+ * and 1600px caps still apply.
+ *
+ * The stage itself scrolls (not the page, so the app header and nav stay put): the wrapper is
+ * positioned inside it, and a positioned box's bottom edge is part of its scrollable overflow. There
+ * is no fade or crop at the bottom. The pack never scrolls sideways (overflow-x), and a thin scrollbar
+ * is enough of a cue. overscroll-behavior keeps the wheel from chaining to the page once the stage is
+ * at either end. The tear line, the hint and the Open pack button all sit in the top of the pack, so
+ * at rest (scrollTop 0) the screen is the same as it would be without scrolling. PackOpener.tsx puts
+ * the stage back at the top when the cards come in. Phones, a phone on its side (under 900px wide or
+ * 600px tall) and touch tablets (a coarse pointer: .pack-shell's touch-action: none, which the cut
+ * needs, stops a finger scrolling the stage over the pack) keep the fit above, with nothing to scroll.
+ */
+@media (min-width: 900px) and (min-height: 600px) and (pointer: fine) {
+    .pack-display {
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-strong) transparent;
+    }
+
+    .pack-shell-wrap,
+    .pack-actions {
+        --pack-share: 0.52;
+        --pack-big: calc((100cqh - var(--pack-gap)) / (1.575 * var(--pack-share) + 0.084));
+        --pack-w: min(80vw, 1600px, max(var(--pack-fit), var(--pack-big)));
     }
 }
 
@@ -178,7 +227,7 @@
 
 .pack-actions::before {
     content: '';
-    flex: 0 1 calc(var(--space-4) + var(--pack-w) * 0.285 + 2.75rem);
+    flex: 0 1 calc(var(--pack-gap) + var(--pack-w) * 0.285 + 2.75rem);
     min-height: 0;
 }
 
@@ -191,6 +240,20 @@
 .pack-open-button {
     background: var(--surface);
     box-shadow: var(--focus-shadow), var(--shadow-1);
+}
+
+/*
+ * A first visit (no nav yet) has nothing else to do, so the button is the one obvious action: brand
+ * filled, like any primary (#80). Once a pack is opened the nav comes in and it steps back to secondary.
+ */
+.app.no-nav .pack-open-button {
+    border-color: transparent;
+    background: var(--brand);
+    color: var(--brand-ink);
+}
+
+.app.no-nav .pack-open-button:hover:not([aria-disabled="true"]) {
+    background: var(--brand-strong);
 }
 
 /* Torn and waiting for its cards: still focused, so it stays put, but plainly done. */
@@ -240,7 +303,7 @@
     background: var(--chip-bg);
     color: var(--text);
     font-weight: 700;
-    animation: pack-waiting 1.2s ease-in-out infinite alternate;
+    animation: pack-waiting var(--dur-pulse) ease-in-out infinite alternate;
 }
 
 @keyframes pack-waiting {
@@ -285,8 +348,8 @@
     opacity: var(--pack-foil-opacity, 1);
     -webkit-mask: var(--pack-mask) center / 100% 100% no-repeat;
     mask: var(--pack-mask) center / 100% 100% no-repeat;
-    animation: pack-foil 4.5s ease-in-out infinite alternate;
-    transition: opacity 0.2s ease;
+    animation: pack-foil var(--dur-drift) ease-in-out infinite alternate;
+    transition: opacity var(--dur) ease;
 }
 
 .foil-standard {
@@ -383,7 +446,7 @@
 
 .pack-half-bottom {
     clip-path: inset(0 0 0 0);
-    transition: clip-path 0.38s cubic-bezier(0.25, 0.9, 0.3, 1);
+    transition: clip-path var(--dur-slow) cubic-bezier(0.25, 0.9, 0.3, 1);
 }
 
 .pack-shell.is-cut .pack-half-bottom {
@@ -394,7 +457,7 @@
     clip-path: inset(0 0 calc(100% - var(--tear-y)) 0);
     opacity: 0;
     transform-origin: 50% var(--tear-y);
-    transition: transform 0.46s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
+    transition: transform var(--dur-reveal) cubic-bezier(0.25, 0.9, 0.3, 1), opacity var(--dur) ease;
     z-index: 1;
 }
 
@@ -415,7 +478,7 @@
     z-index: 2;
     pointer-events: none;
     transform-origin: 50% var(--tear-y);
-    transition: transform 0.46s cubic-bezier(0.25, 0.9, 0.3, 1), opacity 0.2s ease;
+    transition: transform var(--dur-reveal) cubic-bezier(0.25, 0.9, 0.3, 1), opacity var(--dur) ease;
 }
 
 /* Once torn, the top flies up past the pack's edge (the stage still clips it). */
@@ -441,6 +504,40 @@
     pointer-events: none;
 }
 
+/*
+ * The wrapper's seam, so the line reads as the place to tear and not as art (#267): a soft foil band
+ * in the brand accent behind the perforation, and a brand arrowhead at each end, so the line itself says
+ * "across", like the hint's icon.
+ * Static, so reduced motion needs nothing; it fades with the line once the pack is cut.
+ */
+.tear-guide::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -9px;
+    height: 14px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg,
+            transparent,
+            var(--seam-glow-brand) 12%,
+            var(--seam-glow-pink) 40%,
+            var(--seam-glow-mint) 65%,
+            var(--seam-glow-brand) 88%,
+            transparent);
+    z-index: -1;
+}
+
+.tear-guide::after {
+    content: '';
+    position: absolute;
+    inset: -8px -2px auto;
+    height: 12px;
+    background:
+        conic-gradient(from 45deg at 0 50%, var(--brand) 0 90deg, transparent 0) left / 8px 100% no-repeat,
+        conic-gradient(from 225deg at 100% 50%, var(--brand) 0 90deg, transparent 0) right / 8px 100% no-repeat;
+}
+
 /* A press on the line warms it before the swipe has a direction, so the press is felt (#267). */
 .pack-shell.is-pressed .tear-guide,
 .pack-shell.is-cutting .tear-guide {
@@ -455,7 +552,7 @@
 
 /* A press that missed the line: the line pulses so it's clear where to swipe. */
 .pack-shell.is-nudged .tear-guide {
-    animation: tear-nudge 0.45s ease-in-out 3;
+    animation: tear-nudge var(--dur-reveal) ease-in-out 3;
 }
 
 @keyframes tear-nudge {
@@ -473,12 +570,14 @@
 }
 
 /* Swipe hint */
-/* Sits just under the tear line as a pill, so it reads over any pack art. */
+/* Sits just under the tear line as a pill, so it reads over any pack art. On a small pack it wraps inside it. */
 .swipe-hint {
     position: absolute;
     top: calc(var(--tear-y) + 2.5%);
     left: 50%;
     transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(100% - var(--space-4));
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -494,8 +593,9 @@
 .swipe-hint-icon {
     width: 18px;
     height: 18px;
+    flex: none;
     color: var(--white);
-    animation: swipeMotion 1.5s ease-in-out infinite;
+    animation: swipeMotion var(--dur-shimmer) ease-in-out infinite;
 }
 
 .swipe-hint-text {
@@ -504,7 +604,34 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    white-space: nowrap;
+}
+
+/*
+ * On a pack too narrow for two lines of it (the shell is an inline-size container, so this is the
+ * pack's own width) the words would wrap to three and run down over the Open pack button. The pill
+ * keeps its moving arrows and the dotted line stays, and the words stay for a screen reader. On a
+ * pack under 4rem, a phone on its side, even that pill would sit on the button, so it goes too
+ * (still read aloud); the button is the way in.
+ */
+@container (max-width: 4rem) {
+    .swipe-hint {
+        opacity: 0;
+    }
+}
+
+@container (max-width: 12rem) {
+    .swipe-hint-text {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    .swipe-hint {
+        padding: var(--space-1) var(--space-2);
+    }
 }
 
 @keyframes swipeMotion {
@@ -521,7 +648,7 @@
 
 /* A tap on the line that didn't swipe: the hint pulses, so it's clear the line wants a swipe (#485). */
 .pack-shell.is-tapped .swipe-hint {
-    animation: swipe-hint-tap 0.45s ease-in-out 2;
+    animation: swipe-hint-tap var(--dur-reveal) ease-in-out 2;
 }
 
 @keyframes swipe-hint-tap {
@@ -541,7 +668,7 @@
 .pack-shell.is-cutting .swipe-hint,
 .pack-shell.is-cut .swipe-hint {
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity var(--dur-slow) ease;
 }
 
 .cut-line-svg {
@@ -558,7 +685,7 @@
    It keeps the same width whatever the pack's size (#267). */
 .cut-line {
     filter: drop-shadow(0 1px 1px var(--shade-70)) drop-shadow(0 0 3px var(--glint));
-    animation: seam-shimmer 1.6s ease-in-out infinite alternate;
+    animation: seam-shimmer var(--dur-shimmer) ease-in-out infinite alternate;
 }
 
 .cut-line polyline {
@@ -621,7 +748,7 @@
         0 0 50px hsl(var(--hue) 100% 55% / 0.95),
         0 0 80px var(--spark-glow);
     transform: translate(-50%, -50%);
-    animation: sparkPop 0.62s ease-out forwards;
+    animation: sparkPop var(--spark-life) ease-out forwards;
     mix-blend-mode: screen;
 }
 
@@ -650,9 +777,11 @@
      * target at large text sizes.
      */
     padding: calc(var(--space-2) * 2 + max(var(--touch-target), var(--space-1) * 2 + (var(--text-xs) + var(--text-base)) * var(--leading-tight))) var(--gutter) var(--space-4);
-    /* Rapid taps flip and advance cards; they must not select the rarity, counter or tips. */
+    /* Rapid taps flip and advance cards; they must not select the rarity, counter or tips, and a long
+       press must not open the phone's text or image menu. */
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
     overflow-x: hidden;
     overflow-y: auto;
 }
@@ -967,11 +1096,11 @@ button.reveal-card {
 
 .reveal-provenance-number.is-shown {
     visibility: visible;
-    animation: reveal-badge-in var(--dur) var(--ease-out) 0.35s both;
+    animation: reveal-badge-in var(--dur) var(--ease-out) var(--dur-slow) both;
 }
 
 .reveal-provenance-number.is-shown.is-slow {
-    animation-delay: 1.1s;
+    animation-delay: var(--dur-celebrate);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1007,20 +1136,6 @@ button.reveal-card {
     margin-bottom: var(--space-5);
 }
 
-.summary-xp {
-    display: grid;
-    gap: var(--space-1);
-    width: min(100%, 22rem);
-    margin: calc(-1 * var(--space-3)) auto 0;
-    color: var(--text-muted);
-    font-size: var(--text-sm);
-    text-align: center;
-}
-
-.summary-xp strong {
-    color: var(--brand);
-}
-
 .summary-cards {
     display: flex;
     flex-wrap: wrap;
@@ -1036,7 +1151,7 @@ button.reveal-card {
     gap: 6px;
     /* Three across on phones (then two), five across from tablets. */
     width: min(8.5rem, calc((100% - 2 * var(--space-3)) / 3));
-    /* Never narrower than its Share: at large text the row holds fewer cards, down to one. */
+    /* Never narrower than its contents: at large text the row holds fewer cards, down to one. */
     min-width: min-content;
 }
 
@@ -1055,16 +1170,20 @@ button.reveal-card {
     padding: 0;
     border-radius: var(--radius-sm);
     overflow: hidden;
-    box-shadow: 0 0 0 2px var(--r), var(--shadow-2);
     transition: transform var(--dur-fast) var(--ease-out);
+    /* A long press on a card opens it, never the phone's image menu. */
+    -webkit-touch-callout: none;
+}
+
+/* The rarity edge, then the ring when focused. Named with :focus-visible too, to outrank base.css's
+   :focus-visible box-shadow (as specific as .summary-card) whichever sheet comes last. */
+.summary-card,
+.summary-card:focus-visible {
+    box-shadow: 0 0 0 2px var(--r), var(--focus-shadow), var(--shadow-2);
 }
 
 .summary-card:hover {
     transform: translateY(-3px);
-}
-
-.summary-card:focus-visible {
-    box-shadow: 0 0 0 2px var(--r), var(--focus-ring), var(--shadow-2);
 }
 
 .summary-card img {
@@ -1084,7 +1203,7 @@ button.reveal-card {
 .summary-card.holo {
     padding: 2px;
     background: var(--foil);
-    box-shadow: var(--shadow-2);
+    box-shadow: var(--focus-shadow), var(--shadow-2);
 }
 
 .summary-card.holo img {
@@ -1100,27 +1219,6 @@ button.reveal-card {
     font-size: var(--text-xs);
 }
 
-.summary-card.holo:focus-visible {
-    box-shadow: var(--focus-ring), var(--shadow-2);
-}
-
-/* Each card's own Share: quiet under its label, the pack's Share stays the main one. Snug enough to
-   fit a third of a 320px phone (#472). */
-.summary-cards .summary-card-share {
-    justify-self: center;
-    gap: var(--space-1);
-    max-width: 100%;
-    min-height: var(--touch-target);
-    padding-inline: var(--space-2);
-}
-
-.summary-new {
-    margin-top: var(--space-3);
-    color: var(--text-muted);
-    font-size: var(--text-sm);
-    font-weight: 600;
-}
-
 /* The card is the reveal's button (flip, then next). Its ring is drawn over the big-pull halo, which
    paints under the card, and follows the card's corners. */
 .reveal-card:focus-visible {
@@ -1133,13 +1231,14 @@ button.reveal-card {
     inset: 0;
     z-index: 3;
     border-radius: var(--radius-lg);
-    box-shadow: var(--focus-ring);
+    /* The card's own --focus-shadow: the ring, or nothing when a tap led here (base.css). */
+    box-shadow: var(--focus-shadow);
     pointer-events: none;
 }
 
 /* Phones: the card at about five sixths of the width, the summary a size down. (Last in the file so
    it wins over the rules above.) */
-@media (max-width: 700px) {
+@media (max-width: 719px) {
     .active-card-container .card-wrapper,
     .reveal-stack-card {
         height: min((100cqh - 28px) / 1.055, 46rem, 100cqw * 0.84 * var(--card-tall));

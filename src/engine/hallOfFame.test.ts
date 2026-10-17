@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allTimeRank,
   dailyPulls,
-  firstPulls,
+  dailyRank,
   HALL_OF_FAME_DAILY_TOP,
+  HALL_OF_FAME_MAX_ENTRIES,
   HALL_OF_FAME_TOP,
+  hallOfFameFloor,
   hallOfFameJoin,
   hallOfFameList,
   previousUtcDay,
@@ -28,19 +31,34 @@ const entry = (id: string, score: number, hand: keyof typeof HANDS = 'FH', setId
 const score = (points: number, hand: keyof typeof HANDS = 'FH'): PackScore => ({ score: points, hand: HANDS[hand] }) as PackScore;
 
 describe('Hall of Fame list', () => {
-  it('keeps the top pulls and the first of each hand in each set, each pull once', () => {
+  it('keeps only the top pulls, each pull once, and drops world firsts that do not rank', () => {
     const early = entry('early-fh', 100, 'FH', 'set-b'); // the first Full House in set-b, but a low score
     const many = Array.from({ length: HALL_OF_FAME_TOP + 20 }, (_, i) => entry(`p${i}`, 1000 + i));
-    const copy = { ...many[0], submittedAt: '2030-01-01T00:00:00.000Z' }; // the same pull, verified again later
+    const copy = { ...many[20], submittedAt: '2030-01-01T00:00:00.000Z' }; // the same pull, verified again later
     const list = hallOfFameList([early, ...many, copy]);
-    expect(topPulls(list)).toHaveLength(HALL_OF_FAME_TOP);
-    expect(topPulls(list)[0].id).toBe(`p${HALL_OF_FAME_TOP + 19}`);
-    expect(list.map((e) => e.id)).toContain('early-fh'); // kept as a first
-    expect(list.map((e) => e.id)).toContain('p0'); // the first Full House in set-a, though not top 100
-    expect(list.filter((e) => e.id === 'p0')).toHaveLength(1);
-    expect(list.find((e) => e.id === 'p0')?.submittedAt).toBe(many[0].submittedAt); // earliest keeps the credit
-    expect(list).toHaveLength(HALL_OF_FAME_TOP + 2); // plus the two firsts outside the top
-    expect(firstPulls(list).map((e) => e.id).sort()).toEqual(['early-fh', 'p0']);
+    expect(list).toEqual(topPulls(list));
+    expect(list).toHaveLength(HALL_OF_FAME_TOP);
+    expect(list[0].id).toBe(`p${HALL_OF_FAME_TOP + 19}`);
+    expect(list.map((e) => e.id)).not.toContain('early-fh');
+    expect(list.map((e) => e.id)).not.toContain('p0'); // the first Full House in set-a, but not top 100
+    expect(list.filter((e) => e.id === 'p20')).toHaveLength(1);
+    expect(list.find((e) => e.id === 'p20')?.submittedAt).toBe(many[20].submittedAt); // earliest keeps the credit
+  });
+
+  it(`never publishes more than ${HALL_OF_FAME_MAX_ENTRIES} entries however many pulls there are`, () => {
+    const at = (id: string, points: number, day: string, i: number) => ({ ...entry(id, points), submittedAt: new Date(Date.parse(`${day}T00:00:00.000Z`) + i * 1000).toISOString() });
+    const days = ['2026-10-14', '2026-10-15', '2026-10-16'];
+    const all = days.flatMap((day, d) => Array.from({ length: 400 }, (_, i) => at(`${day}-${i}`, d === 0 ? 10_000 + i : 10 + i, day, i)));
+    const list = hallOfFameList(all, ['2026-10-16', '2026-10-15']);
+    expect(list).toHaveLength(HALL_OF_FAME_MAX_ENTRIES);
+    expect(hallOfFameList(list, ['2026-10-16', '2026-10-15'])).toEqual(list); // rebuilding from the published list keeps it
+  });
+
+  it('orders exact ties (same score and time) by pull id, whatever order they come in', () => {
+    const at = '2026-10-01T00:00:00.000Z';
+    const tied = ['c', 'a', 'b'].map((id) => ({ ...entry(id, 500), submittedAt: at }));
+    expect(topPulls(tied).map((e) => e.id)).toEqual(['a', 'b', 'c']);
+    expect(topPulls([...tied].reverse()).map((e) => e.id)).toEqual(['a', 'b', 'c']);
   });
 
   it('says whether a new pull would join', () => {
@@ -48,8 +66,7 @@ describe('Hall of Fame list', () => {
     expect(wouldJoinHallOfFame({ id: 'x', setId: 'set-a', score: score(500) }, full.slice(0, 10))).toBe(true); // room
     expect(wouldJoinHallOfFame({ id: 'x', setId: 'set-a', score: score(1001) }, full)).toBe(true); // beats the lowest
     expect(wouldJoinHallOfFame({ id: 'x', setId: 'set-a', score: score(1000) }, full)).toBe(false); // a tie goes to the earlier one
-    expect(wouldJoinHallOfFame({ id: 'x', setId: 'set-b', score: score(10) }, full)).toBe(true); // first Full House in set-b
-    expect(wouldJoinHallOfFame({ id: 'x', setId: 'set-a', score: score(10, 'FOUR') }, full)).toBe(true); // first 4 of a Kind in set-a
+    expect(wouldJoinHallOfFame({ id: 'x', setId: 'set-b', score: score(10) }, full)).toBe(false); // a first of its hand no longer counts
     expect(wouldJoinHallOfFame({ id: 'p5', setId: 'set-a', score: score(5000) }, full)).toBe(false); // already in
     expect(wouldJoinHallOfFame({ id: 'x', setId: 'set-a', score: score(900, 'PAIR') }, full.slice(0, 3))).toBe(false); // doesn't qualify
   });
@@ -105,7 +122,7 @@ describe('daily board (UTC)', () => {
     expect(hallOfFameJoin(low, top)).toBeNull(); // no day: only the all-time list counts
     expect(hallOfFameJoin(low, top, '2026-10-16')).toBe('daily'); // room on today's board
     expect(hallOfFameJoin({ ...low, score: score(1001) }, top, '2026-10-16')).toBe('all-time');
-    expect(hallOfFameJoin({ ...low, setId: 'set-b' }, top, '2026-10-16')).toBe('all-time'); // a first stays all-time
+    expect(hallOfFameJoin({ ...low, setId: 'set-b' }, top, '2026-10-16')).toBe('daily'); // a first of its hand ranks like any pull
     const full = [...top, ...today(HALL_OF_FAME_DAILY_TOP)]; // today's 50th scores 100
     expect(hallOfFameJoin({ ...low, score: score(101) }, full, '2026-10-16')).toBe('daily'); // beats today's lowest
     expect(hallOfFameJoin({ ...low, score: score(100) }, full, '2026-10-16')).toBeNull(); // a tie goes to the earlier one
@@ -114,6 +131,29 @@ describe('daily board (UTC)', () => {
     expect(hallOfFameJoin({ ...low, id: 'd3' }, full, '2026-10-16')).toBeNull(); // already in
     expect(wouldJoinHallOfFame({ ...low, score: score(101) }, full, '2026-10-16')).toBe(true);
     expect(wouldJoinHallOfFame({ ...low, score: score(100) }, full, '2026-10-16')).toBe(false);
+  });
+
+  it("places a pull on today's top, below earlier ties, or null when it misses or is listed", () => {
+    const now = '2026-10-16T18:00:00.000Z';
+    const today = (n: number) => Array.from({ length: n }, (_, i) => at(`d${i}`, 100 + i, `2026-10-16T12:00:${String(i).padStart(2, '0')}.000Z`));
+    const pull = (points: number, id = 'x') => ({ id, setId: 'set-a', score: score(points) });
+    expect(dailyRank(pull(50), [], now)).toBe(1);
+    expect(dailyRank(pull(500), [...today(3), at('y', 900, '2026-10-15T12:00:00.000Z')], now)).toBe(1); // yesterday doesn't count
+    expect(dailyRank(pull(101), today(3), now)).toBe(3); // below 102, below the earlier 101
+    const full = today(HALL_OF_FAME_DAILY_TOP); // scores 100..149
+    expect(dailyRank(pull(101), full, now)).toBe(HALL_OF_FAME_DAILY_TOP);
+    expect(dailyRank(pull(100), full, now)).toBeNull(); // a tie with the lowest goes to the earlier one
+    expect(dailyRank(pull(999, 'd3'), full, now)).toBeNull(); // already in
+  });
+
+  it('places a pull on the all-time list whatever its day, or null when it misses or is listed', () => {
+    const now = '2026-10-16T18:00:00.000Z';
+    const pull = (points: number, id = 'x') => ({ id, setId: 'set-a', score: score(points) });
+    const old = Array.from({ length: HALL_OF_FAME_TOP }, (_, i) => at(`a${i}`, 1000 + i, '2026-01-01T00:00:00.000Z')); // 1000..1099
+    expect(allTimeRank(pull(50), [], now)).toBe(1);
+    expect(allTimeRank(pull(1050), old, now)).toBe(51); // below 1051..1099 and the earlier 1050
+    expect(allTimeRank(pull(1000), old, now)).toBeNull(); // a tie with the lowest goes to the earlier one
+    expect(allTimeRank(pull(2000, 'a3'), old, now)).toBeNull(); // already in
   });
 
   it('ranks pending entries with filed ones, and a filed pull keeps its credit over a pending copy', () => {
@@ -128,7 +168,7 @@ describe('daily board (UTC)', () => {
     ]);
   });
 
-  it("adds each day's top to the published list without changing its top pulls, firsts or intake", () => {
+  it("adds each day's top to the published list without changing its top pulls or intake", () => {
     const top = Array.from({ length: HALL_OF_FAME_TOP + 20 }, (_, i) => entry(`p${i}`, 1000 + i)); // Oct 1
     const day = (d: string, n: number) => Array.from({ length: n }, (_, i) => at(`${d}-${i}`, 10 + i, `${d}T12:00:${String(i).padStart(2, '0')}.000Z`));
     const all = [...top, ...day('2026-10-14', 3), ...day('2026-10-15', 5), ...day('2026-10-16', 7)];
@@ -137,7 +177,6 @@ describe('daily board (UTC)', () => {
     expect(list.slice(0, plain.length)).toEqual(plain);
     expect(list.slice(plain.length).map((e) => e.id).sort()).toEqual([...day('2026-10-15', 5), ...day('2026-10-16', 7)].map((e) => e.id).sort());
     expect(topPulls(list)).toEqual(topPulls(plain));
-    expect(firstPulls(list)).toEqual(firstPulls(plain));
     expect(dailyPulls(list, '2026-10-16')).toEqual(dailyPulls(all, '2026-10-16'));
     for (const pull of [
       { id: 'x', setId: 'set-a', score: score(1050) },
@@ -145,5 +184,36 @@ describe('daily board (UTC)', () => {
       { id: 'x', setId: 'set-b', score: score(20) },
     ])
       expect(wouldJoinHallOfFame(pull, list)).toBe(wouldJoinHallOfFame(pull, plain));
+  });
+});
+
+describe('intake floor', () => {
+  const at = (id: string, points: number, submittedAt: string): RankableEntry => ({ ...entry(id, points), submittedAt });
+  const top = Array.from({ length: HALL_OF_FAME_TOP }, (_, i) => entry(`p${i}`, 1000 + i)); // Oct 1, lowest 1000
+  const today = (n: number, base = 100) => Array.from({ length: n }, (_, i) => at(`d${i}`, base + i, `2026-10-16T12:00:${String(i).padStart(2, '0')}.000Z`));
+
+  it('is null while either board has room', () => {
+    expect(hallOfFameFloor(top.slice(1))).toBeNull();
+    expect(hallOfFameFloor(top.slice(1), '2026-10-16')).toBeNull();
+    expect(hallOfFameFloor(top, '2026-10-16')).toBeNull(); // nothing yet today
+    expect(hallOfFameFloor([...top, ...today(HALL_OF_FAME_DAILY_TOP - 1)], '2026-10-16')).toBeNull();
+  });
+
+  it("is the lower of the all-time and today's lowest scores once both are full", () => {
+    expect(hallOfFameFloor(top)).toBe(1000);
+    expect(hallOfFameFloor([...top, ...today(HALL_OF_FAME_DAILY_TOP)], '2026-10-16')).toBe(100);
+    expect(hallOfFameFloor([...top, ...today(HALL_OF_FAME_DAILY_TOP, 5000)], '2026-10-16')).toBe(1050); // today's pulls push the all-time lowest up
+  });
+
+  it('agrees with hallOfFameJoin: a qualifying pull joins exactly when it scores above the floor', () => {
+    const lists = [top, [...top, ...today(HALL_OF_FAME_DAILY_TOP)], [...top, ...today(HALL_OF_FAME_DAILY_TOP, 5000)]];
+    for (const list of lists)
+      for (const day of [undefined, '2026-10-16', '2026-10-17']) {
+        const floor = hallOfFameFloor(list, day);
+        for (const points of [99, 100, 101, 149, 999, 1000, 1001, 5049, 5050]) {
+          const joins = hallOfFameJoin({ id: 'x', setId: 'set-a', score: score(points) }, list, day) !== null;
+          expect(joins, `${points} on ${day} with floor ${floor}`).toBe(floor === null || points > floor);
+        }
+      }
   });
 });

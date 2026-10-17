@@ -3,11 +3,11 @@ import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
 import { computeTicket, derivePack, profileStats, scorePulled, setKey, type ProfilePack, type SetDefinition } from '../engine';
 import { encodeCard } from './cardCode';
-import { getStoredPack, hydratePackStore, putStoredPacks, resetPackStore, type StoredPack, type StoredPackRef } from './packStore';
+import { getStoredPack, hydratePackStore, packRefKey, putStoredPacks, resetPackStore, type StoredPack, type StoredPackRef } from './packStore';
 import { getPlayer } from './player';
 import {
-  historyAchievementsReady, historyPacksState, hydrateMyPacks, myPackCacheState, myProfileInfo, myProgress, myStats, reopenStatus, resumeReopening,
-  watchMyPacks,
+  historyAchievementsReady, historyPacksState, hydrateMyPacks, myPackCacheState, myProfileInfo, myProgress, myStats, reopenStatus, resetTicketList,
+  resumeReopening, watchMyPacks,
 } from './profiles';
 
 // Saved packs are read through hydratePackStore alone. Here it stands in for IndexedDB, and each read
@@ -40,7 +40,7 @@ interface Read {
 let reads: Read[] = [];
 /** What this device's IndexedDB holds. */
 let saved = new Map<string, StoredPack>();
-const idOf = (p: StoredPackRef) => `${p.setKey}|${p.publicKeyHex.slice(0, 16)}|${p.nonce}`;
+const idOf = (p: StoredPackRef) => packRefKey(p.setKey, p.publicKeyHex, p.nonce);
 
 beforeEach(() => {
   reads = [];
@@ -298,4 +298,75 @@ describe('saved packs read on demand', () => {
     expect(data.get(PENDING)).toBe(player.publicKeyHex);
     expect(errors).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('the shared ticket list', () => {
+  /** Everything built from the ticket list, read twice: as kept, then built again from nothing. */
+  const views = () => ({
+    stats: myStats(), progress: myProgress(), info: myProfileInfo(), own: myPackCacheState(), history: historyPacksState(), ready: historyAchievementsReady(),
+  });
+  const expectFresh = () => {
+    const kept = views();
+    resetTicketList();
+    expect(kept).toEqual(views());
+    return kept;
+  };
+
+  it('gives what a full rebuild gives after hydration, a new pack, an import and a player change', async () => {
+    const player = setUp([GENESIS, RIGHT_NOW, RIGHT_NOW]);
+    const packs = [await savePack(GENESIS, 0), await savePack(RIGHT_NOW, 1), await savePack(RIGHT_NOW, 2)];
+    expect(expectFresh()).toMatchObject({ stats: null, own: 'loading' });
+
+    // Hydration: packs reach memory, so the list is built again with them.
+    const run = hydrateMyPacks();
+    await vi.waitFor(() => expect(reads).toHaveLength(1));
+    await reads[0].finish();
+    expect(await run).toBe('ready');
+    expect(expectFresh()).toMatchObject({ stats: profileStats(packs), own: 'ready' });
+
+    // A new pack: the history gains a ticket with its cards, and the ticket count moves on.
+    const next = await derivePack(RIGHT_NOW, player.publicKey, 3, computeTicket);
+    const code = next.map((c) => encodeCard({ id: c.cardId, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(',');
+    const score = scorePulled(next);
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as object[];
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([...history, { s: 'right-now', v: 2, n: 3, k: player.publicKeyHex.slice(0, 16), c: code, h: score.hand.name, x: score.score, t: 4 }]));
+    storePlayer((JSON.parse(data.get('brainrot-player-v1')!) as { secretKey: string }).secretKey, 4);
+    const withNew = expectFresh();
+    expect(withNew.stats).toEqual(profileStats([...packs, { nonce: 3, set: RIGHT_NOW, cards: next, score }]));
+    expect(withNew.progress!.gained).toBeGreaterThan(0);
+
+    // An import without tickets 0 and 3's set mappings: those packs no longer count.
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history.slice(1)));
+    expect(expectFresh().info).toMatchObject({ packs: 4, filled: 2 });
+
+    // Another player: nothing of the first player's list is shown.
+    setUp([RIGHT_NOW]);
+    expect(expectFresh()).toMatchObject({ stats: null, own: 'loading', info: { packs: 1 } });
+  }, 30_000);
+
+  it("swaps to another player's list when only the player record changes", async () => {
+    // One history holding a pack each from two players, the same ticket count and the same store:
+    // only the player tells the two lists apart.
+    setUp([]);
+    const secrets = ['a1'.repeat(32), 'b2'.repeat(32)];
+    const history: object[] = [];
+    const packs: ProfilePack[] = [];
+    for (const secretKey of secrets) {
+      storePlayer(secretKey, 1);
+      const player = getPlayer();
+      const cards = await derivePack(RIGHT_NOW, player.publicKey, 0, computeTicket);
+      const code = cards.map((c) => encodeCard({ id: c.cardId, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(',');
+      const score = scorePulled(cards);
+      history.push({ s: 'right-now', v: 2, n: 0, k: player.publicKeyHex.slice(0, 16), c: code, h: score.hand.name, x: score.score, t: history.length + 1 });
+      packs.push({ nonce: 0, set: RIGHT_NOW, cards, score });
+    }
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    storePlayer(secrets[0], 1);
+    const first = expectFresh();
+    expect(first.stats).toEqual(profileStats([packs[0]]));
+    storePlayer(secrets[1], 1);
+    const second = expectFresh();
+    expect(second.stats).toEqual(profileStats([packs[1]]));
+    expect(second.stats).not.toEqual(first.stats);
+  }, 30_000);
 });

@@ -1,15 +1,13 @@
 import { useId, useState, type ReactNode } from 'react';
-import { ChevronRight } from 'lucide-react';
-import { POKER_HANDS, xpForLevel, type HandKey, type ProfilePack, type ProfileStats } from '../../engine';
+import { POKER_HANDS, qualifiesForHallOfFame, xpForLevel, type HandKey, type ProfilePack, type ProfileStats } from '../../engine';
 import { COLLECTIBLE_CARDS, collectibleOwned, getSetCards } from '../../data/cards';
-import { SETS, setCode } from '../../content/sets';
+import { SETS } from '../../content/sets';
 import { toCardsWithMeta } from '../../game/pulls';
 import { collectionMilestone, setProgress, titleFor } from '../../game/progression';
-import { modifierClasses } from '../../game/modifiers';
 import PackCardViewer from '../ui/PackCardViewer';
-import CardImage from '../cards/CardImage';
 import SetBadge from '../sets/SetBadge';
 import Sheet from '../ui/Sheet';
+import PullRow from './PullRow';
 import '../../styles/Pulls.css';
 import '../../styles/Profile.css';
 
@@ -28,10 +26,12 @@ interface ProfileSummaryProps {
   partial?: boolean;
   /** Replaces the built-in pack viewer (your own profile opens the share sheet instead). */
   onOpenPack?: (pack: ProfilePack) => void;
+  /** After a best pull's hand, e.g. whether this device sent it to the Hall of Fame (your own profile only). */
+  packBadge?: (pack: ProfilePack) => ReactNode;
 }
 
 /** Level, the numbers that matter, best pulls, then the collection score and cards by set. Same for your profile and someone else's. */
-const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack }: ProfileSummaryProps) => {
+const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack, packBadge }: ProfileSummaryProps) => {
   const [open, setOpen] = useState<ProfilePack | null>(null);
   const bestId = useId();
   const collectionId = useId();
@@ -100,36 +100,20 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack
         <section className="profile-block" aria-labelledby={bestId}>
           <h3 id={bestId} className="section-title profile-heading">Best pulls</h3>
           <ul className="pulls-list">
-            {best.map((pack) => {
-              const cards = toCardsWithMeta(pack.cards);
-              const [a = '#ff3df2', b = '#29f0ff'] = pack.set.palette ?? [];
-              return (
-                <li key={pack.nonce}>
-                  <button
-                    type="button"
-                    className="pull-row"
-                    style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}
-                    onClick={() => (onOpenPack ? onOpenPack(pack) : setOpen(pack))}
-                  >
-                    <span className="pull-row-thumbs" aria-hidden="true">
-                      {cards.map((c, i) => (
-                        <CardImage key={i} src={c.image} finish={c.finish} alt="" loading="lazy" className={`${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} />
-                      ))}
-                    </span>
-                    <span className="pull-row-main">
-                      <span className="pull-row-hand">{pack.score.hand.name}</span>
-                      <span className="pull-row-meta">
-                        <span className="set-code">{setCode(pack.set)}</span>
-                        <span className="pull-row-setname">{pack.set.name} · </span>
-                        ticket #{pack.nonce}
-                      </span>
-                    </span>
-                    <span className="pull-row-score tabular">{pack.score.score.toLocaleString()}</span>
-                    <ChevronRight className="pull-row-chevron" aria-hidden="true" />
-                  </button>
-                </li>
-              );
-            })}
+            {best.map((pack) => (
+              <PullRow
+                key={pack.nonce}
+                cards={toCardsWithMeta(pack.cards)}
+                set={pack.set}
+                setId={pack.set.id}
+                hand={pack.score.hand.name}
+                score={pack.score.score}
+                meta={<>ticket #{pack.nonce}</>}
+                worthy={qualifiesForHallOfFame(pack.score)}
+                badge={packBadge?.(pack)}
+                onClick={() => (onOpenPack ? onOpenPack(pack) : setOpen(pack))}
+              />
+            ))}
           </ul>
         </section>
       )}

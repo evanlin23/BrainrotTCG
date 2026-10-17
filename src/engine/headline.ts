@@ -1,0 +1,44 @@
+import { cardPoints, scorePack, type PokerHand } from './scoring';
+import type { Finish, Rarity } from './types';
+
+interface HeadlineCard {
+  /** Cards match when this is equal, as in scorePack. */
+  cardId: string;
+  rarity: Rarity;
+  isHolo: boolean;
+  finish?: Finish | null;
+  misprint?: boolean;
+  /** Position in the pack (engine order). Without it, the card's index stands in for it. */
+  slot?: number;
+}
+
+export interface PackHeadline<T extends HeadlineCard> {
+  /** Pack total: the pack's Brainrot Score, sum of card points x combo multiplier. */
+  total: number;
+  /** Sum of the cards' points, before the combo multiplier. */
+  points: number;
+  /** The combo and its multiplier (No Matches x1 included: it explains the formula). */
+  combo: PokerHand;
+  /** Standout card: the highest card points, with those points (never the pack multiplier). Null for an empty pack. */
+  standout: { card: T; points: number } | null;
+}
+
+/**
+ * The pull headline's numbers (docs/DESIGN.md, #339): the total, the combo and the standout card
+ * (screens show the total and the combo; the standout orders cards and previews). It reuses
+ * scorePack, so there is no second scorer. Pass the cards as reconstructed in their own set version;
+ * their modifiers set their points. The standout is the card with the most card points; on a
+ * tie the higher slot wins (the shipped best-card rule). Without slots, the later card in the list
+ * wins, so pass engine order or an order that keeps it among ties (revealOrder does).
+ */
+export const packHeadline = <T extends HeadlineCard>(cards: readonly T[]): PackHeadline<T> => {
+  const { points, hand, score } = scorePack(cards);
+  let standout: { card: T; points: number; slot: number } | null = null;
+  cards.forEach((card, i) => {
+    const value = cardPoints(card.rarity, card.isHolo, card.finish, card.misprint);
+    const slot = card.slot ?? i;
+    if (!standout || value > standout.points || (value === standout.points && slot > standout.slot)) standout = { card, points: value, slot };
+  });
+  const best = standout as { card: T; points: number } | null;
+  return { total: score, points, combo: hand, standout: best && { card: best.card, points: best.points } };
+};

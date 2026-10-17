@@ -346,6 +346,39 @@
   font-weight: 700;
 }
 
+/*
+ * The pack now shrinks to fit a short screen, and a pack under 240 px wide sets this text at the 12 px
+ * floor, wider than the pack's own proportions give it room for. The shell clips what sticks out, so
+ * keep the tag inside the pack: a name that is too long ends in an ellipsis, and on a pack too small
+ * to carry 12 px text at all (under 8rem) the tag steps aside, still read aloud. The set picker above
+ * names the pack either way.
+ */
+@container (max-width: 15rem) {
+  .pack-set-ribbon {
+    max-width: 96cqw;
+  }
+
+  .pack-set-name,
+  .pack-set-era {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@container (max-width: 8rem) {
+  .pack-set-ribbon {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
+
 /* The chosen pack's own link, under the shelf. */
 .pack-shelf-share {
   display: flex;

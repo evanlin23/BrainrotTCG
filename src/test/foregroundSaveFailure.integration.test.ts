@@ -118,7 +118,7 @@ it.each(['QuotaExceededError', 'SecurityError'])(
     await app.until('the banner returns with Open', () => expect(banner()).not.toBeNull());
 
     // A second pack while writes keep failing: progress keeps adding up in memory.
-    await app.interact(() => button('Open another pack').click());
+    await app.interact(() => button('Next pack').click());
     await openPack(app);
     expectAppShown();
     expect(banner()).not.toBeNull();

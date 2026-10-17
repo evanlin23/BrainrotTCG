@@ -9,7 +9,7 @@ import { STORAGE_KEYS } from '../constants';
 import { POKER_HANDS, qualifiesForHallOfFame, scorePulled, type Finish } from '../engine';
 import { getSet } from '../content/sets';
 import { decodeCard, encodeCard, toPulled, type StoredCard } from './cardCode';
-import { getStoredPack } from './packStore';
+import { getStoredPack, packStoreVersion } from './packStore';
 import type { OpenedPack } from './pulls';
 import type { CardWithMeta } from '../components/cards/Card';
 import { getCard } from '../data/cards';
@@ -87,6 +87,9 @@ const rawHistory = (): string | null => {
   }
 };
 
+/** The stored history as saved (null when unreadable): equal strings mean an unchanged history. */
+export const storedHistory = (): string | null => rawHistory();
+
 const parseHistory = (raw: string | null): Stored[] => {
   try {
     const parsed = JSON.parse(raw ?? '[]');
@@ -95,8 +98,6 @@ const parseHistory = (raw: string | null): Stored[] => {
     return [];
   }
 };
-
-const read = (): Stored[] => parseHistory(rawHistory());
 
 const save = (entries: Stored[]) => {
   try {
@@ -124,8 +125,50 @@ const write = (entries: Stored[]): boolean => {
 const sameTicket = (a: Stored, b: Stored) => a.k === b.k && a.n === b.n;
 const sameAssignment = (a: Stored, b: Stored) => sameTicket(a, b) && a.s === b.s && a.v === b.v;
 
-/** Newest first. */
-export const getHistory = (): HistoryEntry[] => read().map(decode);
+const assignmentOf = (e: Stored) => JSON.stringify([e.k, e.n, e.s, e.v]);
+
+/**
+ * A stand-in stored beside its own pack's full entry (an imported backup or an older build kept both)
+ * is the same pack, so it is listed once, as recordPack or recordMissing will store it: the pack in the
+ * first stand-in's place with that stand-in's time (replaceStandIn), so a profile's firstOpened picks
+ * the same ticket before and after. Read-side only: the stored history stays as it is until then.
+ */
+const withoutSpareStandIns = (entries: Stored[]): Stored[] => {
+  const stubs = new Set(entries.filter(isTicketOnly).map(assignmentOf));
+  if (stubs.size === 0) return entries;
+  // The newest full entry of each assignment that also has a stand-in.
+  const full = new Map<string, Stored>();
+  for (const e of entries) {
+    const a = assignmentOf(e);
+    if (!isTicketOnly(e) && stubs.has(a) && !full.has(a)) full.set(a, e);
+  }
+  const filled = new Set<string>();
+  return entries.flatMap((e) => {
+    const a = assignmentOf(e);
+    const pack = full.get(a);
+    if (!pack) return [e];
+    if (filled.has(a) || !isTicketOnly(e)) return [];
+    filled.add(a);
+    return [fillStandIn(e, pack)];
+  });
+};
+
+/** getHistory's entries, with the stored history and pack-store version they were decoded from. */
+let decoded: { raw: string | null; packs: number; entries: readonly HistoryEntry[] } | null = null;
+
+/**
+ * Newest first. Decoded again only when the stored history or the re-opened packs change, so a pack
+ * open's many readers share one decode. Each call reads the stored history, so another tab's write
+ * is never missed.
+ */
+export const getHistory = (): readonly HistoryEntry[] => {
+  const raw = rawHistory();
+  const packs = packStoreVersion();
+  if (decoded?.raw !== raw || decoded.packs !== packs) {
+    decoded = { raw, packs, entries: withoutSpareStandIns(parseHistory(raw)).map(decode) };
+  }
+  return decoded.entries;
+};
 
 /** A pack's cards as the app shows them, or null if the history has none for it. */
 export const historyCards = (entry: HistoryEntry): CardWithMeta[] | null =>

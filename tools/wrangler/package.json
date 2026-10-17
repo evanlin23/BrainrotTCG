@@ -3,6 +3,6 @@
   "private": true,
   "description": "Pinned Wrangler for the Cloudflare Pages step in .github/workflows/deploy.yml, kept out of the app's own dependencies.",
   "dependencies": {
-    "wrangler": "4.149.0"
+    "wrangler": "4.150.0"
   }
 }

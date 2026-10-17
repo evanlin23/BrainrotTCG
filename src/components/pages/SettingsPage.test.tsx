@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLatestSet } from '../../content/sets';
 import { ALL_CARDS } from '../../data/cards';
 import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
-import { DEFAULT_SETTINGS } from '../../utils/settings';
+import { NO_ROOM_FOR_COPY_NOTE } from '../../game/saveFile';
+import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundGain } from '../../constants/audio';
+import { DEFAULT_SETTINGS, effectsLevel } from '../../utils/settings';
 import SettingsPage from './SettingsPage';
 
 // The old address answers with this save; importSave and storage are the real ones.
@@ -64,6 +66,7 @@ afterEach(() => {
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   localStorage.clear();
 });
 
@@ -91,6 +94,45 @@ describe('Settings: bringing the old address save', () => {
   });
 });
 
+describe('Settings: importing a backup file', () => {
+  const restoreNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Restore')!;
+  const pick = async (save: Record<string, string>) => {
+    const input = document.body.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(save)], 'save.json')], configurable: true });
+    const read = FileReader.prototype.readAsText;
+    const loaded = new Promise((resolve) => vi.spyOn(FileReader.prototype, 'readAsText').mockImplementationOnce(function (this: FileReader, file: Blob) {
+      this.addEventListener('load', resolve); // after the page's own onload
+      read.call(this, file);
+    }));
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      await loaded;
+    });
+  };
+
+  it("names only the saves being swapped when there's no room for a copy, not ones picked earlier", async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => NO_ROOM_FOR_COPY_NOTE);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    const saves = "this browser's save (Combo Miner, 3 packs) with the file's (Combo Miner, 5 packs)";
+    expect(restoreNote().textContent).toBe(`Replace ${saves}? Yours is kept as a backup.`);
+    await click('Replace');
+    expect(restoreNote().textContent).toBe(`${NO_ROOM_FOR_COPY_NOTE} Replace ${saves} without keeping a copy?`);
+    await click('Keep mine');
+
+    // This browser's own save asks nothing first, so the no-room answer names no other file.
+    await pick({ player: player('aa'), stats });
+    expect(restoreNote().textContent).toBe(NO_ROOM_FOR_COPY_NOTE);
+    await click('Replace without a copy');
+    expect(onImportSave.mock.calls.map(([content, keepCopy]) => [JSON.parse(content).player, keepCopy]))
+      .toEqual([[player('bb'), true], [player('aa'), true], [player('aa'), false]]);
+  });
+});
+
 describe('Settings: Help', () => {
   it("has the card guide for the pack being opened beside Report a problem, and hands focus back when it closes", () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
@@ -114,5 +156,51 @@ describe('Settings: Help', () => {
   it('leaves the card guide out when no pack is given', () => {
     expect(button('Card guide')).toBeUndefined();
     expect(button('Report a problem')).toBeDefined();
+  });
+});
+
+describe('Settings: effects volume preview', () => {
+  it('plays the flip, then a vine boom after the delay, each at its gain on the chosen level', () => {
+    vi.useFakeTimers();
+    const played: { src: string; volume: number }[] = [];
+    vi.stubGlobal('Audio', class {
+      volume = 1;
+      constructor(public src: string) {}
+      play() { played.push({ src: this.src, volume: this.volume }); return Promise.resolve(); }
+    });
+    const slider = [...document.body.querySelectorAll<HTMLInputElement>('input[type="range"]')]
+      .find((el) => el.labels?.[0]?.textContent === 'Sound effects')!;
+    expect(slider).toBeDefined();
+    slider.value = '50';
+    act(() => void slider.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true })));
+
+    const level = effectsLevel(0.5);
+    expect(played).toHaveLength(1);
+    expect(played[0].src).toBe(CARD_FLIP_SRC);
+    expect(played[0].volume).toBeCloseTo(level * soundGain(CARD_FLIP_SRC));
+    vi.advanceTimersByTime(EFFECT_DELAY_MS - 1);
+    expect(played).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(played).toHaveLength(2);
+    expect(played[1].src).toBe(VINE_BOOM_SRC);
+    expect(played[1].volume).toBeCloseTo(level * soundGain(VINE_BOOM_SRC));
+  });
+
+  it('drops the pending vine boom when the page closes', () => {
+    vi.useFakeTimers();
+    const played: string[] = [];
+    vi.stubGlobal('Audio', class {
+      volume = 1;
+      constructor(public src: string) {}
+      play() { played.push(this.src); return Promise.resolve(); }
+    });
+    const slider = [...document.body.querySelectorAll<HTMLInputElement>('input[type="range"]')]
+      .find((el) => el.labels?.[0]?.textContent === 'Sound effects')!;
+    slider.value = '50';
+    act(() => void slider.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true })));
+    expect(played).toEqual([CARD_FLIP_SRC]);
+    act(() => root.render(<div />));
+    vi.advanceTimersByTime(EFFECT_DELAY_MS * 2);
+    expect(played).toEqual([CARD_FLIP_SRC]);
   });
 });

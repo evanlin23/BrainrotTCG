@@ -11,11 +11,11 @@ import {
   RARITY_POINTS,
   handOdds,
   oneIn,
-  specialPackChance,
   type HandKey,
   type SetDefinition,
 } from '../../engine';
 import { CARD_RARITIES } from '../../data/cards';
+import { formatOneIn } from '../../game/cardStats';
 import { FINISH_INFO } from '../../game/modifiers';
 import RarityBadge from './RarityBadge';
 import Sheet from './Sheet';
@@ -28,13 +28,6 @@ interface ScoringGuideProps {
 
 const HAND_ORDER: HandKey[] = ['PAIR', 'TWO_PAIR', 'THREE_OF_A_KIND', 'FULL_HOUSE', 'FOUR_OF_A_KIND', 'FIVE_OF_A_KIND'];
 
-const formatOneIn = (n: number) => (n < 10 ? n.toFixed(1) : Math.round(n).toLocaleString());
-
-/** "About 63%", or one decimal place under 1%. */
-const formatChance = (p: number) => {
-  const percent = p * 100;
-  return `${percent >= 1 ? Math.round(percent) : percent.toFixed(1)}%`;
-};
 
 /** "Silver up to Diamond": the commonest finish to the rarest. */
 const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.length - 1]].name} up to ${FINISH_INFO[FINISHES_RAREST_FIRST[0]].name}`;
@@ -48,7 +41,6 @@ const EXAMPLE_FINISH = 'GOLD' as const;
 /** The card guide: what makes a card rare or special, and how Brainrot Score works, with the exact odds for this set. */
 const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
   const odds = useMemo(() => handOdds(set), [set]);
-  const specialChance = useMemo(() => specialPackChance(set), [set]);
   const rarities = [...RARITIES_RAREST_FIRST].reverse().filter((r) => set.odds[r] > 0);
   const commonest = rarities[0];
   const rarest = rarities[rarities.length - 1];
@@ -61,7 +53,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
 
   return (
     <Sheet title="Card guide" subtitle={`Rarity, modifiers and scoring for ${set.name}`} onClose={onClose} size="sm" className="scoring-guide">
-        <h3>Rare, holo or special?</h3>
+        <h3>Rare, holo or extra?</h3>
         <p className="scoring-note">
           <strong>Rarity</strong> is which card you pulled, from {CARD_RARITIES[commonest].name} up to {CARD_RARITIES[rarest].name}. Rarer cards are worth more points.
         </p>
@@ -70,7 +62,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         </p>
         {hasModifiers && (
           <p className="scoring-note">
-            <strong>Finishes</strong> ({FINISH_RANGE}) and <strong>misprints</strong> are rarer extras. A card gets one finish at most, but holo, a finish and a misprint can all land on the same card.
+            <strong>Finishes</strong> ({FINISH_RANGE}) and <strong>misprints</strong> are rarer extras. A card gets one finish at most, and a misprint can land on top of it.
           </p>
         )}
         {set.modifiers === undefined && (
@@ -79,17 +71,11 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         <p className="scoring-note">
           Each card rolls its rarity{hasModifiers ? ', holo, finish and misprint' : ' and holo'} separately, so any card can get any mix. Its points multiply: rarity points × holo{hasModifiers ? ' × finish × misprint' : ''}.
         </p>
-        {specialChance !== null && (
-          <p className="scoring-note">
-            Holo{hasModifiers ? ', finished and misprinted cards are' : ' cards are'} special cards: about {formatChance(specialChance)} of packs have at least one.
-          </p>
-        )}
 
         <h3>Brainrot Score</h3>
         <p className="scoring-formula">
-          Brainrot Score = <strong>card points</strong> × <strong>combo multiplier</strong>
+          Brainrot Score = <strong>card points</strong> added up × <strong>combo multiplier</strong>
         </p>
-        <p className="scoring-note">Rarer always pays more: every number comes from the odds. Odds below are exact for {set.name}.</p>
 
         <h3>Card rarity</h3>
         <table className="scoring-table">
@@ -134,19 +120,22 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
                 </tr>
               </tbody>
             </table>
+            <p className="scoring-note">
+              Misprint stacks on any finish: {finishName} Misprint = ×{FINISH_MULTIPLIER[EXAMPLE_FINISH].toLocaleString()} × {MISPRINT_MULTIPLIER.toLocaleString()} = ×{(FINISH_MULTIPLIER[EXAMPLE_FINISH] * MISPRINT_MULTIPLIER).toLocaleString()}.
+            </p>
           </>
         )}
 
         <h3>Example: a holo{hasModifiers ? ` ${finishName}` : ''} card</h3>
         <p className="scoring-note">
-          Holo ({formatPerCard(set.holoOdds)} of cards){hasModifiers ? <> and {finishName} ({formatPerCard(MODIFIERS_V1.finishOdds[EXAMPLE_FINISH])})</> : null} {hasModifiers ? 'are separate rolls, so a card gets both' : 'is its own roll, so a card is holo'} about 1 in {formatOneIn(oneIn(exampleModifierChance))} times, whatever its rarity. Rarity is a roll of its own: {CARD_RARITIES[commonest].name} is {formatPerCard(set.odds[commonest])} of cards.
+          About 1 in {formatOneIn(oneIn(exampleModifierChance))} cards is {hasModifiers ? 'both ' : ''}Holo ({formatPerCard(set.holoOdds)}){hasModifiers ? <> and {finishName} ({formatPerCard(MODIFIERS_V1.finishOdds[EXAMPLE_FINISH])})</> : null}, at any rarity.
         </p>
         <p className="scoring-formula">
           {CARD_RARITIES[commonest].name} {RARITY_POINTS[commonest].toLocaleString()} × holo {HOLO_MULTIPLIER}
           {hasModifiers ? ` × ${finishName} ${FINISH_MULTIPLIER[EXAMPLE_FINISH].toLocaleString()}` : ''} = <strong>{(RARITY_POINTS[commonest] * exampleMultiplier).toLocaleString()} points</strong>
         </p>
 
-        <h3>Combos (same card more than once)</h3>
+        <h3>Combos</h3>
         <table className="scoring-table">
           <thead>
             <tr><th>Combo</th><th>Chance per pack</th><th>Multiplier</th></tr>

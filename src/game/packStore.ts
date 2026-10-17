@@ -12,9 +12,15 @@ const DB_NAME = 'brainrot-packs';
 const STORE = 'reopened';
 
 /** `${setId}@${setVersion}|${first 16 hex of the key}|${nonce}`: the history's key prefix plus the set. */
-const keyOf = (setKey: string, publicKeyHex: string, nonce: number) => `${setKey}|${publicKeyHex.slice(0, 16)}|${nonce}`;
+export const packRefKey = (setKey: string, publicKeyHex: string, nonce: number): string =>
+  `${setKey}|${publicKeyHex.slice(0, 16)}|${nonce}`;
 
 const memory = new Map<string, string>();
+/** Bumped on every change to `memory`, so work built from stored packs knows when to redo it. */
+let memoryVersion = 0;
+
+/** Changes whenever a stored pack is added to memory or memory is cleared. */
+export const packStoreVersion = (): number => memoryVersion;
 let db: Promise<IDBDatabase | null> | null = null;
 
 const open = (): Promise<IDBDatabase | null> => {
@@ -56,7 +62,7 @@ const open = (): Promise<IDBDatabase | null> => {
 
 /** A stored pack's cards in the app's card code ("id,id*G,..."), if this device re-opened it. */
 export const getStoredPack = (setKey: string, publicKeyHex: string, nonce: number): string | undefined =>
-  memory.get(keyOf(setKey, publicKeyHex, nonce));
+  memory.get(packRefKey(setKey, publicKeyHex, nonce));
 
 export interface StoredPack {
   setKey: string;
@@ -71,14 +77,15 @@ export interface StoredPack {
  */
 export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<boolean> => {
   if (packs.length === 0) return true;
-  for (const p of packs) memory.set(keyOf(p.setKey, p.publicKeyHex, p.nonce), p.cards);
+  for (const p of packs) memory.set(packRefKey(p.setKey, p.publicKeyHex, p.nonce), p.cards);
+  memoryVersion++;
   const database = await open();
   if (!database) return true;
   return new Promise<boolean>((resolve) => {
     try {
       const tx = database.transaction(STORE, 'readwrite');
       const store = tx.objectStore(STORE);
-      for (const p of packs) store.put(p.cards, keyOf(p.setKey, p.publicKeyHex, p.nonce));
+      for (const p of packs) store.put(p.cards, packRefKey(p.setKey, p.publicKeyHex, p.nonce));
       tx.oncomplete = () => resolve(true);
       tx.onerror = () => resolve(false);
       tx.onabort = () => resolve(false);
@@ -91,6 +98,7 @@ export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<bool
 /** For tests. */
 export const resetPackStore = () => {
   memory.clear();
+  memoryVersion++;
   // Also release an already-open connection; an abandoned pending attempt closes on success.
   void db?.then(database => database?.close());
   db = null;
@@ -110,7 +118,7 @@ export const readStoredPacks = async (packs: readonly StoredPackRef[], signal?: 
   signal?.throwIfAborted();
   if (packs.length > PACK_READ_PAGE) throw new RangeError(`Read at most ${PACK_READ_PAGE} packs per page`);
   if (packs.length === 0) return [];
-  const keys = packs.map(pack => keyOf(pack.setKey, pack.publicKeyHex, pack.nonce));
+  const keys = packs.map(pack => packRefKey(pack.setKey, pack.publicKeyHex, pack.nonce));
   if (activeReads >= 2) throw new Error('Pack cache is busy; retry after the current page');
   activeReads++;
   let stopWaiting: (() => void) | undefined;
@@ -177,7 +185,7 @@ export const hydratePackStore = async (
   keep: () => boolean = () => true,
 ): Promise<boolean> => {
   signal?.throwIfAborted();
-  const keys = packs.map(pack => keyOf(pack.setKey, pack.publicKeyHex, pack.nonce));
+  const keys = packs.map(pack => packRefKey(pack.setKey, pack.publicKeyHex, pack.nonce));
   const wanted = packs.filter((_pack, i) => !memory.has(keys[i]));
   if (wanted.length === 0 || typeof indexedDB === 'undefined') return true;
   for (let start = 0; start < wanted.length; start += PACK_READ_PAGE) {
@@ -186,9 +194,12 @@ export const hydratePackStore = async (
     const values = await readStoredPacks(page, signal);
     if (!keep()) return false;
     page.forEach((pack, i) => {
-      const key = keyOf(pack.setKey, pack.publicKeyHex, pack.nonce);
+      const key = packRefKey(pack.setKey, pack.publicKeyHex, pack.nonce);
       const value = values[i];
-      if (value !== undefined && !memory.has(key)) memory.set(key, value);
+      if (value !== undefined && !memory.has(key)) {
+        memory.set(key, value);
+        memoryVersion++;
+      }
     });
   }
   return true;

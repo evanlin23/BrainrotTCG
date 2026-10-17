@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  getStoredPack, hydratePackStore, putStoredPacks, resetPackStore, readStoredPacks, PACK_READ_PAGE, type StoredPackRef,
+  getStoredPack, hydratePackStore, packRefKey, packStoreVersion, putStoredPacks, resetPackStore, readStoredPacks, PACK_READ_PAGE, type StoredPackRef,
 } from './packStore';
 
 // Control only the asynchronous request boundary: tests still exercise the exported cache API. With
@@ -73,6 +73,12 @@ function succeed(request: ReturnType<typeof openRequest>, value = database()) {
   request.onsuccess?.();
   return value;
 }
+
+describe('packRefKey', () => {
+  it('keeps the stored key format: set key, first 16 hex of the public key, nonce', () => {
+    expect(packRefKey('genesis@1', '0123456789abcdef'.repeat(4), 42)).toBe('genesis@1|0123456789abcdef|42');
+  });
+});
 
 describe('pack store connection ownership', () => {
   it('preserves the database, store, key, and read/write cache contract', async () => {
@@ -314,6 +320,20 @@ describe('paged hydration', () => {
     stored.reads[0].oncomplete?.();
     expect(await hydrating).toBe(true);
     expect(packs.map(cached)).toEqual(['fresh-0', 'fresh-1', 'cards-2']);
+  });
+
+  it('moves the store version when a read adds packs, and only then', async () => {
+    const packs = refs(2);
+    const stored = database([[keyFor(packs[0]), 'cards-0']]);
+    const before = packStoreVersion();
+    const hydrating = hydratePackStore(packs);
+    succeed(requests[0], stored);
+    expect(await hydrating).toBe(true);
+    const after = packStoreVersion();
+    expect(after).not.toBe(before);
+    // Nothing new: pack 0 is in memory and pack 1 is missing from the store.
+    expect(await hydratePackStore(packs)).toBe(true);
+    expect(packStoreVersion()).toBe(after);
   });
 
   it('has nothing to read without IndexedDB', async () => {

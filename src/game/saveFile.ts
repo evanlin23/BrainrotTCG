@@ -113,22 +113,54 @@ export const isValidSaveValue = (key: string, raw: string, dataVersion: number):
   }
 };
 
+/** A full browser storage (Chrome/Safari, Firefox). */
+export const isQuotaError = (e: unknown): boolean => e instanceof DOMException
+  && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+
 /** Keep this browser's save under `backupKey` before something replaces it (an imported file, a move). */
 export const backUpSave = (backupKey: string): boolean => {
   try {
-    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
-      .filter((key): key is string => !!key?.startsWith('brainrot-') && !key.startsWith('brainrot-before-'));
-    if (keys.length === 0) return true;
-    const backup = Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)]));
-    localStorage.setItem(backupKey, JSON.stringify(backup));
+    const copy = saveCopy();
+    if (copy !== null) localStorage.setItem(backupKey, copy);
     return true;
   } catch {
     return false;
   }
 };
 
+/** Every app key except earlier copies, as backUpSave stores it; null when there is nothing to copy. */
+const saveCopy = (): string | null => {
+  const keys = storedKeys().filter((key) => key.startsWith('brainrot-') && !key.startsWith(COPY_PREFIX));
+  return keys.length === 0 ? null : JSON.stringify(Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)])));
+};
+const COPY_PREFIX = 'brainrot-before-';
+const storedKeys = () => Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((key): key is string => !!key);
+/** Room a stored value takes, counted as browsers count it against the quota (key and value characters). */
+const room = (key: string, value: string | null | undefined) => (value === null || value === undefined ? 0 : key.length + value.length);
+const roomUsed = () => storedKeys().reduce((sum, key) => sum + room(key, localStorage.getItem(key)), 0);
+
 /** How importSaveFile's message starts when a failed import couldn't be undone (the page then reloads). */
 export const PARTIAL_IMPORT_NOTE = "Import failed partway and couldn't be fully undone, so this browser may now hold parts of both saves.";
+
+/** importSaveFile's answer when the file may fit, but not beside a copy of this save: nothing changed, and Settings offers to go on without one. */
+export const NO_ROOM_FOR_COPY_NOTE = "There's no room in this browser's storage for this file and a copy of your current save."
+  + ' Nothing changed. Export your save first if you want to keep it, then replace it without a copy.';
+
+/**
+ * importSaveFile's answer when the file alone needs more room than this browser's storage has, followed
+ * by COPIES_NOTE when copies of earlier saves take some of that room.
+ */
+export const FILE_TOO_BIG_NOTE = "This file is too big for this browser's storage, so it can't be imported here. Nothing changed.";
+
+const NO_ROOM_NOTE = "This browser's storage has no room for this file. Your previous save data was restored.";
+
+/** Added to a no-room answer while copies of earlier saves (brainrot-before-*) take room too. */
+export const COPIES_NOTE = ' Copies of earlier saves, kept from past imports or moves, take room in it too.';
+
+/** importSaveFile's answer when a copy of this save couldn't be written for a reason other than full storage. */
+export const NO_COPY_NOTE = "Couldn't keep a backup of your current save. Nothing was imported.";
+
+const IMPORT_BACKUP_KEY = 'brainrot-before-import-v1';
 
 /** Private backup: recovery payloads remain opaque, separate from the active identity/state. */
 export const exportSaveFile = (): string => JSON.stringify({
@@ -138,6 +170,18 @@ export const exportSaveFile = (): string => JSON.stringify({
   version: 2,
   dataVersion: CURRENT_DATA_VERSION,
 }, null, 2);
+
+/** Download a save file (by default this browser's save, as exportSaveFile writes it). */
+export const downloadSaveFile = (content = exportSaveFile()) => {
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `brainrot-tcg-save-${new Date().toISOString().split('T')[0]}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 
 /** Belong to one player; settings are this device's preferences. */
 const PLAYER_FIELDS = new Set<string>(SAVE_FIELDS.map(([, key]) => key).filter((key) => key !== STORAGE_KEYS.SETTINGS));
@@ -162,9 +206,14 @@ const restoreFields = (changed: string[], previous: Map<string, string | null>):
  * Omitted/null fields preserve existing storage, as older exports omitted fields introduced later,
  * unless the save brings a different player: then this browser's player data (recovery archive
  * included) moves to the import backup instead of staying under the new identity.
+ * Each replaced value is removed before the new ones are written, so the old and new saves never need
+ * room at once. When storage fills, nothing changes: if the file can't fit even without a copy of this save
+ * the answer is FILE_TOO_BIG_NOTE, otherwise NO_ROOM_FOR_COPY_NOTE, and `keepCopy: false` (the player's
+ * choice after that) then imports without one. Either answer names copies of earlier saves when they take room.
+ * A copy refused for another reason is NO_COPY_NOTE: no room was shown to be missing, so no offer to go on.
  * This validates structure, not the authenticity of cached cards/scores, and is not an atomic commit.
  */
-export const importSaveFile = (raw: string): string | null => {
+export const importSaveFile = (raw: string, { keepCopy = true }: { keepCopy?: boolean } = {}): string | null => {
   try {
     const save: unknown = JSON.parse(raw);
     if (!record(save) || (save.version !== 1 && save.version !== 2)
@@ -203,24 +252,62 @@ export const importSaveFile = (raw: string): string | null => {
       ? omitted.filter((key) => PLAYER_FIELDS.has(key)).map((key): [string, null] => [key, null]) : [];
     staged.unshift(...clears, [SAVE_STAMP_KEY, newSaveStamp()], ...clears);
     const previous = new Map(staged.map(([key]) => [key, localStorage.getItem(key)]));
-    if (!backUpSave('brainrot-before-import-v1')) {
-      return "Couldn't keep a backup of your current save. Nothing was imported.";
+    // After the stamp, every value the file replaces is removed before any is written: the old save's
+    // copies of them stop taking room the file needs (the import fits if the file does, copy aside).
+    const stamp = staged.findIndex(([key]) => key === SAVE_STAMP_KEY) + 1 + clears.length;
+    staged.splice(stamp, 0, ...staged.slice(stamp)
+      .filter(([key, value]) => value !== null && previous.get(key) !== null && previous.get(key) !== value)
+      .map(([key]): [string, null] => [key, null]));
+    // A refused write proves storage holds less than `limit`. If this save with the file's values in place
+    // (no new copy, earlier ones kept) would take at least that, the file can never fit here.
+    let limit = Infinity;
+    const refused = (key: string, value: string) => { limit = roomUsed() - room(key, localStorage.getItem(key)) + room(key, value); };
+    const fileCantFit = () => {
+      const after = new Map(staged);
+      return roomUsed() + [...after].reduce((sum, [key, value]) => sum + room(key, value) - room(key, previous.get(key)), 0) >= limit;
+    };
+    const copiesNote = () => (storedKeys().some((key) => key.startsWith(COPY_PREFIX)) ? COPIES_NOTE : '');
+    const noRoom = () => NO_ROOM_NOTE + copiesNote();
+    const tooBig = () => FILE_TOO_BIG_NOTE + copiesNote();
+    const earlierCopy = localStorage.getItem(IMPORT_BACKUP_KEY);
+    const copy = keepCopy ? saveCopy() : null;
+    if (copy !== null) {
+      try {
+        localStorage.setItem(IMPORT_BACKUP_KEY, copy);
+      } catch (error) {
+        if (!isQuotaError(error)) return NO_COPY_NOTE;
+        refused(IMPORT_BACKUP_KEY, copy);
+        return fileCantFit() ? tooBig() : NO_ROOM_FOR_COPY_NOTE;
+      }
     }
     const changed: string[] = [];
     try {
       for (const [key, value] of staged) {
         if (value !== null && previous.get(key) === value) continue;
         if (value === null) localStorage.removeItem(key);
-        else localStorage.setItem(key, value);
+        else {
+          try { localStorage.setItem(key, value); } catch (error) {
+            if (isQuotaError(error)) refused(key, value);
+            throw error;
+          }
+        }
         if (!changed.includes(key)) changed.push(key);
       }
       // Identity is last: no later write can fail after importPlayer adopts the new memory identity.
-      if (typeof save.player === 'string' && !importPlayer(save.player)) throw new Error('Identity import failed');
-    } catch {
-      if (restoreFields(changed, previous)) return 'Import failed. Your previous save data was restored.';
-      // backUpSave copied every app key, so any value here means a copy was just made.
-      const backedUp = [...previous.values()].some((value) => value !== null);
-      return PARTIAL_IMPORT_NOTE + (backedUp ? ' A copy of the save from before the import is kept in this browser.' : '');
+      let identityError: unknown = new Error('Identity import failed');
+      if (typeof save.player === 'string' && !importPlayer(save.player, (error) => { identityError = error; })) throw identityError;
+    } catch (error) {
+      if (restoreFields(changed, previous)) {
+        if (!isQuotaError(error)) return 'Import failed. Your previous save data was restored.';
+        if (copy === null) return fileCantFit() ? tooBig() : noRoom();
+        // The copy took room the file needed. The save it copied is back in place, so put back the earlier copy.
+        try {
+          if (earlierCopy === null) localStorage.removeItem(IMPORT_BACKUP_KEY);
+          else localStorage.setItem(IMPORT_BACKUP_KEY, earlierCopy);
+        } catch { /* The new copy stays: it holds the same save. */ }
+        return fileCantFit() ? tooBig() : NO_ROOM_FOR_COPY_NOTE;
+      }
+      return PARTIAL_IMPORT_NOTE + (copy !== null ? ' A copy of the save from before the import is kept in this browser.' : '');
     }
     // A list this tab couldn't store belongs to the save just replaced: never write it into this one.
     resetBestCards();
