@@ -2,6 +2,7 @@
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
+import { shelvedPacks } from './pendingShelf';
 import { STORAGE_KEYS } from '../constants/config';
 import { fromHex, publicKeyFromSecret, toHex } from '../engine';
 import { SAVE_STAMP_KEY } from '../game/player';
@@ -40,7 +41,7 @@ const progress = () => Object.fromEntries(PROGRESS.map((key) => [key, localStora
 const owned = () => Object.values(JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION) ?? '{}') as Record<string, CollectionItem>)
   .reduce((sum, item) => sum + item.normalCount + item.holoCount, 0);
 const packsOpened = () => (JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!) as Stats).packsOpened;
-const shelf = () => JSON.parse(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS) ?? '[]') as { n: number; k?: string }[];
+const shelf = shelvedPacks;
 const otherTabWrites = (entries: Record<string, string>) => {
   for (const [key, value] of Object.entries(entries)) localStorage.setItem(key, value);
 };

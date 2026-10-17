@@ -13,6 +13,38 @@ export const OPTIONAL_HISTORY_RECORDS = 24;
 export const ARGON2_BYTES_PER_JOB = TICKET_PARAMS.memorySize * 1024;
 export const EVIDENCE = 'desktop-Chromium emulation, not real-device evidence (real devices: #8)';
 
+export interface Responsiveness {
+  /** Main-thread tasks over 50 ms (the Long Tasks API) that began in the window. */
+  longTasks: number;
+  longTaskTotalMs: number;
+  longTaskMaxMs: number;
+  /** requestAnimationFrame callbacks in the window, and the gaps between consecutive ones. */
+  frames: number;
+  maxFrameIntervalMs: number;
+  framesOver50Ms: number;
+}
+
+/** What the page recorded: long tasks as start and duration, and every animation frame's timestamp. */
+export interface ResponsivenessSamples {
+  longTasks: { start: number; duration: number }[];
+  frames: number[];
+}
+
+/** Reduces the page's samples to the window from the press (`from`) to the result (`to`), both in performance.now() ms. */
+export function responsivenessBetween(samples: ResponsivenessSamples, from: number, to: number): Responsiveness {
+  const tasks = samples.longTasks.filter((task) => task.start >= from && task.start <= to);
+  const frames = samples.frames.filter((t) => t >= from && t <= to);
+  const intervals = frames.slice(1).map((t, i) => t - frames[i]);
+  return {
+    longTasks: tasks.length,
+    longTaskTotalMs: tasks.reduce((sum, task) => sum + task.duration, 0),
+    longTaskMaxMs: Math.max(0, ...tasks.map((task) => task.duration)),
+    frames: frames.length,
+    maxFrameIntervalMs: Math.max(0, ...intervals),
+    framesOver50Ms: intervals.filter((gap) => gap > 50).length,
+  };
+}
+
 export interface OptionalMeasurement {
   browser: string;
   device: { hardwareConcurrency: number; deviceMemory: number | null };
@@ -36,6 +68,8 @@ export interface OptionalMeasurement {
   };
   /** Estimated, never measured: peak busy workers × Argon2 memory per job. */
   estimatedArgon2PeakBytes: number;
+  /** The page's main thread from the press to five decoded summary cards. */
+  responsiveness: Responsiveness;
   memory: Observation<{ scope: 'main-target-js-heap-only'; usedBytes: number; totalBytes: number }>;
 }
 export interface OptionalRun {
@@ -53,9 +87,9 @@ export function validateOptionalRun(run: OptionalRun) {
   }
   if (run.status !== 'passed') return;
   const m = run.measurement;
-  if (!m?.browser || !m.workers || !m.device || !m.memory) throw new Error('Passed run needs a browser and complete measurement');
+  if (!m?.browser || !m.workers || !m.device || !m.memory || !m.responsiveness) throw new Error('Passed run needs a browser and complete measurement');
   const numbers = [m.navigationToClickableMs, m.liveTicketMs, m.openToSummaryMs, m.openToResultMs, m.estimatedArgon2PeakBytes,
-    m.device.hardwareConcurrency, ...Object.values(m.workers)];
+    m.device.hardwareConcurrency, ...Object.values(m.workers), ...Object.values(m.responsiveness)];
   if (numbers.some((n) => !Number.isFinite(n) || n < 0)) throw new Error('Invalid measurement number');
   if (!m.memory.supported && !m.memory.reason) throw new Error('Unsupported observation needs a reason');
   if (run.scenario === 'optional-active' && m.workers.optionalInFlightAtPress < 1) throw new Error('Active run had no optional work in flight');
@@ -80,6 +114,12 @@ export function summarizeOptional(runs: OptionalRun[]) {
       optionalFinishedBeforeSummary: range(measured.map((m) => m.workers.optionalFinishedBeforeSummary)),
       optionalStartedAfterSummary: range(measured.map((m) => m.workers.optionalStartedAfterSummary)),
       estimatedArgon2PeakBytes: range(measured.map((m) => m.estimatedArgon2PeakBytes)),
+      longTasks: range(measured.map((m) => m.responsiveness.longTasks)),
+      longTaskTotalMs: range(measured.map((m) => m.responsiveness.longTaskTotalMs)),
+      longTaskMaxMs: range(measured.map((m) => m.responsiveness.longTaskMaxMs)),
+      frames: range(measured.map((m) => m.responsiveness.frames)),
+      maxFrameIntervalMs: range(measured.map((m) => m.responsiveness.maxFrameIntervalMs)),
+      framesOver50Ms: range(measured.map((m) => m.responsiveness.framesOver50Ms)),
       measuredMainTargetHeapUsedBytes: range(measured.flatMap((m) => m.memory.supported ? [m.memory.value.usedBytes] : [])),
     };
   });

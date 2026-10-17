@@ -121,10 +121,12 @@ async function startJourney(page: Page, baseURL: string, { returning = false } =
 
 const proofState = async (page: Page) => ({
   recorded: await snapshot(page),
-  provenance: await page.evaluate((keys) => Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)])), [
+  // With each pack on the pending shelf (an entry of its own per pack).
+  provenance: await page.evaluate(([keys, shelf]) => Object.fromEntries([...keys, ...Object.keys(localStorage).filter((key) => key.startsWith(shelf)).sort()]
+    .map((key) => [key, localStorage.getItem(key)])), [[
     'brainrot-player-v1', STORAGE_KEYS.ACHIEVEMENTS, STORAGE_KEYS.PENDING_PACKS, STORAGE_KEYS.PENDING_PACK,
     STORAGE_KEYS.HALL_OF_FAME, STORAGE_KEYS.PULLS,
-  ]),
+  ], STORAGE_KEYS.PENDING_PACK_PREFIX] as const),
 });
 
 /**

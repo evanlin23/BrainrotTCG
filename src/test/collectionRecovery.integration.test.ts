@@ -2,6 +2,7 @@
 // @vitest-environment-options {"url":"https://mounted.invalid/BrainrotTCG/"}
 import { afterEach, expect, it, vi } from 'vitest';
 import { mountedApp } from './mountedApp';
+import { shelfKeys } from './pendingShelf';
 import { STORAGE_KEYS } from '../constants/config';
 import { ALL_CARDS } from '../data/cards';
 import { exportSaveFile } from '../game/saveFile';
@@ -159,7 +160,7 @@ it('shows the kept-aside note at once, and keeps the pack waiting, when only the
 
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION)).toBe(RAW);
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)!).raw).toBe(RAW);
-  expect(localStorage.getItem(STORAGE_KEYS.PENDING_PACKS)).not.toBeNull();
+  expect(shelfKeys()).toHaveLength(1);
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
   expect(warnings()).toEqual([expect.stringMatching(/couldn't be saved in this browser[\s\S]*kept aside/)]);
 }, 60_000);
