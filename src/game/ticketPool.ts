@@ -28,14 +28,17 @@ export const TICKETS_PER_WORKER = 4;
 export const MAX_OOM_ATTEMPTS = 3;
 
 const NO_MEMORY = /out of memory|(?:cannot|could not|couldn't|failed to|unable to) allocate|allocation failed/i;
-const WASM_RANGE = /RangeError\b.*\b(?:WebAssembly|wasm|memory|buffer|typed array)/i;
+/** Wasm memory the browser couldn't enlarge: Chrome's "Unable to grow instance memory", Firefox's "failed to grow memory". */
+const NO_GROWTH = /(?:cannot|could not|couldn't|failed to|unable to) grow (?:instance )?memory/i;
 
 /**
  * Whether an error's text means the browser had no memory to give, e.g. Chrome's "RangeError:
  * WebAssembly.instantiate(): Out of memory: Cannot allocate Wasm memory for new instance". Workers
- * send errors as text, so this matches the text rather than the error's type.
+ * send errors as text, so this matches the text rather than the error's type. Other RangeErrors
+ * (an invalid array length, Wasm's declared maximum size) are the same on every device, so they
+ * aren't memory errors: a retry or a fresh worker wouldn't help.
  */
-export const isOutOfMemory = (message: string) => NO_MEMORY.test(message) || WASM_RANGE.test(message);
+export const isOutOfMemory = (message: string) => NO_MEMORY.test(message) || NO_GROWTH.test(message);
 
 /** A ticket that ran out of memory on fresh workers too. `detail` keeps the browser's own error. */
 export class TicketMemoryError extends Error {
@@ -47,6 +50,12 @@ export class TicketMemoryError extends Error {
     this.detail = detail;
   }
 }
+
+/** A check (a pull or a profile) that stopped because this device ran out of memory. */
+export const isMemoryError = (error: unknown) => error instanceof TicketMemoryError || isOutOfMemory(String(error));
+
+/** What a viewer is told when checking stopped for want of memory. */
+export const OUT_OF_MEMORY_ADVICE = 'This device ran out of memory while checking. Close other tabs and try again.';
 
 const toError = (error: unknown): Error => {
   if (error instanceof TicketMemoryError) return error;

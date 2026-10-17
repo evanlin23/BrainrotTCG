@@ -272,3 +272,46 @@ describe('verifying a profile on a device that runs out of memory', () => {
     expect(error.message).toBe('Something went wrong while re-opening the packs. Try again.');
   });
 });
+
+describe('verifying a profile again', () => {
+  /** A one-pack profile from a player of its own, so no earlier test has re-opened its pack. */
+  const proof = (seed: string) => {
+    savePlayer(seed.repeat(32), 1);
+    const { publicKey, secretKey, name } = getPlayer();
+    const runs = [{ setId: SET.id, setVersion: SET.version, count: 1 }];
+    return encodeProfile(signProfile({ publicKey, name, runs, xp: XP_PER_PACK, highlights: [0] }, secretKey));
+  };
+
+  it('lets only the latest check report once a later one starts', async () => {
+    const text = proof('a1');
+    const first: ProfileProgress[] = [];
+    const second: ProfileProgress[] = [];
+    verifyProfileLive(text, (p) => first.push(p), new AbortController().signal);
+    await vi.waitFor(() => expect(mining).toHaveLength(1));
+    verifyProfileLive(text, (p) => second.push(p), new AbortController().signal);
+    await vi.waitFor(() => expect(mining).toHaveLength(2));
+    // The first check's pack finishes after the second check started: it must not show.
+    mining[0].finish();
+    await vi.waitFor(() => expect(closed).toBe(1));
+    expect(first).toHaveLength(1);
+    expect(first[0].packs).toHaveLength(0);
+    mining[1].finish();
+    // The second check carries on to its verdict (the stand-in tickets don't match the claims).
+    await vi.waitFor(() => expect(second[second.length - 1].error ?? second[second.length - 1].done).toBeTruthy());
+    expect(second.some((p) => p.packs.length === 1)).toBe(true);
+    expect(first).toHaveLength(1);
+  });
+
+  it('reports nothing once its page has stopped it', async () => {
+    const reports: ProfileProgress[] = [];
+    const stop = new AbortController();
+    verifyProfileLive(proof('b2'), (p) => reports.push(p), stop.signal);
+    await vi.waitFor(() => expect(mining).toHaveLength(1));
+    stop.abort();
+    mining[0].finish();
+    await flush();
+    await flush();
+    expect(reports).toHaveLength(1);
+    expect(reports[0].done).toBe(false);
+  });
+});

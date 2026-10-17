@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link2, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Link2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { checkPull, previewFor, pullUrl, type CheckedPull } from '../../game/pulls';
+import { isMemoryError, OUT_OF_MEMORY_ADVICE } from '../../game/ticketPool';
 import { publicName } from '../../engine';
 import { setCode } from '../../content/sets';
 import PackCardViewer from '../ui/PackCardViewer';
 import Sheet from '../ui/Sheet';
+import '../../styles/Profile.css';
 import '../../styles/Share.css';
 
 interface PullViewerPageProps {
@@ -12,24 +14,39 @@ interface PullViewerPageProps {
   onClose: () => void;
 }
 
-type State = { status: 'checking' } | { status: 'ok'; pull: CheckedPull } | { status: 'error'; reason: string };
+type State =
+  | { status: 'checking' }
+  | { status: 'ok'; pull: CheckedPull }
+  | { status: 'error'; reason: string }
+  /** This device ran out of memory re-opening the pack: says nothing about the pull itself. */
+  | { status: 'memory' };
 
 /** Opened from a shared `#/pull/<proof>` link. Everything is verified right here, on the viewer's device. */
 const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
   const [state, setState] = useState<State>({ status: 'checking' });
   const [copied, setCopied] = useState(false);
+  /** Bumped by "Try again" after running out of memory. */
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     const stop = new AbortController();
     checkPull(proof, stop.signal)
       .then((pull) => !cancelled && setState({ status: 'ok', pull }))
-      .catch((error: unknown) => !cancelled && setState({ status: 'error', reason: error instanceof Error ? error.message : String(error) }));
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        if (isMemoryError(error)) {
+          console.error('Pull verification failed', error);
+          setState({ status: 'memory' });
+        } else {
+          setState({ status: 'error', reason: error instanceof Error ? error.message : String(error) });
+        }
+      });
     return () => {
       cancelled = true;
       stop.abort();
     };
-  }, [proof]);
+  }, [proof, attempt]);
 
   const copyLink = async () => {
     // Once the pack is checked, the link previews as its best card.
@@ -55,6 +72,30 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
         <div className="pull-viewer-checking" role="status">
           <span className="pull-viewer-spinner" aria-hidden="true" />
           <p>Re-opening the pack on your device…</p>
+        </div>
+      </Sheet>
+    );
+  }
+
+  if (state.status === 'memory') {
+    // Same message and retry as the profile viewer's: running out of memory isn't the pull's fault.
+    return (
+      <Sheet title="Couldn't check this pull" onClose={onClose} size="sm" footer={openOwn}>
+        <div className="profile-verify is-failed" role="status">
+          <span className="profile-verify-line">
+            <ShieldAlert aria-hidden="true" /> Couldn't finish re-opening the pack on this device
+          </span>
+          <span className="profile-verify-sub">{OUT_OF_MEMORY_ADVICE}</span>
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm profile-verify-retry"
+            onClick={() => {
+              setState({ status: 'checking' });
+              setAttempt((n) => n + 1);
+            }}
+          >
+            <RotateCcw aria-hidden="true" /> Try again
+          </button>
         </div>
       </Sheet>
     );

@@ -1,5 +1,6 @@
 /**
- * Computes tickets in a Web Worker, one at a time (each needs 32 MiB), with a
+ * Computes tickets in a Web Worker, one at a time (each needs 32 MiB), replacing the worker every
+ * few tickets to free its Wasm memory (see ticketPool), with a
  * small cache so the next pack can be mined while the current one is on screen.
  * Tickets for opening packs go first; optional ones (checking someone's pull) wait
  * their turn, take an optional slot (./admission) and aren't cached, so they can't
@@ -8,7 +9,7 @@
 import { computeTicket, toHex } from '../engine';
 import type { TicketRequest, TicketResponse } from '../workers/ticket.worker';
 import { holdLive, requestSlot, stopped } from './admission';
-import { isOutOfMemory, TicketMemoryError } from './ticketPool';
+import { isOutOfMemory, TicketMemoryError, TICKETS_PER_WORKER } from './ticketPool';
 
 type Pending = {
   resolve: (t: Uint8Array) => void;
@@ -23,18 +24,40 @@ type Pending = {
 let worker: Worker | null | undefined;
 let nextId = 0;
 const pending = new Map<number, Pending>();
+/** Tickets the current worker has answered, for recycling it like ticketPool does. */
+let served = 0;
+
+/**
+ * Mine on the main thread. Like the worker path, a ticket that runs out of memory gets one more
+ * try, then fails with a TicketMemoryError.
+ */
+const computeHere = async (job: Omit<Pending, 'resolve' | 'reject'>): Promise<Uint8Array> => {
+  try {
+    return await computeTicket(job.setKey, job.publicKey, job.nonce);
+  } catch (error) {
+    if (error instanceof TicketMemoryError || !isOutOfMemory(String(error))) throw error;
+    if (job.retried) throw new TicketMemoryError(String(error));
+    return computeHere({ ...job, retried: true });
+  }
+};
 
 const getWorker = (): Worker | null => {
   if (worker !== undefined) return worker;
   try {
     worker = new Worker(new URL('../workers/ticket.worker.ts', import.meta.url), { type: 'module' });
+    served = 0;
     worker.onmessage = (event: MessageEvent<TicketResponse>) => {
       const job = pending.get(event.data.id);
       if (!job) return;
       pending.delete(event.data.id);
+      if ('error' in event.data && isOutOfMemory(event.data.error)) {
+        restart(job, event.data.error);
+        return;
+      }
       if ('ticket' in event.data) job.resolve(event.data.ticket);
-      else if (isOutOfMemory(event.data.error)) restart(job, event.data.error);
       else job.reject(new Error(event.data.error));
+      // Swap in a fresh worker before its garbage piles up (see ticketPool's TICKETS_PER_WORKER).
+      if (++served >= TICKETS_PER_WORKER) replace();
     };
     // If the worker fails to load or crashes, finish its jobs on the main thread instead of hanging.
     worker.onerror = (event) => {
@@ -44,7 +67,7 @@ const getWorker = (): Worker | null => {
       worker = null;
       const jobs = [...pending.values()];
       pending.clear();
-      for (const job of jobs) computeTicket(job.setKey, job.publicKey, job.nonce).then(job.resolve, job.reject);
+      for (const job of jobs) computeHere(job).then(job.resolve, job.reject);
     };
   } catch {
     worker = null; // no worker support: fall back to the main thread
@@ -55,7 +78,7 @@ const getWorker = (): Worker | null => {
 const send = (job: Pending) => {
   const w = getWorker();
   if (!w) {
-    computeTicket(job.setKey, job.publicKey, job.nonce).then(job.resolve, job.reject);
+    computeHere(job).then(job.resolve, job.reject);
     return;
   }
   const id = nextId++;
@@ -63,11 +86,8 @@ const send = (job: Pending) => {
   w.postMessage({ id, setKey: job.setKey, publicKeyHex: toHex(job.publicKey), nonce: job.nonce } satisfies TicketRequest);
 };
 
-/**
- * The worker ran out of Wasm memory. Ending it frees everything it held (see ticketPool's
- * TICKETS_PER_WORKER), so its jobs go to a fresh worker and the failed ticket gets one more try.
- */
-const restart = (failed: Pending, error: string) => {
+/** End the worker, which frees everything it held, and send its unfinished jobs (`first` first) to a fresh one. */
+const replace = (first?: Pending) => {
   if (worker) {
     worker.onmessage = null;
     worker.onerror = null;
@@ -76,8 +96,7 @@ const restart = (failed: Pending, error: string) => {
   worker = undefined;
   const jobs = [...pending.values()];
   pending.clear();
-  if (failed.retried) failed.reject(new TicketMemoryError(error));
-  else jobs.unshift({ ...failed, retried: true });
+  if (first) jobs.unshift(first);
   for (const job of jobs) {
     try {
       send(job);
@@ -87,8 +106,21 @@ const restart = (failed: Pending, error: string) => {
   }
 };
 
+/**
+ * The worker ran out of Wasm memory. Ending it frees everything it held (see ticketPool's
+ * TICKETS_PER_WORKER), so its jobs go to a fresh worker and the failed ticket gets one more try.
+ */
+const restart = (failed: Pending, error: string) => {
+  if (failed.retried) {
+    failed.reject(new TicketMemoryError(error));
+    replace();
+  } else {
+    replace({ ...failed, retried: true });
+  }
+};
+
 const run = (setKey: string, publicKey: Uint8Array, nonce: number): Promise<Uint8Array> => {
-  if (!getWorker()) return computeTicket(setKey, publicKey, nonce);
+  if (!getWorker()) return computeHere({ setKey, publicKey, nonce });
   return new Promise((resolve, reject) => send({ resolve, reject, setKey, publicKey, nonce }));
 };
 

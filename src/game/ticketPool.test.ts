@@ -376,13 +376,25 @@ describe('ticket pool memory', () => {
     await expect(result).rejects.toBeInstanceOf(TicketMemoryError);
   });
 
+  it('rejects other RangeErrors as they are, without retrying or ending the worker', async () => {
+    const created = pool(1);
+    const ticket = created.ticket('set@1', publicKey, 0);
+    const [worker] = ControlledWorker.instances;
+    worker.reply({ id: worker.requests[0].id, error: 'RangeError: Invalid typed array length: 4294967296' });
+    const error = await ticket.catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(TicketMemoryError);
+    expect(String(error)).toContain('Invalid typed array length');
+    expect(worker.requests).toHaveLength(1);
+    expect(terminated(worker)).toBe(0);
+  });
+
   it('recognises the ways browsers report running out of memory, and nothing else', () => {
     for (const message of [
       OOM,
       'RangeError: WebAssembly.Memory(): could not allocate memory',
-      'RangeError: WebAssembly.Memory.grow(): Maximum memory size exceeded',
+      'RangeError: WebAssembly.Memory.grow(): Unable to grow instance memory',
+      'RangeError: failed to grow memory',
       'RangeError: Array buffer allocation failed',
-      'RangeError: Invalid typed array length: 4294967296',
       'RangeError: out of memory',
       'InternalError: out of memory',
       'Error: Out of memory',
@@ -391,6 +403,12 @@ describe('ticket pool memory', () => {
       'invalid ticket input',
       'Error: Invalid nonce',
       'RangeError: Maximum call stack size exceeded',
+      // Other RangeErrors are a bug or a fixed limit, the same on every device: not worth a retry.
+      'RangeError: Invalid array length',
+      'RangeError: Invalid typed array length: 4294967296',
+      'RangeError: WebAssembly.Memory.grow(): Maximum memory size exceeded',
+      'RangeError: WebAssembly.Table.get(): invalid index 7 into funcref table of size 4',
+      'RangeError: offset is out of bounds',
       'TypeError: Failed to fetch dynamically imported module',
     ]) expect(isOutOfMemory(message), message).toBe(false);
   });
