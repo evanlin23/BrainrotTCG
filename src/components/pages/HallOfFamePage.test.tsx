@@ -151,7 +151,8 @@ describe('Hall of Fame loading', () => {
     await act(async () => root.render(<HallOfFamePage />));
 
     expect(status().textContent).toBe("Couldn't reach the live feed, so pulls sent recently may be missing. Try again.");
-    expect(status().parentElement?.classList.contains('sr-only')).toBe(false);
+    expect(status().classList.contains('sr-only')).toBe(false);
+    expect(status().parentElement?.classList.contains('hof-load-state--quiet')).toBe(false);
     const empty = () => document.querySelector('.hof-empty')?.textContent;
     expect(empty()).toContain('No filed pulls today that we can see.');
     expect(empty()).not.toMatch(/No pulls filed today yet|could be first/);
@@ -172,7 +173,7 @@ describe('Hall of Fame loading', () => {
     loadPending.mockResolvedValueOnce(true);
     await act(async () => root.render(<HallOfFamePage />));
     expect(status().textContent).toBe('Rankings loaded.');
-    expect(status().parentElement?.classList.contains('sr-only')).toBe(true);
+    expect(status().classList.contains('sr-only')).toBe(true);
     expect(retryButton()).toBeNull();
     expect(document.querySelector('.hof-empty')?.textContent).toContain('No pulls filed today yet.');
     expect(document.querySelector('.hof-empty')?.textContent).toContain('Yours could be first.');
@@ -191,6 +192,7 @@ describe('Hall of Fame loading', () => {
   describe('while the live relays are still being asked', () => {
     const empty = () => document.querySelector('.hof-empty')?.textContent;
     const OFFLINE = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
+    const CHECKING = 'Checking for new packs…';
     /** Every text the status ever held, so a premature "Rankings loaded." can't slip past between two checks. */
     const watchStatus = () => {
       const seen: string[] = [];
@@ -200,16 +202,16 @@ describe('Hall of Fame loading', () => {
       return seen;
     };
 
-    it('shows a loading state, not the empty board or "Rankings loaded.", until the relays answer', async () => {
+    it('shows a checking line, not the empty board or "Rankings loaded.", until the relays answer', async () => {
       let answer!: (reached: boolean) => void;
       loadHallOfFame.mockResolvedValueOnce([]);
       loadPending.mockImplementationOnce(() => new Promise<boolean>((resolve) => { answer = resolve; }));
       await act(async () => root.render(<HallOfFamePage />));
       const seen = watchStatus();
 
-      expect(status().textContent).toBe('Loading rankings…');
-      expect(status().parentElement?.classList.contains('sr-only')).toBe(false);
-      expect(retryButton()?.disabled).toBe(true);
+      expect(status().textContent).toBe(CHECKING);
+      expect(status().classList.contains('sr-only')).toBe(false);
+      expect(retryButton()).toBeNull();
       expect(empty()).toBeUndefined();
       expect(document.body.textContent).not.toMatch(/No pulls filed today yet|Nothing filed here yet|could be first/);
       await select('All-time');
@@ -232,10 +234,10 @@ describe('Hall of Fame loading', () => {
 
       await act(async () => answer(true));
       expect(status().textContent).toBe('Rankings loaded.');
-      expect(status().parentElement?.classList.contains('sr-only')).toBe(true);
+      expect(status().classList.contains('sr-only')).toBe(true);
       expect(retryButton()).toBeNull();
       expect(empty()).toContain('No pulls filed today yet.');
-      expect(seen).toEqual(['Loading rankings…', 'Rankings loaded.']);
+      expect(seen).toEqual([CHECKING, 'Rankings loaded.']);
     });
 
     it('does the same again after Retry', async () => {
@@ -248,8 +250,8 @@ describe('Hall of Fame loading', () => {
       await act(async () => clickRetry());
       const seen = watchStatus();
       expect(loadHallOfFame).toHaveBeenCalledTimes(2);
-      expect(status().textContent).toBe('Loading rankings…');
-      expect(retryButton()?.disabled).toBe(true);
+      expect(status().textContent).toBe(CHECKING);
+      expect(retryButton()).toBeNull();
       expect(empty()).toBeUndefined();
       expect(document.body.textContent).not.toMatch(/No pulls filed today yet|could be first/);
 
@@ -265,8 +267,118 @@ describe('Hall of Fame loading', () => {
       await act(async () => root.render(<HallOfFamePage />));
       await select('All-time');
       expect(labels()).toEqual(['Number 1: Full House by Alice in Original, score 12345']);
+      expect(status().textContent).toBe(CHECKING);
+      expect(document.body.textContent).not.toContain('Loading rankings');
+      expect(retryButton()).toBeNull();
+    });
+
+    it('says "Loading rankings…" only until the published list arrives', async () => {
+      loadHallOfFame.mockImplementationOnce(() => new Promise(() => {}));
+      await act(async () => root.render(<HallOfFamePage />));
       expect(status().textContent).toBe('Loading rankings…');
+      expect(status().classList.contains('sr-only')).toBe(false);
+      expect(status().parentElement?.classList.contains('hof-load-state--quiet')).toBe(false);
       expect(retryButton()?.disabled).toBe(true);
+      expect(loadPending).not.toHaveBeenCalled();
+      expect(document.body.textContent).not.toContain('Checking for');
+    });
+
+    it('shows the checking line as one quiet line, once the published list is loaded', async () => {
+      loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+      loadPending.mockImplementationOnce(() => new Promise<boolean>(() => {}));
+      await act(async () => root.render(<HallOfFamePage />));
+      expect(status().textContent).toBe(CHECKING);
+      expect(status().getAttribute('role')).toBe('status');
+      expect(status().parentElement?.classList.contains('hof-load-state--quiet')).toBe(true);
+      expect(document.body.textContent).not.toContain('Loading rankings');
+    });
+
+    describe('past the check deadline', () => {
+      beforeEach(() => {
+        // Noon the day after ENTRY was filed: today's board is empty, and ENTRY is yesterday's best.
+        vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+        vi.setSystemTime(Date.parse('2026-10-02T12:00:00.000Z'));
+      });
+
+      it('stops saying it is checking after 15 seconds, and lets the empty board and yesterday\'s best show', async () => {
+        loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+        loadPending.mockImplementationOnce(() => new Promise<boolean>(() => {}));
+        await act(async () => root.render(<HallOfFamePage />));
+        expect(status().textContent).toBe(CHECKING);
+        expect(empty()).toBeUndefined();
+        expect(document.querySelector('.hof-yesterday')).toBeNull();
+
+        await act(async () => { vi.advanceTimersByTime(14_999); });
+        expect(status().textContent).toBe(CHECKING);
+        expect(empty()).toBeUndefined();
+
+        await act(async () => { vi.advanceTimersByTime(1); });
+        expect(status().textContent).toBe('Rankings loaded.');
+        expect(status().classList.contains('sr-only')).toBe(true);
+        expect(document.body.textContent).not.toContain('Checking for');
+        expect(retryButton()).toBeNull();
+        expect(empty()).toContain('No pulls filed today yet.');
+        expect(document.querySelector('.hof-yesterday')?.textContent).toContain("Yesterday's best");
+      });
+
+      it('carries the check on: later entries still join the lists, and a relay-less end still says so', async () => {
+        let add!: (entry: HallOfFameEntry) => void;
+        let answer!: (reached: boolean) => void;
+        loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+        loadPending.mockImplementationOnce((_list: HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void) => {
+          add = onEntry;
+          return new Promise<boolean>((resolve) => { answer = resolve; });
+        });
+        await act(async () => root.render(<HallOfFamePage />));
+        await act(async () => { vi.advanceTimersByTime(15_000); });
+        expect((loadPending.mock.calls[0][2] as AbortSignal).aborted).toBe(false);
+        expect(status().textContent).toBe('Rankings loaded.');
+        expect(empty()).toContain('No pulls filed today yet.');
+
+        await act(async () => add({ ...ENTRY, id: 'pull-2', proof: 'proof-2', name: 'Bob', issue: 8, score: 20_000, submittedAt: '2026-10-02T10:00:00.000Z' }));
+        expect(labels()).toEqual(['Number 1: Full House by Bob in Original, score 20000']);
+        expect(empty()).toBeUndefined();
+        expect(status().textContent).toBe('Rankings loaded.');
+
+        // The relays were never reached after all: the live-feed message and Retry appear then.
+        await act(async () => answer(false));
+        expect(status().textContent).toBe(OFFLINE);
+        expect(status().classList.contains('sr-only')).toBe(false);
+        expect(retryButton()?.disabled).toBe(false);
+        expect(labels()).toHaveLength(1);
+      });
+
+      it('changes nothing when the relays answer late, having been reached', async () => {
+        let answer!: (reached: boolean) => void;
+        loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+        loadPending.mockImplementationOnce(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+        await act(async () => root.render(<HallOfFamePage />));
+        await act(async () => { vi.advanceTimersByTime(15_000); });
+        await act(async () => answer(true));
+        expect(status().textContent).toBe('Rankings loaded.');
+        expect(retryButton()).toBeNull();
+        expect(empty()).toContain('No pulls filed today yet.');
+      });
+
+      it('clears the deadline when the relays answer first', async () => {
+        let answer!: (reached: boolean) => void;
+        loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+        loadPending.mockImplementationOnce(() => new Promise<boolean>((resolve) => { answer = resolve; }));
+        await act(async () => root.render(<HallOfFamePage />));
+        const whileChecking = vi.getTimerCount();
+        await act(async () => answer(true));
+        expect(vi.getTimerCount()).toBe(whileChecking - 1);
+        expect(status().textContent).toBe('Rankings loaded.');
+      });
+
+      it('clears the deadline when the page closes', async () => {
+        loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+        loadPending.mockImplementationOnce(() => new Promise<boolean>(() => {}));
+        await act(async () => root.render(<HallOfFamePage />));
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+        act(() => root.unmount());
+        expect(vi.getTimerCount()).toBe(0);
+      });
     });
 
     it('treats a check that fails outright (its code never loaded) as the relays being down', async () => {
@@ -274,7 +386,7 @@ describe('Hall of Fame loading', () => {
       loadPending.mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module')).mockResolvedValueOnce(true);
       await act(async () => root.render(<HallOfFamePage />));
       expect(status().textContent).toBe(OFFLINE);
-      expect(status().parentElement?.classList.contains('sr-only')).toBe(false);
+      expect(status().classList.contains('sr-only')).toBe(false);
       expect(retryButton()?.disabled).toBe(false);
       expect(empty()).toContain('No filed pulls today that we can see.');
       expect(empty()).not.toMatch(/No pulls filed today yet|could be first/);

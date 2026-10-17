@@ -146,10 +146,19 @@ export const PARTIAL_IMPORT_NOTE = "Import failed partway and couldn't be fully 
 export const NO_ROOM_FOR_COPY_NOTE = "There's no room in this browser's storage for this file and a copy of your current save."
   + ' Nothing changed. Export your save first if you want to keep it, then replace it without a copy.';
 
-/** importSaveFile's answer when the file alone needs more room than this browser's storage has. */
+/**
+ * importSaveFile's answer when the file alone needs more room than this browser's storage has, followed
+ * by COPIES_NOTE when copies of earlier saves take some of that room.
+ */
 export const FILE_TOO_BIG_NOTE = "This file is too big for this browser's storage, so it can't be imported here. Nothing changed.";
 
 const NO_ROOM_NOTE = "This browser's storage has no room for this file. Your previous save data was restored.";
+
+/** Added to a no-room answer while copies of earlier saves (brainrot-before-*) take room too. */
+export const COPIES_NOTE = ' Copies of earlier saves, kept from past imports or moves, take room in it too.';
+
+/** importSaveFile's answer when a copy of this save couldn't be written for a reason other than full storage. */
+export const NO_COPY_NOTE = "Couldn't keep a backup of your current save. Nothing was imported.";
 
 const IMPORT_BACKUP_KEY = 'brainrot-before-import-v1';
 
@@ -200,7 +209,8 @@ const restoreFields = (changed: string[], previous: Map<string, string | null>):
  * Each replaced value is removed before the new ones are written, so the old and new saves never need
  * room at once. When storage fills, nothing changes: if the file can't fit even without a copy of this save
  * the answer is FILE_TOO_BIG_NOTE, otherwise NO_ROOM_FOR_COPY_NOTE, and `keepCopy: false` (the player's
- * choice after that) then imports without one.
+ * choice after that) then imports without one. Either answer names copies of earlier saves when they take room.
+ * A copy refused for another reason is NO_COPY_NOTE: no room was shown to be missing, so no offer to go on.
  * This validates structure, not the authenticity of cached cards/scores, and is not an atomic commit.
  */
 export const importSaveFile = (raw: string, { keepCopy = true }: { keepCopy?: boolean } = {}): string | null => {
@@ -256,16 +266,18 @@ export const importSaveFile = (raw: string, { keepCopy = true }: { keepCopy?: bo
       const after = new Map(staged);
       return roomUsed() + [...after].reduce((sum, [key, value]) => sum + room(key, value) - room(key, previous.get(key)), 0) >= limit;
     };
-    const noRoom = () => NO_ROOM_NOTE + (storedKeys().some((key) => key.startsWith(COPY_PREFIX))
-      ? ' Copies of earlier saves, kept from past imports or moves, take room in it too.' : '');
+    const copiesNote = () => (storedKeys().some((key) => key.startsWith(COPY_PREFIX)) ? COPIES_NOTE : '');
+    const noRoom = () => NO_ROOM_NOTE + copiesNote();
+    const tooBig = () => FILE_TOO_BIG_NOTE + copiesNote();
     const earlierCopy = localStorage.getItem(IMPORT_BACKUP_KEY);
     const copy = keepCopy ? saveCopy() : null;
     if (copy !== null) {
       try {
         localStorage.setItem(IMPORT_BACKUP_KEY, copy);
       } catch (error) {
-        if (isQuotaError(error)) refused(IMPORT_BACKUP_KEY, copy);
-        return fileCantFit() ? FILE_TOO_BIG_NOTE : NO_ROOM_FOR_COPY_NOTE;
+        if (!isQuotaError(error)) return NO_COPY_NOTE;
+        refused(IMPORT_BACKUP_KEY, copy);
+        return fileCantFit() ? tooBig() : NO_ROOM_FOR_COPY_NOTE;
       }
     }
     const changed: string[] = [];
@@ -287,13 +299,13 @@ export const importSaveFile = (raw: string, { keepCopy = true }: { keepCopy?: bo
     } catch (error) {
       if (restoreFields(changed, previous)) {
         if (!isQuotaError(error)) return 'Import failed. Your previous save data was restored.';
-        if (copy === null) return fileCantFit() ? FILE_TOO_BIG_NOTE : noRoom();
+        if (copy === null) return fileCantFit() ? tooBig() : noRoom();
         // The copy took room the file needed. The save it copied is back in place, so put back the earlier copy.
         try {
           if (earlierCopy === null) localStorage.removeItem(IMPORT_BACKUP_KEY);
           else localStorage.setItem(IMPORT_BACKUP_KEY, earlierCopy);
         } catch { /* The new copy stays: it holds the same save. */ }
-        return fileCantFit() ? FILE_TOO_BIG_NOTE : NO_ROOM_FOR_COPY_NOTE;
+        return fileCantFit() ? tooBig() : NO_ROOM_FOR_COPY_NOTE;
       }
       return PARTIAL_IMPORT_NOTE + (copy !== null ? ' A copy of the save from before the import is kept in this browser.' : '');
     }

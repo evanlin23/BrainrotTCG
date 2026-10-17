@@ -277,3 +277,46 @@ it("says so and then reloads when a failed import can't be undone, so the app do
   expect(alert.mock.calls[0][0]).toContain(PARTIAL_IMPORT_NOTE);
   expect(alert.mock.invocationCallOrder[0]).toBeLessThan(reload.mock.invocationCallOrder[0]);
 }, 60_000);
+
+it("offers the save from before as a download, then reloads, when an import without a copy can't be undone", async () => {
+  const save = JSON.stringify({
+    version: 2, exportedAt: '2026-01-01T00:00:00Z', collection: '{}', achievements: '{"first_pack":1}',
+    stats: JSON.stringify({ packsOpened: 5, holoCards: {} }),
+    player: JSON.stringify({ secretKey: '02'.repeat(32), name: 'Other player', nextNonce: 5, createdAt: 2 }),
+  });
+  app = await mountedApp({ ...SEED, [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 3, holoCards: {} }) });
+  await app.mount();
+  const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+  const download = vi.spyOn(await import('../game/saveFile'), 'downloadSaveFile').mockImplementation(() => {});
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+  await app.interact(() => button('Settings')!.click());
+  await app.until('Save & backup loads', () => expect(button('Import')).toBeDefined());
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, 'files', { value: [new File([save], 'save.json', { type: 'application/json' })] });
+  await app.interact(() => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await app.until('a different player asks first', () => expect(button('Replace')).toBeDefined());
+
+  // No room for the copy; without it, the incoming stats don't fit and the original achievements can't go back.
+  const before = Object.fromEntries(Object.entries(localStorage));
+  const achievements = localStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS);
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === 'brainrot-before-import-v1' || key === STORAGE_KEYS.STATS || (key === STORAGE_KEYS.ACHIEVEMENTS && value === achievements)) {
+      throw new DOMException('Full', 'QuotaExceededError');
+    }
+    setItem.call(this, key, value);
+  });
+  await app.interact(() => button('Replace')!.click());
+  await app.until('the player may go ahead without the copy', () => expect(button('Replace without a copy')).toBeDefined());
+  expect(Object.fromEntries(Object.entries(localStorage))).toEqual(before);
+  await app.interact(() => button('Replace without a copy')!.click());
+  await app.until('the save from before is offered, then the page reloads', () => expect(reload).toHaveBeenCalledOnce());
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(confirm.mock.calls[0][0]).toContain(PARTIAL_IMPORT_NOTE);
+  expect(download).toHaveBeenCalledOnce();
+  expect(JSON.parse(JSON.parse(download.mock.calls[0][0]!).player)).toMatchObject({ secretKey: '01'.repeat(32), name: 'Mounted fixture' });
+  expect(JSON.parse(download.mock.calls[0][0]!).stats).toBe(before[STORAGE_KEYS.STATS]);
+  expect(download.mock.invocationCallOrder[0]).toBeLessThan(reload.mock.invocationCallOrder[0]);
+  expect(alert).not.toHaveBeenCalled();
+}, 60_000);
