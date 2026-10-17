@@ -397,8 +397,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
 
   // The pack is fitted to its stage, and the stage would grow into the room the chrome leaves as the
   // pack tears: the pack got bigger as it opened. The stage keeps the size and place it had at rest
-  // until the pack is done, unless the window itself resizes, which fits the pack to it again. A pack
-  // left while its ticket is on its way is done when the ticket lands (the card guide comes back then).
+  // until the pack is done, unless the window itself resizes, or chrome that wasn't there at rest comes
+  // in above or below it (a new player's first pack, left while its ticket is on its way, brings the
+  // set picker and tabs): either fits the pack to the room it has now. A pack left while its ticket is
+  // on its way is done when the ticket lands (the card guide comes back then).
   const holdStage = stageInPack || busy;
   /** Moves the held stage back to its place at rest as the room around it moves. */
   const followRoomRef = useRef<(() => void) | null>(null);
@@ -408,12 +410,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     if (!holdStage || !stage || !room) return;
     const height = parseFloat(getComputedStyle(stage).height);
     if (!(height > 0)) return; // Not laid out (jsdom).
-    const top = room.getBoundingClientRect().top;
+    const rest = room.getBoundingClientRect();
     let held = true;
     stage.style.flex = 'none';
     stage.style.height = `${height}px`;
     const follow = () => {
-      if (held) stage.style.top = `${top - room.getBoundingClientRect().top}px`;
+      if (!held) return;
+      const now = room.getBoundingClientRect();
+      // Held there, the stage would run under that chrome.
+      if (now.top > rest.top + 0.5 || now.height < rest.height - 0.5) release();
+      else stage.style.top = `${rest.top - now.top}px`;
     };
     followRoomRef.current = follow;
     const observer = new ResizeObserver(follow);

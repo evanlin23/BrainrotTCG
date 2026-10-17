@@ -5,7 +5,9 @@ import { monitor, expectDecoded, expectStill, fingerFor, holdTickets, releaseTic
 // has flown off. Focus mode takes the chrome away as the pack tears (the tabs, the set picker, and the
 // header on a phone or a short window), and the stage the pack is fitted to used to grow into the room
 // that left, so the torn pack got bigger as it started to open. A pack left while its ticket is on its
-// way keeps its size too, and a real resize while the pack is torn still fits it to the new window.
+// way keeps its size too, unless chrome it didn't have at rest comes back with the player (a new
+// player's first pack), and a real resize while the pack is torn still fits it to the new window. The
+// sampled frames are checked once each state they cover has been seen, never by how many there are.
 // Phone and desktop results here are Chromium emulation.
 
 const SIZES = [
@@ -15,8 +17,12 @@ const SIZES = [
 ];
 
 /** One frame of the pack: its box in layout pixels, so the stage's scale-up as it flies off is left out. */
-interface Frame { width: number; top: number; left: number; focus: boolean; cut: boolean; leaving: boolean }
+interface Frame { width: number; top: number; left: number; focus: boolean; cut: boolean; leaving: boolean; guide: boolean }
 type Box = { x: number; y: number; width: number; height: number };
+
+/** Whether two boxes share more than a hairline (the tab bar's 1px top border lies over the page's last pixel row). */
+const overlaps = (a: Box, b: Box) => Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1.5
+  && Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1.5;
 
 /** Before the page loads, starts a per-frame sampler of the pack that records once `__packFrames.start()` is called. */
 async function sampleFrames(page: Page) {
@@ -39,6 +45,7 @@ async function sampleFrames(page: Page) {
           cut: shell.classList.contains('is-cut'),
           // The pack drops its controls (inert) the moment it starts flying off.
           leaving: !!shell.closest('[inert]'),
+          guide: !!document.querySelector('.card-guide-entry'),
         });
       }
       requestAnimationFrame(tick);
@@ -49,6 +56,14 @@ async function sampleFrames(page: Page) {
 
 const startFrames = (page: Page) => page.evaluate(() => (window as unknown as { __packFrames: { start: () => void } }).__packFrames.start());
 const packFrames = (page: Page) => page.evaluate(() => (window as unknown as { __packFrames: { frames: Frame[] } }).__packFrames.frames);
+
+/** Waits until the sampler has recorded a frame in the state `seen` looks for: the latest one only, when `latest`. */
+async function sampledFrame(page: Page, seen: (frame: Frame) => boolean, what: string, latest = false) {
+  await expect.poll(async () => {
+    const frames = await packFrames(page);
+    return latest ? frames.length > 0 && seen(frames[frames.length - 1]) : frames.some(seen);
+  }, { message: `a frame sampled ${what}` }).toBe(true);
+}
 
 /** Every sampled frame where the pack's size or place differs from the first one's. */
 function changedFrames(frames: Frame[]) {
@@ -104,18 +119,18 @@ for (const size of SIZES) {
       await expectSameBox(packShell, rest, 'torn, with the chrome gone');
       await expect(page.locator('.pack-hint.is-waiting')).toBeVisible({ timeout: 15000 });
       await expectSameBox(packShell, rest, 'torn, waiting on its ticket');
+      // The ticket is held, so the torn pack stays in focus mode until the sampler has seen it there.
+      await sampledFrame(page, (frame) => frame.cut && frame.focus, 'torn, in focus mode');
 
+      // Every frame up to the one the pack is gone in: the reveal, and its flight off if a frame caught it.
       await releaseTickets(page);
       await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 20000 });
       await expect(packShell).toHaveCount(0);
-      const frames = await packFrames(page);
-      expect(frames.filter((frame) => frame.cut && frame.focus).length, 'frames sampled torn, in focus mode').toBeGreaterThan(10);
-      expect(frames.filter((frame) => frame.leaving).length, 'frames sampled flying off').toBeGreaterThan(3);
-      expect(changedFrames(frames), 'frames where the pack\'s size or place changed').toEqual([]);
+      expect(changedFrames(await packFrames(page)), 'frames where the pack\'s size or place changed').toEqual([]);
 
       // The next sealed pack rests at the same size, with the chrome back.
       await page.getByRole('button', { name: 'Skip opening animation' }).click();
-      await page.getByRole('button', { name: 'Open another pack' }).click();
+      await page.getByRole('button', { name: 'Next pack' }).click();
       await expect(page.locator('.app')).not.toHaveClass(/\bis-focus\b/);
       await expectSameBox(await landedPack(page), rest, 'for the next pack');
       expect(errors).toEqual([]);
@@ -135,21 +150,60 @@ for (const size of SIZES) {
       await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
       await page.keyboard.press('Space');
       await expect(page.locator('.pack-hint.is-waiting')).toBeVisible({ timeout: 15000 });
+      await sampledFrame(page, (frame) => frame.cut && frame.focus, 'torn, in focus mode');
 
       // The chrome comes back as the player leaves; the card guide waits for the pack to be recorded.
       await page.getByRole('button', { name: 'Back to packs', exact: true }).click();
       await expect(page.locator('.app')).not.toHaveClass(/\bis-focus\b/);
       await expect(page.locator('.card-guide-entry')).toHaveCount(0);
       await expectSameBox(packShell, rest, 'left, its ticket on its way');
+      await sampledFrame(page, (frame) => !frame.focus, 'left, its ticket on its way', true);
       await releaseTickets(page);
       await expect(page.locator('.card-guide-entry')).toBeVisible({ timeout: 20000 });
       await expectSameBox(packShell, rest, 'once its ticket landed');
+      await sampledFrame(page, (frame) => frame.guide, 'once its ticket landed', true);
 
-      const frames = await packFrames(page);
-      const left = frames.map((frame) => frame.focus).lastIndexOf(true);
-      expect(left, 'frames sampled in focus mode').toBeGreaterThan(3);
-      expect(frames.length - left, 'frames sampled after leaving').toBeGreaterThan(10);
-      expect(changedFrames(frames), 'frames where the pack\'s size or place changed').toEqual([]);
+      expect(changedFrames(await packFrames(page)), 'frames where the pack\'s size or place changed').toEqual([]);
+      expect(errors).toEqual([]);
+    });
+
+    test('a new player\'s torn pack, left while its ticket is on its way, fits the room under the chrome that comes back', async ({ page, baseURL }, testInfo) => {
+      test.skip(testInfo.project.name !== size.project, `A ${size.width}px window check; the ${size.project} project runs it.`);
+      test.setTimeout(60000);
+      // No packs yet: no set picker or tabs at rest. They come back as the player leaves the torn pack.
+      const errors = await monitor(page, baseURL!, 0);
+      await holdTickets(page);
+      await page.goto('./');
+      await expect(page.locator('.app-logo')).toBeVisible();
+      const packShell = await landedPack(page);
+      const rest = (await packShell.boundingBox())!;
+      await expect(page.locator('.set-picker')).toHaveCount(0);
+      await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+      await page.keyboard.press('Space');
+      await expect(page.locator('.pack-hint.is-waiting')).toBeVisible({ timeout: 15000 });
+      await expectSameBox(packShell, rest, 'torn, waiting on its ticket');
+
+      await page.getByRole('button', { name: 'Back to packs', exact: true }).click();
+      await expect(page.locator('.set-picker')).toBeVisible();
+      const stage = page.locator('.pack-display');
+      await expect.poll(async () => {
+        const [box, room] = [(await stage.boundingBox())!, (await page.locator('.pack-opener-container').boundingBox())!];
+        return Math.abs(box.y - room.y) <= 1 && Math.abs(box.y + box.height - (room.y + room.height)) <= 1;
+      }, { message: 'the stage fills the room the chrome leaves it' }).toBe(true);
+      await expectStill(packShell, 'the pack settled under the chrome');
+      // Nothing of the stage, which clips the pack, runs under the set picker or the tabs.
+      const box = (await stage.boundingBox())!;
+      expect(overlaps(box, (await page.locator('.set-picker').boundingBox())!), 'the stage overlaps the set picker').toBe(false);
+      const nav = await page.locator('.app-nav').boundingBox();
+      if (nav) expect(overlaps(box, nav), 'the stage overlaps the tabs').toBe(false);
+      // The set ribbon in the pack's crimp shows: what's under its middle is the pack, not the picker.
+      expect(await page.locator('.pack-set-ribbon').evaluate((ribbon) => {
+        const { x, y, width, height } = ribbon.getBoundingClientRect();
+        return !!document.elementFromPoint(x + width / 2, y + height / 2)?.closest('.pack-shell');
+      }), 'the pack\'s set ribbon is uncovered').toBe(true);
+
+      await releaseTickets(page);
+      await expect(page.locator('.card-guide-entry')).toBeVisible({ timeout: 20000 });
       expect(errors).toEqual([]);
     });
 
