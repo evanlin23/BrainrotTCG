@@ -72,3 +72,6 @@ export const singleCardImagePath = (setId: string, cardId: string): string => `p
 /** What a preview says, from the hand and set (the cards' names go in the description). */
 export const previewTitle = (hand: HandKey, setName: string): string =>
   hand === 'NO_MATCH' ? `A pack from ${setName}` : `A ${POKER_HANDS[hand].name} in ${setName}`;
+
+/** A set's own page, relative to the site root: it previews as the set and opens the app on it. */
+export const setPagePath = (setId: string): string => `s/${setId}/`;

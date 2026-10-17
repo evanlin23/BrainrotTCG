@@ -4,9 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import { SETS } from '../src/content/sets/index.ts';
+import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { RARITIES_RAREST_FIRST, type SetDefinition } from '../src/engine/index.ts';
 import { cardPreviewPath, previewPath } from '../src/game/previewLinks.ts';
+import { setIdFromHash } from '../src/game/route.ts';
 import { generatePreviews, optionsFromEnv, page, setStubs } from './preview-pages.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -16,6 +17,8 @@ const INDEX_HTML = readFileSync(`${ROOT}index.html`, 'utf8');
 const tags = (html: string): Map<string, string> =>
   new Map([...html.matchAll(/<meta (?:property|name)="((?:og|twitter):[^"]+)" content="([^"]*)"/g)].map((m) => [m[1], m[2]]));
 const redirectTarget = (html: string) => JSON.parse(/location\.replace\(("[^"]*")/.exec(html)![1]) as string;
+/** Where a page goes when its link carries no pull. */
+const landingOf = (html: string) => JSON.parse(/: ("[^"]*")\)\);<\/script>/.exec(html)![1]) as string;
 
 // The two hosts (docs/HOSTING.md), and the old GitHub Pages address after a move, whose pages
 // forward through its redirect page and show pictures from the new address.
@@ -26,6 +29,8 @@ const HOSTS = [
 ];
 
 const draft = (set: SetDefinition): SetDefinition => ({ ...set, id: `${set.id}-draft`, draft: true });
+const archived = (set: SetDefinition): SetDefinition => ({ ...set, id: `${set.id}-archived`, archivedAt: '2020-01-01' });
+const OPENABLE = SETS.find(isOpenable)!;
 
 describe('optionsFromEnv', () => {
   it('defaults to the GitHub Pages address, like vite.config.ts', () => {
@@ -51,20 +56,24 @@ describe('optionsFromEnv', () => {
 });
 
 describe('setStubs', () => {
-  it('has a page for each released set, from the set registry', () => {
+  it('has a page for each released set, archived ones included, from the set registry', () => {
     const stubs = setStubs();
     expect(stubs.map((s) => s.setId)).toEqual(SETS.filter((s) => !s.draft).map((s) => s.id));
+    // Genesis is archived; its page stays, so the live s/genesis/ and links shared to it don't 404.
+    expect(stubs.map((s) => s.setId)).toContain('genesis');
     for (const stub of stubs) {
       expect(stub.path).toBe(`s/${stub.setId}/index.html`);
       expect(stub.url).toBe(`s/${stub.setId}/`);
       expect(stub.imagePath).toBe(`s/${stub.setId}/preview.jpg`);
+      expect(stub.landing).toBe(`#/set/${stub.setId}`);
+      expect(setIdFromHash(stub.landing)).toBe(stub.setId);
     }
   });
 
-  it('leaves draft sets out', () => {
-    const withDraft = [...SETS, draft(SETS[SETS.length - 1])];
-    expect(setStubs(withDraft).map((s) => s.setId)).toEqual(setStubs(SETS).map((s) => s.setId));
-    expect(setStubs([draft(SETS[0])])).toEqual([]);
+  it('leaves draft sets out but keeps archived ones, so shared links to them still load', () => {
+    const withMore = [...SETS, draft(SETS[SETS.length - 1]), archived(OPENABLE)];
+    expect(setStubs(withMore).map((s) => s.setId)).toEqual([...setStubs(SETS).map((s) => s.setId), `${OPENABLE.id}-archived`]);
+    expect(setStubs([draft(OPENABLE), archived(OPENABLE)]).map((s) => s.setId)).toEqual([`${OPENABLE.id}-archived`]);
   });
 
   it("shows up to five of the set's rarest cards and describes the set", () => {
@@ -105,6 +114,23 @@ describe('page', () => {
     const html = page({ title: 't', description: 'd', image: 'https://example.test/i.jpg' }, base);
     expect(redirectTarget(html)).toBe(base);
     expect(html).toContain(`<a href="${base}">Open Brainrot TCG</a>`);
+    expect(landingOf(html)).toBe('');
+  });
+
+  it.each(HOSTS)("opens a set's page on that set on $name, unless its link carries a pull", ({ base }) => {
+    const html = page({ title: 't', description: 'd', image: 'https://example.test/i.jpg', landing: '#/set/genesis' }, base);
+    expect(redirectTarget(html)).toBe(base);
+    expect(landingOf(html)).toBe('#/set/genesis');
+    expect(html).toContain(`<a href="${base}#/set/genesis">Open Brainrot TCG</a>`);
+    const forward = /<script>(location\.replace\(.*\);)<\/script>/.exec(html)![1];
+    const run = (hash: string) => {
+      let target = '';
+      new Function('location', forward)({ hash, replace: (to: string) => { target = to; } });
+      return target;
+    };
+    expect(run('')).toBe(`${base}#/set/genesis`);
+    expect(run('#/pull/abc')).toBe(`${base}#/pull/abc`);
+    expect(run('#/other')).toBe(`${base}#/set/genesis`);
   });
 });
 
@@ -146,7 +172,9 @@ describe('generatePreviews (pages only)', () => {
         const id = file.split('/')[1];
         expect(relative).toBe(`s/${id}/preview.jpg`);
         expect(meta.get('og:url')).toBe(`${site}s/${id}/`);
+        expect(landingOf(html)).toBe(`#/set/${id}`);
       } else {
+        expect(landingOf(html)).toBe('');
         expect(relative).toMatch(/^p\/img\/[a-z0-9-]+\/([a-z-]+\/)?[a-z0-9_-]+\.jpg$/);
         expect(meta.has('og:url')).toBe(false);
       }
@@ -154,12 +182,13 @@ describe('generatePreviews (pages only)', () => {
     expect(files.filter((f) => f.startsWith('s/'))).toEqual(setStubs().map((s) => s.path).sort());
   });
 
-  it('writes no page for a draft set', async () => {
+  it('writes a page for an archived set but none for a draft set', async () => {
     const outDir = `${mkdtempSync(path.join(os.tmpdir(), 'preview-pages-'))}/`;
     dirs.push(outDir);
-    const set = draft(SETS[SETS.length - 1]);
-    const { pages } = await generatePreviews({ outDir, pagesOnly: true, base: '/', site: 'https://example.test/', versions: [SETS[0]], sets: [SETS[0], set] });
-    expect([...pages.keys()].filter((p) => p.startsWith('s/'))).toEqual([`s/${SETS[0].id}/index.html`]);
+    const sets = [OPENABLE, draft(SETS[SETS.length - 1]), archived(OPENABLE)];
+    const { pages } = await generatePreviews({ outDir, pagesOnly: true, base: '/', site: 'https://example.test/', versions: [OPENABLE], sets });
+    expect([...pages.keys()].filter((p) => p.startsWith('s/'))).toEqual([`s/${OPENABLE.id}/index.html`, `s/${OPENABLE.id}-archived/index.html`]);
+    expect(landingOf(readFileSync(`${outDir}s/${OPENABLE.id}-archived/index.html`, 'utf8'))).toBe(`#/set/${OPENABLE.id}-archived`);
   });
 });
 

@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { SetDefinition } from '../../engine';
 import { isNewSet, setCode } from '../../content/sets';
 import { packThumbUrl } from '../../content/art';
 import type { CollectionItem } from '../../types';
 import { setProgress } from '../../game/progression';
+import { siteUrl } from '../../game/pulls';
+import { setPagePath } from '../../game/previewLinks';
+import { copyText } from '../../game/shareActions';
 import Sheet from '../ui/Sheet';
 import SetBadge from './SetBadge';
 import '../../styles/Sets.css';
@@ -36,6 +39,13 @@ const palette = (set: SetDefinition) => {
  */
 const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }: SetPickerProps) => {
   const [open, setOpen] = useState(false);
+  // The set whose link was just copied, so "Link copied" never shows under another set.
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!copiedId) return;
+    const timer = setTimeout(() => setCopiedId(null), 1800);
+    return () => clearTimeout(timer);
+  }, [copiedId]);
   if (sets.length < 2) return null;
 
   const index = Math.max(0, sets.findIndex((s) => s.id === selectedId));
@@ -45,6 +55,10 @@ const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }:
   const { owned, size, done } = progressOf(set, collection);
   // A new drop while you're on another era: a dot on the button that lists them.
   const newElsewhere = sets.some((s) => s.id !== set.id && isNewSet(s));
+  // A released set's own link previews as that set in chat apps and opens the packs screen on it.
+  const copySetLink = async () => {
+    if (await copyText(`${siteUrl()}${setPagePath(set.id)}`)) setCopiedId(set.id);
+  };
 
   return (
     <nav className="set-picker" aria-label="Choose a pack">
@@ -141,6 +155,14 @@ const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }:
               );
             })}
           </ul>
+          {!set.draft && (
+            <p className="pack-shelf-share">
+              <button type="button" className="btn btn--secondary btn--sm" onClick={copySetLink}>
+                Copy link to {set.name}
+              </button>
+              <span role="status">{copiedId === set.id ? 'Link copied' : ''}</span>
+            </p>
+          )}
         </Sheet>
       )}
     </nav>
