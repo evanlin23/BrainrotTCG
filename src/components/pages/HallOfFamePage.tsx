@@ -33,6 +33,12 @@ const HACKATHON_LEGENDS: LegendEntry[] = [
 const PAGE_SIZE = 20;
 /** How many of yesterday's best show when nothing has been filed today. */
 const YESTERDAY_SHOWN = 3;
+/**
+ * How long the page waits on the live relays before it stops saying it is checking. Re-deriving recent
+ * submissions queues behind pack-opening tickets and can take far longer; the check itself carries on,
+ * and whatever it finds still joins the lists.
+ */
+const CHECK_DEADLINE_MS = 15_000;
 
 /** Today's UTC day (YYYY-MM-DD), moving on at 00:00 UTC while the page is open. */
 const useUtcToday = () => {
@@ -75,14 +81,16 @@ const HallOfFamePage = () => {
   // show, but anything sent since the last deploy can't be seen, so an empty board mustn't claim it's empty.
   const [relaysDown, setRelaysDown] = useState(false);
   // True from the moment the published rankings arrive until the live relays have answered (or failed
-  // to). The published pulls show meanwhile, but an empty board can't say it's empty, or the status
-  // that the rankings loaded, before it knows which: the status stays "Loading rankings…" until then.
+  // to), or CHECK_DEADLINE_MS has passed. The published pulls show meanwhile, but an empty board can't
+  // say it's empty, or the status that the rankings loaded, before it knows which: the status says it
+  // is checking until then.
   const [checking, setChecking] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const loadingRef = useRef(true);
 
   useEffect(() => {
     const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     loadingRef.current = true;
     loadHallOfFame().then((list) => {
       if (controller.signal.aborted) return;
@@ -99,8 +107,12 @@ const HallOfFamePage = () => {
       // Then anything sent since the last deploy, re-derived here before it shows (see loadPending).
       // The published pulls show meanwhile; the empty-board copy and the "loaded" announcement wait
       // for the answer. A check that fails outright (its code couldn't load) is as good as no relay.
+      // Past the deadline the page stops waiting, but the check isn't abandoned: entries it still finds
+      // are added, and if it ends with no relay reached, the live-feed message appears then.
+      deadline = setTimeout(() => setChecking(false), CHECK_DEADLINE_MS);
       const settle = (reached: boolean) => {
         if (controller.signal.aborted) return;
+        clearTimeout(deadline);
         loadingRef.current = false;
         if (!reached) setRelaysDown(true);
         setChecking(false);
@@ -109,7 +121,10 @@ const HallOfFamePage = () => {
         if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
       }, controller.signal).then((reached) => settle(reached !== false), () => settle(false));
     });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      clearTimeout(deadline);
+    };
   }, [attempt]);
   const retry = () => {
     if (loadingRef.current) return;
@@ -212,6 +227,9 @@ const HallOfFamePage = () => {
   );
   const proofNote = 'Filed pulls were re-derived from their proofs when they were filed, and newer ones on this device. Open one to check it yourself.';
 
+  // Loaded and not reporting a problem: the published list shows, and the status steps back to one line.
+  const quiet = loadState === 'loaded' && !relaysDown;
+
   return (
     <div className="hall-of-fame">
       <p className="page-subtitle">Shared pulls, verified and ranked by Brainrot Score</p>
@@ -226,18 +244,22 @@ const HallOfFamePage = () => {
         ]}
       />
 
-      <div className={loadState === 'loaded' && !checking && !relaysDown ? 'sr-only' : 'hof-load-state'}>
-        <p role="status" tabIndex={-1} ref={statusRef}>
-          {loadState === 'loading' || (loadState === 'loaded' && checking)
+      {/* With the rankings showing, the status is one quiet line that keeps its room whether it says
+          "Checking…" or is only spoken, so the rows don't move when it comes and goes. */}
+      <div className={quiet ? 'hof-load-state hof-load-state--quiet' : 'hof-load-state'}>
+        <p role="status" tabIndex={-1} ref={statusRef} className={quiet && !checking ? 'sr-only' : undefined}>
+          {loadState === 'loading'
             ? 'Loading rankings…'
-            : loadState !== 'loaded'
+            : loadState === 'failed'
               ? "Couldn't load the rankings. Try again."
-              : relaysDown
-                ? "Couldn't reach the live feed, so pulls sent recently may be missing. Try again."
-                : 'Rankings loaded.'}
+              : checking
+                ? 'Checking for packs sent since the last update…'
+                : relaysDown
+                  ? "Couldn't reach the live feed, so pulls sent recently may be missing. Try again."
+                  : 'Rankings loaded.'}
         </p>
-        {(loadState !== 'loaded' || checking || relaysDown) && (
-          <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading' || checking} aria-label="Retry loading rankings">
+        {(loadState !== 'loaded' || relaysDown) && (
+          <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} disabled={loadState === 'loading'} aria-label="Retry loading rankings">
             Retry
           </button>
         )}
