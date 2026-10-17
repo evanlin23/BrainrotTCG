@@ -237,7 +237,8 @@ Tie order uses the time the bot first verified that exact pull on the issue (a m
 the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
 counts once in the top 100, however many times it's submitted or re-signed (the daily
 tops follow the eight-day rule above). A maintainer can drop an entry by adding
-the `rejected` label to its issue.
+the `rejected` label to its issue. What a submission makes public, and for whom, is in
+[docs/POLICIES.md](POLICIES.md).
 
 ### Ranking boards (`src/engine/rankings.ts`)
 
@@ -645,7 +646,8 @@ overlap, with no evaluation, URLs, files or saves. The browser blocks external r
 WebSockets, POSTs, service workers, clipboard, native share, downloads and export, import, share and
 submit controls, so sharing tasks may stop at that boundary. It writes a sanitized
 `test-results/agent-audit.json` and never posts, merges or deploys. Agent outcomes are not human
-evidence. No real agent task run has been recorded yet (unrun). Refs #239.
+evidence. No real agent task run has been recorded yet (unrun). Refs #239. Audit policy (Claude Code
+subagents only, so this Codex-pinned runner is not the policy path): docs/DEVELOPMENT.md.
 
 ## Proposals (not shipped)
 

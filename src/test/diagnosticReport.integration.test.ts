@@ -70,6 +70,9 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   expect(link.target).toBe('_blank');
   expect(link.relList.contains('noopener')).toBe(true);
   expect(link.relList.contains('noreferrer')).toBe(true);
+  const note = Array.from(document.querySelectorAll('p')).find((p) => p.textContent!.includes('Posting requires a GitHub account'))!;
+  expect(note.textContent).toContain('GitHub requires users to be 13 or older.');
+  expect(note.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await app.interact(() => button('Clear recorded steps').click());
   expect(diagnostics.diagnosticSnapshot({}).events).toEqual([]);
   await app.interact(() => checkbox.click());

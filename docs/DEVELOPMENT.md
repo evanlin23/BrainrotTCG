@@ -74,9 +74,43 @@ and Pixel 5 viewports (phone-only checks skip desktop); the pack-opener smoke bl
 the preview origin and all WebSockets, seeds a disposable identity with muted audio, opens one real
 pack and checks that stats, collection and history survive a reload. Failure traces, screenshots
 and videos land in `test-results/` (uploaded by CI). `agent-audit.spec.ts` checks only the audit's
-browser boundary; the newcomer agent audit itself (`npm run audit:agent`, see
-docs/ARCHITECTURE.md) runs locally only. Pixel 5 emulation is not a phone: do physical-device
-checks by hand against the preview and describe them in the PR.
+browser boundary; the agent audit itself runs locally only (see
+[Local agent usability audit](#local-agent-usability-audit)). Pixel 5 emulation is not a phone: do
+physical-device checks by hand against the preview and describe them in the PR.
+
+## Local agent usability audit
+
+Owner decision, 2026-10-17: usability audits use Claude Code subagents only (no Codex or other
+providers), driving the built site with Playwright. They are model audits in Chromium emulation, not
+human or real-device evidence, and anything that cites one says so.
+
+Status: no audit has been run, and no Claude runner exists. The checked-in runner (`npm run
+audit:agent`, `scripts/agent-audit/run.ts`, described in docs/ARCHITECTURE.md) launches only Codex
+CLI 0.159.2, so this policy does not use it. Its provider-neutral parts are the starting point for a
+Claude version: the four task prompts and the coordinator prompt in `contracts.ts`, the network and
+read-only boundary in `browser.ts`, and the snapshot, click, press and wait tools in
+`browser-mcp.mjs`. `tests/browser/agent-audit.spec.ts` checks that boundary without any agent.
+Connecting a Claude Code subagent to those tools is not built. Until an audit is run and recorded,
+don't say one was.
+
+How an audit is run:
+
+1. The coordinator (the main Claude thread) works from a clean commit, runs `npm run build`, serves
+   it with `npm run preview` and notes the revision, base path and phone-size viewport.
+2. Each reviewer is a fresh subagent given only a task sentence from `contracts.ts` (for example
+   "You found this game for the first time. Try to open a pack and find out what you received.") and
+   the page address. No source, docs, hints about where things are, or earlier reports: coaching
+   would test the coach, not the page. It reports what it did, its detours, confusing labels and
+   errors, and whether it completed, was blocked or found it ambiguous.
+3. Reviewers are read-only. Use a disposable browser profile, never a real save, key or identity.
+   Nothing is submitted, copied, downloaded, exported or imported, and external requests and
+   WebSockets stay blocked, so the Hall of Fame, relays and GitHub are out of reach. No posting,
+   merging or deploying from an audit.
+4. The coordinator reproduces each observation on the same revision, separates blocked tasks from
+   product defects, dedupes against open issues, and retests a fix with a fresh reviewer. Only
+   reproduced findings go into an issue or PR.
+5. The write-up gives the revision, conditions, task outcomes and what could not be checked (screen
+   readers, native share, a physical phone). One agent's result is an observation, not a rate.
 
 ## Mounted integration tests
 

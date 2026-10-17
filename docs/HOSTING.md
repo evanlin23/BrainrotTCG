@@ -105,7 +105,8 @@ an approval gate:
   the Pages project (`CLOUDFLARE_PROJECT`, default `brainrottcg`) and deployment ID. Record public
   configuration, never tokens.
 - Results at that revision: `npm run check`, `npm run build`, independent Python verification and
-  relevant browser/storage/asset checks, plus unrun checks and unresolved blockers. The
+  relevant browser/storage/asset checks, real-device evidence (or that none was gathered; emulation
+  is labelled as emulation), plus unrun checks and unresolved blockers. The
   [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
   builds (`npm run check`, `npm run build`) and deploys only if it passes. The build job holds no
   secrets and seals what it built; the Cloudflare job publishes only those sealed files. Only the
@@ -129,15 +130,19 @@ an approval gate:
   [CI](../.github/workflows/ci.yml) and [browser tests](../.github/workflows/browser-tests.yml) skip
   pushes to `main` (`branches-ignore`), so on a bypassed revision workflow lint (actionlint) and
   browser tests may not have run.
-- Reviewer/operator, decision and known-good rollback target, plus any observed save loss or
-  corruption, broken historical verification, persistent blank screens or missing assets, or
-  inaccessible opening controls.
+- Reviewer/operator, decision and known-good rollback target, plus any observed blockers: save loss
+  or corruption, broken historical verification, persistent blank screens or missing assets, or
+  inaccessible opening controls. Unresolved ones stay listed.
 - For storage/proof/set changes, fixture evidence that the rollback target can read data written by
   the candidate, including identity, ticket/set/version history, pending packs and IndexedDB. Keep
   private backups offline; a public profile link cannot recover the secret key. Do not test with a
   player's only save or claim an export includes data it does not serialize.
 
 ## Recover on the same origin
+
+Claude performs rollbacks, following this runbook (owner decision, 2026-10-17). No live rollback or
+deploy rehearsal has been run, so the steps below are untested. Step 2 needs Cloudflare dashboard
+access; without it, ask the owner for that step.
 
 Do not delete hosting secrets or change the domain as a rollback
 ([switching hosts](#switching-back-to-github-pages) is a separate decision): browser saves belong to
