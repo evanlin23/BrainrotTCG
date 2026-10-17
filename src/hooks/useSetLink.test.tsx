@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useEffect, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SETS } from '../content/sets';
 import type { SetDefinition } from '../engine';
+import { useRoute } from './useRoute';
 import { useSetLink } from './useSetLink';
 
 const released = SETS.find((s) => !s.draft && !s.archivedAt)!;
@@ -64,6 +65,36 @@ describe('useSetLink', () => {
     expect(select).not.toHaveBeenCalled();
   });
 
+  it("doesn't mark a link that arrived while a pack was open as followed, so it still applies once the pack is done", () => {
+    const select = vi.fn();
+    mount(true, select);
+    typeHash(`#/set/${released.id}`);
+    expect(select).not.toHaveBeenCalled();
+    expect(history.state?.brainrotSetLink).toBeFalsy();
+    expect(location.hash).toBe(`#/set/${released.id}`);
+
+    // The pack is done, and the player comes back to that entry (Forward, or a Back from a page over it).
+    act(() => root!.render(<Harness busy={false} select={select} />));
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(select).toHaveBeenCalledWith(released.id);
+    expect(history.state?.brainrotSetLink).toBe(true);
+  });
+
+  it('applies a link left unmarked by a busy pack when the app reloads on it', () => {
+    const select = vi.fn();
+    mount(true, select);
+    typeHash(`#/set/${released.id}`);
+    expect(select).not.toHaveBeenCalled();
+
+    act(() => root?.unmount());
+    mount(false, select);
+    expect(select).toHaveBeenCalledWith(released.id);
+    expect(location.hash).toBe('');
+  });
+
   it.each([
     ['a draft set', draft.id],
     ['an archived set', archived.id],
@@ -82,5 +113,40 @@ describe('useSetLink', () => {
     mount(false, select);
     expect(select).not.toHaveBeenCalled();
     expect(location.hash).toBe('#/cards');
+  });
+});
+
+describe('useSetLink with the route', () => {
+  const other: SetDefinition = { ...released, id: 'other-set' };
+  let current: { route: ReturnType<typeof useRoute>; chosen: string; choose: (setId: string) => void };
+  const App = () => {
+    const route = useRoute();
+    const [chosen, choose] = useState('none');
+    useSetLink([released, other], false, choose);
+    useEffect(() => { current = { route, chosen, choose }; }, [route, chosen]);
+    return null;
+  };
+  // jsdom moves through history a task later.
+  const settle = async (check: () => boolean) => {
+    for (let i = 0; i < 50 && !check(); i += 1) {
+      await act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    }
+    expect(check()).toBe(true);
+  };
+
+  it("doesn't choose the linked set again over the player's pick when a page opened over its link closes", async () => {
+    root = createRoot(document.createElement('div'));
+    act(() => root!.render(<App />));
+    typeHash(`#/set/${released.id}`);
+    expect(current.chosen).toBe(released.id);
+
+    act(() => current.choose(other.id));
+    act(() => current.route.navigate('cards'));
+    await settle(() => current.route.route === 'cards');
+    act(() => current.route.closePage());
+    await settle(() => current.route.route === 'open' && location.hash === `#/set/${released.id}`);
+    // Let any hashchange from that step land before looking.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(current.chosen).toBe(other.id);
   });
 });

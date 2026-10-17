@@ -66,6 +66,8 @@ generated geometry. It covers openable pack wrappers/thumbnails, retained pack a
 finish thumbnails declared by the generator manifest (or present for registered cards), the
 shared alpha frame mask and card back. Missing undeclared finish variants retain the existing
 full-size fallback. Preview outputs and built hosting paths are outside this check.
+Runtime: 5.4 s and 6.3 s over two warm runs (card files already in the OS page cache), measured
+2026-10-17 in a Claude Code cloud container with 4 cores shared with other jobs.
 
 The site check (`npm run check:site`, after a build, about 30 s) reads `dist/` with the build's
 `BASE_PATH` and `SITE_URL`. Every page's local links and stylesheet `url()`s must stay under
