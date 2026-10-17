@@ -101,7 +101,8 @@ it('waits for a slow ticket with the app held on the pack, then records the late
   await app.mount();
   await pressPack();
   await app.until('a slow ticket says so', () => {
-    expect(document.querySelector('.pack-hint.is-waiting')?.textContent).toBe('Opening…');
+    expect(document.querySelector('.pack-hint.is-waiting')?.textContent).toBe('Taking a moment…');
+    expect(document.querySelector('.pack-open-button')?.textContent).toBe('Opening…');
     expect(announced()).toBe('Opening the pack…');
   });
   // Nothing may swap the set or open over the pack meanwhile. Its number is claimed once the ticket is
