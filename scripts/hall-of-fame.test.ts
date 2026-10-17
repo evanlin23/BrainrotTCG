@@ -10,7 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
-import { dailyPulls, decodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, topPulls, verifyProof, type RankableEntry } from '../src/engine/index.ts';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
 import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
@@ -20,6 +21,11 @@ const BOT = 'github-actions[bot]';
 const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.proof;
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
 const pair = byNote('simple'); // real, doesn't qualify
+/** The same 4 of a Kind, signed again with the vectors' key under a display name that isn't allowed. */
+const blockedName = (() => {
+  const { setId, setVersion, publicKey, nonce } = decodeProof(fourOfAKind);
+  return encodeProof(signProof({ setId, setVersion, publicKey, nonce, name: 'xXfuckXx' }, sha256(utf8('brainrot-tcg/vector-key/1'))));
+})();
 const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB' : 'AAAA');
 const idOf = (proof: string) => pullId(decodeProof(proof));
 const marker = (proof: string) => `<!-- hof-verified ${idOf(proof)} -->`;
@@ -236,6 +242,13 @@ describe('build (deploy workflow)', () => {
     expect(gh.writes()).toEqual([]);
   });
 
+  it("leaves out a verified pull whose display name isn't allowed", async () => {
+    const gh = fakeGitHub({ issues: [issue(1, blockedName)], comments: { 1: [comment(BOT, marker(blockedName), '2026-10-02T00:00:00Z')] } });
+    await build(output());
+    expect(entries()).toEqual([]);
+    expect(gh.writes()).toEqual([]);
+  });
+
   it('reuses the result for an issue unchanged since the last deploy, and checks an edited one again', async () => {
     const fixture: Fixture = { issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } };
     const gh = fakeGitHub(fixture);
@@ -330,7 +343,7 @@ describe('verify-issue (issue workflow)', () => {
   it('verifies a qualifying pull that would join the list, without writing to GitHub', async () => {
     const gh = fakeGitHub({ issues: [], published: [] });
     const result = await run(`My pull: ${link(fourOfAKind)}`);
-    expect(result.outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified' });
+    expect(result.outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified', rejected: 'false' });
     expect(result.comment).toContain('**Verified!**');
     expect(result.comment).toContain(marker(fourOfAKind));
     expect(gh.writes()).toEqual([]);
@@ -340,15 +353,15 @@ describe('verify-issue (issue workflow)', () => {
     clockAt('2026-10-16T12:00:00Z');
     const board = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1) });
     const joined = await run(link(fourOfAKind));
-    expect(joined.outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    expect(joined.outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily', rejected: 'false' });
     expect(joined.comment).toContain(marker(fourOfAKind));
     // A full day yesterday leaves today open.
     fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-15', HALL_OF_FAME_DAILY_TOP) });
-    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily', rejected: 'false' });
 
     const full = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP) });
     const refused = await run(link(fourOfAKind));
-    expect(refused.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified' });
+    expect(refused.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified', rejected: 'false' });
     expect(refused.comment).toContain('**Not added.**');
     expect(refused.comment).toContain(`the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day`);
     expect(refused.comment).toContain('Brainrot Score above 20,000'); // today's 50th, below the top 100's 100th
@@ -364,29 +377,43 @@ describe('verify-issue (issue workflow)', () => {
     // Filed two days ago, it left the published list but must not count on today's top too.
     const again = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published });
     const refused = await run(link(fourOfAKind));
-    expect(refused.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified' });
+    expect(refused.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified', rejected: 'false' });
     expect(refused.comment).toContain('**Not added.**');
     expect(refused.comment).toContain('counts on one day only');
     expect(refused.comment).not.toContain('hof-verified');
 
     // The issue itself, one past the 8 days, and one under another label don't hold it back.
     const own = fakeGitHub({ issues: [daily(7, '2026-10-16T11:00:00Z'), daily(5, '2026-10-08T11:59:59Z'), issue(6, fourOfAKind, { updated: '2026-10-15T00:00:00Z' })], published });
-    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily', rejected: 'false' });
+    // Nor does one whose display name isn't allowed: it's out of the list, so the pull may come back under a new name.
+    const renamed = fakeGitHub({ issues: [issue(5, blockedName, { labels: ['hall-of-fame', 'daily'], updated: '2026-10-14T09:00:00Z' })], published });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily', rejected: 'false' });
     // Nor does a GitHub error: the pull goes ahead.
     const down = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published, fail: (r) => r.path === '/issues' });
-    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily' });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'daily', rejected: 'false' });
     // A pull that joins the all-time list isn't checked.
     const allTime = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published: [] });
-    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified' });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified', rejected: 'false' });
     expect(allTime.requests.some((r) => r.path === '/issues')).toBe(false);
-    expect([again, own, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
+    expect([again, own, renamed, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
+  });
+
+  it("turns down a real pull whose display name isn't allowed, and asks for the rejected label", async () => {
+    const gh = fakeGitHub({ issues: [], published: [] });
+    const result = await run(link(blockedName));
+    expect(result.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified', rejected: 'true' });
+    expect(result.comment).toContain('**Not added.**');
+    expect(result.comment).toContain("display name isn't allowed");
+    expect(result.comment).not.toContain('hof-verified');
+    expect(result.comment).not.toContain('xXfuckXx');
+    expect(gh.writes()).toEqual([]);
   });
 
   it('changes nothing when the bot already verified the same pull on the issue', async () => {
     fakeGitHub({ issues: [], comments: { 7: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } });
-    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'false', label: 'verified' });
+    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'false', label: 'verified', rejected: 'false' });
     // It keeps the label it has.
-    expect((await run(link(fourOfAKind), ['hall-of-fame', 'daily'])).outputs).toEqual({ verified: 'true', changed: 'false', label: 'daily' });
+    expect((await run(link(fourOfAKind), ['hall-of-fame', 'daily'])).outputs).toEqual({ verified: 'true', changed: 'false', label: 'daily', rejected: 'false' });
   });
 
   it("turns down a missing link, a forged pull, one that doesn't qualify, and one that wouldn't join", async () => {
@@ -400,7 +427,7 @@ describe('verify-issue (issue workflow)', () => {
     ];
     for (const [body, reason] of cases) {
       const result = await run(body);
-      expect(result.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified' });
+      expect(result.outputs).toEqual({ verified: 'false', changed: 'true', label: 'verified', rejected: 'false' });
       expect(result.comment).toContain('**Not added.**');
       expect(result.comment).toContain(reason);
       expect(result.comment).not.toContain('hof-verified');
@@ -438,6 +465,23 @@ describe('inbox (scheduled workflow)', () => {
     await inbox();
     expect(gh.writes()).toEqual([]);
     expect(outputs()).toEqual({ added: '0' });
+  });
+
+  it("files nothing for a pull whose display name isn't allowed", async () => {
+    const gh = fakeGitHub({ issues: [], published: [] });
+    relaysHold(blockedName);
+    await inbox();
+    expect(gh.writes()).toEqual([]);
+    expect(outputs()).toEqual({ added: '0' });
+  });
+
+  it("files a pull again under a new name when its earlier issue's display name is now blocked", async () => {
+    // The deploy drops that issue's entry, so it doesn't count as filed (verified, or unfinished).
+    const gh = fakeGitHub({ issues: [issue(1, blockedName), issue(2, blockedName, { labels: ['hall-of-fame'], login: BOT, updated: '2026-10-12T00:00:00Z' })], published: [] });
+    relaysHold(fourOfAKind);
+    await inbox();
+    expect(gh.writes()).toEqual(FILED);
+    expect(outputs()).toEqual({ added: '1' });
   });
 
   it('files nothing for a pull already verified on an issue or already in the published list', async () => {

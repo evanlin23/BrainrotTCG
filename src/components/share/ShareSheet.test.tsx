@@ -85,6 +85,13 @@ describe('Hall of Fame in the pack share sheet', () => {
     expect([...offer.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Submit']);
   });
 
+  it('says what becomes public before the submit', async () => {
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    const notice = document.querySelector('.share-hof .share-hof-public')!;
+    expect(notice.textContent).toBe('Your display name and public key become public.');
+    expect(inOrder([notice, '.share-hof button'])).toBe(true);
+  });
+
   it('puts the already-listed note in the same place', async () => {
     vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));

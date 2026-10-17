@@ -124,6 +124,7 @@ const HallOfFameSubmit = ({ proof, id, score }: { proof: string; id: string; sco
       <span>
         <strong>This makes the Hall of Fame</strong>
         <span role="status">{note}</span>
+        <span className="share-hof-public">Your display name and public key become public.</span>
       </span>
       <button type="button" className="btn btn--secondary btn--sm" onClick={submit} disabled={state === 'sending' || state === 'sent'}>
         {state === 'sending' ? 'Sending…' : state === 'sent' ? 'Submitted' : 'Submit'}

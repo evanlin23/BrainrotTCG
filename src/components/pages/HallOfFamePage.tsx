@@ -8,7 +8,7 @@ import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
 import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
-import { dailyPulls, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP, normalizeName, previousUtcDay, topPulls, utcDay } from '../../engine';
+import { dailyPulls, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP, previousUtcDay, publicName, topPulls, utcDay } from '../../engine';
 
 // Hackathon legends ("Where it started"): screenshots from before pulls were verifiable.
 import adiImage from '../../assets/images/hall_of_fame/adi-four-of-a-kind.webp';
@@ -180,7 +180,7 @@ const HallOfFamePage = () => {
   };
 
   const renderEntry = (entry: HallOfFameEntry, rank: number) => {
-    const who = normalizeName(entry.name) || 'Anonymous';
+    const who = publicName(entry.name);
     return (
       <li key={entry.id}>
         <a className="hof-entry" href={`#/pull/${entry.proof}`} aria-label={`Number ${rank + 1}: ${entry.hand} by ${who} in ${entry.setName}, score ${entry.score}`}>
