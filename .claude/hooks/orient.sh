@@ -14,6 +14,6 @@ if [ -f "$state" ]; then
   lines=$(grep -c '' "$state")
   [ "$lines" -gt 80 ] && echo "--- $state has $lines lines; only 80 shown. Trim done and history to fit before other work. ---"
 else
-  echo "No $state here. /work rebuilds it from the \"Claude work ledger\" issue; merge nothing until it does."
+  echo "No $state here. Only /work uses it; /work rebuilds it from the \"Claude work ledger\" issue and merges nothing until it does."
 fi
 exit 0
