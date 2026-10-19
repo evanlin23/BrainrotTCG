@@ -44,10 +44,13 @@ it('pauses the shimmer of images out of view and of the misprint ghost', () => {
   expect(paused?.[0]).toMatch(/\.card-image\.misprint-ghost\[data-state\]/);
 });
 
-it('lets the failed slot win over a holo pull-row thumbnail ring', () => {
+it('lets the failed and blocked slots win over a holo pull-row thumbnail ring', () => {
   const holo = rules(stylesheet('Pulls.css')).filter(([selector, body]) => selector.includes('img.holo') && /background/.test(body));
   expect(holo.length).toBeGreaterThan(0);
-  for (const [selector] of holo) expect(selector).toContain(":not([data-state='failed'])");
+  for (const [selector] of holo) {
+    expect(selector).toContain(":not([data-state='failed'])");
+    expect(selector).toContain(":not([data-state='blocked'])");
+  }
 });
 
 it('keeps Retry above every card layer it can sit on (holo foil, shine, ghost, stickers)', () => {
