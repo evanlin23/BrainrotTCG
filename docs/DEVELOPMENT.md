@@ -43,7 +43,7 @@ deploying main. CI uploads files only from failed runs, kept for 7 days.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
-Rough wall times: `npm run check` about 110 s, a cold `npm run build` about 2 min, and one browser spec
+Rough wall times: `npm run check` about 2 min, a cold `npm run build` about 2 min, and one browser spec
 file about 3 min including its build. Give these commands a 5-minute timeout or run them in the background.
 
 To run actionlint locally (it is not part of `npm run check` and isn't assumed to be installed),
