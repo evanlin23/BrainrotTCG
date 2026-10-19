@@ -17,8 +17,8 @@ from a 390 px wide screen.
    The tear line is the wrapper's seam (#267): a white perforation over a soft brand-and-foil band, with
    a brand arrowhead at each end. A swipe can start anywhere in the top third of the pack (at least 80px
    under the seam), not only on it, and may drift up or down by up to 1.5 times its distance across
-   (#626). One covering an eighth of the pack opens it on release (over and back counts by its span),
-   three tenths while still moving; a mostly vertical drag never does, and a swipe under an eighth is
+   (#626). One covering 12% of the pack opens it on release (over and back counts by its span),
+   three tenths while still moving; a mostly vertical drag never does, and a swipe under 12% is
    let go without opening. These are design choices (`RELEASE_CUT_RATIO` 0.12, `DRAG_CUT_RATIO` 0.3,
    `MAX_DRIFT_RATIO` 1.5, the start band and a 32px floor in `usePackCutter.ts`, checked in
    `tests/browser/pack-swipe.spec.ts`).

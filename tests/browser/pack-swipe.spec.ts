@@ -1,7 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { monitor, expectDecoded, fingerFor, type Finger } from './support';
 
-// A short swipe along the tear line opens the pack when it's released (#312), one under an eighth of
+// A short swipe along the tear line opens the pack when it's released (#312), one under 12% of
 // the pack doesn't, and the Open pack button opens it for a tap (#267). A press can start anywhere in
 // the top third of the pack, and a stroke can drift up or down (#626): usePackCutter.test.tsx drives
 // those at every size, this file the real browser. The phone project swipes with
@@ -60,7 +60,7 @@ test('a swipe that goes over and comes back opens the pack on release', async ({
   expect(errors).toEqual([]);
 });
 
-test('a swipe under an eighth of the pack is let go without opening it, and a real swipe still does', async ({ page, baseURL, hasTouch }) => {
+test('a swipe under 12% of the pack is let go without opening it, and a real swipe still does', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   const packShell = await sealedPack(page);

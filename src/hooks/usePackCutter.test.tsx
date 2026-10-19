@@ -152,6 +152,19 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
+  it('does not open a stroke that goes across, far down, then across again, mid-drag or on release (#626)', () => {
+    // 15px across settles it as a swipe; 300px down is then 20 times as far down as across, and the
+    // 112px across that follows (35%, past the 30% a drag needs) is still under 1.5 times that drift.
+    const press = at(0.3);
+    down(press);
+    move({ clientX: press.clientX + 15, clientY: press.clientY });
+    move({ clientX: press.clientX + 15, clientY: press.clientY + 300 });
+    move({ clientX: press.clientX + 112, clientY: press.clientY + 300 });
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up({ clientX: press.clientX + 112, clientY: press.clientY + 300 });
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
   it('keeps counting a slanted swipe that drifts off the tear line', () => {
     // 60 and 90px below the line: past the 82px it takes to start a stroke.
     swipe(at(0.2), at(0.35, 30), at(0.45, 60), at(0.55, 90));

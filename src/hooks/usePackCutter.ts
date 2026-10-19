@@ -23,7 +23,7 @@ const START_BAND_BELOW_SEAM_PX = 80;
 const DRAG_CUT_RATIO = 0.3;
 /**
  * A stroke spanning this much opens the pack when it's released: a short swipe is enough (#312), and
- * now so is a flick of an eighth of the pack (#626, down from a fifth). GESTURE_SLOP_PX and MIN_CUT_PX
+ * now so is a flick of 12% of the pack (#626, down from a fifth). GESTURE_SLOP_PX and MIN_CUT_PX
  * still keep a tap or a wobble from counting, most of all on a small pack.
  */
 const RELEASE_CUT_RATIO = 0.12;
