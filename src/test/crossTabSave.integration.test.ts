@@ -530,3 +530,44 @@ it("refuses at App's import commit boundary when another tab's import hasn't rea
   expect(button(document, 'Keep mine')).toBeUndefined();
   reloadSpy.mockRestore();
 }, 60_000);
+
+it('refuses "Replace without a copy" when another tab imported the same player after the import found no room (#668)', async () => {
+  // No progress here, so the file imports without a replacement prompt, until the copy of this save can't fit.
+  app = await mountedApp(SEED);
+  await app.mount();
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  const reloadSpy = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+  const setItem = Storage.prototype.setItem;
+  const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === 'brainrot-before-import-v1') throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  try {
+    const input = document.querySelector<HTMLInputElement>('.settings input[type="file"]')!;
+    const incoming = {
+      version: 2, exportedAt: '2026-10-14T00:00:00.000Z', dataVersion: 3,
+      player: record('03'.repeat(32), 'Incoming Player'),
+      stats: JSON.stringify({ packsOpened: 10, holoCards: {}, highestPackCards: [] }),
+      collection: '{}', achievements: '{}', hallOfFame: '{}', settings: JSON.stringify({ effectsVolume: 0 }), history: '[]',
+    };
+    Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(incoming)], 'save.json')], configurable: true });
+    await app.interact(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await app.until('the no-room offer appears', () => expect(button(document, 'Replace without a copy')).toBeDefined());
+
+    // The other tab imports a save of this same player (only the stamp tells them apart); its storage event is on the way.
+    otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', [PLAYER_KEY]: record(MINE, 'This tab'), ...THEIR_PROGRESS });
+    const stored = Object.fromEntries(Object.entries(localStorage));
+
+    await app.interact(() => button(document, 'Replace without a copy')!.click());
+    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(Object.fromEntries(Object.entries(localStorage))).toEqual(stored);
+    expect(packsOpened()).toBe(3);
+    expect(localStorage.getItem('brainrot-before-import-v1')).toBeNull();
+    expect(restoreNote()?.textContent).toContain(STALE);
+    expect(button(document, 'Replace without a copy')).toBeUndefined();
+  } finally {
+    full.mockRestore();
+    reloadSpy.mockRestore();
+  }
+}, 60_000);

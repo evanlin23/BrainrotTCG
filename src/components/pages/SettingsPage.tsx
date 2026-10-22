@@ -152,6 +152,8 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         if (!error) return;
         // Nothing changed; the player may export first, then choose to replace without the copy.
         if (keepCopy && error === NO_ROOM_FOR_COPY_NOTE) {
+            // "Replace without a copy" must refuse if storage changes from the save this attempt checked.
+            setReviewedSave(expectedSave);
             setImportNote(saves ? `${error} Replace ${saves} without keeping a copy?` : error);
             setPendingImport(content);
             setWithoutCopy(true);
