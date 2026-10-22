@@ -182,13 +182,13 @@ globals and modules. Run one with
 `npm test`, and so `npm run check` and CI, runs the suite once with V8 coverage and enforces two
 budgets, checked in this order:
 
-| Budget | Baseline (October 2026, 1,819 tests in 147 files, Node 22.23.3) | Enforced | Set in |
+| Budget | Baseline (October 2026, 1,819 to 1,990 tests, Node 22.23.3) | Enforced | Set in |
 | --- | --- | --- | --- |
-| Wall time of the whole run | 111.2 s on CI (4 vCPU); median 150.8 s (150.7-155.5 s) on a 2-core container | at most 150 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
+| Wall time of the whole run | 111.2 s on CI (4 vCPU) at 1,819 tests; 112.7 s and 141.2 s at 1,926 tests (PR #941); 157.9 s at 1,990 tests (claude/train-1); median 150.8 s (150.7-155.5 s) on a 2-core container at 1,819 tests | at most 300 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
 | Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 88.76%, statements 90.60%, lines 92.05% | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
 
 After the test summary, and before the coverage summary, the run prints
-`Test budget: N tests in M files took Xs (budget 150s)`, and it fails only past the budget. The
+`Test budget: N tests in M files took Xs (budget 300s)`, and it fails only past the budget. The
 runtime budget holds for every `npm test` run, whatever flags follow `--`: the `testBudget()` plugin
 in `vite.config.ts` adds its reporter after `--reporter` flags replace the configured ones, so
 `npm test -- --reporter=dot` keeps it, and `npm test -- --coverage.enabled=false` drops only the
@@ -202,6 +202,10 @@ load two of them once passed the 5 s default timeout, so `npm test` passes `--te
 - **Reference runner**: the GitHub-hosted 4-vCPU Linux runner (Node 22.23.3, Vitest 5.0.4). The main
   deployment run 39059778425 (build job 117475232914, revision `2bf6074`) ran 1,819 tests in 147
   files in 111.2 s with coverage, at 90.60% statements, 88.76% branches and 92.05% lines.
+- **Suite growth**: CI runs at 1,926 tests in 151 files took 141.2 s and 112.7 s on the same head
+  (PR #941), and the claude/train-1 integration branch took 157.9 s at 1,990 tests in 155 files
+  (job 119941611004), over the old 150 s budget with every test passing. The slowest files there
+  ran 8-30 s each, spread across many integration and script tests, with no single outlier.
 - **2-core container**: three serial `npm test` runs at `2bf6074` (Node 22.23.3, Vitest 5.0.4, 2 CPU
   cores by cgroup quota, 8 GiB memory, nothing else running) took 155.5 s, 150.7 s and 150.8 s
   (median 150.8 s, mean 152.3 s). All 1,819 assertions and the coverage floors passed, but every run
@@ -217,8 +221,9 @@ load two of them once passed the 5 s default timeout, so `npm test` passes `--te
   `npx vitest run <path>`, which skips both budgets.
 
 The coverage floors sit about 12-14 points below the baseline (88.76% branches, 90.60% statements,
-92.05% lines against 75%, 78%, 80%). The runtime budget is 150 s against 111.2 s on CI, about 1.35x,
-leaving roughly 39 s of headroom there, so a sizeable addition of slow tests can trip it. Ordinary
+92.05% lines against 75%, 78%, 80%). The runtime budget is 300 s, about 1.9x the slowest CI run (157.9 s),
+leaving roughly 142 s of headroom there. Local runs on a loaded 4-core or 2-core container are
+slower than CI, so a local overrun alone isn't a regression. Ordinary
 work shouldn't trip the floors. To move one, run `npm test` three
 times on an up-to-date branch, set each floor a few points below the lowest figure and the runtime
 budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor
