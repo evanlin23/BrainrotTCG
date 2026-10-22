@@ -21,7 +21,7 @@ import { canOpenSharedSet } from './game/sharedPullSet';
 import { isCardOwned } from './game/versions';
 import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
-import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
+import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE, STALE_SAVE_WARNING } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
@@ -30,7 +30,7 @@ import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression'
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory } from './game/history';
-import { sameSave, saveMark, watchPlayer } from './game/player';
+import { sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
 import { PAGE_TITLES, type Page } from './game/route';
@@ -66,7 +66,6 @@ const PREFETCH: Partial<Record<Page, () => Promise<unknown>>> = {
 const OPEN_TITLE = document.title;
 
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
-const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
 /** What adding a pack changes, so several packs can be added before React renders. */
 
 function App() {
@@ -358,11 +357,15 @@ function App() {
   }, []);
 
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
-  const handleImportSave = useCallback((data: string, keepCopy = true): string | null => {
+  const handleImportSave = useCallback((data: string, keepCopy = true, expectedSave?: SaveMark): string | null => {
+    if (!samePlayer() || (expectedSave && !sameSave(expectedSave, saveMark()))) {
+      setStaleSave(true);
+      return STALE_SAVE_WARNING;
+    }
     // Without a copy in storage, this file is all that would keep the save if the import is left half done.
     const before = keepCopy ? null : exportSaveFile();
-    const error = importSaveFile(data, { keepCopy });
-    if (!error) window.location.reload();
+    const error = importSaveFile(data, { keepCopy, expectedSave });
+    if (!error) reloadPage();
     else if (error.startsWith(PARTIAL_IMPORT_NOTE)) {
       // The app still holds the save from before; only a reload shows what storage now holds.
       if (before !== null && window.confirm(`${error}\n\nDownload the save from before the import first? OK downloads it, then reloads.`)) {
@@ -374,7 +377,7 @@ function App() {
       }
     }
     return error;
-  }, []);
+  }, [samePlayer]);
 
   const handlePackOpened = useCallback((pack: OpenedPack, from: PackProgress = { stats, collection, hallOfFame }): PackProgress => {
     packAdded(pack);
