@@ -19,6 +19,20 @@ const unexpectedErrors = (errors: string[], expectedUrl: RegExp) =>
 const unexpectedOfflineErrors = (errors: string[]) =>
   errors.filter((error) => !error.includes('net::ERR_INTERNET_DISCONNECTED') && !error.includes('Failed to load resource') && !reloadAbortedArt(error));
 
+/**
+ * Real offline for a monitored page. The network guard fulfils same-origin requests with
+ * `route.fetch`, which `context.setOffline` does not reach, so the switch also fails every request
+ * the way Chrome does offline, ahead of the guard. Back online, requests fall through to the guard.
+ */
+async function offlineSwitch(page: Page) {
+  let offline = false;
+  await page.route('**/*', (route) => (offline ? route.abort('internetdisconnected') : route.fallback()));
+  return async (value: boolean) => {
+    offline = value;
+    await page.context().setOffline(value);
+  };
+}
+
 async function countSettingsLinks(page: Page) {
   return page.evaluate(() =>
     Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
@@ -187,13 +201,14 @@ test('JavaScript chunk failure control: Settings JS failure offers Retry, which 
   expect(unexpectedErrors(errors, new RegExp(chunkUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toEqual([]);
 });
 
-test('whole-graph offline failure: Reload recovery restores the page, keeping saves and route', async ({ page, baseURL, context }) => {
+test('whole-graph offline failure: Reload recovery restores the page, keeping saves and route', async ({ page, baseURL }) => {
   const errors = await monitor(page, baseURL!, 1, { returning: true });
+  const setOffline = await offlineSwitch(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
 
   // Go offline mid-session, then open Rankings
-  await context.setOffline(true);
+  await setOffline(true);
   const rankingsBtn = page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'Rankings', exact: true });
   await rankingsBtn.click();
 
@@ -203,7 +218,7 @@ test('whole-graph offline failure: Reload recovery restores the page, keeping sa
   await expect(main.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
 
   // Reconnect online and click Reload
-  await context.setOffline(false);
+  await setOffline(false);
   await main.getByRole('button', { name: 'Reload', exact: true }).click();
 
   // Complete Rankings page renders with tab panel and hall of fame
@@ -267,12 +282,13 @@ test('warming Rankings while Settings loads fails neither page nor drops the Ran
   expect(errors).toEqual([]);
 });
 
-test('whole-graph offline failure: after reconnecting, Retry recovers or hands over to Reload, never a dead Retry', async ({ page, baseURL, context }) => {
+test('whole-graph offline failure: after reconnecting, Retry recovers or hands over to Reload, never a dead Retry', async ({ page, baseURL }) => {
   const errors = await monitor(page, baseURL!, 1, { returning: true });
+  const setOffline = await offlineSwitch(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
 
-  await context.setOffline(true);
+  await setOffline(true);
   await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'Rankings', exact: true }).click();
   const main = page.getByRole('main', { name: 'Rankings', exact: true });
   await expect(main.getByRole('alert')).toContainText("Couldn't load Rankings.");
@@ -282,7 +298,7 @@ test('whole-graph offline failure: after reconnecting, Retry recovers or hands o
   await expect(main.getByRole('alert')).toContainText("Couldn't load Rankings.");
   await expect(retry).toBeVisible();
 
-  await context.setOffline(false);
+  await setOffline(false);
   await retryOrReload(main, main.locator('.hall-of-fame'));
   await expect(page).toHaveURL(`${baseURL}#/rankings`);
   expect(await ruleCount(page, RANKINGS_CSS)).toBeGreaterThan(0);
