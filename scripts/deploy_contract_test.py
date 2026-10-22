@@ -271,13 +271,22 @@ class Workflows(unittest.TestCase):
       - uses: actions/checkout@v4
 """, 'not pinned to a commit')
 
+    # browser-tests.yml uploads from the shards and from the burn-in: break each upload in turn.
+    BROWSER_UPLOADS = ['playwright-test-results-shard-${{ matrix.shard }}', 'playwright-test-results-burn-in']
+
     def test_ci_upload_on_success(self):
-        self.assertBroken('browser-tests.yml', '        if: failure()\n', '        if: always()\n',
-                          'must upload only on failure() and keep it 7 days')
+        for name in self.BROWSER_UPLOADS:
+            with self.subTest(name):
+                self.assertBroken('browser-tests.yml', f'        if: failure()\n        with:\n          name: {name}\n',
+                                  f'        if: always()\n        with:\n          name: {name}\n',
+                                  'must upload only on failure() and keep it 7 days')
 
     def test_ci_upload_kept_longer(self):
-        self.assertBroken('browser-tests.yml', 'retention-days: 7\n', 'retention-days: 30\n',
-                          'must upload only on failure() and keep it 7 days')
+        for name in self.BROWSER_UPLOADS:
+            with self.subTest(name):
+                self.assertBroken('browser-tests.yml', f'name: {name}\n          path: test-results/\n          retention-days: 7\n',
+                                  f'name: {name}\n          path: test-results/\n          retention-days: 30\n',
+                                  'must upload only on failure() and keep it 7 days')
 
     def test_ci_runs_this_test(self):
         ci = dc.load(WORKFLOWS / 'ci.yml')

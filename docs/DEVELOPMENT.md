@@ -111,6 +111,12 @@ can't be checked otherwise, and grep `tests/browser` for any constant you change
 Pixel 5 emulation counts as phone evidence when the PR labels it as emulation; a physical-device check is
 stronger, and is done by hand against the preview and described in the PR.
 
+Browser tests have no retries, so a test that fails once fails CI: fix its cause rather than re-running.
+Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
+close-up sets `data-tilt="live"` once it follows the mouse. On a pull request, every spec the PR adds or
+changes also runs 10 more times in both projects (the `browser-burn-in` job); run the same locally with
+`npx playwright test <spec> --repeat-each=10` before pushing a new or changed spec.
+
 ## Local agent usability audit
 
 Owner decision, 2026-10-17: usability audits use Claude Code only (no Codex or other providers),
