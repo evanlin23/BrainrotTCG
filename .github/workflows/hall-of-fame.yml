@@ -24,6 +24,7 @@ jobs:
     outputs:
       verified: ${{ steps.check.outputs.verified }}
       changed: ${{ steps.check.outputs.changed }}
+      redeploy: ${{ steps.check.outputs.redeploy }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -71,11 +72,12 @@ jobs:
             if [ "$REJECTED" = "true" ]; then gh issue edit "$ISSUE" --add-label rejected; fi
           fi
 
-  # The only job that can start a deploy, and all it can do. It runs only if verify succeeded.
+  # The only job that can start a deploy, and all it can do. It runs only if verify succeeded, for a
+  # new verification or a label repair whose pull isn't in the published list yet.
   redeploy:
     name: Redeploy so the entry goes live
     needs: verify
-    if: needs.verify.outputs.verified == 'true' && needs.verify.outputs.changed == 'true'
+    if: needs.verify.outputs.verified == 'true' && needs.verify.outputs.redeploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

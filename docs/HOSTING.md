@@ -166,8 +166,12 @@ and migration origins consistent with the selected release.
 4. Reconcile the source with a follow-up PR promptly: automatic deployments remain enabled, and a later
    push or workflow run can replace the provider rollback. The Hall of Fame workflows also run
    `gh workflow run deploy.yml`: [hall-of-fame.yml](../.github/workflows/hall-of-fame.yml) when a
-   submitted pull verifies and either wasn't already verified on that issue or is missing its
-   `verified` or `daily` label (any edit to such an issue restores it), and [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
+   submitted pull verifies and either wasn't already verified on that issue or is missing its labels
+   but isn't in the published list. Any edit to an already-verified issue restores its labels without
+   a new comment, unless it carries `rejected`. With neither `verified` nor `daily` left, it gets
+   `verified` if the pull makes the all-time list (judged without the issue's own entry), else
+   `daily`, whatever day it was first verified. And
+   [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
    when a run (dispatched about every 15 minutes) files new entries. Land the forward-fix PR first, or
    pause those workflows, before they redeploy a bad `main`. Avoid overlapping recovery and deploy
    runs; the workflow's concurrency group does not serialize dashboard rollbacks.

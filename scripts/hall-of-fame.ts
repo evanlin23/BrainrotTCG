@@ -209,7 +209,7 @@ const pagesUrl = () => {
 };
 
 /** The list as deployed now, or null if it can't be read (then nothing is held back). */
-const publishedList = async (): Promise<RankableEntry[] | null> => {
+const publishedList = async (): Promise<(RankableEntry & { issue?: number })[] | null> => {
   try {
     const res = await fetch(`${pagesUrl()}hall-of-fame.json`, { cache: 'no-store' });
     if (!res.ok) return null;
@@ -247,55 +247,65 @@ export const verifyIssue = async () => {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { issue: Issue };
   let result = await checkIssue(event.issue);
   const token = process.env.GITHUB_TOKEN;
-  // An edit that keeps the same verified pull needs no new comment. The marker's time is when it
-  // joined, which its entry is stamped with.
-  let markerAt: string | null = null;
+  // An edit that keeps the same verified pull needs no new comment.
+  let already = false;
   if (result.ok && token) {
     try {
-      markerAt = await firstVerifiedAt(event.issue.number, pullId(result.pull.proof), token);
+      already = (await firstVerifiedAt(event.issue.number, pullId(result.pull.proof), token)) !== null;
     } catch (error) {
       console.warn(`Could not read earlier comments; treating this as a new verification. ${error}`);
     }
   }
-  const already = markerAt !== null;
   // A new verification only goes in if it would join the list (the top pulls or today's top), and
   // one that only makes today's top only if it isn't already on an earlier day's. The same pull
-  // verified again keeps the label it has. One left without `verified` or `daily` (a run that stopped
-  // after commenting, or an edit away and back) isn't judged again: it gets the label it would have
-  // had on the day it was first verified, or `daily` if that day's top has filled since, so a
-  // repair never makes it permanent.
+  // verified again keeps the label it has.
   let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
   const currentLabels = labelNames(event.issue);
-  const hasStatusLabel = currentLabels.includes('verified') || currentLabels.includes('daily');
-  if (result.ok && (!already || !hasStatusLabel)) {
+  if (result.ok && !already) {
     const list = await publishedList();
-    const day = markerAt ? utcDay(markerAt) : today();
+    const day = today();
     const reason = list && joinRefusal(result.pull, list, day);
-    if (reason && !already) result = { ok: false, reason };
-    else if (!reason && joinLabel(result.pull, list, day) === 'verified') label = 'verified';
-    else if (!already && token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
+    if (reason) result = { ok: false, reason };
+    else if (joinLabel(result.pull, list, day) === 'verified') label = 'verified';
+    else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
     else label = 'daily';
   }
 
   // Only a verified pull can be `already` (a refused one always gets a new comment), so only its
-  // labels need checking. `changed` runs the label step and, for a verified pull, a redeploy; an
-  // empty comment file makes the label step skip the comment.
-  const labelsComplete =
+  // labels need checking. `rejected` is the owner's: a repair never relabels, closes or redeploys
+  // over it.
+  const labelsComplete = (l: 'verified' | 'daily') =>
     currentLabels.includes('hall-of-fame') &&
-    currentLabels.includes(label) &&
+    currentLabels.includes(l) &&
     !currentLabels.includes('not-verified') &&
-    !currentLabels.includes(label === 'daily' ? 'verified' : 'daily');
-  const changed = !already || !labelsComplete;
+    !currentLabels.includes(l === 'daily' ? 'verified' : 'daily');
+  const repair = result.ok && already && !labelsComplete(label) && !currentLabels.includes('rejected');
+  // A repair redeploys only if the pull isn't live already, so editing away and back can't start
+  // deploys. One left without `verified` or `daily` (a run that stopped after commenting, or an
+  // edit away and back) isn't judged by any day's top again: it is `verified` if it would make the
+  // top pulls without this issue's own entry, else `daily`, so a repair never makes it permanent.
+  let redeploy = result.ok && !already;
+  if (repair && result.ok) {
+    const { id } = result.entry;
+    const list = await publishedList();
+    redeploy = !list?.some((e) => e.id === id);
+    if (!currentLabels.includes('verified') && !currentLabels.includes('daily')) {
+      const others = list?.filter((e) => e.issue !== event.issue.number);
+      label = !others || hallOfFameJoin(candidateOf(result.pull), others) === 'all-time' ? 'verified' : 'daily';
+    }
+  }
+  // `changed` runs the label step; an empty comment file makes it skip the comment.
+  const changed = !already || repair;
 
   const body = result.ok ? verifiedComment(result.entry, result.pull) : `❌ **Not added.** ${result.reason}${FOOTER}`;
   writeFileSync('hof-comment.md', already ? '' : body);
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `verified=${result.ok}\nchanged=${changed}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`,
+      `verified=${result.ok}\nchanged=${changed}\nredeploy=${redeploy}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`,
     );
   }
-  console.log(!already ? body : changed ? 'Already verified this pull on this issue; repairing missing labels.' : 'Already verified this pull on this issue; nothing to do.');
+  console.log(!already ? body : changed ? `Already verified this pull on this issue; repairing missing labels${redeploy ? ' and redeploying' : ''}.` : 'Already verified this pull on this issue; nothing to do.');
 };
 
 /** Pages one issue listing may read (100 issues each). */

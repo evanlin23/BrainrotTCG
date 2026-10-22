@@ -127,6 +127,13 @@ describe('Hall of Fame workflows (offline contracts)', () => {
     expect(verify).not.toContain('--remove-label rejected');
   });
 
+  it('redeploys only when verify-issue asks to, not on every label repair (#650)', () => {
+    const { verify, redeploy } = jobs(read('hall-of-fame.yml'));
+    expect(verify.join('\n')).toContain('redeploy: ${{ steps.check.outputs.redeploy }}');
+    const condition = redeploy.find((l) => l.trim().startsWith('if:'));
+    expect(condition?.trim()).toBe("if: needs.verify.outputs.verified == 'true' && needs.verify.outputs.redeploy == 'true'");
+  });
+
   describe('the issue workflow\'s "Comment and label" step, run under bash -e with a fake gh', () => {
     /** The step's shell, dedented, as the runner writes it to a script file. */
     const script = () => {
