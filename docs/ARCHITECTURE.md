@@ -93,7 +93,13 @@ src/game/          Browser glue around the engine.
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
   route.ts           the page addresses (#/cards, #/rankings, #/profile, #/settings) and their titles
 
-src/components/    React UI (pack opening, collection, set picker, share sheet, pull viewer, pages)
+src/components/    React UI (pack opening, collection, set picker, share sheet, pull viewer, pages); the UI map is docs/DESIGN.md
+src/hooks/         React hooks: pack cutting and reveal gestures, audio, keyboard, route, pack cache, progress writer
+src/utils/         Small browser helpers: guarded localStorage reads (storage.ts), save migrations, settings, motion and haptics, achievement and confetti rules
+src/workers/       ticket.worker.ts: mines Argon2id tickets off the main thread (ticketMiner.ts and ticketPool.ts drive it)
+src/constants/     STORAGE_KEYS (every localStorage key), the repo name and audio constants
+src/data/          UI-facing card data (set definitions plus built image URLs) and the achievement list
+src/styles/        Design tokens, base and per-component CSS, the rarity palette and the logo mark (docs/DESIGN.md)
 
 spec/              The proof spec (PULL_SPEC.md), test vectors, and verify_pull.py: an independent
                    Python verifier written only from the spec. CI runs both verifiers on both vector files.
@@ -411,8 +417,15 @@ included, shows a `blocked` placeholder, and nothing in the save is changed or d
 historical art would need an explicit opt-in and a note in POLICIES.md first.
 A render error after React mounts shows `AppErrorBoundary`, which writes nothing except the opt-in
 diagnostics: `render-error`, and `copy-failed` if copying its report to the clipboard fails. Startup
-steps before React mounts (`receiveSave`, `runMigrations`, `migratePullLog` in `main.tsx`) are
-outside it and need their own handling.
+steps before React mounts (`main.tsx`) are outside it and handled there: a failed `receiveSave` is
+skipped and the game starts; if `runMigrations` or `migratePullLog` throws, the same crash screen
+renders on its own and notes `unhandled-error`. `runMigrations` returns false only when saved data
+exists and a migration write failed (usually full storage); each stage writes its version marker
+only after its writes succeed, so it is retried on the next start. The game doesn't start then:
+`MigrationRecovery` says reloading alone won't help (free space, then reload) and downloads the
+stored collection, stats, achievements and version marker as unparsed JSON text without changing
+storage. Storage that can't be read, or holds nothing to migrate, starts the game as usual. A v3
+best pack with entries set aside as unreadable isn't rescored and keeps its `highestPackValue`.
 
 ## Hosting
 

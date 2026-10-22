@@ -4,7 +4,7 @@ import type { CardWithMeta } from '../cards/Card';
 import type { PackScore } from '../../engine';
 import { decodeProof, pullId, qualifiesForHallOfFame, utcDay, wouldJoinHallOfFame } from '../../engine';
 import { loadHallOfFame, type HallOfFameEntry } from '../../game/hallOfFameList';
-import { getLatestSet, setCode } from '../../content/sets';
+import { getLatestSet, getSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
 import { canShare, previewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { bragText } from '../../game/share';
@@ -97,7 +97,13 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
         <h3 className="section-title">Cards in this pack</h3>
         <p className="share-note">Choose a card to view or share it. The controls above share the whole pack.</p>
         {/* In the order the pack was revealed, best last, like its summary. */}
-        <PackCardViewer cards={revealOrder(target.cards)} displayMode="grid" showValue={false} canShareCards />
+        <PackCardViewer
+          cards={revealOrder(target.cards)}
+          displayMode="grid"
+          showValue={false}
+          canShareCards
+          set={getSet(target.ref.setId, target.ref.setVersion)}
+        />
       </section>
       <p className="share-note">
         <ShieldCheck aria-hidden="true" /> Anyone who opens the link or scans the code re-checks this exact pack on their own

@@ -35,6 +35,7 @@ interface Asked {
 const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptAsideActionsProps) => {
   const [asked, setAsked] = useState<Asked | null>(null);
   const [refused, setRefused] = useState(false);
+  const [downloadFailed, setDownloadFailed] = useState(false);
   const keepRef = useRef<HTMLButtonElement>(null);
   const discardRef = useRef<HTMLButtonElement>(null);
   const backToDiscard = useRef(false);
@@ -67,7 +68,10 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
   const strong = variant === 'banner' ? 'link-btn save-warning-action' : 'btn btn--primary btn--sm';
   const note = variant === 'banner' ? undefined : 'settings-desc';
   const ask = () => {
-    if (canAct()) setAsked({ print: collectionRecoveryPrint(), changed: false });
+    if (canAct()) {
+      setDownloadFailed(false);
+      setAsked({ print: collectionRecoveryPrint(), changed: false });
+    }
   };
   const answer = (discard: boolean) => {
     backToDiscard.current = true;
@@ -85,6 +89,20 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
     setAsked(null);
     setRefused(result === 'refused');
     if (result === 'discarded') onGone();
+  };
+
+  const handleDownload = () => {
+    if (!canAct()) return;
+    setRefused(false);
+    const result = downloadCollectionRecovery();
+    if (result === 'downloaded') {
+      setDownloadFailed(false);
+    } else if (result === 'none') {
+      setDownloadFailed(false);
+      onGone();
+    } else if (result === 'unavailable') {
+      setDownloadFailed(true);
+    }
   };
 
   return (
@@ -106,8 +124,9 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
         </>
       ) : (
         <>
+          {downloadFailed && <span id={noteId} className={note}>{variant === 'banner' && ' '}Couldn&apos;t read browser storage to download your recovery file.</span>}
           {refused && <span id={noteId} className={note}>{variant === 'banner' && ' '}This browser wouldn&apos;t discard it.</span>}
-          <button type="button" className={plain} onClick={() => { if (canAct() && !downloadCollectionRecovery()) onGone(); }}>
+          <button type="button" className={plain} aria-describedby={downloadFailed ? noteId : undefined} onClick={handleDownload}>
             Download
           </button>
           <button type="button" ref={discardRef} className={`${plain} quiet-focus`} aria-describedby={refused ? noteId : undefined} onClick={ask}>

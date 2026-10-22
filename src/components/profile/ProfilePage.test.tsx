@@ -10,7 +10,7 @@ import { getSet } from '../../content/sets';
 import { HALL_OF_FAME_MIN_MULTIPLIER, pullId, scorePulled, type ProfilePack, type ProfileStats } from '../../engine';
 import { toPulled } from '../../game/cardCode';
 import { getPlayer } from '../../game/player';
-import { submitToHallOfFame } from '../../game/share';
+import { resetSubmissionsForTest, submitToHallOfFame, SUBMITTED_KEY } from '../../game/share';
 
 const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks } = vi.hoisted(() => ({
   myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(),
@@ -39,6 +39,7 @@ beforeEach(() => {
   // jsdom has no ResizeObserver; the profile card's Sheet only uses it to track overflow.
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   localStorage.clear();
+  resetSubmissionsForTest();
   myProfileInfo.mockReset().mockReturnValue({ packs: 3, filled: 0, missing: 0, cache: 'ready' });
   myProfileProof.mockReset();
   myStats.mockReset().mockImplementation(actual.myStats);
@@ -50,6 +51,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSubmissionsForTest();
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
@@ -179,6 +181,76 @@ describe('pack list order and Rankings wording', () => {
     expect(document.querySelector('.pulls-note')?.textContent).toBe('These qualify for Rankings, the public Hall of Fame. Open one to share it or submit it.');
   });
 
+  describe('with a long history', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => entry(i % 2 ? 'Pair' : 'Full House', 100 + i, 1000 + i));
+    const rowCount = () => document.querySelectorAll('section[aria-labelledby="pulls-history-title"] .pulls-list > li').length;
+    const more = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.startsWith('Show more'));
+    const scores = () => [...document.querySelectorAll('.pull-row-score')].map((el) => el.textContent);
+    const pullRows = () => [...document.querySelectorAll<HTMLButtonElement>('section[aria-labelledby="pulls-history-title"] .pulls-list > li > .pull-row')];
+
+    it('starts with five rows and the remaining count, and Show more adds the rest', () => {
+      getHistory.mockReturnValue(many(35));
+      render();
+      expect(rowCount()).toBe(5);
+      expect(more()?.textContent).toContain('30 remaining');
+      act(() => more()!.click());
+      expect(rowCount()).toBe(35);
+      expect(more()).toBeUndefined();
+    });
+
+    it('keeps every entry reachable in order through sorts and filters, and starts over with five', () => {
+      const all = many(35);
+      getHistory.mockReturnValue(all);
+      render();
+      // Best: highest score first; the five shown are the five best of all 35.
+      const bestScores = all.map((e) => e.score).sort((a, b) => b - a).map((n) => String(n));
+      expect(scores()).toEqual(bestScores.slice(0, 5));
+      act(() => more()!.click());
+      expect(scores()).toEqual(bestScores);
+      act(() => tab('Newest').click());
+      expect(rowCount()).toBe(5);
+      expect(hands()).toEqual(all.slice(0, 5).map((e) => e.hand));
+      act(() => tab('For Rankings').click());
+      const worthy = all.filter((e) => e.hand === 'Full House').length;
+      expect(rowCount()).toBe(5);
+      expect(more()?.textContent).toContain(`${worthy - 5} remaining`);
+      act(() => more()!.click());
+      expect(rowCount()).toBe(worthy);
+    });
+
+    it('moves focus to the first new row you can open after Show more, which may remove the button that had it', () => {
+      const set = getSet('right-now', 1)!;
+      const saved = [{ id: set.cards[0].id, holo: false }];
+      // Best order is by score: rows 0-5 (the new row 5 can't be opened: no saved cards), then 6 onward can.
+      getHistory.mockReturnValue(
+        Array.from({ length: 35 }, (_, i) => ({ ...entry('Pair', 1000 - i, 1000 + i), setId: 'right-now', cards: i === 5 ? null : saved })),
+      );
+      render();
+      more()!.focus();
+      expect(document.activeElement).toBe(more());
+      act(() => more()!.click());
+      expect(more()).toBeUndefined();
+      expect(pullRows()[5].disabled).toBe(true);
+      expect(document.activeElement).toBe(pullRows()[6]);
+    });
+
+    it('moves focus to the section heading when no new row can be opened', () => {
+      getHistory.mockReturnValue(many(35)); // no saved cards: every row is disabled
+      render();
+      more()!.focus();
+      act(() => more()!.click());
+      expect(pullRows().every((b) => b.disabled)).toBe(true);
+      expect(document.activeElement).toBe(document.getElementById('pulls-history-title'));
+    });
+
+    it('shows no Show more for a short history', () => {
+      getHistory.mockReturnValue(many(5));
+      render();
+      expect(rowCount()).toBe(5);
+      expect(more()).toBeUndefined();
+    });
+  });
+
   it('says what qualifies for Rankings when nothing does yet', () => {
     getHistory.mockReturnValue([entry('Pair', 100, 3000)]);
     render();
@@ -295,6 +367,26 @@ describe('Hall of Fame submitted badge', () => {
     getHistory.mockReturnValue([{ ...entry(1, 1e9), key: '' }]);
     render();
     expect(badges()).toEqual([]);
+  });
+
+  it('updates submitted badges live when another tab records a submission in storage or clears storage', () => {
+    getHistory.mockReturnValue([entry(1, 1e9)]);
+    render();
+    expect(badges()).toEqual(['Not submitted']);
+
+    // Another tab completes a submission
+    localStorage.setItem(SUBMITTED_KEY, JSON.stringify([idOf(1)]));
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: SUBMITTED_KEY }));
+    });
+    expect(badges()).toEqual(['Submitted']);
+
+    // Another tab clears storage
+    localStorage.clear();
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: null }));
+    });
+    expect(badges()).toEqual(['Not submitted']);
   });
 });
 

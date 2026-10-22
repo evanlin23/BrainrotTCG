@@ -5,6 +5,7 @@ import { isNewSet, setCode } from '../../content/sets';
 import { packThumbUrl } from '../../content/art';
 import type { CollectionItem } from '../../types';
 import { setProgress } from '../../game/progression';
+import { isCardOwned } from '../../game/versions';
 import { siteUrl } from '../../game/pulls';
 import { setPagePath } from '../../game/previewLinks';
 import { copyText } from '../../game/shareActions';
@@ -23,7 +24,7 @@ interface SetPickerProps {
 }
 
 const progressOf = (set: SetDefinition, collection: Record<string, CollectionItem>) => {
-  const owned = set.cards.filter((c) => collection[`${set.id}/${c.id}`]).length;
+  const owned = set.cards.filter((c) => isCardOwned(collection[`${set.id}/${c.id}`])).length;
   const holoOwned = set.cards.filter((c) => (collection[`${set.id}/${c.id}`]?.holoCount ?? 0) > 0).length;
   return { owned, size: set.cards.length, done: setProgress(owned, holoOwned, set.cards.length) };
 };

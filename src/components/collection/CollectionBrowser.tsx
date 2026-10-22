@@ -7,7 +7,7 @@ import { CARD_RARITIES, cardPoints, COLLECTIBLE_CARDS, getSetCards, type Card } 
 import { isOpenable, SETS } from '../../content/sets';
 import { FINISH_INFO, bestFinish } from '../../game/modifiers';
 import { setProgress } from '../../game/progression';
-import { ownedVersions } from '../../game/versions';
+import { isCardOwned, ownedVersions } from '../../game/versions';
 import type { Finish } from '../../engine';
 import type { CollectionItem } from '../../types';
 import '../../styles/Collection.css';
@@ -53,7 +53,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
   const owned = useMemo(() => {
     const map = new Map<string, Owned>();
     for (const item of Object.values(collection)) {
-      if (!item?.card?.key) continue;
+      if (!item?.card?.key || !isCardOwned(item)) continue;
       map.set(item.card.key, {
         normalCount: item.normalCount || item.count || 0,
         holoCount: item.holoCount || 0,
@@ -68,7 +68,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     () =>
       Object.values(collection).reduce(
         (sum, item) =>
-          item?.card?.rarity
+          item?.card?.rarity && isCardOwned(item)
             ? sum + (item.normalCount || item.count || 0) * cardPoints(item.card.rarity, false) + (item.holoCount || 0) * cardPoints(item.card.rarity, true) + (item.modifierPoints ?? 0)
             : sum,
         0,
@@ -98,7 +98,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     <>
       <div className="collection">
         <p className="page-subtitle tabular">
-          {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} Brainrot Score
+          {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} total card points
         </p>
         {started.map(({ set, cards, have, done }) => {
           const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];

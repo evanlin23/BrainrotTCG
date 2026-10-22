@@ -190,8 +190,8 @@ describe('inbox: malformed relay data', () => {
     expect(logs).toContain(`${HOF_RELAYS[4]}: 0 events (connection failed)`);
     expect(logs.filter((l) => l.includes("didn't verify"))).toHaveLength(2);
     expect(logs).toContain(`${failing[1].id}: Pair, 120 doesn't make the Hall of Fame`);
-    // Read: the signed events (bad content, failing, real, wrong tag and kind); not the tampered copy or the other subscription's.
-    expect(logs).toContain(`${served.length + 2} events read, 1 added`);
+    // Read: the signed matching events (bad content, failing, real); not the off-filter tag/kind, tampered copy or other subscription's.
+    expect(logs).toContain(`${served.length} events read, 1 added`);
     expect(logs.join('\n')).not.toMatch(/(^|\n)::/);
 
     // Everything was handled: the next run re-derives nothing and files nothing.

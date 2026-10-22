@@ -60,8 +60,16 @@ export default defineConfig({
   define: { __BUILD_REVISION__: JSON.stringify(buildRevision()) },
   plugins: [react(), siteUrl(), preloadRecovery(), testBudget()],
   test: {
-    // Vitest's defaults (any node_modules, .git) plus the Playwright suites and build output.
-    exclude: ['**/node_modules/**', '**/.git/**', 'tests/browser/**', 'tests/performance/*.spec.ts', 'dist/**'],
+    // Vitest's defaults (any node_modules, .git) plus the Playwright suites, build output and the
+    // agent worktrees nested under .claude/worktrees (each a full checkout with its own tests).
+    exclude: [
+      '**/node_modules/**',
+      '**/.git/**',
+      'tests/browser/**',
+      'tests/performance/*.spec.ts',
+      'dist/**',
+      '.claude/worktrees/**',
+    ],
     // `npm test` turns coverage on for app code only, and the budget reporter (added by testBudget(),
     // after any --reporter flag) checks the run's wall time. Both budgets sit below the measured
     // baseline: docs/DEVELOPMENT.md, Test budgets.
