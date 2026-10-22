@@ -35,6 +35,7 @@ import { POKER_HANDS, RARITIES_RAREST_FIRST, type HandKey, type SetDefinition } 
 import { modifierText } from '../src/game/modifierLabels.ts';
 import { cardPreviewPath, hasModifierPages, MODIFIER_TOKENS, PREVIEW_COPIES, previewImagePath, previewPath, previewTitle, setPagePath, singleCardImagePath, type Preview } from '../src/game/previewLinks.ts';
 import { setLinkHash } from '../src/game/route.ts';
+import { siteFromEnv } from './crawler-files.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -60,8 +61,8 @@ export const optionsFromEnv = (env: NodeJS.ProcessEnv = process.env): PreviewOpt
     outDir: env.OUT_DIR ? `${env.OUT_DIR.replace(/\/$/, '')}/` : `${ROOT}dist/`,
     pagesOnly: env.PAGES_ONLY === '1',
     base,
-    // SITE_URL may end in / or not; the pages always name it ending in one.
-    site: env.SITE_URL ? `${env.SITE_URL.replace(/\/+$/, '')}/` : `https://evanlin23.github.io${base}`,
+    // SITE_URL may end in / or not; the pages always name it ending in one. Unset, it is production.
+    site: siteFromEnv(env.SITE_URL),
   };
 };
 const W = 1200;
