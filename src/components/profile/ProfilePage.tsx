@@ -55,6 +55,8 @@ interface ProfilePageProps {
   section?: PageSection;
 }
 
+/** Archive rows shown at first (so Best cards below stays within reach), and added by each Show more. */
+const FIRST_PAGE = 5;
 const PAGE = 30;
 
 /** How the pack list is shown: best first (the default), newest first, or only the ones that qualify for Rankings. */
@@ -119,7 +121,7 @@ const ProfilePage = ({
   const mine = useMemo(() => myProfileInfo(), [reopenRuns, packCache]);
   // Until saved packs are read, a pack not in memory yet isn't one this device lacks.
   const unopened = mine?.cache === 'ready' ? mine.missing - mine.filled : 0;
-  const [shown, setShown] = useState(PAGE);
+  const [shown, setShown] = useState(FIRST_PAGE);
   const [view, setView] = useState<PackView>('best');
   const tabsId = useId();
   const best = useMemo(() => [...history].sort(byBest), [history]);
@@ -127,7 +129,7 @@ const ProfilePage = ({
   const listed = view === 'hof' ? worthy : view === 'best' ? best : history;
   const changeView = (next: PackView) => {
     setView(next);
-    setShown(PAGE);
+    setShown(FIRST_PAGE);
   };
   const [copied, setCopied] = useState(false);
   const [preparing, setPreparing] = useState<string | null>(null);
@@ -334,7 +336,7 @@ const ProfilePage = ({
               </ul>
               {shown < listed.length && (
                 <button type="button" className="btn btn--ghost btn--block" onClick={() => setShown((n) => n + PAGE)}>
-                  Show more
+                  Show more<span className="sr-only"> packs</span> · {(listed.length - shown).toLocaleString()} remaining
                 </button>
               )}
             </div>

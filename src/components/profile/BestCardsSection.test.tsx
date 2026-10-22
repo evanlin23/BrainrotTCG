@@ -10,7 +10,13 @@ import { toPulled } from '../../game/cardCode';
 import { getBestCards, mergeBestCards, resetBestCards, type BestCandidate } from '../../game/bestCards';
 
 const KEY = 'ab'.repeat(32);
-const { used, sync, rebuild } = vi.hoisted(() => ({ used: { value: 0 }, sync: { fail: false }, rebuild: vi.fn() }));
+const { used, sync, rebuild, derive } = vi.hoisted(() => ({
+  used: { value: 0 },
+  sync: { fail: false },
+  rebuild: vi.fn(),
+  /** Nonces whose ticket derivation fails right now (a transient failure the real rebuild reports as `failed`). */
+  derive: { failing: new Set<number>() },
+}));
 
 // Only the key and ticket count are faked; the list itself is read from (jsdom's) real storage.
 vi.mock('../../game/player', async (importOriginal) => ({
@@ -33,6 +39,7 @@ vi.mock('../../game/profiles', async (importOriginal) => {
 vi.mock('../../game/bestCards', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../game/bestCards')>();
   const ticketFn: TicketFn = async (_set, key, nonce) => {
+    if (derive.failing.has(nonce)) throw new Error('Argon2 unavailable');
     const ticket = new Uint8Array(32);
     ticket.set(key.subarray(0, 31));
     ticket[31] = nonce & 255;
@@ -76,6 +83,7 @@ beforeEach(() => {
   used.value = 0;
   sync.fail = false;
   rebuild.mockClear();
+  derive.failing.clear();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -230,12 +238,68 @@ describe('winners an older save never scored', () => {
     expect(rebuild).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the page working when a rebuild fails', async () => {
+  const retryButton = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again');
+  const status = () => container.querySelector('[role="status"]');
+
+  it('says the cards are unavailable, not that there are none, when the rebuild fails to derive a pack', async () => {
+    unscored();
+    derive.failing.add(0); // the real rebuild catches this and returns failed=1
+    await act(async () => render());
+    expect(rows()).toHaveLength(0);
+    expect(text(container)).not.toContain('None on this device yet.');
+    expect(text(status()!)).toContain("couldn't be loaded just now");
+    expect(retryButton()).toBeDefined();
+    expect(getBestCards(KEY, 1).cards).toHaveLength(2); // the references are kept
+
+    // Packs changing or the list refreshing never mines again by itself.
+    await act(async () => root.render(<BestCardsSection refreshKey="b" cacheReady />));
+    expect(rebuild).toHaveBeenCalledTimes(1);
+
+    derive.failing.clear();
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rows().length).toBeGreaterThan(0);
+    expect(status()).toBeNull();
+    expect(retryButton()).toBeUndefined();
+  });
+
+  it('says the same when the rebuild rejects, and retries the same load', async () => {
     unscored();
     rebuild.mockRejectedValueOnce(new Error('no Argon2'));
     await act(async () => render());
     expect(rows()).toHaveLength(0);
-    expect(text(container)).toContain('None on this device yet.');
+    expect(text(container)).not.toContain('None on this device yet.');
+    expect(text(status()!)).toContain("couldn't be loaded just now");
+
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rebuild).toHaveBeenLastCalledWith(KEY, 1);
+    expect(rows().length).toBeGreaterThan(0);
+    expect(retryButton()).toBeUndefined();
+  });
+
+  it('keeps the cards that did load, and a failed retry keeps the guidance', async () => {
+    localStorage.setItem(
+      STORAGE_KEYS.BEST_CARDS,
+      JSON.stringify({ [KEY]: { w: 2, b: [{ s: SET.id, v: SET.version, n: 0, i: 0, t: 1000 }, { s: SET.id, v: SET.version, n: 1, i: 0, t: 1001 }] } }),
+    );
+    used.value = 2;
+    derive.failing.add(1);
+    await act(async () => render());
+    const partial = rows().length;
+    expect(partial).toBeGreaterThan(0); // pack 0 rebuilt and is listed
+    expect(text(status()!)).toContain('Some of your best cards');
+
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rows()).toHaveLength(partial);
+    expect(retryButton()).toBeDefined();
+
+    derive.failing.clear();
+    await act(async () => retryButton()!.click());
+    expect(getBestCards(KEY, 2).cards.every((c) => c.card)).toBe(true);
+    expect(rows().length).toBeGreaterThan(partial);
+    expect(status()).toBeNull();
   });
 });
 

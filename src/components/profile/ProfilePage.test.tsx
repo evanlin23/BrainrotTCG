@@ -179,6 +179,48 @@ describe('pack list order and Rankings wording', () => {
     expect(document.querySelector('.pulls-note')?.textContent).toBe('These qualify for Rankings, the public Hall of Fame. Open one to share it or submit it.');
   });
 
+  describe('with a long history', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => entry(i % 2 ? 'Pair' : 'Full House', 100 + i, 1000 + i));
+    const rowCount = () => document.querySelectorAll('section[aria-labelledby="pulls-history-title"] .pulls-list > li').length;
+    const more = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.startsWith('Show more'));
+
+    it('starts with five rows and the remaining count, and Show more adds the rest', () => {
+      getHistory.mockReturnValue(many(35));
+      render();
+      expect(rowCount()).toBe(5);
+      expect(more()?.textContent).toContain('30 remaining');
+      act(() => more()!.click());
+      expect(rowCount()).toBe(35);
+      expect(more()).toBeUndefined();
+    });
+
+    it('keeps every entry reachable in order through sorts and filters, and starts over with five', () => {
+      const all = many(35);
+      getHistory.mockReturnValue(all);
+      render();
+      // Best: highest score first; the five shown are the five best of all 35.
+      expect(hands()).toHaveLength(5);
+      act(() => more()!.click());
+      expect(hands()).toHaveLength(35);
+      act(() => tab('Newest').click());
+      expect(rowCount()).toBe(5);
+      expect(hands()).toEqual(all.slice(0, 5).map((e) => e.hand));
+      act(() => tab('For Rankings').click());
+      const worthy = all.filter((e) => e.hand === 'Full House').length;
+      expect(rowCount()).toBe(5);
+      expect(more()?.textContent).toContain(`${worthy - 5} remaining`);
+      act(() => more()!.click());
+      expect(rowCount()).toBe(worthy);
+    });
+
+    it('shows no Show more for a short history', () => {
+      getHistory.mockReturnValue(many(5));
+      render();
+      expect(rowCount()).toBe(5);
+      expect(more()).toBeUndefined();
+    });
+  });
+
   it('says what qualifies for Rankings when nothing does yet', () => {
     getHistory.mockReturnValue([entry('Pair', 100, 3000)]);
     render();

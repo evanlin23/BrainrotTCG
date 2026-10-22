@@ -53,6 +53,10 @@ interface BestCardsSectionProps {
 const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => {
   const [list, setList] = useState(readList);
   const [rebuilding, setRebuilding] = useState(false);
+  /** The last rebuild lost some winners' cards (a pack that wouldn't derive, or the rebuild itself): not an empty collection. */
+  const [unavailable, setUnavailable] = useState(false);
+  /** Bumped by Try again, which runs the same rebuild once more. */
+  const [attempt, setAttempt] = useState(0);
   const [viewing, setViewing] = useState<Row | null>(null);
   const mounted = useRef(true);
   const rebuilt = useRef(new Set<string>());
@@ -80,7 +84,8 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
     } catch { /* The list as stored stays on screen. */ }
   }, [refreshKey]);
 
-  // Winners this build can't score yet (their cached card is gone) are re-derived from their tickets, once per key.
+  // Winners this build can't score yet (their cached card is gone) are re-derived from their tickets, once per key
+  // (and once more each time the player asks to try again, never on its own).
   useEffect(() => {
     if (!cacheReady || !list.cards.some((c) => !c.card)) return;
     const { player, nextNonce } = getPlayerTickets();
@@ -88,26 +93,53 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
     rebuilt.current.add(player.publicKeyHex);
     setRebuilding(true);
     void rebuildBestCards(player.publicKeyHex, nextNonce)
-      .then(({ cards, complete, unsaved }) => {
-        if (mounted.current) setList({ cards, complete, unsaved });
+      .then(({ cards, complete, unsaved, failed }) => {
+        // A player switched meanwhile is no longer the one on screen.
+        if (!mounted.current || getPlayerTickets().player.publicKeyHex !== player.publicKeyHex) return;
+        setList({ cards, complete, unsaved });
+        setUnavailable(failed > 0);
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (mounted.current) setUnavailable(true);
+      })
       .finally(() => {
         if (mounted.current) setRebuilding(false);
       });
-  }, [list, cacheReady]);
+  }, [list, cacheReady, attempt]);
+
+  const retry = () => {
+    if (rebuilding) return;
+    rebuilt.current.delete(getPlayerTickets().player.publicKeyHex);
+    setAttempt((n) => n + 1);
+  };
 
   const rows = useMemo(() => list.cards.map(toRow).filter((r): r is Row => r !== null), [list]);
   // No heading over a list that is still on its way in.
-  if (rows.length === 0 && (!cacheReady || rebuilding)) return null;
+  // Only while winners are still unscored: packs read in later may have settled them.
+  const lost = unavailable && list.cards.some((c) => !c.card);
+  if (rows.length === 0 && !lost && (!cacheReady || rebuilding)) return null;
 
   return (
     <section aria-labelledby="best-cards-title" className="best-cards">
       <h2 id="best-cards-title" className="section-title best-cards-title">
         Best cards
       </h2>
+      {lost && (
+        <div className="pulls-note" role="status">
+          <p>
+            {rebuilding
+              ? 'Trying again…'
+              : rows.length === 0
+                ? "Your best cards couldn't be loaded just now. They are still saved on this device."
+                : "Some of your best cards couldn't be loaded just now. The rest are listed, and the others are still saved on this device."}
+          </p>
+          <button type="button" className="btn btn--ghost" aria-disabled={rebuilding} onClick={retry}>
+            Try again
+          </button>
+        </div>
+      )}
       {rows.length === 0 ? (
-        <p className="pulls-note">None on this device yet. Open a pack and its best cards collect here.</p>
+        lost ? null : <p className="pulls-note">None on this device yet. Open a pack and its best cards collect here.</p>
       ) : (
         <>
           {!list.complete && <p className="pulls-note">The best among the packs saved on this device.</p>}
