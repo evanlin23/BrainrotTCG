@@ -123,26 +123,30 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         const reader = new FileReader();
         reader.onload = (event) => {
             const content = event.target?.result as string;
-            let incoming: { player?: string; stats?: string } = {};
+            let incoming: unknown;
             try {
                 incoming = JSON.parse(content);
             } catch {
                 return setImportNote("Couldn't read that file. Is it a save exported from Save & backup?");
             }
+            if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+                return setImportNote("That file isn't a supported Brainrot TCG save.");
+            }
+            const saveObj = incoming as { player?: string; stats?: string };
             // Replacing real progress with someone else's (or an older) save asks first, in the page.
             const here = localStorage.getItem('brainrot-player-v1');
             const sameKey = (() => {
                 try {
-                    return !!incoming.player && JSON.parse(here ?? '{}').secretKey === JSON.parse(incoming.player).secretKey;
+                    return !!saveObj.player && JSON.parse(here ?? '{}').secretKey === JSON.parse(saveObj.player).secretKey;
                 } catch {
                     return false;
                 }
             })();
-            if (!hasProgress() || (sameKey && describe(here, localStorage.getItem(STORAGE_KEYS.STATS)) === describe(incoming.player, incoming.stats))) {
+            if (!hasProgress() || (sameKey && describe(here, localStorage.getItem(STORAGE_KEYS.STATS)) === describe(saveObj.player, saveObj.stats))) {
                 setReplacing(null);
                 return runImport(content);
             }
-            const saves = `this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(incoming.player, incoming.stats)})`;
+            const saves = `this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(saveObj.player, saveObj.stats)})`;
             setReplacing(saves);
             setPendingImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);

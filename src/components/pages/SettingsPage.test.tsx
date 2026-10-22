@@ -96,9 +96,9 @@ describe('Settings: bringing the old address save', () => {
 
 describe('Settings: importing a backup file', () => {
   const restoreNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Restore')!;
-  const pick = async (save: Record<string, string>) => {
+  const pickRaw = async (content: string) => {
     const input = document.body.querySelector<HTMLInputElement>('input[type="file"]')!;
-    Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(save)], 'save.json')], configurable: true });
+    Object.defineProperty(input, 'files', { value: [new File([content], 'save.json')], configurable: true });
     const read = FileReader.prototype.readAsText;
     const loaded = new Promise((resolve) => vi.spyOn(FileReader.prototype, 'readAsText').mockImplementationOnce(function (this: FileReader, file: Blob) {
       this.addEventListener('load', resolve); // after the page's own onload
@@ -109,6 +109,53 @@ describe('Settings: importing a backup file', () => {
       await loaded;
     });
   };
+  const pick = (save: Record<string, string>) => pickRaw(JSON.stringify(save));
+
+  it('rejects null, array and primitive JSON files with useful message and no replacement prompt when progress exists', async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    // null JSON
+    await pickRaw('null');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+    expect(localStorage.getItem('brainrot-player-v1')).toBe(player('aa'));
+
+    // Array JSON
+    await pickRaw('[1, 2, 3]');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Primitive number
+    await pickRaw('12345');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Primitive string
+    await pickRaw('"hello world"');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Primitive boolean
+    await pickRaw('true');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Malformed JSON syntax
+    await pickRaw('{ not valid json');
+    expect(restoreNote().textContent).toBe("Couldn't read that file. Is it a save exported from Save & backup?");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+    expect(localStorage.getItem('brainrot-player-v1')).toBe(player('aa'));
+  });
 
   it("names only the saves being swapped when there's no room for a copy, not ones picked earlier", async () => {
     const stats = JSON.stringify({ packsOpened: 3 });
