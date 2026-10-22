@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import type { Card } from '../../data/cards';
 import { CARD_RARITIES, cardNumber } from '../../data/cards';
 import { getLatestSet, setCode } from '../../content/sets';
-import { getPlayer } from '../../game/player';
+import { getPlayer, watchPlayer } from '../../game/player';
 import { findPackWithCard } from '../../game/history';
 import { canShare, cardPreviewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
@@ -33,7 +33,12 @@ interface CardShareSheetProps {
 const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) => {
   const { isHolo, finish = null, misprint = false } = version;
   const mods = modifierLabel(version);
-  const player = getPlayer();
+  const [player, setPlayer] = useState(() => getPlayer());
+
+  useEffect(() => watchPlayer(() => {
+    setPlayer(getPlayer());
+  }), []);
+
   const set = getLatestSet(card.setId);
   const setName = set?.name ?? card.setId;
   const code = set ? setCode(set) : card.setId.toUpperCase();
@@ -57,8 +62,13 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
     ...(link ? [link] : []),
   ].join('\n');
 
+  // Key the SharePreviewSheet on the immutable target tuple so any save-switch or ownership change
+  // atomically discards stale poster draws/object URLs and instantiates a clean preview.
+  const targetKey = `${player.publicKeyHex}:${pack?.setId ?? ''}@${pack?.setVersion ?? 0}#${pack?.nonce ?? 'none'}:${card.key}:${isHolo}:${finish ?? ''}:${misprint}`;
+
   return (
     <SharePreviewSheet
+      key={targetKey}
       title={`Share ${card.name}`}
       subtitle={`${rarity.symbol} ${mods ? `${mods} ` : ''}${rarity.name} · ${code} ${number}`}
       makeImage={() =>

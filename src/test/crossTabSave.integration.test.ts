@@ -6,6 +6,7 @@ import { shelvedPacks } from './pendingShelf';
 import { STORAGE_KEYS } from '../constants/config';
 import { fromHex, publicKeyFromSecret, toHex } from '../engine';
 import { SAVE_STAMP_KEY } from '../game/player';
+import { getSetCards } from '../data/cards';
 import type { CollectionItem, Stats } from '../types';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
@@ -299,4 +300,52 @@ it('still recovers a pack the collection couldn’t store when the player is the
   expect(packsOpened()).toBe(1);
   expect(shelf()).toEqual([]);
   expect(banner()).toBeNull();
+}, 60_000);
+
+it('keeps card share poster, cert and link coherent on save change in Cards (#653)', async () => {
+  const card = getSetCards('right-now')[0];
+  const cardId = card.key.split('/')[1];
+  const SEED_WITH_CARD = {
+    ...SEED,
+    [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
+    [STORAGE_KEYS.COLLECTION]: JSON.stringify({ [card.key]: { card, normalCount: 1, holoCount: 0 } }),
+    [STORAGE_KEYS.HISTORY]: JSON.stringify([{
+      s: card.setId, v: 2, n: 0, k: keyOf(MINE), c: cardId, h: 'High Card', x: 0, t: 1,
+    }]),
+  };
+  app = await mountedApp(SEED_WITH_CARD);
+  await app.mount();
+
+  // Navigate to Cards
+  const cardsTab = [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent?.includes('Cards'))!;
+  await app.interact(() => cardsTab.click());
+  await app.until('Cards collection is visible', () => expect(document.querySelector('.collection')).not.toBeNull());
+
+  // Click card thumbnail
+  await app.until('Card item is visible', () => expect(document.querySelector('button.collection-item')).not.toBeNull());
+  const cardThumb = document.querySelector<HTMLButtonElement>('button.collection-item')!;
+  await app.interact(() => cardThumb.click());
+  await app.until('Card viewer modal is open', () => expect(document.querySelector('.card-viewer')).not.toBeNull());
+
+  // Click Share card
+  const shareBtn = [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.includes('Share card'))!;
+  await app.interact(() => shareBtn.click());
+  await app.until('Card share sheet is open', () => expect(document.querySelector('.share-sheet')).not.toBeNull());
+  expect(document.querySelector('.share-sheet')!.textContent).toContain('(ticket #0)');
+
+  // Another tab imports Player B, who also owns this card at ticket #1
+  const THEIR_SAVE_WITH_CARD = {
+    ...THEIR_SAVE,
+    [STORAGE_KEYS.COLLECTION]: JSON.stringify({ [card.key]: { card, normalCount: 1, holoCount: 0 } }),
+    [STORAGE_KEYS.HISTORY]: JSON.stringify([{
+      s: card.setId, v: 2, n: 1, k: keyOf(THEIRS), c: cardId, h: 'High Card', x: 0, t: 2,
+    }]),
+  };
+  otherTabWrites(THEIR_SAVE_WITH_CARD);
+  await storageEvent(PLAYER_KEY);
+
+  // The share sheet updates atomically to Player B's ticket #1
+  await app.until('Card share sheet updates to ticket #1', () => expect(document.querySelector('.share-sheet')?.textContent).toContain('(ticket #1)'));
+  expect(document.querySelector('.share-sheet')?.textContent).not.toContain('(ticket #0)');
+  expect(app.takeErrors(/^Could not draw the share image/).length).toBeGreaterThan(0);
 }, 60_000);
