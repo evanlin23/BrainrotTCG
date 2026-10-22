@@ -264,7 +264,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     />
                     <SwitchRow
                         label="Particles"
-                        desc="Confetti on Epic and better pulls, finishes and misprints; sparkles on holos; sparks when you tear a pack. Plain cards just flip."
+                        desc="Confetti on Epic and better pulls, finishes and misprints; sparkles on holos; sparks as you swipe a pack open. Plain cards just flip."
                         checked={settings.particlesEnabled}
                         onChange={() => onSettingsChange({ ...settings, particlesEnabled: !settings.particlesEnabled })}
                     />

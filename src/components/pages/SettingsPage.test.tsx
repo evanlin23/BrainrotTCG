@@ -484,7 +484,7 @@ describe('Settings: particles copy', () => {
     const text = label?.parentElement?.textContent ?? '';
     expect(text).toMatch(/Epic and better/);
     expect(text).toMatch(/holos/);
-    expect(text).toMatch(/tear a pack/);
+    expect(text).toMatch(/swipe a pack open/);
     expect(text).toMatch(/Plain cards just flip/);
   });
 });
