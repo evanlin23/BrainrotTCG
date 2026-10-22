@@ -5,7 +5,7 @@ import { SETS } from '../../content/sets';
 import PackCuttingUI from './PackCuttingUI';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 
-const render = (xs: number[], { pressing = false, nudging = false, tapped = false, isPackCut = false, waiting = false, refusal = null as PackRefusal | null } = {}) =>
+const render = (xs: number[], { pressing = false, nudging = false, tapped = false, fellShort = false, isPackCut = false, waiting = false, refusal = null as PackRefusal | null } = {}) =>
   renderToStaticMarkup(
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()}
@@ -17,6 +17,7 @@ const render = (xs: number[], { pressing = false, nudging = false, tapped = fals
       pressing={pressing}
       nudging={nudging}
       tapped={tapped}
+      fellShort={fellShort}
       isPackCut={isPackCut}
       waiting={waiting}
       cutPoints={xs.map((x) => ({ x, y: 19 }))}
@@ -38,6 +39,16 @@ describe('the tear line under a press', () => {
     expect(shellClasses(render([], { tapped: true }))).toEqual(['pack-shell', 'is-tapped']);
     expect(shellClasses(render([], { tapped: true, pressing: true }))).toEqual(['pack-shell', 'is-pressed']);
     expect(shellClasses(render([20, 30], { tapped: true }))).toEqual(['pack-shell', 'is-cutting']);
+  });
+
+  it('springs back and says to go farther after a swipe let go short, until the next press (#803)', () => {
+    expect(shellClasses(render([], { fellShort: true }))).toEqual(['pack-shell', 'is-short']);
+    expect(shellClasses(render([], { fellShort: true, pressing: true }))).toEqual(['pack-shell', 'is-pressed']);
+    expect(shellClasses(render([20, 30], { fellShort: true }))).toEqual(['pack-shell', 'is-cutting']);
+    const html = render([], { fellShort: true });
+    expect(html).toContain('Not quite. Swipe farther, or tap Open pack');
+    expect(html).toMatch(/class="[^"]*\bpack-open-button\b[^"]*\bis-prompted\b/);
+    expect(render([])).not.toContain('is-prompted');
   });
 
   it('hands over to the cut once the swipe draws', () => {

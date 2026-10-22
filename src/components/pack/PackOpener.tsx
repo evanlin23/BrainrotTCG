@@ -180,17 +180,19 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const [slowOpen, setSlowOpen] = useState(false);
   /**
    * A press on the pack landed below the band a swipe can start in ('miss'), or tapped in that band
-   * without swiping ('tap'), so it shows where, or how, to swipe for a moment.
+   * without swiping ('tap'), or a swipe was let go too short to open ('short'), so it shows where, or
+   * how, to swipe for a moment.
    */
-  const [nudging, setNudging] = useState<false | 'miss' | 'tap'>(false);
+  const [nudging, setNudging] = useState<false | 'miss' | 'tap' | 'short'>(false);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nudge = useCallback((kind: 'miss' | 'tap') => {
+  const nudge = useCallback((kind: 'miss' | 'tap' | 'short') => {
     setNudging(kind);
     if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     nudgeTimerRef.current = setTimeout(() => setNudging(false), 1800);
   }, []);
   const nudgeMiss = useCallback(() => nudge('miss'), [nudge]);
   const nudgeTap = useCallback(() => nudge('tap'), [nudge]);
+  const nudgeShort = useCallback(() => nudge('short'), [nudge]);
   useEffect(() => {
     if (!isPackCut || isOpening) return;
     const timer = window.setTimeout(() => setSlowOpen(true), 1200);
@@ -243,6 +245,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     disabled: disabled || openBlocked,
     onMiss: nudgeMiss,
     onSeamTap: nudgeTap,
+    onShortSwipe: nudgeShort,
   });
 
   useEffect(() => {
@@ -723,6 +726,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               retryButtonRef={retryButtonRef}
               nudging={nudging === 'miss'}
               tapped={nudging === 'tap'}
+              fellShort={nudging === 'short'}
               cutPoints={cutPoints}
               sparks={sparks}
             />

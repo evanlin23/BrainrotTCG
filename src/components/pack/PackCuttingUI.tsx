@@ -30,6 +30,8 @@ interface PackCuttingUIProps {
   nudging?: boolean;
   /** A tap on the tear line didn't swipe: the swipe hint pulses to show how. */
   tapped?: boolean;
+  /** A swipe was let go too short to open: the pack springs back and the hint says to go farther or tap (#803). */
+  fellShort?: boolean;
   cutPoints: CutPoint[];
   sparks: readonly Spark[];
 }
@@ -49,6 +51,7 @@ const PackCuttingUI = ({
   waiting = false,
   nudging = false,
   tapped = false,
+  fellShort = false,
   cutPoints,
   sparks,
 }: PackCuttingUIProps) => {
@@ -64,7 +67,7 @@ const PackCuttingUI = ({
         {/* A gesture surface only: the Open pack button under it is the control for keys and screen readers. */}
         <div
           ref={packRef}
-          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${tapped && !isCutting && !pressing ? 'is-tapped' : ''}`}
+          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${tapped && !isCutting && !pressing ? 'is-tapped' : ''} ${fellShort && !isCutting && !pressing ? 'is-short' : ''}`}
           style={{ '--pack-mask': `url("${packDesign}")` } as React.CSSProperties}
         >
           {/* Each half carries its foil with it when the wrapper tears. */}
@@ -90,7 +93,7 @@ const PackCuttingUI = ({
             <div className="swipe-hint">
               <MoveHorizontal className="swipe-hint-icon" aria-hidden="true" />
               <span className="swipe-hint-text">
-                {nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across to open'}
+                {fellShort ? 'Not quite. Swipe farther, or tap Open pack' : nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across to open'}
               </span>
             </div>
           )}
@@ -154,7 +157,7 @@ const PackCuttingUI = ({
           <button
             type="button"
             ref={openButtonRef}
-            className="btn btn--secondary btn--sm pack-open-button quiet-focus"
+            className={`btn btn--secondary btn--sm pack-open-button quiet-focus${fellShort ? ' is-prompted' : ''}`}
             onClick={onOpen}
             aria-disabled={isPackCut || undefined}
           >
