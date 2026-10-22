@@ -173,7 +173,6 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
   return (
     <Sheet
       title={hand}
-      subtitle={`${pull.set.name} · ${publicName(pull.proof.name)}`}
       onClose={onClose}
       size="md"
       className="pull-viewer"
@@ -192,13 +191,14 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
         </div>
       }
     >
+      {/* The one attribution: who and which set. The sheet has no subtitle repeating either. */}
       <p className="pull-viewer-whose">
         {who} pulled this pack in {pull.set.name}.
       </p>
-      {/* The one place the fingerprint appears: the certificate. */}
+      {/* Said in the guest's frame ("your browser"), true for the sharer too. The one place the fingerprint appears: the certificate. */}
       <p className="pull-viewer-badge">
         <span>
-          <ShieldCheck aria-hidden="true" /> Verified on this device
+          <ShieldCheck aria-hidden="true" /> This pull checks out — re-verified in your browser just now
         </span>
         <span className="pull-viewer-cert">
           Cert {pull.fingerprint} · {setCode(pull.set)} #{pull.proof.nonce}

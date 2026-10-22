@@ -34,7 +34,7 @@ const text = () => document.body.textContent ?? '';
 const copyButton = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.includes('Copy link'));
 const expectChecking = () => {
   expect(text()).toContain('Re-opening the pack on your device');
-  expect(text()).not.toContain('Verified on this device');
+  expect(text()).not.toContain('This pull checks out');
   expect(text()).not.toContain('Alpha Ripper');
   expect(text()).not.toContain(`#${NONCE_A}`);
   expect(copyButton()).toBeUndefined();
@@ -48,7 +48,7 @@ it("retires verified pull A when only the hash changes to pending pull B, then c
   history.replaceState(null, '', `/BrainrotTCG/#/pull/${proofA}`);
   await app.mount();
   await app.until('pull A verifies', () => {
-    expect(text()).toContain('Verified on this device');
+    expect(text()).toContain('This pull checks out');
     expect(text()).toContain('Alpha Ripper');
     expect(text()).toContain(`#${NONCE_A}`);
   });
@@ -59,7 +59,7 @@ it("retires verified pull A when only the hash changes to pending pull B, then c
   expectChecking();
 
   await app.until('pull B verifies', () => {
-    expect(text()).toContain('Verified on this device');
+    expect(text()).toContain('This pull checks out');
     expect(text()).toContain('Beta Ripper');
     expect(text()).toContain(`#${NONCE_B}`);
   });
@@ -89,7 +89,7 @@ it('does not let a late completion of A overwrite B after a hash-only route chan
   expectChecking();
 
   await app.until('pull B verifies', () => {
-    expect(text()).toContain('Verified on this device');
+    expect(text()).toContain('This pull checks out');
     expect(text()).toContain('Beta Ripper');
   });
   expect(text()).not.toContain('Alpha Ripper');

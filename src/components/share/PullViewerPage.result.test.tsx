@@ -62,7 +62,7 @@ describe('shared pull result (#639)', () => {
     expect(count(text, PAIR.fingerprint)).toBe(1);
     expect(dialog.querySelector('.pull-viewer-cert')!.textContent).toContain(`Cert ${PAIR.fingerprint}`);
     // Verification, the card guide and the five-card fan are all still there.
-    expect(text).toContain('Verified on this device');
+    expect(text).toContain('This pull checks out');
     expect([...dialog.querySelectorAll('button')].some((b) => b.textContent?.includes('Card guide'))).toBe(true);
     expect(dialog.querySelectorAll('.pack-viewer-cards > button')).toHaveLength(PAIR.cards.length);
   });
