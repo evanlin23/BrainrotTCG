@@ -162,6 +162,11 @@ nothing to GitHub, a relay or Pages. What is real and what is not:
   retention, relay or GitHub outages, write limits or failures, existing issues, seen-cache filler,
   modeled costs and the bounds (events, runs, wall time, heap). Hitting a bound ends the scenario with
   `exit: aborted: ...` and fails a check. Window or retention expiry is counted apart from delivery.
+- Limits, also in the report's `labels.limits`: the published list is assumed to be a 404, so the
+  floor and `joinRefusal` paths do not run; event and proof keys come from 16-key pools. A scenario
+  asking for a `measured` Argon2 time without a sample reports `meta.argon.source` as
+  `measured-missing` and uses the default. Per run, `beyondPaging` counts events past the paging cap
+  and `unreadable` counts in-window events no relay could serve (every relay down).
 
 ```
 npx tsx scripts/hof-capacity.ts --list

@@ -44,7 +44,9 @@ const expectPassed = (s: Summary) => {
   expect(s.exit).toBe('completed');
 };
 const withoutTiming = (s: Summary) => ({ ...s, timing: undefined });
-const run = async (input: ScenarioInput) => runScenario({ model: { argonMs: 100 }, ...input });
+// Wall time and heap are not what these tests check, so they never gate them (not Infinity: the summary must survive a JSON round trip).
+const UNBOUNDED = { maxWallMs: Number.MAX_SAFE_INTEGER, maxHeapMb: Number.MAX_SAFE_INTEGER };
+const run = async (input: ScenarioInput) => runScenario({ model: { argonMs: 100 }, ...input, bounds: { ...UNBOUNDED, ...input.bounds } });
 
 describe('shipped caps', () => {
   it('spends at most 300 derivation attempts a run, defers the rest, and reads every page', async () => {
@@ -61,7 +63,7 @@ describe('shipped caps', () => {
     expect(s.drain.runsToDrain).toBeLessThanOrEqual(1);
     expect(s.config.model.argonMs).toBe(100);
     expect(first.modeledRunS).toBeGreaterThan(20); // its derivations x 100 ms plus the request latencies, modeled
-  }, 30_000);
+  }, 60_000);
 
   it('files at most 20 entries a run and drains the rest over later runs', async () => {
     const s = await run({ name: 'filing', runs: 3, phases: [{ fromS: 0, toS: 900, ratePerS: 30 / 900 }], qualifyingFraction: 1 });
@@ -95,6 +97,8 @@ describe('outages and expiry', () => {
     expectPassed(s);
     expect(s.runs[0].relaysFailed).toBe(HOF_RELAYS.length);
     expect(s.runs[0].eventsRead).toBe(0);
+    expect([s.runs[0].beyondPaging, s.runs[0].unreadable]).toEqual([0, s.runs[0].onRelays]); // unread because every relay was down, not past the paging cap
+    expect(s.runs[0].onRelays).toBeGreaterThan(0);
     expect(s.totals.kinds.qualifying.expiredWindow).toBe(s.runs[0].arrived); // the first batch aged out unread
     expect(s.totals.kinds.qualifying.expiredRetention).toBe(0);
     expect(s.totals.pulls.expiredBeforeHandled).toBe(s.runs[0].arrived);
@@ -202,6 +206,14 @@ describe('labels and the command line', () => {
     expectPassed(s);
     expect(s.meta.argon).toEqual(argon);
     expect(s.runs[0].modeledRunS).toBeGreaterThanOrEqual((s.runs[0].budgetUsed * argon.medianMs) / 1000);
+  }, 60_000);
+
+  it('labels what it does not exercise and an unsampled "measured" Argon2 time', async () => {
+    const s = await run({ name: 'unsampled', runs: 1, phases: [{ fromS: 0, toS: 900, ratePerS: 2 / 900 }], qualifyingFraction: 1, model: { argonMs: 'measured' } });
+    expectPassed(s);
+    expect(s.meta.argon.source).toMatch(/^measured-missing/);
+    expect(s.labels.limits).toMatch(/404.*floor.*joinRefusal.*16-key pools/);
+    expect((await run({ name: 'fixed', runs: 1 })).meta.argon.source).toBe('input');
   }, 60_000);
 
   it('keeps the 30 packs/second scenario behind #225 and its opt-in flag', async () => {

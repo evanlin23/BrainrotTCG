@@ -212,8 +212,10 @@ export interface RunRow {
   eventsRead: number;
   /** Relays whose read ended in an error (a run with every relay down still reports `ok`). */
   relaysFailed: number;
-  /** Events the run's reader never saw: past the paging cap (INBOX_PAGES x INBOX_PAGE_SIZE per relay). */
+  /** Events the run's reader never saw because they are past the paging cap (INBOX_PAGES x INBOX_PAGE_SIZE per relay); 0 when every relay was down. */
   beyondPaging: number;
+  /** In-window events on the relays that no relay could serve this run (every relay down), so none were read; not a paging effect. */
+  unreadable: number;
   /** Ticket derivations plus proofs that failed verification: what the 300-attempt budget counts. */
   budgetUsed: number;
   filed: number;
@@ -420,9 +422,12 @@ export const runScenario = async (input: ScenarioInput, opts: { argon?: Awaited<
       const reads = requests.filter((r) => r.method === 'GET').length;
       const relayRequests = relays.requests.length - before.relay;
       const modeledRunS = (tickets * argonMs + (requests.length * cfg.model.githubLatencyMs) + Math.ceil(relayRequests / HOF_RELAYS.length) * cfg.model.relayLatencyMs) / 1000;
+      const relaysFailed = logs.filter((l) => /^wss:\/\/\S+: \d+ events \(/.test(l)).length;
+      const allRelaysDown = relaysFailed === HOF_RELAYS.length;
+      const unread = error ? 0 : Math.max(0, onRelays - read);
       const oldest = unhandled.length ? Math.min(...unhandled.map((e) => e.created_at)) : nowS;
       rows.push({
-        run: run + 1, tS, outcome: error ? 'failed' : 'ok', ...(error ? { error } : {}), arrived, onRelays, eventsRead: read, relaysFailed: logs.filter((l) => /^wss:\/\/\S+: \d+ events \(/.test(l)).length, beyondPaging: error ? 0 : Math.max(0, onRelays - read),
+        run: run + 1, tS, outcome: error ? 'failed' : 'ok', ...(error ? { error } : {}), arrived, onRelays, eventsRead: read, relaysFailed, beyondPaging: allRelaysDown ? 0 : unread, unreadable: allRelaysDown ? unread : 0,
         budgetUsed: tickets + rejected, filed: filedNow, deferred: Number(/^(\d+) events left/.exec(logs.find((l) => / events left for the next run/.test(l)) ?? '')?.[1] ?? 0),
         backlog: unhandled.length, backlogQualifying: unhandled.filter((e) => ['qualifying', 'duplicate'].includes(meta.get(e.id)!.kind)).length, oldestBacklogAgeS: nowS - oldest,
         expiredWindow: [...expired.values()].filter((v) => v === 'window').length, expiredRetention: [...expired.values()].filter((v) => v === 'retention').length,
@@ -483,10 +488,11 @@ export const runScenario = async (input: ScenarioInput, opts: { argon?: Awaited<
       verification: 'stubbed: two pre-mined stand-in tickets replace Argon2; proof and event signatures are real',
       time: 'fake clock in model seconds; nothing slept, so no wall-clock throughput is implied',
       providers: 'in-memory GitHub and relay fakes; latencies and limits are inputs, not observations',
+      limits: 'not exercised: the published list is assumed to be a 404, so the floor and joinRefusal paths do not run; event and proof keys come from 16-key pools',
       capacity: 'modeledRunS is derivations x argonMs + requests x latency inputs; not observed production throughput',
       ...(cfg.futureOptIn225 ? { synthetic: "#225's synthetic future opt-in scenario, not a claim the current service supports this rate" } : {}),
     },
-    meta: { seed: cfg.seed, argon: opts.argon ?? { source: 'input', medianMs: argonMs }, set: setKey(set), shipped: { budget: INBOX_BUDGET, maxFiled: INBOX_MAX_FILED, pageSize: INBOX_PAGE_SIZE, pages: INBOX_PAGES, windowS: INBOX_WINDOW_S, seenCap: INBOX_SEEN_CAP } },
+    meta: { seed: cfg.seed, argon: opts.argon ?? { source: cfg.model.argonMs === 'measured' ? 'measured-missing (no sample passed; the default argonMs was used)' : 'input', medianMs: argonMs }, set: setKey(set), shipped: { budget: INBOX_BUDGET, maxFiled: INBOX_MAX_FILED, pageSize: INBOX_PAGE_SIZE, pages: INBOX_PAGES, windowS: INBOX_WINDOW_S, seenCap: INBOX_SEEN_CAP } },
     config: cfg,
     runs: rows,
     totals: {
@@ -541,7 +547,7 @@ export const runnerMeta = () => {
 /** One readable line per run, then the checks. */
 export const summaryLines = (s: Summary): string[] => [
   `${s.config.name}: ${s.config.note}`,
-  ...s.runs.map((r) => `  run ${String(r.run).padStart(2)} t=${r.tS}s ${r.outcome}${r.error ? ` (${r.error})` : ''} arrived ${r.arrived}, read ${r.eventsRead}/${r.onRelays}, budget ${r.budgetUsed}, filed ${r.filed}, backlog ${r.backlog} (oldest ${r.oldestBacklogAgeS}s), relays down ${r.relaysFailed}, expired ${r.expiredWindow}w/${r.expiredRetention}r, gh ${r.github.reads}r/${r.github.writes}w, modeled ${r.modeledRunS.toFixed(1)}s`),
+  ...s.runs.map((r) => `  run ${String(r.run).padStart(2)} t=${r.tS}s ${r.outcome}${r.error ? ` (${r.error})` : ''} arrived ${r.arrived}, read ${r.eventsRead}/${r.onRelays} (past paging ${r.beyondPaging}, unreadable ${r.unreadable}), budget ${r.budgetUsed}, filed ${r.filed}, backlog ${r.backlog} (oldest ${r.oldestBacklogAgeS}s), relays down ${r.relaysFailed}, expired ${r.expiredWindow}w/${r.expiredRetention}r, gh ${r.github.reads}r/${r.github.writes}w, modeled ${r.modeledRunS.toFixed(1)}s`),
   `  pulls ${JSON.stringify(s.totals.pulls)}; drain ${JSON.stringify(s.drain)}; exit ${s.exit}`,
   ...s.checks.filter((c) => !c.ok).map((c) => `  CHECK FAILED: ${c.name} (${c.detail})`),
 ];
