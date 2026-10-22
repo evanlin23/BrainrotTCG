@@ -82,6 +82,52 @@ describe('share preview actions', () => {
     expect(done()).toBe('Image copied');
   });
 
+  describe('secondary outputs', () => {
+    const disclosure = () => document.querySelector<HTMLDetailsElement>('.share-sheet details.share-disclosure')!;
+    const summary = () => disclosure().querySelector('summary')!;
+
+    it('keeps the main link and image actions in view and folds the alternatives behind "More sharing options"', async () => {
+      vi.mocked(shareActions.canCopyImage).mockReturnValue(true);
+      vi.mocked(shareActions.canShareTo).mockReturnValue(true);
+      await open();
+      expect(summary().textContent).toBe('More sharing options');
+      expect(disclosure().open).toBe(false);
+      for (const label of ['Copy link', 'Copy image']) expect(button(label).closest('details')).toBeNull();
+      for (const label of ['Save image', 'Copy text', 'Share to…']) expect(button(label).closest('details')).toBe(disclosure());
+      expect(disclosure().compareDocumentPosition(document.querySelector('.share-preview')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('opens and closes from the summary, which keeps focus, and each revealed action still reports its own feedback', async () => {
+      vi.mocked(shareActions.canCopyImage).mockReturnValue(true);
+      vi.mocked(shareActions.canShareTo).mockReturnValue(true);
+      await open();
+      summary().focus();
+      act(() => summary().click());
+      expect(disclosure().open).toBe(true);
+      expect(document.activeElement).toBe(summary());
+
+      await act(async () => button('Copy text').click());
+      expect(done()).toBe('Text copied');
+      await act(async () => button('Save image').click());
+      expect(shareActions.saveImage).toHaveBeenCalledWith(poster, 'pull.png');
+      expect(done()).toBe('Image saved');
+      await act(async () => button('Share to…').click());
+      expect(shareActions.shareTo).toHaveBeenCalledTimes(1);
+
+      act(() => summary().click());
+      expect(disclosure().open).toBe(false);
+      expect(document.activeElement).toBe(summary());
+    });
+
+    it('keeps the status line outside the disclosure so feedback shows while it is folded', async () => {
+      await open();
+      expect(disclosure().open).toBe(false);
+      await act(async () => button('Copy link').click());
+      expect(done()).toBe('Link copied');
+      expect(document.querySelector('.share-done')!.closest('details')).toBeNull();
+    });
+  });
+
   it('closes on Escape', async () => {
     await open();
     act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });

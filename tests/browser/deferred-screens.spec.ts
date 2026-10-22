@@ -163,6 +163,7 @@ const SHEETS: {
       const main = await profilePage(page);
       await main.locator('.pulls-history .pull-row').first().click();
       const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
+      await pull.getByText('Share an individual card', { exact: true }).click();
       await pull.getByRole('region', { name: 'Cards in this pack', exact: true }).getByRole('button', { name: /^Bukangi\b/ }).first().click();
       const share = page.getByRole('dialog', { name: 'Bukangi', exact: true }).getByRole('button', { name: 'Share card', exact: true });
       await share.click();
