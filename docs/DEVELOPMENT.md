@@ -94,7 +94,9 @@ actually unfurl a page is still checked by hand, against a deployed address.
 and set `BASE_PATH=/` for a root-path build. It runs the journeys in `tests/browser/` on desktop
 and Pixel 5 viewports (phone-only checks skip desktop); the pack-opener smoke blocks HTTP outside
 the preview origin and all WebSockets, seeds a disposable identity with muted audio, opens one real
-pack and checks that stats, collection and history survive a reload. Failure traces, screenshots
+pack and checks that stats, collection and history survive a reload. The save-move smoke runs its own
+Vite dev server (with `VITE_OLD_ORIGIN` set) on a free port, serves the old address's redirect page on
+a routed made-up origin, and brings a save over in real windows, desktop only. Failure traces, screenshots
 and videos land in `test-results/` (uploaded by CI). `agent-audit.spec.ts` checks only the audit's
 browser boundary; the agent audit itself runs locally only (see
 [Local agent usability audit](#local-agent-usability-audit)). Pixel 5 emulation is not a phone: do

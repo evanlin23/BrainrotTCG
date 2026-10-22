@@ -26,6 +26,16 @@ const fillStorage = () => {
     write.call(this, key, value);
   });
 };
+const handOver = (save: unknown = OLD, source: unknown = opener) => {
+  const event = new MessageEvent('message', { origin: OLD_ORIGIN, data: { type: 'brainrot-save', save } });
+  Object.defineProperty(event, 'source', { value: source });
+  window.dispatchEvent(event);
+};
+/** What a retry from the old address does to this retained window: its fragment goes back to #/receive. */
+const retry = () => {
+  window.location.hash = '#/receive';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+};
 const progressHere = () => {
   localStorage.setItem('brainrot-player-v1', player('bb'));
   localStorage.setItem(COLLECTION, '{"original":{"normalCount":2}}');
@@ -49,6 +59,7 @@ beforeEach(() => {
 afterEach(async () => {
   const { stopReceiver } = await import('./move');
   stopReceiver();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -121,5 +132,48 @@ describe('receiving a save in the window the old address opened', () => {
     expect(close).toHaveBeenCalledOnce();
     expect(localStorage.getItem('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
     expect(localStorage.getItem(COLLECTION)).toBe(OLD[COLLECTION]);
+  });
+
+  it('keeps listening when a retry never gets its save, and the next retry still works', async () => {
+    fillStorage();
+    const { RETRY_LOST_NOTE, receiveSave } = await import('./move');
+    const receiving = receiveSave();
+    handOver();
+    await expect(receiving).resolves.toBe(true);
+    vi.restoreAllMocks();
+
+    vi.useFakeTimers();
+    retry();
+    vi.advanceTimersByTime(15000);
+    expect(document.getElementById('root')!.textContent).toBe(RETRY_LOST_NOTE);
+    handOver(); // Too late: that handshake is over.
+    expect(localStorage.getItem('brainrot-player-v1')).toBeNull();
+
+    opener.postMessage.mockClear();
+    retry();
+    expect(opener.postMessage).toHaveBeenCalledWith({ type: 'brainrot-ready' }, OLD_ORIGIN);
+    handOver();
+    expect(opener.postMessage).toHaveBeenLastCalledWith({ type: 'brainrot-move-result', result: 'saved' }, OLD_ORIGIN);
+    expect(localStorage.getItem('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
+  });
+
+  it('says so and stops when a retry arrives once the window that opened this one is gone', async () => {
+    fillStorage();
+    const { OPENER_LOST_NOTE, receiveSave } = await import('./move');
+    const receiving = receiveSave();
+    handOver();
+    await expect(receiving).resolves.toBe(true);
+    vi.restoreAllMocks();
+
+    const other = { postMessage: vi.fn() };
+    Object.defineProperty(window, 'opener', { value: other, configurable: true });
+    opener.postMessage.mockClear();
+    retry();
+    expect(document.getElementById('root')!.textContent).toBe(OPENER_LOST_NOTE);
+    expect(other.postMessage).not.toHaveBeenCalled();
+    handOver(OLD, other);
+    handOver();
+    expect(opener.postMessage).not.toHaveBeenCalled();
+    expect(localStorage.getItem('brainrot-player-v1')).toBeNull();
   });
 });

@@ -18,6 +18,7 @@ const visit = (url: string, save: Record<string, string> = {}) => {
   let openCall: { url: string; target: string; features: string } | null = null;
   const popup = {
     postMessage: vi.fn(),
+    close: vi.fn(),
   };
   const timers: { callback: () => void; ms: number }[] = [];
   const fakeSetTimeout = (callback: () => void, ms: number) => {
@@ -114,8 +115,42 @@ describe('redirectPage', () => {
     // Timeout triggers with no handshake
     page.timers[0].callback();
     expect(page.elements.status.textContent).toBe("Transfer didn't finish. Tap to try again, or go without your save.");
-    expect(page.messageListeners).toHaveLength(0);
     expect(page.save['brainrot-moved-v1']).toBeUndefined();
+    expect(page.target).toBeNull();
+  });
+
+  it('still counts an answer that comes after the timeout (a slow first load, or a player answering a question)', () => {
+    const page = visit('https://evanlin23.github.io/BrainrotTCG/#/cards', { 'brainrot-player-v1': '{"key":"1"}' });
+    page.elements.bring.onclick!();
+    page.timers[0].callback();
+    expect(page.messageListeners).toHaveLength(1);
+
+    const listener = page.messageListeners[0];
+    listener({ origin: new URL(NEW).origin, source: page.popup, data: { type: 'brainrot-ready' } });
+    expect(page.popup.postMessage).toHaveBeenCalledOnce();
+    expect(page.elements.status.textContent).toBe('Bringing your save over…');
+    listener({ origin: new URL(NEW).origin, source: page.popup, data: { type: 'brainrot-move-result', result: 'saved' } });
+    expect(page.save['brainrot-moved-v1']).toBeDefined();
+    expect(page.target).toBe(`${NEW}#/cards`);
+  });
+
+  it('stops the timer once the new window is ready, so its question to the player has no deadline', () => {
+    const page = visit('https://evanlin23.github.io/BrainrotTCG/#/cards', { 'brainrot-player-v1': '{"key":"1"}' });
+    page.elements.bring.onclick!();
+    page.fakeClearTimeout.mockClear();
+    page.messageListeners[0]({ origin: new URL(NEW).origin, source: page.popup, data: { type: 'brainrot-ready' } });
+    expect(page.fakeClearTimeout).toHaveBeenCalledWith(1);
+  });
+
+  it('opens a fresh window on retry when the last one never said it was ready, and reuses one that did', () => {
+    const page = visit('https://evanlin23.github.io/BrainrotTCG/#/cards', { 'brainrot-player-v1': '{"key":"1"}' });
+    page.elements.bring.onclick!();
+    page.elements.bring.onclick!();
+    expect(page.popup.close).toHaveBeenCalledOnce();
+
+    page.messageListeners[0]({ origin: new URL(NEW).origin, source: page.popup, data: { type: 'brainrot-ready' } });
+    page.elements.bring.onclick!();
+    expect(page.popup.close).toHaveBeenCalledOnce();
   });
 
   it('cancels previous timer and cleans up listener when tapping bring again to retry', () => {
@@ -125,7 +160,7 @@ describe('redirectPage', () => {
 
     // Retry before timer expires
     page.elements.bring.onclick!();
-    expect(page.fakeClearTimeout).toHaveBeenCalledOnce();
+    expect(page.fakeClearTimeout).toHaveBeenCalledWith(1);
     expect(page.messageListeners).toHaveLength(1); // Old listener removed, new listener added
     expect(page.elements.status.textContent).toBe('Bringing your save over…');
   });
