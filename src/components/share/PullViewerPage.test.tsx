@@ -62,6 +62,7 @@ describe('PullViewerPage', () => {
     expect(text).toContain(OUT_OF_MEMORY_ADVICE);
     expect(text).not.toContain('Not a valid pull');
     expect(text).not.toContain('made up');
+    expect(text).not.toContain('pulled this pack');
     const retry = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Try again'));
     expect(retry).toBeDefined();
     await act(async () => retry!.click());
@@ -76,6 +77,7 @@ describe('PullViewerPage', () => {
     expect(text).toContain('Not a valid pull');
     expect(text).toContain('Bad signature');
     expect(text).not.toContain('Try again');
+    expect(text).not.toContain('pulled this pack');
   });
 
   const render = async (props: Partial<Parameters<typeof PullViewerPage>[0]>, name = 'Gurt') => {
