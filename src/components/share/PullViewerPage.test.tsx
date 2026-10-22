@@ -29,6 +29,7 @@ let container: HTMLElement;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { clipboard: { writeText: vi.fn(async () => undefined) } }));
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -125,7 +126,7 @@ describe('PullViewerPage', () => {
     expect(pullUrl).toHaveBeenCalledWith('proofB', 'preview-B');
   });
 
-  it('retires invalid or memory-error state A immediately when proof prop changes to B', async () => {
+  it('retires invalid state A immediately when proof prop changes to B', async () => {
     let resolveB!: (val: CheckedPull) => void;
     const pendingB = new Promise<CheckedPull>((res) => { resolveB = res; });
 
@@ -145,5 +146,49 @@ describe('PullViewerPage', () => {
     // Clean resolve of B
     await act(async () => resolveB(pull('Player B')));
     expect(document.body.textContent).toContain('Verified on this device');
+  });
+
+  it('retires memory-error state A (and its Try again) immediately when proof prop changes to B', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let resolveB!: (val: CheckedPull) => void;
+    const pendingB = new Promise<CheckedPull>((res) => { resolveB = res; });
+
+    vi.mocked(checkPull).mockReset().mockRejectedValueOnce(new TicketMemoryError('Out of memory'));
+    await act(async () => root.render(<PullViewerPage proof="proofA" onClose={() => {}} />));
+    expect(document.body.textContent).toContain(OUT_OF_MEMORY_ADVICE);
+
+    vi.mocked(checkPull).mockReturnValueOnce(pendingB);
+    await act(async () => root.render(<PullViewerPage proof="proofB" onClose={() => {}} />));
+
+    expect(document.body.textContent).toContain('Re-opening the pack on your device');
+    expect(document.body.textContent).not.toContain(OUT_OF_MEMORY_ADVICE);
+    expect([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Try again'))).toBeUndefined();
+
+    await act(async () => resolveB(pull('Player B')));
+    expect(document.body.textContent).toContain('Verified on this device');
+    expect(document.body.textContent).toContain('Player B');
+  });
+
+  it('ignores a late completion of aborted pull A while B is still checking', async () => {
+    let resolveA!: (val: CheckedPull) => void;
+    let resolveB!: (val: CheckedPull) => void;
+    const pendingA = new Promise<CheckedPull>((res) => { resolveA = res; });
+    const pendingB = new Promise<CheckedPull>((res) => { resolveB = res; });
+
+    vi.mocked(checkPull).mockReset().mockReturnValueOnce(pendingA).mockReturnValueOnce(pendingB);
+    await act(async () => root.render(<PullViewerPage proof="proofA" onClose={() => {}} />));
+    await act(async () => root.render(<PullViewerPage proof="proofB" onClose={() => {}} />));
+    // The effect cleanup aborted A's check.
+    expect(vi.mocked(checkPull).mock.calls[0][1]?.aborted).toBe(true);
+
+    // A finishes late: B stays in the checking state, nothing of A shows.
+    await act(async () => resolveA(pull('Player A')));
+    expect(document.body.textContent).toContain('Re-opening the pack on your device');
+    expect(document.body.textContent).not.toContain('Player A');
+    expect(document.body.textContent).not.toContain('Verified on this device');
+
+    await act(async () => resolveB(pull('Player B')));
+    expect(document.body.textContent).toContain('Player B');
+    expect(document.body.textContent).not.toContain('Player A');
   });
 });

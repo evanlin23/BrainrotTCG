@@ -59,9 +59,7 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
 
   const copyLink = async () => {
     // Once the pack is checked, the link previews as its best card.
-    // Ensure the preview is derived only from the successfully verified current proof.
-    const preview = state.status === 'ok' ? previewFor(state.pull.cardsWithMeta) : undefined;
-    const link = pullUrl(proof, preview);
+    const link = pullUrl(proof, state.status === 'ok' ? previewFor(state.pull.cardsWithMeta) : undefined);
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
