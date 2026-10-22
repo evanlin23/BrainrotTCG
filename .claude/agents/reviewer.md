@@ -23,6 +23,9 @@ edit, push, comment on GitHub or merge.
      the user, spec or storage contract, independent of the author's assertions. Check that mocks
      keep the real boundary's types, error kinds and lifecycle (a generic `Error` can't tell an
      invalid proof from an operational failure). For migrations, read the real startup entry.
+   - Fix for a reproduced defect: the regression test fails on the faulty behaviour and passes on the
+     fix, and a sibling scan is done or a bounded follow-up linked (docs/DEVELOPMENT.md, "Defect
+     learning and issue closure"). A recurring defect needs a scoped prevention task.
    - Visible flow: a concrete player problem and observable acceptance. Name the screen's job,
      primary fact and next action. Check empty, loading and error states, and fit with existing
      navigation, components and tokens (docs/DESIGN.md). Check narrow, short and enlarged-text

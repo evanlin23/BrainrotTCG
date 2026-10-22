@@ -15,7 +15,13 @@ Either way, nothing on the free plans can charge you: there's no payment method 
 - **Hashed, safe to keep forever:** everything in `assets/` (code, styles, fonts, card art, sounds).
   Vite names each file by a hash of its content (`name-XXXXXXXX.ext`), so a changed file is a new URL.
 - **Revalidated, same name every deploy:** `index.html`, the files from `public/` beside it (icons,
-  `og-image.jpg`, `hall-of-fame.json`), and the preview pages and pictures in `p/` and `s/`.
+  `og-image.jpg`, `hall-of-fame.json`), `robots.txt` and `sitemap.xml`, and the preview pages and
+  pictures in `p/` and `s/`.
+- **Crawler files:** the build writes `robots.txt` (allow all) and `sitemap.xml` (the app's address
+  only; shares, profiles and sets are `#/` routes or `noindex` preview pages) for `SITE_URL`, or for
+  production, `https://brainrottcg.pages.dev/`, when it isn't set, which is also what `index.html`'s
+  checked-in link-preview tags name (`scripts/crawler-files.ts`). Staging serves the same files, but
+  its page asks not to be indexed and the sitemap names only production.
 - **Headers:** there is no `_headers` file. GitHub Pages sends a short `max-age` on every file, and
   Cloudflare Pages revalidates every file by default, so neither can serve a stale `index.html`
   pointing at code that's gone. If a `_headers` file is added, it may mark only `<base>assets/*`

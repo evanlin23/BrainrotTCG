@@ -71,6 +71,23 @@ describe('KeptAsideActions', () => {
     expect(onGone).not.toHaveBeenCalled();
   });
 
+  it('makes the safe answer the prominent one and Discard for good an outlined danger button, after the warning (#641)', async () => {
+    await click('Discard');
+    const keep = button('Keep it');
+    const discard = button('Discard for good');
+    expect(keep.classList.contains('btn--primary')).toBe(true);
+    expect(discard.classList.contains('btn--primary')).toBe(false);
+    expect(discard.classList.contains('btn--danger')).toBe(true);
+    const actions = container.querySelector('.settings-actions')!;
+    expect(actions.classList.contains('settings-actions--ask')).toBe(true);
+    const order = [...actions.querySelectorAll('.settings-desc, button')];
+    expect(order.map((el) => el.textContent)).toEqual(['Discard it for good? Only a downloaded copy keeps it.', 'Keep it', 'Discard for good']);
+
+    await click('Keep it');
+    expect(container.querySelector('.settings-actions--ask')).toBeNull();
+    expect(button('Discard').classList.contains('btn--danger')).toBe(false);
+  });
+
   it('removes the archive and its dismissal once confirmed, then hands focus to the parent', async () => {
     await click('Discard');
     await click('Discard for good');
