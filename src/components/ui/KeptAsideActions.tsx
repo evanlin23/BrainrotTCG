@@ -65,7 +65,9 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
   }, [asked, refused]);
 
   const plain = variant === 'banner' ? 'link-btn save-warning-action' : 'btn btn--secondary btn--sm';
-  const strong = variant === 'banner' ? 'link-btn save-warning-action' : 'btn btn--primary btn--sm';
+  // Asking: the safe answer is the prominent one; the irreversible one is an outlined danger button.
+  const safe = variant === 'banner' ? 'link-btn save-warning-action' : 'btn btn--primary btn--sm';
+  const danger = variant === 'banner' ? 'link-btn save-warning-action' : 'btn btn--danger btn--sm';
   const note = variant === 'banner' ? undefined : 'settings-desc';
   const ask = () => {
     if (canAct()) {
@@ -106,7 +108,7 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
   };
 
   return (
-    <span ref={rootRef} className={variant === 'settings' ? 'settings-actions' : undefined}>
+    <span ref={rootRef} className={variant === 'settings' ? `settings-actions${asked ? ' settings-actions--ask' : ''}` : undefined}>
       {asked ? (
         <>
           <span id={noteId} className={note}>
@@ -115,10 +117,10 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
               ? 'The kept-aside data changed since you asked. Discard it all for good? Only a downloaded copy keeps it.'
               : 'Discard it for good? Only a downloaded copy keeps it.'}
           </span>
-          <button type="button" ref={keepRef} className={`${plain} quiet-focus`} aria-describedby={noteId} onClick={() => answer(false)}>
+          <button type="button" ref={keepRef} className={`${safe} quiet-focus`} aria-describedby={noteId} onClick={() => answer(false)}>
             Keep it
           </button>
-          <button type="button" className={strong} onClick={() => answer(true)}>
+          <button type="button" className={danger} onClick={() => answer(true)}>
             Discard for good
           </button>
         </>
