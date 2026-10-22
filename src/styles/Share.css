@@ -63,6 +63,22 @@
   gap: var(--space-2);
 }
 
+/* Secondary share outputs and the per-card gallery, folded away until asked for. */
+.share-disclosure > summary {
+  width: fit-content;
+  min-height: var(--touch-target);
+  padding-block: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.share-disclosure[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
 .share-more {
   display: flex;
   flex-wrap: wrap;

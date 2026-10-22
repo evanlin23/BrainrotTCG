@@ -187,6 +187,7 @@ describe('card close-up tilt', () => {
     layOut();
     move(100, 100);
     expect(cardEl().style.transform).toBe(LEVEL);
+    expect(cardEl().dataset.tilt).toBeUndefined();
   });
 
   it('levels an already tilted card the moment reduced motion turns on, and ignores the mouse after', () => {

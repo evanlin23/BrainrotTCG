@@ -31,7 +31,16 @@ const HEADING_SHARE = 0.3;
 /** Sheets currently open, newest last: only the top one reacts to Escape and owns focus. */
 const stack: string[] = [];
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select, textarea, summary, [tabindex]:not([tabindex="-1"])';
+
+/** Inside a closed disclosure but not its summary: still laid out as far as offsetParent knows, but not a tab stop. */
+const inClosedDetails = (element: HTMLElement) => {
+  for (let details = element.closest('details:not([open])'); details; details = details.parentElement?.closest('details:not([open])') ?? null) {
+    const summary = [...details.children].find((child) => child.tagName === 'SUMMARY');
+    if (!summary?.contains(element)) return true;
+  }
+  return false;
+};
 
 /**
  * Every panel in the app: a bottom sheet on phones, a centred dialog on wide screens.
@@ -93,7 +102,7 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
         }
       }
       if (event.key !== 'Tab' || !panelRef.current) return;
-      const items = [...panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+      const items = [...panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null && !inClosedDetails(el));
       if (items.length === 0) {
         event.preventDefault();
         return;

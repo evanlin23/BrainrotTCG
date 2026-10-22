@@ -40,6 +40,7 @@ const profile = async (page: Page) => {
 async function shareCardFromPull(page: Page) {
   const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
   await expect(pull.locator('.sheet--deferred')).toHaveCount(0);
+  await pull.getByText('Share an individual card', { exact: true }).click();
   const cards = pull.getByRole('region', { name: 'Cards in this pack', exact: true });
   const card = cards.getByRole('button').first();
   const name = (await card.getAttribute('aria-label'))!.replace(/ \(.*\)$/, '');
@@ -134,5 +135,73 @@ test('a pull that would join the Hall of Fame keeps its buttons ahead of the pos
   const buttons = await pull.locator('.share-side button').allTextContents();
   expect(buttons[0].trim()).toBe('Copy link');
   expect(buttons.findIndex((text) => /Submit/.test(text))).toBeGreaterThan(buttons.findIndex((text) => /Copy text/.test(text)));
+  expect(errors).toEqual([]);
+});
+
+test('folds the secondary share outputs and the card gallery behind disclosures a keyboard can reach', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!, 1, { returning: true });
+  const main = await profile(page);
+  await main.locator('.pulls-history .pull-row').first().click();
+  const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
+  await expect(pull.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible();
+
+  // Closed by default: the main outputs are in view, the alternatives and the gallery are not.
+  const more = pull.getByText('More sharing options', { exact: true });
+  const copyText = pull.getByRole('button', { name: 'Copy text', exact: true });
+  const cards = pull.getByRole('region', { name: 'Cards in this pack', exact: true });
+  await expect(pull.getByRole('button', { name: 'Copy link', exact: true })).toBeVisible();
+  await expect(pull.getByRole('button', { name: 'Copy image', exact: true })).toBeVisible();
+  await expect(copyText).toBeHidden();
+  await expect(cards).toBeHidden();
+
+  // Space on the focused summary opens it; the revealed action keeps its own feedback; Space closes it again.
+  await more.focus();
+  await page.keyboard.press('Space');
+  await expect(copyText).toBeVisible();
+  await expect(more).toBeFocused();
+  await copyText.click();
+  await expect(pull.locator('p.share-done[role="status"]')).toHaveText('Text copied');
+  expect((await page.evaluate(() => window.clipboardLog)).at(-1)).toMatchObject({ kind: 'text' });
+  await more.focus();
+  await page.keyboard.press('Space');
+  await expect(copyText).toBeHidden();
+  await expect(more).toBeFocused();
+
+  // The gallery opens the same way and keeps the whole-pack versus single-card distinction.
+  const individual = pull.getByText('Share an individual card', { exact: true });
+  await individual.focus();
+  await page.keyboard.press('Enter');
+  await expect(cards).toBeVisible();
+  await expect(cards).toContainText('The controls above share the whole pack.');
+  await expect(individual).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
+test('the sheet keeps Tab and Shift+Tab inside it when its disclosure summaries are the first and last stops', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!, 1, { returning: true });
+  const main = await profile(page);
+  await main.locator('.pulls-history .pull-row').first().click();
+  const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
+  await expect(pull.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible();
+  const inside = () => pull.evaluate((element) => element.contains(document.activeElement));
+
+  // Closed, the gallery summary is the last tab stop: Tab past it wraps to the first, never out of the dialog.
+  const individual = pull.getByText('Share an individual card', { exact: true });
+  await individual.focus();
+  await page.keyboard.press('Tab');
+  expect(await inside()).toBe(true);
+  await page.keyboard.press('Shift+Tab');
+  await expect(individual).toBeFocused();
+
+  // Tab reaches the other summary, and with a disclosure open its buttons join the cycle.
+  await pull.getByRole('button', { name: 'Copy image', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  const more = pull.getByText('More sharing options', { exact: true });
+  await expect(more).toBeFocused();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Tab');
+  await expect(pull.getByRole('button', { name: 'Save image', exact: true })).toBeFocused();
   expect(errors).toEqual([]);
 });
