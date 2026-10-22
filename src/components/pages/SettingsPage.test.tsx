@@ -94,6 +94,42 @@ describe('Settings: bringing the old address save', () => {
   });
 });
 
+describe('Settings: exporting a backup file', () => {
+  const backupNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Back up')!;
+
+  it('shows visible failure message when browser storage reads are denied, and succeeds on retry', async () => {
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} />));
+
+    // Mock download link trigger to verify no download occurred on failure
+    const appendSpy = vi.spyOn(document.body, 'appendChild');
+
+    // Deny storage read
+    const getItem = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Controlled storage read denial', 'SecurityError');
+    });
+
+    await click('Export');
+    expect(backupNote().textContent).toBe("Couldn't read browser storage to export your save.");
+    expect(appendSpy).not.toHaveBeenCalled();
+
+    // Restore storage read access
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(getItem);
+
+    // Mock createObjectURL / revokeObjectURL for download
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const createObjectURL = vi.fn(() => 'blob:mock');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+
+    await click('Export');
+    expect(backupNote().textContent).toBe('Includes your secret player key. Keep the file private.');
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+  });
+});
+
 describe('Settings: importing a backup file', () => {
   const restoreNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Restore')!;
   const pickRaw = async (content: string) => {
@@ -155,6 +191,33 @@ describe('Settings: importing a backup file', () => {
     expect(button('Replace')).toBeUndefined();
     expect(onImportSave).not.toHaveBeenCalled();
     expect(localStorage.getItem('brainrot-player-v1')).toBe(player('aa'));
+  });
+
+  it('shows visible failure message when storage read is denied during preflight, and allows retry', async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    const getItem = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Controlled storage read denial', 'SecurityError');
+    });
+
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    expect(restoreNote().textContent).toBe("Couldn't read browser storage to check your current save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Restore storage read access
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(getItem);
+
+    // Retrying with restored storage access succeeds and shows the replacement prompt
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    const saves = "this browser's save (Combo Miner, 3 packs) with the file's (Combo Miner, 5 packs)";
+    expect(restoreNote().textContent).toBe(`Replace ${saves}? Yours is kept as a backup.`);
+    expect(button('Replace')).toBeDefined();
   });
 
   it("names only the saves being swapped when there's no room for a copy, not ones picked earlier", async () => {
