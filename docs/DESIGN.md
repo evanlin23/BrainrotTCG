@@ -105,7 +105,9 @@ results line (`PackSummaryUI.tsx`) that goes.
 3. **First-card cue.** On the first card of a player's first pack only, the back lifts at one corner
    as if to flip, once, over the existing hint ("Tap card to flip", then "Swipe or tap for the next
    card"). It stops on first input and is the caption alone under reduced motion. Tap flips and
-   advances; a sideways swipe advances after the flip. Nothing else is taught.
+   advances; a sideways swipe advances after the flip. Nothing else is taught. On the last card the
+   hint says it opens the pack summary ("Click or press Space to see the pack summary", "Swipe or
+   tap to see the pack summary"), since the same press does.
 4. **Reveal.** One new-card cue: the lower row (rarity, points, New). The on-art New sticker on the
    active card goes; the announcement stays. In landscape under 500 px tall the card gets at least
    70% of the height (about 250 px at 640x360, not 110), with the rarity row, hint and Skip in a

@@ -186,6 +186,9 @@
   justify-content: center;
   min-height: 32px;
   padding-inline: var(--gutter);
+  /* In the reveal's scrolling column: wrapped labels (large text) grow the row, never shrink it to
+     min-height and paint over the provenance line below (#799). */
+  flex-shrink: 0;
 }
 
 .reveal-rarity > * {

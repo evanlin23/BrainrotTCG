@@ -873,6 +873,7 @@
 }
 
 .tip-text {
+    flex-shrink: 0;
     color: var(--text-muted);
     font-size: var(--text-sm);
     font-weight: 600;
@@ -1109,6 +1110,7 @@ button.reveal-card {
    the stage (#472). Its text is the same for every card of a pack (the number keeps its space until
    the flip), so its height never changes mid-reveal and the card above doesn't move. */
 .reveal-provenance {
+    flex-shrink: 0;
     width: 100%;
     max-width: 100%;
     margin: 0;
