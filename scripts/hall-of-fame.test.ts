@@ -480,11 +480,12 @@ describe('verify-issue (issue workflow)', () => {
     beforeEach(() => clockAt('2026-10-17T12:00:00Z'));
     const REPAIR = { verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' };
 
-    it("isn't judged by any day's top again: it is daily unless it makes the top pulls, whatever its day had room for", async () => {
+    it("isn't judged by any day's top again: it is daily unless it makes the top pulls, and redeploys only if the build would list it", async () => {
       for (const sixteenth of [HALL_OF_FAME_DAILY_TOP - 1, HALL_OF_FAME_DAILY_TOP]) {
         const gh = fakeGitHub({ issues: [], comments: marked, published: [...dailyOnlyBoard('2026-10-16', sixteenth), ...seventeenthFull] });
         const result = await run(link(fourOfAKind));
-        expect(result.outputs, `${sixteenth} on the 16th`).toEqual(REPAIR);
+        // A full 16th keeps it off the build's list, so a deploy would change nothing.
+        expect(result.outputs, `${sixteenth} on the 16th`).toEqual({ ...REPAIR, redeploy: String(sixteenth < HALL_OF_FAME_DAILY_TOP) });
         expect(result.comment).toBe('');
         expect(gh.writes()).toEqual([]);
       }
@@ -499,13 +500,63 @@ describe('verify-issue (issue workflow)', () => {
       expect(gh.requests.some((r) => r.path === '/issues')).toBe(false);
     });
 
-    it('labels it again and redeploys after an edit away and back, or after `verified` was taken off by hand, when it is not live', async () => {
+    it('redeploys once when the run stopped before labelling (its verified comment is the latest), when it is not live', async () => {
       const gh = fakeGitHub({ issues: [], comments: allTime, published: [] });
-      for (const labels of [['hall-of-fame', 'not-verified'], ['hall-of-fame']]) {
-        const result = await run(link(fourOfAKind), labels);
-        expect(result.outputs, labels.join()).toEqual({ ...REPAIR, label: 'verified' });
-        expect(result.comment).toBe('');
+      const result = await run(link(fourOfAKind), ['hall-of-fame']);
+      expect(result.outputs).toEqual({ ...REPAIR, label: 'verified' });
+      expect(result.comment).toBe('');
+      // Labelled now: nothing more to do.
+      expect((await run(link(fourOfAKind), ['hall-of-fame', 'verified'])).outputs).toMatchObject({ changed: 'false', redeploy: 'false' });
+      expect(gh.writes()).toEqual([]);
+    });
+
+    /** Edits the issue away from the pull and back `times` times, posting the bot's comments as the workflow would. */
+    const editAwayAndBack = async (gh: ReturnType<typeof fakeGitHub>, labels: string[], times = 3) => {
+      const results = [];
+      for (let i = 0; i < times; i++) {
+        const away = await run('no link any more', labels);
+        expect(away.outputs).toMatchObject({ verified: 'false', changed: 'true', redeploy: 'false' });
+        gh.comments[7] = [...(gh.comments[7] ?? []), comment(BOT, away.comment, `2026-10-17T0${i}:00:00Z`)];
+        results.push(await run(link(fourOfAKind), ['hall-of-fame', 'not-verified']));
       }
+      return results;
+    };
+
+    it('labels it again after an edit away and back without starting a deploy, even when it is not live', async () => {
+      const gh = fakeGitHub({ issues: [], comments: structuredClone(allTime), published: [] });
+      for (const back of await editAwayAndBack(gh, ['hall-of-fame', 'verified'])) {
+        expect(back.outputs).toEqual({ ...REPAIR, label: 'verified', redeploy: 'false' });
+        expect(back.comment).toBe('');
+      }
+      expect(gh.writes()).toEqual([]);
+    });
+
+    it('starts no deploy for an expired daily pull, after an edit away and back or not', async () => {
+      // Verified on the 14th, so the build of the 17th no longer lists it.
+      const expired = { 7: [comment(BOT, marker(fourOfAKind), '2026-10-14T10:00:00Z')] };
+      const published = dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1);
+      fakeGitHub({ issues: [], comments: structuredClone(expired), published });
+      expect((await run(link(fourOfAKind))).outputs).toEqual({ ...REPAIR, redeploy: 'false' });
+      const gh = fakeGitHub({ issues: [], comments: structuredClone(expired), published });
+      for (const back of await editAwayAndBack(gh, ['hall-of-fame', 'daily'])) expect(back.outputs).toEqual({ ...REPAIR, redeploy: 'false' });
+      expect(gh.writes()).toEqual([]);
+    });
+
+    it('starts no deploy for a pull outside the top pulls, after an edit away and back or not', async () => {
+      // Verified on the 2nd, now below a full top 100 and on no recent day's top.
+      const published = dailyOnlyBoard('2026-10-16', 0);
+      fakeGitHub({ issues: [], comments: structuredClone(allTime), published });
+      expect((await run(link(fourOfAKind))).outputs).toEqual({ ...REPAIR, redeploy: 'false' });
+      const gh = fakeGitHub({ issues: [], comments: structuredClone(allTime), published });
+      for (const back of await editAwayAndBack(gh, ['hall-of-fame', 'verified'])) expect(back.outputs).toEqual({ ...REPAIR, redeploy: 'false' });
+      expect(gh.writes()).toEqual([]);
+    });
+
+    it("labels it daily and starts no deploy when the published list can't be read", async () => {
+      const gh = fakeGitHub({ issues: [], comments: allTime });
+      const result = await run(link(fourOfAKind));
+      expect(result.outputs).toEqual({ ...REPAIR, redeploy: 'false' });
+      expect(result.comment).toBe('');
       expect(gh.writes()).toEqual([]);
     });
 

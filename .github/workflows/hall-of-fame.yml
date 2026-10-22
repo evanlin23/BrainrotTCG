@@ -73,7 +73,7 @@ jobs:
           fi
 
   # The only job that can start a deploy, and all it can do. It runs only if verify succeeded, for a
-  # new verification or a label repair whose pull isn't in the published list yet.
+  # new verification, or a label repair after a run that stopped before labelling (see verify-issue).
   redeploy:
     name: Redeploy so the entry goes live
     needs: verify

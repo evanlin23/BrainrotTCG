@@ -4,10 +4,14 @@
  *
  *   npx tsx scripts/hall-of-fame.ts verify-issue   (Actions, on an issue event)
  *     Reads the issue from $GITHUB_EVENT_PATH, verifies its pull link and writes
- *     hof-comment.md plus `verified`, `changed`, `label` and `rejected` to $GITHUB_OUTPUT. A
- *     verified comment carries a marker with the pull id. `label` is `verified`
+ *     hof-comment.md plus `verified`, `changed`, `redeploy`, `label` and `rejected` to
+ *     $GITHUB_OUTPUT. A verified comment carries a marker with the pull id. `label` is `verified`
  *     for a pull that makes the all-time top pulls, or `daily`
- *     for one that only makes the day's top (see "Labels" below).
+ *     for one that only makes the day's top (see "Labels" below). An edit that keeps a pull
+ *     the bot already verified on the issue writes an empty comment file and, if its labels are
+ *     incomplete, repairs them (`changed`). `redeploy` is set for a new verification, and for a
+ *     repair only when the bot's latest comment is that pull's verified one (the run stopped
+ *     before labelling) and the next build would list a pull the published list doesn't have.
  *
  *   npx tsx scripts/hall-of-fame.ts inbox           (Actions, on a schedule)
  *     Reads submissions sent without a GitHub account through public Nostr relays
@@ -196,6 +200,17 @@ const firstVerifiedAt = async (issue: number, id: string, token: string): Promis
   return null;
 };
 
+/** The bot's latest comment on the issue, or null if there is none or there are too many to read. */
+const latestBotComment = async (issue: number, token: string): Promise<Comment | null> => {
+  let latest: Comment | null = null;
+  for (let page = 1; page < 20; page++) {
+    const batch = await github<Comment[]>(`/repos/${REPO}/issues/${issue}/comments?per_page=100&page=${page}`, token);
+    for (const c of batch) if (c.user?.login === BOT) latest = c;
+    if (batch.length < 100) return latest;
+  }
+  return null;
+};
+
 const FOOTER = '\n\n---\n_Verified automatically by re-deriving the pack from its proof (`scripts/hall-of-fame.ts`)._';
 
 /** The bot's comment on a verified pull; its marker is what `build` looks for. */
@@ -248,14 +263,15 @@ export const verifyIssue = async () => {
   let result = await checkIssue(event.issue);
   const token = process.env.GITHUB_TOKEN;
   // An edit that keeps the same verified pull needs no new comment.
-  let already = false;
+  let verifiedAt: string | null = null;
   if (result.ok && token) {
     try {
-      already = (await firstVerifiedAt(event.issue.number, pullId(result.pull.proof), token)) !== null;
+      verifiedAt = await firstVerifiedAt(event.issue.number, pullId(result.pull.proof), token);
     } catch (error) {
       console.warn(`Could not read earlier comments; treating this as a new verification. ${error}`);
     }
   }
+  const already = verifiedAt !== null;
   // A new verification only goes in if it would join the list (the top pulls or today's top), and
   // one that only makes today's top only if it isn't already on an earlier day's. The same pull
   // verified again keeps the label it has.
@@ -280,18 +296,31 @@ export const verifyIssue = async () => {
     !currentLabels.includes('not-verified') &&
     !currentLabels.includes(l === 'daily' ? 'verified' : 'daily');
   const repair = result.ok && already && !labelsComplete(label) && !currentLabels.includes('rejected');
-  // A repair redeploys only if the pull isn't live already, so editing away and back can't start
-  // deploys. One left without `verified` or `daily` (a run that stopped after commenting, or an
-  // edit away and back) isn't judged by any day's top again: it is `verified` if it would make the
-  // top pulls without this issue's own entry, else `daily`, so a repair never makes it permanent.
+  // One left without `verified` or `daily` (a run that stopped after commenting, or an edit away and
+  // back) isn't judged by any day's top again: it is `verified` if it would make the top pulls
+  // without this issue's own entry, else `daily` (also when the published list can't be read), so a
+  // repair never makes it permanent. A repair redeploys only when the bot's latest comment is this
+  // pull's verified one (the run stopped before labelling: an edit away always gets a comment) and
+  // the next build would list it while the published list doesn't yet. So editing away and back
+  // can't start deploys, even for a pull that isn't live (an expired daily, or one outside the top).
   let redeploy = result.ok && !already;
-  if (repair && result.ok) {
+  if (repair && result.ok && verifiedAt && token) {
     const { id } = result.entry;
     const list = await publishedList();
-    redeploy = !list?.some((e) => e.id === id);
+    const others = list?.filter((e) => e.issue !== event.issue.number) ?? null;
     if (!currentLabels.includes('verified') && !currentLabels.includes('daily')) {
-      const others = list?.filter((e) => e.issue !== event.issue.number);
-      label = !others || hallOfFameJoin(candidateOf(result.pull), others) === 'all-time' ? 'verified' : 'daily';
+      label = others && hallOfFameJoin(candidateOf(result.pull), others) === 'all-time' ? 'verified' : 'daily';
+    }
+    if (list && others && !list.some((e) => e.id === id)) {
+      const now = new Date();
+      const day = utcDay(now.toISOString());
+      const counts = label === 'verified' || [day, previousUtcDay(day)].includes(utcDay(verifiedAt));
+      const listed = counts && listToPublish([...others, { ...result.entry, submittedAt: verifiedAt }], now).some((e) => e.id === id);
+      try {
+        redeploy = listed && (await latestBotComment(event.issue.number, token))?.body?.includes(markerFor(id)) === true;
+      } catch (error) {
+        console.warn(`Could not read the bot's latest comment; not redeploying. ${error}`);
+      }
     }
   }
   // `changed` runs the label step; an empty comment file makes it skip the comment.
