@@ -35,12 +35,20 @@ interface SettingsPageProps {
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
 const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
+    const [exportNote, setExportNote] = useState('Includes your secret player key. Keep the file private.');
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const activeImportTokenRef = useRef(0);
     const activeReaderRef = useRef<FileReader | null>(null);
-    const handleExportSave = () => downloadSaveFile();
+    const handleExportSave = () => {
+        try {
+            downloadSaveFile();
+            setExportNote('Includes your secret player key. Keep the file private.');
+        } catch {
+            setExportNote("Couldn't read browser storage to export your save.");
+        }
+    };
 
     // Leaving Settings retires pending read/import intent, preventing later writes or reloads from that screen.
     useEffect(() => {
@@ -172,7 +180,17 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             }
             const saveObj = incoming as { player?: string; stats?: string };
             // Replacing real progress with someone else's (or an older) save asks first, in the page.
-            const here = localStorage.getItem('brainrot-player-v1');
+            let here: string | null;
+            let hereStats: string | null;
+            let progressExists: boolean;
+            try {
+                here = localStorage.getItem('brainrot-player-v1');
+                hereStats = localStorage.getItem(STORAGE_KEYS.STATS);
+                progressExists = hasProgress();
+            } catch {
+                return setImportNote("Couldn't read browser storage to check your current save.");
+            }
+
             const sameKey = (() => {
                 try {
                     return !!saveObj.player && JSON.parse(here ?? '{}').secretKey === JSON.parse(saveObj.player).secretKey;
@@ -180,11 +198,21 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     return false;
                 }
             })();
-            if (!hasProgress() || (sameKey && describe(here, localStorage.getItem(STORAGE_KEYS.STATS)) === describe(saveObj.player, saveObj.stats))) {
+
+            let currentDesc: string;
+            let incomingDesc: string;
+            try {
+                currentDesc = describe(here, hereStats);
+                incomingDesc = describe(saveObj.player, saveObj.stats);
+            } catch {
+                return setImportNote("Couldn't read browser storage to check your current save.");
+            }
+
+            if (!progressExists || (sameKey && currentDesc === incomingDesc)) {
                 setReplacing(null);
                 return runImport(content);
             }
-            const saves = `this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(saveObj.player, saveObj.stats)})`;
+            const saves = `this browser's save (${currentDesc}) with the file's (${incomingDesc})`;
             setReplacing(saves);
             setPendingImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
@@ -282,7 +310,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     <div className="settings-row">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
-                            <span className="settings-desc">Includes your secret player key. Keep the file private.</span>
+                            <span className="settings-desc" role="status">{exportNote}</span>
                         </span>
                         <button type="button" className="btn btn--secondary btn--sm" onClick={handleExportSave}>
                             <Download aria-hidden="true" /> Export
