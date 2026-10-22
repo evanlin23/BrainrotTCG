@@ -6,7 +6,9 @@ import { FAIRY_DUST_SRC, WOOSH_SRC, soundGain } from '../constants/audio';
 import { usePackCutter } from './usePackCutter';
 
 // A 320 x 573 pack, 100px right and 50px down the viewport. Its tear line sits at 19% of its
-// height, and a stroke starts within 45.84px of it (8% of the height).
+// height, and a stroke starts anywhere from the pack's top down to 191px (a third of its height,
+// 82px under the tear line). A release opens it from 12% of the width (38.4px), a drag from 30%, and
+// a stroke may cover up to 1.5 times as far up or down as across (#626).
 const rect = { left: 100, top: 50, width: 320, height: 573 };
 const tearClientY = rect.top + 0.19 * rect.height;
 
@@ -35,6 +37,7 @@ let cutter: Cutter;
 let onCutComplete: ReturnType<typeof vi.fn<() => void>>;
 let onMiss: ReturnType<typeof vi.fn<() => void>>;
 let onSeamTap: ReturnType<typeof vi.fn<() => void>>;
+let onShortSwipe: ReturnType<typeof vi.fn<() => void>>;
 
 interface ProbeProps {
   hold: (cutter: Cutter) => void;
@@ -46,7 +49,7 @@ interface ProbeProps {
 }
 
 const Probe = ({ hold, disabled = false, isOpening = false, isPackCut = false, particles = false, volume = 0 }: ProbeProps) => {
-  const latest = usePackCutter({ onCutComplete, onMiss, onSeamTap, isOpening, isPackCut, volume, particlesEnabled: particles, disabled });
+  const latest = usePackCutter({ onCutComplete, onMiss, onSeamTap, onShortSwipe, isOpening, isPackCut, volume, particlesEnabled: particles, disabled });
   const { packRef } = latest;
   useEffect(() => hold(latest));
   return <div ref={packRef} />;
@@ -55,10 +58,10 @@ const Probe = ({ hold, disabled = false, isOpening = false, isPackCut = false, p
 /** Renders the probe, or re-renders it with a sheet open over the pack (`disabled`). */
 const render = (disabled = false, volume = 0) => act(() => root.render(<Probe hold={(latest) => { cutter = latest; }} disabled={disabled} volume={volume} />));
 
-/** Gives the pack the on-screen box `rect`, or `rect` narrowed to `width` px from the same left edge. */
-const sizePack = (width = rect.width) => {
+/** Gives the pack the on-screen box `rect`, or `rect` resized to `width` x `height` px from the same top left corner. */
+const sizePack = (width = rect.width, height = rect.height) => {
   const pack = container.firstElementChild as HTMLDivElement;
-  pack.getBoundingClientRect = () => ({ ...rect, width, x: rect.left, y: rect.top, right: rect.left + width, bottom: rect.top + rect.height, toJSON() {} });
+  pack.getBoundingClientRect = () => ({ ...rect, width, height, x: rect.left, y: rect.top, right: rect.left + width, bottom: rect.top + height, toJSON() {} });
 };
 
 const down = (point: Point, extra?: Partial<PointerEvent>) => act(() => cutter.handlePointerDown(pointer('pointerdown', point, extra)));
@@ -91,6 +94,7 @@ beforeEach(() => {
   onCutComplete = vi.fn<() => void>();
   onMiss = vi.fn<() => void>();
   onSeamTap = vi.fn<() => void>();
+  onShortSwipe = vi.fn<() => void>();
   mount();
 });
 
@@ -115,8 +119,13 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('does not open after a 19% swipe', () => {
-    swipe(at(0.4), at(0.5), at(0.59));
+  it('opens on release after a 13% swipe, past the 12% it takes (#626)', () => {
+    swipe(at(0.4), at(0.47), at(0.53));
+    expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not open after an 11% swipe', () => {
+    swipe(at(0.4), at(0.47), at(0.51));
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
@@ -125,8 +134,8 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('does not open after a back-and-forth scribble that never spans 20%', () => {
-    swipe(at(0.4), at(0.55), at(0.42), at(0.56), at(0.41), at(0.5));
+  it('does not open after a back-and-forth scribble that never spans 12%', () => {
+    swipe(at(0.4), at(0.47), at(0.41), at(0.48), at(0.4), at(0.45));
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
@@ -145,8 +154,21 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
+  it('does not open a stroke that goes across, far down, then across again, mid-drag or on release (#626)', () => {
+    // 15px across settles it as a swipe; 300px down is then 20 times as far down as across, and the
+    // 112px across that follows (35%, past the 30% a drag needs) is still under 1.5 times that drift.
+    const press = at(0.3);
+    down(press);
+    move({ clientX: press.clientX + 15, clientY: press.clientY });
+    move({ clientX: press.clientX + 15, clientY: press.clientY + 300 });
+    move({ clientX: press.clientX + 112, clientY: press.clientY + 300 });
+    expect(onCutComplete).not.toHaveBeenCalled();
+    up({ clientX: press.clientX + 112, clientY: press.clientY + 300 });
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
   it('keeps counting a slanted swipe that drifts off the tear line', () => {
-    // 60 and 90px below the line: past the 45.84px it takes to start a stroke.
+    // 60 and 90px below the line: past the 82px it takes to start a stroke.
     swipe(at(0.2), at(0.35, 30), at(0.45, 60), at(0.55, 90));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
@@ -170,9 +192,9 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('never cuts from a press just off the seam, dragged onto it and across', () => {
-    // 50px under the line is just past the 45.84px band, so the press nudges and can't cut (#267).
-    swipe(at(0.1, 50), at(0.2), at(0.9));
+  it('never cuts from a press just below the start band, dragged up into it and across', () => {
+    // 90px under the line is just past the 82px band, so the press nudges and can't cut (#267, #626).
+    swipe(at(0.1, 90), at(0.2), at(0.9));
     expect(onMiss).toHaveBeenCalledTimes(1);
     expect(onCutComplete).not.toHaveBeenCalled();
   });
@@ -287,8 +309,8 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('needs at least 32px on a pack too narrow for 20% to reach it', () => {
-    // 20% of 120px is 24px, so the floor decides. 30px is 25% of the pack and still too short.
+  it('needs at least 32px on a pack too narrow for 12% to reach it', () => {
+    // 12% of 120px is 14.4px, so the floor decides. 30px is 25% of the pack and still too short.
     sizePack(120);
     swipe(fromLeft(40), fromLeft(55), fromLeft(70));
     expect(onCutComplete).not.toHaveBeenCalled();
@@ -300,13 +322,13 @@ describe('usePackCutter short swipes (#312)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
-  it('does not open mid-drag on a 50% stroke that goes further down than across', () => {
-    // 160px across is past the 96px (30%) that opens mid-drag, but it's 200px down.
+  it.each([270, 330])('does not open mid-drag on a 50%% stroke that goes %ipx down, over 1.5 times as far as across', (below) => {
+    // 160px across is past the 96px (30%) that opens mid-drag, but it's more than 240px down.
     down(at(0.2));
-    move(at(0.7, 200));
+    move(at(0.7, below));
     expect(onCutComplete).not.toHaveBeenCalled();
     // The release measures the same stroke against the same guard, so it doesn't open either.
-    up(at(0.7, 200));
+    up(at(0.7, below));
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
@@ -608,16 +630,16 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
-  it('does not light the seam for a press off it', () => {
-    down(at(0.3, 60));
+  it('does not light the seam for a press below the start band', () => {
+    down(at(0.3, 100));
     expect(cutter.isPressing).toBe(false);
     expect(onMiss).toHaveBeenCalledTimes(1);
-    up(at(0.3, 60));
+    up(at(0.3, 100));
   });
 
-  it('draws nothing for a press off the seam, dragged onto it and across', () => {
+  it('draws nothing for a press below the start band, dragged onto the seam and across', () => {
     renderCounting(true);
-    down(at(0.3, 60));
+    down(at(0.3, 100));
     move(at(0.3));
     move(at(0.4));
     move(at(0.5));
@@ -862,14 +884,137 @@ describe('usePackCutter direction thresholds (#485)', () => {
   });
 
   it('still opens a short swipe along the seam, wobble and all', () => {
-    // 21% of the pack, just past the 20% a release needs.
-    swipe(at(0.4), at(0.5, 4), at(0.61, 6));
+    // 13% of the pack, just past the 12% a release needs.
+    swipe(at(0.4), at(0.47, 4), at(0.53, 6));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
   });
 
   it('still opens a short swipe over and back', () => {
     swipe(at(0.4), at(0.52, -3), at(0.62), at(0.5, 3), at(0.41));
     expect(onCutComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('usePackCutter forgiving swipes (#626)', () => {
+  /** A point `across` of the way over the pack, `y` px below the pack's top. */
+  const atY = (across: number, y: number): Point => ({ clientX: rect.left + across * rect.width, clientY: rect.top + y });
+
+  describe('where a press can start', () => {
+    it.each([-100, -60, 0, 40, 80])('opens from a press %ipx from the tear line, swiped straight across', (below) => {
+      swipe(at(0.2, below), at(0.35, below), at(0.5, below), at(0.6, below));
+      expect(onCutComplete).toHaveBeenCalledTimes(1);
+      expect(onMiss).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      // [pack height, last y that starts a cut, first y that is a miss]
+      [573, 189, 193], // a third of the pack is 191px
+      [900, 295, 305], // a third is 300px, past 80px under the tear line (251px)
+      [300, 135, 140], // a third is only 100px: 80px under the tear line (137px) reaches lower
+    ])('starts a cut anywhere in the top third or 80px under the tear line, on a %ipx pack', (height, inside, outside) => {
+      sizePack(rect.width, height);
+      swipe(atY(0.2, inside), atY(0.4, inside), atY(0.6, inside));
+      expect(onCutComplete).toHaveBeenCalledTimes(1);
+      expect(onMiss).not.toHaveBeenCalled();
+      swipe(atY(0.2, outside), atY(0.4, outside), atY(0.6, outside));
+      expect(onCutComplete).toHaveBeenCalledTimes(1);
+      expect(onMiss).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens from a short swipe that starts off the seam', () => {
+      swipe(at(0.4, 70), at(0.47, 70), at(0.53, 70));
+      expect(onCutComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens from a short diagonal that starts off the seam and rises onto it', () => {
+      // 80px across (25%) is past the 12% a release needs, short of the 30% that opens mid-drag.
+      down(at(0.3, 70));
+      move(at(0.42, 35));
+      move(at(0.55));
+      expect(onCutComplete).not.toHaveBeenCalled();
+      up(at(0.55));
+      expect(onCutComplete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('how far a swipe may drift', () => {
+    it.each([1, 1.4])('opens on a diagonal that goes %f px down for each px across', (slope) => {
+      swipe(at(0.2), at(0.3, 32 * slope), at(0.45, 80 * slope), at(0.6, 128 * slope));
+      expect(onCutComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens on a diagonal that starts low in the band and rises well past the seam', () => {
+      swipe(at(0.2, 80), at(0.35, 40), at(0.5), at(0.6, -30));
+      expect(onCutComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens on an arc that wanders 120px up and down while it goes 40% across', () => {
+      swipe(at(0.2), at(0.3, 60), at(0.4, 100), at(0.5, 40), at(0.6, -20));
+      expect(onCutComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([1.6, 1.8, 2.5])('does not open on a diagonal that goes %f px down for each px across', (slope) => {
+      swipe(at(0.2), at(0.3, 32 * slope), at(0.45, 80 * slope), at(0.6, 128 * slope));
+      expect(onCutComplete).not.toHaveBeenCalled();
+    });
+
+    it('draws the cut along the seam however high or low the finger is', () => {
+      const frames = new Map<number, FrameRequestCallback>();
+      let nextFrame = 0;
+      vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { nextFrame += 1; frames.set(nextFrame, callback); return nextFrame; });
+      vi.stubGlobal('cancelAnimationFrame', (frame: number) => { frames.delete(frame); });
+      down(at(0.2, 70));
+      move(at(0.28, 45));
+      move(at(0.34, 20));
+      act(() => { for (const callback of [...frames.values()]) callback(0); });
+      expect(cutter.isCutting).toBe(true);
+      expect(cutter.cutPoints.length).toBeGreaterThan(1);
+      for (const point of cutter.cutPoints) expect(point.y).toBeCloseTo(19);
+    });
+  });
+
+  describe('what still never opens the pack', () => {
+    it.each([
+      ['from low in the band', 70, [110, 170, 250]],
+      ['from the top of the pack', -90, [-40, 60, 150]],
+    ])('a drag down the pack %s is a scroll', (_, start, below) => {
+      down(at(0.5, start));
+      below.forEach((y, step) => move(at(0.5 + 0.005 * (step + 1), y)));
+      expect(cutter.isPressing).toBe(false);
+      up(at(0.52, below[below.length - 1]));
+      expect(onCutComplete).not.toHaveBeenCalled();
+      expect(onMiss).not.toHaveBeenCalled();
+      expect(onSeamTap).not.toHaveBeenCalled();
+    });
+
+    it('a sideways sweep after a scroll does not open it', () => {
+      down(at(0.3, 70));
+      move(at(0.31, 120));
+      expect(cutter.isPressing).toBe(false);
+      move(at(0.9, 120));
+      up(at(0.9, 120));
+      expect(onCutComplete).not.toHaveBeenCalled();
+    });
+
+    it('a tap at the low edge of the band only shows the swipe', () => {
+      swipe(at(0.5, 80), at(0.5, 80));
+      expect(onSeamTap).toHaveBeenCalledTimes(1);
+      expect(onMiss).not.toHaveBeenCalled();
+      expect(onCutComplete).not.toHaveBeenCalled();
+    });
+
+    it('a tap with a jittering finger only shows the swipe', () => {
+      swipe(at(0.5, 20), at(0.51, 24), at(0.49, 18), at(0.5, 22));
+      expect(onSeamTap).toHaveBeenCalledTimes(1);
+      expect(onCutComplete).not.toHaveBeenCalled();
+    });
+
+    it('a tap below the band is a miss, and shows where to swipe', () => {
+      swipe(at(0.5, 90), at(0.5, 90));
+      expect(onMiss).toHaveBeenCalledTimes(1);
+      expect(onSeamTap).not.toHaveBeenCalled();
+      expect(onCutComplete).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -883,9 +1028,9 @@ describe('usePackCutter seam taps (#485)', () => {
 
   it.each([
     ['a swipe that opens', () => swipe(at(0.3), at(0.5), at(0.65))],
-    ['a swipe too short to open', () => swipe(at(0.4), at(0.5), at(0.59))],
+    ['a swipe too short to open', () => swipe(at(0.4), at(0.47), at(0.51))],
     ['a scroll down from the seam', () => swipe(at(0.5), at(0.5, 20), at(0.5, 40))],
-    ['a press off the seam', () => swipe(at(0.5, 200), at(0.5, 200))],
+    ['a press below the start band', () => swipe(at(0.5, 200), at(0.5, 200))],
     ['a cancelled press', () => {
       down(at(0.5));
       act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.5))));
@@ -899,6 +1044,40 @@ describe('usePackCutter seam taps (#485)', () => {
     render(true);
     swipe(at(0.5), at(0.5));
     expect(onSeamTap).not.toHaveBeenCalled();
+  });
+});
+
+describe('usePackCutter swipes let go short (#803)', () => {
+  it.each([
+    ['a swipe under the release cut', () => swipe(at(0.4), at(0.45), at(0.49))],
+    ['a swipe that wobbles back before the release', () => swipe(at(0.4), at(0.46), at(0.41))],
+  ])('says so for %s, and opens nothing', (_, gesture) => {
+    gesture();
+    expect(onShortSwipe).toHaveBeenCalledTimes(1);
+    expect(onCutComplete).not.toHaveBeenCalled();
+    expect(onSeamTap).not.toHaveBeenCalled();
+    expect(onMiss).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a swipe that opens', () => swipe(at(0.3), at(0.5), at(0.65))],
+    ['a tap on the seam', () => swipe(at(0.5), at(0.5))],
+    ['a scroll down from the seam', () => swipe(at(0.5), at(0.5, 20), at(0.5, 40))],
+    ['a press below the start band', () => swipe(at(0.5, 200), at(0.5, 200))],
+    ['a cancelled press', () => {
+      down(at(0.4));
+      move(at(0.45));
+      act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.45))));
+    }],
+  ])('stays quiet for %s', (_, gesture) => {
+    gesture();
+    expect(onShortSwipe).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet while a sheet is open over the pack', () => {
+    render(true);
+    swipe(at(0.4), at(0.45), at(0.49));
+    expect(onShortSwipe).not.toHaveBeenCalled();
   });
 });
 

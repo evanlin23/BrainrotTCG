@@ -7,7 +7,7 @@ import CardImage from '../cards/CardImage';
 import CardGuideButton from '../ui/CardGuideButton';
 import { modifierLabel, modifierThumb } from '../../game/modifiers';
 import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
-import { scoreAtLeastChance, type SetDefinition } from '../../engine';
+import type { SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
 import PackHeadline from './PackHeadline';
@@ -30,8 +30,7 @@ interface PackSummaryUIProps {
 
 /**
  * After the last card, one screen (docs/DESIGN.md, one-screen summary rule): the headline (Brainrot
- * Score, then "[combo] · 1 in X packs score this high" or "Most packs score this high", then the Hall of
- * Fame line), one line with the card hint and the Card guide link, the five cards in one compact row, in
+ * Score, then "[combo] ×[multiplier]", then the Hall of Fame line), one line with the card hint and the Card guide link, the five cards in one compact row, in
  * the order they were revealed (each wears its New and special badges and opens up close, where it can be
  * shared as an image that links to this pack; the summary has no per-card Share), then the actions, stuck
  * to the bottom so they never scroll away. Nothing follows them: level progress lives on Profile. Sharing
@@ -65,14 +64,12 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
     event.currentTarget.scrollBy({ top: before ? box.bottom - stuck.top + 8 : box.top - stuck.bottom - 8 });
   };
   const packScore = useMemo(() => scoreCards(openedCards), [openedCards]);
-  // Works through every pack of the set (cached per set), so once per set and score, not on each render.
-  const scoreChance = useMemo(() => scoreAtLeastChance(set, packScore.score), [set, packScore.score]);
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
       <div className="summary-content" onFocus={clearActions}>
         <div className="summary-details">
-          <PackHeadline cards={openedCards} headingRef={headingRef} scoreChance={scoreChance}>
+          <PackHeadline cards={openedCards} headingRef={headingRef}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
           </PackHeadline>
           <div className="summary-guide-line">

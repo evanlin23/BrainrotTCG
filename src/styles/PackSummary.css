@@ -17,8 +17,8 @@
   overflow-wrap: anywhere;
 }
 
-/* "[combo] · 1 in [n] packs score this high" ("Most packs score this high" past even odds), or just the combo without odds. */
-.pack-summary .pack-headline-odds {
+/* "[combo] ×[multiplier]" under the score. */
+.pack-summary .pack-headline-combo {
   color: var(--text-muted);
   font-size: var(--text-lg);
   font-weight: 700;

@@ -4,7 +4,7 @@ import { ALL_CARDS } from '../data/cards';
 import { hydrateCollection } from '../utils/migrations';
 import {
   ARCHIVE_BUDGET, COLLECTION_RECOVERY_NOTES, collectionRecoveryDismissed, collectionRecoveryFile, collectionRecoveryNote,
-  collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, hasCollectionRecovery,
+  collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, downloadCollectionRecovery, hasCollectionRecovery,
   persistCollection,
 } from './collectionRecovery';
 
@@ -243,6 +243,57 @@ describe('downloading and discarding kept-aside data', () => {
     expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw: '{broken', player: null, kind: 'unparseable-archive' });
   });
 
+  it('distinguishes unavailable archive from missing archive when storage reads are denied', () => {
+    const data = seed(null);
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"kept":1}', player: null }));
+    expect(collectionRecoveryState()).toBe('stored');
+
+    const getItem = localStorage.getItem;
+    vi.spyOn(localStorage, 'getItem').mockImplementation((key: string) => {
+      if (key === ARCHIVE) throw new DOMException('Storage read denied', 'SecurityError');
+      return getItem(key);
+    });
+
+    // Not 'none': the archive may still be there. No note of its own (callers keep the one showing).
+    expect(collectionRecoveryState()).toBe('unavailable');
+    expect(hasCollectionRecovery()).toBe(false);
+    expect(collectionRecoveryNote()).toBeUndefined();
+    // No file at all rather than an empty or partial one, and the download says why.
+    expect(() => collectionRecoveryFile()).toThrow('Storage read denied');
+    expect(downloadCollectionRecovery()).toBe('unavailable');
+
+    // Access back: the exact archive is what the file holds.
+    vi.spyOn(localStorage, 'getItem').mockImplementation(getItem);
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw: '{"kept":1}', player: null });
+  });
+
+  it('raises no kept-aside note when every storage read is denied and nothing is kept', () => {
+    vi.stubGlobal('localStorage', { getItem: () => { throw new DOMException('denied', 'SecurityError'); } });
+    expect(collectionRecoveryState()).toBe('unavailable');
+    expect(collectionRecoveryNote()).toBeUndefined();
+    expect(hasCollectionRecovery()).toBe(false);
+  });
+
+  it('builds no partial file from this visit\'s unsaved payloads while the stored archive can\'t be read', () => {
+    const data = seed('{"2":null}', (key) => key === ARCHIVE);
+    expect(persistCollection({})).toBe('recovered');
+    const stored = { raw: '{"0":null}', player: null };
+    data.set(ARCHIVE, JSON.stringify(stored));
+    const getItem = localStorage.getItem;
+    vi.spyOn(localStorage, 'getItem').mockImplementation((key: string) => {
+      if (key === ARCHIVE) throw new DOMException('Storage read denied', 'SecurityError');
+      return getItem(key);
+    });
+
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(() => collectionRecoveryFile()).toThrow('Storage read denied');
+    expect(downloadCollectionRecovery()).toBe('unavailable');
+    expect(data.get(ARCHIVE)).toBe(JSON.stringify(stored));
+
+    vi.spyOn(localStorage, 'getItem').mockImplementation(getItem);
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ ...stored, later: [{ raw: '{"2":null}', player: null }] });
+  });
+
   it('discards the stored archive, its hidden-note fingerprint and the unsaved payloads', () => {
     const data = seed('{"1":null}', (key) => key === ARCHIVE);
     expect(persistCollection({})).toBe('recovered');
@@ -324,6 +375,11 @@ describe('downloading and discarding kept-aside data', () => {
   });
 
   it('says how many older payloads were let go, stored and in memory, in the note and the file', () => {
+    expect(COLLECTION_RECOVERY_NOTES.stored).toContain('secret player key');
+    expect(COLLECTION_RECOVERY_NOTES.stored).toContain('Keep the file private and never attach it to a public bug report.');
+    expect(COLLECTION_RECOVERY_NOTES.unsaved).toContain('secret player key');
+    expect(COLLECTION_RECOVERY_NOTES.unsaved).toContain('Keep the file private and never attach it to a public bug report.');
+
     const data = seed(null);
     expect(collectionRecoveryNote()).toBeUndefined();
     data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));

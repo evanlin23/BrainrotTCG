@@ -6,6 +6,7 @@ import { shelvedPacks } from './pendingShelf';
 import { STORAGE_KEYS } from '../constants/config';
 import { fromHex, publicKeyFromSecret, toHex } from '../engine';
 import { SAVE_STAMP_KEY } from '../game/player';
+import { getSetCards } from '../data/cards';
 import type { CollectionItem, Stats } from '../types';
 
 let app: Awaited<ReturnType<typeof mountedApp>> | undefined;
@@ -51,6 +52,9 @@ const openButton = () => document.querySelector<HTMLButtonElement>('.pack-open-b
 const refusal = () => document.querySelector('.pack-refusal');
 const button = (within: ParentNode, label: string) => [...within.querySelectorAll<HTMLElement>('button')]
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label);
+/** Settings' Restore row status, where the import prompt and its refusals show. */
+const restoreNote = () => [...document.querySelectorAll('.settings [role="status"]')]
+  .find((el) => el.previousElementSibling?.textContent === 'Restore');
 
 /** The Open pack button under the pack, as a tap, a click or the keyboard opens it. */
 async function pressOpen() {
@@ -179,15 +183,24 @@ it('puts a torn pack back sealed when another tab loads a different player befor
   expectKeptSealed();
 }, 60_000);
 
-it('blocks the write even when the storage event never arrived', async () => {
+/** A tear after the save changed, before this tab heard of it: the claim is refused (#811), nothing is spent or shelved. */
+async function expectStaleTearRefused() {
+  await pressOpen();
+  await app!.until('the pack stays sealed', expectKeptSealed);
+  expect(app!.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).nextNonce).toBe(0);
+  expect(shelf()).toEqual([]);
+}
+
+it('blocks the claim and the write even when the storage event never arrived', async () => {
   app = await mountedApp(SEED);
   await app.mount();
 
   otherTabWrites(THEIR_SAVE);
-  await openPack();
+  await expectStaleTearRefused();
 
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
-  expect(banner()?.textContent).toContain(STALE);
 }, 60_000);
 
 it('leaves another player’s name alone when this tab leaves Profile with an edited name, and says why', async () => {
@@ -240,18 +253,17 @@ it('stops storing progress once another tab imports a save, even the same player
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
 }, 60_000);
 
-it('keeps the imported save when this tab opens a pack before hearing of a same-player import', async () => {
+it('keeps the imported save when this tab tears a pack before hearing of a same-player import', async () => {
   app = await mountedApp(SEED);
   await app.mount();
 
   otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', ...THEIR_PROGRESS });
-  await openPack();
-  expect(banner()?.textContent).toContain(STALE);
+  await expectStaleTearRefused();
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
-  // The pack waits on the shelf, and the next load adds it to the imported save.
-  expect(shelf()).toHaveLength(1);
+  // A reload picks up the imported save, and opens its packs.
   await app.reload();
   expect(banner()).toBeNull();
+  await openPack();
   expect(owned()).toBe(5);
   expect(shelf()).toEqual([]);
 }, 60_000);
@@ -301,6 +313,105 @@ it('still recovers a pack the collection couldn’t store when the player is the
   expect(banner()).toBeNull();
 }, 60_000);
 
+it('retires the open card share sheet when another tab saves a different player, and not for the same one (#653)', async () => {
+  const card = getSetCards('right-now')[0];
+  const cardId = card.key.split('/')[1];
+  const owns = { [card.key]: { card, normalCount: 1, holoCount: 0 } };
+  // Both players hold this card, each in a pack of their own, so a sheet that followed storage would find one.
+  const packs = [
+    { s: card.setId, v: 2, n: 0, k: keyOf(MINE).slice(0, 16), c: cardId, h: 'High Card', x: 0, t: 1 },
+    { s: card.setId, v: 2, n: 1, k: keyOf(THEIRS).slice(0, 16), c: cardId, h: 'High Card', x: 0, t: 2 },
+  ];
+  app = await mountedApp({
+    ...SEED,
+    [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
+    [STORAGE_KEYS.COLLECTION]: JSON.stringify(owns),
+    [STORAGE_KEYS.HISTORY]: JSON.stringify(packs),
+  });
+  // Every external action is stubbed; each poster is a blob that names whom and which ticket it was drawn for.
+  const draws: string[] = [];
+  const madeFor = new Map<Blob, string>();
+  const renderCardPoster = vi.fn(async (options: { playerName: string; cert?: string }) => {
+    draws.push(`${options.playerName} ${options.cert}`);
+    const blob = new Blob(['poster'], { type: 'image/png' });
+    madeFor.set(blob, options.playerName);
+    return blob;
+  });
+  const copyText = vi.fn(async (_text: string) => true);
+  const copyImage = vi.fn(async (_image: Blob) => true);
+  const shareTo = vi.fn(async (_payload: { url?: string; image?: { blob: Blob } }) => 'shared');
+  vi.doMock('../game/bragImage', async (original) => ({ ...(await original<typeof import('../game/bragImage')>()), renderCardPoster }));
+  vi.doMock('../game/shareActions', async (original) => ({
+    ...(await original<typeof import('../game/shareActions')>()),
+    copyText, copyImage, shareTo, canCopyImage: () => true, canShareTo: () => true,
+  }));
+  const objectUrls = { made: [] as string[], revoked: [] as string[] };
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL() { return objectUrls.made[objectUrls.made.push(`blob:poster-${objectUrls.made.length}`) - 1]; }
+    static revokeObjectURL(url: string) { objectUrls.revoked.push(url); }
+  });
+  try {
+    await app.mount();
+    const sheet = () => document.querySelector('.share-sheet');
+    const sheetButton = (label: string) => [...sheet()!.querySelectorAll('button')].find((el) => el.textContent?.includes(label));
+
+    await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent?.includes('Cards'))!.click());
+    await app.until('the Cards collection shows the card', () => expect(document.querySelector('button.collection-item')).not.toBeNull());
+    await app.interact(() => document.querySelector<HTMLButtonElement>('button.collection-item')!.click());
+    await app.until('the card viewer is open', () => expect(document.querySelector('.card-viewer')).not.toBeNull());
+    await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.includes('Share card'))!.click());
+    await app.until('the poster is drawn', () => {
+      expect(sheet()).not.toBeNull();
+      expect((sheetButton('Copy image') as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(sheet()!.textContent).toContain('(ticket #0)');
+    // (React's development double-mount draws it twice; the second is the one that stays.)
+    const drawn = draws.length;
+    expect(draws.every((d) => /^This tab .* #0$/.test(d))).toBe(true);
+
+    // This player's card: the poster, certificate and link all belong to ticket #0.
+    const aLink = () => copyText.mock.calls[copyText.mock.calls.length - 1][0];
+    await app.interact(() => sheetButton('Copy link')!.click());
+    expect(aLink()).toContain('#/pull/');
+    await app.interact(() => sheetButton('Copy image')!.click());
+    expect(madeFor.get(copyImage.mock.calls[copyImage.mock.calls.length - 1][0])).toBe('This tab');
+    await app.interact(() => sheetButton('Share to')!.click());
+    const shared = shareTo.mock.calls[shareTo.mock.calls.length - 1][0];
+    expect(shared.url).toBe(aLink());
+    expect(madeFor.get(shared.image!.blob)).toBe('This tab');
+    const before = [copyText, copyImage, shareTo].map((fn) => fn.mock.calls.length);
+
+    // The same player written again (a rename, a re-import) leaves the sheet as it was.
+    otherTabWrites({ [PLAYER_KEY]: record(MINE, 'Renamed tab') });
+    await storageEvent(PLAYER_KEY);
+    otherTabWrites({ [SAVE_STAMP_KEY]: 'same-player-again' });
+    await storageEvent(SAVE_STAMP_KEY);
+    expect(sheetButton('Copy link')).toBeDefined();
+    expect(draws).toHaveLength(drawn);
+    expect(objectUrls.revoked).toEqual([]);
+
+    // Another tab imports player B, who also owns this card at ticket #1.
+    otherTabWrites({ ...THEIR_SAVE, [STORAGE_KEYS.COLLECTION]: JSON.stringify(owns) });
+    await storageEvent(PLAYER_KEY);
+    expect(banner()?.textContent).toContain(STALE);
+
+    // The sheet is retired: nothing of A's card can be copied or shared under B, and nothing signed by B
+    // was paired with A's poster. B's ticket was never drawn.
+    expect(sheet()!.textContent).toContain('This save changed in another tab. Reload to share.');
+    for (const label of ['Copy link', 'Copy image', 'Save image', 'Copy text', 'Share to']) expect(sheetButton(label)).toBeUndefined();
+    expect(sheet()!.querySelector('img')).toBeNull();
+    expect(sheet()!.textContent).not.toContain('(ticket #1)');
+    expect(draws).toHaveLength(drawn);
+    expect(draws.some((d) => d.includes('Other tab'))).toBe(false);
+    expect(objectUrls.revoked).toEqual(objectUrls.made);
+    expect([copyText, copyImage, shareTo].map((fn) => fn.mock.calls.length)).toEqual(before);
+    for (const call of [...copyText.mock.calls, ...shareTo.mock.calls]) expect(JSON.stringify(call)).not.toContain('Other tab');
+  } finally {
+    vi.doUnmock('../game/bragImage');
+    vi.doUnmock('../game/shareActions');
+  }
+}, 60_000);
+
 it('refuses stale replacement import when another tab imported a save, and allows a reconfirmed import', async () => {
   const initialSeed = {
     ...SEED,
@@ -334,7 +445,7 @@ it('refuses stale replacement import when another tab imported a save, and allow
   // 1. In Tab A: select incoming save and wait for Replace prompt
   await pickFile(incomingSave);
   await app.until('replacement prompt appears', () => expect(button(document, 'Replace')).not.toBeUndefined());
-  expect(document.querySelector('.settings [role="status"]')?.textContent).toContain("Replace this browser's save");
+  expect(restoreNote()?.textContent).toContain("Replace this browser's save");
 
   // 2. Tab B: actual successful import of Switched Player
   const switchedKey = '04'.repeat(32);
@@ -371,7 +482,7 @@ it('refuses stale replacement import when another tab imported a save, and allow
 
   await pickFile(incomingSave);
   await app.until('fresh replacement prompt appears', () => expect(button(document, 'Replace')).not.toBeUndefined());
-  expect(document.querySelector('.settings [role="status"]')?.textContent).toContain('Switched Player');
+  expect(restoreNote()?.textContent).toContain('Switched Player');
 
   await app.interact(() => button(document, 'Replace')!.click());
   expect(reloadSpy).toHaveBeenCalled();
@@ -382,4 +493,40 @@ it('refuses stale replacement import when another tab imported a save, and allow
   // And the backup in storage holds Switched Player
   const backup = JSON.parse(localStorage.getItem('brainrot-before-import-v1')!);
   expect(backup[PLAYER_KEY]).toContain('Switched Player');
+}, 60_000);
+
+it("refuses at App's import commit boundary when another tab's import hasn't reached this tab yet (#668)", async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  const reloadSpy = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+
+  // The other tab imports its save; its storage event is still on the way, so nothing here has gone stale yet.
+  otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', ...THEIR_SAVE });
+  const input = document.querySelector<HTMLInputElement>('.settings input[type="file"]')!;
+  const incoming = {
+    version: 2, exportedAt: '2026-10-14T00:00:00.000Z', dataVersion: 3,
+    player: record('03'.repeat(32), 'Incoming Player'),
+    stats: JSON.stringify({ packsOpened: 10, holoCards: {}, highestPackCards: [] }),
+    collection: '{}', achievements: '{}', hallOfFame: '{}', settings: JSON.stringify({ effectsVolume: 0 }), history: '[]',
+  };
+  Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(incoming)], 'save.json')], configurable: true });
+  await app.interact(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+  // Settings reads storage, so its prompt (and the mark it binds) describe the other tab's save.
+  await app.until('the replacement prompt appears', () => expect(button(document, 'Replace')).toBeDefined());
+  expect(restoreNote()?.textContent).toContain('Other tab');
+  const stored = Object.fromEntries(Object.entries(localStorage));
+
+  // This tab still holds the save it loaded, so App refuses the import: nothing is written or reloaded.
+  await app.interact(() => button(document, 'Replace')!.click());
+  expect(reloadSpy).not.toHaveBeenCalled();
+  expect(Object.fromEntries(Object.entries(localStorage))).toEqual(stored);
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).name).toBe('Other tab');
+  expect(localStorage.getItem('brainrot-before-import-v1')).toBeNull();
+  expect(restoreNote()?.textContent).toContain(STALE);
+  expect(button(document.querySelector('.settings')!, 'Reload')).toBeDefined();
+  expect(button(document, 'Replace')).toBeUndefined();
+  expect(button(document, 'Keep mine')).toBeUndefined();
+  reloadSpy.mockRestore();
 }, 60_000);

@@ -4,7 +4,7 @@ import DeferredSheet from '../ui/DeferredSheet';
 import { sheetLoader } from '../ui/sheetEntry';
 import type { Card } from '../../data/cards';
 import { cardPoints } from '../../data/cards';
-import { FINISH_INFO, modifierClasses, modifierLabel } from '../../game/modifiers';
+import { FINISH_INFO, modifierClasses, modifierLabel, versionName } from '../../game/modifiers';
 import { sameVersion, versionOf, type CardVersion, type OwnedVersion } from '../../game/versions';
 import type { PullRef } from '../../game/pulls';
 import RarityBadge from '../ui/RarityBadge';
@@ -27,8 +27,6 @@ interface CardViewerModalProps {
 
 const MAX_TILT = 12;
 const loadCardShare = sheetLoader(() => import('../share/CardShareSheet'));
-
-const versionName = (v: CardVersion) => modifierLabel(v) || 'Plain';
 
 /** One card, big, tilting with the pointer. */
 const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: CardViewerModalProps) => {
@@ -77,7 +75,7 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: Ca
                 <button
                   key={versionName(version)}
                   type="button"
-                  className={`version-chip ${version.misprint ? 'misprint-chip' : ''}`}
+                  className={`version-chip ${version.misprint ? 'misprint-chip' : ''} ${version.uncertain ? 'uncertain-chip' : ''}`}
                   style={version.finish ? ({ '--finish': FINISH_INFO[version.finish].color } as React.CSSProperties) : undefined}
                   aria-pressed={sameVersion(shown, version)}
                   onClick={() => setShown(version)}
@@ -90,7 +88,8 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: Ca
           </div>
         )}
         <div className="card-viewer-actions">
-          {canShare && (
+          {/* A version rebuilt from tallies may be a guess: never share it as an exact pull. */}
+          {canShare && !shown.uncertain && (
             <button type="button" className="btn btn--primary btn--sm" onClick={() => setSharing(true)}>
               <Share2 aria-hidden="true" /> Share card
             </button>

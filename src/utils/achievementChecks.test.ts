@@ -31,6 +31,21 @@ describe('set achievements', () => {
     expect(check(own(false))).not.toContain(setMasterId(set.id));
     expect(check(own(true))).toContain(setMasterId(set.id));
   });
+
+  it('does not unlock set completion for zero-copy records', () => {
+    const zeroCollection: Record<string, CollectionItem> = Object.fromEntries(
+      set.cards.map((c) => {
+        const key = `${set.id}/${c.id}`;
+        return [key, { card: getCard(key)!, normalCount: 0, holoCount: 0 }];
+      }),
+    );
+    expect(check(zeroCollection)).not.toContain(setCompleteId(set.id));
+    expect(check(zeroCollection)).not.toContain(setMasterId(set.id));
+    expect(check(zeroCollection)).not.toContain('collect_5');
+    expect(check(zeroCollection)).not.toContain('collect_10');
+    expect(check(zeroCollection)).not.toContain('complete_collection');
+    expect(check(zeroCollection)).not.toContain('first_common');
+  });
 });
 
 describe('pack achievements from the history', () => {
@@ -58,5 +73,19 @@ describe('pack achievements from the history', () => {
     const found = checkHistoryAchievements([entry(0, 'Pair', 50, pack)], {});
     expect(found.map((u) => u.id)).toEqual(expect.arrayContaining(['all_commons_pack', 'all_same_rarity', 'holo_common', 'pack_value_5']));
     expect(found[0].cards).toHaveLength(5);
+  });
+
+  it("wait on card-level achievements for a pack from a set or set version this build doesn't know", () => {
+    // A save from a newer build: no rarity to go on, so no all-the-same-rarity pack either (#701).
+    const commons = set.cards.filter((c) => c.rarity === 'COMMON');
+    const pack = [0, 1, 2, 3, 4].map((i) => ({ id: commons[i % commons.length].id, holo: false }));
+    const unknownSet: HistoryEntry = { ...entry(0, 'High Card', 5, pack), setId: 'from-a-newer-build' };
+    const unknownVersion: HistoryEntry = { ...entry(1, 'High Card', 5, pack), setVersion: set.version + 100 };
+    for (const e of [unknownSet, unknownVersion]) {
+      const found = checkHistoryAchievements([e], {});
+      expect(found.map((u) => u.id)).not.toContain('all_same_rarity');
+      expect(found.map((u) => u.id)).not.toContain('all_commons_pack');
+      expect(found.every((u) => u.cards === null)).toBe(true);
+    }
   });
 });

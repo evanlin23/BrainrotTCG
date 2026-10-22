@@ -95,11 +95,47 @@ describe('Settings: bringing the old address save', () => {
   });
 });
 
+describe('Settings: exporting a backup file', () => {
+  const backupNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Back up')!;
+
+  it('shows visible failure message when browser storage reads are denied, and succeeds on retry', async () => {
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} />));
+
+    // Mock download link trigger to verify no download occurred on failure
+    const appendSpy = vi.spyOn(document.body, 'appendChild');
+
+    // Deny storage read
+    const getItem = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Controlled storage read denial', 'SecurityError');
+    });
+
+    await click('Export');
+    expect(backupNote().textContent).toBe("Couldn't read browser storage to export your save.");
+    expect(appendSpy).not.toHaveBeenCalled();
+
+    // Restore storage read access
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(getItem);
+
+    // Mock createObjectURL / revokeObjectURL for download
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const createObjectURL = vi.fn(() => 'blob:mock');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+
+    await click('Export');
+    expect(backupNote().textContent).toBe('Includes your secret player key. Keep the file private.');
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+  });
+});
+
 describe('Settings: importing a backup file', () => {
   const restoreNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Restore')!;
-  const pick = async (save: Record<string, string>) => {
+  const pickRaw = async (content: string) => {
     const input = document.body.querySelector<HTMLInputElement>('input[type="file"]')!;
-    Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(save)], 'save.json')], configurable: true });
+    Object.defineProperty(input, 'files', { value: [new File([content], 'save.json')], configurable: true });
     const read = FileReader.prototype.readAsText;
     const loaded = new Promise((resolve) => vi.spyOn(FileReader.prototype, 'readAsText').mockImplementationOnce(function (this: FileReader, file: Blob) {
       this.addEventListener('load', resolve); // after the page's own onload
@@ -110,6 +146,80 @@ describe('Settings: importing a backup file', () => {
       await loaded;
     });
   };
+  const pick = (save: Record<string, string>) => pickRaw(JSON.stringify(save));
+
+  it('rejects null, array and primitive JSON files with useful message and no replacement prompt when progress exists', async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    // null JSON
+    await pickRaw('null');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+    expect(localStorage.getItem('brainrot-player-v1')).toBe(player('aa'));
+
+    // Array JSON
+    await pickRaw('[1, 2, 3]');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Primitive number
+    await pickRaw('12345');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Primitive string
+    await pickRaw('"hello world"');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Primitive boolean
+    await pickRaw('true');
+    expect(restoreNote().textContent).toBe("That file isn't a supported Brainrot TCG save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Malformed JSON syntax
+    await pickRaw('{ not valid json');
+    expect(restoreNote().textContent).toBe("Couldn't read that file. Is it a save exported from Save & backup?");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+    expect(localStorage.getItem('brainrot-player-v1')).toBe(player('aa'));
+  });
+
+  it('shows visible failure message when storage read is denied during preflight, and allows retry', async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    const getItem = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Controlled storage read denial', 'SecurityError');
+    });
+
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    expect(restoreNote().textContent).toBe("Couldn't read browser storage to check your current save.");
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // Restore storage read access
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(getItem);
+
+    // Retrying with restored storage access succeeds and shows the replacement prompt
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    const saves = "this browser's save (Combo Miner, 3 packs) with the file's (Combo Miner, 5 packs)";
+    expect(restoreNote().textContent).toBe(`Replace ${saves}? Yours is kept as a backup.`);
+    expect(button('Replace')).toBeDefined();
+  });
 
   it("names only the saves being swapped when there's no room for a copy, not ones picked earlier", async () => {
     const stats = JSON.stringify({ packsOpened: 3 });
@@ -131,6 +241,169 @@ describe('Settings: importing a backup file', () => {
     await click('Replace without a copy');
     expect(onImportSave.mock.calls.map(([content, keepCopy]) => [JSON.parse(content).player, keepCopy]))
       .toEqual([[player('bb'), true], [player('aa'), true], [player('aa'), false]]);
+  });
+
+  interface DeferredRead {
+    reader: FileReader;
+    file: Blob;
+    finish: () => Promise<void>;
+    fail: (err?: DOMException) => void;
+  }
+
+  const setupDeferredReads = () => {
+    const reads: DeferredRead[] = [];
+    const read = FileReader.prototype.readAsText;
+    vi.spyOn(FileReader.prototype, 'readAsText').mockImplementation(function (this: FileReader, file: Blob) {
+      reads.push({
+        reader: this,
+        file,
+        finish: () =>
+          new Promise<void>((resolve) => {
+            this.addEventListener('load', () => resolve(), { once: true });
+            read.call(this, file);
+          }),
+        fail: (err) => {
+          Object.defineProperty(this, 'error', {
+            value: err ?? new DOMException('Read failed', 'NotReadableError'),
+            configurable: true,
+          });
+          this.dispatchEvent(new Event('error'));
+        },
+      });
+    });
+    return reads;
+  };
+
+  const dispatchFileInput = (content: string) => {
+    const input = document.body.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, 'files', { value: [new File([content], 'save.json')], configurable: true });
+    act(() => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  };
+
+  it('retires superseded readers so earlier selections completed out of order cannot overwrite prompt or import', async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    const reads = setupDeferredReads();
+
+    // Select older.json, then latest.json while both reads are pending
+    dispatchFileInput(JSON.stringify({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) }));
+    dispatchFileInput(JSON.stringify({ player: player('cc'), stats: JSON.stringify({ packsOpened: 9 }) }));
+    expect(reads.length).toBe(2);
+
+    // Complete latest first
+    await act(async () => {
+      await reads[1].finish();
+    });
+    const latestSaves = "this browser's save (Combo Miner, 3 packs) with the file's (Combo Miner, 9 packs)";
+    expect(restoreNote().textContent).toBe(`Replace ${latestSaves}? Yours is kept as a backup.`);
+
+    // Complete older second
+    await act(async () => {
+      await reads[0].finish();
+    });
+    // The prompt remains Latest and does not revert to Older
+    expect(restoreNote().textContent).toBe(`Replace ${latestSaves}? Yours is kept as a backup.`);
+
+    // Replace actually imports Latest, not Older
+    await click('Replace');
+    expect(onImportSave).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(onImportSave.mock.calls[0][0]).player).toBe(player('cc'));
+  });
+
+  it('retires pending read and import intent when Settings closes so unmounted completion never invokes import', async () => {
+    // Current save has 3 packs. Backup has matching player and pack count, which normally auto-imports.
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    const reads = setupDeferredReads();
+
+    // Select file matching current save
+    dispatchFileInput(JSON.stringify({ player: player('aa'), stats }));
+    expect(reads.length).toBe(1);
+
+    // Leave Settings before native read completes (unmount)
+    act(() => {
+      root.unmount();
+    });
+
+    // Complete the read
+    await act(async () => {
+      await reads[0].finish();
+    });
+
+    // onImportSave was not called, preventing background writes or page reloads
+    expect(onImportSave).not.toHaveBeenCalled();
+  });
+
+  it('handles current read failure with actionable feedback, keeps superseding aborts quiet, and allows fresh selections', async () => {
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', JSON.stringify({ packsOpened: 3 }));
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    const reads = setupDeferredReads();
+
+    // 1. Select a file whose read fails
+    dispatchFileInput(JSON.stringify({ player: player('bb'), stats: JSON.stringify({ packsOpened: 4 }) }));
+    expect(reads.length).toBe(1);
+
+    await act(async () => {
+      reads[0].fail();
+    });
+    expect(restoreNote().textContent).toBe("Couldn't read that file. Try selecting it again.");
+    expect(button('Replace')).toBeUndefined();
+
+    // 2. Fresh selection while previous read was superseded: superseding abort is quiet
+    dispatchFileInput(JSON.stringify({ player: player('cc'), stats: JSON.stringify({ packsOpened: 6 }) }));
+    dispatchFileInput(JSON.stringify({ player: player('dd'), stats: JSON.stringify({ packsOpened: 7 }) }));
+    expect(reads.length).toBe(3);
+
+    // Abort/fail on superseded read (reads[1]) does not change the note to failure
+    await act(async () => {
+      reads[1].fail(new DOMException('The operation was aborted', 'AbortError'));
+    });
+    // Still shows the clean state, no error from aborted read
+    expect(restoreNote().textContent).not.toBe("Couldn't read that file. Try selecting it again.");
+
+    // Complete the active read (reads[2])
+    await act(async () => {
+      await reads[2].finish();
+    });
+    const expectedSaves = "this browser's save (Combo Miner, 3 packs) with the file's (Combo Miner, 7 packs)";
+    expect(restoreNote().textContent).toBe(`Replace ${expectedSaves}? Yours is kept as a backup.`);
+  });
+
+  it('preserves live identity check against storage when a pending read finishes', async () => {
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', JSON.stringify({ packsOpened: 3 }));
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} />));
+
+    const reads = setupDeferredReads();
+
+    // Start reading incoming save
+    dispatchFileInput(JSON.stringify({ player: player('bb'), stats: JSON.stringify({ packsOpened: 8 }) }));
+    expect(reads.length).toBe(1);
+
+    // While read is pending, live storage changes (e.g., opened more packs or switched save)
+    localStorage.setItem('brainrot-stats-v1', JSON.stringify({ packsOpened: 15 }));
+
+    // Finish reading
+    await act(async () => {
+      await reads[0].finish();
+    });
+
+    // The prompt accurately reflects the live save at completion time (15 packs, not 3)
+    const expected = "this browser's save (Combo Miner, 15 packs) with the file's (Combo Miner, 8 packs)";
+    expect(restoreNote().textContent).toBe(`Replace ${expected}? Yours is kept as a backup.`);
   });
 
   it('invalidates pending replacement approval when storage changes before Replace is clicked', async () => {
