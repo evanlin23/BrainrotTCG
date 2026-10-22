@@ -98,7 +98,7 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     <>
       <div className="collection">
         <p className="page-subtitle tabular">
-          {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} Brainrot Score
+          {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} total card points
         </p>
         {started.map(({ set, cards, have, done }) => {
           const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];

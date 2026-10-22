@@ -178,6 +178,66 @@ describe('saving the display name', () => {
   });
 });
 
+describe('Unicode names and the length limit', () => {
+  const composed = 'Café Explorer Club Squad';
+  const decomposed = 'Café Explorer Club Squad';
+
+  it('has the 25-code-point decomposed form of a 24-character name', () => {
+    expect(Array.from(decomposed)).toHaveLength(25);
+    expect(Array.from(composed)).toHaveLength(24);
+  });
+
+  it.each([['decomposed', decomposed], ['composed', composed]])('keeps the whole %s name through Save', (_label, value) => {
+    type(value);
+    expect(input().value).toBe(composed);
+    clickSave();
+    expect(storedName()).toBe(composed);
+    expect(heading()).toBe(composed);
+  });
+
+  it.each([['decomposed', decomposed], ['composed', composed]])('keeps the whole %s name when leaving the page', (_label, value) => {
+    type(value);
+    leave();
+    expect(storedName()).toBe(composed);
+  });
+
+  it('still caps a longer name at 24 code points, astral emoji counting once', () => {
+    type('\u{1F9E0}'.repeat(30));
+    expect(Array.from(input().value)).toHaveLength(24);
+    clickSave();
+    expect(storedName()).toBe('\u{1F9E0}'.repeat(24));
+  });
+
+  it('keeps whitespace as typed while editing and cleans it only on save', () => {
+    type('Two  words ');
+    expect(input().value).toBe('Two  words ');
+    clickSave();
+    expect(storedName()).toBe('Two words');
+  });
+
+  it('leaves an in-progress composition alone and normalizes when it ends', () => {
+    edit();
+    act(() => {
+      input().focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input(), decomposed);
+      input().dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+    });
+    expect(input().value).toBe(decomposed);
+    act(() => { input().dispatchEvent(new CompositionEvent('compositionend', { bubbles: true })); });
+    expect(input().value).toBe(composed);
+  });
+
+  it('writes nothing on Cancel or Escape', () => {
+    type(decomposed);
+    act(() => button('Cancel')!.click());
+    edit();
+    type(decomposed);
+    act(() => { input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); });
+    expect(playerWrites()).toEqual([]);
+    expect(storedName()).toBe('Original Player');
+  });
+});
+
 describe('the status line', () => {
   it('only changes for a new save result, not for typing or an unchanged save', () => {
     type('Typed Name');
