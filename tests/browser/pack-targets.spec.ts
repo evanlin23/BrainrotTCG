@@ -14,7 +14,7 @@ const openPack = (page: Page) => page.getByRole('button', { name: 'Open pack', e
 /** The width x height of every element matching each selector, as the page lays it out. */
 async function sizes(page: Page, selectors: string[]) {
   return page.evaluate((list) => list.flatMap((selector) => {
-    const found = [...document.querySelectorAll(selector)];
+    const found = Array.from(document.querySelectorAll(selector));
     return found.map((el) => {
       const { width, height } = el.getBoundingClientRect();
       return { selector, width, height };
