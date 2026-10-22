@@ -99,6 +99,17 @@ const watchStatus = (sheet: Locator) => sheet.locator('p.share-done[role="status
 const button = (sheet: Locator, name: string) => sheet.getByRole('button', { name, exact: true });
 const shareTo = (sheet: Locator) => button(sheet, 'Share to…');
 
+/**
+ * Opens "More sharing options", which holds Save image, Copy text and Share to…. Role queries skip a
+ * closed details element, so a click would time out and a count of 0 would pass for any reason. The
+ * element is uncontrolled and stays open for the sheet's life. Copy text visible proves it is open, so
+ * an absence check after this means the button is not rendered and not merely hidden.
+ */
+async function openMoreOptions(sheet: Locator) {
+  await sheet.getByText('More sharing options', { exact: true }).click();
+  await expect(button(sheet, 'Copy text')).toBeVisible();
+}
+
 /** The fixture pack's share sheet, opened from the profile's pull list. Ticket #0 is a real pack. */
 async function openPackShare(page: Page, baseURL: string) {
   const errors = await monitor(page, baseURL, 1, { returning: true });
@@ -110,6 +121,7 @@ async function openPackShare(page: Page, baseURL: string) {
   const sheet = page.getByRole('dialog', { name: 'Share your pull', exact: true });
   await expect(sheet.locator('.sheet--deferred')).toHaveCount(0);
   await expect(sheet.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible();
+  await openMoreOptions(sheet);
   await watchStatus(sheet);
   return { errors, sheet };
 }
@@ -283,6 +295,7 @@ test('an image-only card with no proof link says why and copies no link; on a ph
   await page.getByRole('button', { name: 'Share card', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: /^Share / });
   await expect(sheet.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible();
+  await openMoreOptions(sheet);
   await watchStatus(sheet);
   await expect(sheet).toContainText("doesn't have a verified pack record");
   await expect(button(sheet, 'Copy link')).toHaveCount(0);
