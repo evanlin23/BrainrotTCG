@@ -388,6 +388,9 @@ test.describe('continueAllowed keeps the original same-origin routing', () => {
     await page.goto(primaryUrl);
     await page.evaluate(() => fetch('/redirect-escape').catch(() => undefined));
     await expect.poll(() => errors.blocked.some((b) => b.includes('redirect escape') && b.includes(externalOrigin))).toBe(true);
+    // The escape does reach the external server. Wait for that hit, so it can't land after the next
+    // test has reset the counters (which made the next test's `externalHits` check fail).
+    await expect.poll(() => externalHits).toBe(1);
   });
 
   test('a redirect escape from another page of the same context is recorded too', async ({ page }) => {
@@ -397,6 +400,7 @@ test.describe('continueAllowed keeps the original same-origin routing', () => {
     await other.goto(primaryUrl);
     await other.evaluate(() => fetch('/redirect-escape').catch(() => undefined));
     await expect.poll(() => errors.blocked.some((b) => b.includes('redirect escape') && b.includes(externalOrigin))).toBe(true);
+    await expect.poll(() => externalHits).toBe(1);
     await other.close();
   });
 });
