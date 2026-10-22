@@ -4,7 +4,7 @@ import { monitor } from './support';
 /**
  * The Settings Back up and Restore rows stay readable at enlarged text (#691): at 320x640, 360x740 and
  * 390x844 with the root text at 32 px (200%), the privacy warning, Restore's instructions, a rejected
- * file's note, the Replace / Keep mine question and the no-room question (with its long "Replace without
+ * file's note, the "Backup downloaded" note after Export, the Replace / Keep mine question and the no-room question (with its long "Replace without
  * a copy") each sit beside or above their buttons without a line of text under one, the buttons stay
  * inside the panel whole and keep 44 px targets. Controls: the same phones at normal text, where the
  * idle rows keep their button beside the text as before, and a desktop window at normal and 200% text. Sizes are emulated viewports; 200%
@@ -140,6 +140,13 @@ for (const viewport of VIEWPORTS) {
       await restore.getByRole('button', { name: 'Keep mine', exact: true }).click();
       await expect(rejected).toHaveText('Kept your save.');
       await expectReadable(restore, `${where}, kept`, ['Import']);
+
+      // Export says the backup was downloaded (#805); that note is the longest in the row, so it fits too.
+      const download = page.waitForEvent('download');
+      await backUp.getByRole('button', { name: 'Export', exact: true }).click();
+      await download;
+      await expect(backUp.locator('.settings-desc')).toHaveText('Backup downloaded — keep it private. It includes your secret player key.');
+      await expectReadable(backUp, `${where}, exported`, ['Export']);
       expect(errors).toEqual([]);
     });
   }
