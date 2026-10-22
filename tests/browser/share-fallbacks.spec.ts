@@ -152,7 +152,7 @@ test('without navigator.share it offers copying only, and the copied link opens 
   const pastedErrors = await monitor(pasted, baseURL!, 1, { returning: true });
   await pasted.goto(`./${new URL(link).hash}`);
   const pull = pasted.getByRole('dialog', { name: /./ });
-  await expect(pull).toContainText('Verified on this device', { timeout: 20000 });
+  await expect(pull).toContainText('This pull checks out — re-verified in your browser just now', { timeout: 20000 });
   await expect(pull.locator('.pull-viewer-whose')).toHaveText(/^Browser smoke fixture pulled this pack in /);
   expect(errors).toEqual([]);
   expect(pastedErrors).toEqual([]);
