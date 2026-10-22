@@ -1,6 +1,6 @@
 import { createElement, useEffect, useId, useRef, useState, type ComponentType } from 'react';
 import { X } from 'lucide-react';
-import type { SheetLoad } from './sheetEntry';
+import { purgeBrokenStylesheets, type SheetLoad } from './sheetEntry';
 import { reloadPage } from '../../game/reload';
 import '../../styles/Page.css';
 
@@ -59,6 +59,7 @@ const Page = <P extends object>({ load, title, screenProps, onClose, skeleton = 
 
   const retry = () => {
     headingRef.current?.focus({ preventScroll: true });
+    purgeBrokenStylesheets();
     setState(null);
     setAttempt((n) => n + 1);
   };

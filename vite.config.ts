@@ -18,11 +18,39 @@ const siteUrl = (): Plugin => ({
   transformIndexHtml: (html) => (process.env.SITE_URL ? html.replaceAll(GITHUB_PAGES_URL, `${process.env.SITE_URL.replace(/\/+$/, '')}/`) : html),
 })
 
+/**
+ * Vite's built-in preload helper (__vitePreload) has two defects when preloading CSS/chunks:
+ * 1. In `preloadOnce`, it clears the in-flight promise with `seen[href] = void 0` instead of `delete seen[href]`.
+ *    Because `href in seen` remains true, any subsequent attempt (e.g. on Retry) returns undefined and skips preloading.
+ * 2. Failed `<link>` elements remain in document.head. Vite's preload helper inspects document.head and skips
+ *    already-appended links, while the browser refuses to re-fetch a failed link element.
+ *
+ * This plugin fixes the helper in production builds so that failed links are removed from document.head
+ * on error and `seen[href]` is deleted, enabling clean in-place Retry recovery without duplicate link tags.
+ */
+const preloadRecovery = (): Plugin => ({
+  name: 'preload-recovery',
+  transform(code, id) {
+    if (!id.includes('vite/preload-helper')) return null;
+    let transformed = code;
+    transformed = transformed.replaceAll('seen[href] = void 0;', 'delete seen[href];');
+    transformed = transformed.replace(
+      'link.addEventListener("error", () => rej(/* @__PURE__ */ new Error(`Unable to preload CSS for ${dep}`)));',
+      'link.addEventListener("error", () => { link.remove(); rej(new Error(`Unable to preload CSS for ${dep}`)); });',
+    );
+    transformed = transformed.replace(
+      'if (!isCss) link.as = "script";',
+      'if (!isCss) { link.as = "script"; link.addEventListener("error", () => link.remove()); }',
+    );
+    return transformed;
+  },
+})
+
 // The site's path: GitHub Pages serves it under /BrainrotTCG/; another host can set BASE_PATH=/.
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
   define: { __BUILD_REVISION__: JSON.stringify(buildRevision()) },
-  plugins: [react(), siteUrl(), testBudget()],
+  plugins: [react(), siteUrl(), preloadRecovery(), testBudget()],
   test: {
     // Vitest's defaults (any node_modules, .git) plus the Playwright suites and build output.
     exclude: ['**/node_modules/**', '**/.git/**', 'tests/browser/**', 'tests/performance/*.spec.ts', 'dist/**'],

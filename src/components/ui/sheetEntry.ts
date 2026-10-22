@@ -10,6 +10,21 @@ export const SheetSettledContext = createContext(false);
 export type SheetLoad<P> = (() => Promise<{ default: ComponentType<P> }>) & { loaded?: ComponentType<P> };
 
 /**
+ * Removes any broken stylesheet links (`sheet === null`) in real browser environments.
+ * Ignored in jsdom where external stylesheets are not fetched, unless `force` is true.
+ */
+export const purgeBrokenStylesheets = (force = false) => {
+  if (typeof document === 'undefined') return;
+  const isJsdom = typeof navigator !== 'undefined' && navigator.userAgent.includes('jsdom');
+  if (isJsdom && !force) return;
+  for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) {
+    if (link.sheet === null) {
+      link.remove();
+    }
+  }
+};
+
+/**
  * Wraps a screen's dynamic import so warming it up (on hover, focus or press) and opening it share one
  * request. A failed request is forgotten, so opening or Retry asks again.
  */
@@ -19,11 +34,23 @@ export const sheetLoader = <M extends { default: unknown }>(importer: () => Prom
     () =>
       (pending ??= importer().then(
         (module) => {
+          if (typeof document !== 'undefined') {
+            const isJsdom = typeof navigator !== 'undefined' && navigator.userAgent.includes('jsdom');
+            if (!isJsdom) {
+              for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) {
+                if (link.sheet === null) {
+                  link.remove();
+                  throw new Error(`Stylesheet failed to load: ${link.href}`);
+                }
+              }
+            }
+          }
           load.loaded = module.default;
           return module;
         },
         (error: unknown) => {
           pending = null;
+          purgeBrokenStylesheets();
           throw error;
         },
       )),

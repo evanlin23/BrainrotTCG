@@ -1,7 +1,7 @@
 import { createElement, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import Sheet, { type SheetSize } from './Sheet';
-import { SheetSettledContext, type SheetLoad } from './sheetEntry';
+import { purgeBrokenStylesheets, SheetSettledContext, type SheetLoad } from './sheetEntry';
 import { reloadPage } from '../../game/reload';
 
 interface Props<P extends { onClose: () => void }> {
@@ -76,6 +76,7 @@ const DeferredSheet = <P extends { onClose: () => void }>({ load, title, screenP
   if (ready) return <SheetSettledContext value={state.settled}>{createElement(state.component, screenProps)}</SheetSettledContext>;
   const retry = (event: MouseEvent<HTMLButtonElement>) => {
     event.currentTarget.closest<HTMLElement>('[role="dialog"]')?.focus({ preventScroll: true });
+    purgeBrokenStylesheets();
     setState(null);
     setAttempt((n) => n + 1);
   };

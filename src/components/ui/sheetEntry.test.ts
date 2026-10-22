@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { expect, it, vi } from 'vitest';
-import { sheetLoader } from './sheetEntry';
+import { purgeBrokenStylesheets, sheetLoader } from './sheetEntry';
 
 const Screen = () => null;
 
@@ -25,4 +26,15 @@ it('forgets a failed request, so opening or Retry asks again', async () => {
   await expect(load()).resolves.toEqual({ default: Screen });
   expect(importer).toHaveBeenCalledTimes(2);
   expect(load.loaded).toBe(Screen);
+});
+
+it('purgeBrokenStylesheets removes link elements whose sheet is null when forced', () => {
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = '/assets/Failed-123.css';
+  document.head.appendChild(link);
+  expect(document.head.contains(link)).toBe(true);
+
+  purgeBrokenStylesheets(true);
+  expect(document.head.contains(link)).toBe(false);
 });
