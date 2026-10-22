@@ -209,14 +209,73 @@ const drawQr = (ctx: CanvasRenderingContext2D, qr: QrPlan, x: number, y: number)
   }
 };
 
-/** Set ctx.font to the largest size (<= size) at which the text fits. */
-const fitFont = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number, size: number, weight: string, family: string) => {
+/** Set ctx.font to the largest size (<= size) at which the text fits, never below minSize. */
+const fitFont = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  size: number,
+  weight: string,
+  family: string,
+  minSize = 20,
+) => {
   let s = size;
   ctx.font = `${weight} ${s}px ${family}`;
-  while (ctx.measureText(text).width > maxWidth && s > 20) {
-    s -= 2;
+  while (ctx.measureText(text).width > maxWidth && s > minSize) {
+    s = Math.max(minSize, s - 2);
     ctx.font = `${weight} ${s}px ${family}`;
   }
+};
+
+/** User-perceived characters, so a cut never lands inside a surrogate pair or a joined sequence. */
+type Segmenter = new (locale?: string, options?: { granularity: 'grapheme' }) => { segment: (text: string) => Iterable<{ segment: string }> };
+
+const graphemes = (text: string): string[] => {
+  const Seg = (Intl as unknown as { Segmenter?: Segmenter }).Segmenter;
+  return Seg ? Array.from(new Seg(undefined, { granularity: 'grapheme' }).segment(text), (part) => part.segment) : Array.from(text);
+};
+
+/**
+ * `text` cut at a character boundary and ended with an ellipsis until it measures within maxWidth
+ * in the current font. Text that already fits is returned unchanged; display only, never stored.
+ */
+export const ellipsize = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string => {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const chars = graphemes(text);
+  while (chars.length > 0) {
+    chars.pop();
+    const cut = `${chars.join('').trimEnd()}\u2026`;
+    if (ctx.measureText(cut).width <= maxWidth) return cut;
+  }
+  return '\u2026';
+};
+
+/**
+ * Set the font for a one-line label and return what to draw: the text itself at the largest size
+ * (<= size, >= minSize) that fits, or, for a name wider than maxWidth even at minSize, its start and an ellipsis.
+ */
+export const fitLabelText = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  size: number,
+  weight: string,
+  family: string,
+  minSize = 20,
+): string => {
+  fitFont(ctx, text, maxWidth, size, weight, family, minSize);
+  return ellipsize(ctx, text, maxWidth);
+};
+
+/** Split parts into lines (joined with " · ") that each measure within maxWidth in the current font. */
+export const wrapParts = (ctx: CanvasRenderingContext2D, parts: string[], maxWidth: number, separator = ' \u00b7 '): string[] => {
+  const lines: string[] = [];
+  for (const part of parts) {
+    const last = lines.length - 1;
+    if (last >= 0 && ctx.measureText(`${lines[last]}${separator}${part}`).width <= maxWidth) lines[last] += `${separator}${part}`;
+    else lines.push(part);
+  }
+  return lines;
 };
 
 const LOGO_FONT = '"RubikGlitch", system-ui, sans-serif';
@@ -293,6 +352,9 @@ const drawHeader = (ctx: CanvasRenderingContext2D, setName: string, code: string
 };
 
 /** A graded-card label: what it is, who, the cert, and (when there's a link) the QR that re-checks it. */
+/** Clear space between the label's text and its QR code. */
+const LABEL_QR_GAP = 24;
+
 const drawLabel = async (
   ctx: CanvasRenderingContext2D,
   label: { kind: string; verified: boolean; name: string; cert: string; hint: string; url?: string },
@@ -320,10 +382,11 @@ const drawLabel = async (
   ctx.fillText(label.kind.toUpperCase(), x + 40, y + 64);
   // A link too dense to read back from the drawn code gets no code, only the line saying so.
   const qr = label.url ? await planQr(label.url) : null;
-  const textWidth = qr ? 520 : w - 80;
+  // The name stops short of the code (drawn last, at x + w - 40 - side) however wide it is.
+  const textWidth = qr ? w - 80 - qr.side - LABEL_QR_GAP : w - 80;
   ctx.fillStyle = ink;
-  fitFont(ctx, label.name, textWidth, 52, '800', BODY_FONT);
-  ctx.fillText(label.name, x + 40, y + 134);
+  const name = fitLabelText(ctx, label.name, textWidth, 52, '800', BODY_FONT);
+  ctx.fillText(name, x + 40, y + 134, textWidth);
   ctx.fillStyle = soft;
   ctx.font = `600 32px ${BODY_FONT}`;
   ctx.fillText(label.cert, x + 40, y + 186);
@@ -392,6 +455,22 @@ export interface CardPosterInput {
   timeoutMs?: number;
 }
 
+/** Smallest size the rarity line shrinks to on one line before it wraps; the wrapped lines use WRAP_SIZE. */
+const RARITY_MIN_SIZE = 34;
+const RARITY_WRAP_SIZE = 36;
+
+/**
+ * Rarity, every modifier and the collector number as one line that fits maxWidth, set in ctx.font.
+ * Long combinations shrink to RARITY_MIN_SIZE, then wrap between parts; no part is ever dropped.
+ */
+export const fitRarityLines = (ctx: CanvasRenderingContext2D, parts: string[], maxWidth: number): string[] => {
+  const line = parts.join(' \u00b7 ');
+  fitFont(ctx, line, maxWidth, 40, '700', BODY_FONT, RARITY_MIN_SIZE);
+  if (ctx.measureText(line).width <= maxWidth) return [line];
+  ctx.font = `700 ${RARITY_WRAP_SIZE}px ${BODY_FONT}`;
+  return wrapParts(ctx, parts, maxWidth);
+};
+
 /** One card, big: its name, rarity and collector number, and the pull it came from when there is one. */
 export const renderCardPoster = async (input: CardPosterInput): Promise<Blob> => {
   const { canvas, ctx } = await newCanvas();
@@ -405,14 +484,18 @@ export const renderCardPoster = async (input: CardPosterInput): Promise<Blob> =>
   fitFont(ctx, input.card.name, W - 120, 96, 'normal', DISPLAY_FONT);
   ctx.fillText(input.card.name, W / 2, 1385);
   const mods = modifierLabel(input.card);
-  const rarity = `${input.card.raritySymbol} ${input.card.rarityName}${mods ? ` · ${mods}` : ''} · ${input.setCode} ${input.card.number}`;
-  ctx.font = `700 40px ${BODY_FONT}`;
+  const parts = [
+    `${input.card.raritySymbol} ${input.card.rarityName}`,
+    ...(mods ? mods.split(' \u00b7 ') : []),
+    `${input.setCode} ${input.card.number}`,
+  ];
+  const rarityLines = fitRarityLines(ctx, parts, W - 120);
   ctx.fillStyle = input.card.rarityColor;
-  ctx.fillText(rarity, W / 2, 1470);
+  rarityLines.forEach((line, i) => ctx.fillText(line, W / 2, (rarityLines.length > 1 ? 1458 : 1470) + i * 42, W - 120));
   if (input.stats) {
     ctx.font = `600 34px ${BODY_FONT}`;
     ctx.fillStyle = MUTED;
-    ctx.fillText(input.stats, W / 2, 1530, W - 140);
+    ctx.fillText(input.stats, W / 2, rarityLines.length > 1 ? 1544 : 1530, W - 140);
   }
 
   await drawLabel(ctx, {
