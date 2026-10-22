@@ -31,6 +31,43 @@ it('reserves the card frame shape before any pixels arrive', () => {
   }
 });
 
+it('keeps finish captions off a slot whose art is still pending, so it never reads as a card back (#762)', () => {
+  // Spacing, quote style, selector order and other rules that also hide things don't matter: find the rule by what it does.
+  const normal = (selector: string) => selector.replace(/["']/g, "'").replace(/\s+/g, ' ');
+  const hiding = rules(css).filter(([, body]) => /visibility:\s*hidden/.test(body)).map(([selector]) => normal(selector));
+  const pendingCaptions = hiding.filter((selector) => /\.mod-label/.test(selector) && /\.collection-mods/.test(selector));
+  expect(pendingCaptions).toHaveLength(1);
+  const [selector] = pendingCaptions;
+  expect(selector).toMatch(/\.card-image/);
+  expect(selector).toMatch(/\[data-state='rendering'\]/);
+  expect(selector).toMatch(/\[data-state='loading'\]/);
+  // Failed and blocked slots keep their caption: they are the hatched "no art" box, not a pending face.
+  expect(selector).not.toMatch(/failed|blocked/);
+  // A later-sibling combinator keeps layout in place (visibility, not display), and the caption is the target of it.
+  expect(selector).toMatch(/~\s*(?::is\()?\s*\.(?:mod-label|collection-mods)/);
+  // Each surface prints its caption after the image inside the same button, which is what `~` needs.
+  const surfaces: [file: string, caption: RegExp][] = [
+    ['ui/PackCardViewer.tsx', /className="mod-label"/],
+    ['pack/PackSummaryUI.tsx', /className="mod-label"/],
+    ['collection/CollectionBrowser.tsx', /className="collection-mods"/],
+  ];
+  for (const [file, caption] of surfaces) {
+    const source = readFileSync(fileURLToPath(new URL(`../src/components/${file}`, import.meta.url)), 'utf8');
+    const image = source.indexOf('<CardImage');
+    const printed = source.search(caption);
+    expect(image, `${file} draws a CardImage`).toBeGreaterThanOrEqual(0);
+    expect(printed, `${file} prints its caption`).toBeGreaterThanOrEqual(0);
+    expect(image, `${file} prints its caption after the image`).toBeLessThan(printed);
+  }
+});
+
+it('gives the small Rankings and pull-row thumbs a placeholder lighter than the shared one', () => {
+  const thumb = rules(css).find(([selector]) => /\.hof-cards/.test(selector) && /\.pull-row-thumbs/.test(selector));
+  expect(thumb?.[0]).toMatch(/\[data-state='loading'\]/);
+  expect(thumb?.[1]).toMatch(/var\(--surface-3\)/);
+  expect(thumb?.[1]).toMatch(/var\(--border-strong\)/);
+});
+
 it('only shimmers for players who allow motion', () => {
   const motion = block('@media (prefers-reduced-motion: no-preference)');
   expect(motion).toMatch(/\[data-state='loading'\]\s*\{\s*animation: card-image-shimmer/);

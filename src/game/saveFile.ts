@@ -155,7 +155,7 @@ export const NO_ROOM_FOR_COPY_NOTE = "There's no room in this browser's storage 
  */
 export const FILE_TOO_BIG_NOTE = "This file is too big for this browser's storage, so it can't be imported here. Nothing changed.";
 
-const NO_ROOM_NOTE = "This browser's storage has no room for this file. Your previous save data was restored.";
+export const NO_ROOM_NOTE = "This browser's storage has no room for this file. Your previous save data was restored.";
 
 /** Added to a no-room answer while copies of earlier saves (brainrot-before-*) take room too. */
 export const COPIES_NOTE = ' Copies of earlier saves, kept from past imports or moves, take room in it too.';
@@ -175,6 +175,12 @@ export const exportSaveFile = (): string => JSON.stringify({
   version: 2,
   dataVersion: CURRENT_DATA_VERSION,
 }, null, 2);
+
+/** Under Export before it is used: what the file holds. */
+export const EXPORT_KEY_NOTE = 'Includes your secret player key. Keep the file private.';
+
+/** Under Export once the file has been handed to the browser: the download has no other sign it happened. */
+export const EXPORT_DONE_NOTE = 'Backup downloaded — keep it private. It includes your secret player key.';
 
 /** Download a save file (by default this browser's save, as exportSaveFile writes it). */
 export const downloadSaveFile = (content = exportSaveFile()) => {
