@@ -103,6 +103,7 @@ const proofEditProperty = async (outcomes: Outcomes, decode: Decode<PullProof>) 
     const result = attempt(() => decode(text));
     if (result instanceof ProofError) { outcomes.rejected++; return expectDecodeError(result); }
     outcomes.accepted++;
+    expect(result.signature).toHaveLength(64);
     expect(same(rawProof(result), bytes), 'accepted bytes are the canonical encoding of what was decoded').toBe(true);
     if (!same(bytes, original)) await expectProofUnverified(text);
   },
@@ -237,28 +238,81 @@ describe('proof decoder properties', () => {
   });
 });
 
-/** A profile byte string built field by field, each field valid or not by chance. */
+/** One-field boundary edits of a valid profile, each with the outcome the spec gives it (true: accepted). */
+const PROFILE_EDITS = {
+  none: true,
+  'total at the limit': true,
+  'total past the limit': false,
+  'run of one ticket': true,
+  'empty run': false,
+  'next run in another set': true,
+  'next run in the same set': false,
+  'highlight on the last ticket': true,
+  'highlight past the last ticket': false,
+  'highlight listed twice': false,
+  'one highlight too many': false,
+  'one highlight too few': false,
+  'short signature': false,
+  'long signature': false,
+} as const;
+type ProfileEdit = keyof typeof PROFILE_EDITS;
+const PROFILE_EDIT_NAMES = Object.keys(PROFILE_EDITS) as ProfileEdit[];
+/** Accepting edits are drawn more often, so that about half the cases are valid and the accept-side checks run. */
+const PROFILE_EDIT_DRAW = PROFILE_EDIT_NAMES.flatMap((edit) => (PROFILE_EDITS[edit] ? [edit, edit, edit, edit] : [edit, edit]));
+const TABLE_SETS = [['base', 1], ['base', 2], ['é', 1], ['x'.repeat(64), 65535]] as const;
+/** Small and large run lengths; five runs of the largest is exactly the ticket limit. */
+const RUN_LENGTHS = [1, 2, 3, 5, 40, 1000, 20_000];
+
+/**
+ * A valid profile (each table set used once, in table order; runs within the ticket limit; distinct,
+ * in-range highlights; a 64-byte signature), then one field pushed to one side of its boundary.
+ */
 const generatedProfile = (rng: Rng) => {
-  const sets = [['base', 1], ['base', 2], ['é', 1], ['x'.repeat(64), 65535]] as const;
-  const setCount = rng.pick([0, 1, 2, 3, 65, 255]);
-  const table = Array.from({ length: Math.min(setCount, 4) }, (_, i) => {
-    const [id, version] = rng.bool(0.85) ? sets[i % sets.length] : rng.pick([['', 1], ['y'.repeat(65), 1], [sets[0][0], sets[0][1]]] as const);
-    return concatBytes(u8(utf8(id).length), utf8(id), u8(version >> 8, version & 255));
-  });
-  const runCount = rng.pick([0, 1, 2, 3, Number.MAX_SAFE_INTEGER]);
-  const counts = [1, 2, 5, 99_999, MAX_PROFILE_TICKETS, MAX_PROFILE_TICKETS + 1, 0, Number.MAX_SAFE_INTEGER];
-  const runs = Array.from({ length: Math.min(runCount, 3) }, (_, i) => concatBytes(
-    encodeVarint(rng.bool(0.8) ? Math.min(i, Math.max(0, table.length - 1)) : rng.pick([0, 1, 5, Number.MAX_SAFE_INTEGER])),
-    rng.bool(0.1) ? varintBytes(rng) : encodeVarint(rng.pick(counts)),
-  ));
-  const highlightCount = rng.pick([0, 1, 2, PROFILE_HIGHLIGHTS, PROFILE_HIGHLIGHTS + 1, 255]);
-  const highlights = Array.from({ length: Math.min(highlightCount, 6) }, (_, i) => encodeVarint(rng.bool(0.8) ? i : rng.pick([0, 99_999, Number.MAX_SAFE_INTEGER])));
-  const name = rng.bool(0.9) ? utf8(unicodeText(rng, 6)) : Uint8Array.from(rng.pick(INVALID_UTF8));
-  return concatBytes(
-    u8(rng.bool(0.95) ? 1 : rng.pick([0, 2, 255])), rng.bytes(32), u8(name.length), name, u8(setCount), ...table,
-    encodeVarint(runCount), ...runs, rng.bool(0.9) ? encodeVarint(rng.pick(SAFE_COUNTERS)) : varintBytes(rng),
-    u8(highlightCount), ...highlights, rng.bytes(rng.pick([64, 64, 64, 0, 63, 65])),
+  const edit = rng.pick(PROFILE_EDIT_DRAW);
+  const needsTwoSets = edit === 'next run in another set' || edit === 'empty run' || edit === 'highlight listed twice';
+  const table = TABLE_SETS.slice(0, rng.int(needsTwoSets ? 2 : 1, TABLE_SETS.length));
+  const indices = table.map((_, i) => i);
+  if (edit === 'next run in another set') indices.push(rng.int(0, table.length - 2));
+  if (edit === 'next run in the same set') indices.push(table.length - 1);
+  const counts = indices.map(() => rng.pick(RUN_LENGTHS));
+  const last = counts.length - 1;
+  const others = counts.slice(0, last).reduce((n, c) => n + c, 0);
+  if (edit === 'total at the limit') counts[last] = MAX_PROFILE_TICKETS - others;
+  if (edit === 'total past the limit') counts[last] = MAX_PROFILE_TICKETS + 1 - others;
+  if (edit === 'run of one ticket') counts[rng.int(0, last)] = 1;
+  if (edit === 'empty run') {
+    // Its tickets move to another run, so the total (and with it the highlight count) stays valid.
+    const i = rng.int(0, last);
+    counts[i === 0 ? 1 : 0] += counts[i];
+    counts[i] = 0;
+  }
+  const total = counts.reduce((n, c) => n + c, 0);
+  const highlights: number[] = [];
+  while (highlights.length < Math.min(PROFILE_HIGHLIGHTS, total)) {
+    const n = rng.int(0, total - 1);
+    if (!highlights.includes(n)) highlights.push(n);
+  }
+  const at = rng.int(0, highlights.length - 1);
+  if (edit === 'highlight on the last ticket') {
+    const holder = highlights.indexOf(total - 1);
+    if (holder >= 0) highlights[holder] = highlights[at];
+    highlights[at] = total - 1;
+  }
+  if (edit === 'highlight past the last ticket') highlights[at] = rng.pick([total, total + 1, MAX_PROFILE_TICKETS + 1, Number.MAX_SAFE_INTEGER]);
+  if (edit === 'highlight listed twice') highlights[at] = highlights[(at + rng.int(1, highlights.length - 1)) % highlights.length];
+  if (edit === 'one highlight too many') highlights.push(Math.max(...highlights) + 1);
+  if (edit === 'one highlight too few') highlights.pop();
+  const signatureLength = edit === 'short signature' ? 63 : edit === 'long signature' ? 65 : 64;
+  const name = utf8(unicodeText(rng, 6));
+  const xp = rng.pick(SAFE_COUNTERS);
+  const bytes = concatBytes(
+    u8(1), rng.bytes(32), u8(name.length), name, u8(table.length),
+    ...table.map(([id, version]) => concatBytes(u8(utf8(id).length), utf8(id), u8(version >> 8, version & 255))),
+    encodeVarint(indices.length), ...indices.map((index, i) => concatBytes(encodeVarint(index), encodeVarint(counts[i]))),
+    encodeVarint(xp), u8(highlights.length), ...highlights.map((n) => encodeVarint(n)), rng.bytes(signatureLength),
   );
+  const runs = indices.map((index, i) => ({ setId: table[index][0], setVersion: table[index][1], count: counts[i] }));
+  return { edit, accepted: PROFILE_EDITS[edit], bytes, runs, xp, highlights };
 };
 
 describe('profile decoder properties', () => {
@@ -279,27 +333,32 @@ describe('profile decoder properties', () => {
     expectBothOutcomes(outcomes);
   });
 
-  it('admits generated framing only within the documented limits', async () => {
+  it('admits generated framing exactly at the documented limits and refuses it one step past them', async () => {
     const outcomes = { accepted: 0, rejected: 0 };
+    const seen = new Set<ProfileEdit>();
+    const runs = 400;
     await forAll(
       'generated profile framing',
-      { seed: 749_006, runs: 400 },
+      { seed: 749_006, runs },
       (rng) => generatedProfile(rng),
-      (bytes) => {
+      ({ edit, accepted, bytes, ...expected }) => {
+        seen.add(edit);
         const result = attempt(() => decodeProfile(toBase64Url(bytes)));
-        if (result instanceof ProofError) { outcomes.rejected++; return expectDecodeError(result); }
+        if (!accepted) { outcomes.rejected++; return expectDecodeError(result); }
         outcomes.accepted++;
-        const total = result.runs.reduce((n, r) => n + r.count, 0);
-        expect(result.runs.length).toBeGreaterThan(0);
-        expect(total).toBeLessThanOrEqual(MAX_PROFILE_TICKETS);
-        expect(result.highlights).toHaveLength(Math.min(PROFILE_HIGHLIGHTS, total));
-        expect(new Set(result.highlights).size).toBe(result.highlights.length);
-        for (const n of result.highlights) expect(n).toBeLessThan(total);
-        expect(same(rawProfile(result), bytes)).toBe(true);
+        expect(result).not.toBeInstanceOf(ProofError);
+        const profile = result as ProfileProof;
+        expect(profile.runs).toEqual(expected.runs);
+        expect(profile.xp).toBe(expected.xp);
+        expect(profile.highlights).toEqual(expected.highlights);
+        expect(profile.signature).toHaveLength(64);
+        expect(same(rawProfile(profile), bytes)).toBe(true);
         // Random keys and signatures: structure is not authenticity.
         expectProfileUnverified(toBase64Url(bytes));
       },
     );
+    expect([...seen].sort(), 'every boundary edit is drawn').toEqual([...PROFILE_EDIT_NAMES].sort());
+    expect(outcomes.accepted, 'a substantial share of cases are valid profiles').toBeGreaterThanOrEqual(runs * 0.3);
     expectBothOutcomes(outcomes);
   });
 
