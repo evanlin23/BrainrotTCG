@@ -95,6 +95,44 @@ describe('Settings: bringing the old address save', () => {
   });
 });
 
+describe('focus after the old address Replace question (#978)', () => {
+  /** A different save is already here, so Bring it asks first; the question's Keep mine has the focus. */
+  const ask = async () => {
+    localStorage.setItem('brainrot-player-v1', player('bb'));
+    localStorage.setItem(COLLECTION, '{"original":{"normalCount":2}}');
+    await click('Bring it');
+    expect(document.activeElement).toBe(button('Keep mine'));
+  };
+
+  it('hands the focus to Bring it when Keep mine answers the question', async () => {
+    await ask();
+    await click('Keep mine');
+    expect(note().textContent).toBe('Kept the save you have here.');
+    expect(document.activeElement).toBe(button('Bring it'));
+  });
+
+  it('hands the focus to Bring it when the save does not fit and nothing changed', async () => {
+    await ask();
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === 'brainrot-before-move-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      write.call(this, key, value);
+    });
+    await click('Replace');
+    expect(note().textContent).toBe(FULL_MOVE_NOTE);
+    expect(document.activeElement).toBe(button('Bring it'));
+  });
+
+  it('does not take the focus when Bring it only opens the question or reports no save', async () => {
+    fetchOldSave.mockResolvedValue('none');
+    const bring = button('Bring it');
+    bring.focus();
+    await click('Bring it');
+    expect(note().textContent).toBe('There was no save at the old address.');
+    expect(document.activeElement).toBe(bring);
+  });
+});
+
 describe('Settings: exporting a backup file', () => {
   const backupNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Back up')!;
 

@@ -78,11 +78,19 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [oldSaveNote, setOldSaveNote] = useState('Played at the old address? Bring that save here.');
     const [oldSave, setOldSave] = useState<{ save: unknown } | null>(null);
     const keepRef = useRef<HTMLButtonElement>(null);
+    const bringRef = useRef<HTMLButtonElement>(null);
+    /** Set when an answer to the old address's Replace question removes its buttons: Bring it takes the focus they held. */
+    const refocusBring = useRef(false);
     // The Replace / Keep mine buttons leave with the answer: focus goes to Import, which stays in the row, not to the page.
     useEffect(() => {
         if (!refocusImport.current) return;
         refocusImport.current = false;
         importRef.current?.focus();
+    });
+    useEffect(() => {
+        if (!refocusBring.current) return;
+        refocusBring.current = false;
+        bringRef.current?.focus();
     });
     // Leaving the page drops a preview still waiting to play.
     useEffect(() => () => clearTimeout(samplePending), []);
@@ -398,15 +406,21 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             </span>
                             {oldSave ? (
                                 <span className="settings-actions">
-                                    <button type="button" ref={keepRef} className="btn btn--secondary btn--sm quiet-focus" onClick={() => showBringResult('kept')}>
+                                    <button type="button" ref={keepRef} className="btn btn--secondary btn--sm quiet-focus" onClick={() => {
+                                        refocusBring.current = true;
+                                        showBringResult('kept');
+                                    }}>
                                         Keep mine
                                     </button>
-                                    <button type="button" className="btn btn--primary btn--sm" onClick={() => showBringResult(importSave(oldSave.save, () => true))}>
+                                    <button type="button" className="btn btn--primary btn--sm" onClick={() => {
+                                        refocusBring.current = true;
+                                        showBringResult(importSave(oldSave.save, () => true));
+                                    }}>
                                         Replace
                                     </button>
                                 </span>
                             ) : (
-                                <button type="button" className="btn btn--secondary btn--sm" onClick={handleBringOldSave}>
+                                <button type="button" ref={bringRef} className="btn btn--secondary btn--sm" onClick={handleBringOldSave}>
                                     <History aria-hidden="true" /> Bring it
                                 </button>
                             )}
