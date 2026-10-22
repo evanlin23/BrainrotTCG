@@ -238,6 +238,7 @@ for (const { vector, entry } of cases) {
     const pull = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
     await expect(pull).toBeVisible({ timeout: VIEWER_TIMEOUT });
     await expect(pull).toContainText('Verified on this device');
+    await expect(pull.locator('.pull-viewer-whose')).toHaveText(`${vector.name || 'Someone'} pulled this pack in ${set.name}.`);
     await expect(pull.locator('.sheet-subtitle')).toContainText(`${set.name} · ${vector.name || 'Anonymous'}`);
     await expect(pull.locator('.share-fp')).toHaveText(`#${vector.fingerprint}`);
     await expect(pull.locator('.pull-viewer-cert')).toContainText(`Cert ${vector.fingerprint} ·`);
@@ -289,9 +290,17 @@ for (const { vector, entry } of cases) {
     await pull.getByText('How do we know?', { exact: true }).click();
     await expect(pull.locator('details')).toContainText(`${set.name} v${version}`);
     expect(await proofState(page)).toEqual(before);
-    await pull.getByRole('button', { name: 'Open your own packs', exact: true }).click();
+    // A set that is still current, released and not archived can be chased (#802): the landing then offers
+    // "Open <set> packs" and the packs screen opens on it. Any other set keeps the generic button.
+    const latest = json<SetDefinition>(`../../src/content/sets/${setId}/set.json`);
+    const openable = latest.version === set.version && !latest.draft && !latest.archivedAt;
+    const own = pull.getByRole('button', { name: 'Open your own packs', exact: true });
+    const chase = pull.getByRole('button', { name: `Open ${set.name} packs`, exact: true });
+    await expect(openable ? own : chase).toHaveCount(0);
+    await (openable ? chase : own).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page).toHaveURL(baseURL!);
+    if (openable) await expect(page.locator('.set-picker .set-current-name')).toHaveText(set.name);
     await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeEnabled();
     await walkDestinations(page, baseURL!);
     await expect(page).toHaveURL(baseURL!);

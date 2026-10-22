@@ -8,7 +8,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
-import { checkProfile, computeTicket, derivePack, fromHex, publicKeyFromSecret, scorePulled, toHex, type SetDefinition } from '../engine';
+import { checkProfile, computeTicket, derivePack, encodeProof, fromHex, publicKeyFromSecret, scorePulled, signProof, toHex, verifyProof, type SetDefinition } from '../engine';
 import { encodeCard } from './cardCode';
 import type { OpenedPack } from './pulls';
 
@@ -204,4 +204,79 @@ describe('original ticket mappings across a mixed-set history', () => {
     expect(data.get(HISTORY)).toBe(evicted);
     for (const e of opened.slice(0, 4)) expect(app.packStore.getStoredPack(`${e.s}@${e.v}`, HEX, e.n)).toBe(e.c);
   }, 30_000);
+});
+
+describe('exact-variant proof attribution across cache eviction (issue #654)', () => {
+  const SECRET_11 = '11'.repeat(32);
+  const PUBLIC_11 = publicKeyFromSecret(fromHex(SECRET_11));
+  const HEX_11 = toHex(PUBLIC_11);
+  const KEY_11 = HEX_11.slice(0, 16);
+  const SET_RN2 = getSet('right-now', 2)!;
+
+  it('never links an unrelated pack when quota drops cached cards, and restores correct link on hydration', async () => {
+    // 1. Compute real tickets 1 and 6 for disposable fixed identity 11.repeat(32).
+    // Ticket #1 contains Silver remember-november.
+    // Ticket #6 contains that card plain and as a Misprint, but no Silver.
+    const pulled1 = await derivePack(SET_RN2, PUBLIC_11, 1, computeTicket);
+    const pulled6 = await derivePack(SET_RN2, PUBLIC_11, 6, computeTicket);
+
+    const hasSilver1 = pulled1.some((c) => c.cardId === 'remember-november' && c.finish === 'SILVER');
+    const hasSilver6 = pulled6.some((c) => c.cardId === 'remember-november' && c.finish === 'SILVER');
+    const hasPlain6 = pulled6.some((c) => c.cardId === 'remember-november' && !c.finish && !c.misprint && !c.isHolo);
+    const hasMisprint6 = pulled6.some((c) => c.cardId === 'remember-november' && c.misprint);
+
+    expect(hasSilver1).toBe(true);
+    expect(hasSilver6).toBe(false);
+    expect(hasPlain6).toBe(true);
+    expect(hasMisprint6).toBe(true);
+
+    const entry1 = toEntry(SET_RN2, 1, pulled1);
+    const entry6 = toEntry(SET_RN2, 6, pulled6);
+    // Fix key on entries to KEY_11
+    entry1.k = KEY_11;
+    entry6.k = KEY_11;
+
+    // 2. Both tickets cached in history.
+    data.clear();
+    refuse = null;
+    data.set('brainrot-player-v1', JSON.stringify({ secretKey: SECRET_11, name: 'Tester', nextNonce: 7, createdAt: 0 }));
+    data.set(HISTORY, JSON.stringify([entry6, entry1])); // newest first
+
+    let app = await load();
+    const exactLookup = { isHolo: false, finish: 'SILVER' as const, misprint: false };
+
+    // With exact cached #1 available, the correct proof wins
+    const foundWithCache = app.history.findPackWithCard(HEX_11, 'right-now', 'remember-november', exactLookup, { exactOnly: true });
+    expect(foundWithCache?.nonce).toBe(1);
+
+    // Verify proof for #1 confirms presence of Silver remember-november
+    const proof1 = encodeProof(signProof({ setId: 'right-now', setVersion: 2, nonce: 1, publicKey: PUBLIC_11, name: 'Tester' }, fromHex(SECRET_11)));
+    const verified1 = await verifyProof(proof1, getSet);
+    expect(verified1.cards.some((c) => c.cardId === 'remember-november' && c.finish === 'SILVER')).toBe(true);
+
+    // 3. Quota fallback: ticket #1's cached cards are dropped (c: undefined) while ticket #6 retains its cards.
+    // packStore is not yet hydrated.
+    const evictedHistory = [entry6, { ...entry1, c: undefined }];
+    data.set(HISTORY, JSON.stringify(evictedHistory));
+
+    app = await load();
+    // exactOnly: true strictly returns null because ticket #1 is evicted and ticket #6 lacks Silver
+    const foundEvicted = app.history.findPackWithCard(HEX_11, 'right-now', 'remember-november', exactLookup, { exactOnly: true });
+    expect(foundEvicted).toBeNull();
+
+    // General lookup fallback without exactOnly still returns ticket #6 (preserving fallback for callers not claiming exact provenance)
+    const fallback = app.history.findPackWithCard(HEX_11, 'right-now', 'remember-november', exactLookup);
+    expect(fallback?.nonce).toBe(6);
+
+    // Verify proof for #6 confirms that ticket #6 indeed lacks Silver
+    const proof6 = encodeProof(signProof({ setId: 'right-now', setVersion: 2, nonce: 6, publicKey: PUBLIC_11, name: 'Tester' }, fromHex(SECRET_11)));
+    const verified6 = await verifyProof(proof6, getSet);
+    expect(verified6.cards.some((c) => c.cardId === 'remember-november' && c.finish === 'SILVER')).toBe(false);
+
+    // 4. Missing cache does not delete ownership or ticket mappings; exact data restoration permits correct sharing.
+    expect(await app.packStore.putStoredPacks([{ setKey: 'right-now@2', publicKeyHex: HEX_11, nonce: 1, cards: entry1.c! }])).toBe(true);
+
+    const foundRestored = app.history.findPackWithCard(HEX_11, 'right-now', 'remember-november', exactLookup, { exactOnly: true });
+    expect(foundRestored?.nonce).toBe(1);
+  }, 60_000);
 });
