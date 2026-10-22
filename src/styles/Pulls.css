@@ -20,6 +20,15 @@
   color: var(--text-muted);
 }
 
+/* The shared button never wraps; this one's label must, or enlarged text pushes it off a narrow phone. */
+.pulls-empty .btn {
+  max-width: 100%;
+  padding-block: var(--space-2);
+  white-space: normal;
+  line-height: 1.2;
+  text-align: center;
+}
+
 .pulls-history-title,
 .best-cards-title {
   margin-bottom: var(--space-2);
@@ -79,8 +88,8 @@
   padding: 1.5px;
 }
 
-/* The foil ring yields to CardImage's failed slot (CardImage.css), so a failed holo thumb still reads as failed. */
-.pull-row-thumbs img.holo:not([data-state='failed']) {
+/* The foil ring yields to CardImage's failed and blocked slots (CardImage.css), so those holo thumbs still read as empty. */
+.pull-row-thumbs img.holo:not([data-state='failed']):not([data-state='blocked']) {
   background: var(--foil);
 }
 

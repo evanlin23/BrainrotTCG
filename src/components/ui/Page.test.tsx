@@ -84,6 +84,28 @@ describe('Page', () => {
     expect(container.textContent).toContain('second try');
   });
 
+  it('after a failed Retry online, drops Retry and points to Reload; offline, Retry stays', async () => {
+    const load = sheetLoader(() => Promise.reject(new Error('Failed to fetch dynamically imported module')));
+    render(<Page load={load} title="Rankings" screenProps={{ label: '' }} onClose={onClose} />);
+    await flush();
+    const retryButton = () => [...container.querySelectorAll('button')].find((el) => el.textContent === 'Retry');
+    const alert = () => container.querySelector('[role="alert"]')?.textContent;
+
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await act(async () => retryButton()!.click());
+    await flush();
+    expect(alert()).toContain('check your connection and retry');
+    expect(retryButton()).toBeDefined();
+
+    onLine.mockReturnValue(true);
+    await act(async () => retryButton()!.click());
+    await flush();
+    expect(alert()).toContain("Couldn't load Rankings. Retrying didn't fix it: reload");
+    expect(retryButton()).toBeUndefined();
+    expect([...container.querySelectorAll('button')].some((el) => el.textContent === 'Reload')).toBe(true);
+    onLine.mockRestore();
+  });
+
   it('closes from its labelled close button', () => {
     const load = sheetLoader(() => Promise.resolve({ default: Screen }));
     render(<Page load={load} title="Profile" screenProps={{ label: '' }} onClose={onClose} />);

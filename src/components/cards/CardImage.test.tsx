@@ -459,3 +459,73 @@ describe('finish render holds', () => {
     }
   });
 });
+
+describe('art this build will not request', () => {
+  const EXTERNAL = ['https://tracker.example/pixel.gif?id=1', '//tracker.example/pixel.gif', 'data:image/svg+xml,<svg/>', 'javascript:alert(1)'];
+  let root: Root;
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    holdFinishedCardImage.mockReset();
+    holdFinishedCardImage.mockImplementation(renderedHold);
+    container = document.body.appendChild(document.createElement('div'));
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it.each(EXTERNAL)('shows the blocked placeholder instead of %s', (src) => {
+    for (const finish of [undefined, 'GOLD' as const]) {
+      for (const thumbnail of [false, true]) {
+        const html = renderToStaticMarkup(<CardImage src={src} finish={finish} thumbnail={thumbnail} retry alt="" />);
+        expect(html).toContain('data-state="blocked"');
+        expect(html).toMatch(/src="data:image\/gif;base64,/);
+        expect(html).not.toContain('tracker.example');
+        expect(html).not.toContain('javascript:');
+        expect(html).not.toContain('svg');
+        expect(html).not.toContain('<button');
+      }
+    }
+  });
+
+  it('never renders a finish for it, offers Retry, or lets an error or load change its state', async () => {
+    const onError = vi.fn();
+    await act(async () => root.render(<CardImage src={EXTERNAL[0]} finish="GOLD" retry alt="" onError={onError} />));
+    const img = container.querySelector('img')!;
+    expect(holdFinishedCardImage).not.toHaveBeenCalled();
+    expect(img.dataset.state).toBe('blocked');
+    expect(img.getAttribute('src')).toMatch(PLACEHOLDER);
+    expect(container.querySelector('button')).toBeNull();
+
+    await act(async () => { img.dispatchEvent(new Event('load')); img.dispatchEvent(new Event('error')); });
+    expect(img.dataset.state).toBe('blocked');
+    expect(img.getAttribute('src')).toMatch(PLACEHOLDER);
+    expect(container.querySelector('button')).toBeNull();
+    expect(holdFinishedCardImage).not.toHaveBeenCalled();
+  });
+
+  it('moves on and off the placeholder on the same img as the stored address changes', async () => {
+    const card = ALL_CARDS[0];
+    await act(async () => root.render(<CardImage src={card.image} alt="" />));
+    const img = container.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe(card.image);
+    await act(async () => root.render(<CardImage src={EXTERNAL[0]} alt="" />));
+    expect(container.querySelector('img')).toBe(img);
+    expect(img.dataset.state).toBe('blocked');
+    expect(img.getAttribute('src')).toMatch(PLACEHOLDER);
+    await act(async () => root.render(<CardImage src="/archive/old-card.webp" alt="" />));
+    expect(img.getAttribute('src')).toBe('/archive/old-card.webp');
+    expect(img.dataset.state).toBe('loading');
+  });
+
+  it('still shows archived art on this site, with or without a finish', async () => {
+    expect(renderToStaticMarkup(<CardImage src="/BrainrotTCG/assets/old-1a2b.webp" alt="" />)).toContain('src="/BrainrotTCG/assets/old-1a2b.webp"');
+    await act(async () => root.render(<CardImage src="/old.webp" finish="GOLD" alt="" />));
+    expect(holdFinishedCardImage).toHaveBeenCalledWith('/old.webp', 'GOLD');
+  });
+});

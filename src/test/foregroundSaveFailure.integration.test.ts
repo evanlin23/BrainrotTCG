@@ -59,7 +59,7 @@ async function drainToasts(current: NonNullable<typeof app>) {
     const title = document.querySelector('.toast .toast-title')?.textContent;
     if (title) seen.add(title);
     expect(document.querySelector('.toast')).toBeNull();
-  });
+  }, 60_000); // each toast stays up long enough to tap (#718), and a first pack queues several
   return [...seen];
 }
 

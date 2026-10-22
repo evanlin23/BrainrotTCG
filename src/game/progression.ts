@@ -3,7 +3,7 @@
  * Everything is worked out from a player's packs (the same packs a profile link proves), so a title or
  * milestone on someone else's profile is as real as their level.
  *
- * - Levels unlock a title, card backs and pack foils (cosmetic; you pick which to use).
+ * - Levels unlock a title, card backs and pack foils (cosmetic). The title follows your level; you pick which card back and pack foil to use.
  * - Collection Brainrot Score (every card's points, holos at holo points) passes named milestones.
  * - Each set can be completed (every card) and mastered (every card as a holo).
  */
@@ -59,6 +59,25 @@ export const nextReward = (level: number): (Reward & { kind: 'title' | 'card bac
   ]
     .filter((r) => r.level > level)
     .sort((a, b) => a.level - b.level)[0];
+
+/**
+ * What a level-up toast says about the rewards between two levels. A title equips itself (there is no
+ * picker), so it says so; card backs and pack foils are chosen on Profile, so only they send the player there.
+ */
+export const levelUpLine = (from: number, level: number): string => {
+  const between = (rewards: readonly Reward[]) => rewards.filter((r) => r.level > from && r.level <= level);
+  const titles = between(TITLES);
+  const choosable = [
+    ...between(CARD_BACKS).map((r) => `the ${r.name} card back`),
+    ...between(PACK_FOILS).map((r) => `the ${r.name} pack foil`),
+  ];
+  const parts: string[] = [];
+  if (titles.length) parts.push(`Title equipped: ${titles[titles.length - 1].name}.`);
+  if (choosable.length) parts.push(`Unlocked ${choosable.join(', ')}. Pick ${choosable.length > 1 ? 'them' : 'it'} on your Profile.`);
+  if (parts.length) return parts.join(' ');
+  const next = nextReward(level);
+  return next ? `Next: ${next.name} at level ${next.level}.` : 'Keep opening.';
+};
 
 /** The chosen reward if this level has unlocked it, otherwise the first one (after importing another save, say). */
 export const usable = (rewards: readonly Reward[], id: string | undefined, level: number): string =>

@@ -121,16 +121,24 @@ it("never stores this tab's achievements over a save another tab imported or swi
 it("keeps achievements a pack unlocks in a tab another player's save replaced out of that save", async () => {
   app = await mountedApp(SEED, { hallOfFame: [] });
   await app.mount();
-  // Another tab switches to a different player, whose save has an achievement this tab's doesn't.
+  // This tab tears its first pack, claimed for its own save (a tear after the swap is refused: #811).
+  await app.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await app.interact(() => {
+    document.querySelector<HTMLButtonElement>('.pack-open-button')!.focus();
+    document.querySelector<HTMLButtonElement>('.pack-open-button')!.click();
+  });
+  await app.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
+  // Mid-reveal, another tab switches to a different player, whose save has an achievement this tab's doesn't.
   localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '0b'.repeat(32), name: 'Imported', nextNonce: 0, createdAt: 2 }));
   localStorage.setItem(STORAGE_KEYS.HISTORY, '[]');
   const imported = { all_commons_pack: { unlockedAt: 1234 } };
   localStorage.setItem(STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify(imported));
   // No storage event reaches this tab first (once one does, it opens no packs: crossTabSave covers that).
 
-  // This tab opens a pack: its first, so it unlocks achievements here, which aren't stored over the
-  // other player's; the tab says its save changed elsewhere instead.
-  await openAPack();
+  // The pack finishes: it unlocks achievements here, which aren't stored over the other player's; the
+  // tab says its save changed elsewhere instead.
+  await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
+  await app.until('the pack summary shows', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
   await app.settle(100);
   expect(document.body.textContent).toMatch(/\d+ achievements unlocked/);
   expect(achievements()).toEqual(imported);
@@ -191,6 +199,6 @@ it('toasts a level-up when the same player levels up after their saved packs are
   await app.until('the level-up toast shows', () => {
     expect(toasts()).toContain('Level up');
     expect(toasts()).toContain('Level 3');
-    expect(toasts()).toContain('Unlocked the title Pack Rat');
-  });
-});
+    expect(toasts()).toContain('Title equipped: Pack Rat.');
+  }, 60_000); // the achievement toasts queued ahead of it each stay up long enough to tap (#718)
+}, 30_000);

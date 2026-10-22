@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_BACKS, COLLECTION_MILESTONES, PACK_FOILS, TITLES, collectionMilestone, nextReward, setProgress, titleFor, usable } from './progression';
+import { CARD_BACKS, COLLECTION_MILESTONES, PACK_FOILS, TITLES, collectionMilestone, levelUpLine, nextReward, setProgress, titleFor, usable } from './progression';
 
 describe('progression', () => {
   it('starts everyone with a title, a card back and a pack foil', () => {
@@ -20,6 +20,28 @@ describe('progression', () => {
     expect(nextReward(1)).toMatchObject({ level: 3, kind: 'title' });
     expect(nextReward(3)).toMatchObject({ level: 4, kind: 'card back', name: 'Midnight' });
     expect(nextReward(30)).toBeUndefined();
+  });
+
+  it('words a level-up by what the player can actually do (#719)', () => {
+    // A title has no picker: it equips itself, and the line never sends the player to pick it.
+    expect(levelUpLine(2, 3)).toBe('Title equipped: Pack Rat.');
+    expect(levelUpLine(4, 5)).toBe('Title equipped: Certified Opener.');
+    // A card back or foil does have one (Profile, Card back and foil).
+    expect(levelUpLine(3, 4)).toBe('Unlocked the Midnight card back. Pick it on your Profile.');
+    expect(levelUpLine(5, 6)).toBe('Unlocked the Shimmer pack foil. Pick it on your Profile.');
+    // Several levels at once: the highest title equips; only the choosable rewards are picked.
+    expect(levelUpLine(2, 8)).toBe(
+      'Title equipped: Holo Hunter. Unlocked the Midnight card back, the Vaporwave card back, the Shimmer pack foil. Pick them on your Profile.',
+    );
+    // Nothing new: a teaser for the next reward, or the end of the list.
+    expect(levelUpLine(1, 2)).toBe('Next: Pack Rat at level 3.');
+    expect(levelUpLine(29, 30)).toBe('Title equipped: Brainrot Royalty.');
+    expect(levelUpLine(30, 31)).toBe('Keep opening.');
+    // Only a title is ever "equipped": no line tells the player to pick a title.
+    for (let level = 2; level <= 31; level++) {
+      const picks = levelUpLine(level - 1, level).split('. ').filter((sentence) => /pick/i.test(sentence));
+      expect(picks.some((sentence) => /title/i.test(sentence))).toBe(false);
+    }
   });
 
   it('only uses rewards that are unlocked', () => {

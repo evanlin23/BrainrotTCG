@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
+import { fromHex, publicKeyFromSecret, pullId } from '../../src/engine';
 import { expectDecoded, expectRecordedPack, monitor, snapshot } from './support';
 
 // Two tabs of one player (#73). The tab that opens a pack stores it; the other tab hears about it,
@@ -216,6 +217,53 @@ test.describe('two tabs at once, emulated Chromium (not real devices)', () => {
     expect(cardCount(saved.collection)).toBe(10);
     expect(await shelf(a)).toEqual([]);
     expect(errorsA.filter((error) => !/QuotaExceeded|Storage is full|Could not save pack history/.test(error))).toEqual([]);
+    expect(errorsB).toEqual([]);
+  });
+
+  test('a Hall of Fame submission in one tab updates the other tab\'s Profile badge without a reload', async ({ context, baseURL }) => {
+    test.setTimeout(60000);
+    // A synthetic Full House for the fixture player (secret 01 x32) at a ticket it never opened. It is
+    // shown from history only: nothing is submitted. monitor() answers every non-local request with an
+    // empty 204 and closes every relay WebSocket, so no Hall of Fame note or issue can leave the browser.
+    const id = pullId({ setId: 'right-now', setVersion: 2, publicKey: publicKeyFromSecret(fromHex('01'.repeat(32))), nonce: 0 });
+    const a = await context.newPage();
+    const b = await context.newPage();
+    const errorsA = await monitor(a, baseURL!, 1, { returning: true });
+    const errorsB = await monitor(b, baseURL!, 1, { returning: true });
+    for (const page of [a, b]) {
+      await page.addInitScript((key) => {
+        // Once per tab, so a reload does not undo what the other tab stored.
+        if (sessionStorage.getItem('full-house-seeded')) return;
+        sessionStorage.setItem('full-house-seeded', '1');
+        localStorage.setItem(key, JSON.stringify([{
+          s: 'right-now', v: 2, n: 0, k: '8a88e3dd7409f195', c: 'bukangi,bukangi,bukangi,la-peace,la-peace', h: 'Full House', x: 0, t: 1,
+        }]));
+      }, STORAGE_KEYS.HISTORY);
+    }
+
+    const badge = async (page: Page) => {
+      await page.goto('./#/profile');
+      const row = page.getByRole('main', { name: 'Profile', exact: true }).locator('.pulls-history .pull-row').first();
+      await expect(row).toBeVisible();
+      // A marker that a reload would clear: the badge must change in this same document.
+      await page.evaluate(() => { (window as unknown as { sameDocument: boolean }).sameDocument = true; });
+      return row.locator('.pull-row-sent');
+    };
+    const badgeA = await badge(a);
+    const badgeB = await badge(b);
+    await expect(badgeA).toHaveText('Not submitted');
+    await expect(badgeB).toHaveText('Not submitted');
+
+    // Tab A records the submission exactly as share.ts does after a relay accepts it; the browser then
+    // sends a real storage event to tab B (the writing tab gets none).
+    await a.evaluate(([key, pull]) => {
+      localStorage.setItem(key, JSON.stringify([pull]));
+    }, ['brainrot-hof-submitted-v1', id] as const);
+
+    await expect(badgeB).toHaveText('Submitted', { timeout: 10000 });
+    await expect(badgeB).toHaveAttribute('title', 'Sent from this device');
+    expect(await b.evaluate(() => (window as unknown as { sameDocument?: boolean }).sameDocument)).toBe(true);
+    expect(errorsA).toEqual([]);
     expect(errorsB).toEqual([]);
   });
 });
