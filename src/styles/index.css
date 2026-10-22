@@ -9,6 +9,10 @@
   /* A game screen: exactly one viewport tall, so the pack and the reveal can size to it. */
   height: 100dvh;
   overflow: hidden;
+  /* The containing block for absolutely positioned descendants, so `overflow: hidden` clips them. Without
+     it they answer to the viewport, escape the clip, and (the .sr-only text in a long page) make the
+     document itself scrollable, so an outer wheel carries the whole app offscreen (#798). */
+  position: relative;
   /* Clear of the notch in portrait and landscape; the bottom inset is left to the tab bar and main. */
   padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
 }
