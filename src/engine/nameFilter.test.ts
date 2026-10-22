@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ANONYMOUS_NAME, isNameAllowed, NAME_PLACEHOLDER, publicName } from './nameFilter';
+import { ANONYMOUS_NAME, isNameAllowed, NAME_PLACEHOLDER, publicName, SOMEONE_NAME, visitorName } from './nameFilter';
 
 const blocked = (names: string[]) => names.filter((name) => isNameAllowed(name));
 const allowed = (names: string[]) => names.filter((name) => !isNameAllowed(name));
@@ -115,5 +115,23 @@ describe('publicName', () => {
     expect(publicName('Ｆｕｃｋ')).toBe(NAME_PLACEHOLDER);
     expect(publicName('   ')).toBe(ANONYMOUS_NAME);
     expect(NAME_PLACEHOLDER).toBe('Player');
+  });
+});
+
+describe('visitorName', () => {
+  it('shows an allowed name as publicName does', () => {
+    expect(visitorName('  Pack   Ripper ')).toBe('Pack Ripper');
+  });
+
+  it('keeps a chosen name that matches a fallback label, normalized', () => {
+    expect(visitorName('Player')).toBe('Player');
+    expect(visitorName('Anonymous')).toBe('Anonymous');
+    expect(visitorName('  Player ')).toBe('Player');
+    expect(visitorName('Player')).toBe(publicName('Player'));
+  });
+
+  it('reads Someone for a blank or blocked name, never Anonymous or Player', () => {
+    for (const name of ['', '   ', 'xXfuckXx', 'Ｆｕｃｋ']) expect(visitorName(name)).toBe(SOMEONE_NAME);
+    expect(SOMEONE_NAME).toBe('Someone');
   });
 });
