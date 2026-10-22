@@ -47,7 +47,8 @@ Closing a reproduced defect takes a short note on the issue, backed by the PR's 
 (the evidence tiers above apply):
 
 1. **Root cause**, one sentence naming the code or contract that failed. Separate a pre-existing
-   defect from a regression this change introduced.
+   defect from a regression this change introduced. Cite source, test or PR evidence; don't name the
+   introducing commit without tracing it.
 2. **Escape class**, why existing controls missed it:
    - *missing_scenario*: an edge, cancellation, storage denial or limit was never exercised.
    - *incorrect_expected_contract*: a test asserted the wrong behaviour or merged two failure kinds.
@@ -59,17 +60,20 @@ Closing a reproduced defect takes a short note on the issue, backed by the PR's 
 3. **Regression test** at the lowest useful level, asserting observable behaviour. Show it fails on
    the faulty behaviour and passes on the fix. Say whether it runs in a real browser or against an
    injected boundary. Add the storage-denial, cancellation or resource-limit cases only where the
-   defect calls for them.
+   defect calls for them. A setup failure or skip isn't a detected failure.
 4. **Sibling scan**: search directly related paths for the same failure class. Link an existing issue
-   or file a bounded follow-up; don't widen the fix PR. A defect that recurs gets a scoped
-   prevention task (shared guard, validation boundary or fixture) instead of another local patch.
+   or file a bounded follow-up; don't widen the fix PR. If a durable invariant (guard, validation
+   boundary or fixture) would prevent recurrence, even for a first-time defect, name one small
+   verifiable prevention action with its canonical owner and link the existing check or issue. Don't
+   add overlapping tests. A recurring defect gets that task instead of another local patch.
 5. **Pending external checks** (physical device, external API) stay marked pending.
 
 Examples from merged fixes:
 
-- #647 (PR #912), `missing_scenario`: `SettingsPage.tsx` dereferenced parsed import JSON before
-  checking it was an object, so `null`, arrays and primitives threw. The regression is in
-  `SettingsPage.test.tsx` (non-object files give a message and no replacement prompt).
+- #647 (PR #912), `wrong_test_level`: the Settings import (FileReader) boundary dereferenced parsed
+  JSON before checking it was an object. Before 1209cf0 only `null` threw (`incoming.player`);
+  arrays and primitives reached the "Replace ... Yours is kept as a backup?" prompt. The regression
+  is in `SettingsPage.test.tsx` (non-object files give a message and no replacement prompt).
 - #695 (PR #919), `missing_scenario`: `reopenCache.ts` `flush` ran `removeItem` inside its `catch`,
   so a fully denied storage threw from a timer. The regression is in `reopenCache.test.ts` (both
   `setItem` and `removeItem` fail).

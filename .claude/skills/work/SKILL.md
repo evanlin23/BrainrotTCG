@@ -91,8 +91,8 @@ authority and holds) and for the holds check before a merge.
    turn cleanly. No `sleep` loops or repeated status polling calls; each one re-reads the whole context.
 6. Comment on the canonical issue in a few lines (what shipped, PR, what remains). Close it only if
    its whole scope shipped, with a linked PR and regression/check evidence from the final head. For a
-   reproduced defect, add the "Defect learning and issue closure" note from docs/DEVELOPMENT.md and
-   ask the reviewer to check it. Missing external verification (physical device, external API) stays
+   reproduced defect, copy the PR body's "Defect learning and issue closure" note (docs/DEVELOPMENT.md,
+   checked by the reviewer before the merge) to the issue. Missing external verification (physical device, external API) stays
    pending, never complete.
 7. Update NOW.md, mirror it if this is a checkpoint, then continue.
 
