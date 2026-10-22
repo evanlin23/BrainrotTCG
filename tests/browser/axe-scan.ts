@@ -83,14 +83,21 @@ const finding = (rule: string, node: { target: unknown[]; failureSummary?: strin
 });
 
 /**
- * Waits for the page to stop changing, on what the page reports: webfonts loaded, every loaded image
- * decoded, finite animations and transitions finished, and two animation frames so layout has run on
- * the final styles. Contrast read before this would be read mid-fade.
+ * Waits for the page to stop changing, on what the page reports: webfonts loaded, every image still
+ * loading finished (load or error), finite animations and transitions finished, and two animation
+ * frames so layout has run on the final styles. Contrast read before this would be read mid-fade.
+ * It does not call `decode()`: that rejects when an image's source changes mid-decode, which the
+ * summary cards do as their art swaps in. Specs that need decoded art wait with `expectDecoded`.
  */
 export async function settle(page: Page) {
   await page.evaluate(async () => {
     await document.fonts.ready;
-    await Promise.all(Array.from(document.images).filter((image) => image.complete && image.naturalWidth > 0).map((image) => image.decode()));
+    await Promise.all(Array.from(document.images)
+      .filter((image) => !image.complete && image.loading !== 'lazy')
+      .map((image) => new Promise<void>((resolve) => {
+        image.addEventListener('load', () => resolve(), { once: true });
+        image.addEventListener('error', () => resolve(), { once: true });
+      })));
     await Promise.all(document.getAnimations()
       .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity))
       .map((animation) => animation.finished));
