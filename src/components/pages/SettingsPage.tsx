@@ -38,7 +38,25 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const activeImportTokenRef = useRef(0);
+    const activeReaderRef = useRef<FileReader | null>(null);
     const handleExportSave = () => downloadSaveFile();
+
+    // Leaving Settings retires pending read/import intent, preventing later writes or reloads from that screen.
+    useEffect(() => {
+        return () => {
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            activeImportTokenRef.current++;
+            if (activeReaderRef.current) {
+                try {
+                    activeReaderRef.current.abort();
+                } catch {
+                    // Ignore abort errors
+                }
+                activeReaderRef.current = null;
+            }
+        };
+    }, []);
 
     // After the site moved: fetch the save from the old address (game/move.ts). Replacing a different
     // save here is asked in this row, not in a browser dialog, which can open behind the old address's
@@ -120,8 +138,28 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         const file = e.target.files?.[0];
         if (!file) return;
 
+        // Give each selection a current-operation token; retire/abort earlier readers and their callbacks.
+        const token = ++activeImportTokenRef.current;
+        if (activeReaderRef.current) {
+            try {
+                activeReaderRef.current.abort();
+            } catch {
+                // Ignore abort errors
+            }
+            activeReaderRef.current = null;
+        }
+        setPendingImport(null);
+        setReplacing(null);
+        setWithoutCopy(false);
+        setImportNote('Load a backup file');
+
         const reader = new FileReader();
+        activeReaderRef.current = reader;
+
         reader.onload = (event) => {
+            if (activeImportTokenRef.current !== token) return;
+            activeReaderRef.current = null;
+
             const content = event.target?.result as string;
             let incoming: { player?: string; stats?: string } = {};
             try {
@@ -147,7 +185,28 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             setPendingImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
         };
-        reader.readAsText(file);
+
+        reader.onerror = () => {
+            if (activeImportTokenRef.current !== token) return;
+            if (reader.error?.name === 'AbortError') return;
+            activeReaderRef.current = null;
+            setImportNote("Couldn't read that file. Try selecting it again.");
+        };
+
+        reader.onabort = () => {
+            if (activeReaderRef.current === reader) {
+                activeReaderRef.current = null;
+            }
+        };
+
+        try {
+            reader.readAsText(file);
+        } catch {
+            if (activeImportTokenRef.current === token) {
+                activeReaderRef.current = null;
+                setImportNote("Couldn't read that file. Try selecting it again.");
+            }
+        }
 
         // Reset input so the same file can be selected again
         e.target.value = '';
