@@ -398,6 +398,7 @@ test('the Hall of Fame line never moves the cards below it', async ({ page, base
   const submit = line.getByRole('button', { name: 'Submit to the Hall of Fame' });
   await expect(submit).toBeVisible();
   tops.offered = await cardsTop();
+  await expectSummaryTakesClicks(page);
   await submit.click();
   await expect(line).toContainText("Couldn't submit");
   tops.failed = await cardsTop();

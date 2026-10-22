@@ -55,7 +55,7 @@ describe('special and new cards', () => {
 });
 
 describe('the first moments (#627)', () => {
-  it('ignores clicks on the cards and Share, never on Next pack, until the summary has settled', () => {
+  it('ignores clicks on the cards, Card guide and Share, never on Next pack, until the summary has settled', () => {
     // The up-close viewer measures itself and reads motion preferences.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -68,12 +68,13 @@ describe('the first moments (#627)', () => {
     const tile = () => container.querySelector<HTMLButtonElement>('.summary-card')!;
     const share = [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('Share'))!;
     const next = [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('Next pack'))!;
-    const clickAll = () => act(() => { tile().click(); share.click(); });
+    const guide = [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Card guide'))!;
+    const clickAll = () => act(() => { tile().click(); share.click(); guide.click(); });
 
     clickAll();
     act(() => vi.advanceTimersByTime(STAGE_CLICK_GUARD_MS - 1));
     clickAll();
-    expect(document.querySelector('[role="dialog"]'), 'a click in the window opened the viewer').toBeNull();
+    expect(document.querySelector('[role="dialog"]'), 'a click in the window opened the viewer or the Card guide').toBeNull();
     expect(onShare).not.toHaveBeenCalled();
     expect(container.querySelector('.summary-caption')?.textContent, 'the hint went away as if a card had been viewed').toBe('Select a card to view');
 
@@ -151,13 +152,14 @@ describe('card order', () => {
 });
 
 describe('card guide', () => {
-  it('shows the odds of the set version the pack came from, not the latest one (#486)', () => {
+  it('shows the odds of the set version the pack came from, not the latest one (#486)', async () => {
     // Web Ancients v1 is from before card modifiers; its latest version has them.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     const first = getSet('web-ancients', 1)!;
     const firstCards = getSetCards(first.id).slice(0, 5).map((card, i) => ({ ...card, uniqueId: i + 1, isRevealed: true, isHolo: false }) as CardWithMeta);
     act(() => root.render(<PackSummaryUI openedCards={firstCards} set={first} onClose={() => {}} />));
     const guide = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Card guide')!;
+    await settled();
     act(() => guide.click());
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain(`${first.name} has no finishes or misprints`);
   });

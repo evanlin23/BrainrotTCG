@@ -10,7 +10,7 @@ import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
-import { useStageClickGuard } from '../../hooks/useStageClickGuard';
+import { STAGE_PRIMARY_ATTR, useStageClickGuard } from '../../hooks/useStageClickGuard';
 import PackHeadline from './PackHeadline';
 import SummaryHallOfFame from './SummaryHallOfFame';
 import '../../styles/CollectionLabel.css';
@@ -47,8 +47,9 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
   const actionsRef = useRef<HTMLDivElement>(null);
   useHoldUntilDecoded(cardsRef, holdOptional);
   // A click that was meant for the last card (the player is clicking in one spot, #627) lands here as the
-  // summary appears: it must not open a card up close or the share sheet. Next pack is the one deliberate move.
-  const { guard, settling } = useStageClickGuard();
+  // summary appears: it must not open a card up close, the Card guide, the share sheet or send a Hall of
+  // Fame entry. Next pack is the one deliberate move.
+  const { blockClicks, settling } = useStageClickGuard();
   // The keyboard starts at the result, not on an action: the heading, so the cards come next.
   useEffect(() => {
     if (holdOptional) headingRef.current?.focus({ preventScroll: true });
@@ -71,7 +72,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
-      <div className="summary-content" onFocus={clearActions}>
+      <div className="summary-content" onFocus={clearActions} onClickCapture={blockClicks}>
         <div className="summary-details">
           <PackHeadline cards={openedCards} headingRef={headingRef}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
@@ -87,10 +88,10 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
                   type="button"
                   className={`summary-card quiet-focus ${card.rarity.toLowerCase()} ${card.isHolo ? 'holo' : ''} ${modifierThumb(card).className}`}
                   style={modifierThumb(card).style}
-                  onClick={guard(() => {
+                  onClick={() => {
                     setSelected(card);
                     setViewed(true);
-                  })}
+                  }}
                   aria-label={`View ${card.name} up close, ${CARD_RARITIES[card.rarity].name}${modifierLabel(card) ? `, ${modifierLabel(card)}` : ''}${card.isNew ? ', new' : ''}`}
                 >
                   <CardImage src={card.image} finish={card.finish} alt="" draggable="false" />
@@ -109,11 +110,11 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
           {/* Right after the result, and stuck to the bottom so they never scroll away. */}
           <div className="summary-actions" ref={actionsRef}>
             {onShare && (
-              <button type="button" className="btn btn--secondary btn--lg" onClick={guard(onShare)}>
+              <button type="button" className="btn btn--secondary btn--lg" onClick={onShare}>
                 <Share2 aria-hidden="true" /> Share
               </button>
             )}
-            <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
+            <button type="button" className="btn btn--primary btn--lg" onClick={onClose} {...{ [STAGE_PRIMARY_ATTR]: true }}>
               <RotateCcw aria-hidden="true" /> Next pack
             </button>
           </div>
