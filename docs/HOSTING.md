@@ -157,8 +157,9 @@ rationale, owner, required evidence and a classification: `regression`, `older_d
 
 **Authority:** the record changes only through reviewed PRs to main. Issues, comments, labels and
 author assertions can't change release permission. `--base` reports dropping an entry that wasn't
-resolved, or rewriting an entry's issue or category. Resolved history stays in the issue and PR, so
-resolved entries may be pruned.
+resolved, or rewriting an entry's issue or category; a base that doesn't resolve fails closed (fetch
+full history), and only a base commit without the record is skipped. Resolved history stays in the
+issue and PR, so resolved entries may be pruned.
 
 **Dispositions** (anything missing, malformed or unverifiable fails closed):
 - `unresolved`: blocks promotion.
@@ -170,7 +171,9 @@ resolved entries may be pruned.
   general work approval never counts as accepting a specific critical failure.
 - `corrective_release`: lets one candidate that fixes this blocker ship while other blockers stay
   tracked. It needs non-worsening and compatibility evidence and an approval by evanlin23, linked as
-  above, for that exact candidate SHA; it applies only when the run declares
+  above, for the exact reviewed commit (`approvedCommit`). The candidate must be that commit or a
+  descendant that changes only `config/release-blockers.json` (the commit recording the approval);
+  any other change makes the approval stale. It applies only when the run declares
   `--corrective-target` for this issue. There is no generic bugfix bypass.
 
 ## Recover on the same origin

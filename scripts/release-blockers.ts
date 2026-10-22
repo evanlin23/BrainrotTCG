@@ -59,8 +59,12 @@ export interface BlockerMitigation extends Approval {
 }
 
 export interface CorrectiveReleaseDetails extends Approval {
-  /** The exact candidate commit this corrective release was reviewed for. */
-  candidateHead: string;
+  /**
+   * Full SHA of the exact reviewed commit this approval covers. A commit can't name its own SHA, so
+   * the candidate must be this commit or a descendant that differs from it only in the record file
+   * (the commit that records this approval). Any other change makes the approval stale.
+   */
+  approvedCommit: string;
   nonWorseningEvidence: string;
   compatibilityEvidence: string;
 }
@@ -99,6 +103,8 @@ export interface ReleaseEligibilityOptions {
   isAncestor?: (ancestor: string, descendant: string) => boolean;
   /** True when `path` exists in the candidate tree. Missing means regression tests can't be verified. */
   fileExistsAtCandidate?: (path: string) => boolean;
+  /** Paths that differ between two commits, or undefined when that can't be determined. */
+  changedPathsBetween?: (from: string, to: string) => string[] | undefined;
 }
 
 export interface ReleaseEligibilityResult {
@@ -161,7 +167,8 @@ function entryProblems(b: Record<string, unknown>): string[] {
  * block that candidate only).
  */
 export function evaluateReleaseEligibility(options: ReleaseEligibilityOptions): ReleaseEligibilityResult {
-  const { blockersRecord: record, candidateHead, correctiveTargetIssue, isAncestor, fileExistsAtCandidate } = options;
+  const { blockersRecord: record, candidateHead, correctiveTargetIssue, isAncestor, fileExistsAtCandidate, changedPathsBetween } =
+    options;
   const now = (options.currentTime ?? new Date()).getTime();
   const reasons: string[] = [];
   const unresolved: string[] = [];
@@ -277,9 +284,20 @@ export function evaluateReleaseEligibility(options: ReleaseEligibilityOptions): 
         const problems = approvalProblems(label, c, now);
         if (!nonEmpty(c.nonWorseningEvidence)) problems.push(`${label} corrective release nonWorseningEvidence is missing`);
         if (!nonEmpty(c.compatibilityEvidence)) problems.push(`${label} corrective release compatibilityEvidence is missing`);
-        if (!isSha(c.candidateHead)) problems.push(`${label} corrective release candidateHead is not a full SHA`);
-        else if (c.candidateHead !== candidateHead) {
-          problems.push(`${label} corrective release was approved for ${c.candidateHead}, not candidate ${candidateHead}; the approval is stale`);
+        const approvedCommit = c.approvedCommit;
+        if (!isSha(approvedCommit)) problems.push(`${label} corrective release approvedCommit is not a full SHA`);
+        else if (!isAncestor || !changedPathsBetween) {
+          problems.push(`${label} corrective release approval cannot be checked against the candidate`);
+        } else if (!isAncestor(approvedCommit, candidateHead)) {
+          problems.push(
+            `${label} corrective release was approved for ${approvedCommit}, which is not in candidate ${candidateHead}; the approval is stale`,
+          );
+        } else {
+          const extra = changedPathsBetween(approvedCommit, candidateHead)?.filter((p) => p !== RECORD_PATH);
+          if (!extra) problems.push(`${label} changes since approved commit ${approvedCommit} cannot be listed`);
+          else if (extra.length > 0) {
+            problems.push(`${label} candidate changes ${extra.join(', ')} after approved commit ${approvedCommit}; the approval is stale`);
+          }
         }
         if (problems.length > 0) {
           problems.forEach((p) => reasons.push(p));
@@ -360,54 +378,83 @@ export function parseArgs(argv: string[]): CliArgs {
   return args;
 }
 
-const git = (...args: string[]): string => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-const gitOk = (...args: string[]): boolean => {
-  try {
-    git(...args);
-    return true;
-  } catch {
-    return false;
-  }
-};
+export interface CliResult {
+  code: number;
+  stdout: string[];
+  stderr: string[];
+}
 
-function main(): number {
-  const args = parseArgs(process.argv.slice(2));
-  if (!args.candidate) throw new Error('Pass --candidate <commit>: eligibility is decided for one exact candidate');
-  const candidate = git('rev-parse', '--verify', `${args.candidate}^{commit}`).trim();
-  const raw = git('show', `${candidate}:${RECORD_PATH}`);
-  const record: unknown = JSON.parse(raw);
-  const result = evaluateReleaseEligibility({
-    blockersRecord: record,
-    candidateHead: candidate,
-    correctiveTargetIssue: args.correctiveTarget,
-    isAncestor: (a, d) => gitOk('merge-base', '--is-ancestor', a, d),
-    fileExistsAtCandidate: (p) => gitOk('cat-file', '-e', `${candidate}:${p}`),
-  });
-  // A base without a record (before this file existed) has nothing to relax.
-  if (args.base && gitOk('cat-file', '-e', `${args.base}:${RECORD_PATH}`)) {
-    const baseRaw = git('show', `${args.base}:${RECORD_PATH}`);
-    for (const p of unauthorizedRecordChanges(JSON.parse(baseRaw), record)) result.reasons.push(p);
-    result.eligible = result.reasons.length === 0;
+/** Runs the CLI against the git repository at `cwd` and never throws; errors fail closed. */
+export function runReleaseBlockerCheck(argv: string[], cwd: string = process.cwd(), currentTime?: Date): CliResult {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const git = (...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const gitOk = (...args: string[]): boolean => {
+    try {
+      git(...args);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const commitOf = (ref: string, flag: string): string => {
+    try {
+      return git('rev-parse', '--verify', '--quiet', `${ref}^{commit}`).trim();
+    } catch {
+      throw new Error(`${flag} ${ref} does not resolve to a commit in this checkout; fetch it (full history) and retry`);
+    }
+  };
+  try {
+    const args = parseArgs(argv);
+    if (!args.candidate) throw new Error('Pass --candidate <commit>: eligibility is decided for one exact candidate');
+    const candidate = commitOf(args.candidate, '--candidate');
+    const raw = git('show', `${candidate}:${RECORD_PATH}`);
+    const record: unknown = JSON.parse(raw);
+    const result = evaluateReleaseEligibility({
+      blockersRecord: record,
+      candidateHead: candidate,
+      correctiveTargetIssue: args.correctiveTarget,
+      currentTime,
+      isAncestor: (a, d) => gitOk('merge-base', '--is-ancestor', a, d),
+      fileExistsAtCandidate: (p) => gitOk('cat-file', '-e', `${candidate}:${p}`),
+      changedPathsBetween: (from, to) => {
+        try {
+          return git('diff', '--no-renames', '--name-only', from, to, '--').split('\n').filter(Boolean);
+        } catch {
+          return undefined;
+        }
+      },
+    });
+    if (args.base !== undefined) {
+      // A missing or mistyped base fails closed; only a real commit that predates the record is skipped.
+      const base = commitOf(args.base, '--base');
+      if (gitOk('cat-file', '-e', `${base}:${RECORD_PATH}`)) {
+        const baseRaw = git('show', `${base}:${RECORD_PATH}`);
+        for (const p of unauthorizedRecordChanges(JSON.parse(baseRaw), record)) result.reasons.push(p);
+        result.eligible = result.reasons.length === 0;
+      }
+    }
+    stdout.push(`Candidate ${candidate}, record sha256 ${recordDigest(raw)}`);
+    if (result.eligible) {
+      stdout.push(
+        `Release eligible: ${result.resolvedCount} resolved, ${result.activeExceptions.length} active exceptions` +
+          (result.correctiveRelease ? `, corrective release for ${result.correctiveRelease}` : '') +
+          `, ${result.unresolvedBlockers.length} still tracked.`,
+      );
+      return { code: 0, stdout, stderr };
+    }
+    stderr.push('Release blocked:');
+    result.reasons.forEach((r) => stderr.push(`  - ${r}`));
+    return { code: 1, stdout, stderr };
+  } catch (error) {
+    stderr.push(`Failed to verify release blockers: ${(error as Error).message}`);
+    return { code: 1, stdout, stderr };
   }
-  console.log(`Candidate ${candidate}, record sha256 ${recordDigest(raw)}`);
-  if (result.eligible) {
-    console.log(
-      `Release eligible: ${result.resolvedCount} resolved, ${result.activeExceptions.length} active exceptions` +
-        (result.correctiveRelease ? `, corrective release for ${result.correctiveRelease}` : '') +
-        `, ${result.unresolvedBlockers.length} still tracked.`,
-    );
-    return 0;
-  }
-  console.error('Release blocked:');
-  result.reasons.forEach((r) => console.error(`  - ${r}`));
-  return 1;
 }
 
 if (isMainModule(import.meta.url)) {
-  try {
-    process.exitCode = main();
-  } catch (error) {
-    console.error(`Failed to verify release blockers: ${(error as Error).message}`);
-    process.exitCode = 1;
-  }
+  const { code, stdout, stderr } = runReleaseBlockerCheck(process.argv.slice(2));
+  stdout.forEach((line) => console.log(line));
+  stderr.forEach((line) => console.error(line));
+  process.exitCode = code;
 }

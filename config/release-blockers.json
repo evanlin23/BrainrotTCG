@@ -10,7 +10,7 @@
       "classification": "older_defect",
       "affectedRevisions": [
         "Reproduced in Chromium at main 2bf60747956397ba0fec07dda4f093d64691beed",
-        "Affected code already present at history root 5676f12, so not a regression from a recent change"
+        "Affected code already present at 5676f12 (#535), so not a regression from a recent change"
       ],
       "scenario": "A stored brainrot-stats-v1 record with a null best-pack card and no data-version marker throws in runMigrations before React mounts; #root stays empty on every reload and no recovery or export UI is reachable.",
       "severityRationale": "Persistent startup blank screen for an affected browser profile, with no in-app way to recover the save.",
@@ -26,7 +26,7 @@
       "classification": "unverified_hypothesis",
       "affectedRevisions": [
         "Unbounded iteration confirmed by an offline probe at main 2bf60747956397ba0fec07dda4f093d64691beed",
-        "Affected code already present at history root 5676f12, so not a regression from a recent change"
+        "Affected code already present at 5676f12 (#535), so not a regression from a recent change"
       ],
       "scenario": "A small supported save with a very large nextNonce is accepted by importSaveFile; the opening screen's stats iterate every ticket number up to that counter. Bounded probes at 100,000 and 1,000,000 materialized all missing tickets; the extreme-counter browser hang or crash was not executed.",
       "severityRationale": "If the extreme case hangs startup it is a persistent blank or unusable opening screen; the unbounded work is confirmed but that outcome is not yet reproduced, so it stays fail-closed until fixed or reclassified on evidence.",
@@ -42,7 +42,7 @@
       "classification": "older_defect",
       "affectedRevisions": [
         "Reproduced with two same-origin tabs at main 2bf60747956397ba0fec07dda4f093d64691beed",
-        "Affected code already present at history root 5676f12, so not a regression from a recent change"
+        "Affected code already present at 5676f12 (#535), so not a regression from a recent change"
       ],
       "scenario": "Tab A reviews a replacement of save Original; tab B replaces the save with Switched; tab A's still-pending Replace then imports over Switched despite the stale-tab warning, without approval for replacing Switched.",
       "severityRationale": "A stale review authorizes overwriting a different, newer current save; the import backup holds the overwritten save, so permanent deletion or identity mixing was not demonstrated.",

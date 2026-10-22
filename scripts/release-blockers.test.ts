@@ -1,11 +1,16 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   BLOCKER_CATEGORIES,
   BLOCKER_CLASSIFICATIONS,
+  RECORD_PATH,
   evaluateReleaseEligibility,
   parseArgs,
   recordDigest,
+  runReleaseBlockerCheck,
   unauthorizedRecordChanges,
   type ReleaseBlocker,
   type ReleaseBlockersRecord,
@@ -15,6 +20,7 @@ import {
 const CANDIDATE = 'a'.repeat(40);
 const FIX = 'b'.repeat(40);
 const OTHER = 'c'.repeat(40);
+const APPROVED = 'd'.repeat(40);
 const NOW = new Date('2026-10-22T12:00:00Z');
 const REF = 'https://github.com/evanlin23/BrainrotTCG/issues/759#issuecomment-1';
 
@@ -34,14 +40,18 @@ const blocker = (over: Partial<ReleaseBlocker> = {}): ReleaseBlocker => ({
 });
 const record = (...blockers: ReleaseBlocker[]): ReleaseBlockersRecord => ({ version: 1, description: 'fixture', blockers });
 
-/** Candidate history holds FIX and itself; the tree holds only the listed test. */
+/**
+ * Candidate history holds FIX, APPROVED and itself; the candidate differs from APPROVED only in the
+ * record; the tree holds only the listed test.
+ */
 const evaluate = (blockersRecord: unknown, over: Partial<ReleaseEligibilityOptions> = {}) =>
   evaluateReleaseEligibility({
     blockersRecord,
     candidateHead: CANDIDATE,
     currentTime: NOW,
-    isAncestor: (a, d) => d === CANDIDATE && (a === FIX || a === CANDIDATE),
+    isAncestor: (a, d) => d === CANDIDATE && [FIX, APPROVED, CANDIDATE].includes(a),
     fileExistsAtCandidate: (p) => p === 'src/fix.test.ts',
+    changedPathsBetween: (from) => (from === APPROVED ? [RECORD_PATH] : []),
     ...over,
   });
 
@@ -70,7 +80,7 @@ const corrective = (over: Partial<NonNullable<ReleaseBlocker['correctiveRelease'
     canonicalIssue: 2,
     disposition: 'corrective_release',
     correctiveRelease: {
-      candidateHead: CANDIDATE,
+      approvedCommit: APPROVED,
       nonWorseningEvidence: 'Full suite and browser smoke pass; only the import guard changed',
       compatibilityEvidence: 'Proof vectors and set locks unchanged',
       approvedBy: 'evanlin23',
@@ -197,10 +207,29 @@ describe('evaluateReleaseEligibility', () => {
       expect(evaluate(record(blocker({ id: 'RB-2', canonicalIssue: 2 })), { correctiveTargetIssue: 2 }).eligible).toBe(false);
     });
 
-    it('rejects an approval made for a different candidate', () => {
-      const r = evaluate(record(blocker(), corrective({ candidateHead: OTHER })), { correctiveTargetIssue: 2 });
+    it('accepts the approved commit itself as the candidate', () => {
+      expect(evaluate(record(corrective({ approvedCommit: CANDIDATE })), { correctiveTargetIssue: 2 }).eligible).toBe(true);
+    });
+
+    it('rejects an approval for a commit outside the candidate history', () => {
+      const r = evaluate(record(blocker(), corrective({ approvedCommit: OTHER })), { correctiveTargetIssue: 2 });
       expect(r.eligible).toBe(false);
-      expect(r.reasons[0]).toMatch(/approval is stale/);
+      expect(r.reasons[0]).toMatch(/not in candidate .*approval is stale/);
+    });
+
+    it('rejects a candidate that changes more than the record after the approved commit', () => {
+      const r = evaluate(record(blocker(), corrective()), {
+        correctiveTargetIssue: 2,
+        changedPathsBetween: () => [RECORD_PATH, 'src/main.tsx'],
+      });
+      expect(r.eligible).toBe(false);
+      expect(r.reasons[0]).toMatch(/changes src\/main\.tsx after approved commit .*stale/);
+    });
+
+    it('fails closed when the changes since approval cannot be checked', () => {
+      expect(evaluate(record(corrective()), { correctiveTargetIssue: 2, changedPathsBetween: () => undefined }).eligible).toBe(false);
+      expect(evaluate(record(corrective()), { correctiveTargetIssue: 2, changedPathsBetween: undefined }).eligible).toBe(false);
+      expect(evaluate(record(corrective({ approvedCommit: 'd'.repeat(7) })), { correctiveTargetIssue: 2 }).eligible).toBe(false);
     });
 
     it('rejects a corrective entry without non-worsening or compatibility evidence', () => {
@@ -239,10 +268,10 @@ describe('repository record', () => {
     }
   });
 
-  it('does not report the open known blockers as releasable', () => {
+  // Only shape is asserted here: pruning resolved entries or a healthy record must not fail checks.
+  it('parses as a well-formed record', () => {
     const r = evaluate(repo);
-    expect(r.eligible).toBe(false);
-    expect(r.unresolvedBlockers).toEqual(expect.arrayContaining(['RB-660', 'RB-693', 'RB-668']));
+    expect(r.reasons.join('\n')).not.toMatch(/malformed|is not 1|not an object|missing or has invalid|duplicates/);
   });
 
   it('digests the exact record bytes', () => {
@@ -259,5 +288,82 @@ describe('parseArgs', () => {
       correctiveTarget: 668,
     });
     expect(() => parseArgs(['--bypass'])).toThrow(/Unknown argument/);
+  });
+});
+
+/** Runs the real CLI path in a scratch repository: local git only, identity set in that repo. */
+describe('release-blockers CLI', () => {
+  let repo: string;
+  const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const write = (rel: string, body: string) => {
+    mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
+    writeFileSync(path.join(repo, rel), body);
+  };
+  const commit = (msg: string) => {
+    sh('add', '-A');
+    sh('commit', '-q', '-m', msg);
+    return sh('rev-parse', 'HEAD');
+  };
+  const writeRecord = (...blockers: ReleaseBlocker[]) => write(RECORD_PATH, JSON.stringify(record(...blockers), null, 2));
+  const run = (...argv: string[]) => runReleaseBlockerCheck(argv, repo, NOW);
+  const commits: Record<string, string> = {};
+
+  beforeAll(() => {
+    repo = mkdtempSync(path.join(os.tmpdir(), 'release-blockers-test-'));
+    sh('init', '-q', '-b', 'main');
+    sh('config', 'user.name', 'Release Blocker Test');
+    sh('config', 'user.email', 'release-blocker-test@example.invalid');
+    sh('config', 'commit.gpgsign', 'false');
+    write('README.md', 'scratch\n');
+    commits.noRecord = commit('before the record');
+    write('src/app.ts', 'export const broken = true;\n');
+    writeRecord(blocker(), blocker({ id: 'RB-2', canonicalIssue: 2 }));
+    commits.recorded = commit('record two unresolved blockers');
+    write('src/app.ts', 'export const broken = false;\n');
+    commits.fix = commit('corrective fix for #2');
+    writeRecord(blocker(), corrective({ approvedCommit: commits.fix }));
+    commits.approved = commit('record the corrective approval');
+  });
+  afterAll(() => rmSync(repo, { recursive: true, force: true }));
+
+  it('lets the approved corrective release pass from its own tree', () => {
+    const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', commits.recorded);
+    expect(r.stderr).toEqual([]);
+    expect(r).toMatchObject({ code: 0 });
+    expect(r.stdout.join('\n')).toMatch(/corrective release for RB-2, 1 still tracked/);
+  });
+
+  it('blocks the same candidate without the corrective declaration', () => {
+    expect(run('--candidate', 'HEAD').code).toBe(1);
+  });
+
+  it('makes the approval stale once code changes after the approved commit', () => {
+    sh('checkout', '-q', '-b', 'later', commits.approved);
+    write('src/app.ts', 'export const broken = "maybe";\n');
+    commit('unreviewed change');
+    const r = run('--candidate', 'HEAD', '--corrective-target', '2');
+    sh('checkout', '-q', 'main');
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(/changes src\/app\.ts after approved commit .*stale/);
+  });
+
+  it('fails closed when --base does not resolve', () => {
+    const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', 'origin/main');
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(/--base origin\/main does not resolve to a commit/);
+  });
+
+  it('skips the tamper check only for a real base that predates the record', () => {
+    expect(run('--candidate', 'HEAD', '--corrective-target', '2', '--base', commits.noRecord).code).toBe(0);
+  });
+
+  it('reports dropping an unresolved blocker against the base', () => {
+    sh('checkout', '-q', '-b', 'drop', commits.recorded);
+    writeRecord(blocker({ id: 'RB-2', canonicalIssue: 2 }));
+    commit('drop RB-1');
+    const r = run('--candidate', 'HEAD', '--base', commits.recorded);
+    sh('checkout', '-q', 'main');
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(/RB-1 was removed while unresolved/);
   });
 });
