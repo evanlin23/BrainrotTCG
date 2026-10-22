@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectRecordedPack, monitor } from './support';
+import { expectRecordedPack, fingerFor, monitor, snapshot } from './support';
 
 /**
  * The pack's one control (#312 S4, #628): the pack itself is a button named "Open pack, {set}", and a
@@ -173,5 +173,69 @@ test('at 200% text on a 320x568 phone the dealt card keeps a usable stage', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   await page.keyboard.press('Space');
   await expect(card).toHaveAttribute('aria-label', /^Next card\. Card 1 of 5: /, { timeout: 10000 });
+  expect(errors).toEqual([]);
+});
+
+test('a drag that ends where it began never opens the pack, but a click on it still does', async ({ page, baseURL, hasTouch }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+  const shell = page.locator('.pack-shell');
+  await expect(shell).toBeVisible();
+
+  // Pressed below the start band, so the swipe cuts nothing, dragged well past a tap and back to
+  // where it began: the release is a tap by position alone, but the finger was no tap.
+  const box = (await shell.boundingBox())!;
+  const x = box.x + box.width * 0.4;
+  const y = box.y + box.height * 0.7;
+  const finger = await fingerFor(page, hasTouch);
+  await finger.press(x, y);
+  for (let step = 1; step <= 4; step++) await finger.move(x + 20 * step, y);
+  for (let step = 3; step >= 0; step--) await finger.move(x + 20 * step, y);
+  await finger.release();
+  await expect(shell).toHaveAttribute('aria-label', /^Open pack, /);
+  await expect(page.locator('.pack-shell.is-cut')).toHaveCount(0);
+  await expect(page.locator('.card-reveal-area')).toHaveCount(0);
+  expect((await snapshot(page)).history).toBeNull();
+
+  // The same spot, tapped, opens it.
+  await finger.press(x, y);
+  await finger.release();
+  await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
+  expect(errors).toEqual([]);
+});
+
+test('the pack\'s focus ring stays inside the pack and the screen', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+  const pack = openPack(page);
+  await expect(pack).toBeVisible();
+  for (let tabs = 0; !(await pack.evaluate((el) => el === document.activeElement)); tabs++) {
+    expect(tabs, 'Tab never reached the pack').toBeLessThan(40);
+    await page.keyboard.press('Tab');
+  }
+
+  // The ring is the pack's ::after, drawn inset from its edge; its outer edge is the inset less its spread.
+  const ring = await pack.evaluate((el) => {
+    const edge = el.getBoundingClientRect();
+    const after = getComputedStyle(el, '::after');
+    const spreads = Array.from(after.boxShadow.matchAll(/rgba?\([^)]*\) (-?[\d.]+)px (-?[\d.]+)px (-?[\d.]+)px (-?[\d.]+)px/g), (m) => Number(m[4]));
+    const out = Math.max(0, ...spreads) - Number.parseFloat(after.top);
+    const display = el.closest('.pack-display')!.getBoundingClientRect();
+    return {
+      spreads, out,
+      left: edge.left - out, right: edge.right + out, top: edge.top - out, bottom: edge.bottom + out,
+      display: { left: display.left, right: display.right, top: display.top, bottom: display.bottom },
+      viewport: { width: document.documentElement.clientWidth, height: window.innerHeight },
+    };
+  });
+  expect(ring.spreads.length, JSON.stringify(ring)).toBeGreaterThan(0);
+  // Both rects round to a fraction of a pixel.
+  expect(ring.left, JSON.stringify(ring)).toBeGreaterThanOrEqual(Math.max(0, ring.display.left) - 0.5);
+  expect(ring.right, JSON.stringify(ring)).toBeLessThanOrEqual(Math.min(ring.viewport.width, ring.display.right) + 0.5);
+  expect(ring.top, JSON.stringify(ring)).toBeGreaterThanOrEqual(Math.max(0, ring.display.top) - 0.5);
+  expect(ring.bottom, JSON.stringify(ring)).toBeLessThanOrEqual(Math.min(ring.viewport.height, ring.display.bottom) + 0.5);
   expect(errors).toEqual([]);
 });

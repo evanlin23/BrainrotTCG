@@ -51,7 +51,7 @@ async function expectRing(target: Locator, what: string, input = 'keyboard') {
 const expectNoRingAfterPress = (target: Locator, what: string) => expectNoRing(target, what, 'press');
 
 /** A control left focused by Space or Enter: no yellow ring, but a thin neutral outline, so focus is never invisible. */
-async function expectQuietOutlineAfterPress(target: Locator, what: string) {
+async function expectQuietOutlineAfterPress(target: Locator, what: string, outlineOffset = '3px') {
   const ring = await ringOf(target);
   expect(ring, `${what}: focus`).toMatchObject({ focusVisible: true, input: 'press' });
   expect(ring.shadows, `${what}: box-shadow`).not.toContain(RING);
@@ -59,7 +59,7 @@ async function expectQuietOutlineAfterPress(target: Locator, what: string) {
     outline: 'solid',
     outlineColor: QUIET_OUTLINE,
     outlineWidth: '2px',
-    outlineOffset: '3px',
+    outlineOffset,
   });
   return ring;
 }
@@ -257,7 +257,8 @@ test('opened with Space alone: no yellow ring, but focus stays visible on the ca
   // Space again closes the result; the control focus lands on next wears the quiet outline, not the ring.
   await page.keyboard.press('Space');
   await expect(page.locator('.pack-summary')).toBeHidden();
-  await expectQuietOutlineAfterPress(page.locator('[data-pack-open]'), 'Open pack once the result closes');
+  // The pack draws its outline inside its own edge (-3px) so the stage can't clip it.
+  await expectQuietOutlineAfterPress(page.locator('[data-pack-open]'), 'Open pack once the result closes', '-3px');
   expect(errors).toEqual([]);
 });
 
@@ -275,6 +276,8 @@ test('opened by keyboard: Tab rings, Space is quiet, Tab rings again, until a cl
   // Space on the pack opens it as it goes down, and from then on the page counts the press as input.
   await page.keyboard.down('Space');
   expect(await page.evaluate(() => document.documentElement.dataset.input)).toBe('press');
+  // The pack's name is "Opening…" now, so it is found by its class.
+  await expectRing(page.locator('.pack-shell'), 'Open pack while Space is held', 'press');
   await page.keyboard.up('Space');
   await revealAll(page, () => page.keyboard.press('Space'), expectQuietOutlineAfterPress);
   const title = page.locator('.summary-title');

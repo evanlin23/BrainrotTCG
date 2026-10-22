@@ -50,3 +50,69 @@ it('swallows the click a swipe ends in, so a swipe never opens twice', () => {
   click(40, 200);
   expect(onOpen).toHaveBeenCalledTimes(1);
 });
+
+const pointer = (type: string, target: EventTarget, x: number, y: number) => act(() => {
+  target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+});
+
+it('swallows the click of a press that strayed past the slop and came back before its release', () => {
+  press(100, 200);
+  pointer('pointermove', window, 100 + TAP_SLOP_PX * 4, 200);
+  pointer('pointermove', window, 101, 200);
+  click(101, 200);
+  expect(onOpen).not.toHaveBeenCalled();
+});
+
+it('counts a wobble inside the slop as a tap', () => {
+  press(100, 200);
+  pointer('pointermove', window, 100 + TAP_SLOP_PX - 2, 200);
+  pointer('pointermove', window, 98, 203);
+  click(99, 201);
+  expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+it('forgets a press that ended off the pack, so a later click with no press before it still opens', () => {
+  press(40, 200);
+  pointer('pointermove', window, 400, 200);
+  pointer('pointerup', document.body, 400, 200);
+  click(0, 0);
+  expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+it('forgets a press the browser cancelled (a scroll or a call took it)', () => {
+  press(40, 200);
+  pointer('pointermove', window, 400, 200);
+  pointer('pointercancel', pack(), 400, 200);
+  click(0, 0);
+  expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+it('keeps a press that ended on the pack for the click that follows it', () => {
+  press(40, 200);
+  pointer('pointermove', window, 400, 200);
+  pointer('pointerup', pack(), 40, 200);
+  click(40, 200);
+  expect(onOpen).not.toHaveBeenCalled();
+});
+
+it('tells the cue the pack was touched on a press', () => {
+  const onTouch = vi.fn();
+  act(() => root.render(
+    <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={onOpen} onTouch={onTouch} isCutting={false} isPackCut={false} cutPoints={[]} sparks={[]} cue="play" />,
+  ));
+  expect(container.querySelector('.open-cue')).not.toBeNull();
+  press(10, 10);
+  expect(onTouch).toHaveBeenCalledTimes(1);
+});
+
+it('ends the cue when its finger finishes, but not when something inside it does', () => {
+  const onCueEnd = vi.fn();
+  act(() => root.render(
+    <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={onOpen} onCueEnd={onCueEnd} isCutting={false} isPackCut={false} cutPoints={[]} sparks={[]} cue="play" />,
+  ));
+  const travel = container.querySelector<HTMLElement>('.open-cue-travel')!;
+  act(() => { travel.querySelector('svg')!.dispatchEvent(new Event('animationend', { bubbles: true })); });
+  expect(onCueEnd).not.toHaveBeenCalled();
+  act(() => { travel.dispatchEvent(new Event('animationend', { bubbles: true })); });
+  expect(onCueEnd).toHaveBeenCalledTimes(1);
+});

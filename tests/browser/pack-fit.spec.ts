@@ -254,6 +254,7 @@ for (const size of SIZES) {
           expect(state.overflowX, 'the stage does not scroll sideways').not.toMatch(/^(auto|scroll)$/);
           expect(state.mask, 'no fade on the stage').toBe('none');
           expect(state.scrollTop, 'the stage rests at the top').toBe(0);
+          // scrollHeight and clientHeight each round to whole pixels, so equal content can differ by one.
           expect(state.scrollHeight, 'the stage has more pack below than it shows').toBeGreaterThan(state.clientHeight + 1);
           expect(state.scrollWidth, 'nothing to scroll to sideways').toBeLessThanOrEqual(state.clientWidth + 1);
 
@@ -361,6 +362,7 @@ for (const tablet of TABLETS) {
           };
         });
         expect(state.overflowY, 'the stage does not scroll vertically').not.toMatch(/^(auto|scroll)$/);
+        // scrollHeight and clientHeight each round to whole pixels, so equal content can differ by one.
         expect(state.scrollHeight, 'the stage has nothing below it to scroll to').toBeLessThanOrEqual(state.clientHeight + 1);
         expect(state.scrollWidth, 'nothing to scroll to sideways').toBeLessThanOrEqual(state.clientWidth + 1);
         expect(state.pageOverflow, 'the page has nothing to scroll to').toBeLessThanOrEqual(1);

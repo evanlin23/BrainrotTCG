@@ -545,6 +545,7 @@ function App() {
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
           onLeaveEarly={noticeKeptPack}
+          openCue={!showNav}
         />
         {/* A quiet way into the card guide once a first pack is saved (a new player sees only the pack); it steps aside with the chrome once a pack is torn. */}
         {showNav && !packFocus && !packBusy && (

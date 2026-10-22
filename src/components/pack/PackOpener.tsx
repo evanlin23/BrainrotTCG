@@ -9,6 +9,7 @@ import { reloadPage } from '../../game/reload';
 import { whenIdle } from '../../game/idle';
 import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
 import { buzz } from '../../utils/motion';
+import { useOpenCue } from '../../hooks/useOpenCue';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
@@ -71,9 +72,11 @@ interface PackOpenerProps {
   isOwned?: (cardKey: string) => boolean;
   /** The player closed a reveal with cards still face down; they're recorded anyway, so say so (unless the save failed). */
   onLeaveEarly?: (pack: OpenedPack) => void;
+  /** No pack is saved yet: the sealed pack plays its opening cue (a finger tearing along the seam) a couple of times. */
+  openCue?: boolean;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   /** Why the last tear didn't open a pack, shown under it with a way to try again. */
@@ -270,14 +273,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
    * A tap, a click, or Space or Enter with focus on the pack: exactly a finished swipe, through the
    * same cut, tear and ticket. A save another tab changed opens nothing, and says so.
    */
+  const { cue, end: endCue, touch: touchPack } = useOpenCue(openCue);
   const handleOpen = useCallback(() => {
     if (disabled || isPackCut || isOpening) return;
+    touchPack();
     if (openBlocked) {
       setRefusal('blocked');
       return;
     }
     completeCut();
-  }, [disabled, isPackCut, isOpening, openBlocked, completeCut]);
+  }, [disabled, isPackCut, isOpening, openBlocked, completeCut, touchPack]);
 
   /** Set when the player goes back to the sealed pack, so the pack takes focus once it's there. */
   const focusOpenRef = useRef(false);
@@ -716,6 +721,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               fellShort={nudging === 'short'}
               cutPoints={cutPoints}
               sparks={sparks}
+              cue={cue}
+              onCueEnd={endCue}
+              onTouch={touchPack}
             />
           </Motion.div>
         ) : (

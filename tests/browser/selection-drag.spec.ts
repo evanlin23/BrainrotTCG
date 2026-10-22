@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectStill, fingerFor, type Finger } from './support';
+import { monitor, expectDecoded, expectRecordedPack, expectStill, fingerFor, type Finger } from './support';
 
 // Rapid presses on game controls must not highlight text or start a native image drag, while
 // inputs, copyable text and links keep their normal behaviour (#264).
@@ -151,6 +151,9 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   await page.locator('button.reveal-skip').dblclick({ timeout: 15000 });
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
   expect(await selectedText(page)).toBe('');
+  // The double click on the pack spent one pack, not two.
+  await expect(page.locator('.summary-card')).toHaveCount(5);
+  await expectRecordedPack(page);
   // Short enough to end on the same compact card (#339), so the press is also a click, which opens the
   // card viewer over the summary.
   await tryDrag(page, page.locator('.summary-cards img').first(), 12, 12);

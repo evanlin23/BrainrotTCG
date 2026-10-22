@@ -1,6 +1,6 @@
 import { useIsPresent } from 'framer-motion';
-import { MoveHorizontal } from 'lucide-react';
-import { useRef, type MouseEvent, type PointerEvent, type Ref, type RefObject } from 'react';
+import { MoveHorizontal, Pointer } from 'lucide-react';
+import { useEffect, useRef, type AnimationEvent, type MouseEvent, type PointerEvent, type Ref, type RefObject } from 'react';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
 import { SPARK_LIFETIME_MS, type Spark } from '../../hooks/useSparks';
@@ -31,6 +31,12 @@ interface PackCuttingUIProps {
   fellShort?: boolean;
   cutPoints: CutPoint[];
   sparks: readonly Spark[];
+  /** The new player's cue: a finger and a partial tear play along the seam ('play'), or sit still under reduced motion ('still'). */
+  cue?: 'play' | 'still' | null;
+  /** The cue's play ran to its end. */
+  onCueEnd?: () => void;
+  /** The pack was touched (pressed, clicked or keyed): the cue stops for good. */
+  onTouch?: () => void;
 }
 
 /** A press that moves farther than this (px) before its release was a drag, not a tap. */
@@ -52,23 +58,52 @@ const PackCuttingUI = ({
   fellShort = false,
   cutPoints,
   sparks,
+  cue = null,
+  onCueEnd,
+  onTouch,
 }: PackCuttingUIProps) => {
   const touch = useCoarsePointer();
   // The torn pack flies off over the first card (#312 P2-6), so it stops being the pack the moment it
   // starts leaving: its marker goes (it is no longer the control to find, query or key), while focus
   // stays on it until the first card takes it, which it does only from the pack or the page.
   const leaving = !useIsPresent();
-  // A drag that ends over the pack ends in a click too, which is not a tap: only a press that stayed put opens it.
-  const pressedAt = useRef<{ x: number; y: number } | null>(null);
+  // A drag that ends over the pack ends in a click too, which is not a tap: only a press that never
+  // strayed past TAP_SLOP_PX, at any point before its release, opens it.
+  const press = useRef<{ id: number; x: number; y: number; farthest: number } | null>(null);
   const onPressStart = (event: PointerEvent) => {
-    pressedAt.current = { x: event.clientX, y: event.clientY };
+    press.current = { id: event.pointerId, x: event.clientX, y: event.clientY, farthest: 0 };
+    onTouch?.();
   };
+  useEffect(() => {
+    const track = (event: globalThis.PointerEvent) => {
+      const start = press.current;
+      if (start && event.pointerId === start.id) start.farthest = Math.max(start.farthest, Math.hypot(event.clientX - start.x, event.clientY - start.y));
+    };
+    // A press that ends off the pack, or is taken over by the browser (a scroll, a call), gets no click on it:
+    // forget it, so a later click with no press before it (a screen reader's) is not judged by it.
+    const forget = (event: globalThis.PointerEvent) => {
+      const start = press.current;
+      if (!start || event.pointerId !== start.id) return;
+      if (event.type === 'pointercancel' || !(event.target instanceof Element && event.target.closest('[data-pack-open]'))) press.current = null;
+    };
+    window.addEventListener('pointermove', track);
+    window.addEventListener('pointerup', forget);
+    window.addEventListener('pointercancel', forget);
+    return () => {
+      window.removeEventListener('pointermove', track);
+      window.removeEventListener('pointerup', forget);
+      window.removeEventListener('pointercancel', forget);
+    };
+  }, []);
   const onPackClick = (event: MouseEvent) => {
-    const start = pressedAt.current;
-    pressedAt.current = null;
+    const start = press.current;
+    press.current = null;
     // A click with no press before it (a screen reader's, or a switch's) is always a tap.
-    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > TAP_SLOP_PX) return;
+    if (start && Math.max(start.farthest, Math.hypot(event.clientX - start.x, event.clientY - start.y)) > TAP_SLOP_PX) return;
     onOpen();
+  };
+  const onCueAnimationEnd = (event: AnimationEvent) => {
+    if (event.target === event.currentTarget) onCueEnd?.();
   };
 
   return (
@@ -83,6 +118,7 @@ const PackCuttingUI = ({
           aria-busy={isPackCut || undefined}
           aria-disabled={isPackCut || undefined}
           data-pack-open={leaving ? undefined : true}
+          data-open-cue={cue && !isPackCut ? cue : undefined}
           onPointerDown={onPressStart}
           onClick={onPackClick}
           className={`pack-shell quiet-focus ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${fellShort && !isPackCut && !isCutting && !pressing ? 'is-short' : ''}`}
@@ -105,6 +141,15 @@ const PackCuttingUI = ({
             </div>
           </div>
           <div className="tear-guide" />
+          {/* The cue (DESIGN.md Flow 2): a finger drags a partial tear along the seam, at most twice, and stops at the first touch. Under reduced motion it is the same mark, still. */}
+          {cue && !isPackCut && (
+            <div className="open-cue" aria-hidden="true">
+              <span className="open-cue-tear" />
+              <span className="open-cue-travel" onAnimationEnd={onCueAnimationEnd}>
+                <Pointer className="open-cue-finger" />
+              </span>
+            </div>
+          )}
           {/* Only while there is a pack left to tear. */}
           {!isPackCut && (
             <div className="swipe-hint">
@@ -153,7 +198,7 @@ const PackCuttingUI = ({
             ))}
           </div>
         </div>
-        {/* Seen, not read: the pack's live region (PackOpener) says it once. The button under the pack already says Opening…, so this says why it is taking a while. */}
+        {/* Seen, not read: the pack's live region (PackOpener) says it once. The pack's own name already says Opening…, so this says why it is taking a while. */}
         {waiting && !refusal && !leaving && (
           <p className="pack-hint is-waiting" aria-hidden="true">
             Taking a moment…

@@ -5,7 +5,7 @@ import { SETS } from '../../content/sets';
 import PackCuttingUI from './PackCuttingUI';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 
-const render = (xs: number[], { pressing = false, nudging = false, fellShort = false, isPackCut = false, waiting = false, refusal = null as PackRefusal | null } = {}) =>
+const render = (xs: number[], { pressing = false, nudging = false, fellShort = false, isPackCut = false, waiting = false, refusal = null as PackRefusal | null, cue = null as 'play' | 'still' | null } = {}) =>
   renderToStaticMarkup(
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()}
@@ -21,11 +21,34 @@ const render = (xs: number[], { pressing = false, nudging = false, fellShort = f
       waiting={waiting}
       cutPoints={xs.map((x) => ({ x, y: 19 }))}
       sparks={[]}
+      cue={cue}
     />,
   );
 
 /** The pack shell's classes. */
 const shellClasses = (html: string) => (html.match(/class="(pack-shell [^"]*)"/)?.[1] ?? '').split(/\s+/).filter((name) => name && name !== 'quiet-focus');
+
+describe('the opening cue', () => {
+  it('draws a finger and a partial tear on the seam, marking the pack with how it plays', () => {
+    for (const cue of ['play', 'still'] as const) {
+      const html = render([], { cue });
+      expect(html).toContain('class="open-cue"');
+      expect(html).toContain('open-cue-tear');
+      expect(html).toContain('open-cue-finger');
+      expect(html).toContain(`data-open-cue="${cue}"`);
+    }
+  });
+
+  it('is absent without one, and once the pack is torn', () => {
+    expect(render([])).not.toContain('open-cue');
+    const torn = render([], { cue: 'play', isPackCut: true });
+    expect(torn).not.toContain('open-cue');
+  });
+
+  it('is never read: the pack\'s name is its label', () => {
+    expect(render([], { cue: 'play' })).toMatch(/class="open-cue" aria-hidden="true"/);
+  });
+});
 
 describe('the tear line under a press', () => {
   it('lights up for a press on it before the swipe has a direction, in place of a nudge', () => {
