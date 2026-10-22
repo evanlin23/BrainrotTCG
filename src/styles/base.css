@@ -213,6 +213,16 @@ a {
   background: var(--tint-hover);
 }
 
+/* An irreversible answer: outlined, so it never reads as the next step (the safe answer is primary). */
+.btn--danger {
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--tint-hover);
+}
+
 .btn--ghost {
   color: var(--text-muted);
   padding: 0 var(--space-3);
