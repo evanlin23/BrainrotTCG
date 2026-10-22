@@ -74,16 +74,17 @@ disagrees with the Principles or the headline rules, **this section wins**; the 
 each screen reconciles the older text (marked "superseded" where it stands).
 
 **Story.** *Tear a sealed pack, find the card worth showing, chase a better one.* The goal on
-landing is to tear one pack. The payoff is the best card (it comes last) and one number, its Brainrot
-Score. A pull is worth sharing when the card is rare or the score is high; another pack is worth
+landing is to tear one pack. The payoff is the best card (it comes last) and one number, the pack's Brainrot
+Score (card points added up, times the combo). A pull is worth sharing when the card is rare or the score is high; another pack is worth
 opening because the score can be beaten and the set checklist (SOS 007/012) has holes.
 
 **Result metric: Brainrot Score, not 1-in-X.** The Hall of Fame, Profile, shared pulls and proofs
 already use it, so it is one idea everywhere, bigger is better, and it is something to beat. "1 in N
 packs score this high" needs a population, a direction and a "Most packs" fallback that stings
 (#778). Rarity is still told by the card's own badge. The combo name and multiplier stay: they are
-how the score is built, not a second metric. `scoreAtLeastChance` and every calculation stay; the
-chance moves to the Card guide as an optional line, and no result surface or share image shows it.
+how the score is built, not a second metric. `scoreAtLeastChance` and every calculation stay in the engine, but no surface shows the
+chance: the Card guide is per set and has no pack score to compare, and its only caller is the
+results line (`PackSummaryUI.tsx`) that goes.
 
 ### Flow, phone first (390 px), then desktop
 
@@ -122,7 +123,8 @@ chance moves to the Card guide as an optional line, and no result surface or sha
 
 ### Guardrails
 
-Every cue describes an interaction that works today, stops once understood, never blocks the action
+Every cue describes an interaction that works when it ships (the opening cue lands with the
+tap, Space and Enter path in #628, never before it), stops once understood, never blocks the action
 and has a static form under reduced motion. Scoring, proofs, saved ownership and released sets and
 versions are untouched; wrapper art changes wait for the owner's art review. Check each slice at 360,
 390 and 1280 px, enlarged text, reduced motion, keyboard only and landscape 640x360. A reviewer
@@ -130,19 +132,23 @@ walkthrough is not a physical-device test.
 
 **Superseded:** the Open pack button and its prominence styling, the landing Card guide link, the
 wrapper's era label and logo/set clusters, the on-art New sticker on the active card, and the 1-in-X
-line in the results headline (#339).
+line, "no multiplier shows", "combo with its odds" and "a swipe or Open pack away" in the
+results rules below (#339).
 
 **Slices** (each issue's acceptance is updated to match):
 - #628: pack surface as the single Open pack control (swipe, tap, Space/Enter, busy state), button
   removed, landing de-cluttered, honest cue.
 - #627: stationary-click loop from pack to summary; ignore clicks for about 400 ms after a stage
-  change and during Opening so no viewer opens. Next pack stays the one deliberate move.
+  change and during Opening so no viewer opens. The loop deliberately ends at the summary, where
+  the player reads the score, views cards and shares, so a stray click must not skip it; Next pack
+  stays the one deliberate move. This replaces #627's pack-after-pack criterion.
 - #778: results show the score only; direction and card-sum x combo explained once in the Card
-  guide, with the chance as an optional line there.
+  guide, with no chance line.
 - #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card
   fan, and the fingerprint once on the certificate.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
-  44 px hit areas.
+  44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
+  the tap path.
 
 ## Looks like a card game, not like an AI demo
 
@@ -399,7 +405,7 @@ pack order). That is the shipped best-card rule: `revealOrder`
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
 
-(Superseded by #898: the 1-in-N line below leaves the results screen when its slice lands.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · 1 in
+(Superseded by #898: the 1-in-N line, "no multiplier shows", "combo with its odds" below and "a swipe or Open pack away" in the next section go when their slices land; the headline becomes score, then combo x multiplier.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · 1 in
 [n] packs score this high** from `scoreAtLeastChance` (`src/engine/odds.ts`), the exact share of all
 packs of the set that score at least this much over the whole pack (rarity, holo, finish, misprint and
 combo). Past even odds it reads **[combo] · Most packs score this high**, and it is just the combo
