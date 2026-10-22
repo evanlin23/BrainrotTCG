@@ -333,7 +333,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             }} />
                         </div>
                     )}
-                    <div className="settings-row">
+                    <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
                             <span className="settings-desc" role="status">{exportNote}</span>
@@ -342,7 +342,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             <Download aria-hidden="true" /> Export
                         </button>
                     </div>
-                    <div className={activePendingImport ? 'settings-row settings-row--wrap' : 'settings-row'}>
+                    <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Restore</span>
                             <span className="settings-desc" role="status">{isStale ? STALE_SAVE_WARNING : importNote}</span>

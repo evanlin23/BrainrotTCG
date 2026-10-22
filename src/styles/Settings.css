@@ -45,6 +45,16 @@
   flex: 1 1 7rem;
 }
 
+/* Backup rows: the text keeps a readable column, and the button drops below it when text or screen leaves no room beside it. */
+.settings-row--reflow {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.settings-row--reflow > .settings-text {
+  flex: 1 1 12rem;
+}
+
 /* Two buttons answering a question in the row: they drop below its text when there's no room. */
 .settings-help-actions {
   display: flex;
@@ -54,6 +64,7 @@
 
 .settings-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   margin-left: auto;
