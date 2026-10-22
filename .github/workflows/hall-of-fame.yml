@@ -49,7 +49,9 @@ jobs:
           gh label create daily --color 2BD9FF --description "Pull verified for the daily top" 2>/dev/null || true
           gh label create not-verified --color 999999 --description "Pull did not verify or qualify" 2>/dev/null || true
           gh label create rejected --color B60205 --description "Kept out of the Hall of Fame" 2>/dev/null || true
-          gh issue comment "$ISSUE" --body-file hof-comment.md
+          if [ -s hof-comment.md ]; then
+            gh issue comment "$ISSUE" --body-file hof-comment.md
+          fi
           if [ "$VERIFIED" = "true" ]; then
             # `daily`: it only made the day's top, so deploys list it for a day or two. Anything
             # else is `verified`, which every deploy lists.

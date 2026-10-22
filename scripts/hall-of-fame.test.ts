@@ -170,6 +170,8 @@ const outputs = (): Record<string, string> =>
 
 let home: string;
 let dir: string;
+const output = () => path.join(dir, 'hall-of-fame.json');
+const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string }[];
 beforeEach(() => {
   home = process.cwd();
   dir = mkdtempSync(path.join(os.tmpdir(), 'hall-of-fame-'));
@@ -194,9 +196,6 @@ afterEach(() => {
 });
 
 describe('build (deploy workflow)', () => {
-  const output = () => path.join(dir, 'hall-of-fame.json');
-  const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string }[];
-
   it('keeps the existing list without a token, or starts an empty one', async () => {
     vi.stubEnv('GITHUB_TOKEN', undefined);
     const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)] });
@@ -409,11 +408,65 @@ describe('verify-issue (issue workflow)', () => {
     expect(gh.writes()).toEqual([]);
   });
 
-  it('changes nothing when the bot already verified the same pull on the issue', async () => {
+  it('changes nothing when the bot already verified the same pull on the issue and labels are in place', async () => {
     fakeGitHub({ issues: [], comments: { 7: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } });
-    expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'false', label: 'verified', rejected: 'false' });
+    expect((await run(link(fourOfAKind), ['hall-of-fame', 'verified'])).outputs).toEqual({ verified: 'true', changed: 'false', label: 'verified', rejected: 'false' });
     // It keeps the label it has.
     expect((await run(link(fourOfAKind), ['hall-of-fame', 'daily'])).outputs).toEqual({ verified: 'true', changed: 'false', label: 'daily', rejected: 'false' });
+  });
+
+  it('recovers from interrupted labeling: restores missing labels without duplicate comments and redeploys (#650)', async () => {
+    // 1. Initial run: fresh submission with fourOfAKind
+    const fakeIssue = issue(7, fourOfAKind, { labels: ['hall-of-fame'] });
+    const gh = fakeGitHub({ issues: [fakeIssue], comments: {}, published: [] });
+
+    // Step 1: verify-issue runs
+    let result = await run(link(fourOfAKind), ['hall-of-fame']);
+    expect(result.outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified', rejected: 'false' });
+    expect(result.comment).toContain('**Verified!**');
+    expect(result.comment).toContain(marker(fourOfAKind));
+
+    // Simulate workflow shell execution:
+    // Comment succeeds: bot adds comment to GitHub
+    const commentBody = result.comment;
+    gh.comments[7] = [comment(BOT, commentBody, '2026-10-02T10:00:00Z')];
+
+    // Injected failure: labeling fails (e.g. runner interrupted or network error)
+    // Issue labels remain only ['hall-of-fame'] (missing 'verified')!
+    expect(fakeIssue.labels.map((l) => l.name)).toEqual(['hall-of-fame']);
+
+    // At this point, build yields 0 entries because issue is not labeled verified/daily
+    await build(output());
+    expect(entries()).toHaveLength(0);
+
+    // Step 2: Retry run (workflow reruns on the issue with marker comment present but labels missing)
+    fakeIssue.updated_at = '2026-10-02T10:05:00Z';
+    result = await run(link(fourOfAKind), ['hall-of-fame']);
+
+    // Emits changed='true' so label step and redeploy run, but comment is empty so no duplicate comment!
+    expect(result.outputs).toEqual({ verified: 'true', changed: 'true', label: 'verified', rejected: 'false' });
+    expect(result.comment).toBe(''); // empty: [ -s hof-comment.md ] skips comment!
+
+    // Simulate workflow shell execution on retry:
+    // Since hof-comment.md is empty, no duplicate comment is added:
+    expect(gh.comments[7]).toHaveLength(1);
+
+    // Labeling succeeds:
+    fakeIssue.labels = [{ name: 'hall-of-fame' }, { name: 'verified' }];
+    fakeIssue.state = 'closed';
+
+    // Step 3: Now run build
+    await build(output());
+    expect(entries()).toHaveLength(1);
+    expect(entries()[0]).toMatchObject({
+      id: idOf(fourOfAKind),
+      proof: fourOfAKind,
+      submittedAt: '2026-10-02T10:00:00Z', // original comment timestamp preserved!
+    });
+
+    // Step 4: Subsequent retry on the completed issue changes nothing
+    const completedResult = await run(link(fourOfAKind), ['hall-of-fame', 'verified']);
+    expect(completedResult.outputs).toEqual({ verified: 'true', changed: 'false', label: 'verified', rejected: 'false' });
   });
 
   it("turns down a missing link, a forged pull, one that doesn't qualify, and one that wouldn't join", async () => {

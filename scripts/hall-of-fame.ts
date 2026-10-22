@@ -260,19 +260,46 @@ export const verifyIssue = async () => {
   // top), and one that only makes today's top only if it isn't already on an earlier day's. The same
   // pull verified again keeps the label it has.
   let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
-  if (result.ok && !already) {
+  const currentLabels = labelNames(event.issue);
+  const hasStatusLabel = currentLabels.includes('verified') || currentLabels.includes('daily');
+  if (result.ok && (!already || !hasStatusLabel)) {
     const list = await publishedList();
     const day = today();
     const reason = list && joinRefusal(result.pull, list, day);
-    if (reason) result = { ok: false, reason };
+    if (reason && !already) result = { ok: false, reason };
     else if (joinLabel(result.pull, list, day) === 'verified') label = 'verified';
-    else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
-    else label = 'daily';
+    else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) {
+      if (!already) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
+      else label = 'daily';
+    } else {
+      label = 'daily';
+    }
   }
+
+  const labelsComplete = result.ok
+    ? currentLabels.includes('hall-of-fame') &&
+      currentLabels.includes(label) &&
+      !currentLabels.includes('not-verified') &&
+      !currentLabels.includes(label === 'daily' ? 'verified' : 'daily')
+    : currentLabels.includes('hall-of-fame') &&
+      currentLabels.includes('not-verified') &&
+      (!result.rejected || currentLabels.includes('rejected')) &&
+      !currentLabels.includes('verified') &&
+      !currentLabels.includes('daily');
+
+  const needsComment = !already;
+  const needsLabelRepair = !labelsComplete;
+  const changed = needsComment || needsLabelRepair;
+
   const body = result.ok ? verifiedComment(result.entry, result.pull) : `❌ **Not added.** ${result.reason}${FOOTER}`;
-  writeFileSync('hof-comment.md', body);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `verified=${result.ok}\nchanged=${!already}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`);
-  console.log(already ? 'Already verified this pull on this issue; nothing to do.' : body);
+  writeFileSync('hof-comment.md', needsComment ? body : '');
+  if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `verified=${result.ok}\nchanged=${changed}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`,
+    );
+  }
+  console.log(needsComment ? body : changed ? 'Already verified this pull on this issue; repairing missing labels.' : 'Already verified this pull on this issue; nothing to do.');
 };
 
 /** Pages one issue listing may read (100 issues each). */
