@@ -6,34 +6,47 @@
 import { setKey, type PulledCard, type SetDefinition } from '../engine';
 import { decodeCard, encodeCard, modifiersFor } from './cardCode';
 
-const KEY = 'brainrot-reopened-v1';
-const MAX_ENTRIES = 5000;
+export const REOPEN_CACHE_KEY = 'brainrot-reopened-v1';
+export const MAX_REOPEN_CACHE_ENTRIES = 5000;
 
 let memory: Map<string, string> | null = null;
 let dirty = false;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+export const resetReopenCache = () => {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
+  memory = null;
+  dirty = false;
+};
+
 const load = (): Map<string, string> => {
   if (memory) return memory;
   try {
-    memory = new Map(Object.entries(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, string>));
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(REOPEN_CACHE_KEY) : null;
+    memory = new Map(Object.entries(JSON.parse(raw ?? '{}') as Record<string, string>));
   } catch {
     memory = new Map();
   }
   return memory;
 };
 
-const flush = () => {
+export const flush = () => {
+  if (flushTimer) clearTimeout(flushTimer);
   flushTimer = null;
   if (!dirty || !memory) return;
   dirty = false;
-  while (memory.size > MAX_ENTRIES) memory.delete(memory.keys().next().value!);
+  while (memory.size > MAX_REOPEN_CACHE_ENTRIES) memory.delete(memory.keys().next().value!);
   try {
-    localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(memory)));
+    localStorage.setItem(REOPEN_CACHE_KEY, JSON.stringify(Object.fromEntries(memory)));
   } catch {
-    // Out of space: it's only a cache.
-    memory.clear();
-    localStorage.removeItem(KEY);
+    // Storage denied or quota exceeded: it's only a cache.
+    // Retain bounded memory-only fallback and attempt best-effort removal.
+    try {
+      localStorage.removeItem(REOPEN_CACHE_KEY);
+    } catch {
+      // Storage access completely denied: do not let removal failure escape the timer.
+    }
   }
 };
 
@@ -56,6 +69,7 @@ export const putReopened = (set: SetDefinition, publicKeyHex: string, nonce: num
   const key = keyOf(set, publicKeyHex, nonce);
   map.delete(key); // re-insert as newest
   map.set(key, cards.map((c) => encodeCard({ id: c.cardId, holo: c.isHolo, finish: c.finish, misprint: c.misprint })).join(','));
+  while (map.size > MAX_REOPEN_CACHE_ENTRIES) map.delete(map.keys().next().value!);
   dirty = true;
   flushTimer ??= setTimeout(flush, 1000);
 };
