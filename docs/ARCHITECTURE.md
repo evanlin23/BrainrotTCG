@@ -403,6 +403,12 @@ writes the new values and the identity last; on failure it removes what it wrote
 values from memory. That is structural validation and best-effort rollback, not a
 transaction. The
 legacy `brainrot-pulls-v1` log is kept until its migration into history completes.
+Unknown historical cards (absent from the registry, kept with their stored display fields) keep their
+saved `image` string, but `CardImage` and the poster renderer only request art that
+`isApprovedCardArt` (`src/game/cardArt.ts`) accepts: the catalog's own art, or an http(s) address that
+resolves on this page's origin. Any other address, protocol-relative ones and non-http schemes
+included, shows a `blocked` placeholder, and nothing in the save is changed or dropped. Remote
+historical art would need an explicit opt-in and a note in POLICIES.md first.
 A render error after React mounts shows `AppErrorBoundary`, which writes nothing except the opt-in
 diagnostics: `render-error`, and `copy-failed` if copying its report to the clipboard fails. Startup
 steps before React mounts (`receiveSave`, `runMigrations`, `migratePullLog` in `main.tsx`) are
