@@ -41,18 +41,20 @@ afterEach(() => {
 });
 
 /** Render the sheet and let the poster finish drawing. */
-const open = async () => {
+const open = async (props?: Partial<React.ComponentProps<typeof SharePreviewSheet>>) => {
   await act(async () => root.render(
     <SharePreviewSheet title="Share your pull" makeImage={async () => poster} imageName="pull.png" url="https://example.invalid/#/pull/abc"
       text="Look at this pull" onClose={onClose}
-      actions={<p className="test-actions">Hall of Fame</p>}>
+      actions={<p className="test-actions">Hall of Fame</p>}
+      {...props}>
       <p className="test-extra">Cards in this pack</p>
     </SharePreviewSheet>,
   ));
 };
-const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('.share-actions-main button')]
+const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('.share-sheet button')]
   .find((el) => el.textContent?.trim() === label)!;
 const done = () => document.querySelector('.share-done')!.textContent;
+const isDoneFailed = () => document.querySelector('.share-done')!.classList.contains('is-failed');
 
 describe('share preview actions', () => {
   it('copies the link and says so', async () => {
@@ -91,5 +93,96 @@ describe('share preview actions', () => {
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+  });
+});
+
+describe('native sharing failure and recovery', () => {
+  beforeEach(() => {
+    vi.mocked(shareActions.canShareTo).mockReturnValue(true);
+  });
+
+  it('explains sharing failed and directs to Copy image, Save image or Copy text when native share fails without a URL and images can be copied', async () => {
+    vi.mocked(shareActions.canCopyImage).mockReturnValue(true);
+    vi.mocked(shareActions.shareTo).mockResolvedValue('failed');
+    await open({ url: undefined });
+
+    await act(async () => button('Share to…').click());
+
+    expect(shareActions.shareTo).toHaveBeenCalledWith({
+      url: undefined,
+      text: 'Look at this pull',
+      title: 'Share your pull',
+      image: { blob: poster, filename: 'pull.png' },
+    });
+    expect(done()).toBe('Sharing failed — use Copy image, Save image or Copy text');
+    expect(isDoneFailed()).toBe(true);
+    expect(shareActions.saveImage).not.toHaveBeenCalled();
+    expect(shareActions.copyText).not.toHaveBeenCalled();
+  });
+
+  it('explains sharing failed and directs to Save image or Copy text when native share fails without a URL and images cannot be copied', async () => {
+    vi.mocked(shareActions.canCopyImage).mockReturnValue(false);
+    vi.mocked(shareActions.shareTo).mockResolvedValue('failed');
+    await open({ url: undefined });
+
+    await act(async () => button('Share to…').click());
+
+    expect(done()).toBe('Sharing failed — use Save image or Copy text');
+    expect(isDoneFailed()).toBe(true);
+    expect(shareActions.saveImage).not.toHaveBeenCalled();
+    expect(shareActions.copyText).not.toHaveBeenCalled();
+  });
+
+  it('recovers by copying the link when native sharing fails for a share with a URL', async () => {
+    vi.mocked(shareActions.shareTo).mockResolvedValue('failed');
+    await open({ url: 'https://example.invalid/#/pull/abc' });
+
+    await act(async () => button('Share to…').click());
+
+    expect(shareActions.copyText).toHaveBeenCalledWith('https://example.invalid/#/pull/abc');
+    expect(done()).toBe('Link copied');
+    expect(isDoneFailed()).toBe(false);
+  });
+
+  it('keeps quiet and does not download or claim success on user cancellation', async () => {
+    vi.mocked(shareActions.shareTo).mockResolvedValue('cancelled');
+    await open({ url: undefined });
+
+    await act(async () => button('Share to…').click());
+
+    expect(done()).toBe('');
+    expect(isDoneFailed()).toBe(false);
+    expect(shareActions.saveImage).not.toHaveBeenCalled();
+    expect(shareActions.copyText).not.toHaveBeenCalled();
+  });
+
+  it('keeps retry usable and clears failure guidance when retry succeeds', async () => {
+    vi.mocked(shareActions.canCopyImage).mockReturnValue(false);
+    vi.mocked(shareActions.shareTo).mockResolvedValueOnce('failed');
+    await open({ url: undefined });
+
+    await act(async () => button('Share to…').click());
+    expect(done()).toBe('Sharing failed — use Save image or Copy text');
+    expect(isDoneFailed()).toBe(true);
+
+    vi.mocked(shareActions.shareTo).mockResolvedValueOnce('shared');
+    await act(async () => button('Share to…').click());
+
+    expect(done()).toBe('');
+    expect(isDoneFailed()).toBe(false);
+  });
+
+  it('clears failure guidance when player chooses an alternative action like Save image', async () => {
+    vi.mocked(shareActions.canCopyImage).mockReturnValue(false);
+    vi.mocked(shareActions.shareTo).mockResolvedValue('failed');
+    await open({ url: undefined });
+
+    await act(async () => button('Share to…').click());
+    expect(isDoneFailed()).toBe(true);
+
+    await act(async () => button('Save image').click());
+    expect(done()).toBe('Image saved');
+    expect(isDoneFailed()).toBe(false);
+    expect(shareActions.saveImage).toHaveBeenCalledWith(poster, 'pull.png');
   });
 });

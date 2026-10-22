@@ -144,3 +144,96 @@ describe('the link a card shares', () => {
     expect(genesis.link).toBe(pullUrl(genesis.proof, cardPreviewPath('genesis', genesis.card.key.split('/')[1])));
   });
 });
+
+describe('native sharing failure recovery for card shares', () => {
+  const bukangi = getSetCards(DEFAULT_SET_ID).find((c) => c.name === 'Bukangi') ?? getSetCards(DEFAULT_SET_ID)[0];
+  let shareMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    shareMock = vi.fn();
+    vi.stubGlobal('navigator', {
+      share: shareMock,
+      canShare: vi.fn(() => true),
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+    });
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)' }));
+  });
+
+  const button = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('.share-sheet button')].find((el) =>
+      el.textContent?.trim().includes(label),
+    )!;
+  const done = () => document.querySelector('.share-done')!.textContent;
+  const isDoneFailed = () => document.querySelector('.share-done')!.classList.contains('is-failed');
+
+  it('shows failure feedback and directs to alternatives when native sharing fails for a card without proof URL', async () => {
+    // Injected native outcome: navigator.share rejects with NotAllowedError (permission denied)
+    shareMock.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+
+    await act(async () => root.render(<CardShareSheet card={bukangi} version={{ isHolo: false }} onClose={() => {}} />));
+
+    expect(document.body.textContent).toContain("so there's no link to prove it");
+    const shareBtn = button('Share to…');
+    expect(shareBtn).toBeDefined();
+
+    await act(async () => shareBtn.click());
+
+    expect(shareMock).toHaveBeenCalledTimes(1);
+    expect(done()).toBe('Sharing failed — use Save image or Copy text');
+    expect(isDoneFailed()).toBe(true);
+    expect(vi.mocked(copyText)).not.toHaveBeenCalled();
+  });
+
+  it('falls back to copying proof link when native sharing fails for a card with pack history', async () => {
+    // Injected native outcome: navigator.share rejects with NotAllowedError
+    shareMock.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+    const pack: PullRef = { setId: bukangi.setId, setVersion: getLatestSet(bukangi.setId)!.version, nonce: 42, publicKeyHex: getPlayer().publicKeyHex };
+
+    await act(async () => root.render(<CardShareSheet card={bukangi} version={{ isHolo: false }} from={pack} onClose={() => {}} />));
+
+    const shareBtn = button('Share to…');
+    await act(async () => shareBtn.click());
+
+    expect(shareMock).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(expect.stringContaining('#/pull/'));
+    expect(done()).toBe('Link copied');
+    expect(isDoneFailed()).toBe(false);
+  });
+
+  it('remains quiet on user cancellation (AbortError) without claiming success or copying', async () => {
+    // Injected native outcome: navigator.share rejects with AbortError (user dismissed share sheet)
+    shareMock.mockRejectedValue(new DOMException('Share canceled', 'AbortError'));
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+
+    await act(async () => root.render(<CardShareSheet card={bukangi} version={{ isHolo: false }} onClose={() => {}} />));
+
+    const shareBtn = button('Share to…');
+    await act(async () => shareBtn.click());
+
+    expect(shareMock).toHaveBeenCalledTimes(1);
+    expect(done()).toBe('');
+    expect(isDoneFailed()).toBe(false);
+    expect(vi.mocked(copyText)).not.toHaveBeenCalled();
+  });
+
+  it('allows retry and clears failure feedback when a retry attempt succeeds', async () => {
+    // First attempt rejects with NotAllowedError, second attempt succeeds
+    shareMock.mockRejectedValueOnce(new DOMException('Permission denied', 'NotAllowedError'));
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+
+    await act(async () => root.render(<CardShareSheet card={bukangi} version={{ isHolo: false }} onClose={() => {}} />));
+
+    const shareBtn = button('Share to…');
+    await act(async () => shareBtn.click());
+    expect(done()).toBe('Sharing failed — use Save image or Copy text');
+    expect(isDoneFailed()).toBe(true);
+
+    shareMock.mockResolvedValueOnce(undefined);
+    await act(async () => shareBtn.click());
+
+    expect(shareMock).toHaveBeenCalledTimes(2);
+    expect(done()).toBe('');
+    expect(isDoneFailed()).toBe(false);
+  });
+});
