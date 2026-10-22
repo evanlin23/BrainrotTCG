@@ -12,6 +12,9 @@ import {
 } from './share';
 import { publishUntilAccepted, type PublishResult } from './nostrInbox';
 
+const staging = vi.hoisted(() => ({ on: false }));
+vi.mock('./staging', () => ({ isStaging: () => staging.on }));
+
 vi.mock('./nostrInbox', () => ({
   hallOfFameEvent: vi.fn((proof: string, id: string, date: number, score?: number) => ({ id, proof, date, score })),
   publishUntilAccepted: vi.fn(),
@@ -68,6 +71,18 @@ describe('submission registry and cross-tab storage sync', () => {
     resetSubmissionsForTest();
     localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it('sends nothing to the relays from a staging copy', async () => {
+    staging.on = true;
+    try {
+      expect(await submitToHallOfFame('proof-staging', 'pull-staging', 1000)).toBe(false);
+    } finally {
+      staging.on = false;
+    }
+    expect(mockPublish).not.toHaveBeenCalled();
+    expect(submissionStatus('pull-staging')).toBe('idle');
+    expect(wasSubmitted('pull-staging')).toBe(false);
   });
 
   it('reports idle initially for unknown pulls', () => {
