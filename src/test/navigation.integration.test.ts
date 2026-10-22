@@ -142,6 +142,38 @@ it.each([['a saved pack', RETURNING], ['cards but no pack count', CARDS_ONLY]])(
   expect(document.querySelector('.app-nav')).not.toBeNull();
 }, 30_000);
 
+// #902: the switch only matters before the pages show up on their own; after that it would change nothing.
+it.each([['a saved pack', RETURNING], ['cards but no pack count', CARDS_ONLY]])('leaves the Show every page switch out of Settings for a player with %s, and keeps every page', async (_, save) => {
+  app = await mountedApp({ ...PLAYER, ...QUIET, ...save });
+  await app.mount();
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('[role="switch"]')).not.toBeNull());
+  expect(showEveryPage()).toBeUndefined();
+  // The rest of the section is untouched, and the pages are still there.
+  expect([...document.querySelectorAll('[role="switch"]')].map((el) => document.getElementById(el.getAttribute('aria-labelledby') ?? '')?.textContent))
+    .toEqual(['Particles', 'Pause on good pulls', 'Preview upcoming sets']);
+  expect(document.querySelector('.app-nav')).not.toBeNull();
+}, 30_000);
+
+it('keeps a stored Show every page choice, and its tabs, when the switch is out of Settings', async () => {
+  const stored = JSON.stringify({ effectsVolume: 0, showAllPages: true });
+  app = await mountedApp({ ...PLAYER, 'brainrot-settings-v1': stored, ...RETURNING });
+  await app.mount();
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(document.querySelector('[role="switch"]')).not.toBeNull());
+  expect(showEveryPage()).toBeUndefined();
+  expect(document.querySelector('.app-nav')).not.toBeNull();
+  expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS)!).showAllPages).toBe(true);
+}, 30_000);
+
+it('shows the switch again to a new player who has stored the choice, so they can reverse it', async () => {
+  app = await mountedApp({ ...PLAYER, 'brainrot-settings-v1': JSON.stringify({ effectsVolume: 0, showAllPages: true }) });
+  await app.mount();
+  await app.interact(() => button('Settings').click());
+  await app.until('Settings loads', () => expect(showEveryPage()).toBeTruthy());
+  expect(showEveryPage()!.getAttribute('aria-checked')).toBe('true');
+}, 30_000);
+
 it('gives Open, Cards, Rankings and Profile a page each, with an address, a title and Back between them', async () => {
   app = await mountedApp({ ...PLAYER, ...QUIET, ...RETURNING });
   await app.mount();
