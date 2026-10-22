@@ -83,8 +83,11 @@ export const getSet = (id: string, version: number): SetDefinition | undefined =
 
 export const getLatestSet = (id: string): SetDefinition | undefined => SETS.find((s) => s.id === id);
 
-/** Card definition by set + card id (searches every version, newest first). */
-export const getCardDefinition = (setId: string, cardId: string): CardDefinition | undefined => {
+/** Card definition by set + card id (searches every version, newest first, or a specific version). */
+export const getCardDefinition = (setId: string, cardId: string, version?: number): CardDefinition | undefined => {
+  if (version !== undefined) {
+    return getSet(setId, version)?.cards.find((c) => c.id === cardId);
+  }
   for (const set of ALL_SET_VERSIONS.filter((s) => s.id === setId).sort((a, b) => b.version - a.version)) {
     const card = set.cards.find((c) => c.id === cardId);
     if (card) return card;
