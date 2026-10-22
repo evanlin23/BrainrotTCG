@@ -129,3 +129,37 @@ it('migrates a pre-versioning save on load without losing its cards or pulls, th
   expect(await history()).toHaveLength(2);
   expect(JSON.stringify(Object.entries(localStorage).sort())).toBe(saved);
 }, 60_000);
+
+it('survives an existing malformed cached card code across startup and reload without an error loop (#652)', async () => {
+  const malformedHistory = JSON.stringify([{
+    s: 'right-now',
+    v: 2,
+    n: 0,
+    k: PUBLIC.slice(0, 16),
+    c: 'sigma\nid',
+    h: 'Pair',
+    x: 200,
+    t: OPENED,
+  }]);
+  const storage: Record<string, string> = {
+    'brainrot-player-v1': JSON.stringify({ secretKey: SECRET, name: 'Recovery tester', nextNonce: 1, createdAt: 1 }),
+    [STORAGE_KEYS.HISTORY]: malformedHistory,
+    [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ particlesEnabled: false }),
+    [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 1, holoCards: {} }),
+  };
+
+  app = await mountedApp(storage);
+  await app.mount();
+  // Opening screen mounts normally, not the crash fallback
+  expect(document.querySelector('.crash-fallback')).toBeNull();
+  expect(document.querySelector('main.app-main')).not.toBeNull();
+
+  // Reload does not throw or loop into error
+  await app.reload();
+  expect(document.querySelector('.crash-fallback')).toBeNull();
+  expect(document.querySelector('main.app-main')).not.toBeNull();
+
+  // Raw stored data in localStorage was preserved
+  expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBe(malformedHistory);
+}, 60_000);

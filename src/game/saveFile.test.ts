@@ -100,6 +100,12 @@ describe('Save & backup preflight', () => {
     ['history object', { history: '{}' }],
     ['invalid history entry', { history: '[null]' }],
     ['invalid history cache', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":[],"h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with LF', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"sig\\nma","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with CR', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"sig\\rma","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with U+2028', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"sig\\u2028ma","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with U+2029', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"sig\\u2029ma","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with empty token', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"a,,b","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with invalid code', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"*G!","h":"No Match","x":1,"t":1}]' }],
     // recordPack refuses these too, so importing one would block every later pack write.
     ['history set version 0', { history: '[{"s":"genesis","v":0,"n":0,"k":"a","h":"No Match","x":1,"t":1}]' }],
     ['history without a set id', { history: '[{"s":"","v":1,"n":0,"k":"a","h":"No Match","x":1,"t":1}]' }],
@@ -510,5 +516,17 @@ describe('a nearly full browser storage', () => {
     expect(importSaveFile(JSON.stringify(save), { keepCopy })).toBe(keepCopy ? NO_ROOM_FOR_COPY_NOTE : FILE_TOO_BIG_NOTE + COPIES_NOTE);
     expect(store).toEqual(before);
     expect(write.mock.calls.some(([key, value]) => key === STORAGE_KEYS.STATS && value === save.stats)).toBe(true); // it got partway
+  });
+
+  it('preserves and exports existing history containing malformed cached cards without dropping mappings (#652)', () => {
+    const rawHistory = JSON.stringify([
+      { s: 'genesis', v: 1, n: 0, k: 'a', c: 'sig\nma', h: 'No Match', x: 1, t: 1 },
+      { s: 'genesis', v: 1, n: 1, k: 'a', c: 'bombardiro-crocodilo', h: 'No Match', x: 2, t: 2 },
+    ]);
+    store.set(STORAGE_KEYS.HISTORY, rawHistory);
+    const exported = exportSaveFile();
+    expect(exported).not.toBeNull();
+    const parsed = JSON.parse(exported!);
+    expect(parsed.history).toBe(rawHistory);
   });
 });

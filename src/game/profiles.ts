@@ -29,7 +29,7 @@ import { getPlayer, getPlayerTickets } from './player';
 import { firstOpened, getHistory, historyForKey, storedHistory, type HistoryEntry } from './history';
 import { getReopened, putReopened } from './reopenCache';
 import { getStoredPack, hydratePackStore, packRefKey, packStoreVersion, putStoredPacks, type StoredPack, type StoredPackRef } from './packStore';
-import { decodeCard, encodeCard, toPulled } from './cardCode';
+import { decodeCards, encodeCard, toPulled } from './cardCode';
 import { createTicketPool, isMemoryError, OUT_OF_MEMORY_ADVICE } from './ticketPool';
 import { admitOptional } from './admission';
 import { siteUrl } from './pulls';
@@ -76,7 +76,8 @@ function* ticketsOf({ player, nextNonce: total }: PlayerTickets): Generator<Tick
     const intact = fromHistory && !(set.modifiers === 1 && historyScore!.score !== entry!.score);
     // Else the cards this device re-opened (game/packStore.ts).
     const reopened = intact ? null : getStoredPack(setKey(set), player.publicKeyHex, nonce);
-    const cards = intact ? fromHistory : reopened ? toPulled(reopened.split(',').map(decodeCard), set) : null;
+    const reopenedCards = reopened ? decodeCards(reopened) : null;
+    const cards = intact ? fromHistory : reopenedCards ? toPulled(reopenedCards, set) : null;
     const score = intact ? historyScore : cards && scorePulled(cards);
     yield {
       nonce,

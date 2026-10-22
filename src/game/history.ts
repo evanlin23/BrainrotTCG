@@ -8,7 +8,7 @@
 import { STORAGE_KEYS } from '../constants';
 import { POKER_HANDS, qualifiesForHallOfFame, scorePulled, type Finish } from '../engine';
 import { getSet } from '../content/sets';
-import { decodeCard, encodeCard, toPulled, type StoredCard } from './cardCode';
+import { decodeCards, encodeCard, isCachedCards, toPulled, type StoredCard } from './cardCode';
 import { getStoredPack, packStoreVersion } from './packStore';
 import type { OpenedPack } from './pulls';
 import type { CardWithMeta } from '../components/cards/Card';
@@ -55,7 +55,7 @@ const encode = (e: HistoryEntry): Stored => ({
 /** Cards dropped to save space (or never kept) come back from the packs this device re-opened. */
 const cardsOf = (s: Stored): StoredCard[] | null => {
   const code = s.c || getStoredPack(`${s.s}@${s.v}`, s.k, s.n);
-  return code ? code.split(',').map(decodeCard) : null;
+  return code ? decodeCards(code) : null;
 };
 
 /** recordTicket's stand-in: no cards, hand or score yet (every pack has a hand). */
@@ -195,11 +195,19 @@ export const isHallOfFameWorthy = (entry: Pick<HistoryEntry, 'hand' | 'score'>):
 /** Highest score first; the newest first among equal scores. */
 export const byBest = (a: HistoryEntry, b: HistoryEntry): number => b.score - a.score || b.openedAt - a.openedAt;
 
+const hasValidCache = (c: string | undefined): boolean => c === undefined || isCachedCards(c);
+
 /** The stored history, or null when an entry breaks the rule (a write would drop it) or it can't be read. */
 const readValid = (): Stored[] | null => {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
-    return Array.isArray(parsed) && parsed.every(isStored) ? parsed : null;
+    if (!Array.isArray(parsed)) return null;
+    if (parsed.every(isStored)) return parsed;
+    // Recover unreadable cached cards without dropping valid ticket mappings:
+    if (parsed.every(isStoredIgnoringCache)) {
+      return (parsed as Stored[]).map((e) => (hasValidCache(e.c) ? e : { ...e, c: undefined }));
+    }
+    return null;
   } catch { return null; }
 };
 
@@ -317,7 +325,7 @@ export const ticketsRecorded = (publicKeyHex: string): number => {
   if (counted?.raw !== raw) {
     const next = new Map<string, number>();
     for (const e of parseHistory(raw)) {
-      if (isStored(e) && Number.isSafeInteger(e.n + 1) && e.n >= (next.get(e.k) ?? 0)) next.set(e.k, e.n + 1);
+      if (isStoredIgnoringCache(e) && Number.isSafeInteger(e.n + 1) && e.n >= (next.get(e.k) ?? 0)) next.set(e.k, e.n + 1);
     }
     counted = { raw, next };
   }
@@ -337,16 +345,20 @@ export const isLegacyPull = (value: unknown): value is LegacyPull => {
     && typeof entry.hand === 'string' && Number.isFinite(entry.score) && Number.isFinite(entry.openedAt);
 };
 
-/** The one rule for a stored history entry: pack writes and save imports both refuse anything else. */
-export const isStored = (value: unknown): value is Stored => {
+/** Validates ticket metadata and basic row shape, ignoring reconstructible cached card codes. */
+export const isStoredIgnoringCache = (value: unknown): value is Stored => {
   if (!value || typeof value !== 'object') return false;
   const entry = value as Partial<Stored>;
   return typeof entry.s === 'string' && entry.s.length > 0
     && Number.isSafeInteger(entry.v) && entry.v! > 0
     && Number.isSafeInteger(entry.n) && entry.n! >= 0
-    && typeof entry.k === 'string' && (entry.c === undefined || typeof entry.c === 'string')
+    && typeof entry.k === 'string'
     && typeof entry.h === 'string' && Number.isFinite(entry.x) && Number.isFinite(entry.t);
 };
+
+/** The one rule for a stored history entry: pack writes and save imports both refuse anything else. */
+export const isStored = (value: unknown): value is Stored =>
+  isStoredIgnoringCache(value) && hasValidCache(value.c);
 
 /** One-time: remove the old log only after every ticket mapping is stored without truncation. */
 export const migratePullLog = () => {
