@@ -1,7 +1,7 @@
-// Offline contracts for the workflows that touch the Hall of Fame and the ones a fork pull request
-// can start. Read as text (there's no YAML parser here), so this only covers the shape these files
-// already have: two-space indents, block-style `permissions`, one job per `  name:` line. One step's
-// shell also runs here, against a fake `gh`.
+// Offline contracts for the workflows that touch the Hall of Fame, the ones a fork pull request can
+// start, and the nightly test-order run. Read as text (there's no YAML parser here), so this only covers the shape these files
+// already have: two-space indents, block-style `permissions`, one job per `  name:` line. Two steps'
+// shells also run here, against a fake `gh`.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -206,5 +206,108 @@ describe('workflows a fork pull request can start (offline contracts)', () => {
     const text = read('deploy.yml');
     expect(triggers(text)).not.toMatch(/pull_request/);
     expect(topPermissions(text)).toBe('{}');
+  });
+});
+
+describe('test-order.yml, the nightly shuffled and repeat unit-test run (#768)', () => {
+  const text = read('test-order.yml');
+  const all = jobs(text);
+  const shuffled = all.shuffled.join('\n');
+  const REPLAY = 'npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=';
+  const CREATE = 'issue create --title Nightly test-order run failed --label test-order --body-file report.md';
+
+  it('runs on a schedule or by hand, never for a pull request, and holds no secrets', () => {
+    expect(triggers(text)).toMatch(/^ {2}schedule:\n(?: {4}#.*\n)* {4}- cron: '\d+ \d+ \* \* \*'/m);
+    expect(triggers(text)).toMatch(/^ {2}workflow_dispatch:/m);
+    expect(triggers(text)).not.toMatch(/pull_request/);
+    expect(text).not.toMatch(/secrets\./);
+    for (const run of runCommands(text)) expect(run).not.toContain('${{');
+  });
+
+  it('grants nothing by default; the tests only read the code and only the report writes issues', () => {
+    expect(topPermissions(text)).toBe('{}');
+    expect(Object.keys(all).sort()).toEqual(['report', 'shuffled']);
+    expect(jobPermissions(all.shuffled)).toEqual({ contents: 'read' });
+    expect(jobPermissions(all.report)).toEqual({ issues: 'write' });
+    expect(all.report.join('\n')).not.toMatch(/actions\/checkout/);
+  });
+
+  it('runs the suite twice in the same recorded order, never retries, and logs the seed', () => {
+    const runs = runCommands(shuffled).map((r) => r.trim()).filter((r) => r.startsWith('run: npx vitest'));
+    expect(runs).toEqual([`run: ${REPLAY}"$SEED"`, `run: ${REPLAY}"$SEED"`]);
+    const code = text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+    expect(code).not.toMatch(/retry|retries|continue-on-error/);
+    expect(shuffled).toContain('echo "seed=$seed" >> "$GITHUB_OUTPUT"');
+    expect(shuffled).toContain('echo "Shuffle seed: $seed (revision $GITHUB_SHA)"');
+    expect(shuffled).toContain(`${REPLAY}$SEED`);
+    expect(shuffled).toContain('>> "$GITHUB_STEP_SUMMARY"');
+  });
+
+  it('reports only a failed test job', () => {
+    const condition = all.report.find((l) => l.trim().startsWith('if:'));
+    expect(condition?.trim()).toBe("if: ${{ failure() && needs.shuffled.result == 'failure' }}");
+  });
+
+  describe('the report step, run under bash -e with a fake gh', () => {
+    /** The step's shell, dedented, as the runner writes it to a script file. */
+    const script = () => {
+      const run = runCommands(all.report.join('\n')).find((r) => r.includes('gh issue create'));
+      expect(run, 'report step').toBeDefined();
+      const lines = run!.split('\n').slice(1);
+      const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.search(/\S/)));
+      return lines.map((l) => l.slice(indent)).join('\n');
+    };
+    // Logs every call; `issue list` prints $FAKE_ISSUES, as `gh issue list --json number,author` does.
+    const FAKE_GH = `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_LOG"
+if [ "$1 $2" = "issue list" ]; then printf '%s' "$FAKE_ISSUES"; fi
+`;
+    let dir: string;
+    beforeEach(() => {
+      dir = mkdtempSync(path.join(os.tmpdir(), 'test-order-step-'));
+      mkdirSync(path.join(dir, 'bin'));
+      writeFileSync(path.join(dir, 'bin', 'gh'), FAKE_GH, { mode: 0o755 });
+      writeFileSync(path.join(dir, 'step.sh'), script());
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    /** Runs the step; returns its `gh issue` calls other than the lookup, and the report it wrote. */
+    const runStep = (issues: { number: number; login: string }[], seed = '424242') => {
+      const log = path.join(dir, 'gh.log');
+      const env = {
+        PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, GITHUB_SHA: 'abc123', SEED: seed,
+        FIRST: 'success', REPEAT: 'failure', RUN_URL: 'https://github.com/o/r/actions/runs/1',
+        FAKE_ISSUES: JSON.stringify(issues.map(({ number, login }) => ({ number, author: { login } }))),
+      };
+      const ran = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
+      expect(ran.status, ran.stderr).toBe(0);
+      const calls = readFileSync(log, 'utf8').trim().split('\n').filter((l) => l.startsWith('issue ') && !l.startsWith('issue list'));
+      return { calls, report: readFileSync(path.join(dir, 'report.md'), 'utf8') };
+    };
+
+    it('opens the issue when it has none open, with the seed, revision and replay command', () => {
+      const { calls, report } = runStep([]);
+      expect(calls).toEqual([CREATE]);
+      expect(report).toContain('Seed: 424242');
+      expect(report).toContain('Revision: `abc123`');
+      expect(report).toContain('Shuffled run: success; repeat run, same seed: failure');
+      expect(report).toContain(`Replay: \`git checkout abc123 && npm ci && ${REPLAY}424242\``);
+    });
+
+    it('comments on its own oldest open issue instead of opening another', () => {
+      const { calls } = runStep([{ number: 30, login: 'app/github-actions' }, { number: 12, login: 'github-actions[bot]' }]);
+      expect(calls).toEqual(['issue comment 12 --body-file report.md']);
+    });
+
+    it('ignores a labelled issue someone else opened', () => {
+      const { calls } = runStep([{ number: 5, login: 'someone' }, { number: 6, login: 'github-actions-fan' }]);
+      expect(calls).toEqual([CREATE]);
+    });
+
+    it('says when the run failed before a seed was picked', () => {
+      const { report } = runStep([], '');
+      expect(report).toContain('Seed: none (failed before the tests ran)');
+      expect(report).not.toContain('Replay:');
+    });
   });
 });
