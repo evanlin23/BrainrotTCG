@@ -24,6 +24,8 @@ interface ProfileSummaryProps {
   levelNote?: ReactNode;
   /** While a viewer is still re-opening packs, the other numbers are "so far". */
   partial?: boolean;
+  /** Overrides the footnote when the check stopped early, so it says which packs the numbers come from. */
+  partialNote?: string;
   /** Replaces the built-in pack viewer (your own profile opens the share sheet instead). */
   onOpenPack?: (pack: ProfilePack) => void;
   /** After a best pull's hand, e.g. whether this device sent it to the Hall of Fame (your own profile only). */
@@ -31,7 +33,7 @@ interface ProfileSummaryProps {
 }
 
 /** Level, the numbers that matter, best pulls, then the collection score and cards by set. Same for your profile and someone else's. */
-const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack, packBadge }: ProfileSummaryProps) => {
+const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNote, onOpenPack, packBadge }: ProfileSummaryProps) => {
   const [open, setOpen] = useState<ProfilePack | null>(null);
   const bestId = useId();
   const collectionId = useId();
@@ -65,7 +67,10 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack
       <dl className="profile-stats">
         <div>
           <dd className="tabular">{stats.packs.toLocaleString()}</dd>
-          <dt>{stats.packs === 1 ? 'pack' : 'packs'}</dt>
+          <dt>
+            {stats.packs === 1 ? 'pack' : 'packs'}
+            {partialNote && '*'}
+          </dt>
         </div>
         <div>
           <dd className="tabular">
@@ -94,7 +99,7 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack
           ))}
         </p>
       )}
-      {partial && <p className="profile-footnote">* so far, while the rest of the packs are re-opened</p>}
+      {partial && <p className="profile-footnote">{partialNote ?? '* so far, while the rest of the packs are re-opened'}</p>}
 
       {best.length > 0 && (
         <section className="profile-block" aria-labelledby={bestId}>
