@@ -21,7 +21,7 @@ import { recordPack, type PackProgress } from './game/packProgress';
 import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
-import { collectionRecoveryDismissed, collectionRecoveryNote, dismissCollectionRecovery } from './game/collectionRecovery';
+import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
 import { readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
@@ -89,7 +89,10 @@ function App() {
     dismissCollectionRecovery();
     setRecoveryNoteHidden(true);
   }, []);
-  const recoveryChanged = useCallback(() => setRecoveryNote(collectionRecoveryNote()), []);
+  // An archive storage won't read may or may not be there: keep whatever note is showing.
+  const recoveryChanged = useCallback(() => {
+    if (collectionRecoveryState() !== 'unavailable') setRecoveryNote(collectionRecoveryNote());
+  }, []);
   const achievementsRef = useRef(achievements);
   // The save this tab loaded. Another tab can import a save (even the same player's), switch player
   // or clear storage while this one stays open: from then on everything held here is the old save's,
@@ -537,6 +540,7 @@ function App() {
           set={selectedSet}
           disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}
+          mountedSave={mountedSave}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
