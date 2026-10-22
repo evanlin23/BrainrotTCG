@@ -331,17 +331,43 @@ export function evaluateReleaseEligibility(options: ReleaseEligibilityOptions): 
   return result();
 }
 
+/** JSON text with sorted object keys, so key order alone never counts as a change. */
+const canonical = (v: unknown): string =>
+  JSON.stringify(v, (_k, val: unknown) =>
+    isObject(val) ? Object.fromEntries(Object.keys(val).sort().map((k) => [k, val[k]])) : val,
+  ) ?? 'undefined';
+
+/** Dispositions a candidate's own tree may move an entry to; any other change needs main's review. */
+const SELF_SERVICE_DISPOSITIONS: readonly unknown[] = ['unresolved', 'resolved'];
+
 /**
- * Lists record changes that relax release permission without a reviewed resolution: dropping a
- * blocker that was not resolved, or rewriting an existing blocker's identity. Disposition changes
- * are covered by `evaluateReleaseEligibility`, which requires trusted, linked approval or a fix in
- * the candidate. Run it against the record on main (the reviewed authority) before trusting a change.
+ * Lists record changes the candidate's own tree makes without main's review: dropping a blocker
+ * that was not resolved, rewriting an existing blocker's identity, or relaxing a disposition. A
+ * head entry may move to `unresolved` or `resolved` (the evaluator still checks the fix); any other
+ * disposition, mitigation or corrective-release block, including on a new entry, must match the
+ * base exactly. Pass `null` for a base commit without a record; any other malformed base fails closed.
  */
 export function unauthorizedRecordChanges(base: unknown, head: unknown): string[] {
-  if (!isObject(base) || !Array.isArray(base.blockers)) return [];
+  if (base !== null && (!isObject(base) || !Array.isArray(base.blockers))) {
+    return ['Base record is malformed, so record changes cannot be checked'];
+  }
+  const baseBlockers = base === null ? [] : (base.blockers as unknown[]).filter(isObject);
   const headBlockers = isObject(head) && Array.isArray(head.blockers) ? head.blockers.filter(isObject) : [];
   const problems: string[] = [];
-  for (const old of base.blockers.filter(isObject)) {
+  for (const now of headBlockers) {
+    if (SELF_SERVICE_DISPOSITIONS.includes(now.disposition)) continue;
+    const old = baseBlockers.find((b) => b.id === now.id);
+    const unchanged =
+      old !== undefined &&
+      (['disposition', 'mitigation', 'correctiveRelease'] as const).every((f) => canonical(old[f]) === canonical(now[f]));
+    if (!unchanged) {
+      problems.push(
+        `Blocker ${String(now.id)} is ${String(now.disposition)} with details that differ from the base; ` +
+          'an exception or corrective release must be on main before a candidate can rely on it',
+      );
+    }
+  }
+  for (const old of baseBlockers) {
     const now = headBlockers.find((b) => b.id === old.id);
     if (!now) {
       if (old.disposition !== 'resolved') {
@@ -358,6 +384,9 @@ export function unauthorizedRecordChanges(base: unknown, head: unknown): string[
 
 /** sha256 of the record bytes the decision was made on, for the promotion gate to log and bind. */
 export const recordDigest = (raw: string): string => createHash('sha256').update(raw).digest('hex');
+
+/** Base the CLI compares the candidate's record against when `--base` is not passed. */
+export const DEFAULT_BASE = 'origin/main';
 
 interface CliArgs {
   candidate?: string;
@@ -408,6 +437,12 @@ export function runReleaseBlockerCheck(argv: string[], cwd: string = process.cwd
     const args = parseArgs(argv);
     if (!args.candidate) throw new Error('Pass --candidate <commit>: eligibility is decided for one exact candidate');
     const candidate = commitOf(args.candidate, '--candidate');
+    // The reviewed record on main is the authority; a base that can't be read fails closed.
+    const baseRef = args.base ?? DEFAULT_BASE;
+    const base = commitOf(baseRef, '--base');
+    const baseRecord: unknown = gitOk('cat-file', '-e', `${base}:${RECORD_PATH}`)
+      ? JSON.parse(git('show', `${base}:${RECORD_PATH}`))
+      : null;
     const raw = git('show', `${candidate}:${RECORD_PATH}`);
     const record: unknown = JSON.parse(raw);
     const result = evaluateReleaseEligibility({
@@ -425,16 +460,9 @@ export function runReleaseBlockerCheck(argv: string[], cwd: string = process.cwd
         }
       },
     });
-    if (args.base !== undefined) {
-      // A missing or mistyped base fails closed; only a real commit that predates the record is skipped.
-      const base = commitOf(args.base, '--base');
-      if (gitOk('cat-file', '-e', `${base}:${RECORD_PATH}`)) {
-        const baseRaw = git('show', `${base}:${RECORD_PATH}`);
-        for (const p of unauthorizedRecordChanges(JSON.parse(baseRaw), record)) result.reasons.push(p);
-        result.eligible = result.reasons.length === 0;
-      }
-    }
-    stdout.push(`Candidate ${candidate}, record sha256 ${recordDigest(raw)}`);
+    for (const p of unauthorizedRecordChanges(baseRecord, record)) result.reasons.push(p);
+    result.eligible = result.reasons.length === 0;
+    stdout.push(`Candidate ${candidate}, base ${base}, record sha256 ${recordDigest(raw)}`);
     if (result.eligible) {
       stdout.push(
         `Release eligible: ${result.resolvedCount} resolved, ${result.activeExceptions.length} active exceptions` +

@@ -142,7 +142,8 @@ an approval gate:
 
 `config/release-blockers.json` records confirmed release blockers and their current disposition.
 `scripts/release-blockers.ts` decides eligibility for one exact candidate:
-`npx tsx scripts/release-blockers.ts --candidate <sha> [--base origin/main] [--corrective-target <issue>]`.
+`npx tsx scripts/release-blockers.ts --candidate <sha> [--base <ref>] [--corrective-target <issue>]`
+(`--base` defaults to `origin/main`).
 It reads the record from the candidate's own tree and prints the record's sha256. Nothing consumes
 it yet: enforcement lands with the promotion gate (#706), so today it is advisory and does not by
 itself stop a deploy.
@@ -156,10 +157,13 @@ rationale, owner, required evidence and a classification: `regression`, `older_d
 `unverified_hypothesis` or `missing_device_evidence`.
 
 **Authority:** the record changes only through reviewed PRs to main. Issues, comments, labels and
-author assertions can't change release permission. `--base` reports dropping an entry that wasn't
-resolved, or rewriting an entry's issue or category; a base that doesn't resolve fails closed (fetch
-full history), and only a base commit without the record is skipped. Resolved history stays in the
-issue and PR, so resolved entries may be pruned.
+author assertions can't change release permission. The CLI always compares the candidate's record
+with the base's and blocks dropping an entry that wasn't resolved, rewriting an entry's issue or
+category, and any entry whose disposition, mitigation or corrective-release block differs from the
+base. The candidate may only move an entry to `unresolved` or `resolved`; an exception or corrective
+release must be on main first. A base that doesn't resolve or has a malformed record fails closed
+(fetch full history); a base commit without the record counts as an empty record. Resolved history
+stays in the issue and PR, so resolved entries may be pruned.
 
 **Dispositions** (anything missing, malformed or unverifiable fails closed):
 - `unresolved`: blocks promotion.

@@ -252,6 +252,34 @@ describe('unauthorizedRecordChanges', () => {
 
   it('allows pruning a resolved entry and adding new blockers', () => {
     expect(unauthorizedRecordChanges(record(resolved()), record(blocker({ id: 'RB-9', canonicalIssue: 9 })))).toEqual([]);
+    expect(unauthorizedRecordChanges(null, record(blocker(), resolved({ fixedInPr: 11 })))).toEqual([]);
+  });
+
+  it('flags a head entry that relaxes its disposition compared with the base', () => {
+    const relaxed = (base: unknown, head: unknown) => unauthorizedRecordChanges(base, head).join('\n');
+    expect(relaxed(record(blocker()), record(mitigated()))).toMatch(/RB-1 is mitigated_exception with details that differ from the base/);
+    expect(relaxed(record(blocker({ id: 'RB-2', canonicalIssue: 2 })), record(corrective()))).toMatch(/RB-2 is corrective_release/);
+    // Extending an exception or swapping its approval is a change too.
+    expect(relaxed(record(mitigated()), record(mitigated({ expiresAt: '2026-11-15T00:00:00Z' })))).toMatch(/RB-1/);
+    expect(relaxed(record(corrective()), record(corrective({ approvedCommit: FIX })))).toMatch(/RB-2/);
+    // A new entry that arrives already excepted, or a base without a record, gets no pass.
+    expect(relaxed(record(), record(mitigated()))).toMatch(/RB-1/);
+    expect(relaxed(null, record(corrective()))).toMatch(/RB-2/);
+  });
+
+  it('allows moving an entry to unresolved or resolved, and an unchanged exception', () => {
+    expect(unauthorizedRecordChanges(record(blocker()), record(resolved()))).toEqual([]);
+    expect(unauthorizedRecordChanges(record(mitigated()), record(blocker()))).toEqual([]);
+    expect(unauthorizedRecordChanges(record(corrective()), record({ ...resolved(), id: 'RB-2', canonicalIssue: 2 }))).toEqual([]);
+    const m = mitigated();
+    const reordered = { ...m, mitigation: Object.fromEntries(Object.entries(m.mitigation ?? {}).reverse()) } as ReleaseBlocker;
+    expect(unauthorizedRecordChanges(record(m), record(reordered))).toEqual([]);
+    expect(unauthorizedRecordChanges(record(corrective()), record(corrective()))).toEqual([]);
+  });
+
+  it('fails closed on a malformed base record', () => {
+    expect(unauthorizedRecordChanges({ version: 1 }, record())).toEqual(['Base record is malformed, so record changes cannot be checked']);
+    expect(unauthorizedRecordChanges(undefined, record())).toHaveLength(1);
   });
 });
 
@@ -291,10 +319,20 @@ describe('parseArgs', () => {
   });
 });
 
-/** Runs the real CLI path in a scratch repository: local git only, identity set in that repo. */
+/**
+ * Runs the real CLI path in a scratch repository: local git only, identity set in that repo, and no
+ * global or system config or hooks from the machine running the tests.
+ */
 describe('release-blockers CLI', () => {
   let repo: string;
-  const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const sh = (...args: string[]) =>
+    execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
+      cwd: repo,
+      env: gitEnv,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
   const write = (rel: string, body: string) => {
     mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
     writeFileSync(path.join(repo, rel), body);
@@ -326,35 +364,85 @@ describe('release-blockers CLI', () => {
   });
   afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
-  it('lets the approved corrective release pass from its own tree', () => {
-    const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', commits.recorded);
+  /** Commits `edit` on a new branch from `from`, returns to main and gives the new commit. */
+  const branchCommit = (name: string, from: string, edit: () => void): string => {
+    sh('checkout', '-q', '-b', name, from);
+    try {
+      edit();
+      return commit(name);
+    } finally {
+      sh('checkout', '-q', 'main');
+    }
+  };
+
+  it('lets the corrective release pass once its approval is on the base', () => {
+    const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', commits.approved);
     expect(r.stderr).toEqual([]);
     expect(r).toMatchObject({ code: 0 });
     expect(r.stdout.join('\n')).toMatch(/corrective release for RB-2, 1 still tracked/);
   });
 
+  it("flags a corrective approval that exists only in the candidate's own tree", () => {
+    const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', commits.recorded);
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(/RB-2 is corrective_release with details that differ from the base/);
+  });
+
+  it('flags a candidate that relaxes a disposition compared with the base', () => {
+    const head = branchCommit('relax', commits.recorded, () => writeRecord(mitigated(), blocker({ id: 'RB-2', canonicalIssue: 2 })));
+    const r = run('--candidate', head, '--base', commits.recorded);
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(/RB-1 is mitigated_exception with details that differ from the base/);
+  });
+
+  it('lets a candidate move its blockers to resolved', () => {
+    const head = branchCommit('resolve', commits.fix, () => {
+      write('src/app.test.ts', 'test\n');
+      const fix = { fixedInPr: 10, fixCommit: commits.fix, regressionTest: 'src/app.test.ts' };
+      writeRecord(
+        blocker({ disposition: 'resolved', resolution: fix }),
+        blocker({ id: 'RB-2', canonicalIssue: 2, disposition: 'resolved', resolution: fix }),
+      );
+    });
+    const r = run('--candidate', head, '--base', commits.recorded);
+    expect(r.stderr).toEqual([]);
+    expect(r.code).toBe(0);
+  });
+
   it('blocks the same candidate without the corrective declaration', () => {
-    expect(run('--candidate', 'HEAD').code).toBe(1);
+    expect(run('--candidate', 'HEAD', '--base', commits.approved).code).toBe(1);
   });
 
   it('makes the approval stale once code changes after the approved commit', () => {
-    sh('checkout', '-q', '-b', 'later', commits.approved);
-    write('src/app.ts', 'export const broken = "maybe";\n');
-    commit('unreviewed change');
-    const r = run('--candidate', 'HEAD', '--corrective-target', '2');
-    sh('checkout', '-q', 'main');
+    const head = branchCommit('later', commits.approved, () => write('src/app.ts', 'export const broken = "maybe";\n'));
+    const r = run('--candidate', head, '--corrective-target', '2', '--base', commits.approved);
     expect(r.code).toBe(1);
     expect(r.stderr.join('\n')).toMatch(/changes src\/app\.ts after approved commit .*stale/);
   });
 
   it('fails closed when --base does not resolve', () => {
-    const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', 'origin/main');
+    const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', 'no-such-ref');
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(/--base no-such-ref does not resolve to a commit/);
+  });
+
+  it('defaults the base to origin/main and fails closed when it is missing', () => {
+    const r = run('--candidate', 'HEAD', '--corrective-target', '2');
     expect(r.code).toBe(1);
     expect(r.stderr.join('\n')).toMatch(/--base origin\/main does not resolve to a commit/);
   });
 
-  it('skips the tamper check only for a real base that predates the record', () => {
-    expect(run('--candidate', 'HEAD', '--corrective-target', '2', '--base', commits.noRecord).code).toBe(0);
+  it('fails closed on a base whose record is malformed', () => {
+    const base = branchCommit('bad-base', commits.approved, () => write(RECORD_PATH, '{"version": 1}\n'));
+    const r = run('--candidate', commits.approved, '--corrective-target', '2', '--base', base);
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(/Base record is malformed/);
+  });
+
+  it('treats a base without the record as empty, so an exception in the candidate is flagged', () => {
+    const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', commits.noRecord);
+    expect(r.code).toBe(1);
+    expect(r.stderr.join('\n')).toMatch(/RB-2 is corrective_release with details that differ from the base/);
   });
 
   it('reports dropping an unresolved blocker against the base', () => {
