@@ -7,7 +7,7 @@ import ProfileSummary from './ProfileSummary';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import { ACHIEVEMENTS } from '../../data/achievements';
 import { getSet } from '../../content/sets';
-import { HALL_OF_FAME_MIN_MULTIPLIER, pullId, scorePulled, type ProfilePack, type ProfileStats } from '../../engine';
+import { HALL_OF_FAME_MIN_MULTIPLIER, POKER_HANDS, XP_PER_HAND, XP_PER_NEW_CARD, XP_PER_PACK, pullId, scorePulled, xpForLevel, type ProfilePack, type ProfileStats } from '../../engine';
 import { toPulled } from '../../game/cardCode';
 import { getPlayer } from '../../game/player';
 import { resetSubmissionsForTest, submitToHallOfFame, SUBMITTED_KEY } from '../../game/share';
@@ -460,5 +460,23 @@ describe('Hall of Fame submitted badge on Best pulls', () => {
     expect(document.querySelector('.profile-block .pull-row-hand')?.firstChild?.textContent).toBe(five.score.hand.name);
     expect(document.querySelector('.profile-block .pull-row-hof')).not.toBeNull();
     expect(document.querySelector('.pull-row-sent')).toBeNull();
+  });
+
+  it("explains where XP and the stats come from, with the engine's numbers (#804)", () => {
+    act(() => root.render(<ProfileSummary stats={{ ...statsWith([five]), level: 3, xp: 400 }} />));
+    const how = document.querySelector('details.profile-how')!;
+    expect(how.querySelector('summary')?.textContent).toBe('What do these numbers mean?');
+    const text = how.textContent ?? '';
+    expect(text).toContain(`${XP_PER_PACK} XP for every pack opened`);
+    expect(text).toContain(`${XP_PER_NEW_CARD} XP the first time you pull each different card`);
+    for (const hand of ['TWO_PAIR', 'THREE_OF_A_KIND', 'FULL_HOUSE', 'FOUR_OF_A_KIND', 'FIVE_OF_A_KIND'] as const) {
+      expect(text).toContain(`${POKER_HANDS[hand].name} +${XP_PER_HAND[hand].toLocaleString()}`);
+    }
+    // Most XP first; Two Pair and 3 of a Kind both pay +5, so the rarer 3 of a Kind goes first.
+    const listed = [...text.matchAll(/(5 of a Kind|4 of a Kind|Full House|3 of a Kind|Two Pair) \+/g)].map((m) => m[1]);
+    expect(listed).toEqual(['5 of a Kind', '4 of a Kind', 'Full House', '3 of a Kind', 'Two Pair']);
+    expect(text).toContain('No Matches and Pair earn no bonus.');
+    expect(text).toContain(`Level 4 needs ${xpForLevel(4).toLocaleString()} XP.`);
+    for (const word of ['packs', 'cards', 'holo', 'best score', 'Collection score']) expect(text).toContain(word);
   });
 });
