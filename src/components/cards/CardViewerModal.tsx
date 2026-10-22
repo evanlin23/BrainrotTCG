@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Share2 } from 'lucide-react';
+import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import DeferredSheet from '../ui/DeferredSheet';
 import { sheetLoader } from '../ui/sheetEntry';
 import type { Card } from '../../data/cards';
@@ -38,10 +39,12 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: Ca
   const [sharing, setSharing] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
+  const reducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     // A real mouse only (phones send a mousemove with every tap, and touchmove while scrolling).
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+    // No tilt under reduced motion, and turning it on while the close-up is open stops it at once.
+    if (reducedMotion || !window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
     const onMove = (clientX: number, clientY: number) => {
       const rect = cardRef.current?.getBoundingClientRect();
       if (!rect) return;
@@ -52,7 +55,10 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: Ca
     const mouse = (e: MouseEvent) => onMove(e.clientX, e.clientY);
     window.addEventListener('mousemove', mouse);
     return () => window.removeEventListener('mousemove', mouse);
-  }, []);
+  }, [reducedMotion]);
+  // Turning reduced motion on levels the card and forgets the angle, so turning it back off doesn't
+  // snap the card to where the mouse last was.
+  if (reducedMotion && (tilt.x !== 0 || tilt.y !== 0)) setTilt({ x: 0, y: 0 });
 
   return (
     <Sheet title={card.name} onClose={onClose} bare className="card-viewer">
