@@ -1,6 +1,7 @@
 import type { Rarity, PackScore } from '../engine';
 import { MODIFIER_LABELS, modifierText } from './modifierLabels';
 import { MODIFIER_TOKENS, modifierTokens, type ModifiedCard } from './previewLinks';
+import { isStaging } from './staging';
 
 /** Each rarity's square and initial, so the row reads without colour (C U R E L B are all different). */
 export const RARITY_MARK: Record<Rarity, string> = {
@@ -118,6 +119,8 @@ export const submitToHallOfFame = (proof: string, id: string, score?: number): P
 };
 
 const publish = async (proof: string, id: string, score?: number): Promise<boolean> => {
+  // A staging copy never posts to the relays the Hall of Fame reads (staging.ts).
+  if (isStaging()) return false;
   const { hallOfFameEvent, publishUntilAccepted } = await import('./nostrInbox');
   const { accepted } = await publishUntilAccepted(hallOfFameEvent(proof, id, Date.now(), score));
   if (accepted) {
