@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 /** The startup steps main.tsx runs, with the real work (storage, IndexedDB, the engine) left out. */
 const startup = vi.hoisted(() => ({
   receiveSave: vi.fn<() => Promise<boolean>>(),
-  runMigrations: vi.fn(),
+  runMigrations: vi.fn(() => true),
   migratePullLog: vi.fn(),
   resumeReopening: vi.fn(),
   warmUpFirstPack: vi.fn(),
@@ -103,13 +103,17 @@ describe('startup migration failure containment (#660, #659)', () => {
     );
   });
 
-  it('renders crash fallback when runMigrations returns false under unresolvable storage failure', async () => {
+  it('offers the save as a file, not a reload, when saved data could not be upgraded', async () => {
     startup.receiveSave.mockResolvedValue(false);
     startup.runMigrations.mockReturnValue(false);
     await load();
 
     await vi.waitFor(() => expect(crash()).not.toBeNull());
     expect(app()).toBeNull();
+    expect(crash()!.querySelector('h1')?.textContent).toBe('Your save needs room to update');
+    expect(crash()!.textContent).toContain("Reloading alone won't fix it.");
+    expect([...crash()!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Download save data', 'Reload']);
+    expect(startup.migratePullLog).not.toHaveBeenCalled();
     expect(document.getElementById('root')!.children).toHaveLength(1);
     expect(startup.resumeReopening).not.toHaveBeenCalled();
     expect(startup.warmUpFirstPack).not.toHaveBeenCalled();

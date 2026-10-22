@@ -198,28 +198,31 @@ const migrateV2 = (): boolean => {
 /**
  * v3: Buhcoins became Brainrot Score (card points x10, combo multipliers
  * matched to their odds). Recompute the stored best pack under the new rules.
+ * A pack with unreadable entries can't be scored as a whole, so it keeps its legacy value.
  */
 const migrateV3 = (): boolean => {
   const stats = read(STORAGE_KEYS.STATS) as AnyRecord | undefined;
   if (!stats || typeof stats !== 'object') return true;
 
   let changed = false;
-  if ('highestPackValue' in stats) {
-    delete stats.highestPackValue;
+  const setAside = (items: unknown[]) => {
+    stats.highestPackCardsUnreadable = [
+      ...(Array.isArray(stats.highestPackCardsUnreadable) ? stats.highestPackCardsUnreadable : []),
+      ...items,
+    ];
     changed = true;
-  }
+  };
+  // v2 (or an earlier run) may already have set entries of this pack aside.
+  let partial = Array.isArray(stats.highestPackCardsUnreadable) && stats.highestPackCardsUnreadable.length > 0;
 
   if (Array.isArray(stats.highestPackCards) && stats.highestPackCards.length > 0) {
     const readable = stats.highestPackCards.filter(isReadablePackCard);
     const unreadable = stats.highestPackCards.filter((c) => !isReadablePackCard(c));
     if (unreadable.length > 0) {
-      stats.highestPackCardsUnreadable = [
-        ...(Array.isArray(stats.highestPackCardsUnreadable) ? stats.highestPackCardsUnreadable : []),
-        ...unreadable,
-      ];
-      changed = true;
-    }
-    if (readable.length > 0) {
+      setAside(unreadable);
+      stats.highestPackCards = readable;
+      partial = true;
+    } else if (!partial) {
       try {
         const cards = readable.map((c: AnyRecord) => ({ ...hydrateCard({ ...c, id: String(c.id ?? c.key) }), isHolo: !!c.isHolo }));
         const { points, hand, score } = scoreCards(cards);
@@ -230,18 +233,20 @@ const migrateV3 = (): boolean => {
         stats.highestPackHandName = hand.name;
         changed = true;
       } catch (error) {
+        // Write nothing and keep the marker, so the next start retries this stage on the original fields.
         console.error('Migration could not score legacy best pack cards', error);
+        return false;
       }
-    } else {
-      stats.highestPackCards = [];
-      changed = true;
     }
   } else if (stats.highestPackCards !== undefined && !Array.isArray(stats.highestPackCards)) {
-    stats.highestPackCardsUnreadable = [
-      ...(Array.isArray(stats.highestPackCardsUnreadable) ? stats.highestPackCardsUnreadable : []),
-      stats.highestPackCards,
-    ];
+    setAside([stats.highestPackCards]);
     delete stats.highestPackCards;
+    partial = true;
+  }
+
+  // The legacy value is the only score a partial pack has: drop it only when nothing was set aside.
+  if (!partial && 'highestPackValue' in stats) {
+    delete stats.highestPackValue;
     changed = true;
   }
 
@@ -251,12 +256,54 @@ const migrateV3 = (): boolean => {
   return true;
 };
 
+const SAVED_DATA_KEYS = [STORAGE_KEYS.COLLECTION, STORAGE_KEYS.STATS, STORAGE_KEYS.ACHIEVEMENTS];
+
+/** The keys the migrations read and rewrite, with the version marker: what the recovery screen exports as stored. */
+export const LEGACY_SAVE_KEYS = [...SAVED_DATA_KEYS, DATA_VERSION_KEY];
+
+/**
+ * The stored text of LEGACY_SAVE_KEYS, unparsed, as a JSON file for a player whose save couldn't be
+ * upgraded. Only reads: it never changes storage.
+ */
+export const legacySaveFile = (now = new Date()): { name: string; text: string } => {
+  const keys = Object.fromEntries(LEGACY_SAVE_KEYS.map((key) => {
+    try {
+      return [key, localStorage.getItem(key)];
+    } catch {
+      return [key, null];
+    }
+  }));
+  return {
+    name: `brainrot-tcg-save-before-upgrade-${now.toISOString().split('T')[0]}.json`,
+    text: JSON.stringify({ exportedAt: now.toISOString(), keys }, null, 2),
+  };
+};
+
+const hasSavedData = (): boolean => {
+  try {
+    return SAVED_DATA_KEYS.some((key) => localStorage.getItem(key) !== null);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Upgrade stored data to CURRENT_DATA_VERSION. False only when there is saved data and a migration
+ * write failed (usually full storage): the marker stays put so the stage is retried, and the game must
+ * not start on that save. Storage that can't be read, or holds nothing to migrate, gives true: the game
+ * starts as for a new player (player.ts keeps state in memory when storage is blocked).
+ */
 export const runMigrations = (): boolean => {
   let version: number;
   try {
     version = Number(localStorage.getItem(DATA_VERSION_KEY) ?? 1);
   } catch {
-    return false;
+    return true;
+  }
+  if (!(version < CURRENT_VERSION)) return true;
+  if (!hasSavedData()) {
+    setDataVersion(CURRENT_VERSION);
+    return true;
   }
   if (version < 2) {
     if (!migrateV2()) return false;

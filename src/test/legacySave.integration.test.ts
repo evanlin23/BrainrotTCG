@@ -181,14 +181,16 @@ it('hydrates readable cards and preserves unreadable items when legacy highestPa
   await app.mount();
 
   expect(localStorage.getItem(DATA_VERSION_KEY)).toBe(String(CURRENT_DATA_VERSION));
-  const stats = stored<Stats & { highestPackCardsUnreadable?: unknown[] }>(STORAGE_KEYS.STATS);
+  const stats = stored<Stats & { highestPackCardsUnreadable?: unknown[]; highestPackValue?: number }>(STORAGE_KEYS.STATS);
   expect(stats.highestPackCards?.map((c) => c.key)).toEqual([
     'genesis/chimpanzini-bananini',
     'genesis/amogus',
   ]);
   expect(stats.highestPackCardsUnreadable).toEqual([null]);
   expect(stats.highestPackLegacy).toBe(true);
-  expect(typeof stats.highestPackFlexValue).toBe('number');
+  // Two of three cards can't score the whole pack: it keeps its legacy value instead of a rescore.
+  expect(stats.highestPackFlexValue).toBeUndefined();
+  expect(stats.highestPackValue).toBe(50);
 
   // Verify Profile page renders the readable legacy best pull
   await app.interact(() => button('Profile').click());

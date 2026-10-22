@@ -411,8 +411,15 @@ included, shows a `blocked` placeholder, and nothing in the save is changed or d
 historical art would need an explicit opt-in and a note in POLICIES.md first.
 A render error after React mounts shows `AppErrorBoundary`, which writes nothing except the opt-in
 diagnostics: `render-error`, and `copy-failed` if copying its report to the clipboard fails. Startup
-steps before React mounts (`receiveSave`, `runMigrations`, `migratePullLog` in `main.tsx`) are
-outside it and need their own handling.
+steps before React mounts (`main.tsx`) are outside it and handled there: a failed `receiveSave` is
+skipped and the game starts; if `runMigrations` or `migratePullLog` throws, the same crash screen
+renders on its own and notes `unhandled-error`. `runMigrations` returns false only when saved data
+exists and a migration write failed (usually full storage); each stage writes its version marker
+only after its writes succeed, so it is retried on the next start. The game doesn't start then:
+`MigrationRecovery` says reloading alone won't help (free space, then reload) and downloads the
+stored collection, stats, achievements and version marker as unparsed JSON text without changing
+storage. Storage that can't be read, or holds nothing to migrate, starts the game as usual. A v3
+best pack with entries set aside as unreadable isn't rescored and keeps its `highestPackValue`.
 
 ## Hosting
 

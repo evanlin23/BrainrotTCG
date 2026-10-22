@@ -138,7 +138,7 @@ describe('legacy record shape validation (#660)', () => {
     expect(stats.highestPackCardsUnreadable).toEqual([null]);
     expect(stats.highestPackLegacy).toBeUndefined();
     expect(stats.highestPackFlexValue).toBeUndefined();
-    expect(stats.highestPackValue).toBeUndefined();
+    expect(stats.highestPackValue).toBe(50);
     expect(stats.holoCards).toEqual({ 'genesis/chimpanzini-bananini': true });
     expect(store.get(DATA_VERSION_KEY)).toBe('3');
   });
@@ -163,7 +163,7 @@ describe('legacy record shape validation (#660)', () => {
     const stats = JSON.parse(store.get(STORAGE_KEYS.STATS)!) as Record<string, unknown>;
     expect(stats.highestPackCards).toEqual([]);
     expect(stats.highestPackCardsUnreadable).toEqual([null, null, 42]); // JSON.stringify serializes undefined as null in arrays
-    expect(stats.highestPackValue).toBeUndefined();
+    expect(stats.highestPackValue).toBe(40);
     expect(stats.highestPackFlexValue).toBeUndefined();
     expect(store.get(DATA_VERSION_KEY)).toBe('3');
   });
@@ -202,8 +202,9 @@ describe('legacy record shape validation (#660)', () => {
       { id: null },
     ]);
     expect(stats.highestPackLegacy).toBe(true);
-    expect(typeof stats.highestPackFlexValue).toBe('number');
-    expect(stats.highestPackValue).toBeUndefined();
+    // Not scored as if the readable subset were the whole pack: the legacy value stays.
+    expect(stats.highestPackFlexValue).toBeUndefined();
+    expect(stats.highestPackValue).toBe(30);
     expect(store.get(DATA_VERSION_KEY)).toBe('3');
   });
 
@@ -378,5 +379,56 @@ describe('migration retry and storage failure safety (#659)', () => {
     const stats = JSON.parse(store.get(STORAGE_KEYS.STATS)!) as Record<string, unknown>;
     expect(stats.highestPackFlexValue).toBe(10); // 10 (common card points) * 1 (multiplier) = 10
     expect(stats.highestPackValue).toBeUndefined();
+  });
+});
+
+describe('nothing to migrate, or nothing readable', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('lets the game start when storage cannot be read at all', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => { throw new DOMException('Blocked', 'SecurityError'); },
+      setItem: () => { throw new DOMException('Blocked', 'SecurityError'); },
+    });
+    expect(runMigrations()).toBe(true);
+  });
+
+  it('lets a new player start even when the version marker cannot be written', () => {
+    const setItem = vi.fn(() => { throw new DOMException('Storage full', 'QuotaExceededError'); });
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem });
+    expect(runMigrations()).toBe(true);
+    expect(setItem).toHaveBeenCalledWith(DATA_VERSION_KEY, '3');
+  });
+});
+
+describe('v3 when scoring fails', () => {
+  afterEach(() => {
+    vi.doUnmock('../data/cards');
+    vi.resetModules();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('writes nothing and keeps the stage retryable', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.resetModules();
+    vi.doMock('../data/cards', async (original) => ({
+      ...await original<typeof import('../data/cards')>(),
+      scoreCards: () => { throw new Error('scoring broke'); },
+    }));
+    const migrations = await import('./migrations');
+    const legacyStats = JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 12, highestPackCards: [{ id: 'image' }] });
+    const store = new Map<string, string>([[DATA_VERSION_KEY, '2'], [STORAGE_KEYS.STATS, legacyStats]]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    });
+
+    expect(migrations.runMigrations()).toBe(false);
+    expect(store.get(DATA_VERSION_KEY)).toBe('2');
+    expect(store.get(STORAGE_KEYS.STATS)).toBe(legacyStats);
   });
 });
