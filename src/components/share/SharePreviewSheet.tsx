@@ -75,6 +75,7 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
     flash('Image saved');
   };
   const onShareTo = async () => {
+    if (!url && !image) return;
     const result = await shareTo({ url, text, title, image: image ? { blob: image.blob, filename: imageName } : undefined });
     if (result === 'failed' && url && (await copyText(url))) flash('Link copied');
   };
@@ -104,7 +105,7 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
               <Copy aria-hidden="true" /> Copy text
             </button>
             {canShareTo() && (
-              <button type="button" className="link-btn" onClick={onShareTo}>
+              <button type="button" className="link-btn" onClick={onShareTo} disabled={!url && !image}>
                 <Share2 aria-hidden="true" /> Share to…
               </button>
             )}
