@@ -23,7 +23,7 @@ import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, dismissCollectionRecovery } from './game/collectionRecovery';
 import { readSettings } from './utils/settings';
-import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
+import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression';
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory } from './game/history';
@@ -224,19 +224,13 @@ function App() {
     const from = shownLevel.current;
     shownLevel.current = level;
     if (level === null || from === null || level <= from) return;
-    const unlocked = [
-      ...TITLES.filter((r) => r.level > from && r.level <= level).map((r) => `the title ${r.name}`),
-      ...CARD_BACKS.filter((r) => r.level > from && r.level <= level).map((r) => `the ${r.name} card back`),
-      ...PACK_FOILS.filter((r) => r.level > from && r.level <= level).map((r) => `the ${r.name} pack foil`),
-    ];
-    const next = nextReward(level);
     setNotificationQueue((prev) => [
       ...prev,
       {
         id: `level-${level}`,
         kicker: 'Level up',
         name: `Level ${level}`,
-        description: unlocked.length ? `Unlocked ${unlocked.join(', ')}. Pick it on your Profile.` : next ? `Next: ${next.name} at level ${next.level}.` : 'Keep opening.',
+        description: levelUpLine(from, level),
         opens: 'profile',
       },
     ]);

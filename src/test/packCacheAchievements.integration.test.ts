@@ -199,6 +199,6 @@ it('toasts a level-up when the same player levels up after their saved packs are
   await app.until('the level-up toast shows', () => {
     expect(toasts()).toContain('Level up');
     expect(toasts()).toContain('Level 3');
-    expect(toasts()).toContain('Unlocked the title Pack Rat');
-  });
-});
+    expect(toasts()).toContain('Title equipped: Pack Rat.');
+  }, 60_000); // the achievement toasts queued ahead of it each stay up long enough to tap (#718)
+}, 30_000);
