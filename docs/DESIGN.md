@@ -278,7 +278,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   player until their first pack is saved (#222) and while a pack is open. Someone who already knows the
   game can skip that: Settings → Sound & display → "Show every page" (off by default, kept in the
   settings and the save file) shows the tabs and the pack picker at once, so no page or feature is
-  gated behind a first pack. The header's gear
+  gated behind a first pack. Once a pack or a card is saved the pages show on their own and Settings
+  leaves the switch out (the stored choice is kept). The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem).
 - **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit

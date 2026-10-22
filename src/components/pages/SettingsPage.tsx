@@ -31,10 +31,12 @@ interface SettingsPageProps {
     onRecoveryChanged?: () => void;
     /** The pack being opened: Help's card guide shows its odds. */
     guideSet?: SetDefinition;
+    /** The tabs and pack picker already show on their own (a saved pack or a collected card): "Show every page" would change nothing, so it is left out. */
+    pagesUnlocked?: boolean;
 }
 
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const [exportNote, setExportNote] = useState('Includes your secret player key. Keep the file private.');
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -306,12 +308,14 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                         checked={!!settings.showDraftSets}
                         onChange={() => onSettingsChange({ ...settings, showDraftSets: !settings.showDraftSets })}
                     />
-                    <SwitchRow
-                        label="Show every page"
-                        desc="Cards, Rankings, Profile and the pack picker, before your first pack is saved"
-                        checked={settings.showAllPages === true}
-                        onChange={() => onSettingsChange({ ...settings, showAllPages: settings.showAllPages !== true })}
-                    />
+                    {!pagesUnlocked && (
+                        <SwitchRow
+                            label="Show every page"
+                            desc="Cards, Rankings, Profile and the pack picker, before your first pack is saved"
+                            checked={settings.showAllPages === true}
+                            onChange={() => onSettingsChange({ ...settings, showAllPages: settings.showAllPages !== true })}
+                        />
+                    )}
                 </div>
             </section>
 

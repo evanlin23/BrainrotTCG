@@ -459,9 +459,10 @@ function App() {
   // A pack whose save failed still counts in memory, so its cards stay reachable this session. If the
   // pending shelf kept it, the next load restores and counts it, so the tabs show at once; only a total
   // storage refusal makes the next load a new player's. Settings' "Show every page" switch brings both
-  // back at once for someone who knows the game (#222).
-  const showNav = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus)
-    || settings.showAllPages === true;
+  // back at once for someone who knows the game (#222); once the pages are there on their own, Settings
+  // leaves the switch out (#902), so it asks the same question.
+  const pagesUnlocked = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus);
+  const showNav = pagesUnlocked || settings.showAllPages === true;
   const onPage = route !== 'open';
   const logoMark = (
     <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
@@ -615,6 +616,7 @@ function App() {
           recoveryAllowed: recoveryCurrent,
           onRecoveryChanged: recoveryChanged,
           guideSet: selectedSet,
+          pagesUnlocked,
         }} />
       )}
 
