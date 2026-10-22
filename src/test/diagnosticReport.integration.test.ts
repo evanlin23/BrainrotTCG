@@ -140,9 +140,10 @@ it('opens from the real Settings page as a labelled dialog that never touches th
   expect(document.activeElement).toBe(button('Report a problem'));
 });
 
-const mountReport = async () => {
+const mountReport = async (capturing = false) => {
   app = await mountedApp({});
   await app.mount(async () => {
+    if (capturing) (await import('../game/diagnostics')).setBrowserDiagnosticCapture(true);
     const { createElement } = await import('react');
     const { default: DiagnosticReport } = await import('../components/ui/DiagnosticReport');
     return { default: () => createElement(DiagnosticReport, { onClose() {} }) };
@@ -239,4 +240,47 @@ it('replaces a blocked draft only when the player refreshes details', async () =
   await app!.interact(() => button('Refresh details').click());
   expect(JSON.parse(text.value)).toMatchObject({ captureEnabled: false, events: [] });
   expect(button('Copy report').disabled).toBe(false);
+});
+
+const before = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+it('puts the privacy notice, the editable draft and Copy report before the optional recording controls', async () => {
+  const { text, checkbox } = await mountReport();
+  const privacy = [...document.querySelectorAll('p')].find((p) => p.textContent!.includes('Never attach a private save'))!;
+  const posting = [...document.querySelectorAll('p')].find((p) => p.textContent!.includes('Posting requires a GitHub account'))!;
+  const record = document.querySelector<HTMLDetailsElement>('details.diagnostic-record')!;
+  const summary = record.querySelector('summary')!;
+  const link = document.querySelector<HTMLAnchorElement>('a')!;
+
+  // Essential privacy copy, the draft and its actions come first and are never inside the disclosure.
+  expect(before(privacy, text)).toBe(true);
+  expect(before(text, button('Copy report'))).toBe(true);
+  expect(before(button('Copy report'), record)).toBe(true);
+  for (const node of [privacy, posting, text, button('Copy report'), button('Refresh details'), link]) expect(record.contains(node)).toBe(false);
+  // Posting stays secondary: after the recording area, with its disclosure right before the link.
+  expect(before(record, posting)).toBe(true);
+  expect(before(posting, link)).toBe(true);
+
+  // The recording controls are collapsed, clearly named, and hold the consent and its explanation.
+  expect(record.open).toBe(false);
+  expect(summary.textContent).toBe('Record steps to reproduce');
+  expect(record.contains(checkbox)).toBe(true);
+  expect(record.contains(button('Clear recorded steps'))).toBe(true);
+  expect(record.textContent).toContain('Capture is optional and starts off');
+  expect(checkbox.checked).toBe(false);
+  expect(document.body.textContent).toContain('Event capture is off');
+
+  // Opening it is a normal disclosure, and the summary reports the capture state while it is on.
+  await app!.interact(() => summary.click());
+  expect(record.open).toBe(true);
+  await app!.interact(() => checkbox.click());
+  expect(summary.textContent).toBe('Record steps to reproduce (on)');
+  expect(JSON.parse(text.value).captureEnabled).toBe(true);
+});
+
+it('opens the recording area when capture is already on for this tab', async () => {
+  await mountReport(true);
+  expect(document.querySelector<HTMLDetailsElement>('details.diagnostic-record')!.open).toBe(true);
+  expect(document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(document.querySelector('summary')!.textContent).toBe('Record steps to reproduce (on)');
 });

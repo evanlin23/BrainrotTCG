@@ -16,3 +16,20 @@
 /* 24px is the WCAG 2.2 minimum target; the whole label is the larger hit area. */
 .diagnostic-capture input { min-width: 24px; min-height: 24px; }
 .diagnostic-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+/* Optional recording sits below the draft and Copy report; the summary is the whole tap target. */
+.diagnostic-record {
+  margin-block: var(--space-3);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+}
+.diagnostic-record > summary {
+  min-height: var(--touch-target);
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+/* At enlarged text a long label wraps inside the sheet instead of running off its edge. */
+.diagnostic-actions .btn { max-width: 100%; white-space: normal; }
