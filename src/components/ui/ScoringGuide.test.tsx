@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { getLatestSet, getSet } from '../../content/sets';
-import { FINISH_MULTIPLIER, HOLO_MULTIPLIER, MISPRINT_MULTIPLIER, MODIFIERS_V1, ODDS_TOTAL, RARITY_POINTS } from '../../engine';
+import { FINISH_MULTIPLIER, HOLO_MULTIPLIER, MISPRINT_MULTIPLIER, MODIFIERS_V1, ODDS_TOTAL, POKER_HANDS, RARITY_POINTS, getPokerHand, handFromCounts } from '../../engine';
 import { formatOneIn } from '../../game/cardStats';
 import ScoringGuide from './ScoringGuide';
 
@@ -98,4 +98,37 @@ it('makes no claim about finishes for a modifier table it does not know', () => 
   expect(text).not.toContain('Misprint stacks');
   // Not a set without modifiers either: no claim about which it has.
   expect(text).not.toContain('has no finishes or misprints');
+});
+
+it('defines what matches in a combo and shows No Matches, Pair and Full House from the engine rules (#645)', () => {
+  const set = getLatestSet('right-now')!;
+  act(() => root.render(<ScoringGuide set={set} onClose={() => {}} />));
+  const text = document.body.textContent ?? '';
+  expect(text).toContain('A combo counts copies of the same card in your pack.');
+  expect(text).toContain("Rarity, holo, finish and misprint don't make a card different: a plain and a Gold copy of the same card still match, but two different cards of the same rarity don't.");
+  const items = [...document.querySelectorAll('[aria-label="Combo examples"] li')].map((li) => li.textContent);
+  expect(items).toEqual([
+    `No Matches: A B C D E (no card repeats), ×${POKER_HANDS.NO_MATCH.multiplier}`,
+    `Pair: A A B C D (2 copies of A), ×${POKER_HANDS.PAIR.multiplier}`,
+    `Full House: A A A B B (3 copies of A and 2 copies of B), ×${POKER_HANDS.FULL_HOUSE.multiplier}`,
+  ]);
+});
+
+it('says holo, not Gold, for the plain-copy match in a set without finishes (#645)', () => {
+  const set = getSet('right-now', 1)!;
+  act(() => root.render(<ScoringGuide set={set} onClose={() => {}} />));
+  const text = document.body.textContent ?? '';
+  expect(text).toContain('a plain and a holo copy of the same card still match');
+  expect(text).not.toContain('a plain and a Gold copy');
+});
+
+it('the engine treats a plain and a Gold copy as one card and two same-rarity cards as different (#645)', () => {
+  expect(handFromCounts([1, 1, 1, 1, 1])).toBe('NO_MATCH');
+  expect(handFromCounts([2, 1, 1, 1])).toBe('PAIR');
+  expect(handFromCounts([3, 2])).toBe('FULL_HOUSE');
+  const gold = { cardId: 'a', rarity: 'COMMON' as const, isHolo: false, finish: 'GOLD' as const };
+  const plain = { cardId: 'a', rarity: 'COMMON' as const, isHolo: false };
+  const other = { cardId: 'b', rarity: 'COMMON' as const, isHolo: false };
+  expect(getPokerHand([gold, plain, other, other, other]).name).toBe('Full House');
+  expect(getPokerHand([plain, other]).name).toBe('No Matches');
 });

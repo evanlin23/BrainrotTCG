@@ -9,6 +9,7 @@ import {
   POKER_HANDS,
   RARITIES_RAREST_FIRST,
   RARITY_POINTS,
+  handFromCounts,
   handOdds,
   oneIn,
   type HandKey,
@@ -28,8 +29,24 @@ interface ScoringGuideProps {
 
 const HAND_ORDER: HandKey[] = ['PAIR', 'TWO_PAIR', 'THREE_OF_A_KIND', 'FULL_HOUSE', 'FOUR_OF_A_KIND', 'FIVE_OF_A_KIND'];
 
+/**
+ * Small packs that show what a combo is. Each number is how many copies of one card the pack holds;
+ * the combo name and multiplier come from the engine's `handFromCounts`, so the examples can't drift from the rules.
+ */
+const COMBO_EXAMPLES: number[][] = [[1, 1, 1, 1, 1], [2, 1, 1, 1], [3, 2]];
 
-/** "Silver up to Diamond": the commonest finish to the rarest. */
+const cardLetter = (i: number) => String.fromCharCode(65 + i);
+
+/** "A A B C D": one letter per distinct card, repeated for each copy. */
+const exampleCards = (counts: readonly number[]) => counts.flatMap((n, i) => Array<string>(n).fill(cardLetter(i))).join(' ');
+
+/** What repeats in an example: "2 copies of A", or "no card repeats". */
+const exampleRepeats = (counts: readonly number[]) => {
+  const repeats = counts.flatMap((n, i) => (n > 1 ? [`${n} copies of ${cardLetter(i)}`] : []));
+  return repeats.length > 0 ? repeats.join(' and ') : 'no card repeats';
+};
+
+/** "Silver up to Diamond":the commonest finish to the rarest. */
 const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.length - 1]].name} up to ${FINISH_INFO[FINISHES_RAREST_FIRST[0]].name}`;
 
 /** A per-card chance in basis points, as the tables show it: "2.5%". */
@@ -137,6 +154,19 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         </p>
 
         <h3>Combos</h3>
+        <p className="scoring-note">
+          A combo counts copies of the <strong>same card</strong> in your pack. Rarity, holo, finish and misprint don&apos;t make a card different: a plain and a {hasModifiers ? finishName : 'holo'} copy of the same card still match, but two different cards of the same rarity don&apos;t.
+        </p>
+        <ul className="scoring-note scoring-examples" aria-label="Combo examples">
+          {COMBO_EXAMPLES.map((counts) => {
+            const hand = POKER_HANDS[handFromCounts(counts)];
+            return (
+              <li key={hand.name}>
+                <strong>{hand.name}</strong>: <span className="scoring-example-cards">{exampleCards(counts)}</span> ({exampleRepeats(counts)}), ×{hand.multiplier.toLocaleString()}
+              </li>
+            );
+          })}
+        </ul>
         <table className="scoring-table">
           <thead>
             <tr><th>Combo</th><th>Chance per pack</th><th>Multiplier</th></tr>
