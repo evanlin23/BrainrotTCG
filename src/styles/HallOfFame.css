@@ -37,6 +37,106 @@
   font-size: var(--text-sm);
 }
 
+/* How Rankings work: always there, closed by default so the page stays short. */
+.hof-how {
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.hof-how summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hof-how summary::after {
+  content: '';
+  width: 0.5em;
+  height: 0.5em;
+  margin-inline-start: auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.hof-how[open] summary::after {
+  transform: rotate(-135deg);
+}
+
+.hof-how-body {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.hof-how-body strong {
+  color: var(--text);
+}
+
+/* First visit, before anything can be listed: placeholder rows in the shape of real ones. */
+.hof-skeleton {
+  display: grid;
+  list-style: none;
+}
+
+.hof-skeleton-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 72px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.hof-skeleton-row + .hof-skeleton-row {
+  border-top: 1px solid var(--border);
+}
+
+.hof-skeleton-lines {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.hof-skeleton-bar {
+  display: block;
+  height: 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  animation: hof-pulse 1.4s ease-in-out infinite;
+}
+
+.hof-skeleton-bar--rank {
+  width: 1.6rem;
+}
+
+.hof-skeleton-bar--cards {
+  width: 54px;
+  height: 42px;
+}
+
+.hof-skeleton-bar--short {
+  width: 60%;
+}
+
+@keyframes hof-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hof-skeleton-bar {
+    animation: none;
+  }
+}
+
 .hof-empty {
   display: grid;
   justify-items: center;
@@ -61,6 +161,11 @@
 .hof-list {
   display: grid;
   list-style: none;
+}
+
+/* Each row measures its own room, in rem, so enlarged text (which grows rem but not the viewport) restacks it. */
+.hof-list li {
+  container-type: inline-size;
 }
 
 .hof-entry {
@@ -231,6 +336,36 @@
 
   .hof-cards img + img {
     margin-left: -12px;
+  }
+}
+
+/* Too narrow for rank, cards, text and score side by side (a phone at 150-200% text): rank and score
+   share the top line, the cards sit under them and the hand, player and set get the full width. */
+@container (width < 18rem) {
+  .hof-entry {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'rank side'
+      'cards cards'
+      'main main';
+    row-gap: var(--space-1);
+  }
+
+  .hof-rank {
+    grid-area: rank;
+    text-align: start;
+  }
+
+  .hof-cards {
+    grid-area: cards;
+  }
+
+  .hof-main {
+    grid-area: main;
+  }
+
+  .hof-side {
+    grid-area: side;
   }
 }
 

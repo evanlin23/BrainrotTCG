@@ -124,6 +124,64 @@ test.describe('at 320px with 200% text and reduced motion', () => {
   });
 });
 
+// One populated row at enlarged text: the fingerprint, score and the other fields must not paint over each
+// other. Emulation, not native text zoom: the root font size is scaled, as the rem tokens read it.
+const populated = {
+  ...entries[0],
+  id: 'row-fixture',
+  proof: 'row-fixture-proof',
+  name: 'Collector',
+  fingerprint: '6HTG-Z65X',
+  score: 546_000,
+  cards: ['pirate-gaster', 'niu-lai', 'bukangi', 'huss-valley', 'la-peace'].map((cardId) => ({ cardId, isHolo: false })),
+};
+
+for (const { width, height, text, label } of [
+  { width: 320, height: 640, text: 200, label: '320x640 at 200% text' },
+  { width: 568, height: 320, text: 200, label: '568x320 at 200% text' },
+  { width: 390, height: 844, text: 100, label: 'a normal phone' },
+  { width: 1100, height: 800, text: 100, label: 'a wide screen' },
+]) {
+  test.describe(`a populated Rankings row at ${label}`, () => {
+    test.use({ viewport: { width, height } });
+
+    test('keeps hand, player, fingerprint, set and score apart, and still opens its proof', async ({ page, baseURL }) => {
+      const errors = await monitor(page, baseURL!, 0, { returning: true });
+      await relaysAnswerEmpty(page);
+      await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [populated] }));
+      await page.goto('./#/rankings');
+      await page.addStyleTag({ content: `html { font-size: ${text}% !important; }` });
+      const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+      await rankings.getByRole('tab', { name: 'All-time', exact: true }).click();
+      const row = rankings.locator('.hof-list .hof-entry').first();
+      await expect(row).toHaveAttribute('aria-label', 'Number 1: Full House by Collector in Right Now, score 546000');
+      await row.scrollIntoViewIfNeeded();
+
+      const fields = ['.hof-rank', '.hof-hand', '.hof-who', '.share-fp', '.hof-meta', '.hof-score'];
+      const boxes = await Promise.all(fields.map(async (selector) => ({ selector, box: (await row.locator(selector).boundingBox())! })));
+      expect(await row.locator('.hof-score').textContent()).toBe('546,000');
+      expect(await row.locator('.share-fp').textContent()).toBe('#6HTG-Z65X');
+      const overlap = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
+        a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+      // .hof-who contains .share-fp, so that pair is expected to touch; every other pair must be apart.
+      const clashes = boxes.flatMap((a, i) => boxes.slice(i + 1)
+        .filter((b) => !(a.selector === '.hof-who' && b.selector === '.share-fp') && overlap(a.box, b.box))
+        .map((b) => `${a.selector} x ${b.selector}`));
+      expect(clashes).toEqual([]);
+      const rowBox = (await row.boundingBox())!;
+      for (const { selector, box } of boxes) {
+        expect(box.x, selector).toBeGreaterThanOrEqual(rowBox.x - 1);
+        expect(box.x + box.width, selector).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+      await row.click();
+      await expect(page).toHaveURL(/#\/pull\/row-fixture-proof$/);
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
 test('Rankings says the live feed is down, not that the board is empty, and Retry asks again', async ({ page, baseURL }) => {
   // Every relay socket is closed (monitor), so recent pulls can't be seen. Nothing is sent or fetched.
   const errors = await monitor(page, baseURL!, 0, { returning: true });

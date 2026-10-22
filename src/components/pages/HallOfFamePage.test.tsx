@@ -77,7 +77,8 @@ describe('Hall of Fame loading', () => {
     await act(async () => clickRetry());
     expect(loadHallOfFame).toHaveBeenCalledTimes(2);
     expect(status().textContent).toBe('Loading rankings…');
-    expect(retryButton()?.disabled).toBe(true);
+    expect(retryButton()).toBeNull();
+    expect(document.querySelector(".hof-skeleton")).not.toBeNull();
 
     await act(async () => settle([ENTRY]));
     expect(status().textContent).toBe('Rankings loaded.');
@@ -278,9 +279,44 @@ describe('Hall of Fame loading', () => {
       expect(status().textContent).toBe('Loading rankings…');
       expect(status().classList.contains('sr-only')).toBe(false);
       expect(status().parentElement?.classList.contains('hof-load-state--quiet')).toBe(false);
-      expect(retryButton()?.disabled).toBe(true);
+      expect(retryButton()).toBeNull();
       expect(loadPending).not.toHaveBeenCalled();
       expect(document.body.textContent).not.toContain('Checking for');
+    });
+
+    it('shows skeleton rows, not an empty board or Retry, while the first load and check run', async () => {
+      let settle!: (list: HallOfFameEntry[]) => void;
+      loadHallOfFame.mockImplementationOnce(() => new Promise((resolve) => { settle = resolve; }));
+      loadPending.mockImplementationOnce(() => new Promise<boolean>(() => {}));
+      await act(async () => root.render(<HallOfFamePage />));
+      const skeleton = () => document.querySelector('.hof-skeleton');
+      expect(skeleton()?.getAttribute('aria-hidden')).toBe('true');
+      expect(skeleton()?.querySelectorAll('.hof-skeleton-row').length).toBe(3);
+      expect(document.querySelector('.hof-empty')).toBeNull();
+      expect(retryButton()).toBeNull();
+
+      // The list arrived but is empty and the live check is still running: still placeholders, not "nothing here".
+      await act(async () => settle([]));
+      expect(status().textContent).toBe(CHECKING);
+      expect(skeleton()).not.toBeNull();
+      expect(document.querySelector('.hof-empty')).toBeNull();
+      expect(retryButton()).toBeNull();
+    });
+
+    it('drops the skeleton as soon as there are rows to show', async () => {
+      loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+      loadPending.mockImplementationOnce(() => new Promise<boolean>(() => {}));
+      await act(async () => root.render(<HallOfFamePage />));
+      await select('All-time');
+      expect(rows()).toHaveLength(1);
+      expect(document.querySelector('.hof-skeleton')).toBeNull();
+    });
+
+    it('shows Retry after a failed load, and no skeleton', async () => {
+      loadHallOfFame.mockResolvedValueOnce(null);
+      await act(async () => root.render(<HallOfFamePage />));
+      expect(retryButton()).not.toBeNull();
+      expect(document.querySelector('.hof-skeleton')).toBeNull();
     });
 
     it('shows the checking line as one quiet line, once the published list is loaded', async () => {
@@ -425,6 +461,41 @@ describe('Hall of Fame loading', () => {
     expect([...document.querySelectorAll('.hof-who')].map((el) => el.textContent)).toEqual(['Player #abcd', 'Anonymous #abcd']);
     expect(labels()[0]).toBe('Number 1: Full House by Player in Original, score 12345');
     expect(document.body.textContent).not.toMatch(/fuck/i);
+  });
+});
+
+describe('How Rankings work', () => {
+  const how = () => document.querySelector<HTMLDetailsElement>('details.hof-how');
+  const stateSetups: Record<string, () => void> = {
+    loading: () => loadHallOfFame.mockImplementationOnce(() => new Promise(() => {})),
+    'failed load': () => loadHallOfFame.mockResolvedValueOnce(null),
+    'feed unavailable': () => { loadHallOfFame.mockResolvedValueOnce([]); loadPending.mockResolvedValueOnce(false); },
+    'healthy empty': () => loadHallOfFame.mockResolvedValueOnce([]),
+    populated: () => loadHallOfFame.mockResolvedValueOnce([ENTRY]),
+  };
+
+  it.each(Object.keys(stateSetups))('explains eligibility and explicit submission in the %s state', async (state) => {
+    stateSetups[state]();
+    await act(async () => root.render(<HallOfFamePage />));
+    const text = how()!.textContent!;
+    expect(how()!.querySelector('summary')?.textContent).toBe('How Rankings work');
+    expect(text).toContain('a Full House or better, or a Brainrot Score of 20,000+');
+    expect(text).toContain('Nothing is filed automatically');
+    expect(text).toMatch(/Opening a pack, or copying or sharing a link, does not enter you/);
+    expect(text).toContain('tap Submit');
+    expect(text).toContain('Submit is missing when the pull does not qualify');
+    expect(text).toContain('display name and public key public');
+    expect(text).toContain('Submitting is not a rank');
+    expect(text).toContain('Hall of Fame');
+    expect(how()!.open).toBe(false);
+  });
+
+  it('keeps the explanation on both tabs', async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    await act(async () => root.render(<HallOfFamePage />));
+    await select('All-time');
+    expect(how()).not.toBeNull();
+    expect(how()!.closest('[role="tabpanel"]')).toBeNull();
   });
 });
 
