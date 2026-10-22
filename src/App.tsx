@@ -33,6 +33,7 @@ import { getHistory } from './game/history';
 import { sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
+import { isStaging, STAGING_NOTE } from './game/staging';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
 import { useSetLink } from './hooks/useSetLink';
@@ -462,6 +463,7 @@ function App() {
 
   return (
     <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
+      {isStaging() && <p role="note" className="save-warning staging-banner">{STAGING_NOTE}</p>}
       {bannerWarning && route !== 'settings' && (
         <p role="alert" className="save-warning">
           {bannerWarning}
