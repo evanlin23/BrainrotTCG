@@ -18,6 +18,7 @@ import { STORAGE_KEYS } from '../constants';
 import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
 import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY, ticketCount, withAllowedName } from './player';
 import { isQuotaError, isValidSaveValue } from './saveFile';
+import { withReadableCache } from './history';
 
 const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
 const OLD_SITE_URL: string = import.meta.env.VITE_OLD_SITE_URL || '';
@@ -178,6 +179,8 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
   // browser's own version can't stand in for an older save's and skip its migrations.
   const version = incoming[DATA_VERSION_KEY] ?? '1';
   if (!/^[1-9][0-9]*$/.test(version) || Number(version) > CURRENT_DATA_VERSION) return 'invalid';
+  // Unreadable cached codes the old address kept (#652) are dropped, as this address reads them, not refused.
+  if (STORAGE_KEYS.HISTORY in incoming) incoming[STORAGE_KEYS.HISTORY] = withReadableCache(incoming[STORAGE_KEYS.HISTORY])!;
   if (!Object.entries(incoming).every(([k, v]) => isValidSaveValue(k, v, Number(version)))) return 'invalid';
   incoming[DATA_VERSION_KEY] = version;
   const progress = hasProgress();

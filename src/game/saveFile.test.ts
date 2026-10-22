@@ -8,6 +8,7 @@ import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY } from './player';
 import { recordPack } from './history';
 import type { OpenedPack } from './pulls';
+import { myProfileInfo, myStats, myTickets, resetTicketList } from './profiles';
 
 const player = (secretKey = 'aa'.repeat(32), nextNonce = 7) => JSON.stringify({ secretKey, name: 'Combo Miner', nextNonce, createdAt: 1 });
 const fixture = () => ({
@@ -100,6 +101,12 @@ describe('Save & backup preflight', () => {
     ['history object', { history: '{}' }],
     ['invalid history entry', { history: '[null]' }],
     ['invalid history cache', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":[],"h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with LF', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"sig\\nma","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with CR', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"sig\\rma","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with U+2028', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"sig\\u2028ma","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with U+2029', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"sig\\u2029ma","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with empty token', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"a,,b","h":"No Match","x":1,"t":1}]' }],
+    ['history cached cards with invalid code', { history: '[{"s":"genesis","v":1,"n":0,"k":"a","c":"*G!","h":"No Match","x":1,"t":1}]' }],
     // recordPack refuses these too, so importing one would block every later pack write.
     ['history set version 0', { history: '[{"s":"genesis","v":0,"n":0,"k":"a","h":"No Match","x":1,"t":1}]' }],
     ['history without a set id', { history: '[{"s":"","v":1,"n":0,"k":"a","h":"No Match","x":1,"t":1}]' }],
@@ -510,5 +517,39 @@ describe('a nearly full browser storage', () => {
     expect(importSaveFile(JSON.stringify(save), { keepCopy })).toBe(keepCopy ? NO_ROOM_FOR_COPY_NOTE : FILE_TOO_BIG_NOTE + COPIES_NOTE);
     expect(store).toEqual(before);
     expect(write.mock.calls.some(([key, value]) => key === STORAGE_KEYS.STATS && value === save.stats)).toBe(true); // it got partway
+  });
+
+  it('imports a save with extreme safe-integer counter without capping, and summaries run boundedly (#693)', () => {
+    // A 1M counter first, as a sentinel: if enumeration ever expanded to nextNonce again, this fails
+    // (1M tickets) before the MAX_SAFE_INTEGER counter could hang or exhaust memory.
+    for (const nextNonce of [1_000_000, Number.MAX_SAFE_INTEGER]) {
+      const extremePlayer = JSON.stringify({ secretKey: '01'.repeat(32), name: 'Audit fixture', nextNonce, createdAt: 1 });
+      const save = { version: 2, dataVersion: 3, exportedAt: new Date(0).toISOString(), player: extremePlayer, history: '[]' };
+      resetTicketList();
+      expect(importSaveFile(JSON.stringify(save))).toBeNull();
+      expect(exportPlayer()).toBe(extremePlayer);
+      expect(myTickets()).toHaveLength(0);
+      expect(myProfileInfo()).toMatchObject({ packs: nextNonce, filled: nextNonce, missing: nextNonce, cache: 'ready' });
+      expect(myStats()).toMatchObject({ level: 1, xp: 0 });
+    }
+  });
+
+  it("round-trips this device's own export when its history holds an unreadable cached code (#652)", () => {
+    const rows = [
+      { s: 'genesis', v: 1, n: 0, k: 'a', c: 'sig\nma', h: 'No Match', x: 1, t: 1 },
+      { s: 'genesis', v: 1, n: 1, k: 'a', c: 'bombardiro-crocodilo', h: 'No Match', x: 2, t: 2 },
+    ];
+    store.set(STORAGE_KEYS.HISTORY, JSON.stringify(rows));
+    const ownPlayer = JSON.parse(exportPlayer());
+    const exported = exportSaveFile();
+    // Only the unreadable cache goes: both ticket mappings stay, as getHistory reads them.
+    const { c: _unreadable, ...uncached } = rows[0];
+    expect(JSON.parse(JSON.parse(exported).history)).toStrictEqual([uncached, rows[1]]);
+    // Into a fresh browser: imported whole, identity included.
+    store.clear();
+    expect(importSaveFile(exported)).toBeNull();
+    expect(JSON.parse(store.get(STORAGE_KEYS.HISTORY)!)).toStrictEqual([uncached, rows[1]]);
+    expect(JSON.parse(exportPlayer())).toEqual(ownPlayer);
+    expect(peekNonce()).toBe(12);
   });
 });
