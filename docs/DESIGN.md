@@ -109,7 +109,9 @@ results line (`PackSummaryUI.tsx`) that goes.
 4. **Reveal.** One new-card cue: the lower row (rarity, points, New). The on-art New sticker on the
    active card goes; the announcement stays. In landscape under 500 px tall the card gets at least
    70% of the height (about 250 px at 640x360, not 110), with the rarity row, hint and Skip in a
-   column beside it; the X, Skip and advance stay reachable.
+   column beside it; the X, Skip and advance stay reachable. On the last card the hint
+   says it opens the pack summary ("Click or press Space to see the pack summary", "Swipe or tap to
+   see the pack summary"), since the same press does.
 5. **Result.** One composition, a graded slab: the five cards in reveal order (best last) under one
    label, **[score] Brainrot Score** then **[combo] x[multiplier]**, plus the Hall of Fame line only
    when the pull qualifies. At most three short lines; no 1-in-X, XP or fingerprint (that is on the
