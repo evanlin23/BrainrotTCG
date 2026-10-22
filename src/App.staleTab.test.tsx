@@ -90,6 +90,7 @@ beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
   localStorage.clear();
   otherTab.afterTake = undefined;
+  window.location.hash = '';
   opener.onOpen = undefined;
   localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
 });
@@ -111,6 +112,26 @@ describe('a tab whose save another tab of the same player has written since', ()
     // Taken off the shelf at load and never stored here: the next load adds it.
     expect(shelfNonces()).toContain(7);
     expect(container.textContent).toContain(STALE);
+    // The warning says the pack is not stored here, so no "Pack kept" notice contradicts it.
+    expect(container.textContent).not.toContain('Pack kept');
+  });
+
+  it('does not say a pack was kept once another tab has written, even if the notice was already waiting', async () => {
+    // On a page the toasts wait, so the recovery notice is queued while this tab is still current.
+    window.location.hash = '#/cards';
+    savePendingPack(owedPack(7));
+    await mount();
+    expect(container.textContent).not.toContain(STALE);
+    await act(async () => {
+      recordInOtherTab();
+      window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.STATS }));
+    });
+    expect(container.textContent).toContain(STALE);
+    await act(async () => {
+      window.location.hash = '';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    expect(container.textContent).not.toContain('Pack kept');
   });
 
   it('hears another tab record a pack and stops opening packs before it next writes', async () => {

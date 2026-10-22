@@ -117,7 +117,7 @@ it('says on return that an interrupted pack was kept, once, with a way to its ca
   await app.until('the recovered pack reaches the collection', () => expect(storedCards()).toBe(5));
   await app.until('a notice says the pack was kept', () => expect(toastTexts()).toHaveLength(1));
   expect(toastTexts()[0]).toContain('Pack kept');
-  expect(toastTexts()[0]).toContain('Your unfinished pack is in Cards');
+  expect(toastTexts()[0]).toContain('A pack from your last visit is in Cards');
   expect(document.querySelector('.toast-region')?.getAttribute('role')).toBe('status');
   // It does not cover or replace the pack to open, and a tap takes the player to the cards.
   expect(document.querySelector('.pack-open-button')).not.toBeNull();
@@ -126,8 +126,10 @@ it('says on return that an interrupted pack was kept, once, with a way to its ca
     expect(location.hash).toContain('cards');
     expect(toastTexts()).toEqual([]);
   });
-  // Recovery is done: the next load has nothing to explain.
+  // Recovery is done: the next load has nothing to explain. Back on the open route, where toasts show.
+  window.history.replaceState(null, '', '/BrainrotTCG/');
   await app.reload();
+  expect(document.querySelector('.pack-open-button')).not.toBeNull();
   await app.settle(500);
   expect(toastTexts()).toEqual([]);
 }, 60_000);
@@ -139,7 +141,7 @@ it('gives several recovered packs one notice, not one each', async () => {
   await app.reload();
   await app.until('the recovered packs reach the collection', () => expect(storedCards()).toBe(15));
   await app.until('one notice says the packs were kept', () => expect(toastTexts()).toHaveLength(1));
-  expect(toastTexts()[0]).toContain('3 unfinished packs are in Cards');
+  expect(toastTexts()[0]).toContain('3 packs from your last visit are in Cards');
   await app.settle(500);
   expect(toastTexts()).toHaveLength(1);
 }, 60_000);
@@ -159,7 +161,7 @@ it('does not say a recovered pack was kept when the collection cannot be stored'
   expect(toastTexts().join(' | '), 'a pack that could not be stored was said to be kept').not.toContain('Pack kept');
   // Still owed on the shelf, so a later load can keep it and say so then.
   expect(shelvedPacks().map((pack) => pack.n)).toEqual([0]);
-  app.takeErrors(/./);
+  expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
 }, 60_000);
 
 it('waits for a slow ticket with the app held on the pack, then records the late pack once', async () => {

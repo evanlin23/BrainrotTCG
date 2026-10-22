@@ -345,8 +345,8 @@ function App() {
     const notice: ToastItem = {
       id: `pack-kept-${keptNotices.current}`,
       kicker: 'Pack kept',
-      name: count === 1 ? 'Your unfinished pack is in Cards' : `${count} unfinished packs are in Cards`,
-      description: 'You left before the reveal ended. Tap to see them.',
+      name: count === 1 ? 'A pack from your last visit is in Cards' : `${count} packs from your last visit are in Cards`,
+      description: count === 1 ? 'Tap to see it.' : 'Tap to see them.',
       opens: 'collection',
     };
     setNotificationQueue((prev) => [notice, ...prev]);
@@ -417,7 +417,8 @@ function App() {
     const taken = takePendingPacks();
     packsTaken(taken);
     taken.reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
-    noticeRecoveredPacks(taken.length);
+    // Not for a tab already known to be stale: it stores nothing, and the notice would flash before the warning.
+    if (samePlayer() && progressCurrent()) noticeRecoveredPacks(taken.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
