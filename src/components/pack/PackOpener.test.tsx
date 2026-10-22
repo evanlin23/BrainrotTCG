@@ -6,6 +6,7 @@ import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack } from '../../game/pulls';
+import { StaleSaveError } from '../../game/player';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 import { REFUSAL_COPY } from './refusal';
@@ -14,11 +15,12 @@ import { REFUSAL_COPY } from './refusal';
 // and completeCut finishes one the way the real cutter does (the Open pack button calls it).
 // Its callbacks are stable, as the real hook's are: the opener's unmount cleanup depends on them.
 const cutter = vi.hoisted(() => ({
-  cutting: false, tear: () => {}, endCutAttempt: vi.fn(), completeCut: vi.fn(), resetCutState: () => {}, cleanup: () => {},
+  cutting: false, tear: () => {}, shortSwipe: () => {}, endCutAttempt: vi.fn(), completeCut: vi.fn(), resetCutState: () => {}, cleanup: () => {},
 }));
 vi.mock('../../hooks/usePackCutter', () => ({
-  usePackCutter: ({ onCutComplete }: { onCutComplete: () => void }) => {
+  usePackCutter: ({ onCutComplete, onShortSwipe }: { onCutComplete: () => void; onShortSwipe?: () => void }) => {
     cutter.tear = onCutComplete;
+    cutter.shortSwipe = onShortSwipe ?? (() => {});
     return {
       packRef: { current: null },
       isCutting: cutter.cutting,
@@ -51,9 +53,11 @@ const countPopstate = () => {
   popstated();
 };
 
+/** The save the tab loaded, which every tear binds its claim to. */
+const MOUNTED_SAVE = { key: 'ab'.repeat(32), stored: true, stamp: null };
 const render = (disabled: boolean, openBlocked = false, settings = DEFAULT_SETTINGS) =>
   act(() => root.render(
-    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} />,
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} mountedSave={MOUNTED_SAVE} />,
   ));
 
 beforeEach(() => {
@@ -191,7 +195,31 @@ describe('the controls under the pack (#312)', () => {
 
     await pastTheTear();
     expect(openPack).toHaveBeenCalledOnce();
-    expect(openPack).toHaveBeenCalledWith(SETS[0]);
+    expect(openPack).toHaveBeenCalledWith(SETS[0], MOUNTED_SAVE);
+  });
+
+  it('answers a swipe let go short with a spring-back and a hint, then still opens with a tap (#803)', async () => {
+    await render(false);
+    const shell = $('.pack-shell')!;
+    const hint = () => $('.swipe-hint-text')?.textContent;
+    expect(hint()).toBe('Drag across to open');
+    expect(shell.classList.contains('is-short')).toBe(false);
+
+    act(() => cutter.shortSwipe());
+    expect(shell.classList.contains('is-short')).toBe(true);
+    expect(hint()).toBe('Drag farther or tap Open');
+    expect(openButton()?.classList.contains('is-prompted')).toBe(true);
+
+    // The feedback lasts a moment, then the usual cue is back.
+    await act(async () => { vi.advanceTimersByTime(1900); });
+    expect(shell.classList.contains('is-short')).toBe(false);
+    expect(hint()).toBe('Drag across to open');
+    expect(openButton()?.classList.contains('is-prompted')).toBe(false);
+
+    // And the button the hint names opens the pack.
+    act(() => cutter.shortSwipe());
+    act(() => openButton()!.click());
+    expect(cutter.completeCut).toHaveBeenCalledOnce();
   });
 
   it('says why a refused ticket opened nothing, and Try again asks for it again', async () => {
@@ -218,6 +246,20 @@ describe('the controls under the pack (#312)', () => {
     expect(document.activeElement).toBe(openButton());
     await pastTheTear();
     expect(openPack).toHaveBeenCalledTimes(2);
+  });
+
+  it('says the save changed and stays sealed when openPack rejects with StaleSaveError', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(openPack).mockRejectedValueOnce(new StaleSaveError());
+    await render(false);
+    openButton()!.focus();
+    act(() => openButton()!.click());
+    await pastTheTear();
+
+    expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
+    expect(announced()).toBe(REFUSAL_COPY.blocked.message);
+    expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    await act(async () => { vi.advanceTimersByTime(100); });
   });
 
   it('keeps the pack sealed while another tab holds the save, and says so instead of tearing it', async () => {

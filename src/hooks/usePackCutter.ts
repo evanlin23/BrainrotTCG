@@ -7,26 +7,50 @@ import { FAIRY_DUST_SRC, WOOSH_SRC, soundVolume } from '../constants/audio';
 // Pack cutting constants
 const TEAR_LINE_RATIO = 0.19;
 /**
+ * A press starts a cut anywhere from the pack's top down to this fraction of its height (the top
+ * third), or START_BAND_BELOW_SEAM_PX under the seam if that reaches lower. The seam (TEAR_LINE_RATIO)
+ * is where the swipe is drawn and hinted, not a target to hit: the band used to be only 26 to 52px
+ * either side of it, and strokes that felt like a swipe across the pack missed it (#626). A press
+ * below the band is a tap or a swipe on the art, and gets a nudge up to the seam instead.
+ */
+const START_BAND_RATIO = 1 / 3;
+/** The start band reaches at least this far, in CSS pixels, under the seam, however small the pack (#626). */
+const START_BAND_BELOW_SEAM_PX = 80;
+/**
  * A stroke spanning this much of the pack's width opens it while it's still moving. A steady swipe opens
  * a third of the way across instead of past halfway, so the pack answers before the thumb runs out (#267).
  */
 const DRAG_CUT_RATIO = 0.3;
-/** A stroke spanning this much opens the pack when it's released: a short swipe is enough (#312). */
-const RELEASE_CUT_RATIO = 0.2;
+/**
+ * A stroke spanning this much opens the pack when it's released: a short swipe is enough (#312), and
+ * now so is a flick of 12% of the pack (#626, down from a fifth). GESTURE_SLOP_PX and MIN_CUT_PX
+ * still keep a tap or a wobble from counting, most of all on a small pack.
+ */
+const RELEASE_CUT_RATIO = 0.12;
 /** Nor less than this, in CSS pixels, however small the pack. */
 const MIN_CUT_PX = 32;
 const MAX_CUT_POINTS = 64;
 /**
- * How far, in CSS pixels, a press on the seam must move across before it can count as a swipe. Under
- * this it's a tap or a wobble (#267).
+ * How far, in CSS pixels, a press must move across before it can count as a swipe. Under this it's a
+ * tap or a wobble (#267).
  */
 const GESTURE_SLOP_PX = 10;
 /**
- * A press that has moved this far up or down, and at least twice as far as across, is a scroll or a
- * drag down the art and never cuts. A thumb that settles a few pixels before swiping stays undecided,
- * so it still opens (#267).
+ * A swipe may cover up to this many times as far up or down as it does across (#626, up from 1x), about
+ * 56 degrees from horizontal: a thumb sweeping across the pack at an angle, or arcing as it goes, still
+ * opens it. A stroke steeper than that never opens the pack. The cut and the call that a press is going
+ * across both use it, so a steady diagonal that cuts is drawn as well.
+ */
+const MAX_DRIFT_RATIO = 1.5;
+/**
+ * A press that has moved this far up or down, and at least VERTICAL_REJECT_RATIO times as far as
+ * across, is a scroll or a drag down the art and never cuts. A thumb that settles a few pixels before
+ * swiping stays undecided, so it still opens (#267). Between MAX_DRIFT_RATIO and the reject ratio a
+ * press is steeper than a swipe may be but not yet clearly a scroll: it stays undecided, can't cut as
+ * it is, and counts as going across only if the swipe catches up.
  */
 const VERTICAL_REJECT_PX = MIN_CUT_PX;
+const VERTICAL_REJECT_RATIO = 2;
 const DRAWN_CUT_OFFSET_RATIO = 0.000;
 const CUT_LINE_RATIO = TEAR_LINE_RATIO + DRAWN_CUT_OFFSET_RATIO;
 
@@ -35,7 +59,7 @@ export interface CutPoint {
   y: number;
 }
 
-/** A stroke that started on the seam, in pack bounding-box pixels. */
+/** A stroke that started in the start band, in pack bounding-box pixels. */
 interface CutStroke {
   /** Its extent so far, from where the press landed. */
   minX: number;
@@ -43,8 +67,8 @@ interface CutStroke {
   minY: number;
   maxY: number;
   /**
-   * It has gone at least GESTURE_SLOP_PX across, and as far across as up or down: a swipe along the
-   * seam. Until then it neither draws nor cuts.
+   * It has gone at least GESTURE_SLOP_PX across, and no more than MAX_DRIFT_RATIO times as far up or
+   * down as across: a swipe over the pack. Until then it neither draws nor cuts.
    */
   across: boolean;
 }
@@ -52,13 +76,13 @@ interface CutStroke {
 /**
  * Whether a stroke has cut far enough. Its span is everything it covered across (in either
  * direction, so over and back counts in full), and must reach `ratio` of the pack's width and
- * MIN_CUT_PX, and be at least its span up or down, so a mostly vertical drag or a scroll never
- * opens the pack. This only decides when the pack opens; what's in it comes from the ticket, which
+ * MIN_CUT_PX, and cover no more than MAX_DRIFT_RATIO times that up or down, so a mostly vertical
+ * drag or a scroll never opens the pack. This only decides when the pack opens; what's in it comes from the ticket, which
  * never sees the gesture.
  */
 const strokeCuts = (stroke: CutStroke, packWidth: number, ratio: number) => {
   const across = stroke.maxX - stroke.minX;
-  return stroke.across && across >= Math.max(MIN_CUT_PX, packWidth * ratio) && across >= stroke.maxY - stroke.minY;
+  return stroke.across && across >= Math.max(MIN_CUT_PX, packWidth * ratio) && stroke.maxY - stroke.minY <= MAX_DRIFT_RATIO * across;
 };
 
 /** The event's points in order, including any the browser coalesced into it, so a fast flick counts. */
@@ -84,13 +108,15 @@ interface UsePackCutterOptions {
   particlesEnabled?: boolean;
   /** A sheet is open over the pack: drags belong to it, even after it closes mid-drag. */
   disabled?: boolean;
-  /** A press on the pack away from the tear line (a tap, or a swipe across the art): time for a nudge. */
+  /** A press on the pack below the start band (a tap, or a swipe across the art): time for a nudge. */
   onMiss?: () => void;
-  /** A press on the tear line let go without swiping across (a tap): time to show the swipe. */
+  /** A press in the start band let go without swiping across (a tap): time to show the swipe. */
   onSeamTap?: () => void;
+  /** A swipe went across but was let go too short (or too steep) to open: time to spring back and say so (#803). */
+  onShortSwipe?: () => void;
 }
 
-export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss, onSeamTap }: UsePackCutterOptions) => {
+export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss, onSeamTap, onShortSwipe }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
   /** A press landed on the seam and hasn't been released or ruled out: the seam lights up under it. */
   const [isPressing, setIsPressing] = useState(false);
@@ -99,7 +125,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   const { sparks, emitSpark, clearSparks } = useSparks(particlesEnabled);
 
   const packRef = useRef<HTMLDivElement>(null);
-  /** The stroke from a press on the seam, or null. */
+  /** The stroke from a press in the start band, or null. */
   const strokeRef = useRef<CutStroke | null>(null);
   const cutCompletedRef = useRef(false);
   const isPointerDownRef = useRef(false);
@@ -111,8 +137,8 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   /** The owner's pointerType. Only read while there is an owner. */
   const ownerTypeRef = useRef<string | null>(null);
   /**
-   * This press started over something else (an open sheet), beside the pack or off the seam, or set off
-   * up or down, so it can't cut until it's released.
+   * This press started over something else (an open sheet), beside the pack or below the start band, or
+   * set off up or down, so it can't cut until it's released.
    */
   const blockedRef = useRef(false);
   const fairyDustRef = useRef<HTMLAudioElement | null>(null);
@@ -220,8 +246,9 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     const { rect, layout } = measure;
     return {
       ...mapPackPointer(clientX, clientY, rect, layout, CUT_LINE_RATIO),
-      tearY: rect.height * TEAR_LINE_RATIO,
-      tolerance: Math.min(52, Math.max(26, rect.height * 0.08)),
+      // Where a press can start a cut: from the pack's top down to the top third of the pack, or
+      // START_BAND_BELOW_SEAM_PX under the seam if that reaches lower (#626).
+      startBandBottom: Math.max(rect.height * START_BAND_RATIO, rect.height * TEAR_LINE_RATIO + START_BAND_BELOW_SEAM_PX),
     };
   }, [measurePack]);
 
@@ -247,14 +274,15 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   }, [onCutComplete, clearSparks, cancelFrame, volume]);
 
   /**
-   * Follow one pointer position of a press that landed on the seam. Its direction stays undecided
-   * until it's clear (#267): once it has gone GESTURE_SLOP_PX across and as far across as up or down,
-   * it's a swipe; once it has gone VERTICAL_REJECT_PX up or down and twice as far as across, it's a
-   * scroll or a drag down the art, and the press can't cut until it's released. A small settle up or
-   * down before swiping decides neither. Any point over the pack's height counts (x past an edge
-   * counts as that edge), so a slanted swipe still cuts and drifting off the line doesn't end it. A
-   * release point is only measured (`draw` false): the cut line and sparks end with the press. Points
-   * count toward the cut at once; the next frame draws them, once the stroke goes across.
+   * Follow one pointer position of a press that landed in the start band. Its direction stays
+   * undecided until it's clear (#267): once it has gone GESTURE_SLOP_PX across and no more than
+   * MAX_DRIFT_RATIO times as far up or down, it's a swipe; once it has gone VERTICAL_REJECT_PX up or
+   * down and VERTICAL_REJECT_RATIO times as far as across, it's a scroll or a drag down the art, and the
+   * press can't cut until it's released. A small settle up or down before swiping decides neither. Any
+   * point over the pack's height counts (x past an edge counts as that edge), so a slanted swipe still
+   * cuts and drifting off the seam doesn't end it (#626). A release point is only measured (`draw`
+   * false): the cut line and sparks end with the press. Points count toward the cut at once; the next
+   * frame draws them, once the stroke goes across.
    */
   const trackPoint = useCallback((clientX: number, clientY: number, draw = true) => {
     const stroke = strokeRef.current;
@@ -269,7 +297,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       // bottom, so a settle and a swipe add up rather than the first few pixels deciding.
       const spanX = Math.max(stroke.maxX, clampedX) - Math.min(stroke.minX, clampedX);
       const spanY = Math.max(stroke.maxY, point.y) - Math.min(stroke.minY, point.y);
-      if (spanY >= VERTICAL_REJECT_PX && spanY >= 2 * spanX) {
+      if (spanY >= VERTICAL_REJECT_PX && spanY >= VERTICAL_REJECT_RATIO * spanX) {
         // Clearly up or down: nothing has drawn, so there's nothing to clear but what was waiting.
         cancelFrame();
         strokeRef.current = null;
@@ -277,7 +305,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
         setIsPressing(false);
         return;
       }
-      if (spanX >= GESTURE_SLOP_PX && spanX >= spanY) {
+      if (spanX >= GESTURE_SLOP_PX && spanY <= MAX_DRIFT_RATIO * spanX) {
         stroke.across = true;
         // Play fairy dust sound when cutting starts
         if (draw && volume > 0) {
@@ -371,9 +399,9 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     }
     isPointerDownRef.current = true;
     if (isOpening || isPackCut) return;
-    // Only a press on the seam can cut. One on the art (a tap, or a swipe or scroll from there) gets a
-    // nudge, even if it's dragged onto the seam later (#267).
-    if (Math.abs(point.y - point.tearY) > point.tolerance) {
+    // Only a press in the start band can cut. One further down the art (a tap, or a swipe or scroll from
+    // there) gets a nudge, even if it's dragged up into the band later (#267, #626).
+    if (point.y > point.startBandBottom) {
       blockedRef.current = true;
       onMiss?.();
       return;
@@ -399,7 +427,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   }, [trackPoint, disabled, isOpening, isPackCut]);
 
   /**
-   * On release, a stroke that started on the seam, went across and is wide enough finishes the cut.
+   * On release, a stroke that started in the start band, went across and is wide enough finishes the cut.
    * The release's points are read for direction too, so a flick with no moves before it is judged
    * like any other swipe.
    */
@@ -414,12 +442,14 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       const width = measurePack()?.rect.width;
       const stroke = strokeRef.current;
       if (width !== undefined && stroke && strokeCuts(stroke, width, RELEASE_CUT_RATIO)) completeCut();
-      // A tap on the seam (it never went across, nor up or down far enough to be a scroll) cuts
+      // A tap in the band (it never went across, nor up or down far enough to be a scroll) cuts
       // nothing, so the pack shows the swipe instead (#485).
       else if (stroke && !stroke.across) onSeamTap?.();
+      // A swipe that went across but let go short of opening never fails silently (#803).
+      else if (stroke) onShortSwipe?.();
     }
     endCutAttempt();
-  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onSeamTap]);
+  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onSeamTap, onShortSwipe]);
 
   const cleanup = useCallback(() => {
     if (fairyDustRef.current) {

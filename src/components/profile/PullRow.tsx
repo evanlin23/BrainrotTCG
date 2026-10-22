@@ -29,7 +29,7 @@ const PullRow = ({ cards, set, setId, hand, score, meta, worthy, badge, onClick 
   const [a = '#ff3df2', b = '#29f0ff'] = set?.palette ?? [];
   return (
     <li>
-      <button type="button" className="pull-row" style={{ '--set-a': a, '--set-b': b } as CSSProperties} onClick={onClick} disabled={!cards}>
+      <button type="button" className="pull-row quiet-focus" style={{ '--set-a': a, '--set-b': b } as CSSProperties} onClick={onClick} disabled={!cards}>
         <span className="pull-row-thumbs" aria-hidden="true">
           {cards
             ? cards.map((c, i) => <CardImage key={i} src={c.image} finish={c.finish} alt="" loading="lazy" className={`${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} />)

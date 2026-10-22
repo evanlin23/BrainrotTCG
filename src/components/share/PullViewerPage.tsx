@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { checkPull, previewFor, pullUrl, UnknownCardError, type CheckedPull } from '../../game/pulls';
 import { isMemoryError, OUT_OF_MEMORY_ADVICE } from '../../game/ticketPool';
-import { ProofError, publicName } from '../../engine';
+import { ANONYMOUS_NAME, NAME_PLACEHOLDER, ProofError, publicName, type SetDefinition } from '../../engine';
 import { setCode } from '../../content/sets';
 import PackCardViewer from '../ui/PackCardViewer';
 import Sheet from '../ui/Sheet';
@@ -12,6 +12,10 @@ import '../../styles/Share.css';
 interface PullViewerPageProps {
   proof: string;
   onClose: () => void;
+  /** Whether packs of this exact set version can be opened here now (released, current, not archived). */
+  canOpenSet?: (set: SetDefinition) => boolean;
+  /** Choose that set on the packs screen and close the viewer. */
+  onOpenSet?: (setId: string) => void;
 }
 
 type State =
@@ -22,7 +26,7 @@ type State =
   | { status: 'operational'; headline: string; message: string };
 
 /** Opened from a shared `#/pull/<proof>` link. Everything is verified right here, on the viewer's device. */
-const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
+const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPageProps) => {
   const [activeProof, setActiveProof] = useState(proof);
   const [state, setState] = useState<State>({ status: 'checking' });
   const [copied, setCopied] = useState(false);
@@ -158,6 +162,11 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
   }
 
   const { pull } = state;
+  // The sharer's name comes from the verified proof only; blank or blocked names read as "Someone".
+  const sharer = publicName(pull.proof.name);
+  const who = sharer === ANONYMOUS_NAME || sharer === NAME_PLACEHOLDER ? 'Someone' : sharer;
+  // Chase the same set when it can be opened as it was pulled; otherwise the usual packs screen.
+  const chase = onOpenSet && canOpenSet?.(pull.set) ? () => onOpenSet(pull.set.id) : undefined;
   const hand = pull.score.hand.name !== 'No Matches' ? pull.score.hand.name : 'A pull';
   return (
     <Sheet
@@ -175,10 +184,19 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
           <button type="button" className="btn btn--secondary" onClick={copyLink}>
             <Link2 aria-hidden="true" /> {copied ? 'Copied' : 'Copy link'}
           </button>
-          {openOwn}
+          {chase ? (
+            <button type="button" className="btn btn--primary btn--block" onClick={chase}>
+              Open {pull.set.name} packs
+            </button>
+          ) : (
+            openOwn
+          )}
         </div>
       }
     >
+      <p className="pull-viewer-whose">
+        {who} pulled this pack in {pull.set.name}.
+      </p>
       <p className="pull-viewer-badge">
         <span>
           <ShieldCheck aria-hidden="true" /> Verified on this device
@@ -187,7 +205,7 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
           Cert {pull.fingerprint} · {setCode(pull.set)} #{pull.proof.nonce}
         </span>
       </p>
-      <PackCardViewer cards={pull.cardsWithMeta} displayMode="carousel" />
+      <PackCardViewer cards={pull.cardsWithMeta} displayMode="carousel" set={pull.set} />
       <details className="pull-viewer-how">
         <summary>How do we know?</summary>
         <p>

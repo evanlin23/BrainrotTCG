@@ -54,6 +54,9 @@ it('is the Card guide, explaining rarity, holo and modifiers, and how a misprint
   expect(text).not.toContain('same card more than once');
   // The scoring tables stay.
   expect(text).toContain('Brainrot Score = card points added up × combo multiplier');
+  // It says how to read the score, and offers no chance of reaching one (#778).
+  expect(text).toContain('Add up the points of your five cards, then multiply by your combo. A higher score is better.');
+  expect(text).not.toMatch(/packs score this high|Most packs/);
 });
 
 it('leaves finishes out for a set without modifiers', () => {

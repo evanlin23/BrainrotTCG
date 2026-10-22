@@ -13,6 +13,8 @@ vi.mock('./finishImage', () => ({ holdFinishedCardImage }));
 
 /** Every address an Image was pointed at while a poster was drawn. */
 let requested: string[];
+/** Every line of text drawn on the poster. */
+let texts: string[];
 
 class RecordingImage {
   onload: (() => void) | null = null;
@@ -27,13 +29,14 @@ class RecordingImage {
 
 /** A canvas context that accepts any drawing call, so only the image loading is observed. */
 const sink = (): unknown => new Proxy(function sinkTarget() {}, { get: () => sink(), apply: () => sink(), set: () => true });
-const context = () => new Proxy({ measureText: () => ({ width: 100 }) } as Record<string, unknown>, {
+const context = () => new Proxy({ measureText: () => ({ width: 100 }), fillText: (text: string) => texts.push(text) } as Record<string, unknown>, {
   get: (target, key: string) => (key in target ? target[key] : sink()),
   set: () => true,
 });
 
 beforeEach(() => {
   requested = [];
+  texts = [];
   holdFinishedCardImage.mockClear();
   vi.stubGlobal('Image', RecordingImage);
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => context() as unknown as CanvasRenderingContext2D);
@@ -70,4 +73,14 @@ it('still loads archived art on this site, and its finish', async () => {
   await renderCardPoster(poster('/old.webp', 'GOLD'));
   expect(holdFinishedCardImage).toHaveBeenCalledWith('/old.webp', 'GOLD');
   expect(requested).toEqual(['rendered:/old.webp']);
+});
+
+it('labels a card poster with no pack link neutrally, without claiming it predates verifiable pulls', async () => {
+  await renderCardPoster(poster('/old.webp'));
+  expect(texts).toContain('No pack record on this device.');
+  expect(texts.join('\n')).not.toContain('before verifiable pulls');
+  texts = [];
+  await renderCardPoster({ ...poster('/old.webp'), url: 'https://example.test/#/pull/x' });
+  expect(texts).toContain('Scan to re-open the pack it came from.');
+  expect(texts).not.toContain('No pack record on this device.');
 });

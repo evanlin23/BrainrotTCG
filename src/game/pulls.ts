@@ -16,10 +16,10 @@ import {
   type VerifiedPull,
 } from '../engine';
 import { ALL_SET_VERSIONS, getSet } from '../content/sets';
-import { claimNonce, getPlayer, peekNonce } from './player';
+import { claimNonce, getPlayer, peekNonce, sameSave, saveMark, StaleSaveError, type SaveMark } from './player';
 import { recordPack, recordTicket } from './history';
 import { recordBestCards } from './bestCards';
-import { decodeCard, encodeCard, modifiersFor } from './cardCode';
+import { decodeCard, encodeCard, toPulled } from './cardCode';
 import { STORAGE_KEYS } from '../constants';
 import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADLINE_TOKENS, previewOf, previewPath, type ModifiedCard } from './previewLinks';
 import { revealOrder } from './reveal';
@@ -59,11 +59,25 @@ export class UnknownCardError extends Error {
   }
 }
 
-export const toCardsWithMeta = (pulled: { setId: string; cardId: string; isHolo: boolean; finish?: Finish | null; misprint?: boolean }[]): CardWithMeta[] =>
+export type PulledCardLike = {
+  setId: string;
+  cardId: string;
+  rarity?: Rarity;
+  isHolo: boolean;
+  finish?: Finish | null;
+  misprint?: boolean;
+};
+
+/**
+ * Cards as the app shows them, at the rarity they were pulled at: a later version of their set may
+ * change it (#701). Throws for a card this build doesn't know, or one not in the given set version.
+ */
+export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefinition): CardWithMeta[] =>
   pulled.map((p) => {
     const card: Card | undefined = getCard(`${p.setId}/${p.cardId}`);
-    if (!card) throw new UnknownCardError(`${p.setId}/${p.cardId}`);
-    return { ...card, uniqueId: Math.random(), isRevealed: false, isHolo: p.isHolo, ...(p.finish !== undefined ? { finish: p.finish, misprint: !!p.misprint } : {}) };
+    const rarity = p.rarity ?? (set ? set.cards.find((c) => c.id === p.cardId)?.rarity : card?.rarity);
+    if (!card || !rarity) throw new UnknownCardError(`${p.setId}/${p.cardId}`);
+    return { ...card, rarity, uniqueId: Math.random(), isRevealed: false, isHolo: p.isHolo, ...(p.finish !== undefined ? { finish: p.finish, misprint: !!p.misprint } : {}) };
   });
 
 /** Mine the next pack's ticket in the background. */
@@ -86,11 +100,15 @@ export const prefetchNextPack = (set: SetDefinition) => {
  * Without Web Locks both writes land in one task; with them, the claim's lock release (a few lock-manager
  * steps, no mining) sits between, and a tab closed right there leaves the number spent with no mapping.
  */
-export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
+export const openPack = async (set: SetDefinition, expectedSave?: SaveMark): Promise<OpenedPack> => {
+  const initiatingSave = expectedSave ?? saveMark();
+  // The tab's save was already replaced: mine nothing for (and never claim from) the other player.
+  if (!sameSave(initiatingSave, saveMark())) throw new StaleSaveError();
   const owner = getPlayer();
   const next = peekNonce();
   let ticket = await getTicket(setKey(set), owner.publicKey, next);
-  const { nonce, player, stored } = await claimNonce();
+  if (!sameSave(initiatingSave, saveMark())) throw new StaleSaveError();
+  const { nonce, player, stored } = await claimNonce(initiatingSave);
   // One time for the stand-in below and the pack, so the pack sorts where its stand-in did.
   const openedAt = Date.now();
   // Another tab took that number (or switched the key) meanwhile: mine the one claimed. Its mapping is
@@ -100,7 +118,7 @@ export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
     recordTicket(set.id, set.version, nonce, player.publicKeyHex, openedAt);
     ticket = await getTicket(setKey(set), player.publicKey, nonce);
   }
-  const cards = toCardsWithMeta(generatePack(set, packSeedFromTicket(ticket)));
+  const cards = toCardsWithMeta(generatePack(set, packSeedFromTicket(ticket)), set);
   prefetchTicket(setKey(set), player.publicKey, nonce + 1);
   const pack: OpenedPack = {
     setId: set.id,
@@ -431,9 +449,9 @@ export const takePendingPacks = (): OpenedPack[] => {
     const set = getSet(pending.s, pending.v);
     if (!set) continue;
     try {
-      const cards = toCardsWithMeta(
-        pending.c.split(',').map(decodeCard).map((c) => ({ setId: set.id, cardId: c.id, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1) })),
-      ).map((c) => ({ ...c, isRevealed: true }));
+      const pulled = toPulled(pending.c.split(',').map(decodeCard), set);
+      if (!pulled) continue; // A card its set version doesn't have: the history still has the pack.
+      const cards = toCardsWithMeta(pulled, set).map((c) => ({ ...c, isRevealed: true }));
       const flags = { ...(pending.d === 1 ? { counted: true } : {}), ...(legacy.includes(pending) ? { legacy: true } : {}) };
       packs.push({ setId: set.id, setVersion: set.version, nonce: pending.n, publicKeyHex: pending.k, cards, score: scoreCards(cards), openedAt: pending.t, ...flags });
     } catch { /* Unreadable: the history still has it. */ }
@@ -497,5 +515,5 @@ export interface CheckedPull extends VerifiedPull {
  */
 export const checkPull = async (proof: string, signal?: AbortSignal): Promise<CheckedPull> => {
   const verified = await verifyProof(proof, getSet, (set, publicKey, nonce) => getTicket(set, publicKey, nonce, 'optional', signal));
-  return { ...verified, cardsWithMeta: toCardsWithMeta(verified.cards).map((c) => ({ ...c, isRevealed: true })) };
+  return { ...verified, cardsWithMeta: toCardsWithMeta(verified.cards, verified.set).map((c) => ({ ...c, isRevealed: true })) };
 };

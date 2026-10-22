@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
-import { byBest, findPackByCards, findPackWithCard, firstOpened, getHistory, historyForKey, isHallOfFameWorthy, migratePullLog, recordMissing, recordPack, recordTicket, type HistoryEntry } from './history';
+import { byBest, findPackByCards, findPackWithCard, firstOpened, getHistory, historyCards, historyForKey, isHallOfFameWorthy, isStored, migratePullLog, recordMissing, recordPack, recordTicket, ticketsRecorded, type HistoryEntry } from './history';
 import { HALL_OF_FAME_MIN_SCORE, scorePulled } from '../engine';
 import { getSet } from '../content/sets';
 import { decodeCard, toPulled } from './cardCode';
@@ -473,3 +473,127 @@ describe('finding a pack by its cards', () => {
     expect(findPackByCards(holoSwapped, 'right-now', 10 * hour)).toBeNull();
   });
 });
+
+describe('finding a pack with a card', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    installStorage();
+  });
+
+  it('falls back to same-holo or any copy when exactOnly is false or omitted', () => {
+    // Ticket 1 has plain tung-tung-sahur
+    recordPack(pack(1, {
+      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: null, misprint: false }] as unknown as OpenedPack['cards'],
+    }));
+
+    // Looking for Silver tung-tung-sahur without exactOnly falls back to same-holo (isHolo: false)
+    const found = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false, finish: 'SILVER', misprint: false });
+    expect(found?.nonce).toBe(1);
+
+    // Looking for Holo tung-tung-sahur without exactOnly falls back to any copy
+    const foundAny = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: true, finish: null, misprint: false });
+    expect(foundAny?.nonce).toBe(1);
+  });
+
+  it('returns null when exactOnly is true and exact variant is missing from cache', () => {
+    // Ticket 1 has plain tung-tung-sahur (not Silver)
+    recordPack(pack(1, {
+      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: null, misprint: false }] as unknown as OpenedPack['cards'],
+    }));
+
+    // Looking for Silver with exactOnly: true strictly returns null
+    const found = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false, finish: 'SILVER', misprint: false }, { exactOnly: true });
+    expect(found).toBeNull();
+
+    // Looking for Holo with exactOnly: true strictly returns null
+    const foundHolo = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: true, finish: null, misprint: false }, { exactOnly: true });
+    expect(foundHolo).toBeNull();
+  });
+
+  it('returns the exact pack when exactOnly is true and variant is present', () => {
+    recordPack(pack(1, {
+      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: null, misprint: false }] as unknown as OpenedPack['cards'],
+    }));
+    recordPack(pack(2, {
+      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: 'SILVER', misprint: false }] as unknown as OpenedPack['cards'],
+    }));
+
+    const found = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false, finish: 'SILVER', misprint: false }, { exactOnly: true });
+    expect(found?.nonce).toBe(2);
+  });
+});
+
+describe('malformed cached history card codes and safe recovery (#652)', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    resetPackStore();
+  });
+
+  it('rejects history entries with line terminators or malformed codes in isStored', () => {
+    const valid = { s: 'right-now', v: 1, n: 0, k: 'ab', c: 'rizz,sigma*G!', h: 'Pair', x: 100, t: 1000 };
+    expect(isStored(valid)).toBe(true);
+    expect(isStored({ ...valid, c: undefined })).toBe(true);
+
+    for (const terminator of ['\n', '\r', '\u2028', '\u2029']) {
+      expect(isStored({ ...valid, c: `rizz${terminator}id` })).toBe(false);
+      expect(isStored({ ...valid, c: `rizz,sig${terminator}ma,card3` })).toBe(false);
+    }
+
+    for (const bad of ['', ',', 'a,,b', ',a', 'a,', '*G!', 'a,*G!']) {
+      expect(isStored({ ...valid, c: bad })).toBe(false);
+    }
+  });
+
+  it('recovers already-stored rows with malformed cached cards safely without crashing', () => {
+    const data = installStorage();
+    const stored = [
+      { s: 'right-now', v: 1, n: 0, k: 'ab'.repeat(16).slice(0, 16), c: 'sig\nma', h: 'Pair', x: 100, t: 1000 },
+      { s: 'right-now', v: 1, n: 1, k: 'ab'.repeat(16).slice(0, 16), c: 'bombardiro-crocodilo,tung-tung-sahur', h: 'No Matches', x: 50, t: 1001 },
+    ];
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(stored));
+
+    // getHistory decodes successfully without throwing
+    const entries = getHistory();
+    expect(entries).toHaveLength(2);
+
+    // The malformed entry retains its ticket mapping and score, but cards are safely null
+    const malformed = entries.find((e) => e.nonce === 0)!;
+    expect(malformed).toMatchObject({
+      setId: 'right-now',
+      setVersion: 1,
+      nonce: 0,
+      cards: null,
+      hand: 'Pair',
+      score: 100,
+    });
+    expect(historyCards(malformed)).toBeNull();
+
+    // The valid entry retains its cards
+    const valid = entries.find((e) => e.nonce === 1)!;
+    expect(valid.cards).toHaveLength(2);
+
+    // ticketsRecorded still recognizes both tickets
+    expect(ticketsRecorded('ab'.repeat(32))).toBe(2);
+
+    // The stored JSON in localStorage is not erased or truncated
+    expect(data.get(STORAGE_KEYS.HISTORY)).toBe(JSON.stringify(stored));
+
+    // Subsequent pack records succeed and recover the row by dropping unreadable cache
+    expect(recordPack(pack(2))).toBe(true);
+    expect(getHistory()).toHaveLength(3);
+    // The rewrite keeps every other field of both rows and drops only the unreadable cache.
+    const rewritten = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as Record<string, unknown>[];
+    const { c: _dropped, ...withoutCache } = stored[0];
+    expect(rewritten.find((e) => e.n === 0)).toStrictEqual(withoutCache);
+    expect(rewritten.find((e) => e.n === 1)).toStrictEqual(stored[1]);
+  });
+
+  it('falls back to the re-opened pack when a cached code is unreadable (#652)', async () => {
+    const data = installStorage();
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 1, n: 0, k: KEY.slice(0, 16), c: 'sig\nma', h: 'Pair', x: 100, t: 1000 }]));
+    expect(getHistory()[0].cards).toBeNull();
+    await putStoredPacks([{ setKey: 'right-now@1', publicKeyHex: KEY, nonce: 0, cards: 'jimothy*,jimothy,verity' }]);
+    expect(getHistory()[0].cards).toEqual(['jimothy*', 'jimothy', 'verity'].map(decodeCard));
+  });
+});
+

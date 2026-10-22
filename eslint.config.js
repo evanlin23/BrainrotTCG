@@ -6,7 +6,8 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'coverage']),
+  // Agent worktrees nest full checkouts under .claude/worktrees; linting them breaks tsconfig resolution.
+  globalIgnores(['dist', 'coverage', 'test-results', '.claude/worktrees']),
   {
     files: ['**/*.{js,jsx,ts,tsx}'],
     extends: [

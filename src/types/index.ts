@@ -25,7 +25,7 @@ export interface CollectionItem {
 export interface Stats {
   packsOpened: number;
   holoCards: Record<string, boolean>;
-  highestPackValue?: number; // legacy (pre-poker-hands), removed by migration v3
+  highestPackValue?: number; // legacy (pre-poker-hands); migration v3 removes it once the pack is rescored
   /** Best pack's Brainrot Score (field name predates the rename). */
   highestPackFlexValue?: number;
   /** Best pack's card points. */

@@ -1,6 +1,6 @@
 import type { Card } from '../../data/cards';
 import { cardStats } from '../../game/cardStats';
-import { modifierLabel } from '../../game/modifiers';
+import { versionName } from '../../game/modifiers';
 import type { CardVersion } from '../../game/versions';
 
 /**
@@ -10,7 +10,7 @@ import type { CardVersion } from '../../game/versions';
 const CardVersionStats = ({ card, version }: { card: Card; version: CardVersion }) => {
   return (
     <>
-      <p className="card-viewer-version">{modifierLabel(version) || 'Plain'}</p>
+      <p className="card-viewer-version">{versionName(version)}</p>
       <p className="card-viewer-points tabular">{cardStats(card, version).line}</p>
     </>
   );

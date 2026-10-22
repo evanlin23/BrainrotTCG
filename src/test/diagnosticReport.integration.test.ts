@@ -42,6 +42,7 @@ it('previews only sanitized fields, captures optionally, edits and handles clipb
   expect(description(text)).toContain('Event capture is off');
   expect(description(text)).toContain('rough guesses');
   localStorage.setItem('brainrot-player-v1', 'PRIVATE_KEY_NEVER_SHARE');
+  localStorage.setItem('brainrot-collection-recovery-v1', JSON.stringify({ raw: 'PRIVATE_RECOVERY_PAYLOAD', player: '{"secretKey":"PRIVATE_KEY_NEVER_SHARE"}' }));
   history.replaceState(null, '', '#/pull/PRIVATE_PROOF_NEVER_SHARE');
   await app.interact(() => button('Refresh details').click());
   expect(text.value).not.toContain('PRIVATE_');

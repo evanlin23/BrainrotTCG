@@ -524,6 +524,58 @@ describe('browser Back in a pack', () => {
     expect(stats()?.packsOpened).toBe(1);
   }, 30_000);
 
+  it('lands on the whole packs screen from the summary, with the pack kept once, and Forward and Back again behave (#720)', async () => {
+    app = await mountedApp(preferences());
+    const href = location.href;
+    await app.mount();
+    await reveal();
+    await summary();
+    const recorded = () => ({
+      packs: stats()?.packsOpened,
+      history: JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]').length,
+      nextNonce: JSON.parse(localStorage.getItem('brainrot-player-v1') ?? '{}').nextNonce,
+    });
+    expect(recorded()).toEqual({ packs: 1, history: 1, nextNonce: 1 });
+
+    // The packs screen is whole: the pack stage, the wrapper art (both halves) and its Open pack control.
+    const wholeScreen = (when: string) => {
+      expect($('.pack-display'), `${when}: no pack stage`).not.toBeNull();
+      expect(sealed(), `${when}: no Open pack`).not.toBeNull();
+      expect(document.querySelectorAll('.pack-shell .pack-half > img'), `${when}: the wrapper art is missing`).toHaveLength(2);
+      expect($('.card-reveal-area'), `${when}: the summary's area is still there`).toBeNull();
+      expect($('.summary-card'), `${when}: summary cards are still there`).toBeNull();
+      expect($('.pack-shell')!.classList.contains('is-cut'), `${when}: the wrapper is still torn`).toBe(false);
+      expect(focusMode(), `${when}: the chrome is hidden`).toBe(false);
+      expect(location.href, `${when}: the address changed`).toBe(href);
+    };
+
+    await back();
+    await app.until('Back from the summary returns to the packs screen', () => expect(sealed()).not.toBeNull());
+    await app.settle(2000);
+    wholeScreen('after Back');
+    expect(packEntry()).toBe(false);
+    expect(recorded(), 'Back lost or double-counted the pack').toEqual({ packs: 1, history: 1, nextNonce: 1 });
+
+    // Forward onto the old entry reopens nothing and leaves the screen whole.
+    await app.interact(() => history.forward());
+    await app.settle(2000);
+    wholeScreen('after Forward');
+    expect(recorded()).toEqual({ packs: 1, history: 1, nextNonce: 1 });
+
+    // Back again lands on the same whole screen; a new pack still opens and is counted once.
+    await back();
+    await app.settle(2000);
+    wholeScreen('after Back again');
+    expect(recorded()).toEqual({ packs: 1, history: 1, nextNonce: 1 });
+    await reveal();
+    await summary();
+    await back();
+    await app.until('Back returns again', () => expect(sealed()).not.toBeNull());
+    await app.settle(2000);
+    wholeScreen('after the second pack');
+    expect(recorded()).toEqual({ packs: 2, history: 2, nextNonce: 2 });
+  }, 30_000);
+
   it('steps back over a pack\'s entry the page was loaded on, so the first Back leaves the page', async () => {
     app = await mountedApp(preferences());
     // A reload while a pack was open: the page comes back on the pack's entry, with no pack.

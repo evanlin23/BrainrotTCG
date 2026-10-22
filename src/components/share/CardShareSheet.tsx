@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import type { Card } from '../../data/cards';
 import { CARD_RARITIES, cardNumber } from '../../data/cards';
 import { getLatestSet, setCode } from '../../content/sets';
-import { getPlayer } from '../../game/player';
-import { findPackWithCard } from '../../game/history';
+import { getPlayer, watchStoredPlayer } from '../../game/player';
+import { findPackWithCard, getHistory, isExactVersion } from '../../game/history';
 import { canShare, cardPreviewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
 import { modifierLabel } from '../../game/modifiers';
@@ -12,6 +12,7 @@ import { cardStats } from '../../game/cardStats';
 import { RARITY_MARK } from '../../game/share';
 import type { CardVersion } from '../../game/versions';
 import { RARITY_COLORS } from '../../styles/palette';
+import Sheet from '../ui/Sheet';
 import SharePreviewSheet from './SharePreviewSheet';
 
 interface CardShareSheetProps {
@@ -33,7 +34,18 @@ interface CardShareSheetProps {
 const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) => {
   const { isHolo, finish = null, misprint = false } = version;
   const mods = modifierLabel(version);
-  const player = getPlayer();
+  // The player this sheet was opened for. The poster, certificate, QR code, link and text are all
+  // made for them, and the tab's collection is theirs too, so they never follow storage to another
+  // player: if another tab switches the save, the sheet is retired instead (see below).
+  const [player] = useState(() => getPlayer());
+  const [retired, setRetired] = useState(false);
+
+  // Read-only: a rename, a re-import of the same player or a cleared storage leaves the sheet alone;
+  // only a different player key retires it, once and for good (it stays retired if the key returns).
+  useEffect(() => watchStoredPlayer(() => {
+    if (getPlayer().publicKeyHex !== player.publicKeyHex) setRetired(true);
+  }), [player.publicKeyHex]);
+
   const set = getLatestSet(card.setId);
   const setName = set?.name ?? card.setId;
   const code = set ? setCode(set) : card.setId.toUpperCase();
@@ -41,8 +53,20 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
   const cardId = card.key.split('/')[1];
 
   const pack = useMemo((): PullRef | null => {
-    if (from && canShare(from)) return from;
-    const found = findPackWithCard(player.publicKeyHex, card.setId, cardId, { isHolo, finish, misprint });
+    if (from && canShare(from)) {
+      // If history already has cached cards for `from`, verify they contain this exact card variant.
+      // If history has no cached cards for `from` (e.g. freshly opened summary, evicted cache, or stub), trust `from`.
+      const fromEntry = getHistory().find(
+        (e) => e.setId === from.setId && e.setVersion === from.setVersion && e.nonce === from.nonce && (from.publicKeyHex ?? player.publicKeyHex).startsWith(e.key),
+      );
+      if (fromEntry?.cards) {
+        const exactMatch = fromEntry.cards.some((c) => c.id === cardId && isExactVersion(c, { isHolo, finish, misprint }));
+        if (exactMatch) return from;
+      } else {
+        return from;
+      }
+    }
+    const found = findPackWithCard(player.publicKeyHex, card.setId, cardId, { isHolo, finish, misprint }, { exactOnly: true });
     return found && { setId: found.setId, setVersion: found.setVersion, nonce: found.nonce, publicKeyHex: found.key };
   }, [from, player.publicKeyHex, card.setId, cardId, isHolo, finish, misprint]);
   const proof = useMemo(() => (pack ? proofFor(pack) : undefined), [pack]);
@@ -57,8 +81,25 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
     ...(link ? [link] : []),
   ].join('\n');
 
+  // Keyed on the target so the preview never outlives what it was drawn for.
+  const targetKey = `${pack?.setId ?? ''}@${pack?.setVersion ?? 0}#${pack?.nonce ?? 'none'}:${card.key}:${isHolo}:${finish ?? ''}:${misprint}`;
+
+  if (retired) {
+    // Unmounting the preview ends any draw in flight and releases its image, so nothing made for the
+    // old player stays to be copied or shared.
+    return (
+      <Sheet title={`Share ${card.name}`} onClose={onClose} size="md" className="share-sheet">
+        <p className="share-note" role="status">
+          <ShieldCheck aria-hidden="true" />
+          This save changed in another tab. Reload to share.
+        </p>
+      </Sheet>
+    );
+  }
+
   return (
     <SharePreviewSheet
+      key={targetKey}
       title={`Share ${card.name}`}
       subtitle={`${rarity.symbol} ${mods ? `${mods} ` : ''}${rarity.name} · ${code} ${number}`}
       makeImage={() =>
@@ -93,7 +134,7 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
         <ShieldCheck aria-hidden="true" />
         {url
           ? `The link opens the pack this ${mods ? `${mods.toLowerCase().replace(/ · /g, ' ')} ` : ''}card came from (ticket #${pack!.nonce}), re-checked on their device.`
-          : "This card isn't in any pack this device has a record of (it came before verifiable pulls), so there's no link to prove it."}
+          : `This device doesn't have a verified pack record for this ${mods ? `${mods.toLowerCase().replace(/ · /g, ' ')} ` : ''}card, so there's no link to prove it.`}
       </p>
     </SharePreviewSheet>
   );

@@ -18,14 +18,58 @@ const siteUrl = (): Plugin => ({
   transformIndexHtml: (html) => (process.env.SITE_URL ? html.replaceAll(GITHUB_PAGES_URL, `${process.env.SITE_URL.replace(/\/+$/, '')}/`) : html),
 })
 
+/** Replaces text in Vite's generated code, failing the build if a Vite upgrade changed it. */
+const patchHelper = (code: string, from: string, to: string) => {
+  if (!code.includes(from)) throw new Error(`preload-recovery: Vite's preload helper no longer contains ${JSON.stringify(from)}; update vite.config.ts`);
+  return code.replaceAll(from, to);
+};
+
+/**
+ * Lets Retry fetch a lazy screen's stylesheet and preloaded chunks again after they failed (#664).
+ * Vite's preload helper remembers every href it has preloaded (`seen[href] = void 0` keeps the key,
+ * so a later import skips it) and skips any href with a <link> already in the document, while a
+ * <link> that failed never loads again. The patch forgets an href once its preload settles and
+ * removes a <link> that fired `error`, so the next import adds a fresh one. Links still loading, or
+ * belonging to other screens, are left alone. Build only: the dev server doesn't use the helper.
+ */
+const preloadRecovery = (): Plugin => {
+  let patched = false;
+  return {
+    name: 'preload-recovery',
+    apply: 'build',
+    transform(code, id) {
+      if (!id.includes('vite/preload-helper')) return null;
+      let out = patchHelper(code, 'seen[href] = void 0;', 'delete seen[href];');
+      out = patchHelper(
+        out,
+        'link.addEventListener("error", () => rej(/* @__PURE__ */ new Error(`Unable to preload CSS for ${dep}`)));',
+        'link.addEventListener("error", () => { link.remove(); rej(new Error(`Unable to preload CSS for ${dep}`)); });',
+      );
+      patched = true;
+      return out;
+    },
+    buildEnd(error) {
+      if (!error && !patched) throw new Error("preload-recovery: Vite's preload helper was never transformed; update vite.config.ts");
+    },
+  };
+};
+
 // The site's path: GitHub Pages serves it under /BrainrotTCG/; another host can set BASE_PATH=/.
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
   define: { __BUILD_REVISION__: JSON.stringify(buildRevision()) },
-  plugins: [react(), siteUrl(), testBudget()],
+  plugins: [react(), siteUrl(), preloadRecovery(), testBudget()],
   test: {
-    // Vitest's defaults (any node_modules, .git) plus the Playwright suites and build output.
-    exclude: ['**/node_modules/**', '**/.git/**', 'tests/browser/**', 'tests/performance/*.spec.ts', 'dist/**'],
+    // Vitest's defaults (any node_modules, .git) plus the Playwright suites, build output and the
+    // agent worktrees nested under .claude/worktrees (each a full checkout with its own tests).
+    exclude: [
+      '**/node_modules/**',
+      '**/.git/**',
+      'tests/browser/**',
+      'tests/performance/*.spec.ts',
+      'dist/**',
+      '.claude/worktrees/**',
+    ],
     // `npm test` turns coverage on for app code only, and the budget reporter (added by testBudget(),
     // after any --reporter flag) checks the run's wall time. Both budgets sit below the measured
     // baseline: docs/DEVELOPMENT.md, Test budgets.
