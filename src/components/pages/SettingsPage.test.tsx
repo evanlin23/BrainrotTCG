@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLatestSet } from '../../content/sets';
 import { ALL_CARDS } from '../../data/cards';
 import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
-import { importSaveFile, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { importSaveFile, NO_ROOM_FOR_COPY_NOTE, NO_ROOM_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
 import { SAVE_STAMP_KEY, type SaveMark } from '../../game/player';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundGain } from '../../constants/audio';
 import { DEFAULT_SETTINGS, effectsLevel } from '../../utils/settings';
@@ -123,13 +123,19 @@ describe('focus after the old address Replace question (#978)', () => {
     expect(document.activeElement).toBe(button('Bring it'));
   });
 
-  it('does not take the focus when Bring it only opens the question or reports no save', async () => {
+  it('does not take the focus from another control when Bring it reports no save', async () => {
     fetchOldSave.mockResolvedValue('none');
-    const bring = button('Bring it');
-    bring.focus();
+    act(() => button('Export').focus());
     await click('Bring it');
     expect(note().textContent).toBe('There was no save at the old address.');
-    expect(document.activeElement).toBe(bring);
+    expect(document.activeElement).toBe(button('Export'));
+  });
+
+  it('does not move the focus on the first render or on a later one', () => {
+    expect(document.activeElement).toBe(document.body);
+    act(() => button('Export').focus());
+    act(() => root.render(<SettingsPage settings={{ ...DEFAULT_SETTINGS, effectsVolume: 0.5 }} onSettingsChange={() => {}} onImportSave={() => null} />));
+    expect(document.activeElement).toBe(button('Export'));
   });
 });
 
@@ -558,6 +564,38 @@ describe('Settings: importing a backup file', () => {
     };
     const importButton = () => button('Import');
 
+    it('moves focus from Import to Keep mine when the question opens after a file pick', async () => {
+      renderWith(() => null);
+      act(() => importButton().focus());
+      await pick(OTHER);
+      expect(button('Import')).toBeUndefined();
+      expect(document.activeElement).toBe(button('Keep mine'));
+    });
+
+    it('moves focus from the page to Keep mine when the question opens after a file pick', async () => {
+      renderWith(() => null);
+      expect(document.activeElement).toBe(document.body);
+      await pick(OTHER);
+      expect(document.activeElement).toBe(button('Keep mine'));
+    });
+
+    it('leaves the focus on another control when the question opens', async () => {
+      renderWith(() => null);
+      act(() => button('Export').focus());
+      await pick(OTHER);
+      expect(button('Keep mine')).toBeDefined();
+      expect(document.activeElement).toBe(button('Export'));
+    });
+
+    it('moves focus from Import to Keep mine when a file with no progress here has no room for a copy', async () => {
+      const onImportSave = vi.fn((_content: string, keepCopy?: boolean): string | null => (keepCopy ? NO_ROOM_FOR_COPY_NOTE : null));
+      act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+      act(() => importButton().focus());
+      await pick(OTHER);
+      expect(button('Replace without a copy')).toBeDefined();
+      expect(document.activeElement).toBe(button('Keep mine'));
+    });
+
     it('puts focus on Import after Keep mine', async () => {
       renderWith(() => null);
       await askAndFocus('Keep mine');
@@ -574,10 +612,10 @@ describe('Settings: importing a backup file', () => {
       expect(onImportSave).toHaveBeenCalledTimes(1);
       expect(document.activeElement).toBe(importButton());
 
-      onImportSave.mockReturnValue("This browser's storage has no room for this file. Your previous save data was restored.");
+      onImportSave.mockReturnValue(NO_ROOM_NOTE);
       await askAndFocus('Replace');
       await click('Replace');
-      expect(restoreNote().textContent).toBe("This browser's storage has no room for this file. Your previous save data was restored.");
+      expect(restoreNote().textContent).toBe(NO_ROOM_NOTE);
       expect(document.activeElement).toBe(importButton());
     });
 

@@ -45,6 +45,9 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const importRef = useRef<HTMLButtonElement>(null);
     /** Set when an answer to the Replace question removes its buttons: Import takes the focus they held. */
     const refocusImport = useRef(false);
+    const restoreKeepRef = useRef<HTMLButtonElement>(null);
+    /** Set when the Replace question opens while the focus was on Import (or on the page): Keep mine takes it. */
+    const focusRestoreKeep = useRef(false);
     const activeImportTokenRef = useRef(0);
     const activeReaderRef = useRef<FileReader | null>(null);
     const handleExportSave = () => {
@@ -86,6 +89,11 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         if (!refocusImport.current) return;
         refocusImport.current = false;
         importRef.current?.focus();
+    });
+    useEffect(() => {
+        if (!focusRestoreKeep.current) return;
+        focusRestoreKeep.current = false;
+        restoreKeepRef.current?.focus();
     });
     useEffect(() => {
         if (!refocusBring.current) return;
@@ -155,6 +163,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         }
     };
 
+    /** Import leaves with the question that replaces it: its focus, or the page's after a file pick, moves to Keep mine. A focus the player has moved elsewhere stays there. */
+    const askInPlaceOfImport = (content: string) => {
+        const held = document.activeElement;
+        if (importRef.current && (!held || held === document.body || held === importRef.current)) focusRestoreKeep.current = true;
+        setPendingImport(content);
+    };
+
     /** `saves` names the two saves the player agreed to swap; null when nothing asked first. */
     const runImport = (content: string, keepCopy = true, saves: string | null = null, expectedSave: SaveMark | null = reviewedSave) => {
         if (isStale || (expectedSave && !sameSave(expectedSave, saveMark()))) {
@@ -174,7 +189,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             // "Replace without a copy" must refuse if storage changes from the save this attempt checked.
             setReviewedSave(expectedSave);
             setImportNote(saves ? `${error} Replace ${saves} without keeping a copy?` : error);
-            setPendingImport(content);
+            askInPlaceOfImport(content);
             setWithoutCopy(true);
         } else {
             setReviewedSave(null);
@@ -259,7 +274,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             const saves = `this browser's save (${currentDesc}) with the file's (${incomingDesc})`;
             setReviewedSave(mark);
             setReplacing(saves);
-            setPendingImport(content);
+            askInPlaceOfImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
         };
 
@@ -372,6 +387,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             <span className="settings-actions">
                                 <button
                                     type="button"
+                                    ref={restoreKeepRef}
                                     className="btn btn--secondary btn--sm"
                                     onClick={() => {
                                         refocusImport.current = true;

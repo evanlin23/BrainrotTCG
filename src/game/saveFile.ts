@@ -155,7 +155,7 @@ export const NO_ROOM_FOR_COPY_NOTE = "There's no room in this browser's storage 
  */
 export const FILE_TOO_BIG_NOTE = "This file is too big for this browser's storage, so it can't be imported here. Nothing changed.";
 
-const NO_ROOM_NOTE = "This browser's storage has no room for this file. Your previous save data was restored.";
+export const NO_ROOM_NOTE = "This browser's storage has no room for this file. Your previous save data was restored.";
 
 /** Added to a no-room answer while copies of earlier saves (brainrot-before-*) take room too. */
 export const COPIES_NOTE = ' Copies of earlier saves, kept from past imports or moves, take room in it too.';
