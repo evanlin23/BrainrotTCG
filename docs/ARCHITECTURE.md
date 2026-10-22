@@ -737,8 +737,8 @@ Status: proposed, awaiting owner (#348).
 
 No matcher or enforcement is installed. Names are nonunique labels beside a key fingerprint (spec
 section 9). Retain released 24-code-point/fixed-character proof rules (spec section 7, rule 2); verify
-the original signed bytes, never a normalized substitute. Legacy empty names remain valid (viewers
-show "Anonymous"). Format, cryptographic validity and permitted publication are separate; React
+the original signed bytes, never a normalized substitute. Legacy empty names remain valid (shared
+pages show "Someone"). Format, cryptographic validity and permitted publication are separate; React
 escaping and the bot's Markdown sanitiser are not moderation. Today the name field already counts
 code points (it cuts input at 24, silently) and a rename to a blank name is refused; entry UI should
 also preview normalization and explain rejected or truncated input. A grapheme or UTF-16
