@@ -35,6 +35,16 @@
   flex-wrap: wrap;
 }
 
+/* The sound row: the slider drops below its text when text or screen leaves no room beside it. */
+.settings-row--slider {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.settings-row--slider .settings-text {
+  flex: 1 1 7rem;
+}
+
 /* Two buttons answering a question in the row: they drop below its text when there's no room. */
 .settings-help-actions {
   display: flex;
@@ -69,14 +79,17 @@
   margin-top: var(--space-1);
 }
 
+/* The group may shrink, the range first, so it never spills past the panel on a line of its own. */
 .settings-slider {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .settings-slider input[type='range'] {
+  flex-shrink: 1;
+  min-width: 0;
   width: 8.5rem;
   height: var(--touch-target);
   margin: 0;
@@ -85,7 +98,9 @@
 }
 
 .settings-value {
-  width: 2.6rem;
+  flex: none;
+  min-width: 2.6rem;
+  white-space: nowrap;
   color: var(--text-muted);
   font-size: var(--text-sm);
   text-align: right;
