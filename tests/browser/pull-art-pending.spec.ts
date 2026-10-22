@@ -27,7 +27,7 @@ async function freezeClock(page: Page) {
 async function openSharedPull(page: Page) {
   const pull = page.getByRole('dialog', { name: vector.hand, exact: true });
   await page.goto(`./#/pull/${vector.proof}`);
-  await expect(pull).toContainText('Verified on this device', { timeout: 20000 });
+  await expect(pull).toContainText('This pull checks out — re-verified in your browser just now', { timeout: 20000 });
   await expect(pull.locator('.score-panel-total')).toHaveText(vector.score.toLocaleString('en-US'));
   return pull;
 }
