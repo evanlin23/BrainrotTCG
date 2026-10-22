@@ -1,6 +1,6 @@
 import { createElement, useEffect, useId, useRef, useState, type ComponentType } from 'react';
 import { X } from 'lucide-react';
-import type { SheetLoad } from './sheetEntry';
+import { retryMayHelp, type SheetLoad } from './sheetEntry';
 import { reloadPage } from '../../game/reload';
 import '../../styles/Page.css';
 
@@ -21,12 +21,12 @@ interface Props<P> {
   autoFocus?: boolean;
 }
 
-type State<P> = { component: ComponentType<P> } | { error: true } | null;
+type State<P> = { component: ComponentType<P> } | { error: true; canRetry: boolean } | null;
 
 /**
  * A full page in place of the packs screen (#/cards, #/rankings, #/profile, #/settings). Its screen is
  * loaded on demand: a skeleton holds its place meanwhile, and a failed load offers Reload (a deploy
- * replaced the old chunks) and Retry, like DeferredSheet.
+ * replaced the old chunks) and Retry, like DeferredSheet. Once a Retry has failed online, only Reload.
  */
 const Page = <P extends object>({ load, title, screenProps, onClose, skeleton = 'blocks', width = 'lg', section = null, autoFocus = false }: Props<P>) => {
   const [state, setState] = useState<State<P>>(() => (load.loaded ? { component: load.loaded } : null));
@@ -44,7 +44,7 @@ const Page = <P extends object>({ load, title, screenProps, onClose, skeleton = 
     let active = true;
     load().then(
       (module) => { if (active) setState({ component: module.default }); },
-      () => { if (active) setState({ error: true }); },
+      () => { if (active) setState({ error: true, canRetry: retryMayHelp(attempt) }); },
     );
     return () => { active = false; };
   }, [load, attempt, ready]);
@@ -75,12 +75,15 @@ const Page = <P extends object>({ load, title, screenProps, onClose, skeleton = 
         {ready ? createElement(state.component, screenProps) : state ? (
           <div className="page-error">
             <p role="alert">
-              Couldn't load {title}. The game was probably updated since you opened it: reload to get the new
-              version (your collection stays saved), or check your connection and retry.
+              {state.canRetry
+                ? <>Couldn't load {title}. The game was probably updated since you opened it: reload to get the new
+                  version (your collection stays saved), or check your connection and retry.</>
+                : <>Couldn't load {title}. Retrying didn't fix it: reload to fetch the game again (your collection
+                  stays saved).</>}
             </p>
             <div className="page-error-actions">
               <button type="button" className="btn btn--primary" onClick={() => reloadPage()}>Reload</button>
-              <button type="button" className="btn btn--secondary" onClick={retry}>Retry</button>
+              {state.canRetry && <button type="button" className="btn btn--secondary" onClick={retry}>Retry</button>}
             </div>
           </div>
         ) : (
