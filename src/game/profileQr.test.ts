@@ -2,7 +2,7 @@ import jsQR from 'jsqr';
 import { afterEach, expect, it, vi } from 'vitest';
 import { INK } from '../styles/palette';
 import { renderProfilePoster, type ProfilePosterInput } from './bragImage';
-import { planQr, QR_BOX, QR_QUIET, QR_SHRINKS, shrinkPixels } from './qrCode';
+import { DECODER_LOAD_MS, decoderLoader, planQr, QR_BOX, QR_QUIET, QR_SHRINKS, shrinkPixels } from './qrCode';
 
 // The decoder can be told to misread, to prove a code it cannot read back is never drawn.
 const decoder = vi.hoisted(() => ({ misread: false }));
@@ -169,8 +169,11 @@ const SITE = 'https://evanlin23.github.io/BrainrotTCG/#/profile/';
 const linkOf = (length: number) => SITE + 'AbCdEf0123456789-_QrStUvWxYz'.repeat(Math.ceil(length / 27)).slice(0, length - SITE.length);
 const FALLBACK = 'Open the link sent with this to check it.';
 
+const realLoad = decoderLoader.load;
 afterEach(() => {
   decoder.misread = false;
+  decoderLoader.load = realLoad;
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -216,9 +219,33 @@ it('prints no code and says to open the link when the link is too dense to read 
 it('prints no code when the decoder cannot read the drawn code back', async () => {
   decoder.misread = true;
   expect(await planQr(linkOf(407))).toBeNull();
-  const { decoded, text } = await exportAndDecode(linkOf(407));
-  expect(decoded).toEqual([null, null]);
+  const { text } = stubCanvas();
+  await renderProfilePoster(input(linkOf(407)));
   expect(text).toContain(FALLBACK);
+  expect(text).not.toContain('Scan to re-check every pack.');
+});
+
+it('finishes the poster with the link-text fallback when the decoder chunk never arrives', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  decoderLoader.load = () => new Promise(() => undefined);
+  const { text } = stubCanvas();
+  let done = false;
+  const poster = renderProfilePoster(input(linkOf(407))).then(() => (done = true));
+  await vi.advanceTimersByTimeAsync(DECODER_LOAD_MS - 1);
+  expect(done).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  await poster;
+  expect(done).toBe(true);
+  expect(text).toContain(FALLBACK);
+  expect(text).not.toContain('Scan to re-check every pack.');
+});
+
+it('finishes the poster with the link-text fallback when the decoder chunk fails to load', async () => {
+  decoderLoader.load = () => Promise.reject(new Error('Failed to fetch dynamically imported module'));
+  const { text } = stubCanvas();
+  await renderProfilePoster(input(linkOf(407)));
+  expect(text).toContain(FALLBACK);
+  expect(text).not.toContain('Scan to re-check every pack.');
 });
 
 it('draws each dark module as an ink cell on the integer grid the decoder was checked on', async () => {

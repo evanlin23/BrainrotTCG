@@ -17,6 +17,28 @@ export const QR_MIN_CELL = 3;
 export const QR_SHRINKS = [1, 2 / 3] as const;
 /** Paper around the code in the check, as the label stock the poster prints it on. */
 const SURROUND = 24;
+/** Longest the decoder chunk may take to arrive before the code counts as unverified (a stalled fetch must not hang the poster). */
+export const DECODER_LOAD_MS = 5000;
+
+type Decode = typeof import('jsqr').default;
+
+/** How the decoder is loaded; a seam so tests can stall or fail the load. Off the startup path: only a poster with a link loads it. */
+export const decoderLoader = { load: (): Promise<Decode> => import('jsqr').then((m) => m.default) };
+
+/** The decoder, or null if it fails to load (a stale tab after a deploy 404s the old chunk) or takes longer than DECODER_LOAD_MS. */
+const loadDecoder = async (): Promise<Decode | null> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), DECODER_LOAD_MS);
+  });
+  try {
+    return await Promise.race([decoderLoader.load(), timeout]);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 export interface QrPlan {
   /** Modules per side. */
@@ -94,14 +116,8 @@ export const shrinkPixels = (image: Pixels, scale: number): Pixels => {
 };
 
 /** Whether a decoder reads exactly `url` from the plan's pixels at every size in QR_SHRINKS. */
-export const decodesAtEverySize = async (plan: QrPlan, url: string): Promise<boolean> => {
-  let decode: typeof import('jsqr').default;
-  try {
-    // Off the startup path: only a poster with a link loads the decoder.
-    decode = (await import('jsqr')).default;
-  } catch {
-    return false;
-  }
+export const decodesAtEverySize = async (plan: QrPlan, url: string, decode: Decode | null): Promise<boolean> => {
+  if (!decode) return false;
   const exported = rasterQr(plan);
   return QR_SHRINKS.every((scale) => {
     const { data, width, height } = shrinkPixels(exported, scale);
@@ -114,6 +130,8 @@ export const decodesAtEverySize = async (plan: QrPlan, url: string): Promise<boo
  * that fits QR_BOX at QR_MIN_CELL pixels a module; null if no code does (the link is too dense).
  */
 export const planQr = async (url: string): Promise<QrPlan | null> => {
+  // Loaded at most once, and only if a code fits at all, so a stalled load costs one wait, not one per level.
+  let decoder: Promise<Decode | null> | undefined;
   for (const level of ['M', 'L'] as const) {
     let qr: ReturnType<typeof qrcode>;
     try {
@@ -128,7 +146,7 @@ export const planQr = async (url: string): Promise<QrPlan | null> => {
     const cell = Math.floor(QR_BOX / (count + QR_QUIET * 2));
     if (cell < QR_MIN_CELL) continue;
     const plan: QrPlan = { count, cell, side: (count + QR_QUIET * 2) * cell, isDark: (r, c) => qr.isDark(r, c) };
-    if (await decodesAtEverySize(plan, url)) return plan;
+    if (await decodesAtEverySize(plan, url, await (decoder ??= loadDecoder()))) return plan;
   }
   return null;
 };
