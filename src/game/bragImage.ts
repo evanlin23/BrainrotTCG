@@ -11,7 +11,7 @@ import { BLANK_CARD_ART, isApprovedCardArt } from './cardArt';
 import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../styles/logoMark';
 import { BRAND as YELLOW, CHIP_BG, FINISH_GLOWS, FOIL_STOPS, INK, MUTED, PAPER } from '../styles/palette';
 
-interface PosterCard {
+export interface PosterCard {
   image: string;
   name: string;
   isHolo: boolean;
@@ -19,7 +19,7 @@ interface PosterCard {
   misprint?: boolean;
 }
 
-interface PosterInput {
+export interface PosterInput {
   cards: PosterCard[];
   score: PackScore;
   setName: string;
@@ -30,12 +30,43 @@ interface PosterInput {
   cert?: string;
   /** The set's colour, for its code chip. */
   setColor?: string;
+  /** Max time to wait for each card image before failing. */
+  timeoutMs?: number;
 }
 
 const W = 1080;
 const H = 1920;
 
-const loadImage = async (art: string, wanted?: Finish | null) => {
+/** Allow slow mobile networks without leaving the poster stuck on "Drawing the image…" indefinitely. */
+export const POSTER_IMAGE_TIMEOUT_MS = 10_000;
+
+export const loadPosterImageElement = (
+  src: string,
+  timeoutMs = POSTER_IMAGE_TIMEOUT_MS,
+): Promise<HTMLImageElement> =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    let settled = false;
+    const settle = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      img.onload = null;
+      img.onerror = null;
+      if (error) {
+        img.src = '';
+        reject(error);
+      } else {
+        resolve(img);
+      }
+    };
+    const timeout = setTimeout(() => settle(new Error(`Poster image load timed out: ${src}`)), timeoutMs);
+    img.onload = () => settle();
+    img.onerror = () => settle(new Error(`Could not load ${src}`));
+    img.src = src;
+  });
+
+const loadImage = async (art: string, wanted?: Finish | null, timeoutMs = POSTER_IMAGE_TIMEOUT_MS) => {
   // Art this build won't request (an unknown historical card's stored address) is drawn as an empty slot.
   const approved = isApprovedCardArt(art);
   const src = approved ? art : BLANK_CARD_ART;
@@ -43,12 +74,7 @@ const loadImage = async (art: string, wanted?: Finish | null) => {
   const finished = holdFinishedCardImage(src, finish);
   try {
     const imageUrl = await finished.image;
-    return await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`Could not load ${src}`));
-      img.src = imageUrl;
-    });
+    return await loadPosterImageElement(imageUrl, timeoutMs);
   } finally {
     // A loaded image keeps its pixels, so the render can be evicted while the poster is drawn.
     finished.release();
@@ -317,7 +343,7 @@ export const renderPoster = async (input: PosterInput): Promise<Blob> => {
   drawHeader(ctx, input.setName, code, input.setColor);
 
   // Cards: three on top, two below, slightly fanned.
-  const images = await Promise.all(input.cards.map((c) => loadImage(c.image, c.finish)));
+  const images = await Promise.all(input.cards.map((c) => loadImage(c.image, c.finish, input.timeoutMs)));
   const slots = [
     { x: 215, y: 620, a: -0.06 },
     { x: 540, y: 600, a: 0 },
@@ -362,6 +388,8 @@ export interface CardPosterInput {
   cert?: string;
   /** Points and pack odds for this version, e.g. "400 pts · 1 in 2,400 packs". */
   stats?: string;
+  /** Max time to wait for the card image before failing. */
+  timeoutMs?: number;
 }
 
 /** One card, big: its name, rarity and collector number, and the pull it came from when there is one. */
@@ -369,7 +397,7 @@ export const renderCardPoster = async (input: CardPosterInput): Promise<Blob> =>
   const { canvas, ctx } = await newCanvas();
   drawHeader(ctx, input.setName, input.setCode, input.setColor);
 
-  const image = await loadImage(input.card.image, input.card.finish);
+  const image = await loadImage(input.card.image, input.card.finish, input.timeoutMs);
   drawCard(ctx, image, input.card, W / 2, 790, 620, 0);
 
   ctx.textAlign = 'center';
@@ -422,6 +450,8 @@ export interface ProfilePosterInput {
   best?: { cards: PosterCard[]; hand: string; score: number; setName: string };
   /** The profile link (its QR re-checks every pack). */
   url?: string;
+  /** Max time to wait for each card image before failing. */
+  timeoutMs?: number;
 }
 
 const bar = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, fraction: number) => {
@@ -518,7 +548,7 @@ export const renderProfilePoster = async (input: ProfilePosterInput): Promise<Bl
     ctx.font = `800 36px ${BODY_FONT}`;
     fitFont(ctx, `Best pull · ${input.best.hand} · ${fmt(input.best.score)}`, w, 36, '800', BODY_FONT);
     ctx.fillText(`Best pull · ${input.best.hand} · ${fmt(input.best.score)}`, x, top);
-    const images = await Promise.all(input.best.cards.map((c) => loadImage(c.image, c.finish)));
+    const images = await Promise.all(input.best.cards.map((c) => loadImage(c.image, c.finish, input.timeoutMs)));
     const cardW = Math.min(170, (1520 - top - 60) * (687 / 1024));
     const gap = (w - cardW * 5) / 4;
     input.best.cards.forEach((card, i) => {
