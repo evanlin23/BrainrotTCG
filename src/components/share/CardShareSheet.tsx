@@ -4,7 +4,7 @@ import type { Card } from '../../data/cards';
 import { CARD_RARITIES, cardNumber } from '../../data/cards';
 import { getLatestSet, setCode } from '../../content/sets';
 import { getPlayer, watchStoredPlayer } from '../../game/player';
-import { findPackWithCard } from '../../game/history';
+import { findPackWithCard, getHistory, isExactVersion } from '../../game/history';
 import { canShare, cardPreviewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
 import { modifierLabel } from '../../game/modifiers';
@@ -53,8 +53,20 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
   const cardId = card.key.split('/')[1];
 
   const pack = useMemo((): PullRef | null => {
-    if (from && canShare(from)) return from;
-    const found = findPackWithCard(player.publicKeyHex, card.setId, cardId, { isHolo, finish, misprint });
+    if (from && canShare(from)) {
+      // If history already has cached cards for `from`, verify they contain this exact card variant.
+      // If history has no cached cards for `from` (e.g. freshly opened summary, evicted cache, or stub), trust `from`.
+      const fromEntry = getHistory().find(
+        (e) => e.setId === from.setId && e.setVersion === from.setVersion && e.nonce === from.nonce && (from.publicKeyHex ?? player.publicKeyHex).startsWith(e.key),
+      );
+      if (fromEntry?.cards) {
+        const exactMatch = fromEntry.cards.some((c) => c.id === cardId && isExactVersion(c, { isHolo, finish, misprint }));
+        if (exactMatch) return from;
+      } else {
+        return from;
+      }
+    }
+    const found = findPackWithCard(player.publicKeyHex, card.setId, cardId, { isHolo, finish, misprint }, { exactOnly: true });
     return found && { setId: found.setId, setVersion: found.setVersion, nonce: found.nonce, publicKeyHex: found.key };
   }, [from, player.publicKeyHex, card.setId, cardId, isHolo, finish, misprint]);
   const proof = useMemo(() => (pack ? proofFor(pack) : undefined), [pack]);
@@ -122,7 +134,7 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
         <ShieldCheck aria-hidden="true" />
         {url
           ? `The link opens the pack this ${mods ? `${mods.toLowerCase().replace(/ · /g, ' ')} ` : ''}card came from (ticket #${pack!.nonce}), re-checked on their device.`
-          : "This card isn't in any pack this device has a record of (it came before verifiable pulls), so there's no link to prove it."}
+          : `This device doesn't have a verified pack record for this ${mods ? `${mods.toLowerCase().replace(/ · /g, ' ')} ` : ''}card, so there's no link to prove it.`}
       </p>
     </SharePreviewSheet>
   );
