@@ -59,6 +59,7 @@ test('a pull without its art says the poster could not be drawn, and Retry bring
   await expect(imageButtons.first()).toBeVisible();
   for (const button of await imageButtons.all()) await expect(button).toBeDisabled();
 
+  await pull.getByText('Share an individual card', { exact: true }).click();
   const cards = pull.getByRole('region', { name: 'Cards in this pack', exact: true });
   const faces = cards.locator('img.card-image');
   await expect(faces).toHaveCount(5);

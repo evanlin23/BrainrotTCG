@@ -9,6 +9,8 @@ Visible flow: the player problem, observable acceptance, and sanitized before/af
 affected states on this head (empty/loading/error, narrow and enlarged text, keyboard), or
 `npm run audit:agent` output for a meaningful flow change.
 Behaviour, storage, proof, workflow: the contract case you tested beyond your own assertions.
+Reproduced defect: the closure note from docs/DEVELOPMENT.md (root cause, escape class, regression
+test, sibling scan, prevention action).
 Architecture or new public resource: owner of the responsibility and simpler options you rejected. -->
 
 ## What ran

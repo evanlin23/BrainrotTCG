@@ -281,6 +281,21 @@ export async function monitor(
         else if (REDIRECTS.has(redirectResponse.status)) noteRedirect(methods.get(requestId) ?? request.method, redirectResponse.url, request.url);
       });
       await cdp.send('Network.enable');
+      // A CDP session sees one page only, so popups and other pages opened later get their own.
+      page.context().on('page', (other) => {
+        const watchOther = async () => {
+          const otherCdp = await other.context().newCDPSession(other);
+          const otherMethods = new Map<string, string>();
+          otherCdp.on('Network.requestWillBeSent', ({ requestId, request, redirectResponse }) => {
+            if (!redirectResponse) otherMethods.set(requestId, request.method);
+            else if (REDIRECTS.has(redirectResponse.status)) noteRedirect(otherMethods.get(requestId) ?? request.method, redirectResponse.url, request.url);
+          });
+          await otherCdp.send('Network.enable');
+        };
+        // A page that closes before its session opens has nothing left to watch; the context-wide
+        // response listener above still covers its hops.
+        watchOther().catch(() => {});
+      });
     }
   }
 

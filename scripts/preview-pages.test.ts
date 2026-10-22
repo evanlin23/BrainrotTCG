@@ -34,8 +34,8 @@ const archived = (set: SetDefinition): SetDefinition => ({ ...set, id: `${set.id
 const OPENABLE = SETS.find(isOpenable)!;
 
 describe('optionsFromEnv', () => {
-  it('defaults to the GitHub Pages address, like vite.config.ts', () => {
-    expect(optionsFromEnv({})).toEqual({ outDir: `${ROOT}dist/`, pagesOnly: false, base: '/BrainrotTCG/', site: 'https://evanlin23.github.io/BrainrotTCG/' });
+  it("defaults to GitHub Pages' path and production's address, like vite.config.ts", () => {
+    expect(optionsFromEnv({})).toEqual({ outDir: `${ROOT}dist/`, pagesOnly: false, base: '/BrainrotTCG/', site: 'https://brainrottcg.pages.dev/' });
   });
 
   it('follows the deploy workflow on Cloudflare and for the old address', () => {
@@ -124,17 +124,20 @@ describe('previewCacheContract', () => {
   it.each(['ci', 'deploy', 'browser-tests', 'performance-baseline'])('starts every preview cache key and restore prefix with it in %s.yml', (name) => {
     const workflow = readFileSync(`${ROOT}.github/workflows/${name}.yml`, 'utf8');
     const caches = [...workflow.matchAll(/- uses: actions\/cache[^\n]*\n\s+with:\n\s+path: \.cache\/previews\n\s+key: (.*)\n\s+restore-keys: (.*)\n/g)];
-    expect(caches.length).toBe(1);
-    const [step, key, restore] = caches[0];
-    const contract = '${{ steps.previews.outputs.contract }}';
-    expect(restore).toBe(`previews-${contract}-`);
-    expect(key.startsWith(restore)).toBe(true);
-    for (const input of ["'scripts/preview-pages.ts'", "'src/game/previewLinks.ts'", "'src/engine/**'", "'src/content/sets/index.ts'", "'src/content/sets/*/*.json'", "'src/content/sets/*/cards/*'", "'src/assets/images/card_back.webp'", "'package-lock.json'"]) {
-      expect(key).toContain(input);
+    // browser-tests.yml has two: the shards and the burn-in.
+    expect(caches.length).toBe(name === 'browser-tests' ? 2 : 1);
+    for (const cache of caches) {
+      const [, key, restore] = cache;
+      const contract = '${{ steps.previews.outputs.contract }}';
+      expect(restore).toBe(`previews-${contract}-`);
+      expect(key.startsWith(restore)).toBe(true);
+      for (const input of ["'scripts/preview-pages.ts'", "'src/game/previewLinks.ts'", "'src/engine/**'", "'src/content/sets/index.ts'", "'src/content/sets/*/*.json'", "'src/content/sets/*/cards/*'", "'src/assets/images/card_back.webp'", "'package-lock.json'"]) {
+        expect(key).toContain(input);
+      }
+      const before = workflow.slice(0, cache.index);
+      expect(before).toMatch(/- id: previews\n\s+run: \|\n\s+contract=\$\(npx tsx scripts\/preview-pages\.ts --cache-contract\)\n\s+echo "contract=\$contract" >> "\$GITHUB_OUTPUT"\n\s*$/);
+      expect(before.lastIndexOf('- run: npm ci')).toBeGreaterThan(before.lastIndexOf('runs-on:'));
     }
-    const before = workflow.slice(0, workflow.indexOf(step));
-    expect(before).toMatch(/- id: previews\n\s+run: \|\n\s+contract=\$\(npx tsx scripts\/preview-pages\.ts --cache-contract\)\n\s+echo "contract=\$contract" >> "\$GITHUB_OUTPUT"\n\s*$/);
-    expect(before.indexOf('- run: npm ci')).toBeGreaterThan(-1);
   });
 });
 
@@ -304,5 +307,33 @@ describe('vite.config.ts', () => {
     expect(meta.get('og:url')).toBe('https://brainrottcg.pages.dev/');
     expect(meta.get('og:image')).toBe('https://brainrottcg.pages.dev/og-image.jpg');
     expect(transform(INDEX_HTML)).not.toContain('evanlin23.github.io');
+  });
+
+  const sitePlugin = async (env: Record<string, string | undefined>) => {
+    vi.stubEnv('SITE_URL', undefined);
+    const config = await load(env as Record<string, string>);
+    return config.plugins!.flat().find((p) => (p as Plugin | undefined)?.name === 'site-url') as Plugin;
+  };
+  const emitted = (plugin: Plugin) => {
+    const files = new Map<string, string>();
+    const emitFile = ({ fileName, source }: { fileName: string; source: string }) => files.set(fileName, source);
+    (plugin.generateBundle as (this: unknown) => void).call({ emitFile });
+    return files;
+  };
+
+  it("names production by default: index.html's checked-in tags are production's, and a build without SITE_URL keeps them", async () => {
+    expect(INDEX_HTML).not.toContain('evanlin23.github.io');
+    expect(tags(INDEX_HTML).get('og:url')).toBe('https://brainrottcg.pages.dev/');
+    const transform = (await sitePlugin({})).transformIndexHtml as (html: string) => string;
+    expect(transform(INDEX_HTML)).toBe(INDEX_HTML);
+  });
+
+  it('writes robots.txt and a sitemap of the app alone, at SITE_URL or production', async () => {
+    const production = emitted(await sitePlugin({}));
+    expect(production.get('robots.txt')).toBe('User-agent: *\nAllow: /\n\nSitemap: https://brainrottcg.pages.dev/sitemap.xml\n');
+    expect([...production.get('sitemap.xml')!.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1])).toEqual(['https://brainrottcg.pages.dev/']);
+    const github = emitted(await sitePlugin({ SITE_URL: 'https://evanlin23.github.io/BrainrotTCG' }));
+    expect(github.get('robots.txt')).toContain('Sitemap: https://evanlin23.github.io/BrainrotTCG/sitemap.xml\n');
+    expect(github.get('sitemap.xml')).toContain('<loc>https://evanlin23.github.io/BrainrotTCG/</loc>');
   });
 });

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CARD_FLIP_SRC } from '../constants/audio';
 import { useAudio } from './useAudio';
@@ -13,11 +13,13 @@ const Probe = ({ onRender }: { onRender: (hook: Audio) => void }) => {
 };
 
 let load: ReturnType<typeof vi.spyOn>;
+let pause: ReturnType<typeof vi.spyOn>;
+let root: Root;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
-  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {}); // not in jsdom
-  const root = createRoot(document.createElement('div'));
+  pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {}); // not in jsdom
+  root = createRoot(document.createElement('div'));
   act(() => root.render(<Probe onRender={(hook) => (audio = hook)} />));
 });
 
@@ -54,5 +56,71 @@ describe('playing sounds', () => {
     expect(audio.playAndCleanup(flip, 0.5).volume).toBeCloseTo(0.4);
     expect(audio.playAndCleanup(other, 0.5).volume).toBe(0.5);
     expect(play).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('owned playback clones', () => {
+  const pausedClones = () => pause.mock.contexts as HTMLAudioElement[];
+  const play = (impl: () => Promise<void> = () => Promise.resolve()) => vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(impl);
+
+  it('keeps a clone that is playing, and releases it when it ends', () => {
+    play();
+    const [sound] = audio.preloadAudio(['/a.mp3']);
+    const clone = audio.playAndCleanup(sound);
+    expect(pause).not.toHaveBeenCalled();
+    expect(clone.getAttribute('src')).toBe('/a.mp3');
+    clone.dispatchEvent(new Event('ended'));
+    expect(pausedClones()).toEqual([clone]);
+    expect(clone.getAttribute('src')).toBe('');
+  });
+
+  it('releases a clone on a media error', () => {
+    play();
+    const [sound] = audio.preloadAudio(['/a.mp3']);
+    const clone = audio.playAndCleanup(sound);
+    clone.dispatchEvent(new Event('error'));
+    expect(pausedClones()).toEqual([clone]);
+    expect(clone.getAttribute('src')).toBe('');
+  });
+
+  it('releases a clone whose play is rejected', async () => {
+    play(() => Promise.reject(new DOMException('blocked', 'NotAllowedError')));
+    const [sound] = audio.preloadAudio(['/a.mp3']);
+    const clone = audio.playAndCleanup(sound);
+    await Promise.resolve();
+    expect(pausedClones()).toEqual([clone]);
+    expect(clone.getAttribute('src')).toBe('');
+  });
+
+  it('stops every clone still playing on stopAll, and leaves originals and foreign audio alone', () => {
+    play();
+    const [one, two] = audio.preloadAudio(['/a.mp3', '/b.mp3']);
+    const foreign = new Audio('/foreign.mp3');
+    const first = audio.playAndCleanup(one);
+    const second = audio.playAndCleanup(two);
+    audio.stopAll();
+    expect(pausedClones()).toEqual([first, second]);
+    expect([first, second].map((c) => c.getAttribute('src'))).toEqual(['', '']);
+    expect([one, two, foreign].map((a) => a.getAttribute('src'))).toEqual(['/a.mp3', '/b.mp3', '/foreign.mp3']);
+  });
+
+  it('is safe to stop and release twice, and a released clone ending later does nothing more', async () => {
+    play();
+    const [sound] = audio.preloadAudio(['/a.mp3']);
+    const clone = audio.playAndCleanup(sound);
+    audio.stopAll();
+    audio.stopAll();
+    clone.dispatchEvent(new Event('ended'));
+    clone.dispatchEvent(new Event('error'));
+    expect(pause).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops what is still playing when the component unmounts', () => {
+    play();
+    const [sound] = audio.preloadAudio(['/a.mp3']);
+    const clone = audio.playAndCleanup(sound);
+    act(() => root.unmount());
+    expect(pausedClones()).toEqual([clone]);
+    expect(clone.getAttribute('src')).toBe('');
   });
 });

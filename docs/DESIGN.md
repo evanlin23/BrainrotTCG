@@ -147,7 +147,10 @@ results rules below (#339).
 - #778: results show the score only; direction and card-sum x combo explained once in the Card
   guide, with no chance line.
 - #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card
-  fan, and the fingerprint once on the certificate.
+  fan, and the fingerprint once on the certificate. Built: the sheet title names the combo ("Pair"),
+  the score panel is the one score line (9,850, then "Brainrot Score · 4,925 pts × 2"), and the
+  fingerprint is only on the "Cert" strip, not the subtitle. A pull with no combo keeps its "No
+  Matches ×1" headline under the title "A pull". Other pack viewers are untitled and unchanged.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
   44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
   the tap path.

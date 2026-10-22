@@ -167,15 +167,13 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
   const who = sharer === ANONYMOUS_NAME || sharer === NAME_PLACEHOLDER ? 'Someone' : sharer;
   // Chase the same set when it can be opened as it was pulled; otherwise the usual packs screen.
   const chase = onOpenSet && canOpenSet?.(pull.set) ? () => onOpenSet(pull.set.id) : undefined;
-  const hand = pull.score.hand.name !== 'No Matches' ? pull.score.hand.name : 'A pull';
+  // The title names the combo once; a pull with none stays "A pull" and its body says No Matches.
+  const named = pull.score.hand.name !== 'No Matches';
+  const hand = named ? pull.score.hand.name : 'A pull';
   return (
     <Sheet
       title={hand}
-      subtitle={
-        <>
-          {pull.set.name} · {publicName(pull.proof.name)} <span className="share-fp">#{pull.fingerprint}</span>
-        </>
-      }
+      subtitle={`${pull.set.name} · ${publicName(pull.proof.name)}`}
       onClose={onClose}
       size="md"
       className="pull-viewer"
@@ -197,6 +195,7 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
       <p className="pull-viewer-whose">
         {who} pulled this pack in {pull.set.name}.
       </p>
+      {/* The one place the fingerprint appears: the certificate. */}
       <p className="pull-viewer-badge">
         <span>
           <ShieldCheck aria-hidden="true" /> Verified on this device
@@ -205,13 +204,18 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
           Cert {pull.fingerprint} · {setCode(pull.set)} #{pull.proof.nonce}
         </span>
       </p>
-      <PackCardViewer cards={pull.cardsWithMeta} displayMode="carousel" set={pull.set} />
+      <PackCardViewer cards={pull.cardsWithMeta} displayMode="carousel" set={pull.set} titled={named} />
       <details className="pull-viewer-how">
         <summary>How do we know?</summary>
         <p>
           Your device just re-derived ticket #{pull.proof.nonce} of this player's key and opened it in {pull.set.name} v
           {pull.set.version}. It came out exactly as shown, and the player's signature matches. Each ticket costs real work to
           mine, so a pull can't be edited or picked from a pile of fakes.
+        </p>
+        <p>
+          The version is the set&apos;s card list and odds when this pack was opened. A set gets a new version when its cards,
+          rarities, odds or pack size change, and a pack always checks out under the version it was opened in, so later
+          versions never change it.
         </p>
       </details>
     </Sheet>

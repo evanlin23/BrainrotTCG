@@ -81,6 +81,28 @@
   margin-left: auto;
 }
 
+/* Discard's question: the warning gets a full-width line above the answers, which wrap below it. */
+.settings-actions--ask {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: stretch;
+  margin-left: 0;
+}
+
+.settings-actions--ask .settings-desc {
+  flex: 1 0 100%;
+  overflow-wrap: anywhere;
+}
+
+/* At enlarged text a label can be wider than the row: it wraps inside its button instead of spilling out. */
+.settings-actions--ask .btn {
+  max-width: 100%;
+  padding-block: var(--space-2);
+  line-height: 1.2;
+  white-space: normal;
+  text-align: center;
+}
+
 .settings-text,
 .settings-field {
   display: grid;
