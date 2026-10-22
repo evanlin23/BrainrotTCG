@@ -149,12 +149,13 @@ results rules below (#339).
 - #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card
   fan, and the fingerprint once on the certificate. Built: the sheet title names the combo ("Pair"),
   the score panel is the one score line (9,850, then "Brainrot Score · 4,925 pts × 2"), and the
-  fingerprint is only on the "Cert" strip, not the subtitle. A pull with no combo keeps its "No
+  fingerprint is only on the "Cert" strip (the sheet has no subtitle). A pull with no combo keeps its "No
   Matches ×1" headline under the title "A pull". Other pack viewers are untitled and unchanged.
 - #802: the shared-pull sheet has no subtitle; "X pulled this pack in Set." is the one attribution
-  and an unnamed or blocked player reads "Someone" everywhere. The check reads "This pull checks
-  out — re-verified in your browser just now" for every viewer (the page can't tell owner from
-  guest without creating an identity), with the certificate and "How do we know?" one tap down.
+  and an unnamed or blocked player reads "Someone" on the shared-pull sheet (the Hall of Fame and
+  profile pages still say Anonymous/Player). The check reads "This pull checks out — re-verified
+  in your browser just now" for every viewer (the page can't tell owner from guest without
+  creating an identity); the "Cert" strip sits beside it and "How do we know?" is one tap down.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
   44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
   the tap path.
