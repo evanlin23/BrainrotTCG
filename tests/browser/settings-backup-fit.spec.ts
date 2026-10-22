@@ -2,11 +2,12 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import { monitor } from './support';
 
 /**
- * The Settings Back up and Restore rows stay readable at enlarged text (#691): at 320x640 and 390x844
- * with the root text at 32 px (200%), the privacy warning, Restore's instructions, a rejected file's
- * note and the Replace / Keep mine question each sit beside or above their buttons without a line of
- * text under one, the buttons stay inside the panel and keep 44 px targets. Controls: the same phones
- * at normal text, and a desktop window at normal and 200% text. Sizes are emulated viewports; 200%
+ * The Settings Back up and Restore rows stay readable at enlarged text (#691): at 320x640, 360x740 and
+ * 390x844 with the root text at 32 px (200%), the privacy warning, Restore's instructions, a rejected
+ * file's note, the Replace / Keep mine question and the no-room question (with its long "Replace without
+ * a copy") each sit beside or above their buttons without a line of text under one, the buttons stay
+ * inside the panel whole and keep 44 px targets. Controls: the same phones at normal text, where the
+ * idle rows keep their button beside the text as before, and a desktop window at normal and 200% text. Sizes are emulated viewports; 200%
  * text doubles the root font size the rem tokens use. Geometry is read from the layout before
  * anything is clicked, because the automatic scroll before a click would not reveal a control that is
  * clipped sideways.
@@ -14,6 +15,7 @@ import { monitor } from './support';
 
 const VIEWPORTS = [
   { name: '320x640', width: 320, height: 640, project: 'mobile-chromium' },
+  { name: '360x740', width: 360, height: 740, project: 'mobile-chromium' },
   { name: '390x844', width: 390, height: 844, project: 'mobile-chromium' },
   { name: '1280x800', width: 1280, height: 800, project: 'desktop-chromium' },
 ];
@@ -23,7 +25,7 @@ const ZOOMS = [
 ];
 
 const player = (hex: string) => JSON.stringify({ secretKey: hex.repeat(32), name: 'Another player', nextNonce: 3, createdAt: 1 });
-const OTHER_SAVE = JSON.stringify({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+const OTHER_SAVE = JSON.stringify({ version: 2, exportedAt: '2026-01-01T00:00:00.000Z', player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
 
 async function openSettings(page: Page, baseURL: string, viewport: (typeof VIEWPORTS)[number], zoom: (typeof ZOOMS)[number]) {
   await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -57,7 +59,12 @@ function layoutOf(row: Locator) {
       column: box(el.querySelector('.settings-text')!.getBoundingClientRect()),
       text: Array.from(el.querySelectorAll('.settings-label, .settings-desc')).flatMap(lines),
       note: el.querySelector('.settings-desc')!.textContent,
-      buttons: Array.from(el.querySelectorAll('button')).map((b) => ({ name: b.textContent!.trim(), ...box(b.getBoundingClientRect()) })),
+      buttons: Array.from(el.querySelectorAll('button')).map((b) => ({
+        name: b.textContent!.trim(),
+        // A label wider than its button, cut off by the button's own box or the panel's edge.
+        clipped: b.scrollWidth > b.clientWidth + 1,
+        ...box(b.getBoundingClientRect()),
+      })),
     };
   });
 }
@@ -79,6 +86,7 @@ async function expectReadable(row: Locator, label: string, expectedButtons: stri
     expect(button.left, `${label}: ${button.name} starts inside the panel`).toBeGreaterThanOrEqual(l.panel.left - 0.5);
     expect(button.right, `${label}: ${button.name} ends inside the panel`).toBeLessThanOrEqual(l.panel.right + 0.5);
     expect(button.right, `${label}: ${button.name} stays on screen`).toBeLessThanOrEqual(l.viewport);
+    expect(button.clipped, `${label}: ${button.name} shows its whole label`).toBe(false);
     expect(button.bottom - button.top, `${label}: ${button.name} is a 44px target`).toBeGreaterThanOrEqual(43.5);
   }
   for (let i = 0; i < l.buttons.length; i++) {
@@ -89,11 +97,17 @@ async function expectReadable(row: Locator, label: string, expectedButtons: stri
   return l;
 }
 
+/** The button sits on the right, level with the text, not on a line of its own below it. */
+function expectBeside(l: Awaited<ReturnType<typeof layoutOf>>, label: string) {
+  const lowestText = Math.max(...l.text.map((t) => t.bottom));
+  expect(l.buttons[0].top, `${label}: the button is on the text's line`).toBeLessThan(lowestText);
+  expect(l.buttons[0].left, `${label}: the button is on the right`).toBeGreaterThan(l.panel.left + (l.panel.right - l.panel.left) / 2);
+}
+
 for (const viewport of VIEWPORTS) {
   for (const zoom of ZOOMS) {
     test(`Back up and Restore stay readable at ${viewport.name}, ${zoom.name} (#691)`, async ({ page, baseURL }, testInfo) => {
       test.skip(testInfo.project.name !== viewport.project, 'One emulated screen size per project.');
-      test.setTimeout(60000);
       const { errors, main, backUp, restore } = await openSettings(page, baseURL!, viewport, zoom);
       const where = `${viewport.name}, ${zoom.name}`;
 
@@ -103,7 +117,12 @@ for (const viewport of VIEWPORTS) {
       if (zoom.rootPx === 32) expect(first.rootPx, `${where}: the root text size`).toBe(32);
       else expect(first.rootPx, `${where}: the root text size`).toBeLessThanOrEqual(18);
       expect(first.note).toBe('Includes your secret player key. Keep the file private.');
-      await expectReadable(restore, `${where}, restore`, ['Import']);
+      const idleRestore = await expectReadable(restore, `${where}, restore`, ['Import']);
+      // At normal text the idle rows keep their button beside the text, as they did before the rows could wrap.
+      if (zoom.rootPx !== 32) {
+        expectBeside(first, `${where}, back up`);
+        expectBeside(idleRestore, `${where}, restore`);
+      }
 
       // A file that is not a save: the rejection is as readable as the instructions.
       const file = main.locator('input[type="file"]');
@@ -117,7 +136,7 @@ for (const viewport of VIEWPORTS) {
       await expect(restore.getByRole('button', { name: 'Replace', exact: true })).toBeVisible();
       await expectReadable(restore, `${where}, replace question`, ['Keep mine', 'Replace']);
 
-      // Keep mine answers it, focus stays reachable, and the row is back to a single Import.
+      // Keep mine answers it, and the row is back to a single Import.
       await restore.getByRole('button', { name: 'Keep mine', exact: true }).click();
       await expect(rejected).toHaveText('Kept your save.');
       await expectReadable(restore, `${where}, kept`, ['Import']);
@@ -126,15 +145,35 @@ for (const viewport of VIEWPORTS) {
   }
 }
 
+// The copy of the current save is the write the browser refuses: "Replace without a copy" is the longest label in these rows.
+for (const viewport of VIEWPORTS) {
+  for (const zoom of ZOOMS) {
+    test(`the no-room question stays readable at ${viewport.name}, ${zoom.name} (#691)`, async ({ page, baseURL }, testInfo) => {
+      test.skip(testInfo.project.name !== viewport.project, 'One emulated screen size per project.');
+      const { errors, main, restore } = await openSettings(page, baseURL!, viewport, zoom);
+      const where = `${viewport.name}, ${zoom.name}`;
+      await page.evaluate(() => {
+        const write = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key: string, value: string) {
+          if (key === 'brainrot-before-import-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+          write.call(this, key, value);
+        };
+      });
+      await main.locator('input[type="file"]').setInputFiles({ name: 'other.json', mimeType: 'application/json', buffer: Buffer.from(OTHER_SAVE) });
+      await restore.getByRole('button', { name: 'Replace', exact: true }).click();
+      await expect(restore.locator('.settings-desc')).toContainText("There's no room in this browser's storage for this file and a copy of your current save.");
+      await expect(restore.getByRole('button', { name: 'Replace without a copy', exact: true })).toBeVisible();
+      await expectReadable(restore, `${where}, no room`, ['Keep mine', 'Replace without a copy']);
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
 test('a wide window keeps Back up and Restore on one line each (#691)', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The desktop counterpart of the phone checks above.');
-  const { errors, backUp, restore } = await openSettings(page, baseURL!, VIEWPORTS[2], ZOOMS[0]);
+  const { errors, backUp, restore } = await openSettings(page, baseURL!, VIEWPORTS[3], ZOOMS[0]);
   for (const [name, row] of [['back up', backUp], ['restore', restore]] as const) {
-    const l = await expectReadable(row, `desktop, ${name}`, [name === 'back up' ? 'Export' : 'Import']);
-    const lowestText = Math.max(...l.text.map((t) => t.bottom));
-    // The button sits beside the text, not on a line of its own below it.
-    expect(l.buttons[0].top, `desktop ${name}: the button is on the text's line`).toBeLessThan(lowestText);
-    expect(l.buttons[0].left, `desktop ${name}: the button is on the right`).toBeGreaterThan(l.panel.left + (l.panel.right - l.panel.left) / 2);
+    expectBeside(await expectReadable(row, `desktop, ${name}`, [name === 'back up' ? 'Export' : 'Import']), `desktop ${name}`);
   }
   expect(errors).toEqual([]);
 });
