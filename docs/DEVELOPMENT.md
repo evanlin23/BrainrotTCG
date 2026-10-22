@@ -8,7 +8,8 @@ If this page disagrees with `package.json` or `.github/workflows/`, those win.
 ## Setup
 
 Use Node 22, as CI does. `npm ci` installs from the lockfile; only change `package-lock.json` in a
-dependency change. `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
+dependency change. A fresh checkout or worktree has no `node_modules` and needs `npm ci` before any
+check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
 ## Workflow
 
@@ -31,6 +32,7 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build or link previews | also `npm run build && npm run check:site`, and the same with `BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
+| Changed the logo mark (`src/styles/logoMark.ts`) | `npm run icons` rewrites the logo SVGs, favicon and touch icon; `scripts/logo-icons.test.ts` fails if they drift |
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
 
@@ -40,6 +42,9 @@ to branches other than main. The deploy workflow runs the verifier and `npm run 
 deploying main. CI uploads files only from failed runs, kept for 7 days.
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
+
+Rough wall times: `npm run check` about 2 min, a cold `npm run build` about 2 min, and one browser spec
+file about 3 min including its build. Give these commands a 5-minute timeout or run them in the background.
 
 To run actionlint locally (it is not part of `npm run check` and isn't assumed to be installed),
 repeat what the `workflow-validation` job in `.github/workflows/ci.yml` does, from the repo root. Put
@@ -97,8 +102,12 @@ the preview origin and all WebSockets, seeds a disposable identity with muted au
 pack and checks that stats, collection and history survive a reload. Failure traces, screenshots
 and videos land in `test-results/` (uploaded by CI). `agent-audit.spec.ts` checks only the audit's
 browser boundary; the agent audit itself runs locally only (see
-[Local agent usability audit](#local-agent-usability-audit)). Pixel 5 emulation is not a phone: do
-physical-device checks by hand against the preview and describe them in the PR.
+[Local agent usability audit](#local-agent-usability-audit)). `npm run check` doesn't run these specs; CI
+does. Run one locally with `npx playwright test tests/browser/<spec>` (`npx playwright install chromium`
+once if the browser is missing) only when fixing a browser-test failure or when a UI, CSS or gesture change
+can't be checked otherwise, and grep `tests/browser` for any constant you changed. Owner decision, 2026-10-16/17 (#8 and #211, both closed: "own phone fine, weaker = emulation"):
+Pixel 5 emulation counts as phone evidence when the PR labels it as emulation; a physical-device check is
+stronger, and is done by hand against the preview and described in the PR.
 
 ## Local agent usability audit
 
@@ -255,7 +264,7 @@ stores re-opened packs. Worker HTTP egress is probed, but Worker WebSockets aren
 
 `test-results/performance/raw-runs.json` and `summary.json` record the commit and dirty state,
 runner, browser and host, every raw run, and median/min/max per scenario; each report lists its
-own metric limits. **It isn't real-phone evidence**: page-level CDP throttling doesn't throttle
+own metric limits. **It is emulation, so label it as such** (owner decision 2026-10-16/17, #8): page-level CDP throttling doesn't throttle
 workers the same way or emulate phone RAM, GPU, touch or a physical device, and the heap figure
 covers the main JS target only. Compare runs only on the same machine, browser, settings and
 recorded revision, never against the deployed site. `npx vitest run tests/performance/report.test.ts`
@@ -274,8 +283,8 @@ decoded cards: long tasks (over 50 ms, with their count, total and longest) and 
 (frames, the longest gap, gaps over 50 ms). Ticket jobs per worker, workers created and peak busy are
 counted in the page; the Argon2 figure is peak busy × `TICKET_PARAMS.memorySize`, an estimate kept apart from
 the measured main-target heap. Reports go to
-`test-results/performance-optional-work/`. It's **desktop-Chromium emulation, not real-device
-evidence** (#8): CDP's CPU slowdown doesn't throttle workers, and the pool size follows the emulated
+`test-results/performance-optional-work/`. It's **desktop-Chromium emulation**, so label it as
+such (#8, closed 2026-10-16/17): CDP's CPU slowdown doesn't throttle workers, and the pool size follows the emulated
 navigator. `npx vitest run tests/performance/optional-work.test.ts` checks its report.
 
 ### Proposed budgets (not enforced)
@@ -283,7 +292,7 @@ navigator. `npx vitest run tests/performance/optional-work.test.ts` checks its r
 **No fail-on-regression gate exists.** Both harnesses set `timingGate: false`, nothing in
 `npm run check` or PR CI runs them, and the Actions job only uploads reports. These budgets are
 proposals for a reviewer to hold a change against, taken from one n=7 sample (Chromium emulation,
-393×727, 4× CPU, 10/2 Mbps and 40 ms, a 4-vCPU 2.1 GHz Xeon host; **not a real device**). Timing
+393×727, 4× CPU, 10/2 Mbps and 40 ms, a 4-vCPU 2.1 GHz Xeon host; **emulation, not a real device**). Timing
 budgets are about 1.5× the highest median seen, so machine noise doesn't trip them. Sizes and counts
 were identical on every run, so theirs are tight: the cold transfer sits about 10% over, and the few
 warm kilobytes get a round 10,000 B.
@@ -316,7 +325,7 @@ and the pack layout change of #536 landed after `8e81f18`, so it is not in these
 Maximum frame interval (317 to 417 ms median) has no budget: at 4× slowdown it is the ticket and
 decode work on the main thread, and only a real phone can say what players see. A gate, if one is
 added, should fail only on the deterministic rows (transfer, worker count, Argon2 estimate); the
-timing rows stay review flags until #8 has real-device numbers, so a noisy runner can't block
+timing rows stay review flags, since emulated timings are noisy (#8 is closed), so a noisy runner can't block
 unrelated work. Compare only against a run on the same machine and settings.
 
 ### Ticket cost (opt-in)
