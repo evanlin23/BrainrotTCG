@@ -9,8 +9,9 @@
   background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%) 0 0 / 200% 100%;
 }
 
-/* A failed image keeps its box as a flat, hatched slot instead of a broken-image icon. */
-.card-image[data-state='failed'] {
+/* A failed image keeps its box as a flat, hatched slot instead of a broken-image icon; so does art that is never requested. */
+.card-image[data-state='failed'],
+.card-image[data-state='blocked'] {
   background:
     repeating-linear-gradient(135deg, transparent 0 10px, var(--border) 10px 12px),
     var(--surface-2);
