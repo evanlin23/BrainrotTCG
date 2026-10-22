@@ -23,10 +23,19 @@ type State =
 
 /** Opened from a shared `#/pull/<proof>` link. Everything is verified right here, on the viewer's device. */
 const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
+  const [activeProof, setActiveProof] = useState(proof);
   const [state, setState] = useState<State>({ status: 'checking' });
   const [copied, setCopied] = useState(false);
   /** Bumped by "Try again" after running out of memory. */
   const [attempt, setAttempt] = useState(0);
+
+  // When proof changes across route transitions in the same mounted sheet,
+  // immediately reset to checking state so stale verification/cards/previews cannot leak.
+  if (proof !== activeProof) {
+    setActiveProof(proof);
+    setState({ status: 'checking' });
+    setCopied(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
