@@ -5,6 +5,9 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Contain its own .sr-only text: otherwise it answers to .app, and where .app scrolls (short landscape)
+     it stretches the app's overflow instead of this scroller's (#798). */
+  position: relative;
   /* Clear of the bottom tab bar on phones. */
   padding: 0 var(--gutter) calc(var(--nav-height) + var(--safe-bottom) + var(--space-6));
 }

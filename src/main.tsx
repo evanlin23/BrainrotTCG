@@ -11,6 +11,9 @@ import { migratePullLog } from './game/history'
 import { receiveSave } from './game/move'
 import { resumeReopening } from './game/profiles'
 import { warmUpFirstPack } from './game/warmUp'
+import { markStaging } from './game/staging'
+
+markStaging()
 
 // If receiveSave fails (it throws, or its promise rejects), the game starts here as usual rather than
 // stopping at that step. Migrations and the pull-log move have their own screens below.
