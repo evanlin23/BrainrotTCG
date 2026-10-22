@@ -161,197 +161,137 @@ describe('the link a card shares', () => {
   });
 });
 
-describe('cross-tab save switch and draw lifecycle (#653)', () => {
+describe('cross-tab save switch (#653)', () => {
   const card = getSetCards(DEFAULT_SET_ID)[0];
   const cardId = card.key.split('/')[1];
   const SECRET_A = '11'.repeat(32);
   const SECRET_B = '22'.repeat(32);
   const KEY_A = toHex(publicKeyFromSecret(fromHex(SECRET_A)));
   const KEY_B = toHex(publicKeyFromSecret(fromHex(SECRET_B)));
+  const PLAYER_STORAGE = 'brainrot-player-v1';
+  const SAVE_STAMP = 'brainrot-save-stamp-v1';
+  const store = (secret: string, name: string, nextNonce = 2) =>
+    localStorage.setItem(PLAYER_STORAGE, JSON.stringify({ secretKey: secret, name, nextNonce, createdAt: 1 }));
+  const pack = (key: string, nonce: number): HistoryEntry => ({
+    setId: card.setId,
+    setVersion: getLatestSet(card.setId)!.version,
+    nonce,
+    key,
+    cards: [],
+    hand: 'none',
+    score: 0,
+    openedAt: nonce + 1,
+  });
+  const packA = pack(KEY_A, 0);
+  const packB = pack(KEY_B, 1);
+  const buttons = () => [...document.querySelectorAll('button')];
+  const labelled = (text: string) => buttons().find((el) => el.textContent?.includes(text));
+  const otherTab = (key: string | null) => act(async () => {
+    window.dispatchEvent(new StorageEvent('storage', { key }));
+  });
+  const mount = () => act(async () => root.render(<CardShareSheet card={card} version={{ isHolo: false }} onClose={() => {}} />));
+  const linkA = () => pullUrl(proofFor(packA), cardPreviewPath(card.setId, cardId));
 
-  it('atomically regenerates image, cert, QR and link when save switches after draw A completes', async () => {
-    // Seed Player A as current save
-    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: SECRET_A, name: 'Player A', nextNonce: 1, createdAt: 1 }));
+  beforeEach(() => {
+    // Both players own this card: each has a pack of it, so a sheet that followed storage would find one.
+    vi.mocked(findPackWithCard).mockImplementation((playerKey) => (playerKey === KEY_A ? packA : packB));
+    store(SECRET_A, 'Player A');
+  });
 
-    const packA: HistoryEntry = {
-      setId: card.setId,
-      setVersion: getLatestSet(card.setId)!.version,
-      nonce: 0,
-      key: KEY_A,
-      cards: [],
-      hand: 'none',
-      score: 0,
-      openedAt: 1,
-    };
-    const packB: HistoryEntry = {
-      setId: card.setId,
-      setVersion: getLatestSet(card.setId)!.version,
-      nonce: 1,
-      key: KEY_B,
-      cards: [],
-      hand: 'none',
-      score: 0,
-      openedAt: 2,
-    };
-
-    vi.mocked(findPackWithCard).mockImplementation((playerKey) => playerKey === KEY_A ? packA : packB);
-
+  it('pairs A\'s poster with A\'s link, then retires every action when another tab saves player B', async () => {
     const blobA = new Blob(['posterA'], { type: 'image/png' });
-    const blobB = new Blob(['posterB'], { type: 'image/png' });
     vi.mocked(renderCardPoster).mockResolvedValueOnce(blobA);
+    await mount();
 
-    await act(async () => root.render(<CardShareSheet card={card} version={{ isHolo: false }} onClose={() => {}} />));
-
-    // Player A's draw completed
     expect(vi.mocked(renderCardPoster)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(renderCardPoster).mock.calls[0][0].cert).toContain('#0');
+    expect(vi.mocked(renderCardPoster).mock.calls[0][0]).toMatchObject({ cert: expect.stringContaining('#0'), playerName: 'Player A' });
     expect(document.body.textContent).toContain('(ticket #0)');
 
-    // Copy link on A
-    const copyLinkBtn = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy link'))!;
-    await act(async () => copyLinkBtn.click());
-    const proofA = proofFor(packA);
-    expect(vi.mocked(copyText)).toHaveBeenLastCalledWith(pullUrl(proofA, cardPreviewPath(card.setId, cardId)));
-
-    // Copy image on A
-    const copyImageBtn = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy image'))!;
-    await act(async () => copyImageBtn.click());
+    await act(async () => labelled('Copy link')!.click());
+    expect(vi.mocked(copyText)).toHaveBeenLastCalledWith(linkA());
+    await act(async () => labelled('Copy image')!.click());
     expect(vi.mocked(copyImage)).toHaveBeenLastCalledWith(blobA);
-
-    // Native share on A
-    const shareToBtn = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Share to'))!;
-    await act(async () => shareToBtn.click());
+    await act(async () => labelled('Share to')!.click());
     expect(vi.mocked(shareTo)).toHaveBeenLastCalledWith(expect.objectContaining({
-      url: pullUrl(proofA, cardPreviewPath(card.setId, cardId)),
+      url: linkA(),
       image: expect.objectContaining({ blob: blobA }),
     }));
+    const calls = [vi.mocked(copyText).mock.calls.length, vi.mocked(copyImage).mock.calls.length, vi.mocked(shareTo).mock.calls.length];
 
-    // Now another tab imports Player B, who also owns this card (ticket #1)
-    vi.mocked(renderCardPoster).mockResolvedValueOnce(blobB);
-    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: SECRET_B, name: 'Player B', nextNonce: 2, createdAt: 2 }));
-    await act(async () => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' }));
-    });
+    store(SECRET_B, 'Player B');
+    await otherTab(PLAYER_STORAGE);
 
-    // Player B's snapshot is now active
-    expect(vi.mocked(renderCardPoster)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(renderCardPoster).mock.calls[1][0].cert).toContain('#1');
-    expect(document.body.textContent).toContain('(ticket #1)');
-
-    // Old object URL was revoked, new one created
-    expect(revokedUrls.length).toBeGreaterThanOrEqual(1);
-
-    // Copy link on B uses B's newly signed proof (ticket #1) on the active sheet
-    const activeCopyLinkBtn = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy link'))!;
-    await act(async () => activeCopyLinkBtn.click());
-    const proofB = proofFor(packB);
-    expect(vi.mocked(copyText)).toHaveBeenLastCalledWith(pullUrl(proofB, cardPreviewPath(card.setId, cardId)));
-
-    // Copy image on B uses B's blob
-    const activeCopyImageBtn = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy image'))!;
-    await act(async () => activeCopyImageBtn.click());
-    expect(vi.mocked(copyImage)).toHaveBeenLastCalledWith(blobB);
-
-    // Native share on B uses B's link AND B's blob
-    const activeShareToBtn = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Share to'))!;
-    await act(async () => activeShareToBtn.click());
-    expect(vi.mocked(shareTo)).toHaveBeenLastCalledWith(expect.objectContaining({
-      url: pullUrl(proofB, cardPreviewPath(card.setId, cardId)),
-      image: expect.objectContaining({ blob: blobB }),
-    }));
+    // Nothing is left to press: no copy, save or share of A's card under B, and no redraw as B.
+    for (const label of ['Copy link', 'Copy image', 'Save image', 'Copy text', 'Share to']) expect(labelled(label)).toBeUndefined();
+    expect(document.querySelector('.share-sheet img')).toBeNull();
+    expect(document.body.textContent).toContain('This save changed in another tab. Reload to share.');
+    expect(document.body.textContent).not.toContain('(ticket #1)');
+    expect(vi.mocked(renderCardPoster)).toHaveBeenCalledTimes(1);
+    expect(revokedUrls).toEqual(createdUrls);
+    expect([vi.mocked(copyText).mock.calls.length, vi.mocked(copyImage).mock.calls.length, vi.mocked(shareTo).mock.calls.length]).toEqual(calls);
+    // B was never drawn: not for the poster and not for the proof.
+    expect(vi.mocked(findPackWithCard).mock.calls.every(([key]) => key === KEY_A)).toBe(true);
   });
 
-  it('cancels in-flight draw A on save switch so late completion cannot contaminate B snapshot', async () => {
-    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: SECRET_A, name: 'Player A', nextNonce: 1, createdAt: 1 }));
-
-    const packA: HistoryEntry = {
-      setId: card.setId,
-      setVersion: getLatestSet(card.setId)!.version,
-      nonce: 0,
-      key: KEY_A,
-      cards: [],
-      hand: 'none',
-      score: 0,
-      openedAt: 1,
-    };
-    const packB: HistoryEntry = {
-      setId: card.setId,
-      setVersion: getLatestSet(card.setId)!.version,
-      nonce: 1,
-      key: KEY_B,
-      cards: [],
-      hand: 'none',
-      score: 0,
-      openedAt: 2,
-    };
-    vi.mocked(findPackWithCard).mockImplementation((playerKey) => playerKey === KEY_A ? packA : packB);
-
+  it('retires a draw still in flight, so its late poster is never shown or offered', async () => {
     let resolveDrawA!: (b: Blob) => void;
-    const pendingDrawA = new Promise<Blob>((res) => { resolveDrawA = res; });
-    let resolveDrawB!: (b: Blob) => void;
-    const pendingDrawB = new Promise<Blob>((res) => { resolveDrawB = res; });
+    vi.mocked(renderCardPoster).mockReturnValueOnce(new Promise<Blob>((res) => { resolveDrawA = res; }));
+    await mount();
+    expect((labelled('Copy image') as HTMLButtonElement).disabled).toBe(true);
 
-    vi.mocked(renderCardPoster).mockReturnValueOnce(pendingDrawA).mockReturnValueOnce(pendingDrawB);
+    store(SECRET_B, 'Player B');
+    await otherTab(PLAYER_STORAGE);
+    await act(async () => resolveDrawA(new Blob(['lateA'], { type: 'image/png' })));
 
-    await act(async () => root.render(<CardShareSheet card={card} version={{ isHolo: false }} onClose={() => {}} />));
-
-    // A's draw is in-flight: Copy image is disabled
-    const copyImageBtn = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy image'))!;
-    expect(copyImageBtn.hasAttribute('disabled')).toBe(true);
-
-    // Storage switches to Player B before A's draw resolves
-    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: SECRET_B, name: 'Player B', nextNonce: 2, createdAt: 2 }));
-    await act(async () => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' }));
-    });
-
-    // Now late resolve of Draw A
-    const blobA = new Blob(['lateA'], { type: 'image/png' });
-    await act(async () => resolveDrawA(blobA));
-
-    // A's late blob was ignored; copy image on active sheet is still disabled because B is drawing
-    const activeCopyImageDuringB = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy image'))!;
-    expect(activeCopyImageDuringB.hasAttribute('disabled')).toBe(true);
-
-    // Now B's draw resolves
-    const blobB = new Blob(['posterB'], { type: 'image/png' });
-    await act(async () => resolveDrawB(blobB));
-
-    const activeCopyImageAfterB = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Copy image'))!;
-    expect(activeCopyImageAfterB.hasAttribute('disabled')).toBe(false);
-    await act(async () => activeCopyImageAfterB.click());
-    expect(vi.mocked(copyImage)).toHaveBeenLastCalledWith(blobB);
-
-    const shareToBtn = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('Share to'))!;
-    await act(async () => shareToBtn.click());
-    const proofB = proofFor(packB);
-    expect(vi.mocked(shareTo)).toHaveBeenLastCalledWith(expect.objectContaining({
-      url: pullUrl(proofB, cardPreviewPath(card.setId, cardId)),
-      image: expect.objectContaining({ blob: blobB }),
-    }));
+    expect(createdUrls).toEqual([]);
+    for (const label of ['Copy link', 'Copy image', 'Save image', 'Share to']) expect(labelled(label)).toBeUndefined();
+    expect(document.querySelector('.share-sheet img')).toBeNull();
+    expect(vi.mocked(renderCardPoster)).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain('Reload to share.');
   });
 
-  it('releases object URLs upon replacement and on unmount', async () => {
-    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: SECRET_A, name: 'Player A', nextNonce: 1, createdAt: 1 }));
-    vi.mocked(findPackWithCard).mockReturnValue(null);
-    vi.mocked(renderCardPoster).mockResolvedValue(new Blob(['poster'], { type: 'image/png' }));
+  it('stays retired when the first player comes back', async () => {
+    await mount();
+    store(SECRET_B, 'Player B');
+    await otherTab(PLAYER_STORAGE);
+    store(SECRET_A, 'Player A');
+    await otherTab(PLAYER_STORAGE);
+    expect(labelled('Copy link')).toBeUndefined();
+    expect(document.body.textContent).toContain('Reload to share.');
+  });
 
-    await act(async () => root.render(<CardShareSheet card={card} version={{ isHolo: false }} onClose={() => {}} />));
-    expect(createdUrls.length).toBe(1);
-    expect(revokedUrls.length).toBe(0);
+  it.each([
+    ['a rename', () => store(SECRET_A, 'Renamed A'), PLAYER_STORAGE],
+    ['a re-import of the same player', () => localStorage.setItem(SAVE_STAMP, 'stamp-2'), SAVE_STAMP],
+    ['a cleared storage', () => undefined, null],
+  ])('leaves the sheet alone for %s', async (_what, change, key) => {
+    await mount();
+    expect(createdUrls).toHaveLength(1);
+    change();
+    await otherTab(key);
 
-    // Switch player
-    localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: SECRET_B, name: 'Player B', nextNonce: 2, createdAt: 2 }));
-    await act(async () => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' }));
-    });
+    expect(vi.mocked(renderCardPoster)).toHaveBeenCalledTimes(1);
+    expect(revokedUrls).toEqual([]);
+    expect(labelled('Copy link')).toBeDefined();
+    expect((labelled('Copy image') as HTMLButtonElement).disabled).toBe(false);
+    expect(document.body.textContent).not.toContain('Reload to share.');
+  });
 
-    // First URL was revoked, second URL created
-    expect(createdUrls.length).toBe(2);
-    expect(revokedUrls).toContain(createdUrls[0]);
+  it('only reads storage: another tab\'s write never makes the sheet store a player record', async () => {
+    await mount();
+    const writes = vi.spyOn(Storage.prototype, 'setItem');
+    store(SECRET_A, 'Player A', 5);
+    writes.mockClear();
+    await otherTab(PLAYER_STORAGE);
+    expect(writes).not.toHaveBeenCalled();
+    writes.mockRestore();
+  });
 
-    // Unmount
+  it('releases the poster\'s object URL on unmount', async () => {
+    await mount();
+    expect(createdUrls).toHaveLength(1);
+    expect(revokedUrls).toEqual([]);
     await act(async () => root.unmount());
-    expect(revokedUrls).toContain(createdUrls[1]);
+    expect(revokedUrls).toEqual(createdUrls);
   });
 });

@@ -302,50 +302,101 @@ it('still recovers a pack the collection couldn’t store when the player is the
   expect(banner()).toBeNull();
 }, 60_000);
 
-it('keeps card share poster, cert and link coherent on save change in Cards (#653)', async () => {
+it('retires the open card share sheet when another tab saves a different player, and not for the same one (#653)', async () => {
   const card = getSetCards('right-now')[0];
   const cardId = card.key.split('/')[1];
-  const SEED_WITH_CARD = {
+  const owns = { [card.key]: { card, normalCount: 1, holoCount: 0 } };
+  // Both players hold this card, each in a pack of their own, so a sheet that followed storage would find one.
+  const packs = [
+    { s: card.setId, v: 2, n: 0, k: keyOf(MINE).slice(0, 16), c: cardId, h: 'High Card', x: 0, t: 1 },
+    { s: card.setId, v: 2, n: 1, k: keyOf(THEIRS).slice(0, 16), c: cardId, h: 'High Card', x: 0, t: 2 },
+  ];
+  app = await mountedApp({
     ...SEED,
     [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
-    [STORAGE_KEYS.COLLECTION]: JSON.stringify({ [card.key]: { card, normalCount: 1, holoCount: 0 } }),
-    [STORAGE_KEYS.HISTORY]: JSON.stringify([{
-      s: card.setId, v: 2, n: 0, k: keyOf(MINE), c: cardId, h: 'High Card', x: 0, t: 1,
-    }]),
-  };
-  app = await mountedApp(SEED_WITH_CARD);
-  await app.mount();
+    [STORAGE_KEYS.COLLECTION]: JSON.stringify(owns),
+    [STORAGE_KEYS.HISTORY]: JSON.stringify(packs),
+  });
+  // Every external action is stubbed; each poster is a blob that names whom and which ticket it was drawn for.
+  const draws: string[] = [];
+  const madeFor = new Map<Blob, string>();
+  const renderCardPoster = vi.fn(async (options: { playerName: string; cert?: string }) => {
+    draws.push(`${options.playerName} ${options.cert}`);
+    const blob = new Blob(['poster'], { type: 'image/png' });
+    madeFor.set(blob, options.playerName);
+    return blob;
+  });
+  const copyText = vi.fn(async (_text: string) => true);
+  const copyImage = vi.fn(async (_image: Blob) => true);
+  const shareTo = vi.fn(async (_payload: { url?: string; image?: { blob: Blob } }) => 'shared');
+  vi.doMock('../game/bragImage', async (original) => ({ ...(await original<typeof import('../game/bragImage')>()), renderCardPoster }));
+  vi.doMock('../game/shareActions', async (original) => ({
+    ...(await original<typeof import('../game/shareActions')>()),
+    copyText, copyImage, shareTo, canCopyImage: () => true, canShareTo: () => true,
+  }));
+  const objectUrls = { made: [] as string[], revoked: [] as string[] };
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL() { return objectUrls.made[objectUrls.made.push(`blob:poster-${objectUrls.made.length}`) - 1]; }
+    static revokeObjectURL(url: string) { objectUrls.revoked.push(url); }
+  });
+  try {
+    await app.mount();
+    const sheet = () => document.querySelector('.share-sheet');
+    const sheetButton = (label: string) => [...sheet()!.querySelectorAll('button')].find((el) => el.textContent?.includes(label));
 
-  // Navigate to Cards
-  const cardsTab = [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent?.includes('Cards'))!;
-  await app.interact(() => cardsTab.click());
-  await app.until('Cards collection is visible', () => expect(document.querySelector('.collection')).not.toBeNull());
+    await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.app-nav button')].find((el) => el.textContent?.includes('Cards'))!.click());
+    await app.until('the Cards collection shows the card', () => expect(document.querySelector('button.collection-item')).not.toBeNull());
+    await app.interact(() => document.querySelector<HTMLButtonElement>('button.collection-item')!.click());
+    await app.until('the card viewer is open', () => expect(document.querySelector('.card-viewer')).not.toBeNull());
+    await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.includes('Share card'))!.click());
+    await app.until('the poster is drawn', () => {
+      expect(sheet()).not.toBeNull();
+      expect((sheetButton('Copy image') as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(sheet()!.textContent).toContain('(ticket #0)');
+    // (React's development double-mount draws it twice; the second is the one that stays.)
+    const drawn = draws.length;
+    expect(draws.every((d) => /^This tab .* #0$/.test(d))).toBe(true);
 
-  // Click card thumbnail
-  await app.until('Card item is visible', () => expect(document.querySelector('button.collection-item')).not.toBeNull());
-  const cardThumb = document.querySelector<HTMLButtonElement>('button.collection-item')!;
-  await app.interact(() => cardThumb.click());
-  await app.until('Card viewer modal is open', () => expect(document.querySelector('.card-viewer')).not.toBeNull());
+    // This player's card: the poster, certificate and link all belong to ticket #0.
+    const aLink = () => copyText.mock.calls[copyText.mock.calls.length - 1][0];
+    await app.interact(() => sheetButton('Copy link')!.click());
+    expect(aLink()).toContain('#/pull/');
+    await app.interact(() => sheetButton('Copy image')!.click());
+    expect(madeFor.get(copyImage.mock.calls[copyImage.mock.calls.length - 1][0])).toBe('This tab');
+    await app.interact(() => sheetButton('Share to')!.click());
+    const shared = shareTo.mock.calls[shareTo.mock.calls.length - 1][0];
+    expect(shared.url).toBe(aLink());
+    expect(madeFor.get(shared.image!.blob)).toBe('This tab');
+    const before = [copyText, copyImage, shareTo].map((fn) => fn.mock.calls.length);
 
-  // Click Share card
-  const shareBtn = [...document.querySelectorAll<HTMLButtonElement>('button')].find((el) => el.textContent?.includes('Share card'))!;
-  await app.interact(() => shareBtn.click());
-  await app.until('Card share sheet is open', () => expect(document.querySelector('.share-sheet')).not.toBeNull());
-  expect(document.querySelector('.share-sheet')!.textContent).toContain('(ticket #0)');
+    // The same player written again (a rename, a re-import) leaves the sheet as it was.
+    otherTabWrites({ [PLAYER_KEY]: record(MINE, 'Renamed tab') });
+    await storageEvent(PLAYER_KEY);
+    otherTabWrites({ [SAVE_STAMP_KEY]: 'same-player-again' });
+    await storageEvent(SAVE_STAMP_KEY);
+    expect(sheetButton('Copy link')).toBeDefined();
+    expect(draws).toHaveLength(drawn);
+    expect(objectUrls.revoked).toEqual([]);
 
-  // Another tab imports Player B, who also owns this card at ticket #1
-  const THEIR_SAVE_WITH_CARD = {
-    ...THEIR_SAVE,
-    [STORAGE_KEYS.COLLECTION]: JSON.stringify({ [card.key]: { card, normalCount: 1, holoCount: 0 } }),
-    [STORAGE_KEYS.HISTORY]: JSON.stringify([{
-      s: card.setId, v: 2, n: 1, k: keyOf(THEIRS), c: cardId, h: 'High Card', x: 0, t: 2,
-    }]),
-  };
-  otherTabWrites(THEIR_SAVE_WITH_CARD);
-  await storageEvent(PLAYER_KEY);
+    // Another tab imports player B, who also owns this card at ticket #1.
+    otherTabWrites({ ...THEIR_SAVE, [STORAGE_KEYS.COLLECTION]: JSON.stringify(owns) });
+    await storageEvent(PLAYER_KEY);
+    expect(banner()?.textContent).toContain(STALE);
 
-  // The share sheet updates atomically to Player B's ticket #1
-  await app.until('Card share sheet updates to ticket #1', () => expect(document.querySelector('.share-sheet')?.textContent).toContain('(ticket #1)'));
-  expect(document.querySelector('.share-sheet')?.textContent).not.toContain('(ticket #0)');
-  expect(app.takeErrors(/^Could not draw the share image/).length).toBeGreaterThan(0);
+    // The sheet is retired: nothing of A's card can be copied or shared under B, and nothing signed by B
+    // was paired with A's poster. B's ticket was never drawn.
+    expect(sheet()!.textContent).toContain('This save changed in another tab. Reload to share.');
+    for (const label of ['Copy link', 'Copy image', 'Save image', 'Copy text', 'Share to']) expect(sheetButton(label)).toBeUndefined();
+    expect(sheet()!.querySelector('img')).toBeNull();
+    expect(sheet()!.textContent).not.toContain('(ticket #1)');
+    expect(draws).toHaveLength(drawn);
+    expect(draws.some((d) => d.includes('Other tab'))).toBe(false);
+    expect(objectUrls.revoked).toEqual(objectUrls.made);
+    expect([copyText, copyImage, shareTo].map((fn) => fn.mock.calls.length)).toEqual(before);
+    for (const call of [...copyText.mock.calls, ...shareTo.mock.calls]) expect(JSON.stringify(call)).not.toContain('Other tab');
+  } finally {
+    vi.doUnmock('../game/bragImage');
+    vi.doUnmock('../game/shareActions');
+  }
 }, 60_000);

@@ -487,6 +487,29 @@ describe('claiming the next ticket number', () => {
     expect(stored()).toEqual(original);
   });
 
+  it('watchStoredPlayer hears the same storage events as watchPlayer but never writes the count back', () => {
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    const storageEvent = (key: string | null) => target.dispatchEvent(Object.assign(new Event('storage'), { key }));
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    expect(player.allocateNonce().nonce).toBe(12);
+    const changed = vi.fn();
+    const stop = player.watchStoredPlayer(changed);
+
+    // A lower count from another tab: watchPlayer would store 13 again, this leaves it alone.
+    store.set(PLAYER_KEY, JSON.stringify({ ...original, name: 'Renamed' }));
+    storageEvent(PLAYER_KEY);
+    expect(stored()).toEqual({ ...original, name: 'Renamed' });
+    storageEvent(player.SAVE_STAMP_KEY);
+    storageEvent(null);
+    storageEvent('unrelated');
+    expect(changed).toHaveBeenCalledTimes(3);
+
+    stop();
+    storageEvent(PLAYER_KEY);
+    expect(changed).toHaveBeenCalledTimes(3);
+  });
+
   it('says so when storage refuses to restore the count over a lower one, and only then', () => {
     const target = new EventTarget();
     vi.stubGlobal('window', target);

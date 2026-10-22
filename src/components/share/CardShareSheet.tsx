@@ -3,7 +3,7 @@ import { ShieldCheck } from 'lucide-react';
 import type { Card } from '../../data/cards';
 import { CARD_RARITIES, cardNumber } from '../../data/cards';
 import { getLatestSet, setCode } from '../../content/sets';
-import { getPlayer, watchPlayer } from '../../game/player';
+import { getPlayer, watchStoredPlayer } from '../../game/player';
 import { findPackWithCard } from '../../game/history';
 import { canShare, cardPreviewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
@@ -12,6 +12,7 @@ import { cardStats } from '../../game/cardStats';
 import { RARITY_MARK } from '../../game/share';
 import type { CardVersion } from '../../game/versions';
 import { RARITY_COLORS } from '../../styles/palette';
+import Sheet from '../ui/Sheet';
 import SharePreviewSheet from './SharePreviewSheet';
 
 interface CardShareSheetProps {
@@ -33,11 +34,17 @@ interface CardShareSheetProps {
 const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) => {
   const { isHolo, finish = null, misprint = false } = version;
   const mods = modifierLabel(version);
-  const [player, setPlayer] = useState(() => getPlayer());
+  // The player this sheet was opened for. The poster, certificate, QR code, link and text are all
+  // made for them, and the tab's collection is theirs too, so they never follow storage to another
+  // player: if another tab switches the save, the sheet is retired instead (see below).
+  const [player] = useState(() => getPlayer());
+  const [retired, setRetired] = useState(false);
 
-  useEffect(() => watchPlayer(() => {
-    setPlayer(getPlayer());
-  }), []);
+  // Read-only: a rename, a re-import of the same player or a cleared storage leaves the sheet alone;
+  // only a different player key retires it, once and for good (it stays retired if the key returns).
+  useEffect(() => watchStoredPlayer(() => {
+    if (getPlayer().publicKeyHex !== player.publicKeyHex) setRetired(true);
+  }), [player.publicKeyHex]);
 
   const set = getLatestSet(card.setId);
   const setName = set?.name ?? card.setId;
@@ -62,9 +69,21 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
     ...(link ? [link] : []),
   ].join('\n');
 
-  // Key the SharePreviewSheet on the immutable target tuple so any save-switch or ownership change
-  // atomically discards stale poster draws/object URLs and instantiates a clean preview.
-  const targetKey = `${player.publicKeyHex}:${pack?.setId ?? ''}@${pack?.setVersion ?? 0}#${pack?.nonce ?? 'none'}:${card.key}:${isHolo}:${finish ?? ''}:${misprint}`;
+  // Keyed on the target so the preview never outlives what it was drawn for.
+  const targetKey = `${pack?.setId ?? ''}@${pack?.setVersion ?? 0}#${pack?.nonce ?? 'none'}:${card.key}:${isHolo}:${finish ?? ''}:${misprint}`;
+
+  if (retired) {
+    // Unmounting the preview ends any draw in flight and releases its image, so nothing made for the
+    // old player stays to be copied or shared.
+    return (
+      <Sheet title={`Share ${card.name}`} onClose={onClose} size="md" className="share-sheet">
+        <p className="share-note" role="status">
+          <ShieldCheck aria-hidden="true" />
+          This save changed in another tab. Reload to share.
+        </p>
+      </Sheet>
+    );
+  }
 
   return (
     <SharePreviewSheet
