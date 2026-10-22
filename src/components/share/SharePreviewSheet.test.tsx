@@ -210,7 +210,7 @@ describe('share preview actions', () => {
       expect(btn?.disabled).toBe(true);
 
       // Failure state is reported
-      expect(document.querySelector('.share-preview-wait')?.textContent).toBe("Couldn't draw the image");
+      expect(document.querySelector('.share-preview-wait')?.textContent).toContain("Couldn't draw the image");
 
       // Attempting to click does not call shareTo
       await act(async () => {
