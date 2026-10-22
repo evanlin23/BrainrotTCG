@@ -105,13 +105,14 @@ jobs:
             github; exit 0
           fi
           echo "Cloudflare Pages project $PROJECT: https://$sub/"
-          # Pages serves a branch's preview at <branch>.<project host>, its own origin. The build
-          # treats any subdomain of the project host as staging (src/game/staging.ts).
+          # Pages serves a branch's preview at <branch>.<project host>, its own origin. With staging
+          # on, the build treats any subdomain of the project host as staging (src/game/staging.ts);
+          # with it off, pages stays empty and no address is staging.
           pages=
-          if [[ "$sub" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?\.pages\.dev$ ]]; then pages=$sub; fi
           staging_url=
           if [ -n "$STAGING_BRANCH" ]; then
-            [ -n "$pages" ] || refuse "the project's address $sub isn't a pages.dev address"
+            [[ "$sub" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?\.pages\.dev$ ]] || refuse "the project's address $sub isn't a pages.dev address"
+            pages=$sub
             production=$(echo "$res" | jq -r '.result.production_branch // empty')
             if [ "$STAGING_BRANCH" = main ] || [ "$STAGING_BRANCH" = "$production" ]; then
               refuse "CLOUDFLARE_STAGING_BRANCH names the production branch"
@@ -178,7 +179,8 @@ jobs:
       # After a move, the build knows the old address, so it can take saves handed over from it
       # (src/game/move.ts); a build that hasn't moved has no old address and takes nothing.
       # The same files serve production and staging; at run time a page at a subdomain of the
-      # Cloudflare project host knows it is staging (src/game/staging.ts).
+      # Cloudflare project host knows it is staging (src/game/staging.ts). With staging off the
+      # suffix is empty, so no address is staging.
       - run: npm run build
         env:
           BASE_PATH: ${{ needs.site.outputs.base }}
@@ -337,6 +339,16 @@ jobs:
         run: python3 -I scripts/deploy_contract.py verify release
       - if: needs.site.outputs.staging_url != ''
         run: cp -R release/dist dist
+      # stage saw staging serve this run's files, but a later run on the same commit may have
+      # replaced them since (re-running this job after it). Test only this run's files, or stop
+      # before publish.
+      - name: Check staging still serves this build
+        if: needs.site.outputs.staging_url != ''
+        env:
+          URL: ${{ needs.site.outputs.staging_url }}
+        run: |
+          curl -fsS --max-time 15 "${URL%/}/deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" | cmp -s release/dist/deployment-id.json - && exit 0
+          echo "::error::$URL no longer serves this build, so its checks would test other files. Start a new deploy on main instead of re-running this one."; exit 1
       - name: Browser checks on staging
         if: needs.site.outputs.staging_url != ''
         env:

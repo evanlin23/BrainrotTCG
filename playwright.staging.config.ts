@@ -9,7 +9,9 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Without it (CI on pull requests, or locally): a stand-in. One root-path build, made the way the
  * deploy makes it for Cloudflare, served at http://staging.localhost:PORT/ (a staging address: a
- * subdomain of the build's VITE_STAGING_HOST_SUFFIX) and at http://127.0.0.1:PORT/ (a production one).
+ * subdomain of the build's VITE_STAGING_HOST_SUFFIX) and at http://127.0.0.1:PORT/ (a production one,
+ * checked by staging-local.check.ts, which the deploy leaves out: its production still serves the
+ * previous release).
  */
 const STAGING_URL = process.env.STAGING_URL?.replace(/\/*$/, '/');
 const PORT = 4176;
@@ -18,7 +20,7 @@ export default defineConfig({
   testDir: './tests/browser',
   testMatch: STAGING_URL
     ? ['staging.check.ts', 'built-site.spec.ts', 'pack-opener.smoke.spec.ts', 'shared-pull.smoke.spec.ts']
-    : ['staging.check.ts'],
+    : ['staging.check.ts', 'staging-local.check.ts'],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,

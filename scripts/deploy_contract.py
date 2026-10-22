@@ -428,6 +428,13 @@ def waits(run):
     return isinstance(run, str) and '| cmp -s release/dist/deployment-id.json - && exit 0' in run and '"${URL%/}/deployment-id.json?run=' in run
 
 
+def still_serves(run):
+    """Fetches this run's dist/deployment-id.json from the address once, and fails unless it matches."""
+    return (isinstance(run, str) and run.startswith('curl -fsS --max-time 15 "${URL%/}/deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" '
+                                                    '| cmp -s release/dist/deployment-id.json - && exit 0\n')
+            and run.rstrip('\n').endswith('exit 1') and run.count('\n') == 2)
+
+
 def served_step(url):
     return {'env': {'MANIFEST_SHA256': '${{ needs.build.outputs.manifest_sha256 }}', 'SITE_URL': '${{ needs.site.outputs.url }}',
                     'URL': url},
@@ -460,6 +467,8 @@ STAGING_CHECKS = [
     staging(SEALED[1]),
     staging(SEALED[2]),
     staging({'run': 'cp -R release/dist dist'}),
+    # stage saw these files on staging, but a later run on the same commit may have replaced them.
+    staging({'env': {'URL': '${{ needs.site.outputs.staging_url }}'}, 'run': still_serves}),
     staging({'env': {'STAGING_URL': '${{ needs.site.outputs.staging_url }}'}, 'run': 'npx playwright test -c playwright.staging.config.ts'}),
 ]
 DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
@@ -562,8 +571,8 @@ def check_deploy(workflow):
         problems.append('deploy.yml: stage must, with staging on, do what publish does but deploy to the staging branch, '
                         'then check staging serves every sealed file')
     if len(checks) != len(STAGING_CHECKS) or not all(match(step, spec) for step, spec in zip(checks, STAGING_CHECKS)):
-        problems.append('deploy.yml: staging-checks must, with staging on, run playwright.staging.config.ts against staging '
-                        'with the sealed files as ./dist')
+        problems.append('deploy.yml: staging-checks must, with staging on, check staging still serves this build, then run '
+                        'playwright.staging.config.ts against staging with the sealed files as ./dist')
     if len(deploy) != len(DEPLOY) or not all(match(step, spec) for step, spec in zip(deploy, DEPLOY)):
         problems.append('deploy.yml: deploy must only require the tip of main, then deploy Pages')
     return problems

@@ -198,6 +198,14 @@ class Workflows(unittest.TestCase):
                             'run: npx playwright test -c playwright.staging.config.ts || true')
         self.assertBrokenIn(('staging-checks',), 'STAGING_URL: ${{ needs.site.outputs.staging_url }}', 'STAGING_URL: ""')
 
+    def test_staging_checks_without_this_build(self):
+        drop = lambda jobs: jobs['staging-checks']['steps'].remove(
+            step_named({'jobs': jobs}, 'staging-checks', 'Check staging still serves this build'))
+        self.assertTrue(any('staging-checks must' in p for p in self.deploy_problems(drop)))
+        self.assertBrokenIn(('staging-checks',), '/deployment-id.json - && exit 0\n', '/deployment-id.json - || true\n')
+        self.assertBrokenIn(('staging-checks',), 'URL: ${{ needs.site.outputs.staging_url }}\n        run: |\n          curl',
+                            'URL: ${{ needs.site.outputs.url }}\n        run: |\n          curl')
+
     def test_secret_in_staging_checks(self):
         self.assertBroken('deploy.yml', '        run: cp -R release/dist dist\n',
                           '        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n        run: cp -R release/dist dist\n',
@@ -643,6 +651,39 @@ class Handoff(unittest.TestCase):
                 self.assertNotEqual(check(marker.replace(b'123456', b'123455')), 0)
                 self.assertNotEqual(check(marker.rstrip(b'\n')), 0)
 
+    def test_staging_still_serves_this_build(self):
+        """staging-checks' check before the browser checks, with curl stubbed: one fetch, and it passes
+        only while staging serves this run's marker (a re-run after a later run on the same commit fails)."""
+        script = step_named(dc.load(WORKFLOWS / 'deploy.yml'), 'staging-checks', 'Check staging still serves this build')['run']
+        self.sealed()
+        bin_dir = self.tmp / 'bin'
+        bin_dir.mkdir()
+        served = self.tmp / 'served.json'
+        log = self.tmp / 'curl.log'
+        (bin_dir / 'curl').write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n[ -f "{served}" ] || exit 22\ncat "{served}"\n')
+        (bin_dir / 'curl').chmod(0o755)
+        marker = (self.dist / 'deployment-id.json').read_bytes()
+        env = {'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'URL': 'https://staging.brainrottcg.pages.dev/',
+               'GITHUB_RUN_ID': ENV['GITHUB_RUN_ID'], 'GITHUB_RUN_ATTEMPT': '2'}
+
+        def check(content):
+            log.write_text('')
+            served.unlink(missing_ok=True)
+            if content is not None:
+                served.write_bytes(content)
+            result = subprocess.run(['bash', '-e', '-c', script], cwd=self.tmp, env=env, capture_output=True, text=True)
+            self.assertEqual(len(log.read_text().splitlines()), 1)
+            return result
+
+        self.assertEqual(check(marker).returncode, 0)
+        self.assertIn('https://staging.brainrottcg.pages.dev/deployment-id.json?run=123456-2', log.read_text())
+        for name, content in (('another run', marker.replace(b'123456', b'123457')), ('changed', marker.rstrip(b'\n')),
+                              ('unreachable', None)):
+            with self.subTest(name):
+                result = check(content)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn('no longer serves this build', result.stdout)
+
 
 class Served(unittest.TestCase):
     """served in stage and publish: the address serves every sealed file with its sealed hash."""
@@ -866,7 +907,8 @@ class SiteLookup(unittest.TestCase):
                                 ('https://brainrottcg.com//', 'https://brainrottcg.com/'),
                                 ('https://brainrottcg.com///', 'https://brainrottcg.com/')):
             with self.subTest(custom_url):
-                self.assertEqual(self.outputs(custom_url), {'host': 'cloudflare', 'url': url, 'base': '/', 'pages': 'brainrottcg.pages.dev',
+                # Staging off: no project host for the build, so no address it serves from is staging.
+                self.assertEqual(self.outputs(custom_url), {'host': 'cloudflare', 'url': url, 'base': '/', 'pages': '',
                                                             'staging_branch': '', 'staging_url': ''})
                 self.assertEqual(dc.marker({**ENV, 'SITE_URL': url})['url'], url)
 

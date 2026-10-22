@@ -112,10 +112,11 @@ With staging on, a deploy of `main` runs:
    `--branch`, the branch named by `CLOUDFLARE_STAGING_BRANCH`) and waits until
    `https://<branch>.<project>.pages.dev/` serves this run's `deployment-id.json`. Then it fetches
    every sealed file from staging and fails if any one differs from its sealed hash.
-3. **staging-checks** runs browser checks (`playwright.staging.config.ts`: the built-site check,
-   the pack-opener and shared-pull smoke tests, and `tests/browser/staging.check.ts`) against the
-   staging address, with no secrets. Nothing is rebuilt: the tests' copy of the site is the sealed
-   one.
+3. **staging-checks** first checks staging still serves this run's `deployment-id.json` (a later
+   run on the same commit may have replaced it, and a re-run would then test other files), then runs
+   browser checks (`playwright.staging.config.ts`: the built-site check, the pack-opener and
+   shared-pull smoke tests, and `tests/browser/staging.check.ts`) against the staging address, with
+   no secrets. Nothing is rebuilt: the tests' copy of the site is the sealed one.
 4. **publish** runs only if both passed. It checks the seal again and publishes the same files to
    production, then fetches every sealed file from production and fails if any differs. Both
    comparisons print the release's identity (commit, run, manifest hash, file count, Hall of Fame
@@ -126,11 +127,12 @@ With staging on, a deploy of `main` runs:
 What keeps staging apart:
 
 - **Its own origin.** The staging address is a different origin from production and from the old
-  GitHub Pages address, so its browser storage, saves included, never mixes with theirs. The build
-  is told the project's host (`VITE_STAGING_HOST_SUFFIX`); at run time, any subdomain of it is
-  staging (`src/game/staging.ts`). Staging shows a banner, asks not to be indexed, never offers to
-  bring a save from the old address, and never publishes to the Hall of Fame. The same files at the
-  production address are the normal game.
+  GitHub Pages address, so its browser storage, saves included, never mixes with theirs. With
+  staging on, the build is told the project's host (`VITE_STAGING_HOST_SUFFIX`); at run time, any
+  subdomain of it is staging (`src/game/staging.ts`). With staging off it is told none, so no
+  address, per-deploy `*.pages.dev` links included, is marked as staging. Staging shows a banner,
+  asks not to be indexed, never offers to bring a save from the old address, and never publishes to
+  the Hall of Fame. The same files at the production address are the normal game.
 - **No real data.** Staging doesn't post to GitHub or anywhere public, and its browser checks run
   without secrets. The Hall of Fame list it serves is the one built in, read-only.
 - **Fails closed.** With `CLOUDFLARE_STAGING_BRANCH` set, the site job stops the deploy, before
@@ -157,8 +159,9 @@ What keeps staging apart:
 ### Not checked from here
 
 - The token's scope, and whether the project's previews are behind Access.
-- Whether Cloudflare sends `X-Robots-Tag: noindex` for previews; the page asks not to be indexed
-  either way.
+- Whether Cloudflare sends `X-Robots-Tag: noindex` for previews. The page asks not to be indexed
+  either way, but from a script: staging and production serve the same `index.html`, so it can't
+  carry a staging-only `noindex` tag, and a crawler that runs no scripts has only that header.
 - Hall of Fame refreshes redeploy through the same jobs, so with staging on each one takes a few
   minutes longer (two full fetches of the site and the browser checks).
 - The release-blocker gate (`scripts/release-blockers.ts`, #759) isn't wired into publish yet; that
