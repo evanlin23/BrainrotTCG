@@ -165,8 +165,8 @@ export const collectionRecoveryState = (): CollectionRecoveryState => {
 
 /** What the kept-aside note says, in the banner and in Settings > Save & backup (see collectionRecoveryNote). */
 export const COLLECTION_RECOVERY_NOTES: Record<Exclude<CollectionRecoveryState, 'none'>, string> = {
-  stored: "Unreadable collection data was kept aside in this browser. Download a copy, or discard it if you don't need it. Backups include it too.",
-  unsaved: 'Unreadable collection data was kept aside, but this browser had no room to store it, so it lasts only until this tab closes or reloads. Download it now to keep it.',
+  stored: "Unreadable collection data was kept aside in this browser. Download a copy, or discard it if you don't need it. Backups include it too. It may include your secret player key. Keep the file private and never attach it to a public bug report.",
+  unsaved: 'Unreadable collection data was kept aside, but this browser had no room to store it, so it lasts only until this tab closes or reloads. Download it now to keep it. It may include your secret player key. Keep the file private and never attach it to a public bug report.',
 };
 
 /** Older payloads let go to stay within the limits: the stored archive's count plus this visit's. */

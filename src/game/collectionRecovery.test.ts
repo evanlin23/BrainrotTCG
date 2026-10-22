@@ -324,6 +324,11 @@ describe('downloading and discarding kept-aside data', () => {
   });
 
   it('says how many older payloads were let go, stored and in memory, in the note and the file', () => {
+    expect(COLLECTION_RECOVERY_NOTES.stored).toContain('secret player key');
+    expect(COLLECTION_RECOVERY_NOTES.stored).toContain('Keep the file private and never attach it to a public bug report.');
+    expect(COLLECTION_RECOVERY_NOTES.unsaved).toContain('secret player key');
+    expect(COLLECTION_RECOVERY_NOTES.unsaved).toContain('Keep the file private and never attach it to a public bug report.');
+
     const data = seed(null);
     expect(collectionRecoveryNote()).toBeUndefined();
     data.set(ARCHIVE, JSON.stringify({ raw: '{"0":null}', player: null }));
