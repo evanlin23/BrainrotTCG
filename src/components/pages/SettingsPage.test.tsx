@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLatestSet } from '../../content/sets';
 import { ALL_CARDS } from '../../data/cards';
 import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
-import { importSaveFile, NO_ROOM_FOR_COPY_NOTE, NO_ROOM_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE, NO_ROOM_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
 import { SAVE_STAMP_KEY, type SaveMark } from '../../game/player';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundGain } from '../../constants/audio';
 import { DEFAULT_SETTINGS, effectsLevel } from '../../utils/settings';
@@ -142,6 +142,26 @@ describe('focus after the old address Replace question (#978)', () => {
 describe('Settings: exporting a backup file', () => {
   const backupNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Back up')!;
 
+  it('says the backup was downloaded, and keeps the warning that the file is private (#805)', async () => {
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:mock'), revokeObjectURL: vi.fn() });
+
+    expect(backupNote().textContent).toBe(EXPORT_KEY_NOTE);
+    await click('Export');
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(backupNote().textContent).toMatch(/^Backup downloaded — keep it private\./);
+    expect(backupNote().textContent).toContain('secret player key');
+    // Exporting again keeps the confirmation (the file is made each time) and re-announces it: the
+    // status region gets a new text node, which is what a screen reader reads out.
+    const firstAnnouncement = backupNote().firstElementChild!;
+    await click('Export');
+    expect(clickSpy).toHaveBeenCalledTimes(2);
+    expect(backupNote().textContent).toBe(EXPORT_DONE_NOTE);
+    expect(firstAnnouncement.isConnected).toBe(false);
+    expect(backupNote().firstElementChild).not.toBe(firstAnnouncement);
+  });
+
   it('shows visible failure message when browser storage reads are denied, and succeeds on retry', async () => {
     localStorage.setItem('brainrot-player-v1', player('aa'));
     act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} />));
@@ -169,7 +189,7 @@ describe('Settings: exporting a backup file', () => {
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
 
     await click('Export');
-    expect(backupNote().textContent).toBe('Includes your secret player key. Keep the file private.');
+    expect(backupNote().textContent).toBe(EXPORT_DONE_NOTE);
     expect(createObjectURL).toHaveBeenCalled();
     expect(clickSpy).toHaveBeenCalled();
   });

@@ -12,7 +12,7 @@ import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import KeptAsideActions from '../ui/KeptAsideActions';
 import '../../styles/Settings.css';
-import { downloadSaveFile, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { downloadSaveFile, EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
 import { sameSave, saveMark, type SaveMark } from '../../game/player';
 
 interface SettingsPageProps {
@@ -38,7 +38,9 @@ interface SettingsPageProps {
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
 const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
-    const [exportNote, setExportNote] = useState('Includes your secret player key. Keep the file private.');
+    const [exportNote, setExportNote] = useState(EXPORT_KEY_NOTE);
+    // Counts successful exports; it keys the note's text so a repeat Export is announced again.
+    const [exportCount, setExportCount] = useState(0);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,7 +55,8 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const handleExportSave = () => {
         try {
             downloadSaveFile();
-            setExportNote('Includes your secret player key. Keep the file private.');
+            setExportNote(EXPORT_DONE_NOTE);
+            setExportCount((n) => n + 1);
         } catch {
             setExportNote("Couldn't read browser storage to export your save.");
         }
@@ -372,7 +375,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
-                            <span className="settings-desc" role="status">{exportNote}</span>
+                            <span className="settings-desc" role="status"><span key={exportCount}>{exportNote}</span></span>
                         </span>
                         <button type="button" className="btn btn--secondary btn--sm" onClick={handleExportSave}>
                             <Download aria-hidden="true" /> Export
