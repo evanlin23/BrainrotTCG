@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { fingerFor, monitor, snapshot } from './support';
+import { expectDecoded, fingerFor, monitor, snapshot } from './support';
 
 // Cards, Rankings, Profile and Settings are hash-routed pages over the packs screen (#312). Each one
 // is reached by its address, by its tab and by Back, at a phone and a desktop size; packs and shared
@@ -325,6 +325,8 @@ test('Back from a page opened over a pack returns to the pack, and the next Back
   await expect(opener(page)).toBeEnabled();
   const start = page.url();
   await openPackSummary(page);
+  // A finish caption (GOLD) is printed only once its card's art is drawn (#762): read the text after that.
+  await expectDecoded(page.locator('.summary-cards img'), 5);
   const cards = await page.locator('.pack-summary').innerText();
 
   // Focus mode hides the tabs for the whole pack (#312), so a page reaches a pack's summary by its address.
@@ -387,7 +389,7 @@ test('closing a shared pull opened over a pack keeps the pack, and one Back then
   await openPackSummary(page);
 
   await page.evaluate((proof) => { location.hash = `#/pull/${proof}`; }, vector.proof);
-  const viewer = page.getByRole('dialog').filter({ hasText: 'Verified on this device' });
+  const viewer = page.getByRole('dialog').filter({ hasText: 'This pull checks out — re-verified in your browser just now' });
   await expect(viewer).toBeVisible({ timeout: 30000 });
   await viewer.getByRole('button', { name: 'Close', exact: true }).first().click();
   await expect(page.getByRole('dialog')).toHaveCount(0);

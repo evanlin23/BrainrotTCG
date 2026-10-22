@@ -140,7 +140,7 @@ test('a slow chunk shows one loading sheet, then its screen in place', async ({ 
   release();
   await expect(page.locator('.sheet--deferred')).toHaveCount(0);
   await expect(verifiedPull(page)).toBeVisible({ timeout: VIEWER_TIMEOUT });
-  await expect(verifiedPull(page)).toContainText('Verified on this device');
+  await expect(verifiedPull(page)).toContainText('This pull checks out — re-verified in your browser just now');
   const ms = await expectSeamless(page);
   report('slow chunk released to screen', ms);
   expect(ms).toBeLessThan(SCREEN_BOUND_MS);
@@ -167,7 +167,7 @@ test('a failed chunk offers Reload and Retry, and Retry loads it', async ({ page
   await retry.click();
   await expect(page.locator('.sheet--deferred')).toHaveCount(0);
   await expect(verifiedPull(page)).toBeVisible({ timeout: VIEWER_TIMEOUT });
-  await expect(verifiedPull(page)).toContainText('Verified on this device');
+  await expect(verifiedPull(page)).toContainText('This pull checks out — re-verified in your browser just now');
   const ms = await expectSeamless(page);
   report('failed chunk Retry to screen', ms);
   expect(ms).toBeLessThan(SCREEN_BOUND_MS);

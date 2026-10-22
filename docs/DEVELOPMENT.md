@@ -11,6 +11,11 @@ Use Node 22, as CI does. `npm ci` installs from the lockfile; only change `packa
 dependency change. A fresh checkout or worktree has no `node_modules` and needs `npm ci` before any
 check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
+A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (about 55 MiB
+of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without it, `npm run cards` can't run and `npm run check` can't
+test for placeholder art, so CI is authoritative; run `git sparse-checkout disable` before editing or
+adding a set.
+
 ## Workflow
 
 1. Search open issues and PRs first and reuse the existing issue. New work starts from the
@@ -147,6 +152,39 @@ runs the real relay reader, inbox and build against in-memory GitHub and relays
 issues and byte-identical output. Whether Discord, Slack or X
 actually unfurl a page is still checked by hand, against a deployed address.
 
+### Intake capacity harness (offline)
+
+`npx tsx scripts/hof-capacity.ts` runs the real `inbox()` for many scheduled runs against the same
+in-memory fakes, to see backlog, age and API calls under bursts, backlogs and outages, with the
+shipped caps (300 attempts and 20 filings a run, paging, the 7-day window, the seen cache). It sends
+nothing to GitHub, a relay or Pages. What is real and what is not:
+
+- Ticket verification is **stubbed** (two pre-mined stand-in tickets); proof and event signatures are
+  real. Time is a **fake clock** in model seconds (nothing sleeps). Run times are **modeled**:
+  derivations x a small real Argon2 sample (`--argon-samples`, default 3) plus requests x placeholder
+  latencies. They are not observed production throughput; timing under `timing` is report-only.
+- Inputs per scenario: arrival phases, cadence, duplicate, invalid and qualifying fractions, relay
+  retention, relay or GitHub outages, write limits or failures, existing issues, seen-cache filler,
+  modeled costs and the bounds (events, runs, wall time, heap). Hitting a bound ends the scenario with
+  `exit: aborted: ...` and fails a check. Window or retention expiry is counted apart from delivery.
+- Limits, also in the report's `labels.limits`: the published list is assumed to be a 404, so the
+  floor and `joinRefusal` paths do not run; event and proof keys come from 16-key pools. A scenario
+  asking for a `measured` Argon2 time without a sample reports `meta.argon.source` as
+  `measured-missing` and uses the default. Per run, `beyondPaging` counts events past the paging cap
+  and `unreadable` counts in-window events no relay could serve (every relay down).
+
+```
+npx tsx scripts/hof-capacity.ts --list
+npx tsx scripts/hof-capacity.ts [--scenario name]... [--seed text] [--out report.json]
+npx tsx scripts/hof-capacity.ts --include-slow          # also paging-cap, a minute or two
+npx tsx scripts/hof-capacity.ts --scenario synthetic-30-packs-per-second --include-synthetic-225
+```
+
+The default scenarios take about a minute. The report holds the seed, config, runner metadata and the
+raw per-run summaries; it exits 1 if a deterministic check or bound fails. The 30 packs/second
+scenario is #225's synthetic future opt-in, not a claim the service supports it, and needs its flag.
+`scripts/hof-capacity.test.ts` (`npx vitest run scripts/hof-capacity.test.ts`) covers small versions.
+
 ## Browser smoke
 
 `npm run test:browser` (Playwright, Chromium) builds the checkout and owns a strict-port preview at
@@ -238,6 +276,55 @@ Using the results:
    reproduced findings go into an issue or PR.
 3. The write-up gives the revision, conditions, task outcomes and what could not be checked. One
    agent's result is an observation, not a rate.
+
+## Quality review cadence
+
+The trusted `/work` lifecycle (`.claude/skills/work/SKILL.md`) runs `npx tsx scripts/quality-review.ts
+check` at setup and at checkpoints (#713), only between tasks (never to wake an implementer or start a
+workflow). Not due, it prints the one due line plus any flow-change line and nothing else. It reads the one `quality review:` ledger line and decides
+due or not due: due when the next-due day (default 7 days after a finished review, 1 day after a
+blocked or unrun one) has come and `main` changed since the last passed review. It never runs the
+suite or an audit, makes no network calls and wakes no one. When due it names one slice and its
+budget (default 3 tasks, 45 minutes, 2 provider runs):
+
+- one player journey, rotating through opening, collection and detail, sharing, own and shared
+  Profile, Rankings, Settings and help, and recovery, with a journey whose code changed since the
+  last review first. Opening, sharing and recovery use the task audit above (Claude only, a fresh
+  task-only reviewer, no coaching); the rest use fixture-based browser checks. Judge it with the
+  player job, primary fact, next action check (#712). Separate same-scope duplication from necessary
+  repeated context, accessible text and exported artifacts. A screenshot baseline (#745) never
+  stands in for that review.
+- one recently changed code hotspot (commits times lines from `git log`), rotating away from the last pick;
+- the status and age of existing signals: CI and review failures, test runtime and performance
+  (#702, report-only), capacity (#708/#709/#242), compatibility (#658), release blockers
+  (the #759 record only: pass needs the current record version and every entry valid and `resolved`
+  by the `release-blockers.ts` rules, its fix commit and regression test on `origin/main`; anything
+  else is open or invalid. Dated by its last commit on `origin/main`, or undated in a shallow clone
+  when that commit is the shallow boundary), dependency advisories, branch hygiene (#710) and the last task audit. Each is
+  pass, fail, blocked or unrun. A missing report is unrun, and a physical device, a screen reader
+  and native sharing stay unrun until a person records a result. Only a date the report states
+  counts: a file mtime is shown as `date: unknown (mtime only: ...)` and never reads as fresh.
+  Performance shows its measured commit and is a pass only for a clean run (`trackedSourceDirty:
+  false`) of a commit that is an ancestor of `origin/main`.
+
+When due, spend at most the budget on that slice with the existing tools, search issues and PRs
+first, comment evidence on the canonical issue, and open one bounded task only for a reproduced,
+non-duplicate gap. Then run `record --status=<pass|fail|blocked|unrun> --journey=<id> --hotspot=<file>
+--issues=#n` (journey is an id above, hotspot a repo path of at most 60 characters) and replace the
+ledger's one `quality review:` line with its output. A hotspot with no changed code is `n/a`, not
+blocked, and is left out of the status. History is read from `origin/main` only.
+
+Reports come from their own tools (`test-results/...`) or a compact `{status, date, detail}` JSON in
+`test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
+saves or secrets). The coordinator writes `ci-review`, `test-runtime`, `dependency-advisories` and
+`branch-hygiene` itself during a due review, from what it already read (PR checks, last CI timings,
+advisory and branch lists), before `record`; a person writes `physical-device`, `screen-reader`,
+`native-share` and `compatibility` when they have a result. The cadence never opens a recurring
+"audit" issue. `record` prints the new ledger line (default cadence, budget and next-due day are omitted and revisions are always 7 characters, to keep it short; it refuses a line over 215 characters and names the optional fields to reset). Only a pass moves the passed date. A fail is a finished review: it
+rotates to the next journey and hotspot and is next due after a full cadence. A blocked or unrun review keeps its slice
+and is retried the next day. The cadence adds to per-PR checks (flow changes still get their reviews at once) and
+does not replace them. `scripts/quality-review.test.ts` holds the dry runs: not due, due success,
+missing tools or exhausted budget, and the evidence, size and argument checks.
 
 ## Mounted integration tests
 
