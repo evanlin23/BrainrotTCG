@@ -151,6 +151,12 @@
   }
 }
 
+.pull-viewer-whose {
+  margin-bottom: var(--space-3);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 /* Like the label on a graded card: cream stock, dark print, a cert number to quote. */
 .pull-viewer-badge {
   display: flex;
@@ -224,6 +230,17 @@
 .pull-viewer-actions > * {
   flex: 1 1 auto;
   width: auto;
+  min-width: 0;
+}
+
+/* A long set name wraps instead of pushing the footer wider than a phone or a 200% zoom. */
+.pull-viewer-actions .btn {
+  white-space: normal;
+  line-height: 1.2;
+  padding-block: var(--space-2);
+  text-align: center;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 
 /* Actions precede the full preview and card drill-down in both reading and visual order. */
