@@ -383,7 +383,8 @@ function main(): number {
     isAncestor: (a, d) => gitOk('merge-base', '--is-ancestor', a, d),
     fileExistsAtCandidate: (p) => gitOk('cat-file', '-e', `${candidate}:${p}`),
   });
-  if (args.base) {
+  // A base without a record (before this file existed) has nothing to relax.
+  if (args.base && gitOk('cat-file', '-e', `${args.base}:${RECORD_PATH}`)) {
     const baseRaw = git('show', `${args.base}:${RECORD_PATH}`);
     for (const p of unauthorizedRecordChanges(JSON.parse(baseRaw), record)) result.reasons.push(p);
     result.eligible = result.reasons.length === 0;
