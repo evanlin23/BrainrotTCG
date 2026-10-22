@@ -225,7 +225,6 @@ const HallOfFamePage = () => {
       Pull a Full House or better (or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+), share it, and submit it from the share sheet.
     </>
   );
-  const proofNote = 'Filed pulls were re-derived from their proofs when they were filed, and newer ones on this device. Open one to check it yourself.';
 
   // Loaded and not reporting a problem: the published list shows, and the status steps back to one line.
   const quiet = loadState === 'loaded' && !relaysDown;
@@ -270,47 +269,32 @@ const HallOfFamePage = () => {
         <summary>How Rankings work</summary>
         <div className="hof-how-body">
           <p>
-            Rankings lists pulls that players have shared, each re-derived from its proof and ranked by Brainrot Score. Today
-            ranks the pulls filed since 00:00 UTC; All-time ranks the best {HALL_OF_FAME_TOP} ever. (The share sheet calls this the
-            Hall of Fame.)
+            Players share pulls here, ranked by Brainrot Score. Today ranks pulls filed since 00:00 UTC; All-time ranks the best{' '}
+            {HALL_OF_FAME_TOP}. Each was re-derived from its proof when filed (open one to check it yourself). Other screens call
+            this the Hall of Fame.
           </p>
           <p>
             <strong>Who qualifies:</strong> a Full House or better, or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+.
           </p>
           <p>
-            <strong>Nothing is filed automatically.</strong> Opening a pack, or copying or sharing a link, does not enter you. To
-            enter, open a qualifying pull, choose Share and tap Submit. Submit is missing when the pull does not qualify or would
-            not make the list. Submitting makes your display name and public key public.
+            <strong>Nothing is filed automatically.</strong> Opening a pack, or copying or sharing a link, does not enter you. A
+            qualifying pull offers Submit on its results screen or Share sheet, and submitting makes your display name and public
+            key public. Submit is missing if the pull does not qualify, is already listed or was opened under another key.
           </p>
           <p>
-            Submitting is not a rank. A submitted pull shows here once it has been checked, is filed for good within about an hour,
-            and its place depends on how its score compares with everyone else&apos;s.
+            Submitting is not a rank. A submitted pull shows here once checked and, if it makes the list, is filed for good within
+            about an hour; one that does not beat the lowest score is turned away.
           </p>
         </div>
       </details>
 
       <div className="hof-panel" {...tabPanelProps(tabsId, tab)}>
-        {/* Nothing to list yet: skeleton rows keep the page looking busy rather than empty or broken. */}
-        {(loadState === 'loading' || (loadState === 'loaded' && checking && (tab === 'today' ? today : ranked).length === 0)) && (
-          <ol className="hof-skeleton" aria-hidden="true">
-            {[0, 1, 2].map((i) => (
-              <li key={i} className="hof-skeleton-row">
-                <span className="hof-skeleton-bar hof-skeleton-bar--rank" />
-                <span className="hof-skeleton-bar hof-skeleton-bar--cards" />
-                <span className="hof-skeleton-lines">
-                  <span className="hof-skeleton-bar" />
-                  <span className="hof-skeleton-bar hof-skeleton-bar--short" />
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
         {tab === 'today' && loadState === 'loaded' && (
           <>
             <p className="hof-note">
               <ShieldCheck aria-hidden="true" />
               <span>
-                Today&apos;s best pulls. Resets at 00:00 UTC ({localResetTime(day)} your time). {proofNote}
+                Today&apos;s best pulls. Resets at 00:00 UTC ({localResetTime(day)} your time).
               </span>
             </p>
             {today.length > 0 ? (
@@ -349,7 +333,7 @@ const HallOfFamePage = () => {
                 <p className="hof-note">
                   <ShieldCheck aria-hidden="true" />
                   <span>
-                    The top {HALL_OF_FAME_TOP} by Brainrot Score. {proofNote}
+                    The top {HALL_OF_FAME_TOP} by Brainrot Score.
                   </span>
                 </p>
                 {rankedList(ranked)}
@@ -369,6 +353,22 @@ const HallOfFamePage = () => {
               </div>
             )}
           </>
+        )}
+        {/* Nothing to list yet: skeleton rows keep the page looking busy rather than empty or broken. They sit after the Today
+           note so the note doesn't jump when rows arrive. */}
+        {(loadState === 'loading' || (loadState === 'loaded' && checking && (tab === 'today' ? today : ranked).length === 0)) && (
+          <ol className="hof-skeleton" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="hof-skeleton-row">
+                <span className="hof-skeleton-bar hof-skeleton-bar--rank" />
+                <span className="hof-skeleton-bar hof-skeleton-bar--cards" />
+                <span className="hof-skeleton-lines">
+                  <span className="hof-skeleton-bar" />
+                  <span className="hof-skeleton-bar hof-skeleton-bar--short" />
+                </span>
+              </li>
+            ))}
+          </ol>
         )}
       </div>
 

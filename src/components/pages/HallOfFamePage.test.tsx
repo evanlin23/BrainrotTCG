@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HallOfFameEntry } from '../../game/hallOfFameList';
-import { HALL_OF_FAME_MIN_MULTIPLIER } from '../../engine';
+import { HALL_OF_FAME_MIN_MULTIPLIER, HALL_OF_FAME_MIN_SCORE } from '../../engine';
 import HallOfFamePage from './HallOfFamePage';
 
 const { loadHallOfFame, loadPending, checkPull } = vi.hoisted(() => ({ loadHallOfFame: vi.fn(), loadPending: vi.fn(), checkPull: vi.fn() }));
@@ -312,6 +312,30 @@ describe('Hall of Fame loading', () => {
       expect(document.querySelector('.hof-skeleton')).toBeNull();
     });
 
+    it('puts the skeleton after the Today note, so the note does not move when rows arrive', async () => {
+      loadHallOfFame.mockResolvedValueOnce([]);
+      loadPending.mockImplementationOnce(() => new Promise<boolean>(() => {}));
+      await act(async () => root.render(<HallOfFamePage />));
+      const note = document.querySelector('.hof-note')!;
+      const skeleton = document.querySelector('.hof-skeleton')!;
+      expect(note.compareDocumentPosition(skeleton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('has no skeleton on a healthy empty board', async () => {
+      loadHallOfFame.mockResolvedValueOnce([]);
+      await act(async () => root.render(<HallOfFamePage />));
+      expect(document.querySelector('.hof-empty')).not.toBeNull();
+      expect(document.querySelector('.hof-skeleton')).toBeNull();
+    });
+
+    it('has no skeleton when the live feed is unavailable', async () => {
+      loadHallOfFame.mockResolvedValueOnce([]);
+      loadPending.mockResolvedValueOnce(false);
+      await act(async () => root.render(<HallOfFamePage />));
+      expect(retryButton()).not.toBeNull();
+      expect(document.querySelector('.hof-skeleton')).toBeNull();
+    });
+
     it('shows Retry after a failed load, and no skeleton', async () => {
       loadHallOfFame.mockResolvedValueOnce(null);
       await act(async () => root.render(<HallOfFamePage />));
@@ -449,7 +473,7 @@ describe('Hall of Fame loading', () => {
 
     expect(checkPull).not.toHaveBeenCalled();
     expect(rows().map((a) => a.getAttribute('href'))).toEqual(list.map((e) => `#/pull/${e.proof}`));
-    expect(document.querySelector('.hof-panel .hof-note')?.textContent).toContain('Filed pulls were re-derived from their proofs when they were filed, and newer ones on this device. Open one to check it yourself.');
+    expect(document.querySelector('.hof-panel .hof-note')?.textContent).not.toContain('re-derived');
     expect(document.body.textContent).not.toMatch(/Checking|Failed|re-checked on your device/);
   });
 
@@ -479,11 +503,14 @@ describe('How Rankings work', () => {
     await act(async () => root.render(<HallOfFamePage />));
     const text = how()!.textContent!;
     expect(how()!.querySelector('summary')?.textContent).toBe('How Rankings work');
-    expect(text).toContain('a Full House or better, or a Brainrot Score of 20,000+');
+    expect(text).toContain(`a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+`);
     expect(text).toContain('Nothing is filed automatically');
     expect(text).toMatch(/Opening a pack, or copying or sharing a link, does not enter you/);
-    expect(text).toContain('tap Submit');
-    expect(text).toContain('Submit is missing when the pull does not qualify');
+    expect(text).toContain('results screen or Share sheet');
+    expect(text).toContain('Submit is missing if the pull does not qualify, is already listed or was opened under another key');
+    expect(text).toContain('re-derived from its proof');
+    expect(text).toContain('00:00 UTC');
+    expect(text).toContain('turned away');
     expect(text).toContain('display name and public key public');
     expect(text).toContain('Submitting is not a rank');
     expect(text).toContain('Hall of Fame');
@@ -603,7 +630,7 @@ describe('Rankings tabs', () => {
     const note = document.querySelector('.hof-panel .hof-note')?.textContent;
     const reset = new Date(Date.UTC(2026, 9, 17)).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     expect(note).toContain(`Resets at 00:00 UTC (${reset} your time).`);
-    expect(note).toContain('Filed pulls were re-derived from their proofs when they were filed, and newer ones on this device. Open one to check it yourself.');
+    expect(note).not.toContain('re-derived');
 
     await select('All-time');
     expect(rows()).toHaveLength(6);

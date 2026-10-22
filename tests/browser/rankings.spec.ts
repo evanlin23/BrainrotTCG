@@ -136,11 +136,18 @@ const populated = {
   cards: ['pirate-gaster', 'niu-lai', 'bukangi', 'huss-valley', 'la-peace'].map((cardId) => ({ cardId, isHolo: false })),
 };
 
-for (const { width, height, text, label } of [
+for (const { width, height, text, label, score = 546_000 } of [
   { width: 320, height: 640, text: 200, label: '320x640 at 200% text' },
   { width: 568, height: 320, text: 200, label: '568x320 at 200% text' },
   { width: 390, height: 844, text: 100, label: 'a normal phone' },
   { width: 1100, height: 800, text: 100, label: 'a wide screen' },
+  // Just above the restack threshold, where the fixed-width card strip used to push the row past its edge.
+  { width: 650, height: 800, text: 200, label: '650px at 200% text' },
+  { width: 500, height: 800, text: 150, label: '500px at 150% text' },
+  { width: 430, height: 900, text: 125, label: '430px at 125% text' },
+  // The longest score a row can carry.
+  { width: 320, height: 640, text: 100, label: '320px with an 8-digit score', score: 99_999_999 },
+  { width: 500, height: 800, text: 150, label: '500px at 150% text with an 8-digit score', score: 99_999_999 },
 ]) {
   test.describe(`a populated Rankings row at ${label}`, () => {
     test.use({ viewport: { width, height } });
@@ -148,18 +155,20 @@ for (const { width, height, text, label } of [
     test('keeps hand, player, fingerprint, set and score apart, and still opens its proof', async ({ page, baseURL }) => {
       const errors = await monitor(page, baseURL!, 0, { returning: true });
       await relaysAnswerEmpty(page);
-      await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [populated] }));
+      await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [{ ...populated, score }] }));
       await page.goto('./#/rankings');
       await page.addStyleTag({ content: `html { font-size: ${text}% !important; }` });
+      // Measure with the web fonts in, as phone-type-floor.spec.ts does: fallback glyphs have other widths.
+      await page.evaluate(() => document.fonts.ready);
       const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
       await rankings.getByRole('tab', { name: 'All-time', exact: true }).click();
       const row = rankings.locator('.hof-list .hof-entry').first();
-      await expect(row).toHaveAttribute('aria-label', 'Number 1: Full House by Collector in Right Now, score 546000');
+      await expect(row).toHaveAttribute('aria-label', `Number 1: Full House by Collector in Right Now, score ${score}`);
       await row.scrollIntoViewIfNeeded();
 
       const fields = ['.hof-rank', '.hof-hand', '.hof-who', '.share-fp', '.hof-meta', '.hof-score'];
       const boxes = await Promise.all(fields.map(async (selector) => ({ selector, box: (await row.locator(selector).boundingBox())! })));
-      expect(await row.locator('.hof-score').textContent()).toBe('546,000');
+      expect(await row.locator('.hof-score').textContent()).toBe(score.toLocaleString('en-US'));
       expect(await row.locator('.share-fp').textContent()).toBe('#6HTG-Z65X');
       const overlap = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
         a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -181,6 +190,35 @@ for (const { width, height, text, label } of [
     });
   });
 }
+
+test.describe('How Rankings work at 390px', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('opens in place with its text inside the screen, and leaves the notes short', async ({ page, baseURL }) => {
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await relaysAnswerEmpty(page);
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [populated] }));
+    await page.goto('./#/rankings');
+    await page.evaluate(() => document.fonts.ready);
+    const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+    const how = rankings.locator('details.hof-how');
+    const summary = how.locator('summary');
+    await expect(summary).toHaveText('How Rankings work');
+    expect((await summary.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // Closed, the Today note is only the scope and the reset cue; the proof and filing mechanics live inside.
+    await expect(rankings.locator('.hof-note')).not.toContainText('re-derived');
+    await summary.click();
+    await expect(how).toHaveJSProperty('open', true);
+    for (const text of await how.locator('.hof-how-body p').all()) {
+      const box = (await text.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(390);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await expect(how).toContainText('Nothing is filed automatically');
+    expect(errors).toEqual([]);
+  });
+});
 
 test('Rankings says the live feed is down, not that the board is empty, and Retry asks again', async ({ page, baseURL }) => {
   // Every relay socket is closed (monitor), so recent pulls can't be seen. Nothing is sent or fetched.

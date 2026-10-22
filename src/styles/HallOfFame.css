@@ -340,8 +340,10 @@
 }
 
 /* Too narrow for rank, cards, text and score side by side (a phone at 150-200% text): rank and score
-   share the top line, the cards sit under them and the hand, player and set get the full width. */
-@container (width < 18rem) {
+   share the top line, the cards sit under them and the hand, player and set get the full width. The card
+   strip is a fixed 102px (62px at 420px and under) that doesn't grow with text, so it is added to the rem
+   threshold; without it, rows just above 18rem overflowed by 15-35px, and 8-digit scores need the room. */
+@container (width < calc(18rem + 110px)) {
   .hof-entry {
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas:
