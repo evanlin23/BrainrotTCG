@@ -28,6 +28,7 @@ beforeEach(() => {
     static revokeObjectURL() {}
   });
   vi.mocked(shareActions.canCopyImage).mockReturnValue(false);
+  vi.spyOn(console, 'error').mockImplementation(() => {});
   onClose = vi.fn<() => void>();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
@@ -91,5 +92,84 @@ describe('share preview actions', () => {
     for (let i = 1; i < order.length; i++) {
       expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
+  });
+
+  it('shows actionable failure with Retry when draw fails, preserving text/link sharing, and recovers on Retry', async () => {
+    let shouldFail = true;
+    const makeImage = vi.fn(async () => {
+      if (shouldFail) throw new Error('Network failure loading card art');
+      return poster;
+    });
+
+    await act(async () => {
+      root.render(
+        <SharePreviewSheet
+          title="Share card"
+          makeImage={makeImage}
+          imageName="card.png"
+          url="https://example.invalid/#/pull/test"
+          text="Check this card"
+          onClose={onClose}
+        />,
+      );
+    });
+
+    // Drawing failed: shows failure message and Retry button
+    const waitSpan = document.querySelector('.share-preview-wait')!;
+    expect(waitSpan.textContent).toContain("Couldn't draw the image");
+    const retryBtn = document.querySelector<HTMLButtonElement>('.share-retry-btn');
+    expect(retryBtn).not.toBeNull();
+    expect(retryBtn?.textContent).toBe('Retry');
+
+    // Image buttons are disabled while text and link copying remain active
+    expect(button('Save image').disabled).toBe(true);
+    await act(async () => button('Copy link').click());
+    expect(shareActions.copyText).toHaveBeenCalledWith('https://example.invalid/#/pull/test');
+    expect(done()).toBe('Link copied');
+
+    // Click Retry once the network/image is available
+    shouldFail = false;
+    await act(async () => {
+      retryBtn?.click();
+    });
+
+    // Fresh attempt succeeds
+    expect(makeImage).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('.share-preview img')).not.toBeNull();
+    expect(document.querySelector('.share-retry-btn')).toBeNull();
+    expect(button('Save image').disabled).toBe(false);
+  });
+
+  it('cancels late completion when sheet is closed while image draw is pending', async () => {
+    let resolveImage!: (blob: Blob) => void;
+    const makeImage = vi.fn(
+      () =>
+        new Promise<Blob>((resolve) => {
+          resolveImage = resolve;
+        }),
+    );
+
+    await act(async () => {
+      root.render(
+        <SharePreviewSheet
+          title="Share card"
+          makeImage={makeImage}
+          imageName="card.png"
+          url="https://example.invalid/#/pull/test"
+          text="Check this card"
+          onClose={onClose}
+        />,
+      );
+    });
+
+    expect(document.querySelector('.share-preview-wait')?.textContent).toBe('Drawing the image…');
+
+    // Sheet unmounts (closes) while image is still drawing
+    act(() => root.unmount());
+
+    // Late resolution should be cleanly ignored without errors
+    act(() => {
+      resolveImage(poster);
+    });
   });
 });
