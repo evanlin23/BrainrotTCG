@@ -212,7 +212,9 @@ close-up sets `data-tilt="live"` once it follows the mouse.
 
 `tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
 browser spec. `axe-critical-states.spec.ts` calls it for four loaded states: the first pack, the pack
-summary, Settings and a card's share sheet over its viewer, in both projects. A scan runs a fixed list of
+summary, Settings and a card's share sheet over its viewer, in both projects. `axe-routes.spec.ts` adds
+mid-reveal, Cards, Rankings, Profile and a shared pull, and checks that each page, Settings included, is a
+named main landmark with one level-1 heading and has no focusable control stranded off the page. A scan runs a fixed list of
 rules (names, roles and relationships, the document, and `color-contrast`) after fonts, images and finite
 animations have settled; it is not a tag or the whole rule set, and no rule is disabled. Add a state by
 calling `expectAxeClean(page, testInfo, '<state>')` once its screen is loaded; do not add another scanner.
