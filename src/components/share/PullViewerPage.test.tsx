@@ -51,19 +51,39 @@ const subtitle = async (name: string) => {
 };
 
 describe('PullViewerPage', () => {
-  it("shows the player's name under the title and the key fingerprint once, on the certificate (#639)", async () => {
+  it('names the player once, in the attribution sentence, and prints the fingerprint once, on the certificate (#639, #802)', async () => {
     const text = await subtitle('Pack Ripper');
-    expect(document.querySelector('.sheet-subtitle')!.textContent).toBe('Original · Pack Ripper');
+    expect(document.querySelector('.sheet-subtitle')).toBeNull();
+    expect(text.match(/Pack Ripper/g)).toHaveLength(1);
+    expect(document.querySelector('.pull-viewer-whose')!.textContent).toBe('Pack Ripper pulled this pack in Original.');
     expect(text).toContain('Cert abcd');
     expect(text.match(/abcd/g)).toHaveLength(1);
   });
 
-  it("shows a valid pull whose display name isn't allowed as Player, never the name itself", async () => {
+  it("words the check in the guest's frame and keeps the certificate detail below it (#802)", async () => {
+    const text = await subtitle('Pack Ripper');
+    const badge = document.querySelector('.pull-viewer-badge')!;
+    expect(badge.textContent).toContain('This pull checks out — re-verified in your browser just now');
+    expect(badge.querySelector('.pull-viewer-cert')!.textContent).toContain('Cert abcd · ');
+    expect(text).not.toContain('Verified on this device');
+    expect(document.querySelector('.pull-viewer-how summary')!.textContent).toBe('How do we know?');
+  });
+
+  it("shows a valid pull whose display name isn't allowed as Someone, never the name itself, Anonymous or Player", async () => {
     const text = await subtitle('xXfuckXx');
-    expect(text).toContain('Verified on this device');
-    expect(document.querySelector('.sheet-subtitle')!.textContent).toBe('Original · Player');
+    expect(text).toContain('This pull checks out');
+    expect(document.querySelector('.pull-viewer-whose')!.textContent).toBe('Someone pulled this pack in Original.');
+    expect(text).not.toContain('Player');
+    expect(text).not.toContain('Anonymous');
     expect(text).toContain('Cert abcd');
     expect(text).not.toMatch(/fuck/i);
+  });
+
+  it('calls an unnamed player Someone in the one attribution, not Anonymous (#802)', async () => {
+    const text = await subtitle('');
+    expect(document.querySelector('.pull-viewer-whose')!.textContent).toBe('Someone pulled this pack in Original.');
+    expect(text).not.toContain('Anonymous');
+    expect(document.querySelector('.sheet-subtitle')).toBeNull();
   });
 
   it("says a device that ran out of memory couldn't check the pull, not that it's fake, and tries again", async () => {
@@ -83,7 +103,7 @@ describe('PullViewerPage', () => {
     expect(checkPull).toHaveBeenCalledTimes(2);
     expect(checkPull).toHaveBeenNthCalledWith(1, 'proof', expect.any(AbortSignal));
     expect(checkPull).toHaveBeenNthCalledWith(2, 'proof', expect.any(AbortSignal));
-    expect(document.body.textContent).toContain('Verified on this device');
+    expect(document.body.textContent).toContain('This pull checks out');
   });
 
   it('shows operational Worker/WASM failures with retry advice, not as a fabricated pull', async () => {
@@ -107,8 +127,8 @@ describe('PullViewerPage', () => {
     expect(checkPull).toHaveBeenCalledTimes(2);
     expect(checkPull).toHaveBeenNthCalledWith(1, 'proof', expect.any(AbortSignal));
     expect(checkPull).toHaveBeenNthCalledWith(2, 'proof', expect.any(AbortSignal));
-    expect(document.body.textContent).toContain('Verified on this device');
-    expect(document.body.textContent).toContain('Original · Worker Recovered');
+    expect(document.body.textContent).toContain('This pull checks out');
+    expect(document.body.textContent).toContain('Worker Recovered pulled this pack in Original.');
     expect(document.body.textContent).toContain('Cert abcd');
   });
 
@@ -207,7 +227,7 @@ describe('PullViewerPage', () => {
 
     await act(async () => root.render(<PullViewerPage proof="proofA" onClose={() => {}} />));
     expect(document.body.textContent).toContain('Full House');
-    expect(document.body.textContent).toContain('Original · Player A');
+    expect(document.body.textContent).toContain('Player A pulled this pack in Original.');
     expect(document.body.textContent).toContain('Cert abcd');
 
     // Copy link on A uses proofA and preview-A
@@ -231,7 +251,7 @@ describe('PullViewerPage', () => {
     // Now B resolves
     await act(async () => resolveB(pullB));
     expect(document.body.textContent).toContain('Royal Flush');
-    expect(document.body.textContent).toContain('Original · Player B');
+    expect(document.body.textContent).toContain('Player B pulled this pack in Original.');
     expect(document.body.textContent).toContain('Cert ef01');
 
     const copyBtnB = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy link'));
@@ -259,7 +279,7 @@ describe('PullViewerPage', () => {
 
     // Clean resolve of B
     await act(async () => resolveB(pull('Player B')));
-    expect(document.body.textContent).toContain('Verified on this device');
+    expect(document.body.textContent).toContain('This pull checks out');
   });
 
   it('retires memory-error state A (and its Try again) immediately when proof prop changes to B', async () => {
@@ -279,7 +299,7 @@ describe('PullViewerPage', () => {
     expect([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Try again'))).toBeUndefined();
 
     await act(async () => resolveB(pull('Player B')));
-    expect(document.body.textContent).toContain('Verified on this device');
+    expect(document.body.textContent).toContain('This pull checks out');
     expect(document.body.textContent).toContain('Player B');
   });
 
@@ -299,7 +319,7 @@ describe('PullViewerPage', () => {
     await act(async () => resolveA(pull('Player A')));
     expect(document.body.textContent).toContain('Re-opening the pack on your device');
     expect(document.body.textContent).not.toContain('Player A');
-    expect(document.body.textContent).not.toContain('Verified on this device');
+    expect(document.body.textContent).not.toContain('This pull checks out');
 
     await act(async () => resolveB(pull('Player B')));
     expect(document.body.textContent).toContain('Player B');
@@ -325,7 +345,7 @@ describe('PullViewerPage', () => {
 
     // Clean resolve of B
     await act(async () => resolveB(pull('Player B')));
-    expect(document.body.textContent).toContain('Verified on this device');
+    expect(document.body.textContent).toContain('This pull checks out');
   });
 
   it('shows a card the app does not have as not valid, with no retry, since it fails the same way everywhere', async () => {
@@ -358,7 +378,7 @@ describe('PullViewerPage', () => {
     expect(document.body.textContent).not.toContain("Couldn't verify on this device");
 
     await act(async () => resolveB(pull('Player B')));
-    expect(document.body.textContent).toContain('Original · Player B');
+    expect(document.body.textContent).toContain('Player B pulled this pack in Original.');
     expect(document.body.textContent).toContain('Cert abcd');
   });
 

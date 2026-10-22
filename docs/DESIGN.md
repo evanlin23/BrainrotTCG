@@ -149,8 +149,13 @@ results rules below (#339).
 - #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card
   fan, and the fingerprint once on the certificate. Built: the sheet title names the combo ("Pair"),
   the score panel is the one score line (9,850, then "Brainrot Score · 4,925 pts × 2"), and the
-  fingerprint is only on the "Cert" strip, not the subtitle. A pull with no combo keeps its "No
+  fingerprint is only on the "Cert" strip (the sheet has no subtitle). A pull with no combo keeps its "No
   Matches ×1" headline under the title "A pull". Other pack viewers are untitled and unchanged.
+- #802: the shared-pull sheet has no subtitle; "X pulled this pack in Set." is the one attribution
+  and an unnamed or blocked player reads "Someone" (one name and one helper for every shared page,
+  see #1003). The check reads "This pull checks out — re-verified in your browser just now" for
+  every viewer (the page can't tell owner from guest without creating an identity); the "Cert"
+  strip sits beside it and "How do we know?" is one tap down.
 - #1003: pages a cold visitor lands on speak to someone who didn't make the pack. An unnamed
   (blank or blocked) player is "Someone" on the shared-pull sheet, the shared profile and every
   Hall of Fame row (`visitorName()` in `nameFilter.ts`). The ranked list gets no "#2"-style suffix:
@@ -310,6 +315,9 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   by Brainrot Score. Rows aren't re-checked on the page: each links to its pull, which re-derives it.
   A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
   before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
+  A closed "How Rankings work" disclosure sits above the lists in every state (loading, failed,
+  feed unavailable, empty, populated, both tabs): who qualifies, that nothing is filed
+  automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { checkPull, previewFor, pullUrl, UnknownCardError, type CheckedPull } from '../../game/pulls';
 import { isMemoryError, OUT_OF_MEMORY_ADVICE } from '../../game/ticketPool';
-import { ProofError, publicName, visitorName, type SetDefinition } from '../../engine';
+import { ProofError, visitorName, type SetDefinition } from '../../engine';
 import { setCode } from '../../content/sets';
 import PackCardViewer from '../ui/PackCardViewer';
 import Sheet from '../ui/Sheet';
@@ -172,7 +172,6 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
   return (
     <Sheet
       title={hand}
-      subtitle={`${pull.set.name} · ${publicName(pull.proof.name)}`}
       onClose={onClose}
       size="md"
       className="pull-viewer"
@@ -191,13 +190,14 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
         </div>
       }
     >
+      {/* The one attribution: who and which set. The sheet has no subtitle repeating either. */}
       <p className="pull-viewer-whose">
         {who} pulled this pack in {pull.set.name}.
       </p>
-      {/* The one place the fingerprint appears: the certificate. */}
+      {/* Said in the guest's frame ("your browser"), true for the sharer too. The one place the fingerprint appears: the certificate. */}
       <p className="pull-viewer-badge">
         <span>
-          <ShieldCheck aria-hidden="true" /> Verified on this device
+          <ShieldCheck aria-hidden="true" /> This pull checks out — re-verified in your browser just now
         </span>
         <span className="pull-viewer-cert">
           Cert {pull.fingerprint} · {setCode(pull.set)} #{pull.proof.nonce}

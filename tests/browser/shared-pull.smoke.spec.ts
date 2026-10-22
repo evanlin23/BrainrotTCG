@@ -238,9 +238,11 @@ for (const { vector, entry } of cases) {
     await expect(page).toHaveURL(`${baseURL}#/pull/${vector.proof}`);
     const pull = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
     await expect(pull).toBeVisible({ timeout: VIEWER_TIMEOUT });
-    await expect(pull).toContainText('Verified on this device');
+    await expect(pull).toContainText('This pull checks out — re-verified in your browser just now');
     await expect(pull.locator('.pull-viewer-whose')).toHaveText(`${vector.name || 'Someone'} pulled this pack in ${set.name}.`);
-    await expect(pull.locator('.sheet-subtitle')).toContainText(`${set.name} · ${vector.name || 'Anonymous'}`);
+    // Attribution is said once, by that sentence: no subtitle repeats the set or the name.
+    await expect(pull.locator('.sheet-subtitle')).toHaveCount(0);
+    expect(((await pull.textContent()) ?? '')).not.toContain('Anonymous');
     // The fingerprint is printed once, on the certificate (#639).
     await expect(pull.locator('.share-fp')).toHaveCount(0);
     await expect(pull.locator('.pull-viewer-cert')).toContainText(`Cert ${vector.fingerprint} ·`);
@@ -337,7 +339,7 @@ test('opens a pull shared through a card page naming its modifier', async ({ pag
   await expect(page).toHaveURL(`${baseURL}#/pull/${vector.proof}`);
   const pull = page.getByRole('dialog', { name: vector.hand, exact: true });
   await expect(pull).toBeVisible({ timeout: VIEWER_TIMEOUT });
-  await expect(pull).toContainText('Verified on this device');
+  await expect(pull).toContainText('This pull checks out — re-verified in your browser just now');
   await expect(pull.locator('.pull-viewer-cert')).toContainText(`Cert ${vector.fingerprint} ·`);
   await expect(pull.locator('.pack-viewer-cards > button')).toHaveCount(vector.cards.length);
   expect(await proofState(page)).toEqual(before);
@@ -443,7 +445,7 @@ test('recovers from operational computation failure via retry on valid pull', as
 
   const pullDialog = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
   await expect(pullDialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
-  await expect(pullDialog).toContainText('Verified on this device');
+  await expect(pullDialog).toContainText('This pull checks out — re-verified in your browser just now');
   // The one console error is the app logging the failure we injected; nothing else may fail to load.
   const failures = loadFailures(errors, baseURL!);
   expect(failures).toHaveLength(1);
