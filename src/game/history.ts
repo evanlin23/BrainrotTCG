@@ -8,7 +8,7 @@
 import { STORAGE_KEYS } from '../constants';
 import { POKER_HANDS, qualifiesForHallOfFame, scorePulled, type Finish } from '../engine';
 import { getSet } from '../content/sets';
-import { decodeCard, encodeCard, toPulled, type StoredCard } from './cardCode';
+import { decodeCards, encodeCard, isCachedCards, toPulled, type StoredCard } from './cardCode';
 import { getStoredPack, packStoreVersion } from './packStore';
 import type { OpenedPack } from './pulls';
 import type { CardWithMeta } from '../components/cards/Card';
@@ -54,8 +54,11 @@ const encode = (e: HistoryEntry): Stored => ({
 
 /** Cards dropped to save space (or never kept) come back from the packs this device re-opened. */
 const cardsOf = (s: Stored): StoredCard[] | null => {
-  const code = s.c || getStoredPack(`${s.s}@${s.v}`, s.k, s.n);
-  return code ? code.split(',').map(decodeCard) : null;
+  // An unreadable cached code (#652) falls back to the re-opened pack, as a dropped one does.
+  const cached = s.c ? decodeCards(s.c) : null;
+  if (cached) return cached;
+  const reopened = getStoredPack(`${s.s}@${s.v}`, s.k, s.n);
+  return reopened ? decodeCards(reopened) : null;
 };
 
 /** recordTicket's stand-in: no cards, hand or score yet (every pack has a hand). */
@@ -174,17 +177,23 @@ export const getHistory = (): readonly HistoryEntry[] => {
 };
 
 /** A pack's cards as the app shows them, or null if the history has none for it. */
-export const historyCards = (entry: HistoryEntry): CardWithMeta[] | null =>
-  entry.cards
-    ?.map((c, i): CardWithMeta | null => {
-      const card = getCard(`${entry.setId}/${c.id}`);
-      if (!card) return null;
-      const meta: CardWithMeta = { ...card, uniqueId: i, isRevealed: true, isHolo: c.holo };
-      if (c.finish) meta.finish = c.finish;
-      if (c.misprint) meta.misprint = true;
-      return meta;
-    })
-    .filter((c): c is CardWithMeta => c !== null) ?? null;
+export const historyCards = (entry: HistoryEntry): CardWithMeta[] | null => {
+  const set = getSet(entry.setId, entry.setVersion);
+  return (
+    entry.cards
+      ?.map((c, i): CardWithMeta | null => {
+        const card = getCard(`${entry.setId}/${c.id}`);
+        // The rarity it was pulled at (#701); a set version this build doesn't know has none to give.
+        const rarity = set?.cards.find((d) => d.id === c.id)?.rarity;
+        if (!card || !rarity) return null;
+        const meta: CardWithMeta = { ...card, rarity, uniqueId: i, isRevealed: true, isHolo: c.holo };
+        if (c.finish) meta.finish = c.finish;
+        if (c.misprint) meta.misprint = true;
+        return meta;
+      })
+      .filter((c): c is CardWithMeta => c !== null) ?? null
+  );
+};
 
 /** Good enough for the Hall of Fame (the same rule as its Submit button). */
 export const isHallOfFameWorthy = (entry: Pick<HistoryEntry, 'hand' | 'score'>): boolean => {
@@ -195,12 +204,41 @@ export const isHallOfFameWorthy = (entry: Pick<HistoryEntry, 'hand' | 'score'>):
 /** Highest score first; the newest first among equal scores. */
 export const byBest = (a: HistoryEntry, b: HistoryEntry): number => b.score - a.score || b.openedAt - a.openedAt;
 
+const hasValidCache = (c: string | undefined): boolean => c === undefined || isCachedCards(c);
+
+/**
+ * Rows with an unreadable cached code (#652) lose only that cache, which comes back from re-opened
+ * packs; every other field (the ticket mapping) is kept. Null when a row breaks the rest of the rule.
+ */
+const repairRows = (parsed: unknown): Stored[] | null => {
+  if (!Array.isArray(parsed) || !parsed.every(isStoredIgnoringCache)) return null;
+  return parsed.map((e) => {
+    if (hasValidCache(e.c)) return e;
+    const { c: _unreadable, ...rest } = e;
+    return rest;
+  });
+};
+
 /** The stored history, or null when an entry breaks the rule (a write would drop it) or it can't be read. */
 const readValid = (): Stored[] | null => {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
-    return Array.isArray(parsed) && parsed.every(isStored) ? parsed : null;
+    return repairRows(JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]'));
   } catch { return null; }
+};
+
+/**
+ * Raw stored history as the importer accepts it: unreadable cached codes left by older builds are
+ * dropped (as readValid drops them), so this device's own export or move isn't refused for them (#652).
+ * Anything else, valid or not, comes back unchanged for the importer's own check.
+ */
+export const withReadableCache = (raw: string | null): string | null => {
+  if (raw === null) return raw;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.every(isStored)) return raw;
+    const rows = repairRows(parsed);
+    return rows ? JSON.stringify(rows) : raw;
+  } catch { return raw; }
 };
 
 const toStored = (pack: OpenedPack): Stored => encode({
@@ -317,7 +355,7 @@ export const ticketsRecorded = (publicKeyHex: string): number => {
   if (counted?.raw !== raw) {
     const next = new Map<string, number>();
     for (const e of parseHistory(raw)) {
-      if (isStored(e) && Number.isSafeInteger(e.n + 1) && e.n >= (next.get(e.k) ?? 0)) next.set(e.k, e.n + 1);
+      if (isStoredIgnoringCache(e) && Number.isSafeInteger(e.n + 1) && e.n >= (next.get(e.k) ?? 0)) next.set(e.k, e.n + 1);
     }
     counted = { raw, next };
   }
@@ -337,16 +375,20 @@ export const isLegacyPull = (value: unknown): value is LegacyPull => {
     && typeof entry.hand === 'string' && Number.isFinite(entry.score) && Number.isFinite(entry.openedAt);
 };
 
-/** The one rule for a stored history entry: pack writes and save imports both refuse anything else. */
-export const isStored = (value: unknown): value is Stored => {
+/** Validates ticket metadata and basic row shape, ignoring reconstructible cached card codes. */
+export const isStoredIgnoringCache = (value: unknown): value is Stored => {
   if (!value || typeof value !== 'object') return false;
   const entry = value as Partial<Stored>;
   return typeof entry.s === 'string' && entry.s.length > 0
     && Number.isSafeInteger(entry.v) && entry.v! > 0
     && Number.isSafeInteger(entry.n) && entry.n! >= 0
-    && typeof entry.k === 'string' && (entry.c === undefined || typeof entry.c === 'string')
+    && typeof entry.k === 'string'
     && typeof entry.h === 'string' && Number.isFinite(entry.x) && Number.isFinite(entry.t);
 };
+
+/** The one rule for a stored history entry: pack writes and save imports both refuse anything else. */
+export const isStored = (value: unknown): value is Stored =>
+  isStoredIgnoringCache(value) && hasValidCache(value.c);
 
 /** One-time: remove the old log only after every ticket mapping is stored without truncation. */
 export const migratePullLog = () => {

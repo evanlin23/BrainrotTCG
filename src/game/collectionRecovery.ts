@@ -147,45 +147,67 @@ export const persistCollection = (next: unknown): CollectionSaveResult => {
   return archive === 'archived' ? 'recovered' : 'saved';
 };
 
-/** 'stored': kept in this browser. 'unsaved': some of it lasts only for this visit, so download it now. */
-export type CollectionRecoveryState = 'none' | 'stored' | 'unsaved';
+/**
+ * 'stored': kept in this browser. 'unsaved': some of it lasts only for this visit, so download it now.
+ * 'unavailable': storage refused to read the archive, so whether anything is kept there is unknown.
+ */
+export type CollectionRecoveryState = 'none' | 'stored' | 'unsaved' | 'unavailable';
 
-const storedArchive = (): string | null => {
+type StoredArchive =
+  | { status: 'found'; raw: string }
+  | { status: 'none' }
+  | { status: 'unavailable'; error: unknown };
+
+const getStoredArchive = (): StoredArchive => {
   try {
-    return localStorage.getItem(ARCHIVE_KEY);
-  } catch {
-    return null;
+    const raw = localStorage.getItem(ARCHIVE_KEY);
+    return raw === null ? { status: 'none' } : { status: 'found', raw };
+  } catch (error) {
+    return { status: 'unavailable', error };
   }
 };
 
 export const collectionRecoveryState = (): CollectionRecoveryState => {
   if (unsaved.length > 0) return 'unsaved';
-  return storedArchive() === null ? 'none' : 'stored';
+  const stored = getStoredArchive();
+  if (stored.status === 'unavailable') return 'unavailable';
+  return stored.status === 'none' ? 'none' : 'stored';
 };
 
 /** What the kept-aside note says, in the banner and in Settings > Save & backup (see collectionRecoveryNote). */
-export const COLLECTION_RECOVERY_NOTES: Record<Exclude<CollectionRecoveryState, 'none'>, string> = {
-  stored: "Unreadable collection data was kept aside in this browser. Download a copy, or discard it if you don't need it. Backups include it too.",
-  unsaved: 'Unreadable collection data was kept aside, but this browser had no room to store it, so it lasts only until this tab closes or reloads. Download it now to keep it.',
+export const COLLECTION_RECOVERY_NOTES: Record<Exclude<CollectionRecoveryState, 'none' | 'unavailable'>, string> = {
+  stored: "Unreadable collection data was kept aside in this browser. Download a copy, or discard it if you don't need it. Backups include it too. It may include your secret player key. Keep the file private and never attach it to a public bug report.",
+  unsaved: 'Unreadable collection data was kept aside, but this browser had no room to store it, so it lasts only until this tab closes or reloads. Download it now to keep it. It may include your secret player key. Keep the file private and never attach it to a public bug report.',
 };
 
 /** Older payloads let go to stay within the limits: the stored archive's count plus this visit's. */
 const droppedCount = (): number => {
-  const stored = storedArchive();
-  return (stored === null ? 0 : readArchive(stored).dropped ?? 0) + droppedThisVisit;
+  const stored = getStoredArchive();
+  if (stored.status !== 'found') return droppedThisVisit;
+  return (readArchive(stored.raw).dropped ?? 0) + droppedThisVisit;
 };
 
-/** The kept-aside note as it is now, saying how many older payloads were let go; undefined when nothing is kept. */
+/**
+ * The kept-aside note as it is now, saying how many older payloads were let go; undefined when nothing
+ * is kept, or when the archive can't be read (an archive that may not exist is no reason to warn, nor
+ * to drop a note already shown: callers keep the current note on 'unavailable').
+ */
 export const collectionRecoveryNote = (): string | undefined => {
   const state = collectionRecoveryState();
-  if (state === 'none') return undefined;
+  if (state === 'none' || state === 'unavailable') return undefined;
   const dropped = droppedCount();
   if (dropped === 0) return COLLECTION_RECOVERY_NOTES[state];
   return `${COLLECTION_RECOVERY_NOTES[state]} ${dropped} older unreadable ${dropped === 1 ? 'save was' : 'saves were'} let go to make room.`;
 };
 
-/** True when this browser holds kept-aside collection data (the stored archive is in the private export). */
-export const hasCollectionRecovery = (): boolean => collectionRecoveryState() !== 'none';
+/**
+ * True when this browser is known to hold kept-aside collection data (the stored archive is in the
+ * private export). False when there is none, or when the archive can't be read right now.
+ */
+export const hasCollectionRecovery = (): boolean => {
+  const state = collectionRecoveryState();
+  return state === 'stored' || state === 'unsaved';
+};
 
 /** Short and stable: the archive can be a whole collection, too big to copy just to compare. */
 const fingerprint = (value: string): string => {
@@ -242,8 +264,12 @@ export const dismissCollectionRecovery = (): boolean => {
  * can't be read) with this visit's unsaved payloads after it. Null when nothing is kept.
  */
 export const collectionRecoveryFile = (now = new Date()): { name: string; text: string } | null => {
-  const stored = storedArchive();
-  const archive = stored === null ? null : readArchive(stored);
+  const stored = getStoredArchive();
+  if (stored.status === 'unavailable') {
+    throw (stored.error instanceof Error ? stored.error : new DOMException('Storage read denied', 'SecurityError'));
+  }
+  const raw = stored.status === 'found' ? stored.raw : null;
+  const archive = raw === null ? null : readArchive(raw);
   const kept = entriesOf(archive);
   const extra = unsaved.filter((entry) => !kept.some((k) => k.raw === entry.raw));
   const dropped = (archive?.dropped ?? 0) + droppedThisVisit;
@@ -254,10 +280,17 @@ export const collectionRecoveryFile = (now = new Date()): { name: string; text: 
   return { name: `brainrot-collection-recovery-${now.toISOString().split('T')[0]}.json`, text: JSON.stringify(file, null, 2) };
 };
 
-/** Save the kept-aside data as a file; nothing leaves this browser. False when there's nothing to save. */
-export const downloadCollectionRecovery = (): boolean => {
-  const file = collectionRecoveryFile();
-  if (!file) return false;
+export type DownloadRecoveryResult = 'downloaded' | 'none' | 'unavailable';
+
+/** Save the kept-aside data as a file; nothing leaves this browser. */
+export const downloadCollectionRecovery = (): DownloadRecoveryResult => {
+  let file: { name: string; text: string } | null;
+  try {
+    file = collectionRecoveryFile();
+  } catch {
+    return 'unavailable';
+  }
+  if (!file) return 'none';
   const url = URL.createObjectURL(new Blob([file.text], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
@@ -266,7 +299,7 @@ export const downloadCollectionRecovery = (): boolean => {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return true;
+  return 'downloaded';
 };
 
 /** 'changed': the kept-aside data isn't what the player was shown, so nothing was removed. 'refused': storage wouldn't remove it. */

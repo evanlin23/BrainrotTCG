@@ -37,7 +37,7 @@ export const playerCardInput = (stats: ProfileStats, player: { name: string; fin
       return { code: setCode(set), color: set.palette?.[0], have, size, done: setProgress(have, stats.holoUniqueBySet[set.id] ?? 0, size) };
     }),
     best: best && {
-      cards: toCardsWithMeta(best.cards),
+      cards: toCardsWithMeta(best.cards, best.set),
       hand: best.score.hand.name,
       score: best.score.score,
       setName: best.set.name,

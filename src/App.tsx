@@ -16,14 +16,15 @@ import { scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
+import { isCardOwned } from './game/versions';
 import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
 import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
-import { collectionRecoveryDismissed, collectionRecoveryNote, dismissCollectionRecovery } from './game/collectionRecovery';
+import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
 import { readSettings } from './utils/settings';
-import { CARD_BACKS, PACK_FOILS, TITLES, nextReward, usable } from './game/progression';
+import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression';
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory } from './game/history';
@@ -89,7 +90,10 @@ function App() {
     dismissCollectionRecovery();
     setRecoveryNoteHidden(true);
   }, []);
-  const recoveryChanged = useCallback(() => setRecoveryNote(collectionRecoveryNote()), []);
+  // An archive storage won't read may or may not be there: keep whatever note is showing.
+  const recoveryChanged = useCallback(() => {
+    if (collectionRecoveryState() !== 'unavailable') setRecoveryNote(collectionRecoveryNote());
+  }, []);
   const achievementsRef = useRef(achievements);
   // The save this tab loaded. Another tab can import a save (even the same player's), switch player
   // or clear storage while this one stays open: from then on everything held here is the old save's,
@@ -224,19 +228,13 @@ function App() {
     const from = shownLevel.current;
     shownLevel.current = level;
     if (level === null || from === null || level <= from) return;
-    const unlocked = [
-      ...TITLES.filter((r) => r.level > from && r.level <= level).map((r) => `the title ${r.name}`),
-      ...CARD_BACKS.filter((r) => r.level > from && r.level <= level).map((r) => `the ${r.name} card back`),
-      ...PACK_FOILS.filter((r) => r.level > from && r.level <= level).map((r) => `the ${r.name} pack foil`),
-    ];
-    const next = nextReward(level);
     setNotificationQueue((prev) => [
       ...prev,
       {
         id: `level-${level}`,
         kicker: 'Level up',
         name: `Level ${level}`,
-        description: unlocked.length ? `Unlocked ${unlocked.join(', ')}. Pick it on your Profile.` : next ? `Next: ${next.name} at level ${next.level}.` : 'Keep opening.',
+        description: levelUpLine(from, level),
         opens: 'profile',
       },
     ]);
@@ -276,7 +274,7 @@ function App() {
     if (!historyReady || modifiersChecked.current || !samePlayer()) return;
     modifiersChecked.current = historyPacksState() === 'ready';
     const pulled = getHistory().flatMap((e) => (e.cards ?? []).map((c) => ({ isHolo: c.holo, finish: c.finish, misprint: c.misprint })));
-    const tallied = Object.values(collection).flatMap((item) => [
+    const tallied = Object.values(collection).filter(isCardOwned).flatMap((item) => [
       ...Object.entries(item?.finishes ?? {}).filter(([, n]) => (n ?? 0) > 0).map(([finish]) => ({ isHolo: false, finish })),
       ...((item?.misprints ?? 0) > 0 ? [{ isHolo: false, misprint: true }] : []),
     ]);
@@ -406,12 +404,12 @@ function App() {
   }, []);
 
   // For the NEW sticker: the collection as it was before the pack being opened.
-  const isOwned = useCallback((cardKey: string) => !!collection[cardKey], [collection]);
+  const isOwned = useCallback((cardKey: string) => isCardOwned(collection[cardKey]), [collection]);
 
   // Progress shown on the counting achievements that are still locked.
   const achievementProgress = useMemo(() => {
     const packs = stats.packsOpened || 0;
-    const items = Object.values(collection);
+    const items = Object.values(collection).filter(isCardOwned);
     const unique = items.length;
     const holos = items.reduce((n, item) => n + (item?.holoCount || 0), 0);
     const out: Record<string, [number, number, string]> = {};
@@ -439,7 +437,7 @@ function App() {
   // pending shelf kept it, the next load restores and counts it, so the tabs show at once; only a total
   // storage refusal makes the next load a new player's. Settings' "Show every page" switch brings both
   // back at once for someone who knows the game (#222).
-  const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0 || (packBusy && !packFocus)
+  const showNav = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus)
     || settings.showAllPages === true;
   const onPage = route !== 'open';
   const logoMark = (
@@ -537,6 +535,7 @@ function App() {
           set={selectedSet}
           disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}
+          mountedSave={mountedSave}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
@@ -597,7 +596,7 @@ function App() {
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
 
-      {viewProof && <DeferredSheet load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closeLink }} />}
+      {viewProof && <DeferredSheet key={viewProof} load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closeLink }} />}
 
       {viewProfile && <DeferredSheet load={loadPublicProfile} size="lg" title="Shared profile" screenProps={{ proof: viewProfile, onClose: closeLink }} />}
 

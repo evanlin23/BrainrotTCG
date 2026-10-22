@@ -277,6 +277,15 @@ describe('createProgressWriter', () => {
     expect(host.calls).toEqual(['keptAside kept stored false', 'noted', 'failed', 'keptAside kept unsaved false', 'noted', 'noted']);
   });
 
+  it('raises and replaces no kept-aside note while storage refuses to read the archive', () => {
+    const w = writer();
+    w.commit(loaded);
+    storage.collection = 'blocked';
+    storage.recovery = 'unavailable';
+    w.commit(withPack(loaded));
+    expect(host.calls).toEqual(['failed', 'noted']);
+  });
+
   it('warns for each field storage refuses, still tries the rest, and still notes what it holds', () => {
     const w = writer();
     w.commit(loaded);

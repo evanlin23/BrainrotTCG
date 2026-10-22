@@ -22,11 +22,26 @@ export const encodeCard = (card: StoredCard): string =>
 const CODE = /^(.*?)(\*?)([SGPD]?)(!?)$/;
 
 /** Whether `text` is a card code decodeCard reads: an id, no line break, and no comma (codes are stored comma-joined). */
-export const isCardCode = (text: string): boolean => !text.includes(',') && !!CODE.exec(text)?.[1];
+export const isCardCode = (text: string): boolean => typeof text === 'string' && !text.includes(',') && !!CODE.exec(text)?.[1];
+
+/** Whether `text` is a valid comma-joined list of cached card codes. */
+export const isCachedCards = (text: string): boolean => {
+  if (typeof text !== 'string' || text.length === 0) return false;
+  const parts = text.split(',');
+  return parts.length > 0 && parts.every(isCardCode);
+};
 
 export const decodeCard = (text: string): StoredCard => {
-  const [, id, holo, letter, misprint] = CODE.exec(text)!;
+  const match = CODE.exec(text);
+  if (!match || !match[1]) throw new TypeError(`Cannot decode card code: ${JSON.stringify(text)}`);
+  const [, id, holo, letter, misprint] = match;
   return { id, holo: holo === '*', ...(letter ? { finish: FINISH_OF[letter] } : {}), ...(misprint ? { misprint: true } : {}) };
+};
+
+/** Decodes a comma-separated list of card codes, or null if any code is malformed. */
+export const decodeCards = (text: string): StoredCard[] | null => {
+  if (!isCachedCards(text)) return null;
+  return text.split(',').map(decodeCard);
 };
 
 /** A stored card as the engine pulls it: sets with modifiers always say "no finish" and "not a misprint". */
