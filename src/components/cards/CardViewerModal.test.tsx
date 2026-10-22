@@ -73,6 +73,23 @@ describe('CardViewerModal versions presentation (issue #655)', () => {
     expect(chips[1].classList.contains('uncertain-chip')).toBe(true);
   });
 
+  it('keeps the uncertain mark off the card face and offers no share for an uncertain version', () => {
+    const versions: OwnedVersion[] = [
+      { version: { isHolo: false, finish: 'GOLD', misprint: true, uncertain: true }, count: 1 },
+      { version: { isHolo: false, finish: 'SILVER', misprint: false }, count: 1 },
+    ];
+    act(() => root.render(<CardViewerModal card={card} versions={versions} onClose={() => {}} canShare />));
+    const shareButton = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Share card'));
+
+    expect(document.querySelector('.card-viewer-version')?.textContent).toBe('Gold · Misprint (uncertain)');
+    expect(document.querySelector('.modifier-sticker')?.textContent).toBe('Gold · Misprint');
+    expect(shareButton()).toBeUndefined();
+
+    act(() => document.querySelectorAll<HTMLButtonElement>('.version-chip')[1].click());
+    expect(document.querySelector('.card-viewer-version')?.textContent).toBe('Silver');
+    expect(shareButton()).toBeDefined();
+  });
+
   it('allows switching between version chips', () => {
     const versions: OwnedVersion[] = [
       { version: { isHolo: false, finish: 'GOLD', misprint: false }, count: 1 },

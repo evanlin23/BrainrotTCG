@@ -36,8 +36,8 @@ export interface OwnedVersion {
 
 /**
  * Every version of a card you own, most valuable first, with how many of each. Exact combinations
- * come from the pack history; copies it has no cards for (older packs, trimmed history) come from the
- * collection's tallies, one modifier at a time.
+ * come from the pack history; copies it has no cards for (older packs, trimmed history) are rebuilt from
+ * the collection's tallies and marked `uncertain` when the tallies fit more than one combination.
  */
 export const ownedVersions = (
   cardKey: string,
@@ -75,10 +75,12 @@ export const ownedVersions = (
     }
   }
 
-  // Copies not covered by cached history
+  // Copies the history has no cards for come from the tallies, which don't say which finish went with
+  // which misprint, or which copy was holo. Rebuild them, but flag every rebuilt copy uncertain unless
+  // the tallies allow only one answer: a guessed combination is never shown as exact (issue #655).
   normal = Math.max(0, normal);
   holo = Math.max(0, holo);
-  let rem = normal + holo;
+  const rem = normal + holo;
   if (rem > 0) {
     const finishList: Finish[] = [];
     for (const [finish, n] of Object.entries(finishes) as [Finish, number][]) {
@@ -87,86 +89,26 @@ export const ownedVersions = (
     const totalFinishes = finishList.length;
     const totalMisprints = Math.max(0, misprints);
 
-    // Pigeonhole principle: at least minOverlap copies MUST have both a finish and a misprint
+    // Pigeonhole: at least minOverlap copies have both a finish and a misprint, at most maxOverlap.
     const minOverlap = Math.max(0, totalFinishes + totalMisprints - rem);
     const maxOverlap = Math.min(totalFinishes, totalMisprints);
-    const overlapDetermined = minOverlap === maxOverlap;
+    const overlap = Math.min(minOverlap, maxOverlap);
+    // Which finishes carry the misprints is known only when the overlap is fixed and it covers none,
+    // all, or only one kind of finish. (minOverlap > maxOverlap means the tallies don't add up.)
+    const pairingKnown =
+      minOverlap === maxOverlap && (overlap === 0 || overlap === totalFinishes || new Set(finishList).size <= 1);
 
-    // 1. Guaranteed combined finish+misprint copies (when overlap is established)
-    if (minOverlap > 0) {
-      for (let i = 0; i < minOverlap; i++) {
-        const finish = finishList[i];
-        const isHolo = normal <= 0 && holo > 0;
-        const holoAmbiguous = normal > 0 && holo > 0 && rem > minOverlap;
-        add(
-          {
-            isHolo,
-            finish,
-            misprint: true,
-            ...(holoAmbiguous ? { uncertain: true } : {}),
-          },
-          1,
-        );
-        if (isHolo) holo--;
-        else normal = Math.max(0, normal - 1);
-        rem--;
-      }
-    }
+    // Each uncovered copy's finish and misprint, combined ones first, then plain ones to make up the count.
+    const kinds: { finish: Finish | null; misprint: boolean }[] = [
+      ...finishList.map((finish, i) => ({ finish, misprint: i < overlap })),
+      ...Array.from({ length: totalMisprints - overlap }, () => ({ finish: null, misprint: true })),
+    ].slice(0, rem);
+    while (kinds.length < rem) kinds.push({ finish: null, misprint: false });
 
-    // Remaining finishes and misprints after guaranteed overlap
-    const remFinishes = finishList.slice(minOverlap);
-    const remMisprints = totalMisprints - minOverlap;
-
-    // If overlap between remaining finishes and misprints cannot be established:
-    // Do not invent a combined variant, and do not assign overlapping marginals to separate copies.
-    // Flag ambiguous modifiers as visibly uncertain.
-    const isAmbiguous = !overlapDetermined;
-
-    // 2. Remaining finishes
-    for (const finish of remFinishes) {
-      if (rem <= 0) break;
-      const isHolo = normal <= 0 && holo > 0;
-      const holoAmbiguous = normal > 0 && holo > 0;
-      add(
-        {
-          isHolo,
-          finish,
-          misprint: false,
-          ...(isAmbiguous || holoAmbiguous ? { uncertain: true } : {}),
-        },
-        1,
-      );
-      if (isHolo) holo--;
-      else normal = Math.max(0, normal - 1);
-      rem--;
-    }
-
-    // 3. Remaining misprints
-    for (let i = 0; i < remMisprints; i++) {
-      if (rem <= 0) break;
-      const isHolo = normal <= 0 && holo > 0;
-      const holoAmbiguous = normal > 0 && holo > 0;
-      add(
-        {
-          isHolo,
-          finish: null,
-          misprint: true,
-          ...(isAmbiguous || holoAmbiguous ? { uncertain: true } : {}),
-        },
-        1,
-      );
-      if (isHolo) holo--;
-      else normal = Math.max(0, normal - 1);
-      rem--;
-    }
-
-    // 4. Remaining plain and holo copies
-    if (normal > 0) {
-      add({ isHolo: false, finish: null, misprint: false, ...(isAmbiguous ? { uncertain: true } : {}) }, normal);
-    }
-    if (holo > 0) {
-      add({ isHolo: true, finish: null, misprint: false, ...(isAmbiguous ? { uncertain: true } : {}) }, holo);
-    }
+    // Which copies are holo is known only when they all are, none are, or every copy is alike.
+    const holoKnown = normal === 0 || holo === 0 || new Set(kinds.map((k) => `${k.finish}${k.misprint}`)).size <= 1;
+    const uncertain = !pairingKnown || !holoKnown || totalFinishes + totalMisprints - overlap > rem;
+    kinds.forEach((kind, i) => add({ isHolo: i >= normal, ...kind, ...(uncertain ? { uncertain: true } : {}) }, 1));
   }
 
   const points = (v: CardVersion) => cardPoints(rarity, v.isHolo, v.finish, v.misprint);

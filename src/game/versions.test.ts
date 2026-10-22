@@ -75,6 +75,33 @@ describe('owned versions', () => {
     ]);
   });
 
+  it('marks forced combined copies uncertain when the finish they carry is a guess', () => {
+    const versions = (item: Parameters<typeof ownedVersions>[2]) => label(ownedVersions('right-now/jimothy', 'RARE', item, []));
+    // One misprint must sit on a finish, but Gold Misprint + Silver and Silver Misprint + Gold both fit.
+    expect(versions({ normalCount: 2, holoCount: 0, finishes: { GOLD: 1, SILVER: 1 }, misprints: 1 })).toEqual(['GOLD!?x1', 'SILVER?x1']);
+    // Two distinct finishes, two misprints, three copies: the overlap is one or two.
+    expect(versions({ normalCount: 3, holoCount: 0, finishes: { GOLD: 1, SILVER: 1 }, misprints: 2 }).every((v) => v.includes('?'))).toBe(true);
+    // Every finish is misprinted: exact whatever the finishes.
+    expect(versions({ normalCount: 2, holoCount: 0, finishes: { GOLD: 1, SILVER: 1 }, misprints: 2 })).toEqual(['GOLD!x1', 'SILVER!x1']);
+  });
+
+  it('marks every rebuilt copy uncertain when which copy was holo is a guess', () => {
+    const versions = (item: Parameters<typeof ownedVersions>[2]) => label(ownedVersions('right-now/jimothy', 'RARE', item, []));
+    // Gold Holo + Plain fits as well as Gold + Holo.
+    expect(versions({ normalCount: 1, holoCount: 1, finishes: { GOLD: 1 } })).toEqual(['GOLD?x1', '*?x1']);
+    // Both copies are combined, but either could be the holo one.
+    expect(versions({ normalCount: 1, holoCount: 1, finishes: { GOLD: 1, SILVER: 1 }, misprints: 2 })).toEqual(['SILVER*!?x1', 'GOLD!?x1']);
+    // Every copy alike: holo or not, there's only one answer.
+    expect(versions({ normalCount: 1, holoCount: 1, finishes: { GOLD: 2 }, misprints: 2 })).toEqual(['GOLD*!x1', 'GOLD!x1']);
+    expect(versions({ normalCount: 1, holoCount: 2 })).toEqual(['*x2', 'x1']);
+  });
+
+  it("marks rebuilt copies uncertain when the tallies don't add up", () => {
+    const versions = ownedVersions('right-now/jimothy', 'RARE', { normalCount: 1, holoCount: 0, finishes: { GOLD: 1, SILVER: 1 } }, []);
+    expect(versions.reduce((sum, v) => sum + v.count, 0)).toBe(1);
+    expect(versions.every((v) => v.version.uncertain && !v.version.misprint)).toBe(true);
+  });
+
   it('compares versions with defaults for missing fields', () => {
     expect(sameVersion(versionOf({ isHolo: true }), { isHolo: true, finish: null, misprint: false })).toBe(true);
     expect(sameVersion(versionOf({ finish: 'GOLD' }), versionOf({}))).toBe(false);
