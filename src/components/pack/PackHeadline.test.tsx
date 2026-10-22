@@ -52,28 +52,20 @@ describe('PackHeadline', () => {
 describe('PackHeadline on the results screen', () => {
   const common = pick('COMMON');
   const pair = [meta(common, 1), meta(common, 2), meta(pick('UNCOMMON'), 3), meta(pick('RARE'), 4), meta(pick('RARE', 1), 5)];
-  const results = (cards: CardWithMeta[], scoreChance: number | null) =>
-    act(() => root.render(<PackHeadline cards={cards} headingRef={() => {}} scoreChance={scoreChance} />));
+  const results = (cards: CardWithMeta[]) => act(() => root.render(<PackHeadline cards={cards} headingRef={() => {}} />));
   /** The headline as copied: one line per element, nothing hidden. */
   const lines = () => [...container.querySelector('.pack-headline')!.children].map((el) => el.textContent);
 
-  it('heads with only the score, then the combo once with its odds and no multiplier', () => {
-    results(pair, 0.08);
+  it('heads with the score, then the combo with its multiplier, and no chance line (#778)', () => {
+    results(pair);
     const total = cardPoints('COMMON', false) * 2 + cardPoints('UNCOMMON', false) + cardPoints('RARE', false) * 2;
-    expect(lines()).toEqual([`${(total * 2).toLocaleString()} Brainrot Score`, 'Pair · 1 in 13 packs score this high']);
+    expect(lines()).toEqual([`${(total * 2).toLocaleString()} Brainrot Score`, 'Pair ×2']);
     expect(container.querySelector('h2')!.textContent).toBe(lines()[0]);
-    expect(container.textContent).not.toMatch(/×|, |card points|Standout/);
+    expect(container.textContent).not.toMatch(/1 in|packs score|Most packs|%|card points|Standout/);
   });
 
-  it('says most packs score this high past even odds', () => {
-    results(pair, 0.51);
-    expect(lines().slice(1)).toEqual(['Pair · Most packs score this high']);
-    results(pair, 0.5);
-    expect(lines().slice(1)).toEqual(['Pair · 1 in 2 packs score this high']);
-  });
-
-  it('says just No Matches when the combo has no odds', () => {
-    results([meta(pick('RARE', 0), 1), meta(pick('RARE', 1), 2), meta(common, 3), meta(pick('UNCOMMON'), 4), meta(pick('COMMON', 1), 5)], null);
-    expect(lines().slice(1)).toEqual(['No Matches']);
+  it('keeps No Matches visible with its multiplier', () => {
+    results([meta(pick('RARE', 0), 1), meta(pick('RARE', 1), 2), meta(common, 3), meta(pick('UNCOMMON'), 4), meta(pick('COMMON', 1), 5)]);
+    expect(lines().slice(1)).toEqual(['No Matches ×1']);
   });
 });

@@ -4,9 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSet } from '../../content/sets';
 import { getSetCards, scoreCards } from '../../data/cards';
-import { scoreAtLeastChance } from '../../engine';
 import type { CardWithMeta } from '../cards/Card';
-import { formatOneIn } from '../../game/cardStats';
 import { revealOrder } from '../../game/reveal';
 import PackSummaryUI from './PackSummaryUI';
 
@@ -70,18 +68,17 @@ describe('result first', () => {
     expect(document.activeElement).toBe(title);
   });
 
-  it('says how rare a score this high is, over the whole pack', () => {
-    // A holo pair: rarer than most packs.
+  it('shows one number, the score, and no chance of it (#778)', () => {
+    // A holo pair: rarer than most packs. Five plain Commons: more common than most. Neither names a chance.
     const pair = cards.map((card, i) => ({ ...(i === 1 ? cards[0] : card), uniqueId: i + 1, isHolo: i < 2 }) as CardWithMeta);
-    act(() => root.render(<PackSummaryUI openedCards={pair} set={set} onClose={() => {}} />));
-    const odds = () => container.querySelector('.pack-headline-odds')?.textContent;
-    const chance = scoreAtLeastChance(set, scoreCards(pair).score)!;
-    expect(chance).toBeLessThan(0.5);
-    expect(odds()).toBe(`Pair · 1 in ${formatOneIn(1 / chance)} packs score this high`);
-    // Five plain Commons: most packs do at least that well.
     const commons = cards.map((card) => ({ ...card, rarity: 'COMMON' }) as CardWithMeta);
-    act(() => root.render(<PackSummaryUI openedCards={commons} set={set} onClose={() => {}} />));
-    expect(odds()).toBe('No Matches · Most packs score this high');
+    for (const opened of [pair, commons]) {
+      act(() => root.render(<PackSummaryUI openedCards={opened} set={set} onClose={() => {}} />));
+      expect(container.querySelector('.summary-title')!.textContent).toBe(`${scoreCards(opened).score.toLocaleString()} Brainrot Score`);
+      expect(container.querySelector('.pack-headline-combo')!.textContent).toMatch(/^[A-Za-z ]+ ×\d+$/);
+      expect(container.querySelector('.pack-headline-odds')).toBeNull();
+      expect(text()).not.toMatch(/\b1 in\b|packs score this high|Most packs/);
+    }
   });
 
   it('hints that a card opens up close until one is opened', () => {
