@@ -307,6 +307,9 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   by Brainrot Score. Rows aren't re-checked on the page: each links to its pull, which re-derives it.
   A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
   before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
+  A closed "How Rankings work" disclosure sits above the lists in every state (loading, failed,
+  feed unavailable, empty, populated, both tabs): who qualifies, that nothing is filed
+  automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
