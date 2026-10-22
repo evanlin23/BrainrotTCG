@@ -76,6 +76,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         <p className="scoring-formula">
           Brainrot Score = <strong>card points</strong> added up × <strong>combo multiplier</strong>
         </p>
+        <p className="scoring-note">Add up the points of your five cards, then multiply by your combo. A higher score is better.</p>
 
         <h3>Card rarity</h3>
         <table className="scoring-table">
