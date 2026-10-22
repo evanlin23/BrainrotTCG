@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded, fingerFor, snapshot } from './support';
+import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot } from './support';
 
 /**
  * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
@@ -37,6 +37,7 @@ async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewpo
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
   await expectDecoded(page.locator('.summary-cards img'), 5);
   await expect(page.locator('.summary-title')).toBeFocused();
+  await expectSummaryTakesClicks(page);
   await settled(page);
   return { errors, packShell };
 }

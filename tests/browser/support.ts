@@ -391,6 +391,12 @@ export async function expectDecoded(images: Locator, count: number) {
   }
 }
 
+/** The summary ignores clicks on its cards and Share for its first moments (#627); a deliberate click waits for that to end. */
+export async function expectSummaryTakesClicks(page: Page) {
+  await expect(page.locator('.summary-cards')).toBeVisible();
+  await expect(page.locator('.summary-cards[data-settling]')).toHaveCount(0);
+}
+
 const sets = new URL('../../src/content/sets/', import.meta.url);
 const cardIds = readdirSync(sets, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
