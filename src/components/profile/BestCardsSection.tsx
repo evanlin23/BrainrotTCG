@@ -44,13 +44,15 @@ interface BestCardsSectionProps {
   refreshKey: string;
   /** Saved packs are all read in. Until then an empty list may only be one that isn't loaded yet. */
   cacheReady: boolean;
+  /** The stored list was weighed or rebuilt (the Best card highlight finds its winner again). */
+  onListChange?: () => void;
 }
 
 /**
  * The player's best individual cards (game/bestCards.ts), best first, each opening the card viewer with
  * its Share card action for that exact version. Only the current key's list is ever read.
  */
-const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => {
+const BestCardsSection = ({ refreshKey, cacheReady, onListChange }: BestCardsSectionProps) => {
   const [list, setList] = useState(readList);
   const [rebuilding, setRebuilding] = useState(false);
   /** The last rebuild lost some winners' cards (a pack that wouldn't derive, or the rebuild itself): not an empty collection. */
@@ -59,6 +61,11 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   const [attempt, setAttempt] = useState(0);
   const [viewing, setViewing] = useState<Row | null>(null);
   const mounted = useRef(true);
+  // The latest callback, for the effects below without restarting them.
+  const listChanged = useRef(onListChange);
+  useEffect(() => {
+    listChanged.current = onListChange;
+  });
   const rebuilt = useRef(new Set<string>());
   const opener = useRef<HTMLButtonElement | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
@@ -85,6 +92,7 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
       // Reads and saves the stored list (an external system), so it runs after the render, not in it.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setList(syncMyBestCards());
+      listChanged.current?.();
     } catch { /* The list as stored stays on screen. */ }
   }, [refreshKey]);
 
@@ -107,6 +115,7 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
         if (!mounted.current || getPlayerTickets().player.publicKeyHex !== player.publicKeyHex) return;
         setList({ cards, complete, unsaved });
         setUnavailable(failed > 0);
+        listChanged.current?.();
       })
       .catch(() => {
         if (mounted.current && getPlayerTickets().player.publicKeyHex === player.publicKeyHex) setUnavailable(true);

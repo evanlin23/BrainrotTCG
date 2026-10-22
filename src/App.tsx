@@ -596,6 +596,7 @@ function App() {
               cards,
               score: scoreCards(cards),
             }),
+          onSharePack: (ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) }),
           onShareAchievementPull: (ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) }),
           onOpenSave: () => openPage('settings', 'save-backup'),
           onOpenPacks: () => openPage('open'),

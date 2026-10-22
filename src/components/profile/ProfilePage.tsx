@@ -6,6 +6,7 @@ import type { PageSection } from '../ui/Page';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
 import BestCardsSection from './BestCardsSection';
+import BestHighlights from './BestHighlights';
 import ProfileSummary from './ProfileSummary';
 import PackCacheNote from './PackCacheNote';
 import PlayerSection from './PlayerSection';
@@ -17,7 +18,8 @@ import SharePreviewSheet from '../share/SharePreviewSheet';
 import { renderPlayerCard } from '../../game/playerCard';
 import { getLatestSet } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
-import { HALL_OF_FAME_MIN_SCORE, type ProfilePack } from '../../engine';
+import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
+import type { BestPackStats } from '../../game/bestSources';
 import { STORAGE_KEYS } from '../../constants';
 import { getPlayer } from '../../game/player';
 import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
@@ -27,13 +29,9 @@ import type { AchievementData, Settings } from '../../types';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
 import '../../styles/Pulls.css';
 
-interface LegacyBest {
-  highestPackCards?: CardWithMeta[];
-  highestPackLegacy?: boolean;
-}
-
 interface ProfilePageProps {
-  stats: LegacyBest;
+  /** The best pack kept when it opened (and a legacy one from before ticket references). */
+  stats: BestPackStats;
   /** Null while saved packs are still being read (or couldn't be). */
   level: number | null;
   settings: Settings;
@@ -41,6 +39,8 @@ interface ProfilePageProps {
   unlockedAchievements: Record<string, AchievementData | number>;
   achievementProgress?: Record<string, [have: number, need: number, unit: string]>;
   onSharePull: (entry: HistoryEntry, cards: CardWithMeta[]) => void;
+  /** Share the verified Best pack, by its reference and the engine's cards. */
+  onSharePack: (ref: PullRef, cards: CardWithMeta[]) => void;
   /** Share the pack that unlocked an achievement. */
   onShareAchievementPull?: (ref: PullRef, cards: CardWithMeta[]) => void;
   /** Go to Settings, Save & backup. */
@@ -84,6 +84,7 @@ const ProfilePage = ({
   unlockedAchievements,
   achievementProgress,
   onSharePull,
+  onSharePack,
   onShareAchievementPull,
   onOpenSave,
   onOpenPacks,
@@ -115,6 +116,8 @@ const ProfilePage = ({
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
+  // Best cards weighed or rebuilt (BestCardsSection): the Best card highlight may have changed.
+  const [bestCardsRuns, setBestCardsRuns] = useState(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const summary = useMemo(() => myStats(), [reopenRuns, packCache]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,13 +196,13 @@ const ProfilePage = ({
     if (link) setCardUrl(link.url);
   };
 
-  /** The history record of one of the profile's best packs (the profile lists only the current key's). */
-  const entryOf = (pack: ProfilePack) =>
+  /** The history record of the Best pack, for its submitted badge (only the current key's). */
+  const entryOf = (ref: PullRef) =>
     history.find(
       (e) =>
-        e.nonce === pack.nonce &&
-        e.setId === pack.set.id &&
-        e.setVersion === pack.set.version &&
+        e.nonce === ref.nonce &&
+        e.setId === ref.setId &&
+        e.setVersion === ref.setVersion &&
         player.publicKeyHex.startsWith(e.key),
     );
 
@@ -212,6 +215,16 @@ const ProfilePage = ({
     <>
       <div className="profile-page pulls-page">
         <PlayerSection onRenamed={setPlayer} canSave={canSave} onSaveFailed={onSaveFailed} />
+
+        <BestHighlights
+          stats={stats}
+          refreshKey={`${packCache}:${reopenRuns}:${bestCardsRuns}`}
+          onSharePack={onSharePack}
+          packBadge={(ref) => {
+            const entry = entryOf(ref);
+            return entry && <SubmittedBadge entry={entry} />;
+          }}
+        />
 
         <h2 className="sr-only">Level and stats</h2>
         {mine && !summary ? (
@@ -226,11 +239,7 @@ const ProfilePage = ({
         ) : mine && summary ? (
           <ProfileSummary
             stats={summary}
-            onOpenPack={(pack) => openEntry(entryOf(pack))}
-            packBadge={(pack) => {
-              const entry = entryOf(pack);
-              return entry && <SubmittedBadge entry={entry} />;
-            }}
+            highlighted
             actions={
               <>
                 <button type="button" className="btn btn--secondary btn--sm" onClick={share} disabled={!!preparing || !!mine?.filled}>
@@ -363,7 +372,13 @@ const ProfilePage = ({
           </section>
         )}
 
-        {mine && <BestCardsSection refreshKey={`${packCache}:${reopenRuns}`} cacheReady={mine.cache === 'ready'} />}
+        {mine && (
+          <BestCardsSection
+            refreshKey={`${packCache}:${reopenRuns}`}
+            cacheReady={mine.cache === 'ready'}
+            onListChange={() => setBestCardsRuns((n) => n + 1)}
+          />
+        )}
 
         <p className="profile-save-note">
           <span>Saved in this browser ·</span>

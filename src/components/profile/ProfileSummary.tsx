@@ -39,16 +39,21 @@ interface ProfileSummaryProps {
   onOpenPack?: (pack: ProfilePack) => void;
   /** After a best pull's hand, e.g. whether this device sent it to the Hall of Fame (your own profile only). */
   packBadge?: (pack: ProfilePack) => ReactNode;
+  /**
+   * Your own profile leads with its verified Best pack and Best card (BestHighlights), so the best-score
+   * stat and the Best pulls list, which would only repeat them, are left out.
+   */
+  highlighted?: boolean;
 }
 
 /** Level, the numbers that matter, best pulls, then the collection score and cards by set. Same for your profile and someone else's. */
-const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNote, onOpenPack, packBadge }: ProfileSummaryProps) => {
+const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNote, onOpenPack, packBadge, highlighted = false }: ProfileSummaryProps) => {
   const [open, setOpen] = useState<ProfilePack | null>(null);
   const bestId = useId();
   const collectionId = useId();
   const floor = xpForLevel(stats.level);
   const ceiling = xpForLevel(stats.level + 1);
-  const best = stats.best.filter((p) => p.cards.length > 0).slice(0, 3);
+  const best = highlighted ? [] : stats.best.filter((p) => p.cards.length > 0).slice(0, 3);
   const hands = SHOWN_HANDS.filter((h) => stats.hands[h]);
   const sets = SETS.filter((s) => stats.uniqueBySet[s.id]);
   const { current: milestone, next: nextMilestone } = collectionMilestone(stats.points);
@@ -91,12 +96,14 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
           <dd className="tabular">{stats.holos.toLocaleString()}</dd>
           <dt>holo{partial && '*'}</dt>
         </div>
-        <div>
-          <dd className="tabular" title={(stats.best[0]?.score.score ?? 0).toLocaleString()}>
-            {partial && !stats.best[0] ? '…' : compact.format(stats.best[0]?.score.score ?? 0)}
-          </dd>
-          <dt>best score{partial && '*'}</dt>
-        </div>
+        {!highlighted && (
+          <div>
+            <dd className="tabular" title={(stats.best[0]?.score.score ?? 0).toLocaleString()}>
+              {partial && !stats.best[0] ? '…' : compact.format(stats.best[0]?.score.score ?? 0)}
+            </dd>
+            <dt>best score{partial && '*'}</dt>
+          </div>
+        )}
       </dl>
       {hands.length > 0 && (
         <p className="profile-hands">
@@ -124,7 +131,8 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
         </p>
         <p>
           <strong>packs</strong> is how many packs opened. <strong>cards</strong> is how many different cards you have out of those you can still pull.{' '}
-          <strong>holo</strong> counts every holo card pulled, repeats included. <strong>best score</strong> is your highest Brainrot Score in a single pack.{' '}
+          <strong>holo</strong> counts every holo card pulled, repeats included.{' '}
+          {!highlighted && <><strong>best score</strong> is your highest Brainrot Score in a single pack.{' '}</>}
           <strong>Collection score</strong> adds up the points of every card you have pulled, with no combo multipliers.
         </p>
       </details>

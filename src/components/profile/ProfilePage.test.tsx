@@ -10,6 +10,8 @@ import { getSet } from '../../content/sets';
 import { HALL_OF_FAME_MIN_MULTIPLIER, POKER_HANDS, XP_PER_HAND, XP_PER_NEW_CARD, XP_PER_PACK, pullId, scorePulled, xpForLevel, type ProfilePack, type ProfileStats } from '../../engine';
 import { toPulled } from '../../game/cardCode';
 import { getPlayer } from '../../game/player';
+import { toCardsWithMeta } from '../../game/pulls';
+import { scoreCards } from '../../data/cards';
 import { resetSubmissionsForTest, submitToHallOfFame, SUBMITTED_KEY } from '../../game/share';
 
 const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks } = vi.hoisted(() => ({
@@ -30,6 +32,13 @@ vi.mock('../../game/history', async (importOriginal) => ({
   getHistory,
 }));
 const actualHistory = await vi.importActual<typeof import('../../game/history')>('../../game/history');
+// The engine checks are BestHighlights' own tests (and bestSources'): here they settle as each test says.
+const { checkBestPack, checkBestCard } = vi.hoisted(() => ({ checkBestPack: vi.fn(), checkBestCard: vi.fn() }));
+vi.mock('../../game/bestSources', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/bestSources')>()),
+  checkBestPack,
+  checkBestCard,
+}));
 
 let root: Root;
 let container: HTMLElement;
@@ -46,6 +55,8 @@ beforeEach(() => {
   myPackCacheState.mockReset().mockReturnValue('ready');
   hydrateMyPacks.mockReset().mockResolvedValue('ready');
   getHistory.mockReset().mockImplementation(actualHistory.getHistory);
+  checkBestPack.mockReset().mockReturnValue(new Promise(() => {}));
+  checkBestCard.mockReset().mockReturnValue(new Promise(() => {}));
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -68,6 +79,7 @@ const render = (props: Partial<Parameters<typeof ProfilePage>[0]> = {}) =>
         onSettingsChange={() => {}}
         unlockedAchievements={{}}
         onSharePull={() => {}}
+        onSharePack={() => {}}
         onOpenSave={() => {}}
         onOpenPacks={() => {}}
         canSave={() => true}
@@ -390,7 +402,7 @@ describe('Hall of Fame submitted badge', () => {
   });
 });
 
-describe('Hall of Fame submitted badge on Best pulls', () => {
+describe('Best pack highlight', () => {
   const SET = getSet('right-now', 1)!;
   const NONCE = 7;
   const bestPack = (cardIds: string[], nonce = NONCE): ProfilePack => {
@@ -403,20 +415,69 @@ describe('Hall of Fame submitted badge on Best pulls', () => {
   });
   const entryFor = (pack: ProfilePack, key = getPlayer().publicKeyHex.slice(0, 16)) =>
     ({ setId: SET.id, setVersion: SET.version, nonce: pack.nonce, key, cards: null, hand: pack.score.hand.name, score: pack.score.score, openedAt: 1000 + pack.nonce });
-  /** The badges inside the Best pulls list (the pack list further down carries its own). */
-  const bestBadges = () => {
-    const section = [...document.querySelectorAll('section.profile-block')].find((s) => s.querySelector('h3')?.textContent === 'Best pulls');
-    return [...(section?.querySelectorAll('.pull-row-sent') ?? [])].map((el) => el.textContent);
+  const refOf = (pack: ProfilePack) => ({ setId: SET.id, setVersion: SET.version, nonce: pack.nonce, publicKeyHex: getPlayer().publicKeyHex });
+  /** What the stats kept for `pack` when it opened, and the engine opening it again to the same cards. */
+  const keep = (pack: ProfilePack) => {
+    const cards = toCardsWithMeta(pack.cards, SET).map((c) => ({ ...c, isRevealed: true }));
+    checkBestPack.mockImplementation(async (source: unknown) => ({ status: 'available', source, verified: { cards, score: scoreCards(cards) } }));
+    return { stats: { highestPackRef: refOf(pack), highestPackCards: cards, highestPackFlexValue: pack.score.score }, cards };
   };
+  /** Renders, then lets the (mocked) engine checks settle. */
+  const renderSettled = async (props: Partial<Parameters<typeof ProfilePage>[0]>) => {
+    render(props);
+    await act(async () => {});
+  };
+  const section = (title: string) =>
+    [...document.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h2')?.textContent === title);
+  const bestRow = () => section('Best pack')?.querySelector('.pull-row') ?? null;
+  const bestBadges = () => [...(section('Best pack')?.querySelectorAll('.pull-row-sent') ?? [])].map((el) => el.textContent);
 
-  it('shows the same Not submitted, then Submitted, on a worthy best pull of your own', async () => {
+  it('leads the profile, after the player, with no best score or Best pulls repeating it', async () => {
+    myStats.mockReturnValue(statsWith([five]));
+    await renderSettled({ stats: keep(five).stats });
+    const highlights = document.querySelector('.profile-highlights')!;
+    const levelHeading = [...document.querySelectorAll('h2')].find((h) => h.textContent === 'Level and stats')!;
+    expect(highlights.compareDocumentPosition(levelHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bestRow()?.querySelector('.profile-verified')?.textContent).toContain('Verified');
+    expect(bestRow()?.querySelector('.pull-row-hand')?.firstChild?.textContent).toBe(five.score.hand.name);
+    expect(section('Best card')?.textContent).toContain('None yet.');
+    expect([...document.querySelectorAll('dt')].map((dt) => dt.textContent)).not.toContain('best score');
+    expect([...document.querySelectorAll('h3')].map((h) => h.textContent)).not.toContain('Best pulls');
+  });
+
+  it("shares through the pack's own pull proof with the engine's cards, never the profile link", async () => {
+    const onSharePack = vi.fn();
+    const { stats, cards } = keep(five);
+    myStats.mockReturnValue(statsWith([five]));
+    await renderSettled({ stats, onSharePack });
+    act(() => (bestRow() as HTMLElement).click());
+    expect(onSharePack).toHaveBeenCalledWith(refOf(five), cards);
+    expect(myProfileProof).not.toHaveBeenCalled();
+  });
+
+  it("stays verified when the profile link can't be made or the pack isn't in the history", async () => {
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 1, cache: 'ready' });
+    getHistory.mockReturnValue([]);
+    await renderSettled({ stats: keep(five).stats });
+    expect(bestRow()?.querySelector('.profile-verified')).not.toBeNull();
+    expect(bestBadges()).toEqual([]);
+  });
+
+  it("keeps a legacy best pack's own section and says why it can't be checked", async () => {
+    const { cards } = keep(five);
+    await renderSettled({ stats: { highestPackLegacy: true, highestPackCards: cards } });
+    expect(checkBestPack).not.toHaveBeenCalled();
+    expect(section('Best pack')?.textContent).toContain("from before verifiable pulls, so it can't be checked");
+    expect(document.querySelector('.pulls-legacy')).not.toBeNull();
+  });
+
+  it('shows the same Not submitted, then Submitted, on a worthy best pack of your own', async () => {
     vi.doMock('../../game/nostrInbox', () => ({
       hallOfFameEvent: () => ({}),
       publishUntilAccepted: () => Promise.resolve({ accepted: 'wss://relay' }),
     }));
-    myStats.mockReturnValue(statsWith([five]));
     getHistory.mockReturnValue([entryFor(five)]);
-    render();
+    await renderSettled({ stats: keep(five).stats });
     expect(five.score.hand.multiplier).toBeGreaterThanOrEqual(HALL_OF_FAME_MIN_MULTIPLIER);
     expect(bestBadges()).toEqual(['Not submitted']);
 
@@ -425,33 +486,38 @@ describe('Hall of Fame submitted badge on Best pulls', () => {
     });
     expect(bestBadges()).toEqual(['Submitted']);
     // The row still reads the hand first.
-    expect(document.querySelector('section.profile-block .pull-row-hand')?.firstChild?.textContent).toBe(five.score.hand.name);
+    expect(bestRow()?.querySelector('.pull-row-hand')?.firstChild?.textContent).toBe(five.score.hand.name);
   });
 
-  it('draws a best pull the way the pack list draws the same pack: trophy, badge and set line', () => {
-    myStats.mockReturnValue(statsWith([five]));
+  it('draws the best pack the way the pack list draws the same pack: trophy, badge and set line', async () => {
     getHistory.mockReturnValue([entryFor(five)]);
-    render();
-    const best = document.querySelector('section.profile-block .pull-row')!;
+    await renderSettled({ stats: keep(five).stats });
+    const best = bestRow()!;
     const listed = document.querySelector('section[aria-labelledby="pulls-history-title"] .pull-row')!;
-    // Same parts in the same order, whatever the thumbnails and the last words of the set line say.
-    const shape = (row: Element) => [...row.querySelectorAll('.pull-row-hand > *, .pull-row-meta > .set-code, .pull-row-meta > .pull-row-setname')].map((el) => el.getAttribute('class'));
+    // Same parts in the same order, whatever the thumbnails and the last words of the set line say; only the Verified mark is extra.
+    const shape = (row: Element) =>
+      [...row.querySelectorAll('.pull-row-hand > *, .pull-row-meta > .set-code, .pull-row-meta > .pull-row-setname')]
+        .filter((el) => !el.classList.contains('profile-verified'))
+        .map((el) => el.getAttribute('class'));
     expect(shape(best)).toEqual(shape(listed));
     expect(best.querySelector('.pull-row-hof')).not.toBeNull();
-    expect(best.querySelector('.pull-row-hand .sr-only')?.textContent).toBe(', qualifies for Rankings');
     expect(best.querySelector('.pull-row-meta')?.textContent).toContain(`ticket #${NONCE}`);
   });
 
-  it("shows nothing on a best pull that can't qualify, or that another player on this device opened", () => {
+  it("shows no badge on a best pack that can't qualify, or whose history entry is another player's", async () => {
     const weak = bestPack(SET.cards.slice(0, SET.packSize).map((c) => c.id), 8);
     expect(weak.score.hand.multiplier).toBeLessThan(HALL_OF_FAME_MIN_MULTIPLIER);
-    myStats.mockReturnValue(statsWith([five, weak]));
-    getHistory.mockReturnValue([entryFor(five, 'b'.repeat(16)), entryFor(weak)]);
-    render();
+    getHistory.mockReturnValue([entryFor(weak)]);
+    await renderSettled({ stats: keep(weak).stats });
     expect(bestBadges()).toEqual([]);
-    // The trophy follows the score alone: the weak pack gets none, the qualifying one has it whoever opened it.
-    const hof = [...document.querySelectorAll('section.profile-block .pull-row')].map((row) => row.querySelector('.pull-row-hof') !== null);
-    expect(hof).toEqual([true, false]);
+    expect(bestRow()?.querySelector('.pull-row-hof')).toBeNull();
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    getHistory.mockReturnValue([entryFor(five, 'b'.repeat(16))]);
+    await renderSettled({ stats: keep(five).stats });
+    expect(bestRow()?.querySelector('.pull-row-hof')).not.toBeNull();
+    expect(bestBadges()).toEqual([]);
   });
 
   it("shows no badge when the profile is someone else's, which never passes one in", () => {
