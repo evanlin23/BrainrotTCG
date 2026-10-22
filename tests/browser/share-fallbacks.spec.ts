@@ -8,10 +8,16 @@ import { monitor } from './support';
  * evidence about an OS share sheet, clipboard permissions or user activation on a real phone.
  *
  * - The system share sheet is offered only where the primary pointer is coarse (the Pixel 5 project).
+ *   Desktop Chromium checks that it is absent; the share, cancel and refusal paths run on the phone only.
  * - Cancelling it (AbortError) and a refusal are different: only a refusal falls back, and nothing
  *   is ever reported as done that the browser did not accept.
  * - A refused clipboard leaves the person a way to copy by hand, or an image to save.
  * The fixture's ticket #0 is its real pack, so the copied link is the pack's own.
+ *
+ * The status line is transient (the sheet clears it on its own timer), so nothing here waits on its text.
+ * `nativeLog.said` records every message it showed, and each step waits for that log to reach a count.
+ * React skips identical text, so a step that must stay silent is followed by one that says something
+ * different: a message wrongly shown by the silent step would then be in the log ahead of it.
  */
 
 interface Native {
@@ -29,6 +35,8 @@ interface NativeLog {
   prompts: [string, string][];
   /** Every non-empty message the sheet's status line showed, in order. */
   said: string[];
+  /** The messages among `said` that were shown as a failure. */
+  failed: string[];
 }
 declare global {
   interface Window { native: Native; nativeLog: NativeLog }
@@ -38,7 +46,7 @@ declare global {
 async function stubNative(page: Page, env: { share: Native['share'] | null; files?: boolean; clipboard?: Native['clipboard']; clipboardItem?: boolean }) {
   await page.addInitScript((env) => {
     window.native = { share: env.share ?? 'resolves', files: env.files ?? true, clipboard: env.clipboard ?? 'ok' };
-    window.nativeLog = { shares: [], text: [], images: [], prompts: [], said: [] };
+    window.nativeLog = { shares: [], text: [], images: [], prompts: [], said: [], failed: [] };
     const define = (key: string, value: unknown) => Object.defineProperty(navigator, key, { configurable: true, value });
     const refused = () => new DOMException('stub: refused', 'NotAllowedError');
     if (env.share === null) {
@@ -75,10 +83,16 @@ const logged = (page: Page) => page.evaluate(() => window.nativeLog);
 /** Waits for the stub to have been called `count` times in all. */
 const sharesReach = (page: Page, count: number) => page.waitForFunction((count) => window.nativeLog.shares.length === count, count);
 const promptsReach = (page: Page, count: number) => page.waitForFunction((count) => window.nativeLog.prompts.length === count, count);
+/** Waits for the sheet to have said `count` things in all (see `watchStatus`). */
+const saidReach = (page: Page, count: number) => page.waitForFunction((count) => window.nativeLog.said.length === count, count);
 
 /** Records what the sheet's status line says from now on, so a claim that flashed and went is still seen. */
 const watchStatus = (sheet: Locator) => sheet.locator('p.share-done[role="status"]').evaluate((line) => {
-  new MutationObserver(() => { if (line.textContent) window.nativeLog.said.push(line.textContent); })
+  new MutationObserver(() => {
+    if (!line.textContent) return;
+    window.nativeLog.said.push(line.textContent);
+    if (line.classList.contains('is-failed')) window.nativeLog.failed.push(line.textContent);
+  })
     .observe(line, { childList: true, characterData: true, subtree: true });
 });
 
@@ -100,23 +114,18 @@ async function openPackShare(page: Page, baseURL: string) {
   return { errors, sheet };
 }
 
-/** Copies the link, and waits for the sheet to say so. */
-async function copyLinkAndSettle(sheet: Locator) {
-  await button(sheet, 'Copy link').click();
-  await expect(sheet.locator('p.share-done')).toHaveText('Link copied');
-}
-
 test('without navigator.share it offers copying only, and the copied link opens a verified pull', async ({ page, context, baseURL }) => {
   test.setTimeout(90000);
   await stubNative(page, { share: null });
   const { errors, sheet } = await openPackShare(page, baseURL!);
   await expect(shareTo(sheet)).toHaveCount(0);
 
-  await copyLinkAndSettle(sheet);
+  await button(sheet, 'Copy link').click();
+  await saidReach(page, 1);
   await button(sheet, 'Copy image').click();
-  await expect(sheet.locator('p.share-done')).toHaveText('Image copied');
+  await saidReach(page, 2);
   await button(sheet, 'Copy text').click();
-  await expect(sheet.locator('p.share-done')).toHaveText('Text copied');
+  await saidReach(page, 3);
   const log = await logged(page);
   expect(log.said).toEqual(['Link copied', 'Image copied', 'Text copied']);
   expect(log.images).toEqual(['image/png']);
@@ -137,79 +146,84 @@ test('without navigator.share it offers copying only, and the copied link opens 
   expect(pastedErrors).toEqual([]);
 });
 
+test('a computer with navigator.share still gets copy only', async ({ page, baseURL, isMobile }) => {
+  test.skip(isMobile, 'The phone project covers the same sheet with Share to… offered');
+  test.setTimeout(90000);
+  await stubNative(page, { share: 'resolves' });
+  const { errors, sheet } = await openPackShare(page, baseURL!);
+  // The sheet is a detour on a computer, so Share to… is absent however capable navigator.share is.
+  await expect(button(sheet, 'Copy link')).toBeVisible();
+  await expect(shareTo(sheet)).toHaveCount(0);
+  expect((await logged(page)).shares).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 for (const files of [true, false]) {
-  test(`navigator.share ${files ? 'with file support' : 'without it'} is offered on a touch phone only, and shares what the sheet shows`, async ({ page, baseURL, isMobile }) => {
+  test(`on a touch phone, navigator.share ${files ? 'with file support' : 'without it'} shares what the sheet shows and claims nothing`, async ({ page, baseURL, isMobile }) => {
+    test.skip(!isMobile, 'Share to… is offered only on a coarse primary pointer; the computer test covers desktop');
     test.setTimeout(90000);
     await stubNative(page, { share: 'resolves', files });
     const { errors, sheet } = await openPackShare(page, baseURL!);
-    if (!isMobile) {
-      // A computer with a share API still gets copy only: the sheet is a detour there.
-      await expect(button(sheet, 'Copy link')).toBeVisible();
-      await expect(shareTo(sheet)).toHaveCount(0);
-      expect((await logged(page)).shares).toEqual([]);
-      expect(errors).toEqual([]);
-      return;
-    }
     await shareTo(sheet).click();
     await sharesReach(page, 1);
-    // An accepted share is the system's to report: the sheet claims nothing and copies nothing.
-    await copyLinkAndSettle(sheet);
+    // An accepted share is the system's to report: the sheet claims nothing and copies nothing. Copy text
+    // is the barrier, with a message no share path says.
+    await button(sheet, 'Copy text').click();
+    await saidReach(page, 1);
     const log = await logged(page);
-    expect(log.said).toEqual(['Link copied']);
+    expect(log.said).toEqual(['Text copied']);
     expect(log.text).toHaveLength(1);
+    expect(log.prompts).toEqual([]);
     const [share] = log.shares;
     if (files) {
       expect(share.keys).toEqual(['files', 'text']);
       expect(share.files).toEqual([expect.stringMatching(/^image\/png:brainrot-pull-.+\.png$/)]);
     } else {
       expect(share.keys).toEqual(['text', 'title', 'url']);
-      expect(share.url).toBe(log.text[0]);
+      expect(share.files).toEqual([]);
+      expect(log.text[0]).toContain(share.url);
     }
     expect(errors).toEqual([]);
   });
 }
 
-test('cancelling the share sheet claims nothing; a refusal falls back to copying, then to copying by hand', async ({ page, baseURL, isMobile }) => {
+test('on a touch phone, cancelling the share sheet claims nothing; a refusal falls back to copying, then to copying by hand', async ({ page, baseURL, isMobile }) => {
+  test.skip(!isMobile, 'Share to… is offered only on a coarse primary pointer; the computer test covers desktop');
   test.setTimeout(90000);
   await stubNative(page, { share: 'abort' });
   const { errors, sheet } = await openPackShare(page, baseURL!);
-  if (!isMobile) {
-    await expect(shareTo(sheet)).toHaveCount(0);
-    expect(errors).toEqual([]);
-    return;
-  }
-  const status = sheet.locator('p.share-done');
 
-  // Cancelled (AbortError): nothing is said, copied or prompted.
+  // Cancelled (AbortError): nothing is said, copied or prompted. Copy text is the barrier: a cancel that
+  // flashed anything would be in the log ahead of 'Text copied'.
   await shareTo(sheet).click();
   await sharesReach(page, 1);
-  await copyLinkAndSettle(sheet);
-  await expect(status).toHaveText('');
-  expect(await logged(page)).toMatchObject({ said: ['Link copied'], prompts: [] });
-  expect((await logged(page)).text).toHaveLength(1);
+  await button(sheet, 'Copy text').click();
+  await saidReach(page, 1);
+  const cancelled = await logged(page);
+  expect(cancelled).toMatchObject({ said: ['Text copied'], prompts: [] });
+  expect(cancelled.text).toHaveLength(1);
 
   // Refused (any other error) with a working clipboard: the link is copied instead, and said so.
   await native(page, { share: 'denied' });
   await shareTo(sheet).click();
   await sharesReach(page, 2);
-  await expect.poll(async () => (await logged(page)).text.length).toBe(2);
-  await expect(status).toHaveText('Link copied');
+  await saidReach(page, 2);
   const refused = await logged(page);
-  expect(refused.said).toEqual(['Link copied', 'Link copied']);
-  expect(refused.text[1]).toBe(refused.text[0]);
+  expect(refused.said).toEqual(['Text copied', 'Link copied']);
+  expect(refused.text).toHaveLength(2);
+  expect(refused.text[0]).toContain(refused.text[1]);
   expect(refused.prompts).toEqual([]);
-  await expect(status).toHaveText('');
 
   // Refused, and the clipboard refuses too: the link is offered to copy by hand and nothing is claimed.
   await native(page, { share: 'denied', clipboard: 'fail' });
   await shareTo(sheet).click();
   await promptsReach(page, 1);
-  expect((await logged(page)).prompts).toEqual([['Copy this:', refused.text[0]]]);
+  expect((await logged(page)).prompts).toEqual([['Copy this:', refused.text[1]]]);
   // The sheet is still usable: the image saves, and says so only once it has.
   const [download] = await Promise.all([page.waitForEvent('download'), button(sheet, 'Save image').click()]);
   expect(download.suggestedFilename()).toMatch(/^brainrot-pull-.+\.png$/);
-  await expect(status).toHaveText('Image saved');
-  expect((await logged(page)).said).toEqual(['Link copied', 'Link copied', 'Image saved']);
+  await saidReach(page, 3);
+  expect((await logged(page)).said).toEqual(['Text copied', 'Link copied', 'Image saved']);
   expect(errors).toEqual([]);
 });
 
@@ -229,7 +243,7 @@ test('a refused clipboard offers the link to copy by hand and an image to save, 
   // The image falls back to a saved file, and only that is said.
   const [download] = await Promise.all([page.waitForEvent('download'), button(sheet, 'Copy image').click()]);
   expect(download.suggestedFilename()).toMatch(/^brainrot-pull-.+\.png$/);
-  await expect(sheet.locator('p.share-done')).toHaveText('Image saved');
+  await saidReach(page, 1);
   const log = await logged(page);
   expect(log).toMatchObject({ said: ['Image saved'], text: [], images: [] });
   expect(errors).toEqual([]);
@@ -242,25 +256,27 @@ test('a browser that cannot copy images offers Save image in its place', async (
   await expect(button(sheet, 'Copy image')).toHaveCount(0);
   const [download] = await Promise.all([page.waitForEvent('download'), button(sheet, 'Save image').click()]);
   expect(download.suggestedFilename()).toMatch(/^brainrot-pull-.+\.png$/);
-  await expect(sheet.locator('p.share-done')).toHaveText('Image saved');
-  await copyLinkAndSettle(sheet);
+  await saidReach(page, 1);
+  await button(sheet, 'Copy link').click();
+  await saidReach(page, 2);
   expect((await logged(page)).said).toEqual(['Image saved', 'Link copied']);
   expect(errors).toEqual([]);
 });
 
-test('an image-only card with no proof link says why, and a refused share names the ways left', async ({ page, baseURL, isMobile }) => {
+test('an image-only card with no proof link says why and copies no link; on a phone a refused share names the ways left', async ({ page, baseURL, isMobile }) => {
   test.setTimeout(120000);
   await stubNative(page, { share: 'abort' });
-  const errors = await monitor(page, baseURL!);
-  await page.goto('./');
-  await expect(page.locator('.app-logo')).toBeVisible();
-  await page.getByRole('button', { name: 'Open pack', exact: true }).click();
-  await page.locator('button.reveal-skip').click({ timeout: 30000 });
-  await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
-  // A collection with no record of the pack it came from, like a save from before packs kept their cards.
-  await page.evaluate((key) => localStorage.removeItem(key), STORAGE_KEYS.HISTORY);
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  // A collection with no record of the pack it came from, like a save from before packs kept their
+  // cards. Seeded before the page loads, so nothing needs a reload to drop the record.
+  await page.addInitScript(({ storageKey, origin }) => {
+    if (window.location.origin !== origin || localStorage.getItem(storageKey)) return;
+    const card = { id: 'bukangi', key: 'right-now/bukangi', setId: 'right-now' };
+    localStorage.setItem(storageKey, JSON.stringify({ [card.key]: { card, normalCount: 1, holoCount: 0 } }));
+    // Current data version: the one-time migrations would otherwise rewrite the save.
+    localStorage.setItem('brainrot-data-version', '3');
+  }, { storageKey: STORAGE_KEYS.COLLECTION, origin: new URL(baseURL!).origin });
   await page.goto('./#/cards');
-  await page.reload();
   const main = page.getByRole('main', { name: 'Cards', exact: true });
   await expect(main).toBeVisible();
   await main.getByRole('button', { name: /, \d+ owned/ }).first().click();
@@ -268,31 +284,41 @@ test('an image-only card with no proof link says why, and a refused share names 
   const sheet = page.getByRole('dialog', { name: /^Share / });
   await expect(sheet.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible();
   await watchStatus(sheet);
-  const status = sheet.locator('p.share-done');
   await expect(sheet).toContainText("doesn't have a verified pack record");
   await expect(button(sheet, 'Copy link')).toHaveCount(0);
   await expect(button(sheet, 'Copy image')).toBeVisible();
 
-  if (!isMobile) {
-    await expect(shareTo(sheet)).toHaveCount(0);
-  } else {
-    // Cancelled: nothing is said. Refused: no link to fall back to, so the ways left are named.
+  // Desktop has no Share to… (the phone project covers it); the rest of this runs on both.
+  if (isMobile) {
     await shareTo(sheet).click();
     await sharesReach(page, 1);
+  } else {
+    await expect(shareTo(sheet)).toHaveCount(0);
+  }
+  // The ways it names work, and what they copy carries no link. On the phone, Copy text is also the
+  // barrier after the cancel: a cancel that flashed anything would be in the log ahead of 'Text copied'.
+  await button(sheet, 'Copy text').click();
+  await saidReach(page, 1);
+  expect((await logged(page)).text).toHaveLength(1);
+  expect((await logged(page)).text[0]).not.toContain('http');
+  const said = ['Text copied'];
+
+  if (isMobile) {
+    // Refused: no link to fall back to, so the ways left are named, as a failure.
+    const failure = 'Sharing failed — use Copy image, Save image or Copy text';
     await native(page, { share: 'denied' });
     await shareTo(sheet).click();
     await sharesReach(page, 2);
-    await expect(status).toHaveText('Sharing failed — use Copy image, Save image or Copy text');
-    await expect(status).toHaveClass(/is-failed/);
-    expect((await logged(page)).said).toEqual(['Sharing failed — use Copy image, Save image or Copy text']);
+    said.push(failure);
+    await saidReach(page, said.length);
+    expect((await logged(page)).failed).toEqual([failure]);
     expect((await logged(page)).shares.map((share) => share.files.length)).toEqual([1, 1]);
   }
-  // The ways it names work, and what they copy carries no link.
-  await button(sheet, 'Copy text').click();
-  await expect.poll(async () => (await logged(page)).text.length).toBe(1);
-  expect((await logged(page)).text[0]).not.toContain('http');
   await button(sheet, 'Copy image').click();
-  await expect(status).toHaveText('Image copied');
-  expect((await logged(page)).images).toEqual(['image/png']);
+  said.push('Image copied');
+  await saidReach(page, said.length);
+  const log = await logged(page);
+  expect(log.said).toEqual(said);
+  expect(log.images).toEqual(['image/png']);
   expect(errors).toEqual([]);
 });
