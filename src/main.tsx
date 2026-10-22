@@ -3,7 +3,7 @@ import { MotionConfig } from 'framer-motion'
 import { createRoot } from 'react-dom/client'
 import './styles/index.css'
 import App from './App'
-import AppErrorBoundary from './components/ui/AppErrorBoundary'
+import AppErrorBoundary, { CrashFallback } from './components/ui/AppErrorBoundary'
 import { trackInputModality } from './components/ui/inputModality'
 import { runMigrations } from './utils/migrations'
 import { migratePullLog } from './game/history'
@@ -23,8 +23,23 @@ const handedOver = Promise.resolve()
 // A window the site's old address opened to hand over a save does only that (see game/move.ts).
 handedOver.then((receiver) => {
   if (receiver) return
-  runMigrations()
-  migratePullLog()
+  try {
+    const ok = runMigrations()
+    if (ok === false) {
+      throw new Error('Startup migrations could not complete')
+    }
+    migratePullLog()
+  } catch (error) {
+    console.error('App startup failed before mount', error)
+    trackInputModality()
+    createRoot(document.getElementById('root')!).render(
+      <StrictMode>
+        <CrashFallback event="unhandled-error" />
+      </StrictMode>,
+    )
+    return
+  }
+
   // Packs re-opened on this device (IndexedDB) aren't loaded here: the app reads the ones it needs
   // a page at a time once it runs (watchMyPacks in game/profiles.ts).
 

@@ -13,11 +13,12 @@ export const CURRENT_DATA_VERSION = 3;
 const CURRENT_VERSION = CURRENT_DATA_VERSION;
 
 /** After importing a save written by an older version: the next runMigrations() upgrades it. */
-export const setDataVersion = (version: number) => {
+export const setDataVersion = (version: number): boolean => {
   try {
     localStorage.setItem(DATA_VERSION_KEY, String(version));
+    return true;
   } catch {
-    // storage unavailable
+    return false;
   }
 };
 
@@ -50,6 +51,18 @@ const isReadableCard = (value: unknown): value is Partial<Card> & { id: string }
     && (value.flavor === undefined || typeof value.flavor === 'string');
 };
 
+const isReadablePackCard = (value: unknown): value is AnyRecord => {
+  if (!isRecord(value)) return false;
+  const rawId = value.id ?? value.key;
+  if (typeof rawId !== 'string' && typeof rawId !== 'number') return false;
+  const idStr = String(rawId).trim();
+  if (!idStr) return false;
+  const key = typeof value.key === 'string' ? value.key : migrateCardKey(idStr);
+  if (getCard(key)) return true;
+  return typeof value.setId === 'string' && typeof value.name === 'string' && typeof value.image === 'string'
+    && typeof value.rarity === 'string' && Object.prototype.hasOwnProperty.call(CARD_RARITIES, value.rarity);
+};
+
 /** Refresh readable collection cards without rewriting the original saved payload. */
 export function hydrateCollection<T extends { card: Partial<Card> & { id: string } }>(collection: Record<string, T>): Record<string, T & { card: Card }>;
 export function hydrateCollection(collection: unknown): Record<string, { card: Card }>;
@@ -77,17 +90,19 @@ const read = (key: string): unknown => {
   }
 };
 
-const write = (key: string, value: unknown) => {
+const write = (key: string, value: unknown): boolean => {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch (error) {
     console.error(`Migration could not write ${key}`, error);
+    return false;
   }
 };
 
 type AnyRecord = Record<string, unknown>;
 
-const migrateV2 = () => {
+const migrateV2 = (): boolean => {
   const collection = read(STORAGE_KEYS.COLLECTION) as Record<string, unknown> | undefined;
   if (collection && typeof collection === 'object') {
     const next: Record<string, unknown> = {};
@@ -115,7 +130,7 @@ const migrateV2 = () => {
       while (key in next) key = `${key}#unreadable`;
       next[key] = item;
     }
-    write(STORAGE_KEYS.COLLECTION, next);
+    if (!write(STORAGE_KEYS.COLLECTION, next)) return false;
   }
 
   const stats = read(STORAGE_KEYS.STATS) as AnyRecord | undefined;
@@ -123,53 +138,134 @@ const migrateV2 = () => {
     const holoCards = (stats.holoCards ?? {}) as Record<string, boolean>;
     stats.holoCards = Object.fromEntries(Object.keys(holoCards).map((id) => [migrateCardKey(id), true]));
     if (Array.isArray(stats.highestPackCards)) {
-      stats.highestPackCards = stats.highestPackCards.map((c: AnyRecord) => hydrateCard({ ...c, id: String(c.id) }));
+      const readable = stats.highestPackCards.filter(isReadablePackCard);
+      const unreadable = stats.highestPackCards.filter((c) => !isReadablePackCard(c));
+      if (unreadable.length > 0) {
+        stats.highestPackCardsUnreadable = [
+          ...(Array.isArray(stats.highestPackCardsUnreadable) ? stats.highestPackCardsUnreadable : []),
+          ...unreadable,
+        ];
+      }
+      if (readable.length > 0) {
+        stats.highestPackCards = readable.map((c: AnyRecord) => hydrateCard({ ...c, id: String(c.id ?? c.key) }));
+        if (!stats.highestPackProof) stats.highestPackLegacy = true;
+      } else {
+        stats.highestPackCards = [];
+      }
+    } else if (stats.highestPackCards !== undefined) {
+      stats.highestPackCardsUnreadable = [
+        ...(Array.isArray(stats.highestPackCardsUnreadable) ? stats.highestPackCardsUnreadable : []),
+        stats.highestPackCards,
+      ];
+      delete stats.highestPackCards;
     }
-    // Pre-verification best packs can't be proven; keep them but mark them.
-    if (stats.highestPackCards && !stats.highestPackProof) stats.highestPackLegacy = true;
-    write(STORAGE_KEYS.STATS, stats);
+    if (!write(STORAGE_KEYS.STATS, stats)) return false;
   }
 
   const achievements = read(STORAGE_KEYS.ACHIEVEMENTS) as Record<string, AnyRecord | number> | undefined;
   if (achievements && typeof achievements === 'object') {
     for (const value of Object.values(achievements)) {
-      if (value && typeof value === 'object' && Array.isArray(value.pack)) {
-        value.pack = value.pack.map((c: AnyRecord) => hydrateCard({ ...c, id: String(c.id) }));
+      if (value && typeof value === 'object') {
+        if (Array.isArray(value.pack)) {
+          const readable = value.pack.filter(isReadablePackCard);
+          const unreadable = value.pack.filter((c) => !isReadablePackCard(c));
+          if (unreadable.length > 0) {
+            value.unreadablePack = [
+              ...(Array.isArray(value.unreadablePack) ? value.unreadablePack : []),
+              ...unreadable,
+            ];
+          }
+          if (readable.length > 0) {
+            value.pack = readable.map((c: AnyRecord) => hydrateCard({ ...c, id: String(c.id ?? c.key) }));
+          } else {
+            value.pack = [];
+          }
+        } else if (value.pack !== undefined) {
+          value.unreadablePack = [
+            ...(Array.isArray(value.unreadablePack) ? value.unreadablePack : []),
+            value.pack,
+          ];
+          delete value.pack;
+        }
       }
     }
-    write(STORAGE_KEYS.ACHIEVEMENTS, achievements);
+    if (!write(STORAGE_KEYS.ACHIEVEMENTS, achievements)) return false;
   }
+
+  return true;
 };
 
 /**
  * v3: Buhcoins became Brainrot Score (card points x10, combo multipliers
  * matched to their odds). Recompute the stored best pack under the new rules.
  */
-const migrateV3 = () => {
+const migrateV3 = (): boolean => {
   const stats = read(STORAGE_KEYS.STATS) as AnyRecord | undefined;
-  if (!stats || typeof stats !== 'object' || !Array.isArray(stats.highestPackCards) || stats.highestPackCards.length === 0) return;
-  const cards = (stats.highestPackCards as AnyRecord[]).map((c) => ({ ...hydrateCard({ ...c, id: String(c.id) }), isHolo: !!c.isHolo }));
-  const { points, hand, score } = scoreCards(cards);
-  stats.highestPackFlexValue = score;
-  stats.highestPackBaseValue = points;
-  stats.highestPackMultiplier = hand.multiplier;
-  stats.highestPackHandName = hand.name;
-  delete stats.highestPackValue;
-  write(STORAGE_KEYS.STATS, stats);
+  if (!stats || typeof stats !== 'object') return true;
+
+  let changed = false;
+  if ('highestPackValue' in stats) {
+    delete stats.highestPackValue;
+    changed = true;
+  }
+
+  if (Array.isArray(stats.highestPackCards) && stats.highestPackCards.length > 0) {
+    const readable = stats.highestPackCards.filter(isReadablePackCard);
+    const unreadable = stats.highestPackCards.filter((c) => !isReadablePackCard(c));
+    if (unreadable.length > 0) {
+      stats.highestPackCardsUnreadable = [
+        ...(Array.isArray(stats.highestPackCardsUnreadable) ? stats.highestPackCardsUnreadable : []),
+        ...unreadable,
+      ];
+      changed = true;
+    }
+    if (readable.length > 0) {
+      try {
+        const cards = readable.map((c: AnyRecord) => ({ ...hydrateCard({ ...c, id: String(c.id ?? c.key) }), isHolo: !!c.isHolo }));
+        const { points, hand, score } = scoreCards(cards);
+        stats.highestPackCards = cards;
+        stats.highestPackFlexValue = score;
+        stats.highestPackBaseValue = points;
+        stats.highestPackMultiplier = hand.multiplier;
+        stats.highestPackHandName = hand.name;
+        changed = true;
+      } catch (error) {
+        console.error('Migration could not score legacy best pack cards', error);
+      }
+    } else {
+      stats.highestPackCards = [];
+      changed = true;
+    }
+  } else if (stats.highestPackCards !== undefined && !Array.isArray(stats.highestPackCards)) {
+    stats.highestPackCardsUnreadable = [
+      ...(Array.isArray(stats.highestPackCardsUnreadable) ? stats.highestPackCardsUnreadable : []),
+      stats.highestPackCards,
+    ];
+    delete stats.highestPackCards;
+    changed = true;
+  }
+
+  if (changed) {
+    if (!write(STORAGE_KEYS.STATS, stats)) return false;
+  }
+  return true;
 };
 
-export const runMigrations = () => {
+export const runMigrations = (): boolean => {
   let version: number;
   try {
     version = Number(localStorage.getItem(DATA_VERSION_KEY) ?? 1);
   } catch {
-    return;
+    return false;
   }
-  if (version < 2) migrateV2();
-  if (version < 3) migrateV3();
-  try {
-    localStorage.setItem(DATA_VERSION_KEY, String(CURRENT_VERSION));
-  } catch {
-    // storage unavailable; nothing to migrate next time either
+  if (version < 2) {
+    if (!migrateV2()) return false;
+    if (!setDataVersion(2)) return false;
+    version = 2;
   }
+  if (version < 3) {
+    if (!migrateV3()) return false;
+    if (!setDataVersion(CURRENT_VERSION)) return false;
+  }
+  return true;
 };

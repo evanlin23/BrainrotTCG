@@ -27,10 +27,17 @@ function noteDiagnostic(event: Parameters<typeof recordDiagnostic>[0]) {
  * Deliberately self-contained (no Sheet, motion or game state) so a fault in shared UI can't take
  * the fallback down with it. It never reads, writes, clears, imports or exports player data.
  */
-function CrashFallback({ report, reload }: { report: string; reload: () => void }) {
+export function CrashFallback({ report = sanitizedReport(), reload = reloadPage, event }: {
+  report?: string;
+  reload?: () => void;
+  event?: Parameters<typeof recordDiagnostic>[0];
+}) {
   const heading = useRef<HTMLHeadingElement>(null);
   const [note, setNote] = useState('');
-  useEffect(() => heading.current?.focus(), []);
+  useEffect(() => {
+    heading.current?.focus();
+    if (event) noteDiagnostic(event);
+  }, [event]);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(report);

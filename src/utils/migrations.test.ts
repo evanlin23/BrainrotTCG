@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS, getCard, type Card } from '../data/cards';
-import { collectionNeedsRecovery, hydrateCollection, runMigrations } from './migrations';
+import { collectionNeedsRecovery, DATA_VERSION_KEY, hydrateCollection, runMigrations } from './migrations';
 
 const current = ALL_CARDS[0];
 const unknown: Card = {
@@ -111,5 +111,272 @@ describe('v2 collection migration', () => {
     expect(Object.keys(hydrateCollection(migrated))).toEqual(['genesis/chimpanzini-bananini']);
     expect(collectionNeedsRecovery(migrated)).toBe(true);
     expect(store.get('brainrot-data-version')).toBe('3');
+  });
+});
+
+describe('legacy record shape validation (#660)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('recovers null or malformed elements in legacy v1 stats highestPackCards without throwing or fabricating verified progress', () => {
+    const store = new Map<string, string>([
+      [STORAGE_KEYS.STATS, JSON.stringify({
+        packsOpened: 5,
+        holoCards: { image: true },
+        highestPackValue: 50,
+        highestPackCards: [null],
+      })],
+    ]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    });
+
+    expect(() => runMigrations()).not.toThrow();
+
+    const stats = JSON.parse(store.get(STORAGE_KEYS.STATS)!) as Record<string, unknown>;
+    expect(stats.highestPackCards).toEqual([]);
+    expect(stats.highestPackCardsUnreadable).toEqual([null]);
+    expect(stats.highestPackLegacy).toBeUndefined();
+    expect(stats.highestPackFlexValue).toBeUndefined();
+    expect(stats.highestPackValue).toBeUndefined();
+    expect(stats.holoCards).toEqual({ 'genesis/chimpanzini-bananini': true });
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+  });
+
+  it('recovers null elements in v2 stats when exercising v3 migration directly', () => {
+    const store = new Map<string, string>([
+      [DATA_VERSION_KEY, '2'],
+      [STORAGE_KEYS.STATS, JSON.stringify({
+        packsOpened: 2,
+        holoCards: { 'genesis/chimpanzini-bananini': true },
+        highestPackValue: 40,
+        highestPackCards: [null, undefined, 42],
+      })],
+    ]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    });
+
+    expect(() => runMigrations()).not.toThrow();
+
+    const stats = JSON.parse(store.get(STORAGE_KEYS.STATS)!) as Record<string, unknown>;
+    expect(stats.highestPackCards).toEqual([]);
+    expect(stats.highestPackCardsUnreadable).toEqual([null, null, 42]); // JSON.stringify serializes undefined as null in arrays
+    expect(stats.highestPackValue).toBeUndefined();
+    expect(stats.highestPackFlexValue).toBeUndefined();
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+  });
+
+  it('retains readable cards and preserves unreadable items in mixed highestPackCards arrays', () => {
+    const store = new Map<string, string>([
+      [STORAGE_KEYS.STATS, JSON.stringify({
+        packsOpened: 1,
+        holoCards: {},
+        highestPackValue: 30,
+        highestPackCards: [
+          { id: 'image', isHolo: true },
+          null,
+          { id: 'image2' },
+          'not-a-card',
+          { id: null },
+        ],
+      })],
+    ]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    });
+
+    expect(() => runMigrations()).not.toThrow();
+
+    const stats = JSON.parse(store.get(STORAGE_KEYS.STATS)!) as Record<string, unknown>;
+    expect(stats.highestPackCards).toHaveLength(2);
+    expect((stats.highestPackCards as Array<{ key: string }>).map((c) => c.key)).toEqual([
+      'genesis/chimpanzini-bananini',
+      'genesis/amogus',
+    ]);
+    expect(stats.highestPackCardsUnreadable).toEqual([
+      null,
+      'not-a-card',
+      { id: null },
+    ]);
+    expect(stats.highestPackLegacy).toBe(true);
+    expect(typeof stats.highestPackFlexValue).toBe('number');
+    expect(stats.highestPackValue).toBeUndefined();
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+  });
+
+  it('retains unreadable achievement pack elements under unreadablePack without throwing', () => {
+    const store = new Map<string, string>([
+      [STORAGE_KEYS.ACHIEVEMENTS, JSON.stringify({
+        firstPack: {
+          unlockedAt: 1234567,
+          pack: [null, { id: 'image' }, false],
+        },
+      })],
+    ]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+    });
+
+    expect(() => runMigrations()).not.toThrow();
+
+    const achievements = JSON.parse(store.get(STORAGE_KEYS.ACHIEVEMENTS)!) as Record<string, Record<string, unknown>>;
+    expect(achievements.firstPack.unlockedAt).toBe(1234567);
+    expect(achievements.firstPack.pack).toHaveLength(1);
+    expect((achievements.firstPack.pack as Array<{ key: string }>)[0].key).toBe('genesis/chimpanzini-bananini');
+    expect(achievements.firstPack.unreadablePack).toEqual([null, false]);
+  });
+});
+
+describe('migration retry and storage failure safety (#659)', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not advance version marker when collection write fails under quota pressure, and succeeds on retry', () => {
+    const initialCollection = JSON.stringify({
+      image: { card: { id: 'image' }, count: 2 },
+    });
+    const store = new Map<string, string>([
+      [STORAGE_KEYS.COLLECTION, initialCollection],
+    ]);
+
+    let failCollection = true;
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (failCollection && key === STORAGE_KEYS.COLLECTION) {
+          throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+        }
+        store.set(key, value);
+      },
+    });
+
+    // Run migrations while storage quota refuses collection write but would allow version marker
+    const firstRun = runMigrations();
+    expect(firstRun).toBe(false);
+    expect(store.get(DATA_VERSION_KEY)).toBeUndefined();
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(initialCollection);
+
+    // Relieve quota pressure and retry
+    failCollection = false;
+    const retryRun = runMigrations();
+    expect(retryRun).toBe(true);
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+
+    const migrated = JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!) as Record<string, unknown>;
+    expect(migrated).toMatchObject({
+      'genesis/chimpanzini-bananini': { normalCount: 2, holoCount: 0 },
+    });
+  });
+
+  it('advances to version 2 when v2 succeeds but v3 fails, keeping v3 retryable', () => {
+    const store = new Map<string, string>([
+      [STORAGE_KEYS.COLLECTION, JSON.stringify({ image: { card: { id: 'image' }, count: 2 } })],
+      [STORAGE_KEYS.STATS, JSON.stringify({
+        packsOpened: 1,
+        highestPackValue: 10,
+        highestPackCards: [{ id: 'image' }],
+      })],
+    ]);
+
+    // In v2, let collection and stats write succeed.
+    // In v3, fail stats write.
+    let writes = 0;
+    const originalSetItem = (key: string, value: string) => {
+      writes++;
+      // Collection write = 1, Stats write = 2, Version 2 write = 3, then V3 stats write = 4
+      if (writes === 4 && key === STORAGE_KEYS.STATS) {
+        throw new DOMException('Storage full', 'QuotaExceededError');
+      }
+      store.set(key, value);
+    };
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: originalSetItem,
+    });
+
+    const firstRun = runMigrations();
+    expect(firstRun).toBe(false);
+    expect(store.get(DATA_VERSION_KEY)).toBe('2');
+
+    // Remove storage fault and retry: v2 is skipped, v3 succeeds and advances to 3
+    const setCollectionSpy = vi.fn();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (key === STORAGE_KEYS.COLLECTION) setCollectionSpy();
+        store.set(key, value);
+      },
+    });
+
+    const retryRun = runMigrations();
+    expect(retryRun).toBe(true);
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+    // Collection was not rewritten because v2 was already complete
+    expect(setCollectionSpy).not.toHaveBeenCalled();
+
+    const stats = JSON.parse(store.get(STORAGE_KEYS.STATS)!) as Record<string, unknown>;
+    expect(stats.highestPackValue).toBeUndefined();
+    expect(typeof stats.highestPackFlexValue).toBe('number');
+  });
+
+  it('makes retry after a partially completed stage idempotent without duplicating counts or score conversion', () => {
+    const store = new Map<string, string>([
+      [STORAGE_KEYS.COLLECTION, JSON.stringify({
+        image: { card: { id: 'image' }, count: 2 },
+        broken: 'unreadable-val',
+      })],
+      [STORAGE_KEYS.STATS, JSON.stringify({
+        packsOpened: 1,
+        highestPackValue: 15,
+        highestPackCards: [{ id: 'image' }],
+      })],
+    ]);
+
+    // Let collection write succeed, but fail stats write in v2
+    let statsFailed = true;
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (statsFailed && key === STORAGE_KEYS.STATS) {
+          throw new DOMException('Stats write failed', 'QuotaExceededError');
+        }
+        store.set(key, value);
+      },
+    });
+
+    const firstAttempt = runMigrations();
+    expect(firstAttempt).toBe(false);
+    // Version is still absent because v2 did not complete all writes
+    expect(store.get(DATA_VERSION_KEY)).toBeUndefined();
+
+    // Now permit all writes and retry
+    statsFailed = false;
+    const retryAttempt = runMigrations();
+    expect(retryAttempt).toBe(true);
+    expect(store.get(DATA_VERSION_KEY)).toBe('3');
+
+    const collection = JSON.parse(store.get(STORAGE_KEYS.COLLECTION)!) as Record<string, unknown>;
+    // Counts must not be duplicated (normalCount should be 2, not 4)
+    expect(collection['genesis/chimpanzini-bananini']).toEqual(expect.objectContaining({
+      normalCount: 2,
+      holoCount: 0,
+    }));
+    // Unreadable key must not be multiplied into #unreadable#unreadable
+    expect(collection['broken']).toBe('unreadable-val');
+    expect(collection['broken#unreadable']).toBeUndefined();
+
+    const stats = JSON.parse(store.get(STORAGE_KEYS.STATS)!) as Record<string, unknown>;
+    expect(stats.highestPackFlexValue).toBe(10); // 10 (common card points) * 1 (multiplier) = 10
+    expect(stats.highestPackValue).toBeUndefined();
   });
 });
