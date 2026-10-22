@@ -408,8 +408,8 @@ it explains the formula, not pull excitement.
 
 (Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. Then the Hall of Fame line when the pull
 qualifies. The Card guide (one tap, no fold) has
-points per rarity, the holo, finish and misprint bonuses, the combo multipliers, and Score = card
-points added up × combo multiplier. There is no per-pack breakdown.
+points per rarity, the holo, finish and misprint bonuses, the combo multipliers (with a note that a combo counts copies of the same card, and worked
+examples), and Score = card points added up × combo multiplier. There is no per-pack breakdown.
 
 ### One-screen summary rule (#339)
 

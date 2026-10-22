@@ -46,7 +46,7 @@ const exampleRepeats = (counts: readonly number[]) => {
   return repeats.length > 0 ? repeats.join(' and ') : 'no card repeats';
 };
 
-/** "Silver up to Diamond":the commonest finish to the rarest. */
+/** "Silver up to Diamond": the commonest finish to the rarest. */
 const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.length - 1]].name} up to ${FINISH_INFO[FINISHES_RAREST_FIRST[0]].name}`;
 
 /** A per-card chance in basis points, as the tables show it: "2.5%". */
@@ -155,14 +155,14 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
 
         <h3>Combos</h3>
         <p className="scoring-note">
-          A combo counts copies of the <strong>same card</strong> in your pack. Rarity, holo, finish and misprint don&apos;t make a card different: a plain and a {hasModifiers ? finishName : 'holo'} copy of the same card still match, but two different cards of the same rarity don&apos;t.
+          A combo counts copies of the <strong>same card</strong> in your pack. {hasModifiers ? 'Rarity, holo, finish and misprint' : 'Rarity and holo'} don&apos;t make a card different: a plain and a {hasModifiers ? finishName : 'holo'} copy of the same card still match, but two different cards of the same rarity don&apos;t.
         </p>
         <ul className="scoring-note scoring-examples" aria-label="Combo examples">
           {COMBO_EXAMPLES.map((counts) => {
             const hand = POKER_HANDS[handFromCounts(counts)];
             return (
               <li key={hand.name}>
-                <strong>{hand.name}</strong>: <span className="scoring-example-cards">{exampleCards(counts)}</span> ({exampleRepeats(counts)}), ×{hand.multiplier.toLocaleString()}
+                <strong>{hand.name}</strong>: <span className="scoring-example-cards">{exampleCards(counts)}</span> ({exampleRepeats(counts)}), combo ×{hand.multiplier.toLocaleString()}
               </li>
             );
           })}
