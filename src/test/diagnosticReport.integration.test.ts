@@ -257,6 +257,12 @@ it('puts the privacy notice, the editable draft and Copy report before the optio
   expect(before(text, button('Copy report'))).toBe(true);
   expect(before(button('Copy report'), record)).toBe(true);
   for (const node of [privacy, posting, text, button('Copy report'), button('Refresh details'), link]) expect(record.contains(node)).toBe(false);
+  // The one live region sits between Copy/Refresh and the recording area, beside what triggers it.
+  const statuses = document.querySelectorAll('[role="status"]');
+  expect(statuses).toHaveLength(1);
+  expect(before(button('Refresh details'), statuses[0])).toBe(true);
+  expect(before(statuses[0], record)).toBe(true);
+  expect(record.contains(statuses[0])).toBe(false);
   // Posting stays secondary: after the recording area, with its disclosure right before the link.
   expect(before(record, posting)).toBe(true);
   expect(before(posting, link)).toBe(true);

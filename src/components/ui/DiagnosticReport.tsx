@@ -47,11 +47,11 @@ export default function DiagnosticReport({ onClose }: Props) {
       {!enabled && <p id={captureOffId}>Event capture is off, so this report has no recent events. You can turn it on under Record steps to reproduce.</p>}
       {stale && <p id={staleId}>This text still has recorded steps from before capture was turned off. Remove them or use Refresh details before copying.</p>}
       <textarea id={textId} aria-describedby={`${guessId}${enabled ? '' : ` ${captureOffId}`}${stale ? ` ${staleId}` : ''}`} value={draft} maxLength={8192} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
-      <p role="status">{note}</p>
       <div className="diagnostic-actions">
         <button className="btn btn--primary" type="button" disabled={copying || stale || !draft.trim()} onClick={() => void copy()}>Copy report</button>
         <button className="btn btn--secondary" type="button" onClick={regenerate}>Refresh details</button>
       </div>
+      <p role="status">{note}</p>
       <details className="diagnostic-record" open={recordOpen} onToggle={(event) => setRecordOpen(event.currentTarget.open)}>
         <summary>Record steps to reproduce{enabled ? ' (on)' : ''}</summary>
         <label className="diagnostic-capture">
