@@ -540,6 +540,7 @@ function App() {
           set={selectedSet}
           disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}
+          mountedSave={mountedSave}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}

@@ -179,15 +179,24 @@ it('puts a torn pack back sealed when another tab loads a different player befor
   expectKeptSealed();
 }, 60_000);
 
-it('blocks the write even when the storage event never arrived', async () => {
+/** A tear after the save changed, before this tab heard of it: the claim is refused (#811), nothing is spent or shelved. */
+async function expectStaleTearRefused() {
+  await pressOpen();
+  await app!.until('the pack stays sealed', expectKeptSealed);
+  expect(app!.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).nextNonce).toBe(0);
+  expect(shelf()).toEqual([]);
+}
+
+it('blocks the claim and the write even when the storage event never arrived', async () => {
   app = await mountedApp(SEED);
   await app.mount();
 
   otherTabWrites(THEIR_SAVE);
-  await openPack();
+  await expectStaleTearRefused();
 
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
-  expect(banner()?.textContent).toContain(STALE);
 }, 60_000);
 
 it('leaves another player’s name alone when this tab leaves Profile with an edited name, and says why', async () => {
@@ -240,18 +249,17 @@ it('stops storing progress once another tab imports a save, even the same player
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
 }, 60_000);
 
-it('keeps the imported save when this tab opens a pack before hearing of a same-player import', async () => {
+it('keeps the imported save when this tab tears a pack before hearing of a same-player import', async () => {
   app = await mountedApp(SEED);
   await app.mount();
 
   otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', ...THEIR_PROGRESS });
-  await openPack();
-  expect(banner()?.textContent).toContain(STALE);
+  await expectStaleTearRefused();
   expect(progress()).toEqual({ ...THEIR_PROGRESS, [STORAGE_KEYS.SETTINGS]: SEED[STORAGE_KEYS.SETTINGS] });
-  // The pack waits on the shelf, and the next load adds it to the imported save.
-  expect(shelf()).toHaveLength(1);
+  // A reload picks up the imported save, and opens its packs.
   await app.reload();
   expect(banner()).toBeNull();
+  await openPack();
   expect(owned()).toBe(5);
   expect(shelf()).toEqual([]);
 }, 60_000);

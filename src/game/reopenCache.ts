@@ -4,7 +4,7 @@
  * derived itself, so trusting it is trusting this device.
  */
 import { setKey, type PulledCard, type SetDefinition } from '../engine';
-import { decodeCard, encodeCard, modifiersFor } from './cardCode';
+import { decodeCards, encodeCard, modifiersFor } from './cardCode';
 
 const KEY = 'brainrot-reopened-v1';
 const MAX_ENTRIES = 5000;
@@ -42,8 +42,9 @@ const keyOf = (set: SetDefinition, publicKeyHex: string, nonce: number) => `${se
 export const getReopened = (set: SetDefinition, publicKeyHex: string, nonce: number): PulledCard[] | null => {
   const stored = load().get(keyOf(set, publicKeyHex, nonce));
   if (!stored) return null;
-  const cards = stored.split(',').map((text, slot) => {
-    const c = decodeCard(text);
+  const decoded = decodeCards(stored);
+  if (!decoded) return null;
+  const cards = decoded.map((c, slot) => {
     // This exact version's rarity: a later version may change it (spec section 12).
     const rarity = set.cards.find((card) => card.id === c.id)?.rarity;
     return rarity ? { setId: set.id, cardId: c.id, rarity, isHolo: c.holo, ...modifiersFor(c, set.modifiers === 1), slot } : null;
