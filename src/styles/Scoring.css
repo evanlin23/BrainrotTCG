@@ -146,6 +146,17 @@
   font-size: var(--text-sm);
 }
 
+.scoring-examples {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-5);
+}
+
+.scoring-example-cards {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .scoring-guide h3 {
   margin: var(--space-5) 0 var(--space-2);
   font-size: var(--text-xl);

@@ -124,6 +124,118 @@ test.describe('at 320px with 200% text and reduced motion', () => {
   });
 });
 
+// One populated row at enlarged text: the fingerprint, score and the other fields must not paint over each
+// other. Emulation, not native text zoom: the root font size is scaled, as the rem tokens read it.
+const populated = {
+  ...entries[0],
+  id: 'row-fixture',
+  proof: 'row-fixture-proof',
+  name: 'Collector',
+  fingerprint: '6HTG-Z65X',
+  score: 546_000,
+  cards: ['pirate-gaster', 'niu-lai', 'bukangi', 'huss-valley', 'la-peace'].map((cardId) => ({ cardId, isHolo: false })),
+};
+
+// `stacked` is the layout the row must be in (four columns, or rank/score over cards over text). Asserting it
+// makes every case fail on a wrong threshold: no restack at all fails the stacked ones, and one threshold
+// of 18rem + 98px at every width (the strip is 62px, not 102px, at 420px and under) fails the 390, 375 and
+// 360px phones, and a threshold above 18rem + 98px fails the 428 and 430px phones, which have room for the
+// compact row.
+// Row width = viewport - 2 x gutter (16px up to 400px, 4vw above, doubled with 200% text).
+for (const { width, height, text, label, score = 546_000, stacked } of [
+  { width: 320, height: 640, text: 200, label: '320x640 at 200% text', stacked: true },
+  { width: 568, height: 320, text: 200, label: '568x320 at 200% text', stacked: true },
+  // Ordinary phones at 100% text keep today's compact single row (62px card strip at 420px and under).
+  { width: 390, height: 844, text: 100, label: 'a normal phone', stacked: false },
+  { width: 375, height: 667, text: 100, label: '375px at 100% text', stacked: false },
+  { width: 360, height: 800, text: 100, label: '360px at 100% text with an 8-digit score', score: 99_999_999, stacked: false },
+  // iPhone Pro Max and Plus widths at 100% text: just above 420px, they keep the compact row too.
+  { width: 428, height: 926, text: 100, label: '428px at 100% text', stacked: false },
+  { width: 430, height: 932, text: 100, label: '430px at 100% text', stacked: false },
+  { width: 1100, height: 800, text: 100, label: 'a wide screen', stacked: false },
+  // Just above the restack threshold, where the fixed-width card strip used to push the row past its edge.
+  { width: 650, height: 800, text: 200, label: '650px at 200% text', stacked: true },
+  { width: 500, height: 800, text: 150, label: '500px at 150% text', stacked: true },
+  { width: 430, height: 900, text: 125, label: '430px at 125% text', stacked: true },
+  // Long scores: 8 digits is what a 5 of a Kind (x10,000) reaches with modifiers; the engine allows more.
+  { width: 320, height: 640, text: 100, label: '320px with an 8-digit score', score: 99_999_999, stacked: true },
+  { width: 320, height: 640, text: 200, label: '320px at 200% text with an 8-digit score', score: 99_999_999, stacked: true },
+  { width: 500, height: 800, text: 150, label: '500px at 150% text with an 8-digit score', score: 99_999_999, stacked: true },
+]) {
+  test.describe(`a populated Rankings row at ${label}`, () => {
+    test.use({ viewport: { width, height } });
+
+    test('keeps hand, player, fingerprint, set and score apart, and still opens its proof', async ({ page, baseURL }) => {
+      const errors = await monitor(page, baseURL!, 0, { returning: true });
+      await relaysAnswerEmpty(page);
+      await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [{ ...populated, score }] }));
+      await page.goto('./#/rankings');
+      await page.addStyleTag({ content: `html { font-size: ${text}% !important; }` });
+      // Measure with the web fonts in, as phone-type-floor.spec.ts does: fallback glyphs have other widths.
+      await page.evaluate(() => document.fonts.ready);
+      const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+      await rankings.getByRole('tab', { name: 'All-time', exact: true }).click();
+      const row = rankings.locator('.hof-list .hof-entry').first();
+      await expect(row).toHaveAttribute('aria-label', `Number 1: Full House by Collector in Right Now, score ${score}`);
+      await row.scrollIntoViewIfNeeded();
+      // Four columns is the compact row; two is the restacked one.
+      const tracks = await row.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+      expect(tracks, stacked ? 'restacked' : 'compact').toBe(stacked ? 2 : 4);
+
+      const fields = ['.hof-rank', '.hof-hand', '.hof-who', '.share-fp', '.hof-meta', '.hof-score'];
+      const boxes = await Promise.all(fields.map(async (selector) => ({ selector, box: (await row.locator(selector).boundingBox())! })));
+      expect(await row.locator('.hof-score').textContent()).toBe(score.toLocaleString('en-US'));
+      expect(await row.locator('.share-fp').textContent()).toBe('#6HTG-Z65X');
+      const overlap = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
+        a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+      // .hof-who contains .share-fp, so that pair is expected to touch; every other pair must be apart.
+      const clashes = boxes.flatMap((a, i) => boxes.slice(i + 1)
+        .filter((b) => !(a.selector === '.hof-who' && b.selector === '.share-fp') && overlap(a.box, b.box))
+        .map((b) => `${a.selector} x ${b.selector}`));
+      expect(clashes).toEqual([]);
+      const rowBox = (await row.boundingBox())!;
+      for (const { selector, box } of boxes) {
+        expect(box.x, selector).toBeGreaterThanOrEqual(rowBox.x - 1);
+        expect(box.x + box.width, selector).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+      await row.click();
+      await expect(page).toHaveURL(/#\/pull\/row-fixture-proof$/);
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
+test.describe('How Rankings work at 390px', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('opens in place with its text inside the screen, and leaves the notes short', async ({ page, baseURL }) => {
+    const errors = await monitor(page, baseURL!, 0, { returning: true });
+    await relaysAnswerEmpty(page);
+    await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: [populated] }));
+    await page.goto('./#/rankings');
+    await page.evaluate(() => document.fonts.ready);
+    const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+    const how = rankings.locator('details.hof-how');
+    const summary = how.locator('summary');
+    await expect(summary).toHaveText('How Rankings work');
+    expect((await summary.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // Closed, the Today note is only the scope and the reset cue; the proof and filing mechanics live inside.
+    await expect(rankings.locator('.hof-note')).not.toContainText('re-derived');
+    await summary.click();
+    await expect(how).toHaveJSProperty('open', true);
+    for (const text of await how.locator('.hof-how-body p').all()) {
+      const box = (await text.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(390);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await expect(how).toContainText('Nothing is filed automatically');
+    expect(errors).toEqual([]);
+  });
+});
+
 test('Rankings says the live feed is down, not that the board is empty, and Retry asks again', async ({ page, baseURL }) => {
   // Every relay socket is closed (monitor), so recent pulls can't be seen. Nothing is sent or fetched.
   const errors = await monitor(page, baseURL!, 0, { returning: true });

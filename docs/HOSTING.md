@@ -138,6 +138,48 @@ an approval gate:
   private backups offline; a public profile link cannot recover the secret key. Do not test with a
   player's only save or claim an export includes data it does not serialize.
 
+### Release blocker criteria and promotion eligibility
+
+`config/release-blockers.json` records confirmed release blockers and their current disposition.
+`scripts/release-blockers.ts` decides eligibility for one exact candidate:
+`npx tsx scripts/release-blockers.ts --candidate <sha> [--base <ref>] [--corrective-target <issue>]`
+(`--base` defaults to `origin/main`).
+It reads the record from the candidate's own tree and prints the record's sha256. Nothing consumes
+it yet: enforcement lands with the promotion gate (#706), so today it is advisory and does not by
+itself stop a deploy.
+
+**What blocks release (narrow scope):** confirmed save loss or identity mixing (`save_loss`),
+broken historical-proof compatibility (`broken_proof`), a persistent startup blank screen
+(`startup_blank`), and core actions that can't be reached (`inaccessible_core`). Cosmetic issues,
+optional features and missing device benchmarks are not blockers; never add an entry from an issue
+title, label or count. Each entry records affected revisions, scenario, canonical issue, severity
+rationale, owner, required evidence and a classification: `regression`, `older_defect`,
+`unverified_hypothesis` or `missing_device_evidence`.
+
+**Authority:** the record changes only through reviewed PRs to main. Issues, comments, labels and
+author assertions can't change release permission. The CLI always compares the candidate's record
+with the base's and blocks dropping an entry that wasn't resolved, rewriting an entry's issue or
+category, and any entry whose disposition, mitigation or corrective-release block differs from the
+base. The candidate may only move an entry to `unresolved` or `resolved`; an exception or corrective
+release must be on main first. A base that doesn't resolve or has a malformed record fails closed
+(fetch full history); a base commit without the record counts as an empty record. Resolved history
+stays in the issue and PR, so resolved entries may be pruned.
+
+**Dispositions** (anything missing, malformed or unverifiable fails closed):
+- `unresolved`: blocks promotion.
+- `resolved`: the fix PR, its full fix commit SHA, which must be in the candidate's history, and a
+  regression test path present in the candidate. The candidate's full test run is the passing
+  final-candidate regression.
+- `mitigated_exception`: scope, rationale, mitigation evidence, follow-up issue, and an approval by
+  evanlin23 that links the specific decision (`approvalRef`), lasting at most 30 days. The owner's
+  general work approval never counts as accepting a specific critical failure.
+- `corrective_release`: lets one candidate that fixes this blocker ship while other blockers stay
+  tracked. It needs non-worsening and compatibility evidence and an approval by evanlin23, linked as
+  above, for the exact reviewed commit (`approvedCommit`). The candidate must be that commit or a
+  descendant that changes only `config/release-blockers.json` (the commit recording the approval);
+  any other change makes the approval stale. It applies only when the run declares
+  `--corrective-target` for this issue. There is no generic bugfix bypass.
+
 ## Recover on the same origin
 
 Claude performs rollbacks, following this runbook (owner decision, 2026-10-17). No live rollback or
@@ -166,7 +208,14 @@ and migration origins consistent with the selected release.
 4. Reconcile the source with a follow-up PR promptly: automatic deployments remain enabled, and a later
    push or workflow run can replace the provider rollback. The Hall of Fame workflows also run
    `gh workflow run deploy.yml`: [hall-of-fame.yml](../.github/workflows/hall-of-fame.yml) when a
-   submitted pull verifies and wasn't already verified on that issue, and [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
+   submitted pull verifies and wasn't already verified on that issue, or when a run stopped between
+   the bot's verified comment and the labels (that comment is still the bot's latest) and the next
+   build would list the pull while the published list doesn't. Editing an issue away from its pull
+   and back never redeploys. Any edit to an already-verified issue restores its labels without a new
+   comment, unless it carries `rejected`. With neither `verified` nor `daily` left, it gets
+   `verified` if the pull makes the all-time list (judged without the issue's own entry), else
+   `daily` (also when the published list can't be read), whatever day it was first verified. And
+   [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
    when a run (dispatched about every 15 minutes) files new entries. Land the forward-fix PR first, or
    pause those workflows, before they redeploy a bad `main`. Avoid overlapping recovery and deploy
    runs; the workflow's concurrency group does not serialize dashboard rollbacks.
