@@ -182,7 +182,7 @@ describe('poster image loading deadline and recovery', () => {
   it('renders card poster through the production pipeline: held request -> timeout -> retry -> success', async () => {
     const cardInput: CardPosterInput = {
       card: {
-        image: 'https://example.invalid/bukangi.webp',
+        image: '/BrainrotTCG/assets/bukangi.webp',
         name: 'Bukangi',
         isHolo: false,
         rarityName: 'Common',
@@ -205,7 +205,7 @@ describe('poster image loading deadline and recovery', () => {
 
     // Exceed timeout deadline
     await vi.advanceTimersByTimeAsync(POSTER_IMAGE_TIMEOUT_MS);
-    expect(await failure1).toEqual(new Error('Poster image load timed out: https://example.invalid/bukangi.webp'));
+    expect(await failure1).toEqual(new Error('Poster image load timed out: /BrainrotTCG/assets/bukangi.webp'));
     expect(heldImg.onload).toBeNull();
 
     // Second attempt (retry): image is now released and loads successfully

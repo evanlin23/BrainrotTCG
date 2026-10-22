@@ -148,6 +148,7 @@ describe('share preview actions', () => {
           resolveImage = resolve;
         }),
     );
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL');
 
     await act(async () => {
       root.render(
@@ -168,8 +169,11 @@ describe('share preview actions', () => {
     act(() => root.unmount());
 
     // Late resolution should be cleanly ignored without errors
-    act(() => {
+    await act(async () => {
       resolveImage(poster);
     });
+
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
   });
 });
