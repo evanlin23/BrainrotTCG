@@ -330,8 +330,7 @@ destinations. Best versions of this card opens from a card's details.
   `hallOfFameList`. It also holds only while the top 100 has room: once it fills, intake refuses
   packs that beat neither the 100th place nor that UTC day's 50th, so the bound rises to just above
   the highest such bar (the lower of the two) intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
-  (`below-intake-minimum`). Before any `min-score` board is wired, that floor (the highest enforced 100th
-  score) must exist and be recorded (owner decision, refs #223). So the card board lists only cards worth at least 20,000 and stays
+  (`below-intake-minimum`). So the card board lists only cards worth at least 20,000 and stays
   partial until intake has filed enough of them to fill it.
 - **Daily boards** come later.
 
@@ -723,12 +722,11 @@ human evidence. Recorded runs and audit policy: docs/DEVELOPMENT.md. Refs #239.
 
 ## Proposals (not shipped)
 
-These describe nothing the app does today; each section's status says where its decision stands.
+These await the owner's decision and describe nothing the app does today.
 
 ### Display-name and publication policy (#348)
 
-Status: proposed. The owner delegated Hall of Fame moderation to Claude on 2026-10-17 (refs #21, #348, #223).
-Claude decides the open rows below.
+Status: proposed, awaiting owner (#348).
 
 No matcher or enforcement is installed. Names are nonunique labels beside a key fingerprint (spec
 section 9). Retain released 24-code-point/fixed-character proof rules (spec section 7, rule 2); verify
@@ -739,13 +737,13 @@ code points (it cuts input at 24, silently) and a rename to a blank name is refu
 also preview normalization and explain rejected or truncated input. A grapheme or UTF-16
 `maxLength` is not that count.
 
-| Open decision | Recommendation for review |
+| Owner decision | Recommendation for review |
 | --- | --- |
 | Languages/content | Explicit English scope; disallow targeted slurs/harassment, explicit sexual names, spam/links and false official affiliation |
-| Ordinary slang/swearing | Allow meme slang; set the swearing threshold before selecting a preset |
+| Ordinary slang/swearing | Allow meme slang; owner sets swearing threshold before selecting a preset |
 | Disallowed name in valid existing proof | Keep verification; show “Name hidden” plus fingerprint, with separate policy explanation |
 | New public submission | Reject publication with actionable feedback; retain original signed evidence |
-| Appeals/overrides/removal | Choose contact/process; versioned allowlist and review; rejected-issue removal/rebuild |
+| Appeals/overrides/removal | Owner chooses contact/process; versioned allowlist and review; rejected-issue removal/rebuild |
 
 Apply one policy version at editable UI and trusted issue/relay intake, including bypassed clients.
 Mask pending/direct pull/profile views, captions/posters and accessible text consistently; private
@@ -762,9 +760,9 @@ license data and measure compressed client bytes and short-name cost; benchmarks
 
 Planned fixtures include 24/25 code points, astral emoji, combining sequences, empty/space/control/
 bidi input, links, mixed-script/leet evasions, and legitimate substrings such as Scunthorpe/Arsenic.
-Expected moderation outcomes require the chosen policy; these are not library pass claims. Bound
+Expected moderation outcomes require the approved policy; these are not library pass claims. Bound
 input work; retain existing proof-decoder limits. Full boundary/removal fixtures stay in #348/#21;
-once the policy is set, split entry feedback, shared matcher and trusted publication/display implementation.
+after approval split entry feedback, shared matcher and trusted publication/display implementation.
 No signed name bytes, released proof rules or generator versions change in this proposal.
 
 ### Scalable-profile decision (#323)

@@ -102,10 +102,10 @@ the preview origin and all WebSockets, seeds a disposable identity with muted au
 pack and checks that stats, collection and history survive a reload. Failure traces, screenshots
 and videos land in `test-results/` (uploaded by CI). `agent-audit.spec.ts` checks only the audit's
 browser boundary; the agent audit itself runs locally only (see
-[Local agent usability audit](#local-agent-usability-audit)). After changing UI, CSS or gestures, run the
-matching specs with `npx playwright test tests/browser/<spec>` (`npx playwright install chromium` once if
-the browser is missing), and grep `tests/browser` for any constant you changed, since `npm run check` doesn't
-run them. Owner decision, 2026-10-16/17 (#8 and #211, both closed: "own phone fine, weaker = emulation"):
+[Local agent usability audit](#local-agent-usability-audit)). `npm run check` doesn't run these specs; CI
+does. Run one locally with `npx playwright test tests/browser/<spec>` (`npx playwright install chromium`
+once if the browser is missing) only when fixing a browser-test failure or when a UI, CSS or gesture change
+can't be checked otherwise, and grep `tests/browser` for any constant you changed. Owner decision, 2026-10-16/17 (#8 and #211, both closed: "own phone fine, weaker = emulation"):
 Pixel 5 emulation counts as phone evidence when the PR labels it as emulation; a physical-device check is
 stronger, and is done by hand against the preview and described in the PR.
 
