@@ -134,7 +134,10 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
             </>
           ) : (
             <>
-              <Loader2 aria-hidden="true" className="spin" /> Checking: packs re-opened on this device {counts}
+              <Loader2 aria-hidden="true" className="spin" />
+              <span>
+                Checking: packs re-opened on this device {counts}
+              </span>
             </>
           )}
         </span>
@@ -169,7 +172,13 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
           stats={stats}
           levelNote={done ? undefined : interrupted ? 'from re-opened packs only' : 'claimed'}
           partial={!done}
-          partialNote={interrupted && unfinished ? `* from the ${reopened.toLocaleString()} of ${total.toLocaleString()} packs re-opened before the check stopped` : undefined}
+          partialNote={
+            interrupted
+              ? unfinished
+                ? `* from the ${reopened.toLocaleString()} of ${total.toLocaleString()} packs re-opened before the check stopped`
+                : '* from the packs re-opened before the check stopped'
+              : undefined
+          }
         />
       )}
 

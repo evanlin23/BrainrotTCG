@@ -84,6 +84,8 @@ describe('ProfileViewerPage', () => {
 
     act(() => reports[0]({ checked, packs: [pack(0)], highlights: [pack(0)], done: false }));
     expect(status().textContent).toContain('1/2');
+    // One text run in the flex line (icon + label), so it wraps as a sentence, not in columns.
+    expect(status().querySelector('.profile-verify-line')!.childNodes).toHaveLength(2);
     expect(status().textContent).toContain('Best pulls re-opened');
     expect(status().textContent).not.toContain('Verified');
     expect(document.body.textContent).not.toContain('actually hold');
@@ -119,7 +121,13 @@ describe('ProfileViewerPage', () => {
     expect(status().textContent).toContain('Check interrupted before it finished');
     expect(status().textContent).not.toContain('only');
     expect(document.body.textContent).not.toContain('the rest are unchecked');
-    expect(document.body.textContent).not.toContain('before the check stopped');
+    expect(document.body.textContent).not.toContain('1 of 2 packs');
+    // The footnote must not claim packs are still being re-opened once the check has stopped.
+    const text = document.body.textContent!;
+    expect(text).not.toContain('so far');
+    expect(text).not.toContain('while the rest of the packs are re-opened');
+    expect(text).toContain('* from the packs re-opened before the check stopped');
+    expect(text).toContain('packs*');
   });
 
   it('claims completed verification, with complete totals, only when every pack is in', () => {
