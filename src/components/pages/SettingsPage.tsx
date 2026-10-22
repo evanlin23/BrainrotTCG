@@ -12,7 +12,7 @@ import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import KeptAsideActions from '../ui/KeptAsideActions';
 import '../../styles/Settings.css';
-import { downloadSaveFile, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { downloadSaveFile, EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
 import { sameSave, saveMark, type SaveMark } from '../../game/player';
 
 interface SettingsPageProps {
@@ -36,7 +36,7 @@ interface SettingsPageProps {
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
 const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
-    const [exportNote, setExportNote] = useState('Includes your secret player key. Keep the file private.');
+    const [exportNote, setExportNote] = useState(EXPORT_KEY_NOTE);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,7 +45,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const handleExportSave = () => {
         try {
             downloadSaveFile();
-            setExportNote('Includes your secret player key. Keep the file private.');
+            setExportNote(EXPORT_DONE_NOTE);
         } catch {
             setExportNote("Couldn't read browser storage to export your save.");
         }

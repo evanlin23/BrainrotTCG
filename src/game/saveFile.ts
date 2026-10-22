@@ -176,6 +176,12 @@ export const exportSaveFile = (): string => JSON.stringify({
   dataVersion: CURRENT_DATA_VERSION,
 }, null, 2);
 
+/** Under Export before it is used: what the file holds. */
+export const EXPORT_KEY_NOTE = 'Includes your secret player key. Keep the file private.';
+
+/** Under Export once the file has been handed to the browser: the download has no other sign it happened. */
+export const EXPORT_DONE_NOTE = 'Backup downloaded — keep it private. It includes your secret player key.';
+
 /** Download a save file (by default this browser's save, as exportSaveFile writes it). */
 export const downloadSaveFile = (content = exportSaveFile()) => {
   const url = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
