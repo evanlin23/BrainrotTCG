@@ -108,7 +108,7 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
             {best.map((pack) => (
               <PullRow
                 key={pack.nonce}
-                cards={toCardsWithMeta(pack.cards)}
+                cards={toCardsWithMeta(pack.cards, pack.set)}
                 set={pack.set}
                 setId={pack.set.id}
                 hand={pack.score.hand.name}
@@ -175,7 +175,7 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
 
       {open && (
         <Sheet title={open.score.hand.name} subtitle={`${open.set.name} · ticket #${open.nonce}`} onClose={() => setOpen(null)} size="md">
-          <PackCardViewer cards={toCardsWithMeta(open.cards).map((c) => ({ ...c, isRevealed: true }))} displayMode="carousel" set={open.set} />
+          <PackCardViewer cards={toCardsWithMeta(open.cards, open.set).map((c) => ({ ...c, isRevealed: true }))} displayMode="carousel" set={open.set} />
         </Sheet>
       )}
     </div>
