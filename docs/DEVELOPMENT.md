@@ -22,6 +22,22 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
    main. Only the owner approves new card sets or removing a set's draft flag. Merges to main deploy
    automatically. Never deploy, or submit real data such as Hall of Fame entries, as a test.
 
+## Defect learning and issue closure
+
+When fixing and closing a reproduced defect, include a defect-learning note:
+
+1. **Root cause (one sentence)**: Specific code or contract failure causing the defect.
+2. **Escape classification**: Why previous controls missed it:
+   - *missing_scenario*: edge condition, cancellation, storage denial, or limit was not exercised.
+   - *incorrect_expected_contract*: test asserted flawed behavior or conflated distinct failure modes (e.g. #694 operational inability conflated with forged proof).
+   - *over_mocked_collaborator*: mock fixture hid real boundary taxonomy or lifecycle (e.g. #647 input dereferenced before validation helper; #660 startup migration unexecuted in component mock).
+   - *wrong_test_level*: defect lives at boundary/integration level but was only tested with unit isolation.
+   - *stale_uninspected_evidence*: tests passed on earlier head or skipped real failure.
+   - *missing_release_decision*: intentional deferral or missing specification.
+3. **Meaningful regression test**: Test at the lowest useful level asserting observable recovery or failure behavior (distinguishing real browser/native evidence from injected boundary mocks).
+4. **Sibling path scan**: Search directly collaborating and adjacent paths for the same failure class (e.g. storage removal throwing, unbounded counter parses). If found elsewhere, file or link a bounded issue; do not expand the PR into an unreviewed rewrite.
+5. **Durable prevention routing**: Route recurrence prevention to a shared invariant (architecture guard, validation schema boundary, or CI fixture).
+
 ## Checks
 
 | When | Run |

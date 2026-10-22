@@ -66,8 +66,14 @@ authority and holds) and for the holds check before a merge.
    Wait for CI and deploys by event, not by polling: `subscribe_pr_activity` on PRs you opened, or a
    Monitor on the run, then take the next item or end the turn. No `sleep` loops or repeated status
    calls; each one re-reads the whole context.
-5. Comment on the canonical issue in a few lines (what shipped, PR, what remains). Close it only if
-   its whole scope shipped.
+5. Comment on the canonical issue and close only if its whole scope shipped:
+   - For reproduced defects, record a concise defect-learning closure note:
+     - Root cause in one sentence.
+     - Escape classification (missing scenario, incorrect expected contract, over-mocked collaborator, wrong test level, stale evidence, or missing release decision).
+     - Meaningful regression evidence (lowest useful test level asserting observable behavior).
+     - Sibling path scan: search directly related paths for the same failure class; link an existing issue or file a bounded follow-up (do not silently expand the PR into a broad rewrite).
+     - Prevention routing: note any durable automated invariant (guard, schema boundary, or fixture).
+   - Missing external verification (e.g. physical device AT, external API) must remain explicitly pending, never marked as complete.
 6. Update NOW.md, mirror it if this is a checkpoint, then continue.
 
 Stop early when a change could lose saves or break old proofs or published data: hold it and report.
