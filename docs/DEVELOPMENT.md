@@ -23,21 +23,56 @@ check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it
    main. Only the owner approves new card sets or removing a set's draft flag. Merges to main deploy
    automatically. Never deploy, or submit real data such as Hall of Fame entries, as a test.
 
+## Review evidence
+
+The reviewer (`.claude/agents/reviewer.md`) picks evidence from the diff, by risk, and records the
+head, the evidence checked and remaining risks. Missing required evidence is `changes-needed` or an
+external blocker, never an implied pass. Don't trust the author's summary.
+
+| Change | Evidence |
+| --- | --- |
+| Docs, low risk | Links and `git diff --check`. |
+| Behaviour, storage, proof, engine, spec, migration, workflow | A counterexample from the contract, independent of the author's tests. Mocks keep the real boundary's types, error kinds and lifecycle. Migrations: the real startup entry. |
+| Visible flow | Player problem, observable acceptance, the screen's job, primary fact and next action. Empty, loading and error states; fit with existing navigation, components and tokens. Narrow, short and enlarged text, keyboard, reduced motion as relevant. Repeated facts: keep, merge, demote, disclose or remove. A screenshot or test count alone isn't approval. |
+| Architecture, public-resource growth | Responsibility owner, simpler existing option, async and resource lifetime, bounded untrusted data, compatibility. No speculative frameworks. |
+
+The reviewer can't render the PR. For a visible flow, the implementer gives bounded, sanitized
+before/after observations on the exact head, using the [DESIGN.md](DESIGN.md) rules and, for a
+meaningful flow change, [`npm run audit:agent`](#local-agent-usability-audit). Tests must be
+deterministic: reviewers block fixed sleeps, timing-dependent waits, and retries or skips a PR adds.
+
 ## Defect learning and issue closure
 
-When fixing and closing a reproduced defect, include a defect-learning note:
+Closing a reproduced defect takes a short note on the issue, backed by the PR's final-head evidence
+(the evidence tiers above apply):
 
-1. **Root cause (one sentence)**: Specific code or contract failure causing the defect.
-2. **Escape classification**: Why previous controls missed it:
-   - *missing_scenario*: edge condition, cancellation, storage denial, or limit was not exercised.
-   - *incorrect_expected_contract*: test asserted flawed behavior or conflated distinct failure modes (e.g. #694 operational inability conflated with forged proof).
-   - *over_mocked_collaborator*: mock fixture hid real boundary taxonomy or lifecycle (e.g. #647 input dereferenced before validation helper; #660 startup migration unexecuted in component mock).
-   - *wrong_test_level*: defect lives at boundary/integration level but was only tested with unit isolation.
-   - *stale_uninspected_evidence*: tests passed on earlier head or skipped real failure.
-   - *missing_release_decision*: intentional deferral or missing specification.
-3. **Meaningful regression test**: Test at the lowest useful level asserting observable recovery or failure behavior (distinguishing real browser/native evidence from injected boundary mocks).
-4. **Sibling path scan**: Search directly collaborating and adjacent paths for the same failure class (e.g. storage removal throwing, unbounded counter parses). If found elsewhere, file or link a bounded issue; do not expand the PR into an unreviewed rewrite.
-5. **Durable prevention routing**: Route recurrence prevention to a shared invariant (architecture guard, validation schema boundary, or CI fixture).
+1. **Root cause**, one sentence naming the code or contract that failed. Separate a pre-existing
+   defect from a regression this change introduced.
+2. **Escape class**, why existing controls missed it:
+   - *missing_scenario*: an edge, cancellation, storage denial or limit was never exercised.
+   - *incorrect_expected_contract*: a test asserted the wrong behaviour or merged two failure kinds.
+   - *over_mocked_collaborator*: a mock hid the real boundary (the Review evidence row covers what
+     mocks must keep).
+   - *wrong_test_level*: the defect lives at a boundary or startup entry that only unit tests touched.
+   - *stale_evidence*: results came from an earlier head, or a failure was skipped.
+   - *missing_release_decision*: a deferral or specification gap nobody owned.
+3. **Regression test** at the lowest useful level, asserting observable behaviour. Show it fails on
+   the faulty behaviour and passes on the fix. Say whether it runs in a real browser or against an
+   injected boundary. Add the storage-denial, cancellation or resource-limit cases only where the
+   defect calls for them.
+4. **Sibling scan**: search directly related paths for the same failure class. Link an existing issue
+   or file a bounded follow-up; don't widen the fix PR. A defect that recurs gets a scoped
+   prevention task (shared guard, validation boundary or fixture) instead of another local patch.
+5. **Pending external checks** (physical device, external API) stay marked pending.
+
+Examples from merged fixes:
+
+- #647 (PR #912), `missing_scenario`: `SettingsPage.tsx` dereferenced parsed import JSON before
+  checking it was an object, so `null`, arrays and primitives threw. The regression is in
+  `SettingsPage.test.tsx` (non-object files give a message and no replacement prompt).
+- #695 (PR #919), `missing_scenario`: `reopenCache.ts` `flush` ran `removeItem` inside its `catch`,
+  so a fully denied storage threw from a timer. The regression is in `reopenCache.test.ts` (both
+  `setItem` and `removeItem` fail).
 
 ## Checks
 
