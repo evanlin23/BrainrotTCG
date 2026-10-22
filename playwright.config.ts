@@ -18,7 +18,10 @@ export default defineConfig({
   testDir: './tests/browser',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
+  // No retries: a test that fails once is fixed, not re-run. If retries are ever added, CI still
+  // fails a test that only passed on a retry.
   retries: 0,
+  failOnFlakyTests: !!process.env.CI,
   workers: 1,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   outputDir: 'test-results',
