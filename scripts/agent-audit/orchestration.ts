@@ -27,6 +27,13 @@ export interface ProjectOptions {
   maxLineChars?: number;
 }
 
+// Top-level keys of the ledger format in .claude/skills/work/SKILL.md. Keep in sync with
+// .claude/hooks/orient.mjs, which repeats this parser (a parity test checks they agree).
+// Only these keys start a section, so a hold whose text contains a colon stays a hold: every
+// non-blank line between `holds:` and the next known key counts as a hold (fail closed).
+const LEDGER_KEY = /^(ledger issue|source|authority|holds|order|done|needs owner|current|blockers)\s*:(.*)$/i;
+const RUN_HEADER = /^#\s+run\b/i;
+
 /**
  * Projects local state (.claude/state/NOW.md) within a strict character and line budget.
  *
@@ -50,39 +57,34 @@ export function projectState(content: string, options: ProjectOptions = {}): Sta
   let currentSection = '';
   const holdEntries: Array<{ lineIndex: number; text: string }> = [];
   const authorityEntries: Array<{ lineIndex: number; text: string }> = [];
+  const holdHeaders: number[] = [];
+  const authorityHeaders: number[] = [];
 
-  // Identify sections and holds across the ENTIRE source content
   for (let index = 0; index < rawLines.length; index++) {
-    const line = rawLines[index];
-    const trimmed = line.trim();
-
-    const ledgerMatch = trimmed.match(/^ledger issue:\s*#?([0-9]+)/i);
-    if (ledgerMatch) sourceIssue = `#${ledgerMatch[1]}`;
-
-    if (/^holds:\s*/i.test(trimmed)) {
-      currentSection = 'holds';
-      const inline = trimmed.replace(/^holds:\s*/i, '').trim();
-      if (inline && inline !== 'none') {
-        holdEntries.push({ lineIndex: index, text: inline });
+    const trimmed = rawLines[index].trim();
+    const keyMatch = trimmed.match(LEDGER_KEY);
+    if (keyMatch || RUN_HEADER.test(trimmed)) {
+      currentSection = keyMatch ? keyMatch[1].toLowerCase().replace(/\s+/g, ' ') : 'run';
+      const inline = keyMatch ? keyMatch[2].trim() : '';
+      if (currentSection === 'ledger issue') {
+        const issue = inline.match(/^#?([0-9]+)/);
+        if (issue) sourceIssue = `#${issue[1]}`;
+      } else if (currentSection === 'holds') {
+        holdHeaders.push(index);
+        if (inline && !/^none\.?$/i.test(inline)) holdEntries.push({ lineIndex: index, text: inline });
+      } else if (currentSection === 'authority') {
+        authorityHeaders.push(index);
+        if (inline) authorityEntries.push({ lineIndex: index, text: inline });
       }
       continue;
-    } else if (/^authority:\s*/i.test(trimmed)) {
-      currentSection = 'authority';
-      const inline = trimmed.replace(/^authority:\s*/i, '').trim();
-      if (inline) authorityEntries.push({ lineIndex: index, text: inline });
-      continue;
-    } else if (/^[a-z0-9 _-]+:\s*/i.test(trimmed) || /^#\s+/i.test(trimmed)) {
-      currentSection = trimmed.split(':')[0].toLowerCase();
     }
 
     if (currentSection === 'holds') {
-      if (trimmed.startsWith('-') || /^(#\d+|\bheld\b|\bhold\b)/i.test(trimmed)) {
-        holdEntries.push({ lineIndex: index, text: trimmed });
-      }
+      if (trimmed) holdEntries.push({ lineIndex: index, text: trimmed });
     } else if (currentSection === 'authority') {
       if (trimmed) authorityEntries.push({ lineIndex: index, text: trimmed });
     } else if (/\b(must not merge|merge hold|held until|blocking hold)\b/i.test(trimmed)) {
-      // Hold placed outside normal holds header
+      // Hold placed outside the holds block
       holdEntries.push({ lineIndex: index, text: trimmed });
     }
   }
@@ -125,26 +127,33 @@ export function projectState(content: string, options: ProjectOptions = {}): Sta
   // Check if any hold or authority occurred at or past the boundary
   const holdsPastBoundary = holdEntries.filter((entry) => entry.lineIndex >= cutOffLineIndex);
   const authorityPastBoundary = authorityEntries.filter((entry) => entry.lineIndex >= cutOffLineIndex);
+  const holdHeaderPastBoundary = holdHeaders.some((index) => index >= cutOffLineIndex);
+  const authorityHeaderPastBoundary = authorityHeaders.some((index) => index >= cutOffLineIndex);
 
   let status: IntegrityStatus;
   let allowsMerge: boolean;
   let message: string;
 
-  const holdsIncomplete = holdTruncated || holdsPastBoundary.length > 0;
-  const authorityIncomplete = authorityTruncated || authorityPastBoundary.length > 0;
+  const holdsIncomplete = holdTruncated || holdsPastBoundary.length > 0 || holdHeaderPastBoundary;
+  const authorityIncomplete = authorityTruncated || authorityPastBoundary.length > 0 || authorityHeaderPastBoundary;
 
   if (authorityEntries.length === 0 && holdEntries.length === 0 && totalLines > 5) {
     status = 'critical_overflow';
     allowsMerge = false;
     message = 'CRITICAL: Authority and holds missing from state. MERGE/DELETE NOTHING until reconciled.';
+  } else if (holdHeaders.length === 0 || authorityHeaders.length === 0) {
+    status = 'critical_overflow';
+    allowsMerge = false;
+    message = `CRITICAL: ${holdHeaders.length === 0 ? 'holds:' : 'authority:'} section missing from state. MERGE/DELETE NOTHING until reconciled.`;
   } else if (holdsIncomplete || authorityIncomplete) {
     status = 'critical_overflow';
     allowsMerge = false;
     const reasons: string[] = [];
     if (holdTruncated) reasons.push('hold line truncated');
     if (holdsPastBoundary.length > 0) reasons.push(`${holdsPastBoundary.length} hold(s) past display boundary`);
+    if (holdHeaderPastBoundary) reasons.push('holds block past display boundary');
     if (authorityTruncated) reasons.push('authority line truncated');
-    if (authorityPastBoundary.length > 0) reasons.push('authority past display boundary');
+    if (authorityPastBoundary.length > 0 || authorityHeaderPastBoundary) reasons.push('authority past display boundary');
     message = `CRITICAL OVERFLOW: Authority or holds incomplete (${reasons.join(', ')}). MERGE/DELETE NOTHING until reconciled.`;
   } else if (cutOffLineIndex < totalLines || currentChars < totalChars || truncatedLinesCount > 0) {
     status = 'non_blocking_overflow';

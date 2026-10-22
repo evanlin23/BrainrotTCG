@@ -110,6 +110,59 @@ describe('orchestration state projection & budget bounds', () => {
     expect(result.projection).not.toContain('#999'); // Verify hold is indeed not visible in projection
   });
 
+  it('counts every non-blank line in the holds block as a hold, including text with a colon', () => {
+    const content = [
+      '# Run: Colon holds',
+      'ledger issue: #387',
+      'authority: allowed',
+      'holds:',
+      '- Min-score floor untracked: blocker before wiring any min-score board',
+      'Profile verification: deferred by owner',
+      '#85 held',
+      '',
+      '- Branch deletion remains Claude-only (#710)',
+      'order: #717',
+    ].join('\n');
+
+    const result = projectState(content);
+    expect(result.holdsTracked).toBe(4);
+    expect(result.status).toBe('ok');
+  });
+
+  it('fails closed when a hold containing a colon sits at the boundary and later holds are cut off', () => {
+    const lines = ['# Run: Long state', 'ledger issue: #387', 'authority: allowed'];
+    for (let i = 0; i < 75; i++) lines.push(`order: item ${i}`);
+    lines.push('holds:');
+    lines.push('- Min-score floor untracked: blocker before wiring any min-score board');
+    lines.push('- New sets: owner approval required');
+    lines.push('- Branch deletion remains Claude-only (#710)');
+
+    const result = projectState(lines.join('\n'));
+    expect(result.linesShown).toBe(STATE_BUDGET.maxLines);
+    expect(result.status).toBe('critical_overflow');
+    expect(result.allowsMerge).toBe(false);
+    expect(result.message).toContain('2 hold(s) past display boundary');
+  });
+
+  it('fails closed when the holds header itself is past the boundary, even with no holds', () => {
+    const lines = ['# Run: Long state', 'ledger issue: #387', 'authority: allowed'];
+    for (let i = 0; i < 80; i++) lines.push(`order: item ${i}`);
+    lines.push('holds: none');
+
+    const result = projectState(lines.join('\n'));
+    expect(result.status).toBe('critical_overflow');
+    expect(result.allowsMerge).toBe(false);
+    expect(result.message).toContain('holds block past display boundary');
+  });
+
+  it('fails closed when the holds section is missing even if authority is present', () => {
+    const content = ['# Run: No holds', 'ledger issue: #387', 'authority: allowed', 'order: #717'].join('\n');
+    const result = projectState(content);
+    expect(result.status).toBe('critical_overflow');
+    expect(result.allowsMerge).toBe(false);
+    expect(result.message).toContain('holds: section missing');
+  });
+
   it('fails closed if authority or holds sections are completely missing from a non-trivial file', () => {
     const lines = ['# Run: Broken state', 'ledger issue: #387', 'order: 1, 2, 3'];
     for (let i = 0; i < 10; i++) lines.push(`random notes ${i}`);
@@ -191,6 +244,7 @@ describe('safe compaction of #387', () => {
     const result = projectState(compacted);
     expect(result.status).toBe('ok');
     expect(result.allowsMerge).toBe(true);
+    expect(result.holdsTracked).toBe(7);
     expect(result.linesShown).toBeLessThanOrEqual(40);
     expect(result.charsShown).toBeLessThanOrEqual(2500);
 
@@ -351,5 +405,57 @@ describe('orient hook pipe execution test', () => {
     expect(result.stdout).toContain('CRITICAL OVERFLOW');
     expect(result.stdout).toContain('MERGE/DELETE NOTHING');
     expect(result.stdout).not.toContain('#999 hold past line 80');
+  });
+});
+
+function runHook(content: string, label: string): string {
+  const testDir = mkdtempSync(join(scratch, `orient-${label}-`));
+  const stateDir = join(testDir, '.claude', 'state');
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(join(stateDir, 'NOW.md'), content);
+  const result = spawnSync('bash', [join(process.cwd(), '.claude', 'hooks', 'orient.sh')], {
+    cwd: testDir,
+    env: { ...process.env, CLAUDE_PROJECT_DIR: testDir },
+    encoding: 'utf8',
+  });
+  expect(result.status).toBe(0);
+  return result.stdout;
+}
+
+describe('orient hook hold tracking (fail closed)', () => {
+  const colonHoldsAtBoundary = (() => {
+    const lines = ['# Run: Colon holds', 'ledger issue: #387', 'authority: allowed'];
+    for (let i = 0; i < 75; i++) lines.push(`order: item ${i}`);
+    lines.push('holds:');
+    lines.push('- Min-score floor untracked: blocker before wiring any min-score board');
+    lines.push('- New sets under src/content/sets/: owner approval required');
+    lines.push('- Branch deletion remains Claude-only (#710)');
+    return lines.join('\n');
+  })();
+
+  it('reports critical overflow, not a warning, when holds after a colon-bearing hold are cut off', () => {
+    const stdout = runHook(colonHoldsAtBoundary, 'colon');
+    expect(stdout).toContain('CRITICAL OVERFLOW');
+    expect(stdout).toContain('2 hold(s) past display boundary');
+    expect(stdout).toContain('MERGE/DELETE NOTHING');
+    expect(stdout).not.toContain('Authority and holds intact');
+    expect(stdout).not.toContain('Branch deletion remains Claude-only');
+  });
+
+  it('agrees with projectState on projection and status for every fixture', () => {
+    const longHistory = ['# Run: History', 'ledger issue: #387', 'authority: allowed', 'holds:', '- #85 held'];
+    for (let i = 0; i < 100; i++) longHistory.push(`done: old PR #${i}`);
+    const fixtures: Record<string, string> = {
+      colon: colonHoldsAtBoundary,
+      compact: compactLedger(),
+      history: longHistory.join('\n'),
+      noHolds: ['# Run: No holds', 'ledger issue: #387', 'authority: allowed', 'order: #717'].join('\n'),
+      hugeHold: ['# Run: Huge', 'authority: allowed', 'holds:', '- #85: ' + 'y'.repeat(500)].join('\n'),
+    };
+    for (const [label, content] of Object.entries(fixtures)) {
+      const stdout = runHook(content, `parity-${label}`);
+      const projection = projectState(content);
+      expect(stdout, label).toContain(`\n${projection.projection}\n--- Status: ${projection.message} ---`);
+    }
   });
 });

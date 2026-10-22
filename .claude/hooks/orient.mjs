@@ -49,40 +49,46 @@ const rawLines = content.split('\n');
 const totalLines = rawLines.length;
 const totalChars = content.length;
 
+// Top-level keys of the ledger format in .claude/skills/work/SKILL.md. Mirrors projectState in
+// scripts/agent-audit/orchestration.ts (a parity test checks they agree).
+// Only these keys start a section, so a hold whose text contains a colon stays a hold: every
+// non-blank line between `holds:` and the next known key counts as a hold (fail closed).
+const LEDGER_KEY = /^(ledger issue|source|authority|holds|order|done|needs owner|current|blockers)\s*:(.*)$/i;
+const RUN_HEADER = /^#\s+run\b/i;
+
 let sourceIssue = '';
 let currentSection = '';
 const holdEntries = [];
 const authorityEntries = [];
+const holdHeaders = [];
+const authorityHeaders = [];
 
-for (let i = 0; i < rawLines.length; i++) {
-  const line = rawLines[i];
-  const trimmed = line.trim();
-
-  const ledgerMatch = trimmed.match(/^ledger issue:\s*#?([0-9]+)/i);
-  if (ledgerMatch) sourceIssue = `#${ledgerMatch[1]}`;
-
-  if (/^holds:\s*/i.test(trimmed)) {
-    currentSection = 'holds';
-    const inline = trimmed.replace(/^holds:\s*/i, '').trim();
-    if (inline && inline !== 'none') holdEntries.push({ lineIndex: i, text: inline });
+for (let index = 0; index < rawLines.length; index++) {
+  const trimmed = rawLines[index].trim();
+  const keyMatch = trimmed.match(LEDGER_KEY);
+  if (keyMatch || RUN_HEADER.test(trimmed)) {
+    currentSection = keyMatch ? keyMatch[1].toLowerCase().replace(/\s+/g, ' ') : 'run';
+    const inline = keyMatch ? keyMatch[2].trim() : '';
+    if (currentSection === 'ledger issue') {
+      const issue = inline.match(/^#?([0-9]+)/);
+      if (issue) sourceIssue = `#${issue[1]}`;
+    } else if (currentSection === 'holds') {
+      holdHeaders.push(index);
+      if (inline && !/^none\.?$/i.test(inline)) holdEntries.push({ lineIndex: index, text: inline });
+    } else if (currentSection === 'authority') {
+      authorityHeaders.push(index);
+      if (inline) authorityEntries.push({ lineIndex: index, text: inline });
+    }
     continue;
-  } else if (/^authority:\s*/i.test(trimmed)) {
-    currentSection = 'authority';
-    const inline = trimmed.replace(/^authority:\s*/i, '').trim();
-    if (inline) authorityEntries.push({ lineIndex: i, text: inline });
-    continue;
-  } else if (/^[a-z0-9 _-]+:\s*/i.test(trimmed) || /^#\s+/i.test(trimmed)) {
-    currentSection = trimmed.split(':')[0].toLowerCase();
   }
 
   if (currentSection === 'holds') {
-    if (trimmed.startsWith('-') || /^(#\d+|\bheld\b|\bhold\b)/i.test(trimmed)) {
-      holdEntries.push({ lineIndex: i, text: trimmed });
-    }
+    if (trimmed) holdEntries.push({ lineIndex: index, text: trimmed });
   } else if (currentSection === 'authority') {
-    if (trimmed) authorityEntries.push({ lineIndex: i, text: trimmed });
+    if (trimmed) authorityEntries.push({ lineIndex: index, text: trimmed });
   } else if (/\b(must not merge|merge hold|held until|blocking hold)\b/i.test(trimmed)) {
-    holdEntries.push({ lineIndex: i, text: trimmed });
+    // Hold placed outside the holds block
+    holdEntries.push({ lineIndex: index, text: trimmed });
   }
 }
 
@@ -122,19 +128,24 @@ for (let i = 0; i < rawLines.length; i++) {
 
 const holdsPastBoundary = holdEntries.filter((entry) => entry.lineIndex >= cutOffLineIndex);
 const authorityPastBoundary = authorityEntries.filter((entry) => entry.lineIndex >= cutOffLineIndex);
+const holdHeaderPastBoundary = holdHeaders.some((index) => index >= cutOffLineIndex);
+const authorityHeaderPastBoundary = authorityHeaders.some((index) => index >= cutOffLineIndex);
 
-const holdsIncomplete = holdTruncated || holdsPastBoundary.length > 0;
-const authorityIncomplete = authorityTruncated || authorityPastBoundary.length > 0;
+const holdsIncomplete = holdTruncated || holdsPastBoundary.length > 0 || holdHeaderPastBoundary;
+const authorityIncomplete = authorityTruncated || authorityPastBoundary.length > 0 || authorityHeaderPastBoundary;
 
 let message = '';
 if (authorityEntries.length === 0 && holdEntries.length === 0 && totalLines > 5) {
   message = 'CRITICAL: Authority and holds missing from state. MERGE/DELETE NOTHING until reconciled.';
+} else if (holdHeaders.length === 0 || authorityHeaders.length === 0) {
+  message = `CRITICAL: ${holdHeaders.length === 0 ? 'holds:' : 'authority:'} section missing from state. MERGE/DELETE NOTHING until reconciled.`;
 } else if (holdsIncomplete || authorityIncomplete) {
   const reasons = [];
   if (holdTruncated) reasons.push('hold line truncated');
   if (holdsPastBoundary.length > 0) reasons.push(`${holdsPastBoundary.length} hold(s) past display boundary`);
+  if (holdHeaderPastBoundary) reasons.push('holds block past display boundary');
   if (authorityTruncated) reasons.push('authority line truncated');
-  if (authorityPastBoundary.length > 0) reasons.push('authority past display boundary');
+  if (authorityPastBoundary.length > 0 || authorityHeaderPastBoundary) reasons.push('authority past display boundary');
   message = `CRITICAL OVERFLOW: Authority or holds incomplete (${reasons.join(', ')}). MERGE/DELETE NOTHING until reconciled.`;
 } else if (cutOffLineIndex < totalLines || currentChars < totalChars || truncatedLinesCount > 0) {
   message = `WARNING: State truncated to fit budget (${totalLines} lines, ${totalChars} chars -> ${projectedLines.length} lines, ${currentChars} chars shown). Authority and holds intact. Trim history/done before other work.`;
