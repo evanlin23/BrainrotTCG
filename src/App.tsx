@@ -16,6 +16,8 @@ import { scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
+import type { SetDefinition } from './engine';
+import { canOpenSharedSet } from './game/sharedPullSet';
 import { isCardOwned } from './game/versions';
 import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
@@ -596,7 +598,16 @@ function App() {
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
 
-      {viewProof && <DeferredSheet key={viewProof} load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closeLink }} />}
+      {viewProof && <DeferredSheet key={viewProof} load={loadPull} title="Shared pull" screenProps={{
+        proof: viewProof,
+        onClose: closeLink,
+        // Not while a pack is open: the set can't change under it.
+        canOpenSet: (s: SetDefinition) => canOpenSharedSet(s, playableSets, packBusy),
+        onOpenSet: (setId: string) => {
+          selectSet(setId);
+          closeLink();
+        },
+      }} />}
 
       {viewProfile && <DeferredSheet load={loadPublicProfile} size="lg" title="Shared profile" screenProps={{ proof: viewProfile, onClose: closeLink }} />}
 
