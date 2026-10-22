@@ -377,3 +377,30 @@ describe('bounded profile processing for large or sparse ticket counters (#693)'
   });
 });
 
+it('recovers safely when history has an entry with malformed cached cards (#652)', () => {
+  setUp(1);
+  const player = getPlayer();
+  const key = player.publicKeyHex.slice(0, 16);
+  // Row with LF in cached card code
+  const history = [{
+    s: SET.id,
+    v: SET.version,
+    n: 0,
+    k: key,
+    c: 'sigma\nid',
+    h: 'Pair',
+    x: 100,
+    t: 1000,
+  }];
+  data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+  resetTicketList();
+
+  // myProfileInfo does not throw TypeError and reports the ticket
+  const info = myProfileInfo();
+  expect(info).toMatchObject({
+    packs: 1,
+  });
+
+  // myStats does not throw
+  expect(() => myStats()).not.toThrow();
+});
