@@ -199,3 +199,62 @@ it('hydrates readable cards and preserves unreadable items when legacy highestPa
   });
   await app.interact(() => button('Close Profile').click());
 }, 60_000);
+
+it('survives an existing malformed cached card code across startup and reload without an error loop (#652)', async () => {
+  const malformedHistory = JSON.stringify([{
+    s: 'right-now',
+    v: 2,
+    n: 0,
+    k: PUBLIC.slice(0, 16),
+    c: 'sigma\nid',
+    h: 'Pair',
+    x: 200,
+    t: OPENED,
+  }]);
+  const storage: Record<string, string> = {
+    'brainrot-player-v1': JSON.stringify({ secretKey: SECRET, name: 'Recovery tester', nextNonce: 1, createdAt: 1 }),
+    [STORAGE_KEYS.HISTORY]: malformedHistory,
+    [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ particlesEnabled: false }),
+    [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 1, holoCards: {} }),
+  };
+
+  app = await mountedApp(storage);
+  await app.mount();
+  // Opening screen mounts normally, not the crash fallback
+  expect(document.body.textContent).not.toContain('Something went wrong');
+  expect(document.querySelector('main.app-main')).not.toBeNull();
+
+  // Reload does not throw or loop into error
+  await app.reload();
+  expect(document.body.textContent).not.toContain('Something went wrong');
+  expect(document.querySelector('main.app-main')).not.toBeNull();
+
+  // Raw stored data in localStorage was preserved
+  expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBe(malformedHistory);
+}, 60_000);
+
+it('refuses a Settings import whose history holds a line break in a cached code, and reloads cleanly (#652)', async () => {
+  // The issue's fixture: a history-only file into a fresh browser, with an LF inside a card id.
+  const save = JSON.stringify({
+    version: 2, exportedAt: '2026-10-18T00:00:00.000Z', dataVersion: CURRENT_DATA_VERSION,
+    history: JSON.stringify([{ s: 'right-now', v: 2, n: 0, k: PUBLIC.slice(0, 16), c: 'sigma\nid', h: 'Pair', x: 200, t: OPENED }]),
+  });
+  app = await mountedApp({ [STORAGE_KEYS.SETTINGS]: JSON.stringify({ particlesEnabled: false }) });
+  await app.mount();
+  await app.interact(() => button('Settings').click());
+  await app.until('Save & backup loads', () => expect(button('Import')).toBeDefined());
+  const before = JSON.stringify(Object.entries(localStorage).sort());
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, 'files', { value: [new File([save], 'save.json', { type: 'application/json' })] });
+  await app.interact(() => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await app.until('the refusal is explained', () => expect(document.body.textContent)
+    .toContain('The history in this save is invalid. Nothing was imported.'));
+  expect(JSON.stringify(Object.entries(localStorage).sort())).toBe(before);
+  expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBeNull();
+
+  await app.reload();
+  expect(document.body.textContent).not.toContain('Something went wrong');
+  expect(document.querySelector('main.app-main')).not.toBeNull();
+  expect(await history()).toEqual([]);
+}, 60_000);
