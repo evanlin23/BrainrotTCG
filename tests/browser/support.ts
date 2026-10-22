@@ -552,7 +552,13 @@ export interface Finger {
   release(): Promise<void>;
 }
 
-export async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
+/**
+ * With `settled`, a touch's events carry their own timestamps (16 ms apart) and a release comes after
+ * a dragged finger has rested 400 ms at its last point. Sent back to back with no time between them, a drag
+ * ends as a fling, and the browser swallows the next tap (it only stops the fling), so the tap that
+ * follows a drag gets no click.
+ */
+export async function fingerFor(page: Page, touch: boolean, { settled = false } = {}): Promise<Finger> {
   if (!touch) {
     return {
       press: async (x, y) => { await page.mouse.move(x, y); await page.mouse.down(); },
@@ -561,11 +567,19 @@ export async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
     };
   }
   const cdp = await page.context().newCDPSession(page);
-  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) =>
-    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points }).then(() => {});
+  let clock = Date.now() / 1000;
+  let last = { x: 0, y: 0 };
+  let moved = false;
+  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[], after = 0.016) => {
+    clock += after;
+    return cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points, ...(settled ? { timestamp: clock } : {}) }).then(() => {});
+  };
   return {
-    press: (x, y) => send('touchStart', [{ x, y }]),
-    move: (x, y) => send('touchMove', [{ x, y }]),
-    release: () => send('touchEnd', []),
+    press: (x, y) => { last = { x, y }; moved = false; return send('touchStart', [last]); },
+    move: (x, y) => { last = { x, y }; moved = true; return send('touchMove', [last]); },
+    release: async () => {
+      if (settled && moved) await send('touchMove', [last], 0.4);
+      await send('touchEnd', []);
+    },
   };
 }

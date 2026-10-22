@@ -15,6 +15,12 @@ const pillAnimations = (page: Page) =>
 const fingerAnimations = (page: Page) =>
   page.locator('.open-cue-travel').evaluate((el) => el.getAnimations().length);
 
+/**
+ * A reload cancels the art the page is still prefetching for the next pack, and the monitor sees each
+ * cancelled image as a failed request. Nothing else that fails is let through.
+ */
+const notReloadAborts = (errors: string[]) => errors.filter((error) => !/^net::ERR_ABORTED \S+\.webp$/.test(error));
+
 async function load(page: Page) {
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
@@ -41,12 +47,16 @@ test('a new player sees the cue on the first load, and a touch ends it for good'
   expect(await fingerAnimations(page)).toBeGreaterThan(0);
 
   // The first touch stops it, and counts as understood.
+  // The pack drops in on a spring and is visible long before it lands. Hovering waits for it to stop
+  // moving and for the point to hit it, so land it first, then aim in the pack's own coordinates at the
+  // part of a tall pack that shows.
+  await shell(page).hover();
   const spot = await shell(page).evaluate((el) => {
     const edge = el.getBoundingClientRect();
     const top = Math.max(edge.top, 0);
-    return { x: edge.left + edge.width / 2, y: top + (Math.min(edge.bottom, window.innerHeight) - top) * 0.8 };
+    return { x: edge.width / 2, y: top - edge.top + (Math.min(edge.bottom, window.innerHeight) - top) * 0.8 };
   });
-  await page.mouse.move(spot.x, spot.y);
+  await shell(page).hover({ position: spot });
   await page.mouse.down();
   await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   await expect(page.locator('.open-cue')).toHaveCount(0);
@@ -77,7 +87,7 @@ test('left alone, the cue plays its twice, comes to rest, and the third load has
   await expect(page.locator('.open-cue')).toHaveCount(0);
   expect(await pillAnimations(page)).toBe(0);
   expect(await plays(page)).toBe('2');
-  expect(errors).toEqual([]);
+  expect(notReloadAborts(errors)).toEqual([]);
 });
 
 test('with reduced motion the cue is a still frame: arrowheads and caption, nothing moving', async ({ page, baseURL }) => {

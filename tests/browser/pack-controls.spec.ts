@@ -183,6 +183,8 @@ test('a drag that ends where it began never opens the pack, but a click on it st
   await expect(page.locator('.app-logo')).toBeVisible();
   const shell = page.locator('.pack-shell');
   await expect(shell).toBeVisible();
+  // The pack drops in on a spring and is visible long before it lands: hovering waits for it to stop.
+  await shell.hover();
 
   // Pressed below the start band, so the swipe cuts nothing, dragged well past a tap and back to
   // where it began: the release is a tap by position alone, but the finger was no tap.
@@ -194,7 +196,7 @@ test('a drag that ends where it began never opens the pack, but a click on it st
     const bottom = Math.min(edge.bottom, stage.bottom, window.innerHeight);
     return { x: edge.left + edge.width * 0.4, y: top + (bottom - top) * 0.7 };
   });
-  const finger = await fingerFor(page, hasTouch);
+  const finger = await fingerFor(page, hasTouch, { settled: true });
   await finger.press(x, y);
   for (let step = 1; step <= 4; step++) await finger.move(x + 20 * step, y);
   for (let step = 3; step >= 0; step--) await finger.move(x + 20 * step, y);
@@ -217,6 +219,8 @@ test('the pack\'s focus ring stays inside the pack and the screen', async ({ pag
   await expect(page.locator('.app-logo')).toBeVisible();
   const pack = openPack(page);
   await expect(pack).toBeVisible();
+  // The pack drops in on a spring and is visible long before it lands: hovering waits for it to stop.
+  await pack.hover();
   for (let tabs = 0; !(await pack.evaluate((el) => el === document.activeElement)); tabs++) {
     expect(tabs, 'Tab never reached the pack').toBeLessThan(40);
     await page.keyboard.press('Tab');
