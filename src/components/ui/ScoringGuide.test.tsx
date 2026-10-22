@@ -2,10 +2,17 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { SETS, getLatestSet, getSet, isOpenable } from '../../content/sets';
-import { FINISH_MULTIPLIER, HOLO_MULTIPLIER, MISPRINT_MULTIPLIER, MODIFIERS_V1, ODDS_TOTAL, POKER_HANDS, RARITY_POINTS } from '../../engine';
+import { getLatestSet, getSet } from '../../content/sets';
+import { FINISH_MULTIPLIER, HOLO_MULTIPLIER, MISPRINT_MULTIPLIER, MODIFIERS_V1, ODDS_TOTAL, POKER_HANDS, RARITY_POINTS, type SetDefinition } from '../../engine';
 import { formatOneIn } from '../../game/cardStats';
 import ScoringGuide from './ScoringGuide';
+
+// The guide compares the set it shows with the openable sets in the registry; a test can swap that list for fixtures.
+const { registry } = vi.hoisted(() => ({ registry: { sets: null as unknown[] | null } }));
+vi.mock('../../content/sets', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../content/sets')>();
+  return { ...actual, get SETS() { return registry.sets ?? actual.SETS; } };
+});
 
 let root: Root;
 let container: HTMLElement;
@@ -19,6 +26,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  registry.sets = null;
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
@@ -137,20 +145,47 @@ it("states the pack size, and that a pack holds one set's cards, from the set da
   expect(other).toContain('Combo chances are for one 7-card pack.');
 });
 
-it('says the odds hold for every set only while every openable set really has them (#804)', () => {
-  const set = getLatestSet('right-now')!;
-  // Today's data: every openable set rolls with the same pack size, odds and modifiers.
-  for (const other of SETS.filter(isOpenable)) {
-    expect([other.packSize, other.odds, other.holoOdds, other.modifiers]).toEqual([set.packSize, set.odds, set.holoOdds, set.modifiers]);
-  }
-  act(() => root.render(<ScoringGuide set={set} onClose={() => {}} />));
-  expect(document.body.textContent).toContain('Every set you can open uses these same odds, pack size and scoring');
+it('says the odds hold for every set only while every openable set rolls packs the same way (#804)', () => {
+  const base = getLatestSet('right-now')!;
+  const text = () => document.body.textContent ?? '';
+  const render = (set: SetDefinition) => act(() => root.render(<ScoringGuide set={set} onClose={() => {}} />));
+  const SHARED = 'Every set you can open uses these same odds, pack size and scoring, so the tables below hold for all of them.';
+  const SCOPED = `Odds or pack size differ between sets; these tables are for ${base.name}.`;
+  // A copy of the shown set with its keys in another order: only the values count.
+  const reordered: SetDefinition = { ...base, odds: Object.fromEntries(Object.entries(base.odds).reverse()) as SetDefinition['odds'] };
+  const withoutACard = (rarity: string): SetDefinition => {
+    const i = base.cards.findIndex((c) => c.rarity === rarity);
+    return { ...base, cards: base.cards.filter((_, j) => j !== i) };
+  };
 
-  // If one set's odds ever differ, the guide stops promising that and scopes the tables to this set.
-  act(() => root.render(<ScoringGuide set={{ ...set, holoOdds: set.holoOdds + 100 }} onClose={() => {}} />));
-  const text = document.body.textContent ?? '';
-  expect(text).not.toContain('Every set you can open uses these same odds');
-  expect(text).toContain(`Each set has its own odds and pack size, so other sets can differ: the tables below are for ${set.name}.`);
+  registry.sets = [base, reordered];
+  render(base);
+  expect(text()).toContain(SHARED);
+  expect(text()).not.toContain(SCOPED);
+
+  // A different holo chance, pack size or modifier table is not the same.
+  for (const other of [{ ...base, holoOdds: base.holoOdds + 100 }, { ...base, packSize: base.packSize + 1 }, { ...base, modifiers: undefined }]) {
+    registry.sets = [base, other];
+    render(base);
+    expect(text()).not.toContain('Every set you can open uses these same odds');
+    expect(text()).toContain(SCOPED);
+  }
+
+  // Same odds, pack size and modifiers but fewer cards of a rarity: handOdds splits that rarity's chance across its cards, so the combo table differs.
+  registry.sets = [base, withoutACard('COMMON')];
+  render(base);
+  expect(text()).not.toContain('Every set you can open uses these same odds');
+  expect(text()).toContain(SCOPED);
+
+  // The same goes when the shown set is the one with the different card count.
+  registry.sets = [base];
+  render(withoutACard('COMMON'));
+  expect(text()).not.toContain('Every set you can open uses these same odds');
+
+  // Sets that aren't openable (drafts, archived) don't count against the claim.
+  registry.sets = [base, { ...withoutACard('COMMON'), draft: true }, { ...withoutACard('COMMON'), archivedAt: '2020-01-01' }];
+  render(base);
+  expect(text()).toContain(SHARED);
 });
 
 it('explains set versions with the version being shown, and flags an older one (#804)', () => {

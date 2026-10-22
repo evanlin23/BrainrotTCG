@@ -13,6 +13,7 @@ import {
   handOdds,
   oneIn,
   type HandKey,
+  type Rarity,
   type SetDefinition,
 } from '../../engine';
 import { CARD_RARITIES } from '../../data/cards';
@@ -53,11 +54,21 @@ const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.
 /** A per-card chance in basis points, as the tables show it: "2.5%". */
 const formatPerCard = (basisPoints: number) => `${(basisPoints / 100).toLocaleString()}%`;
 
-/** What decides a pack's odds, so two sets can be compared: pack size, rarity and holo odds, and which modifier table. */
-const oddsKey = (set: SetDefinition) => JSON.stringify([set.packSize, set.odds, set.holoOdds, set.modifiers ?? null]);
+/** How many of a set's cards have each rarity: handOdds splits a rarity's chance across them, so it shapes the combo table. */
+const cardsOfRarity = (set: SetDefinition, rarity: Rarity) => set.cards.filter((c) => c.rarity === rarity).length;
 
-/** Whether every set you can open today rolls its packs with these same odds. */
-const allSetsShareOdds = (set: SetDefinition) => SETS.filter(isOpenable).every((other) => oddsKey(other) === oddsKey(set));
+/**
+ * Whether two sets roll packs the same way as far as the tables show: pack size, holo odds, modifier table,
+ * and for each rarity its chance and how many cards share it. Field by field, so key order doesn't matter.
+ */
+const sameRolls = (a: SetDefinition, b: SetDefinition) =>
+  a.packSize === b.packSize &&
+  a.holoOdds === b.holoOdds &&
+  a.modifiers === b.modifiers &&
+  RARITIES_RAREST_FIRST.every((r) => a.odds[r] === b.odds[r] && cardsOfRarity(a, r) === cardsOfRarity(b, r));
+
+/** Whether every set you can open today rolls its packs the way this one does. */
+const allSetsShareOdds = (set: SetDefinition) => SETS.filter(isOpenable).every((other) => sameRolls(other, set));
 
 /** The finish the worked example uses. */
 const EXAMPLE_FINISH = 'GOLD' as const;
@@ -91,7 +102,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
           <p className="scoring-note">
             {sharedOdds
               ? 'Every set you can open uses these same odds, pack size and scoring, so the tables below hold for all of them.'
-              : `Each set has its own odds and pack size, so other sets can differ: the tables below are for ${set.name}.`}
+              : `Odds or pack size differ between sets; these tables are for ${set.name}.`}
           </p>
         )}
         <p className="scoring-note">

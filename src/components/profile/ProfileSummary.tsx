@@ -16,8 +16,13 @@ const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumF
 /** Hands worth bragging about, rarest first. */
 const SHOWN_HANDS: HandKey[] = ['FIVE_OF_A_KIND', 'FOUR_OF_A_KIND', 'FULL_HOUSE', 'THREE_OF_A_KIND', 'TWO_PAIR'];
 
-/** Combos that earn bonus XP, rarest first: from the engine's XP table, so the list can't drift from what levels are worked out from. */
-const XP_HANDS = (Object.keys(XP_PER_HAND) as HandKey[]).filter((h) => XP_PER_HAND[h] > 0).sort((a, b) => XP_PER_HAND[b] - XP_PER_HAND[a]);
+/**
+ * Combos that earn bonus XP, from the engine's XP table so the list can't drift from what levels are worked out from.
+ * Most XP first; combos with the same XP go rarest first (the higher multiplier).
+ */
+const XP_HANDS = (Object.keys(XP_PER_HAND) as HandKey[])
+  .filter((h) => XP_PER_HAND[h] > 0)
+  .sort((a, b) => XP_PER_HAND[b] - XP_PER_HAND[a] || POKER_HANDS[b].multiplier - POKER_HANDS[a].multiplier);
 const NO_XP_HANDS = (Object.keys(XP_PER_HAND) as HandKey[]).filter((h) => XP_PER_HAND[h] === 0).map((h) => POKER_HANDS[h].name).join(' and ');
 
 interface ProfileSummaryProps {
