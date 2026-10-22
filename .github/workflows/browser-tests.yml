@@ -55,70 +55,92 @@ jobs:
           path: test-results/
           retention-days: 7
 
-  # Pull requests only: every browser spec the PR adds or changes runs 10 more times in both
-  # projects, so a test that passes only some of the time fails here, before it merges. A PR that
-  # changes no spec stops after the diff. Cost: about 10x each changed spec's run time, in parallel
-  # with the shards.
-  browser-burn-in:
-    if: github.event_name == 'pull_request'
+
+  # Burn-in: the specs this branch adds or changes, and those that import a browser helper it
+  # changes, run again with --repeat-each. A test that passes only some of the time fails here,
+  # before it merges.
+  # - scripts/burn-in-plan.ts picks the specs and the repeats: 10 when few specs changed, scaled
+  #   to a fixed budget of spec runs as the list grows, never below 2, and never dropping a spec.
+  #   The longest it can take is the whole suite twice, split over 3 shards.
+  # - It runs on pushes and pull requests alike, because either event's `browser-tests` result
+  #   can satisfy branch protection, so both must burn in.
+  # - A branch that changes no spec or helper stops after the plan.
+  browser-burn-in-plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      specs: ${{ steps.plan.outputs.specs }}
+      repeat: ${{ steps.plan.outputs.repeat }}
     steps:
-      # The merge commit and its first parent (the base), to list what the PR changes.
+      # Full history without file contents, so the merge base with main is cheap to find.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 2
-      - id: changed
-        run: |
-          specs=$(git diff --name-only --diff-filter=d HEAD^1 HEAD -- 'tests/browser/*.spec.ts' | tr '\n' ' ')
-          echo "Changed specs: ${specs:-none}"
-          echo "specs=$specs" >> "$GITHUB_OUTPUT"
-      - if: steps.changed.outputs.specs != ''
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
-      - if: steps.changed.outputs.specs != ''
-        run: npm ci
-      - if: steps.changed.outputs.specs != ''
-        run: npx playwright install --with-deps chromium
+      - run: npm ci
+      - id: plan
+        run: npx tsx scripts/burn-in-plan.ts origin/main
+
+  browser-burn-in:
+    needs: browser-burn-in-plan
+    if: needs.browser-burn-in-plan.outputs.specs != ''
+    name: browser-burn-in shard ${{ matrix.shard }}/3
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - id: previews
-        if: steps.changed.outputs.specs != ''
         run: |
           contract=$(npx tsx scripts/preview-pages.ts --cache-contract)
           echo "contract=$contract" >> "$GITHUB_OUTPUT"
-      - if: steps.changed.outputs.specs != ''
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/previews
           key: previews-${{ steps.previews.outputs.contract }}-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/engine/**', 'src/content/sets/index.ts', 'src/content/sets/*/*.json', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp', 'package-lock.json') }}
           restore-keys: previews-${{ steps.previews.outputs.contract }}-
-      - if: steps.changed.outputs.specs != ''
-        env:
-          SPECS: ${{ steps.changed.outputs.specs }}
+      - env:
+          SPECS: ${{ needs.browser-burn-in-plan.outputs.specs }}
+          REPEAT: ${{ needs.browser-burn-in-plan.outputs.repeat }}
+          SHARD: ${{ matrix.shard }}
         run: |
           # SPECS is a space-separated list of spec paths, split on purpose.
           # shellcheck disable=SC2086
-          npx playwright test $SPECS --repeat-each=10
+          npx playwright test $SPECS --repeat-each="$REPEAT" --shard="$SHARD/3"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: playwright-test-results-burn-in
+          name: playwright-test-results-burn-in-${{ matrix.shard }}
           path: test-results/
           retention-days: 7
 
-  # The check that branch protection and reviews look for: it passes only when every shard passed
-  # and, on a pull request, the burn-in passed too (it is skipped on pushes).
+  # The check that branch protection and reviews look for. It passes only when every shard passed,
+  # the burn-in plan ran, and the burn-in either passed or was skipped because the plan found no spec.
   browser-tests:
-    needs: [browser-shard, browser-burn-in]
+    needs: [browser-shard, browser-burn-in-plan, browser-burn-in]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Require every shard and the burn-in to pass
         env:
           RESULT: ${{ needs.browser-shard.result }}
+          PLAN: ${{ needs.browser-burn-in-plan.result }}
+          SPECS: ${{ needs.browser-burn-in-plan.outputs.specs }}
           BURN_IN: ${{ needs.browser-burn-in.result }}
         run: |
-          echo "Shards: $RESULT. Burn-in: $BURN_IN"
+          echo "Shards: $RESULT. Burn-in plan: $PLAN. Burn-in: $BURN_IN"
           test "$RESULT" = success
-          test "$BURN_IN" = success || test "$BURN_IN" = skipped
+          test "$PLAN" = success
+          test "$BURN_IN" = success || { test "$BURN_IN" = skipped && test -z "$SPECS"; }

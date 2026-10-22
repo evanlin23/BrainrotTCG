@@ -272,7 +272,7 @@ class Workflows(unittest.TestCase):
 """, 'not pinned to a commit')
 
     # browser-tests.yml uploads from the shards and from the burn-in: break each upload in turn.
-    BROWSER_UPLOADS = ['playwright-test-results-shard-${{ matrix.shard }}', 'playwright-test-results-burn-in']
+    BROWSER_UPLOADS = ['playwright-test-results-shard-${{ matrix.shard }}', 'playwright-test-results-burn-in-${{ matrix.shard }}']
 
     def test_ci_upload_on_success(self):
         for name in self.BROWSER_UPLOADS:
@@ -287,6 +287,20 @@ class Workflows(unittest.TestCase):
                 self.assertBroken('browser-tests.yml', f'name: {name}\n          path: test-results/\n          retention-days: 7\n',
                                   f'name: {name}\n          path: test-results/\n          retention-days: 30\n',
                                   'must upload only on failure() and keep it 7 days')
+
+    def test_browser_check_waits_for_the_burn_in(self):
+        # The required `browser-tests` check passes only after the burn-in. The burn-in may be
+        # skipped only when its plan ran and found no spec, and it has no event filter, because a
+        # push run and a pull request run of the same commit can each satisfy branch protection.
+        jobs = dc.load(WORKFLOWS / 'browser-tests.yml')['jobs']
+        gate = jobs['browser-tests']
+        self.assertEqual(set(gate['needs']), {'browser-shard', 'browser-burn-in-plan', 'browser-burn-in'})
+        self.assertEqual(gate['if'], 'always()')
+        script = gate['steps'][0]['run']
+        self.assertIn('test "$PLAN" = success', script)
+        self.assertIn('test "$BURN_IN" = success || { test "$BURN_IN" = skipped && test -z "$SPECS"; }', script)
+        self.assertNotIn('if', jobs['browser-burn-in-plan'])
+        self.assertEqual(jobs['browser-burn-in']['if'], "needs.browser-burn-in-plan.outputs.specs != ''")
 
     def test_ci_runs_this_test(self):
         ci = dc.load(WORKFLOWS / 'ci.yml')

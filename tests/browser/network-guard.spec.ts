@@ -389,4 +389,14 @@ test.describe('continueAllowed keeps the original same-origin routing', () => {
     await page.evaluate(() => fetch('/redirect-escape').catch(() => undefined));
     await expect.poll(() => errors.blocked.some((b) => b.includes('redirect escape') && b.includes(externalOrigin))).toBe(true);
   });
+
+  test('a redirect escape from another page of the same context is recorded too', async ({ page }) => {
+    const errors = await monitor(page, primaryUrl, 0, { continueAllowed: true, failOnUnexpected: false });
+    await page.goto(primaryUrl);
+    const other = await page.context().newPage();
+    await other.goto(primaryUrl);
+    await other.evaluate(() => fetch('/redirect-escape').catch(() => undefined));
+    await expect.poll(() => errors.blocked.some((b) => b.includes('redirect escape') && b.includes(externalOrigin))).toBe(true);
+    await other.close();
+  });
 });
