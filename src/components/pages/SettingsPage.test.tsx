@@ -503,6 +503,75 @@ describe('Settings: importing a backup file', () => {
     expect(button('Replace')).toBeUndefined();
     expect(button('Keep mine')).toBeUndefined();
   });
+
+  describe('focus after the Replace question (#978)', () => {
+    const STATS = JSON.stringify({ packsOpened: 3 });
+    const OTHER = { player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) };
+    const renderWith = (onImportSave: (content: string, keepCopy?: boolean) => string | null) => {
+      localStorage.setItem('brainrot-player-v1', player('aa'));
+      localStorage.setItem('brainrot-stats-v1', STATS);
+      act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+    };
+    /** Opens the question the way a keyboard user does: the answer is pressed with focus on it. */
+    const askAndFocus = async (name: string) => {
+      await pick(OTHER);
+      act(() => button(name).focus());
+      expect(document.activeElement).toBe(button(name));
+    };
+    const importButton = () => button('Import');
+
+    it('puts focus on Import after Keep mine', async () => {
+      renderWith(() => null);
+      await askAndFocus('Keep mine');
+      await click('Keep mine');
+      expect(restoreNote().textContent).toBe('Kept your save.');
+      expect(document.activeElement).toBe(importButton());
+    });
+
+    it('puts focus on Import after Replace, whether the import goes through or fails', async () => {
+      const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+      renderWith(onImportSave);
+      await askAndFocus('Replace');
+      await click('Replace');
+      expect(onImportSave).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(importButton());
+
+      onImportSave.mockReturnValue("This browser's storage has no room for this file. Your previous save data was restored.");
+      await askAndFocus('Replace');
+      await click('Replace');
+      expect(restoreNote().textContent).toBe("This browser's storage has no room for this file. Your previous save data was restored.");
+      expect(document.activeElement).toBe(importButton());
+    });
+
+    it('puts focus on Import when Replace finds the save changed since the question', async () => {
+      const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+      renderWith(onImportSave);
+      await askAndFocus('Replace');
+      localStorage.setItem(SAVE_STAMP_KEY, 'stamp-changed-elsewhere');
+      await click('Replace');
+      expect(restoreNote().textContent).toBe(STALE_SAVE_WARNING);
+      expect(onImportSave).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(importButton());
+    });
+
+    it('keeps focus on the same button while the no-room question asks again, then on Import', async () => {
+      const onImportSave = vi.fn((_content: string, keepCopy?: boolean): string | null => (keepCopy ? NO_ROOM_FOR_COPY_NOTE : null));
+      renderWith(onImportSave);
+      await askAndFocus('Replace');
+      const replace = button('Replace');
+      await click('Replace');
+      // Same button, now offering to go on without a copy.
+      expect(button('Replace without a copy')).toBe(replace);
+      expect(document.activeElement).toBe(replace);
+      await click('Keep mine');
+      expect(document.activeElement).toBe(importButton());
+      await askAndFocus('Replace');
+      await click('Replace');
+      await click('Replace without a copy');
+      expect(onImportSave.mock.calls.map(([, keepCopy]) => keepCopy)).toEqual([true, true, false]);
+      expect(document.activeElement).toBe(importButton());
+    });
+  });
 });
 
 describe('Settings: Help', () => {
