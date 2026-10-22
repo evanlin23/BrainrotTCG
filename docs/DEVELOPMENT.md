@@ -23,6 +23,24 @@ check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it
    main. Only the owner approves new card sets or removing a set's draft flag. Merges to main deploy
    automatically. Never deploy, or submit real data such as Hall of Fame entries, as a test.
 
+## Review evidence
+
+The reviewer (`.claude/agents/reviewer.md`) picks evidence from the diff, by risk, and records the
+head, the evidence checked and remaining risks. Missing required evidence is `changes-needed` or an
+external blocker, never an implied pass. Don't trust the author's summary.
+
+| Change | Evidence |
+| --- | --- |
+| Docs, low risk | Links and `git diff --check`. |
+| Behaviour, storage, proof, engine, spec, migration, workflow | A counterexample from the contract, independent of the author's tests. Mocks keep the real boundary's types, error kinds and lifecycle. Migrations: the real startup entry. |
+| Visible flow | Player problem, observable acceptance, the screen's job, primary fact and next action. Empty, loading and error states; fit with existing navigation, components and tokens. Narrow, short and enlarged text, keyboard, reduced motion as relevant. Repeated facts: keep, merge, demote, disclose or remove. A screenshot or test count alone isn't approval. |
+| Architecture, public-resource growth | Responsibility owner, simpler existing option, async and resource lifetime, bounded untrusted data, compatibility. No speculative frameworks. |
+
+The reviewer can't render the PR. For a visible flow, the implementer gives bounded, sanitized
+before/after observations on the exact head, using the [DESIGN.md](DESIGN.md) rules and, for a
+meaningful flow change, [`npm run audit:agent`](#local-agent-usability-audit). Tests must be
+deterministic: reviewers block fixed sleeps, timing-dependent waits, and retries or skips a PR adds.
+
 ## Checks
 
 | When | Run |

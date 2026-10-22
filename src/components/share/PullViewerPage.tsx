@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
-import { checkPull, previewFor, pullUrl, type CheckedPull } from '../../game/pulls';
+import { checkPull, previewFor, pullUrl, UnknownCardError, type CheckedPull } from '../../game/pulls';
 import { isMemoryError, OUT_OF_MEMORY_ADVICE } from '../../game/ticketPool';
-import { ANONYMOUS_NAME, NAME_PLACEHOLDER, publicName, type SetDefinition } from '../../engine';
+import { ANONYMOUS_NAME, NAME_PLACEHOLDER, ProofError, publicName, type SetDefinition } from '../../engine';
 import { setCode } from '../../content/sets';
 import PackCardViewer from '../ui/PackCardViewer';
 import Sheet from '../ui/Sheet';
@@ -21,16 +21,16 @@ interface PullViewerPageProps {
 type State =
   | { status: 'checking' }
   | { status: 'ok'; pull: CheckedPull }
-  | { status: 'error'; reason: string }
-  /** This device ran out of memory re-opening the pack: says nothing about the pull itself. */
-  | { status: 'memory' };
+  | { status: 'invalid'; reason: string }
+  | { status: 'unknown_set'; reason: string }
+  | { status: 'operational'; headline: string; message: string };
 
 /** Opened from a shared `#/pull/<proof>` link. Everything is verified right here, on the viewer's device. */
 const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPageProps) => {
   const [activeProof, setActiveProof] = useState(proof);
   const [state, setState] = useState<State>({ status: 'checking' });
   const [copied, setCopied] = useState(false);
-  /** Bumped by "Try again" after running out of memory. */
+  /** Bumped by "Try again" after running out of memory or experiencing an operational error. */
   const [attempt, setAttempt] = useState(0);
 
   // When proof changes across route transitions in the same mounted sheet,
@@ -47,12 +47,30 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
     checkPull(proof, stop.signal)
       .then((pull) => !cancelled && setState({ status: 'ok', pull }))
       .catch((error: unknown) => {
-        if (cancelled) return;
-        if (isMemoryError(error)) {
+        if (cancelled || stop.signal.aborted) return;
+        if (error instanceof ProofError) {
+          if (error.rule === 'set') {
+            setState({ status: 'unknown_set', reason: error.message });
+          } else {
+            setState({ status: 'invalid', reason: error.message });
+          }
+        } else if (error instanceof UnknownCardError) {
+          // The same on every device, so offering a retry would be wrong.
+          setState({ status: 'invalid', reason: error.message });
+        } else if (isMemoryError(error)) {
           console.error('Pull verification failed', error);
-          setState({ status: 'memory' });
+          setState({
+            status: 'operational',
+            headline: "Couldn't finish re-opening the pack on this device",
+            message: OUT_OF_MEMORY_ADVICE,
+          });
         } else {
-          setState({ status: 'error', reason: error instanceof Error ? error.message : String(error) });
+          console.error('Pull verification failed', error);
+          setState({
+            status: 'operational',
+            headline: "Couldn't verify on this device",
+            message: 'Something went wrong while re-opening the pack. Try again.',
+          });
         }
       });
     return () => {
@@ -63,7 +81,9 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
 
   const copyLink = async () => {
     // Once the pack is checked, the link previews as its best card.
-    const link = pullUrl(proof, state.status === 'ok' ? previewFor(state.pull.cardsWithMeta) : undefined);
+    // Ensure the preview is derived only from the successfully verified current proof.
+    const preview = state.status === 'ok' ? previewFor(state.pull.cardsWithMeta) : undefined;
+    const link = pullUrl(proof, preview);
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -90,15 +110,14 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
     );
   }
 
-  if (state.status === 'memory') {
-    // Same message and retry as the profile viewer's: running out of memory isn't the pull's fault.
+  if (state.status === 'operational') {
     return (
       <Sheet title="Couldn't check this pull" onClose={onClose} size="sm" footer={openOwn}>
         <div className="profile-verify is-failed" role="status">
           <span className="profile-verify-line">
-            <ShieldAlert aria-hidden="true" /> Couldn't finish re-opening the pack on this device
+            <ShieldAlert aria-hidden="true" /> {state.headline}
           </span>
-          <span className="profile-verify-sub">{OUT_OF_MEMORY_ADVICE}</span>
+          <span className="profile-verify-sub">{state.message}</span>
           <button
             type="button"
             className="btn btn--secondary btn--sm profile-verify-retry"
@@ -114,7 +133,22 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
     );
   }
 
-  if (state.status === 'error') {
+  if (state.status === 'unknown_set') {
+    return (
+      <Sheet title="Couldn't check this pull" onClose={onClose} size="sm" footer={openOwn}>
+        <p className="pull-viewer-badge is-invalid">
+          <span>
+            <ShieldAlert aria-hidden="true" /> {state.reason}
+          </span>
+        </p>
+        <p className="share-note">
+          This pull is from a set or version this app doesn't recognize. Make sure you are using the latest version of the game.
+        </p>
+      </Sheet>
+    );
+  }
+
+  if (state.status === 'invalid') {
     return (
       <Sheet title="Not a valid pull" onClose={onClose} size="sm" footer={openOwn}>
         <p className="pull-viewer-badge is-invalid">
