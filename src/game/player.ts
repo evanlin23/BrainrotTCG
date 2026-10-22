@@ -425,6 +425,18 @@ export const watchPlayer = (onChange: () => void, onCountRefused?: () => void): 
   return () => window.removeEventListener('storage', listener);
 };
 
+/**
+ * Like watchPlayer, for a view that only needs to know when the stored player may have changed
+ * (a share sheet): it never writes, so it cannot touch the ticket count or raise its refusal.
+ */
+export const watchStoredPlayer = (onChange: () => void): (() => void) => {
+  const listener = (event: StorageEvent) => {
+    if (event.key === null || event.key === STORAGE_KEY || event.key === SAVE_STAMP_KEY) onChange();
+  };
+  window.addEventListener('storage', listener);
+  return () => window.removeEventListener('storage', listener);
+};
+
 /** `onWriteError` hears why storage refused the identity (a full storage, say), when it did. */
 export const importPlayer = (raw: string, onWriteError?: (error: unknown) => void): boolean => {
   const incoming = parsePlayer(raw);

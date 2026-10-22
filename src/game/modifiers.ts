@@ -18,6 +18,13 @@ export const FINISH_INFO: Record<Finish, { name: string; color: string }> = {
 export const modifierLabel = (card: { isHolo?: boolean; finish?: Finish | null; misprint?: boolean }, withHolo = true): string =>
   [card.finish && FINISH_INFO[card.finish].name, withHolo && card.isHolo && 'Holo', card.misprint && 'Misprint'].filter(Boolean).join(' · ');
 
+/**
+ * An owned version in words for the close-up's chips and stats: "Plain" when it has no modifiers, and
+ * "(uncertain)" after a version rebuilt from tallies that fit more than one combination.
+ */
+export const versionName = (version: { isHolo?: boolean; finish?: Finish | null; misprint?: boolean; uncertain?: boolean }): string =>
+  `${modifierLabel(version) || 'Plain'}${version.uncertain ? ' (uncertain)' : ''}`;
+
 /** The rarest finish in a tally of finishes owned, if any. */
 export const bestFinish = (finishes?: Partial<Record<Finish, number>>): Finish | undefined => FINISHES_RAREST_FIRST.find((f) => (finishes?.[f] ?? 0) > 0);
 

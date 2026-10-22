@@ -46,7 +46,8 @@ test('the card close-up levels, and stops tilting, when reduced motion turns on 
 });
 
 test.describe('forced colours', () => {
-  test.use({ forcedColors: 'active' });
+  // Reduced motion also stops the `.switch` background transition, so colours read right after a toggle are final.
+  test.use({ forcedColors: 'active', reducedMotion: 'reduce' });
 
   /** What forced colours paint for a control: its box, or its ::after thumb. */
   const paint = (control: Locator, pseudo?: '::after') => control.evaluate((el, pseudo) => {
@@ -111,7 +112,8 @@ test.describe('forced colours', () => {
 
   test('the chosen reward keeps a marker the other unlocked rewards lack after focus moves away', async ({ page, baseURL }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
-    // Enough saved packs for level 4, which unlocks the Midnight card back.
+    // Enough saved packs for level 4, which unlocks the Midnight card back: 60 packs x 10 XP + 4 unique cards x 25 XP = 700,
+    // and level 4 needs 600. If XP values or level thresholds change, revisit this count.
     const errors = await seed(page, baseURL!, 60);
     await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'Profile', exact: true }).click();
     await page.locator('.profile-rewards summary').click();
