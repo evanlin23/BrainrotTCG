@@ -16,7 +16,7 @@ import {
   type VerifiedPull,
 } from '../engine';
 import { ALL_SET_VERSIONS, getSet } from '../content/sets';
-import { claimNonce, getPlayer, peekNonce } from './player';
+import { claimNonce, getPlayer, peekNonce, sameSave, saveMark, StaleSaveError, type SaveMark } from './player';
 import { recordPack, recordTicket } from './history';
 import { recordBestCards } from './bestCards';
 import { decodeCard, encodeCard, modifiersFor } from './cardCode';
@@ -71,6 +71,8 @@ export const prefetchNextPack = (set: SetDefinition) => {
     .catch(() => undefined);
 };
 
+export { StaleSaveError };
+
 /**
  * Open a pack: mine (or reuse) the next number's ticket, then consume the number, derive the cards and
  * record its mapping. The number is claimed only once its ticket is in hand, so no mining sits between
@@ -78,11 +80,13 @@ export const prefetchNextPack = (set: SetDefinition) => {
  * Without Web Locks both writes land in one task; with them, the claim's lock release (a few lock-manager
  * steps, no mining) sits between, and a tab closed right there leaves the number spent with no mapping.
  */
-export const openPack = async (set: SetDefinition): Promise<OpenedPack> => {
+export const openPack = async (set: SetDefinition, expectedSave?: SaveMark): Promise<OpenedPack> => {
+  const initiatingSave = expectedSave ?? saveMark();
   const owner = getPlayer();
   const next = peekNonce();
   let ticket = await getTicket(setKey(set), owner.publicKey, next);
-  const { nonce, player, stored } = await claimNonce();
+  if (!sameSave(initiatingSave, saveMark())) throw new StaleSaveError();
+  const { nonce, player, stored } = await claimNonce(initiatingSave);
   // One time for the stand-in below and the pack, so the pack sorts where its stand-in did.
   const openedAt = Date.now();
   // Another tab took that number (or switched the key) meanwhile: mine the one claimed. Its mapping is

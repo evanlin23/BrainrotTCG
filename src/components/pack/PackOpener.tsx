@@ -23,6 +23,7 @@ import ShowcaseRibbon from './ShowcaseRibbon';
 import { revealAnnouncement } from '../cards/cardLabel';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 import { packImageUrl } from '../../content/art';
+import { StaleSaveError } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
 
@@ -115,13 +116,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     } catch (error) {
       console.error('Could not open pack', error);
       setIsPackCut(false);
+      landingRef.current.resetCutState();
       if (leaveOpeningRef.current) {
         // Already back on the packs screen: nothing was dealt, so there's nothing to say.
         leaveOpeningRef.current = false;
         setLeavingOpen(false);
-        landingRef.current.resetCutState();
       } else {
-        setRefusal('failed');
+        setRefusal(error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed');
       }
       return;
     }

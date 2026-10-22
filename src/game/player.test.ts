@@ -413,6 +413,49 @@ describe('claiming the next ticket number', () => {
     expect(stored()).toEqual({ ...incoming, nextNonce: 8 });
   });
 
+  it("refuses to claim the new player's number when authorized for an initiating save that was replaced mid-claim", async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    const incoming = identity();
+    vi.stubGlobal('navigator', { locks: fakeLocks((name) => {
+      if (name.includes(ORIGINAL_KEY)) store.set(PLAYER_KEY, JSON.stringify(incoming));
+    }) });
+    await expect(player.claimNonce(initiating)).rejects.toBeInstanceOf(player.StaleSaveError);
+    // Incoming player's counter was not touched.
+    expect(stored()).toEqual(incoming);
+  });
+
+  it("refuses to claim when the save is replaced by a new import stamp of the same player mid-claim", async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    vi.stubGlobal('navigator', { locks: fakeLocks((name) => {
+      if (name.includes(ORIGINAL_KEY)) store.set(player.SAVE_STAMP_KEY, player.newSaveStamp());
+    }) });
+    await expect(player.claimNonce(initiating)).rejects.toBeInstanceOf(player.StaleSaveError);
+    expect(stored()).toEqual(original);
+  });
+
+  it("refuses fallback claiming when the save changed during lock wait or lock failure", async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    const incoming = identity();
+    vi.stubGlobal('navigator', { locks: { request: vi.fn(async () => {
+      store.set(PLAYER_KEY, JSON.stringify(incoming));
+      throw new DOMException('Denied', 'SecurityError');
+    }) } });
+    await expect(player.claimNonce(initiating)).rejects.toBeInstanceOf(player.StaleSaveError);
+    expect(stored()).toEqual(incoming);
+  });
+
+  it("refuses allocateNonce when the save changed", () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    const incoming = identity();
+    store.set(PLAYER_KEY, JSON.stringify(incoming));
+    expect(() => player.allocateNonce(initiating)).toThrow(player.StaleSaveError);
+    expect(stored()).toEqual(incoming);
+  });
+
   it('falls back to this tab alone where Web Locks are missing or refuse', async () => {
     store.set(PLAYER_KEY, JSON.stringify(original));
     vi.stubGlobal('navigator', {});

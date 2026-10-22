@@ -6,6 +6,7 @@ import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack } from '../../game/pulls';
+import { StaleSaveError } from '../../game/player';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 import { REFUSAL_COPY } from './refusal';
@@ -218,6 +219,20 @@ describe('the controls under the pack (#312)', () => {
     expect(document.activeElement).toBe(openButton());
     await pastTheTear();
     expect(openPack).toHaveBeenCalledTimes(2);
+  });
+
+  it('says the save changed and stays sealed when openPack rejects with StaleSaveError', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(openPack).mockRejectedValueOnce(new StaleSaveError());
+    await render(false);
+    openButton()!.focus();
+    act(() => openButton()!.click());
+    await pastTheTear();
+
+    expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
+    expect(announced()).toBe(REFUSAL_COPY.blocked.message);
+    expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    await act(async () => { vi.advanceTimersByTime(100); });
   });
 
   it('keeps the pack sealed while another tab holds the save, and says so instead of tearing it', async () => {

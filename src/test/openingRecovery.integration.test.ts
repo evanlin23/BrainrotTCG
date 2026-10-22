@@ -121,6 +121,87 @@ it('waits for a slow ticket with the app held on the pack, then records the late
   expect(document.querySelector('.pack-hint.is-waiting')).toBeNull();
 }, 60_000);
 
+it('refuses a late pack opening when another tab imports player B during mining, leaving B untouched with no reveal', async () => {
+  app = await mountedApp(SEED, { tickets: () => ({ delayMs: 4000 }) });
+  await app.mount();
+  await pressPack();
+  await app.until('a slow ticket says so', () => {
+    expect(document.querySelector('.pack-hint.is-waiting')?.textContent).toBe('Taking a moment…');
+  });
+
+  const saveB = JSON.stringify({
+    version: 2,
+    exportedAt: '2026-01-01T00:00:00Z',
+    collection: '{}',
+    stats: JSON.stringify({ packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
+    player: JSON.stringify({ secretKey: '02'.repeat(32), name: 'Player B', nextNonce: 0, createdAt: 2 }),
+  });
+  await app.interact(async () => {
+    const { importSaveFile } = await import('../game/saveFile');
+    expect(importSaveFile(saveB)).toBeNull();
+    window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-player-v1' }));
+  });
+
+  await app.until('the stale save warning appears', () => {
+    expect(document.querySelector('.save-warning')?.textContent).toContain('This save changed in another tab');
+  });
+
+  await app.until('the pack stays sealed and shows refusal', () => {
+    expect(document.querySelector('.pack-refusal-text')?.textContent).toBe(
+      'Your save changed in another tab, so this pack stayed sealed. Reload to keep opening packs here.',
+    );
+    expect(document.querySelector('.pack-retry-button')?.textContent).toBe('Reload and try again');
+  });
+
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(document.querySelector('.reveal-container')).toBeNull();
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
+  expect(read<{ secretKey: string }>(PLAYER_KEY).secretKey).toBe('02'.repeat(32));
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(0);
+  expect(await history()).toEqual([]);
+  expectShelvesEmpty();
+  expect(storedCards()).toBe(0);
+}, 60_000);
+
+it('refuses a late pack opening when another tab imports a backup of the same player during mining', async () => {
+  app = await mountedApp(SEED, { tickets: () => ({ delayMs: 4000 }) });
+  await app.mount();
+  await pressPack();
+  await app.until('a slow ticket says so', () => {
+    expect(document.querySelector('.pack-hint.is-waiting')?.textContent).toBe('Taking a moment…');
+  });
+
+  const saveA = JSON.stringify({
+    version: 2,
+    exportedAt: '2026-01-01T00:00:00Z',
+    collection: '{}',
+    stats: JSON.stringify({ packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
+    player: JSON.stringify({ secretKey: '01'.repeat(32), name: 'Mounted fixture', nextNonce: 0, createdAt: 1 }),
+  });
+  await app.interact(async () => {
+    const { importSaveFile } = await import('../game/saveFile');
+    expect(importSaveFile(saveA)).toBeNull();
+    window.dispatchEvent(new StorageEvent('storage', { key: 'brainrot-save-stamp-v1' }));
+  });
+
+  await app.until('the pack stays sealed and shows refusal', () => {
+    expect(document.querySelector('.pack-refusal-text')?.textContent).toBe(
+      'Your save changed in another tab, so this pack stayed sealed. Reload to keep opening packs here.',
+    );
+    expect(document.querySelector('.pack-retry-button')?.textContent).toBe('Reload and try again');
+  });
+
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(document.querySelector('.reveal-container')).toBeNull();
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(0);
+  expect(await history()).toEqual([]);
+  expectShelvesEmpty();
+  expect(storedCards()).toBe(0);
+}, 60_000);
+
 it('spends nothing for a pack whose ticket was still mining at a reload, and opens that nonce once later', async () => {
   let delayMs = 60_000;
   app = await mountedApp(SEED, { tickets: () => ({ delayMs }) });
