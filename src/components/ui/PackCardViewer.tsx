@@ -22,6 +22,12 @@ interface PackCardViewerProps {
     canShareCards?: boolean;
     /** The set, at the version the pack was opened, whose odds and modifiers the card guide shows (#676). */
     set?: SetDefinition;
+    /**
+     * A title above already names the combo (a shared pull's "Pair"): the combo headline is left out so the
+     * combo and its multiplier read once, the multiplier in the score panel's arithmetic. A pack with no
+     * combo is never titled: it keeps its own "No Matches" line.
+     */
+    titled?: boolean;
 }
 
 const PackCardViewer = ({
@@ -32,6 +38,7 @@ const PackCardViewer = ({
     className = '',
     canShareCards = false,
     set,
+    titled = false,
 }: PackCardViewerProps) => {
     const [selectedCard, setSelectedCard] = useState<CardWithMeta | null>(null);
 
@@ -59,7 +66,7 @@ const PackCardViewer = ({
         <div className={`pack-card-viewer ${className}`}>
             {showValue && (
                 <>
-                    <PackHeadline cards={cards} showTotal={false} />
+                    {!titled && <PackHeadline cards={cards} showTotal={false} />}
                     <BrainrotScorePanel
                         points={points}
                         multiplier={pokerHand.multiplier}
