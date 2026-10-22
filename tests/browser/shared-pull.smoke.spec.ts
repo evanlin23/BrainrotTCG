@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { verifyProof } from '../../src/engine/proof';
+import { toHex } from '../../src/engine/bytes';
+import { decodeProof, verifyProof } from '../../src/engine/proof';
 import type { PulledCard, SetDefinition } from '../../src/engine/types';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPreviewPath, headline, previewPath, type ModifiedCard } from '../../src/game/previewLinks';
@@ -380,3 +381,64 @@ for (const invalid of invalidCases) {
     expect(loadFailures(errors, baseURL!)).toEqual([]);
   });
 }
+
+test('shows inability to verify unknown set without calling pull fabricated', async ({ page, baseURL }) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+  const unknownSet = vectors.invalid.find((v) => v.note === 'unknown set')!;
+  const { errors, openRoute } = await startJourney(page, baseURL!);
+  await openRoute(`./#/pull/${unknownSet.proof}`);
+  const dialog = page.getByRole('dialog', { name: "Couldn't check this pull", exact: true });
+  await expect(dialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  const { setId, setVersion } = decodeProof(unknownSet.proof);
+  await expect(dialog).toContainText(`Unknown set ${setId}@${setVersion}`);
+  await expect(dialog).not.toContainText('The link was edited, cut off or made up');
+  await expect(dialog.getByRole('button', { name: 'Open your own packs' })).toBeVisible();
+  expect(loadFailures(errors, baseURL!)).toEqual([]);
+});
+
+test('recovers from operational computation failure via retry on valid pull', async ({ page, baseURL }) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+  const vector = vectors.valid[0];
+  const { errors, openRoute } = await startJourney(page, baseURL!);
+  // Fail the first ticket job for this proof's player key with an operational error. The app's own
+  // background mining (another key, the next pack) passes through, so only the pull check is hit.
+  const publicKeyHex = toHex(decodeProof(vector.proof).publicKey);
+  await page.addInitScript((failKey) => {
+    let failedOnce = false;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      override postMessage(message: unknown, options?: Transferable[] | StructuredSerializeOptions) {
+        const job = message as { id?: number; setKey?: string; publicKeyHex?: string } | null;
+        if (!failedOnce && job && typeof job === 'object' && 'setKey' in job && job.publicKeyHex === failKey) {
+          failedOnce = true;
+          setTimeout(() => {
+            this.dispatchEvent(new MessageEvent('message', { data: { id: job.id, error: 'Temporary WASM failure (audit fixture)' } }));
+          }, 30);
+          return;
+        }
+        if (options === undefined) super.postMessage(message);
+        else super.postMessage(message, options as StructuredSerializeOptions);
+      }
+    };
+  }, publicKeyHex);
+  await openRoute(`./#/pull/${vector.proof}`);
+  const errorDialog = page.getByRole('dialog', { name: "Couldn't check this pull", exact: true });
+  await expect(errorDialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  await expect(errorDialog).toContainText("Couldn't verify on this device");
+  await expect(errorDialog).not.toContainText('Not a valid pull');
+  await expect(errorDialog).not.toContainText('The link was edited, cut off or made up');
+
+  // Retry recovers
+  const retryBtn = errorDialog.getByRole('button', { name: 'Try again' });
+  await expect(retryBtn).toBeVisible();
+  await retryBtn.click();
+
+  const pullDialog = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
+  await expect(pullDialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  await expect(pullDialog).toContainText('Verified on this device');
+  // The one console error is the app logging the failure we injected; nothing else may fail to load.
+  const failures = loadFailures(errors, baseURL!);
+  expect(failures).toHaveLength(1);
+  expect(failures[0]).toContain('Pull verification failed');
+  expect(failures[0]).toContain('Temporary WASM failure (audit fixture)');
+});
