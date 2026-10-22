@@ -16,5 +16,11 @@
       }
     ]
   },
-  "effortLevel": "high"
+  "effortLevel": "high",
+  "permissions": {
+    "allow": [
+      "Bash(git push -u origin claude/batch-*)",
+      "Bash(git push origin claude/batch-*)"
+    ]
+  }
 }
