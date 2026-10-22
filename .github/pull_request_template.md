@@ -1,16 +1,15 @@
 ## What changed
 
-<!-- One outcome. Link the issue: Fixes #n for the whole issue, Refs #n for part of it. State the concrete player problem or maintenance outcome. -->
+<!-- One outcome. Link the issue: Fixes #n for the whole issue, Refs #n for part of it. -->
 
-## Risk tier & applicable evidence
+## Evidence
 
-<!--
-Select tier:
-- Routine / Docs: formatting, comments, local link checks.
-- Visible-Flow / UI: player job, primary fact, next action; declutter check (keep/merge/demote/disclose/remove); narrow/short/enlarged text, keyboard/motion, empty/loading/error states.
-- Architecture: ownership, simpler existing alternatives, async/resource lifetime, bounded untrusted data, backward compatibility.
-- High-Risk (Storage / Proof / Engine / Workflow): independent counterexample test, mock fidelity with real boundary error taxonomy and lifecycle, startup/entry verification.
--->
+<!-- Only what applies; pure docs need none. The reviewer picks evidence from the diff.
+Visible flow: the player problem, observable acceptance, and sanitized before/after observations of
+affected states on this head (empty/loading/error, narrow and enlarged text, keyboard), or
+`npm run audit:agent` output for a meaningful flow change.
+Behaviour, storage, proof, workflow: the contract case you tested beyond your own assertions.
+Architecture or new public resource: owner of the responsibility and simpler options you rejected. -->
 
 ## What ran
 

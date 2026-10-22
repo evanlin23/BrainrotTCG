@@ -164,8 +164,10 @@ export const createProgressWriter = (host: ProgressWriterHost): ProgressWriter =
       }
       // A ticket mapping the history couldn't take when its pack opened goes in once this save is done.
       if (packs.length > 0 && !recordMissing(packs, getPlayer().publicKeyHex)) host.failed();
-      // The archive can be written even when the collection then can't be.
-      if (result !== 'saved' && collectionRecoveryState() !== 'none') {
+      // The archive can be written even when the collection then can't be. An archive storage won't
+      // read ('unavailable') may not exist: raise no note for it, and leave any note already shown.
+      const kept = collectionRecoveryState();
+      if (result !== 'saved' && (kept === 'stored' || kept === 'unsaved')) {
         host.keptAside(collectionRecoveryNote(), collectionRecoveryDismissed());
       }
     }

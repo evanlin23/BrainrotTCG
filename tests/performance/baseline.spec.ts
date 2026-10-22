@@ -17,14 +17,18 @@ for (const scenario of SCENARIOS) for (let repetition = 1; repetition <= REPETIT
     if (warm) test.setTimeout(2 * testInfo.timeout);
     const origin = new URL(baseURL!).origin;
     const cdp = await context.newCDPSession(page);
-    const errors = await monitor(page, baseURL!, historyCount, { routeHttp: !warm });
+    const errors = await monitor(page, baseURL!, historyCount, { routeHttp: !warm, continueAllowed: !warm, failOnUnexpected: false });
     if (warm) {
-      // Same HTTP guard as the context route, but through CDP Fetch so the HTTP cache stays on.
-      // It covers this page only, so any other page is an error.
+      // Same HTTP policy as the context route (errors.refuse records and answers), but through CDP
+      // Fetch so the HTTP cache stays on. It covers this page only, so any other page is an error.
       context.on('page', (other) => errors.push(`unguarded page ${other.url()}`));
       cdp.on('Fetch.requestPaused', ({ requestId, request }) => {
-        (new URL(request.url).origin === origin ? cdp.send('Fetch.continueRequest', { requestId })
-          : cdp.send('Fetch.fulfillRequest', { requestId, responseCode: 204, responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: '*' }] }))
+        const refusal = errors.refuse(request.method, request.url);
+        (!refusal ? cdp.send('Fetch.continueRequest', { requestId })
+          : cdp.send('Fetch.fulfillRequest', {
+            requestId, responseCode: refusal.status, body: Buffer.from(refusal.body).toString('base64'),
+            responseHeaders: [{ name: 'Access-Control-Allow-Origin', value: '*' }],
+          }))
           .catch((error) => errors.push(`HTTP guard: ${String(error)}`));
       });
       await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
@@ -177,6 +181,12 @@ for (const scenario of SCENARIOS) for (let repetition = 1; repetition <= REPETIT
       await expect(page.getByRole('main', { name: 'Profile', exact: true })).toContainText(`All packs · ${historyCount + 1}`);
       expect(await snapshot(page)).toEqual(before);
       expect(errors).toEqual([]);
+      // The probes above are the only unexpected attempts, and the guards recorded each of them.
+      expect([...errors.blocked].sort()).toEqual([
+        '[blocked cross-origin request] POST https://baseline-egress.invalid/worker-write',
+        '[blocked cross-origin request] POST https://baseline-egress.invalid/write',
+        '[disallowed websocket] WS wss://baseline-egress.invalid/',
+      ]);
     } finally {
       await cdp.detach();
     }

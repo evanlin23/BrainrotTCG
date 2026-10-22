@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Award, ChevronsUp, Layers } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
+import { GROUPED_TOAST_MS, TOAST_MS } from '../../constants/config';
 import '../../styles/Toasts.css';
 
 /** An achievement, or (with a kicker) something else worth a toast, like a level-up. */
@@ -37,6 +38,12 @@ interface AchievementToastsProps {
 const GROUP_AT = 3;
 
 /**
+ * How long a toast stays up is TOAST_MS or GROUPED_TOAST_MS (constants/config). Hovering or
+ * focusing it holds it until the pointer or focus leaves, and then it gets its full time again.
+ */
+export { GROUPED_TOAST_MS, TOAST_MS };
+
+/**
  * Achievement unlocks, one small toast at a time at the top of the screen. A burst (one lucky pack
  * can unlock seven) becomes a single "N achievements" toast rather than a wall over the game.
  */
@@ -48,15 +55,22 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   const key = paused || held ? '' : shown.map((a) => a.id).join('|');
   // A toast fading out has already been put back in the queue, so a tap on it does nothing.
   const liveKey = useRef(key);
+  // The toast (by key) the pointer or focus is on: its timer waits. Cleared when none is up, since a
+  // toast that unmounts under the pointer never gets its leave event.
+  const [pointerOn, setPointerOn] = useState('');
+  const [focusOn, setFocusOn] = useState('');
+  if (!key && pointerOn) setPointerOn('');
+  if (!key && focusOn) setFocusOn('');
+  const holding = !!key && (pointerOn === key || focusOn === key);
   useEffect(() => {
     liveKey.current = key;
   }, [key]);
 
   useEffect(() => {
-    if (!key) return;
-    const timer = window.setTimeout(() => onDismiss(key.split('|')), grouped ? 4500 : 3000);
+    if (!key || holding) return;
+    const timer = window.setTimeout(() => onDismiss(key.split('|')), grouped ? GROUPED_TOAST_MS : TOAST_MS);
     return () => window.clearTimeout(timer);
-  }, [key, grouped, onDismiss]);
+  }, [key, grouped, holding, onDismiss]);
 
   return (
     <div className="toast-region" role="status" aria-live="polite">
@@ -68,6 +82,10 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
               key={key}
               type="button"
               className={`toast ${!grouped && shown[0].kicker ? 'toast--detail' : ''}`}
+              onPointerEnter={() => setPointerOn(key)}
+              onPointerLeave={() => setPointerOn('')}
+              onFocus={() => setFocusOn(key)}
+              onBlur={() => setFocusOn('')}
               onClick={() => {
                 if (liveKey.current !== key) return;
                 onDismiss(shown.map((a) => a.id));

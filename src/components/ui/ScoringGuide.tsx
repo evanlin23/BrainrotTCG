@@ -52,7 +52,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
   const exampleMultiplier = HOLO_MULTIPLIER * (hasModifiers ? FINISH_MULTIPLIER[EXAMPLE_FINISH] : 1);
 
   return (
-    <Sheet title="Card guide" subtitle={`Rarity, modifiers and scoring for ${set.name}`} onClose={onClose} size="sm" className="scoring-guide">
+    <Sheet title="Card guide" subtitle={`Rarity, modifiers and scoring for ${set.name}`} onClose={onClose} size="sm" scrollingHeading className="scoring-guide">
         <h3>Rare, holo or extra?</h3>
         <p className="scoring-note">
           <strong>Rarity</strong> is which card you pulled, from {CARD_RARITIES[commonest].name} up to {CARD_RARITIES[rarest].name}. Rarer cards are worth more points.
@@ -76,6 +76,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         <p className="scoring-formula">
           Brainrot Score = <strong>card points</strong> added up × <strong>combo multiplier</strong>
         </p>
+        <p className="scoring-note">Add up the points of your five cards, then multiply by your combo. A higher score is better.</p>
 
         <h3>Card rarity</h3>
         <table className="scoring-table">

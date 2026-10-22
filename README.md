@@ -44,7 +44,7 @@ We would love to expand the card selection to include more brainrot characters a
 - **Timeline packs** - Each meme era is its own set, from Web Ancients (2007–2012) and Vine & Dank to Lockdown Lore, Gen Alpha Uprising, Peak Brain Rot (2024), Italian Brainrot, Six Seven Season (2025), Spring Breakdown and Summer of Slop (2026). Every card shows the real meme. The original hackathon set, Genesis, is archived: its pulls still verify
 - **Verifiable pulls** - Every pack is derived from a proof-of-work ticket tied to your player key, so pulls can't be faked or edited, with no server
 - **Show it off** - Share any pull as a link that anyone can verify, copy a Wordle-style brag line, or save a 9:16 poster with a QR code
-- **Global Hall of Fame** - Submit a Full House or better; GitHub Actions verifies it and the page re-checks every entry on your device
+- **Global Hall of Fame** - Submit a Full House or better; GitHub Actions verifies it, and each published entry links to its pull, which re-derives the proof on your device
 - **Verifiable profiles and levels** - Share one link with every pack you've ever opened; anyone's browser re-opens them all to confirm your level, best pulls and collection
 - **Interactive Pack Tearing** - Drag across the tear line to open packs with sparks and sound effects
 - **Pack Opening Experience** - Cards revealed with smooth animations and confetti effects for rare pulls
@@ -69,7 +69,7 @@ and [spec/verify_pull.py](spec/verify_pull.py) is a second verifier written only
 (Python + OpenSSL). Check any pull yourself:
 
 ```bash
-pip install cryptography
+pip install cryptography==50.0.1
 python3 spec/verify_pull.py 'https://evanlin23.github.io/BrainrotTCG/#/pull/...'
 ```
 
@@ -92,6 +92,7 @@ npm run dev
 | `npm run check:sets -- --update` | lock a new set version |
 | `npm run check:card-assets` | decode registered card/shared WebPs and check generated geometry (also in `check`) |
 | `npm run og-image` | rebuild the link preview image from the newest sets |
+| `npm run icons` | rewrite the logo SVGs, favicon and touch icon from the mark in `src/styles/logoMark.ts` |
 
 The browser smoke needs Chromium once (`npx playwright install --with-deps chromium`); what it
 covers is in [Development and verification](docs/DEVELOPMENT.md#browser-smoke).

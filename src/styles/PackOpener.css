@@ -665,6 +665,41 @@
     }
 }
 
+/*
+ * A swipe let go short of opening (#803): the pack springs back where the finger left it, the hint says
+ * to go farther or tap, and the Open pack button lights up, so a shaky drag is never a silent no-op.
+ * Under reduced motion nothing moves; the hint and the button's ring stay for as long as the nudge does.
+ */
+.pack-shell.is-short {
+    animation: pack-spring-back var(--dur-reveal) var(--ease-spring);
+}
+
+@keyframes pack-spring-back {
+    0% {
+        transform: translateX(var(--space-3)) rotate(1.5deg);
+    }
+
+    100% {
+        transform: none;
+    }
+}
+
+.pack-shell.is-short .swipe-hint {
+    box-shadow: 0 0 0 2px var(--brand), var(--shadow-1);
+}
+
+/* An outline, not the shadow: the button's own focus ring stays, and the light ring reads on the brand-filled first-visit button too. */
+.pack-open-button.is-prompted {
+    outline: 2px solid var(--text);
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pack-shell.is-short {
+        animation: none;
+    }
+}
+
 .pack-shell.is-cutting .swipe-hint {
     opacity: 0;
     transition: opacity var(--dur-slow) ease;
