@@ -170,7 +170,7 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, onOpenPack
 
       {open && (
         <Sheet title={open.score.hand.name} subtitle={`${open.set.name} · ticket #${open.nonce}`} onClose={() => setOpen(null)} size="md">
-          <PackCardViewer cards={toCardsWithMeta(open.cards).map((c) => ({ ...c, isRevealed: true }))} displayMode="carousel" />
+          <PackCardViewer cards={toCardsWithMeta(open.cards).map((c) => ({ ...c, isRevealed: true }))} displayMode="carousel" set={open.set} />
         </Sheet>
       )}
     </div>
