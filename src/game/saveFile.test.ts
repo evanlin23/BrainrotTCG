@@ -518,15 +518,22 @@ describe('a nearly full browser storage', () => {
     expect(write.mock.calls.some(([key, value]) => key === STORAGE_KEYS.STATS && value === save.stats)).toBe(true); // it got partway
   });
 
-  it('preserves and exports existing history containing malformed cached cards without dropping mappings (#652)', () => {
-    const rawHistory = JSON.stringify([
+  it("round-trips this device's own export when its history holds an unreadable cached code (#652)", () => {
+    const rows = [
       { s: 'genesis', v: 1, n: 0, k: 'a', c: 'sig\nma', h: 'No Match', x: 1, t: 1 },
       { s: 'genesis', v: 1, n: 1, k: 'a', c: 'bombardiro-crocodilo', h: 'No Match', x: 2, t: 2 },
-    ]);
-    store.set(STORAGE_KEYS.HISTORY, rawHistory);
+    ];
+    store.set(STORAGE_KEYS.HISTORY, JSON.stringify(rows));
+    const ownPlayer = JSON.parse(exportPlayer());
     const exported = exportSaveFile();
-    expect(exported).not.toBeNull();
-    const parsed = JSON.parse(exported!);
-    expect(parsed.history).toBe(rawHistory);
+    // Only the unreadable cache goes: both ticket mappings stay, as getHistory reads them.
+    const { c: _unreadable, ...uncached } = rows[0];
+    expect(JSON.parse(JSON.parse(exported).history)).toStrictEqual([uncached, rows[1]]);
+    // Into a fresh browser: imported whole, identity included.
+    store.clear();
+    expect(importSaveFile(exported)).toBeNull();
+    expect(JSON.parse(store.get(STORAGE_KEYS.HISTORY)!)).toStrictEqual([uncached, rows[1]]);
+    expect(JSON.parse(exportPlayer())).toEqual(ownPlayer);
+    expect(peekNonce()).toBe(12);
   });
 });

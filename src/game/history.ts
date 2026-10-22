@@ -54,8 +54,11 @@ const encode = (e: HistoryEntry): Stored => ({
 
 /** Cards dropped to save space (or never kept) come back from the packs this device re-opened. */
 const cardsOf = (s: Stored): StoredCard[] | null => {
-  const code = s.c || getStoredPack(`${s.s}@${s.v}`, s.k, s.n);
-  return code ? decodeCards(code) : null;
+  // An unreadable cached code (#652) falls back to the re-opened pack, as a dropped one does.
+  const cached = s.c ? decodeCards(s.c) : null;
+  if (cached) return cached;
+  const reopened = getStoredPack(`${s.s}@${s.v}`, s.k, s.n);
+  return reopened ? decodeCards(reopened) : null;
 };
 
 /** recordTicket's stand-in: no cards, hand or score yet (every pack has a hand). */
@@ -197,18 +200,39 @@ export const byBest = (a: HistoryEntry, b: HistoryEntry): number => b.score - a.
 
 const hasValidCache = (c: string | undefined): boolean => c === undefined || isCachedCards(c);
 
+/**
+ * Rows with an unreadable cached code (#652) lose only that cache, which comes back from re-opened
+ * packs; every other field (the ticket mapping) is kept. Null when a row breaks the rest of the rule.
+ */
+const repairRows = (parsed: unknown): Stored[] | null => {
+  if (!Array.isArray(parsed) || !parsed.every(isStoredIgnoringCache)) return null;
+  return parsed.map((e) => {
+    if (hasValidCache(e.c)) return e;
+    const { c: _unreadable, ...rest } = e;
+    return rest;
+  });
+};
+
 /** The stored history, or null when an entry breaks the rule (a write would drop it) or it can't be read. */
 const readValid = (): Stored[] | null => {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]');
-    if (!Array.isArray(parsed)) return null;
-    if (parsed.every(isStored)) return parsed;
-    // Recover unreadable cached cards without dropping valid ticket mappings:
-    if (parsed.every(isStoredIgnoringCache)) {
-      return (parsed as Stored[]).map((e) => (hasValidCache(e.c) ? e : { ...e, c: undefined }));
-    }
-    return null;
+    return repairRows(JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) ?? '[]'));
   } catch { return null; }
+};
+
+/**
+ * Raw stored history as the importer accepts it: unreadable cached codes left by older builds are
+ * dropped (as readValid drops them), so this device's own export or move isn't refused for them (#652).
+ * Anything else, valid or not, comes back unchanged for the importer's own check.
+ */
+export const withReadableCache = (raw: string | null): string | null => {
+  if (raw === null) return raw;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.every(isStored)) return raw;
+    const rows = repairRows(parsed);
+    return rows ? JSON.stringify(rows) : raw;
+  } catch { return raw; }
 };
 
 const toStored = (pack: OpenedPack): Stored => encode({

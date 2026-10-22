@@ -532,6 +532,19 @@ describe('malformed cached history card codes and safe recovery (#652)', () => {
     // Subsequent pack records succeed and recover the row by dropping unreadable cache
     expect(recordPack(pack(2))).toBe(true);
     expect(getHistory()).toHaveLength(3);
+    // The rewrite keeps every other field of both rows and drops only the unreadable cache.
+    const rewritten = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as Record<string, unknown>[];
+    const { c: _dropped, ...withoutCache } = stored[0];
+    expect(rewritten.find((e) => e.n === 0)).toStrictEqual(withoutCache);
+    expect(rewritten.find((e) => e.n === 1)).toStrictEqual(stored[1]);
+  });
+
+  it('falls back to the re-opened pack when a cached code is unreadable (#652)', async () => {
+    const data = installStorage();
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([{ s: 'right-now', v: 1, n: 0, k: KEY.slice(0, 16), c: 'sig\nma', h: 'Pair', x: 100, t: 1000 }]));
+    expect(getHistory()[0].cards).toBeNull();
+    await putStoredPacks([{ setKey: 'right-now@1', publicKeyHex: KEY, nonce: 0, cards: 'jimothy*,jimothy,verity' }]);
+    expect(getHistory()[0].cards).toEqual(['jimothy*', 'jimothy', 'verity'].map(decodeCard));
   });
 });
 
