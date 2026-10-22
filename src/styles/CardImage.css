@@ -6,7 +6,14 @@
 
 .card-image[data-state='rendering'],
 .card-image[data-state='loading'] {
-  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%) 0 0 / 200% 100%;
+}
+
+/* Until its art can show, a slot is an empty frame: the finish caption printed over it (the pull
+   viewer's .mod-label, the binder's .collection-mods) would make it read as a card back, so it waits.
+   The button's accessible name already carries the finish. */
+.card-image:is([data-state='rendering'], [data-state='loading']) ~ :is(.mod-label, .collection-mods) {
+  visibility: hidden;
 }
 
 /* A failed image keeps its box as a flat, hatched slot instead of a broken-image icon; so does art that is never requested. */

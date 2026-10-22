@@ -31,6 +31,22 @@ it('reserves the card frame shape before any pixels arrive', () => {
   }
 });
 
+it('keeps finish captions off a slot whose art is still pending, so it never reads as a card back (#762)', () => {
+  const hidden = rules(css).find(([, body]) => /visibility:\s*hidden/.test(body));
+  expect(hidden?.[0]).toMatch(/\[data-state='rendering'\]/);
+  expect(hidden?.[0]).toMatch(/\[data-state='loading'\]/);
+  // Only the pull viewer's and the binder's captions, as later siblings of the image: layout stays put.
+  expect(hidden?.[0]).toMatch(/~\s*:is\(\.mod-label, \.collection-mods\)/);
+  expect(hidden?.[0]).not.toMatch(/failed|blocked/);
+  // Both surfaces print their caption after the image inside the same button.
+  const order = (file: string, caption: string) => {
+    const source = readFileSync(fileURLToPath(new URL(`../src/components/${file}`, import.meta.url)), 'utf8');
+    return source.indexOf('<CardImage') < source.indexOf(caption);
+  };
+  expect(order('ui/PackCardViewer.tsx', 'mod-label')).toBe(true);
+  expect(order('collection/CollectionBrowser.tsx', 'collection-mods')).toBe(true);
+});
+
 it('only shimmers for players who allow motion', () => {
   const motion = block('@media (prefers-reduced-motion: no-preference)');
   expect(motion).toMatch(/\[data-state='loading'\]\s*\{\s*animation: card-image-shimmer/);
