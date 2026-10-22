@@ -2,12 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSet } from '../content/sets';
 import { encodeCard } from './cardCode';
 import {
-  flush,
+  __resetReopenCacheForTests as resetReopenCache,
   getReopened,
   MAX_REOPEN_CACHE_ENTRIES,
   putReopened,
   REOPEN_CACHE_KEY,
-  resetReopenCache,
 } from './reopenCache';
 import type { PulledCard } from '../engine';
 
@@ -43,24 +42,51 @@ describe('reopenCache', () => {
     expect(getReopened(set, key, 7)).toEqual([{ setId: 'genesis', cardId: card.id, rarity: card.rarity, isHolo: true, slot: 0 }]);
   });
 
-  it('contains storage denial when setItem fails and removeItem succeeds, retaining bounded memory cache', () => {
-    storage.setItem.mockImplementation(() => {
-      throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
-    });
-
+  it('after a quota failure removes its key and stays memory-only, never rewriting into freed space', () => {
     const set = getSet('genesis', 1)!;
     const key = 'ab'.repeat(32);
     const card = set.cards[0];
     const cards: PulledCard[] = [{ setId: 'genesis', cardId: card.id, rarity: card.rarity, isHolo: false, slot: 0 }];
+    data.set(REOPEN_CACHE_KEY, JSON.stringify({ [`genesis@1|${key}|0`]: encodeCard({ id: card.id, holo: false }) }));
+    storage.setItem.mockImplementation(() => {
+      throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
+    });
 
     putReopened(set, key, 1, cards);
-
-    // Advance timer to trigger flush: no uncaught error escapes
     expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(storage.removeItem).toHaveBeenCalledWith(REOPEN_CACHE_KEY);
+    expect(data.has(REOPEN_CACHE_KEY)).toBe(false);
 
-    // In-memory fallback still serves the cached cards
+    // Space is free again (a save could use it), but the cache must not write itself back.
+    storage.setItem.mockImplementation((k: string, v: string) => void data.set(k, v));
+    putReopened(set, key, 2, cards);
+    vi.advanceTimersByTime(1000);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(data.has(REOPEN_CACHE_KEY)).toBe(false);
+
+    // The memory-only fallback still serves everything it holds.
+    expect(getReopened(set, key, 0)).toEqual(cards);
     expect(getReopened(set, key, 1)).toEqual(cards);
+    expect(getReopened(set, key, 2)).toEqual(cards);
+  });
+
+  it('keeps the memory-only fallback capped at MAX_REOPEN_CACHE_ENTRIES', () => {
+    const set = getSet('genesis', 1)!;
+    const key = '56'.repeat(32);
+    const card = set.cards[0];
+    const cards: PulledCard[] = [{ setId: 'genesis', cardId: card.id, rarity: card.rarity, isHolo: false, slot: 0 }];
+    storage.setItem.mockImplementation(() => {
+      throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
+    });
+
+    putReopened(set, key, 0, cards);
+    vi.advanceTimersByTime(1000);
+    for (let i = 1; i <= MAX_REOPEN_CACHE_ENTRIES; i++) putReopened(set, key, i, cards);
+
+    expect(getReopened(set, key, 0)).toBeNull();
+    expect(getReopened(set, key, 1)).toEqual(cards);
+    expect(getReopened(set, key, MAX_REOPEN_CACHE_ENTRIES)).toEqual(cards);
   });
 
   it('contains storage denial when both setItem and removeItem fail, avoiding uncaught timer errors', () => {
@@ -104,6 +130,27 @@ describe('reopenCache', () => {
     expect(getReopened(set, key, 3)).toEqual(cards);
   });
 
+  it('contains a throwing localStorage getter on load, flush and cleanup', () => {
+    const set = getSet('genesis', 1)!;
+    const key = '78'.repeat(32);
+    const card = set.cards[0];
+    const cards: PulledCard[] = [{ setId: 'genesis', cardId: card.id, rarity: card.rarity, isHolo: false, slot: 0 }];
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new DOMException('Storage access denied', 'SecurityError');
+      },
+    });
+    try {
+      expect(getReopened(set, key, 4)).toBeNull();
+      putReopened(set, key, 4, cards);
+      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+      expect(getReopened(set, key, 4)).toEqual(cards);
+    } finally {
+      vi.stubGlobal('localStorage', storage);
+    }
+  });
+
   it('successfully flushes to storage and bounds cache entries to MAX_REOPEN_CACHE_ENTRIES', () => {
     const set = getSet('genesis', 1)!;
     const key = '12'.repeat(32);
@@ -137,7 +184,7 @@ describe('reopenCache', () => {
 
     // Adding entry MAX_REOPEN_CACHE_ENTRIES should evict entry 0
     putReopened(set, key, MAX_REOPEN_CACHE_ENTRIES, cards);
-    flush();
+    vi.advanceTimersByTime(1000);
 
     expect(getReopened(set, key, 0)).toBeNull();
     expect(getReopened(set, key, MAX_REOPEN_CACHE_ENTRIES)).toEqual(cards);
