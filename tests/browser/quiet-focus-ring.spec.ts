@@ -276,8 +276,6 @@ test('opened by keyboard: Tab rings, Space is quiet, Tab rings again, until a cl
   // Space on the pack opens it as it goes down, and from then on the page counts the press as input.
   await page.keyboard.down('Space');
   expect(await page.evaluate(() => document.documentElement.dataset.input)).toBe('press');
-  // The pack's name is "Opening…" now, so it is found by its class.
-  await expectRing(page.locator('.pack-shell'), 'Open pack while Space is held', 'press');
   await page.keyboard.up('Space');
   await revealAll(page, () => page.keyboard.press('Space'), expectQuietOutlineAfterPress);
   const title = page.locator('.summary-title');

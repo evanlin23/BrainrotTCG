@@ -186,9 +186,14 @@ test('a drag that ends where it began never opens the pack, but a click on it st
 
   // Pressed below the start band, so the swipe cuts nothing, dragged well past a tap and back to
   // where it began: the release is a tap by position alone, but the finger was no tap.
-  const box = (await shell.boundingBox())!;
-  const x = box.x + box.width * 0.4;
-  const y = box.y + box.height * 0.7;
+  // On a short window the pack runs past the stage and the screen, so aim within what shows of it.
+  const { x, y } = await shell.evaluate((el) => {
+    const edge = el.getBoundingClientRect();
+    const stage = el.closest('.pack-display')!.getBoundingClientRect();
+    const top = Math.max(edge.top, stage.top, 0);
+    const bottom = Math.min(edge.bottom, stage.bottom, window.innerHeight);
+    return { x: edge.left + edge.width * 0.4, y: top + (bottom - top) * 0.7 };
+  });
   const finger = await fingerFor(page, hasTouch);
   await finger.press(x, y);
   for (let step = 1; step <= 4; step++) await finger.move(x + 20 * step, y);
@@ -217,26 +222,25 @@ test('the pack\'s focus ring stays inside the pack and the screen', async ({ pag
     await page.keyboard.press('Tab');
   }
 
-  // The ring is the pack's ::after, drawn inset from its edge; its outer edge is the inset less its spread.
+  // The ring is the pack's ::after, drawn inset from its edge: its outer edge is the inset less its spread. The
+  // stage clips whatever sticks out of the pack, so the ring must end at the pack's own edge (on a short
+  // window the pack scrolls in its stage, so only the sides are held to the stage and the screen).
   const ring = await pack.evaluate((el) => {
     const edge = el.getBoundingClientRect();
     const after = getComputedStyle(el, '::after');
     const spreads = Array.from(after.boxShadow.matchAll(/rgba?\([^)]*\) (-?[\d.]+)px (-?[\d.]+)px (-?[\d.]+)px (-?[\d.]+)px/g), (m) => Number(m[4]));
     const out = Math.max(0, ...spreads) - Number.parseFloat(after.top);
-    const display = el.closest('.pack-display')!.getBoundingClientRect();
+    const stage = el.closest('.pack-display')!.getBoundingClientRect();
     return {
-      spreads, out,
-      left: edge.left - out, right: edge.right + out, top: edge.top - out, bottom: edge.bottom + out,
-      display: { left: display.left, right: display.right, top: display.top, bottom: display.bottom },
-      viewport: { width: document.documentElement.clientWidth, height: window.innerHeight },
+      spreads, out, left: edge.left - out, right: edge.right + out,
+      stage: { left: stage.left, right: stage.right }, width: document.documentElement.clientWidth,
     };
   });
   expect(ring.spreads.length, JSON.stringify(ring)).toBeGreaterThan(0);
   // Both rects round to a fraction of a pixel.
-  expect(ring.left, JSON.stringify(ring)).toBeGreaterThanOrEqual(Math.max(0, ring.display.left) - 0.5);
-  expect(ring.right, JSON.stringify(ring)).toBeLessThanOrEqual(Math.min(ring.viewport.width, ring.display.right) + 0.5);
-  expect(ring.top, JSON.stringify(ring)).toBeGreaterThanOrEqual(Math.max(0, ring.display.top) - 0.5);
-  expect(ring.bottom, JSON.stringify(ring)).toBeLessThanOrEqual(Math.min(ring.viewport.height, ring.display.bottom) + 0.5);
+  expect(ring.out, JSON.stringify(ring)).toBeLessThanOrEqual(0.5);
+  expect(ring.left, JSON.stringify(ring)).toBeGreaterThanOrEqual(Math.max(0, ring.stage.left) - 0.5);
+  expect(ring.right, JSON.stringify(ring)).toBeLessThanOrEqual(Math.min(ring.width, ring.stage.right) + 0.5);
   expect(errors).toEqual([]);
 });
 

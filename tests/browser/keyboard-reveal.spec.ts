@@ -63,9 +63,10 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
     await page.keyboard.press('Tab');
   }
   // The shared ring, over the transparent outline forced colours paint (#312 S5). The button's
-  // box-shadow eases in, so the ring is read once that transition has settled.
-  await expect.poll(async () => (await ring(pack)).boxShadow).toContain(BRAND);
-  const packRing = await ring(pack);
+  // box-shadow eases in, so the ring is read once that transition has settled. The pack draws its ring
+  // on its ::after, inside its edge, where the stage can't clip it (#628); the outline is still its own.
+  await expect.poll(async () => (await ring(pack, '::after')).boxShadow).toContain(BRAND);
+  const packRing = { ...(await ring(pack, '::after')), outline: (await ring(pack)).outline };
   expect(packRing.focusVisible).toBe(true);
   expect(packRing.outline).toBe('solid rgba(0, 0, 0, 0)');
   expect(contrast(rgb(BRAND), rgb(packRing.page))).toBeGreaterThanOrEqual(3);

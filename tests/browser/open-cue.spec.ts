@@ -21,8 +21,16 @@ async function load(page: Page) {
   await expect(shell(page)).toBeVisible();
 }
 
-test('a new player sees the cue on the first touch-free load, and a touch ends it for good', async ({ page, baseURL }) => {
+test('a new player sees the cue on the first load, and a touch ends it for good', async ({ page, baseURL }) => {
   const errors = await monitor(page, baseURL!);
+  // Stretch the play so a slow machine can't finish it before the touch: only the touch ends it here.
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = '.open-cue-travel, .open-cue-tear { animation-duration: 600s !important; }';
+      document.head.append(style);
+    });
+  });
   await load(page);
 
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
@@ -33,8 +41,12 @@ test('a new player sees the cue on the first touch-free load, and a touch ends i
   expect(await fingerAnimations(page)).toBeGreaterThan(0);
 
   // The first touch stops it, and counts as understood.
-  const box = (await shell(page).boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.8);
+  const spot = await shell(page).evaluate((el) => {
+    const edge = el.getBoundingClientRect();
+    const top = Math.max(edge.top, 0);
+    return { x: edge.left + edge.width / 2, y: top + (Math.min(edge.bottom, window.innerHeight) - top) * 0.8 };
+  });
+  await page.mouse.move(spot.x, spot.y);
   await page.mouse.down();
   await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   await expect(page.locator('.open-cue')).toHaveCount(0);
