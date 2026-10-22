@@ -1,7 +1,7 @@
 import { createElement, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type MouseEvent } from 'react';
 import { flushSync } from 'react-dom';
 import Sheet, { type SheetSize } from './Sheet';
-import { purgeBrokenStylesheets, SheetSettledContext, type SheetLoad } from './sheetEntry';
+import { retryMayHelp, SheetSettledContext, type SheetLoad } from './sheetEntry';
 import { reloadPage } from '../../game/reload';
 
 interface Props<P extends { onClose: () => void }> {
@@ -13,13 +13,14 @@ interface Props<P extends { onClose: () => void }> {
   size?: SheetSize;
 }
 
-type State<P> = { component: ComponentType<P>; settled: boolean } | { error: true } | null;
+type State<P> = { component: ComponentType<P>; settled: boolean } | { error: true; canRetry: boolean } | null;
 
 /** How long the placeholder's entrance runs (the panel's; the backdrop's is shorter). 0 under reduced motion. */
 const entranceMs = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dur-slow')) || 0;
 
 /**
- * Only mounted when requested. Import failures are retryable; closing retires late results. A deploy
+ * Only mounted when requested. Import failures are retryable until a Retry fails online (then only
+ * Reload helps); closing retires late results. A deploy
  * replaces the old chunks, so a tab opened before it can't load them: offer a reload, which keeps
  * the saves (they live in storage).
  *
@@ -58,7 +59,7 @@ const DeferredSheet = <P extends { onClose: () => void }>({ load, title, screenP
         if (wait > 0) timer = setTimeout(() => show(true), wait);
         else show(true);
       },
-      () => { if (active) setState({ error: true }); },
+      () => { if (active) setState({ error: true, canRetry: retryMayHelp(attempt) }); },
     );
     return () => {
       active = false;
@@ -76,7 +77,6 @@ const DeferredSheet = <P extends { onClose: () => void }>({ load, title, screenP
   if (ready) return <SheetSettledContext value={state.settled}>{createElement(state.component, screenProps)}</SheetSettledContext>;
   const retry = (event: MouseEvent<HTMLButtonElement>) => {
     event.currentTarget.closest<HTMLElement>('[role="dialog"]')?.focus({ preventScroll: true });
-    purgeBrokenStylesheets();
     setState(null);
     setAttempt((n) => n + 1);
   };
@@ -84,13 +84,16 @@ const DeferredSheet = <P extends { onClose: () => void }>({ load, title, screenP
     <Sheet title={title} onClose={screenProps.onClose} size={size} className="sheet--deferred" footer={state && (
       <>
         <button type="button" className="btn btn--primary" onClick={() => reloadPage()}>Reload</button>
-        <button type="button" className="btn btn--secondary" onClick={retry}>Retry</button>
+        {state.canRetry && <button type="button" className="btn btn--secondary" onClick={retry}>Retry</button>}
       </>
     )}>
       {state ? (
         <p role="alert">
-          Couldn't load {title}. The game was probably updated since you opened it: reload to get the new
-          version (your collection stays saved), or check your connection and retry.
+          {state.canRetry
+            ? <>Couldn't load {title}. The game was probably updated since you opened it: reload to get the new
+              version (your collection stays saved), or check your connection and retry.</>
+            : <>Couldn't load {title}. Retrying didn't fix it: reload to fetch the game again (your collection
+              stays saved).</>}
         </p>
       ) : <p role="status">Loading {title}…</p>}
     </Sheet>

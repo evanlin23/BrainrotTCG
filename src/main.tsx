@@ -11,18 +11,6 @@ import { receiveSave } from './game/move'
 import { resumeReopening } from './game/profiles'
 import { warmUpFirstPack } from './game/warmUp'
 
-// Clean up failed stylesheet links so subsequent retries or preloads can re-request them.
-window.addEventListener(
-  'error',
-  (event) => {
-    const target = event.target
-    if (target instanceof HTMLLinkElement && target.rel === 'stylesheet') {
-      target.remove()
-    }
-  },
-  true,
-)
-
 // If receiveSave fails (it throws, or its promise rejects), the game starts here as usual rather than
 // stopping at that step. This guards only that step: migrations and the first render are not covered.
 const handedOver = Promise.resolve()

@@ -10,19 +10,11 @@ export const SheetSettledContext = createContext(false);
 export type SheetLoad<P> = (() => Promise<{ default: ComponentType<P> }>) & { loaded?: ComponentType<P> };
 
 /**
- * Removes any broken stylesheet links (`sheet === null`) in real browser environments.
- * Ignored in jsdom where external stylesheets are not fetched, unless `force` is true.
+ * Whether Retry can still help after load attempt `attempt` (0 is the first) failed. A browser can keep
+ * a failed module graph, so once a Retry has failed while online, asking again fetches nothing new and
+ * only a reload recovers (#664). Offline, the connection is what failed, so Retry stays.
  */
-export const purgeBrokenStylesheets = (force = false) => {
-  if (typeof document === 'undefined') return;
-  const isJsdom = typeof navigator !== 'undefined' && navigator.userAgent.includes('jsdom');
-  if (isJsdom && !force) return;
-  for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) {
-    if (link.sheet === null) {
-      link.remove();
-    }
-  }
-};
+export const retryMayHelp = (attempt: number) => attempt === 0 || (typeof navigator !== 'undefined' && navigator.onLine === false);
 
 /**
  * Wraps a screen's dynamic import so warming it up (on hover, focus or press) and opening it share one
@@ -34,23 +26,11 @@ export const sheetLoader = <M extends { default: unknown }>(importer: () => Prom
     () =>
       (pending ??= importer().then(
         (module) => {
-          if (typeof document !== 'undefined') {
-            const isJsdom = typeof navigator !== 'undefined' && navigator.userAgent.includes('jsdom');
-            if (!isJsdom) {
-              for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')) {
-                if (link.sheet === null) {
-                  link.remove();
-                  throw new Error(`Stylesheet failed to load: ${link.href}`);
-                }
-              }
-            }
-          }
           load.loaded = module.default;
           return module;
         },
         (error: unknown) => {
           pending = null;
-          purgeBrokenStylesheets();
           throw error;
         },
       )),

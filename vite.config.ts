@@ -18,33 +18,41 @@ const siteUrl = (): Plugin => ({
   transformIndexHtml: (html) => (process.env.SITE_URL ? html.replaceAll(GITHUB_PAGES_URL, `${process.env.SITE_URL.replace(/\/+$/, '')}/`) : html),
 })
 
+/** Replaces text in Vite's generated code, failing the build if a Vite upgrade changed it. */
+const patchHelper = (code: string, from: string, to: string) => {
+  if (!code.includes(from)) throw new Error(`preload-recovery: Vite's preload helper no longer contains ${JSON.stringify(from)}; update vite.config.ts`);
+  return code.replaceAll(from, to);
+};
+
 /**
- * Vite's built-in preload helper (__vitePreload) has two defects when preloading CSS/chunks:
- * 1. In `preloadOnce`, it clears the in-flight promise with `seen[href] = void 0` instead of `delete seen[href]`.
- *    Because `href in seen` remains true, any subsequent attempt (e.g. on Retry) returns undefined and skips preloading.
- * 2. Failed `<link>` elements remain in document.head. Vite's preload helper inspects document.head and skips
- *    already-appended links, while the browser refuses to re-fetch a failed link element.
- *
- * This plugin fixes the helper in production builds so that failed links are removed from document.head
- * on error and `seen[href]` is deleted, enabling clean in-place Retry recovery without duplicate link tags.
+ * Lets Retry fetch a lazy screen's stylesheet and preloaded chunks again after they failed (#664).
+ * Vite's preload helper remembers every href it has preloaded (`seen[href] = void 0` keeps the key,
+ * so a later import skips it) and skips any href with a <link> already in the document, while a
+ * <link> that failed never loads again. The patch forgets an href once its preload settles and
+ * removes a <link> that fired `error`, so the next import adds a fresh one. Links still loading, or
+ * belonging to other screens, are left alone. Build only: the dev server doesn't use the helper.
  */
-const preloadRecovery = (): Plugin => ({
-  name: 'preload-recovery',
-  transform(code, id) {
-    if (!id.includes('vite/preload-helper')) return null;
-    let transformed = code;
-    transformed = transformed.replaceAll('seen[href] = void 0;', 'delete seen[href];');
-    transformed = transformed.replace(
-      'link.addEventListener("error", () => rej(/* @__PURE__ */ new Error(`Unable to preload CSS for ${dep}`)));',
-      'link.addEventListener("error", () => { link.remove(); rej(new Error(`Unable to preload CSS for ${dep}`)); });',
-    );
-    transformed = transformed.replace(
-      'if (!isCss) link.as = "script";',
-      'if (!isCss) { link.as = "script"; link.addEventListener("error", () => link.remove()); }',
-    );
-    return transformed;
-  },
-})
+const preloadRecovery = (): Plugin => {
+  let patched = false;
+  return {
+    name: 'preload-recovery',
+    apply: 'build',
+    transform(code, id) {
+      if (!id.includes('vite/preload-helper')) return null;
+      let out = patchHelper(code, 'seen[href] = void 0;', 'delete seen[href];');
+      out = patchHelper(
+        out,
+        'link.addEventListener("error", () => rej(/* @__PURE__ */ new Error(`Unable to preload CSS for ${dep}`)));',
+        'link.addEventListener("error", () => { link.remove(); rej(new Error(`Unable to preload CSS for ${dep}`)); });',
+      );
+      patched = true;
+      return out;
+    },
+    buildEnd(error) {
+      if (!error && !patched) throw new Error("preload-recovery: Vite's preload helper was never transformed; update vite.config.ts");
+    },
+  };
+};
 
 // The site's path: GitHub Pages serves it under /BrainrotTCG/; another host can set BASE_PATH=/.
 export default defineConfig({

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { expect, it, vi } from 'vitest';
-import { purgeBrokenStylesheets, sheetLoader } from './sheetEntry';
+import { afterEach, expect, it, vi } from 'vitest';
+import { retryMayHelp, sheetLoader } from './sheetEntry';
 
 const Screen = () => null;
 
@@ -28,13 +28,25 @@ it('forgets a failed request, so opening or Retry asks again', async () => {
   expect(load.loaded).toBe(Screen);
 });
 
-it('purgeBrokenStylesheets removes link elements whose sheet is null when forced', () => {
+afterEach(() => vi.restoreAllMocks());
+
+it("leaves other screens' stylesheets alone: one still loading neither fails this screen nor is removed", async () => {
+  // A warmed-up screen's stylesheet has no sheet until it arrives (#664 review: prefetch while another page loads).
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = '/assets/Failed-123.css';
-  document.head.appendChild(link);
-  expect(document.head.contains(link)).toBe(true);
+  link.href = '/assets/Other-123.css';
+  document.head.append(link);
+  const load = sheetLoader(async () => ({ default: Screen }));
+  await expect(load()).resolves.toEqual({ default: Screen });
+  expect(load.loaded).toBe(Screen);
+  expect(link.isConnected).toBe(true);
+  link.remove();
+});
 
-  purgeBrokenStylesheets(true);
-  expect(document.head.contains(link)).toBe(false);
+it('keeps Retry after the first failure, and after any failure while offline, but not after a failed Retry online', () => {
+  expect(retryMayHelp(0)).toBe(true);
+  expect(retryMayHelp(1)).toBe(false);
+  vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  expect(retryMayHelp(1)).toBe(true);
+  expect(retryMayHelp(3)).toBe(true);
 });
