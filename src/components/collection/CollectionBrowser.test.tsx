@@ -346,7 +346,7 @@ describe('zero-copy records (#812)', () => {
     render(zeroCollection);
 
     expect(page().querySelector('.page-subtitle')?.textContent).toContain(`0/${COLLECTIBLE_CARDS.length} cards`);
-    expect(page().querySelector('.page-subtitle')?.textContent).toContain('0 Brainrot Score');
+    expect(page().querySelector('.page-subtitle')?.textContent).toContain('0 total card points');
 
     // With zero owned cards, the set is not started; it appears in the unstarted eras section
     expect(page().querySelector('.collection-empty')?.textContent).toContain('Open packs to start your collection.');
