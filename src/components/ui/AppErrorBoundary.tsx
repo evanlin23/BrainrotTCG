@@ -27,10 +27,17 @@ function noteDiagnostic(event: Parameters<typeof recordDiagnostic>[0]) {
  * Deliberately self-contained (no Sheet, motion or game state) so a fault in shared UI can't take
  * the fallback down with it. It never reads, writes, clears, imports or exports player data.
  */
-function CrashFallback({ report, reload }: { report: string; reload: () => void }) {
+export function CrashFallback({ report = sanitizedReport(), reload = reloadPage, event }: {
+  report?: string;
+  reload?: () => void;
+  event?: Parameters<typeof recordDiagnostic>[0];
+}) {
   const heading = useRef<HTMLHeadingElement>(null);
   const [note, setNote] = useState('');
-  useEffect(() => heading.current?.focus(), []);
+  useEffect(() => {
+    heading.current?.focus();
+    if (event) noteDiagnostic(event);
+  }, [event]);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(report);
@@ -71,7 +78,8 @@ interface Props {
 /**
  * Catches render errors anywhere under the app. The error itself is dropped: only the allowlisted
  * 'render-error' category is noted, and only if the player opted in to diagnostics.
- * Failures while the app boots, before React mounts (see main.tsx), are outside this boundary.
+ * Before React mounts, main.tsx renders CrashFallback itself (noting 'unhandled-error') when a startup
+ * step throws, and MigrationRecovery when saved data couldn't be upgraded.
  */
 export default class AppErrorBoundary extends Component<Props, { crashed: boolean; report: string }> {
   state = { crashed: false, report: '' };
