@@ -59,18 +59,31 @@ export const redirectScript = (newUrl: string, oldBase: string) => `(function ()
 
   document.getElementById('choice').hidden = false;
   document.getElementById('skip').onclick = go;
+  var bringTimer = null;
+  var onMessage = null;
   document.getElementById('bring').onclick = function () {
+    if (bringTimer) clearTimeout(bringTimer);
+    if (onMessage) window.removeEventListener('message', onMessage);
     var popup = window.open(NEW + '#/receive', 'brainrot-receive', 'popup,width=440,height=360');
     if (!popup) { status.textContent = 'Your browser blocked the window. Allow pop-ups for this page, then tap again.'; return; }
     status.textContent = 'Bringing your save over…';
-    window.addEventListener('message', function (e) {
+    bringTimer = setTimeout(function () {
+      if (onMessage) window.removeEventListener('message', onMessage);
+      onMessage = null;
+      status.textContent = "Transfer didn't finish. Tap to try again, or go without your save.";
+    }, 15000);
+    onMessage = function (e) {
       if (e.origin !== NEW_ORIGIN || e.source !== popup || !e.data) return;
       if (e.data.type === 'brainrot-ready') popup.postMessage({ type: 'brainrot-save', save: save }, NEW_ORIGIN);
       if (e.data.type === 'brainrot-move-result') {
+        clearTimeout(bringTimer);
+        window.removeEventListener('message', onMessage);
+        onMessage = null;
         if (e.data.result === 'saved' || e.data.result === 'same') markMoved();
         go();
       }
-    });
+    };
+    window.addEventListener('message', onMessage);
   };
 })();`;
 

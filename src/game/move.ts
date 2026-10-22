@@ -228,38 +228,88 @@ export const importSave = (save: unknown, replace: () => boolean = askToReplace)
 
 type Message = { type?: string; save?: unknown };
 
+export const stopReceiver = (): void => {
+  const current = (window as unknown as { __brainrot_stop_receiver?: () => void }).__brainrot_stop_receiver;
+  if (current) {
+    current();
+    delete (window as unknown as { __brainrot_stop_receiver?: () => void }).__brainrot_stop_receiver;
+  }
+};
+
 /**
  * If the old address opened this window to hand over a save, take it in and report back; resolves
  * true when this window was that receiver (the app then doesn't start in it).
  */
 export const receiveSave = (): Promise<boolean> => {
-  const opener = window.opener as Window | null;
-  if (!canBringOldSave() || window.location.hash !== '#/receive' || !opener) return Promise.resolve(false);
+  stopReceiver();
+  const initialOpener = window.opener as Window | null;
+  if (!canBringOldSave() || window.location.hash !== '#/receive' || !initialOpener) return Promise.resolve(false);
   history.replaceState(null, '', import.meta.env.BASE_URL);
   const root = document.getElementById('root');
   if (root) root.textContent = 'Bringing your save over…';
   return new Promise((resolve) => {
-    const finish = (receiver: boolean) => {
-      clearTimeout(timer);
-      window.removeEventListener('message', onMessage);
-      resolve(receiver);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onMessage: ((event: MessageEvent<Message>) => void) | undefined;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (onMessage) window.removeEventListener('message', onMessage);
+      timer = undefined;
+      onMessage = undefined;
     };
-    // Nothing came: start the game here as usual.
-    const timer = setTimeout(() => finish(false), 15000);
-    const onMessage = (event: MessageEvent<Message>) => {
-      if (event.origin !== OLD_ORIGIN || event.source !== opener || event.data?.type !== 'brainrot-save') return;
-      const result = importSave(event.data.save);
-      opener.postMessage({ type: 'brainrot-move-result', result }, OLD_ORIGIN);
-      if (root) {
-        root.textContent = result === 'saved' || result === 'same' ? 'Your save is here. You can close this window.'
-          : result === 'partial' ? PARTIAL_MOVE_NOTE : result === 'full' ? FULL_MOVE_NOTE : 'Nothing was changed. You can close this window.';
+
+    const stopAll = () => {
+      cleanup();
+      window.removeEventListener('hashchange', onHashChange);
+      delete (window as unknown as { __brainrot_stop_receiver?: () => void }).__brainrot_stop_receiver;
+    };
+
+    (window as unknown as { __brainrot_stop_receiver?: () => void }).__brainrot_stop_receiver = stopAll;
+
+    const startHandshake = (opener: Window) => {
+      cleanup();
+      if (root) root.textContent = 'Bringing your save over…';
+      // Nothing came: start the game here as usual on initial load.
+      timer = setTimeout(() => {
+        stopAll();
+        resolve(false);
+      }, 15000);
+
+      onMessage = (event: MessageEvent<Message>) => {
+        if (event.origin !== OLD_ORIGIN || event.source !== opener || event.data?.type !== 'brainrot-save') return;
+        cleanup();
+        const result = importSave(event.data.save);
+        opener.postMessage({ type: 'brainrot-move-result', result }, OLD_ORIGIN);
+        if (root) {
+          root.textContent = result === 'saved' || result === 'same' ? 'Your save is here. You can close this window.'
+            : result === 'partial' ? PARTIAL_MOVE_NOTE : result === 'full' ? FULL_MOVE_NOTE : 'Nothing was changed. You can close this window.';
+        }
+        resolve(true);
+        // A failure stays open so its note can be read; keep hashchange listening for retries.
+        if (result === 'saved' || result === 'same' || result === 'kept') {
+          stopAll();
+          window.close();
+        }
+      };
+
+      window.addEventListener('message', onMessage);
+      opener.postMessage({ type: 'brainrot-ready' }, OLD_ORIGIN);
+    };
+
+    const onHashChange = () => {
+      const currentOpener = window.opener as Window | null;
+      if (!currentOpener || currentOpener !== initialOpener) {
+        stopAll();
+        return;
       }
-      finish(true);
-      // A failure stays open so its note can be read (the old address goes on to this one either way).
-      if (result === 'saved' || result === 'same' || result === 'kept') window.close();
+      if (window.location.hash === '#/receive') {
+        history.replaceState(null, '', import.meta.env.BASE_URL);
+        startHandshake(currentOpener);
+      }
     };
-    window.addEventListener('message', onMessage);
-    opener.postMessage({ type: 'brainrot-ready' }, OLD_ORIGIN);
+
+    window.addEventListener('hashchange', onHashChange);
+    startHandshake(initialOpener);
   });
 };
 
