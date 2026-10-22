@@ -41,6 +41,11 @@
 }
 
 .share-preview-wait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   padding: var(--space-4);
   color: var(--text-subtle);
   font-size: var(--text-sm);

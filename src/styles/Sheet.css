@@ -74,6 +74,19 @@
   margin-top: -6px;
 }
 
+/* A heading too tall for the sheet (enlarged text on a short phone) scrolls with the body (Sheet's
+   scrollingHeading), so what is left of the header is the Close button alone. The heading keeps the
+   width it had beside Close, so moving it never changes how tall it is. */
+.sheet-header--close-only {
+  justify-content: flex-end;
+  padding-bottom: 0;
+}
+
+.sheet-heading--scrolls {
+  padding-right: calc(var(--space-4) + var(--space-3) + var(--touch-target) - var(--gutter));
+  padding-bottom: var(--space-3);
+}
+
 .sheet-body {
   flex: 1;
   min-height: 0;

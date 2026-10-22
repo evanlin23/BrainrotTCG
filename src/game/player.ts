@@ -118,6 +118,48 @@ export const getPlayer = (): Player => toPlayer(current());
 /** The ticket number the next pack will use (without consuming it). */
 export const peekNonce = (): number => forTickets().nextNonce;
 
+/**
+ * Changed by every save-file import and move, before either writes an incoming value, so a tab that
+ * loaded the save from before can tell even when the same player comes back.
+ */
+export const SAVE_STAMP_KEY = 'brainrot-save-stamp-v1';
+
+/** A new value for SAVE_STAMP_KEY. */
+export const newSaveStamp = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+/** Which save this browser holds: the player, whether its record is stored, and the import stamp. */
+export interface SaveMark {
+  key: string;
+  stored: boolean;
+  stamp: string | null;
+}
+
+export const saveMark = (): SaveMark => {
+  // First, so a browser without a player stores its new guest before `stored` is read.
+  const key = getPlayer().publicKeyHex;
+  let stamp: string | null = null;
+  try {
+    stamp = localStorage.getItem(SAVE_STAMP_KEY);
+  } catch { /* Storage unavailable: no import can have happened either. */ }
+  return { key, stored: read() !== null, stamp };
+};
+
+/**
+ * Whether storage still holds the save `loaded` was taken from: the same player, no import since,
+ * and its record not cleared (a tab that loaded without a stored record, as when storage is
+ * unavailable, stays the same if one appears).
+ */
+export const sameSave = (loaded: SaveMark, now: SaveMark): boolean =>
+  loaded.key === now.key && loaded.stamp === now.stamp && (now.stored || !loaded.stored);
+
+/** Refusal when storage changed to a different player or import before a ticket could be claimed. */
+export class StaleSaveError extends Error {
+  constructor(message = 'Save changed before ticket could be claimed') {
+    super(message);
+    this.name = 'StaleSaveError';
+  }
+}
+
 /** The player and how many tickets it has used, read from one record so neither belongs to another key. */
 export const getPlayerTickets = (): { player: Player; nextNonce: number } => {
   const record = pastRecorded(current());
@@ -149,8 +191,10 @@ const take = (record: StoredPlayer, nonce: number): NonceClaim => {
 };
 
 /** Consume the next ticket number from this tab's view of storage. Prefer claimNonce(). */
-export const allocateNonce = (): NonceClaim => {
+export const allocateNonce = (expectedSave?: SaveMark): NonceClaim => {
+  if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
   const record = forTickets();
+  if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
   return take(record, record.nextNonce);
 };
 
@@ -199,13 +243,15 @@ const pastHeldLocks = async (locks: LockManager, key: string, nonce: number): Pr
  * otherwise resolves with the next number worth trying. Rejects if the key's lock isn't granted within
  * LOCK_WAIT_MS.
  */
-const attempt = (locks: LockManager, record: StoredPlayer, at: { nonce: number }) => {
+const attempt = (locks: LockManager, record: StoredPlayer, at: { nonce: number }, expectedSave?: SaveMark) => {
   const key = toPlayer(record).publicKeyHex;
   const wait = new AbortController(); // not AbortSignal.timeout(), which some browsers with Web Locks lack
   const timer = setTimeout(() => wait.abort(), LOCK_WAIT_MS);
   return locks.request(`${LOCK_PREFIX}${key}`, { mode: 'exclusive', signal: wait.signal }, async (): Promise<NonceClaim | number> => {
+    if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
     const nonce = at.nonce = await pastHeldLocks(locks, key, at.nonce);
     let claim: NonceClaim | undefined;
+    let staleError: Error | undefined;
     await new Promise<void>((resolve, reject) => {
       locks.request(`${LOCK_PREFIX}${key}:${nonce}`, { ifAvailable: true }, (lock) => {
         if (!lock) return undefined;
@@ -214,6 +260,11 @@ const attempt = (locks: LockManager, record: StoredPlayer, at: { nonce: number }
         // without the key's lock) turned away from this number meanwhile takes the next one, so skipping
         // past that would leave this one unused.
         const now = forTickets();
+        if (expectedSave && !sameSave(expectedSave, saveMark())) {
+          staleError = new StaleSaveError();
+          resolve();
+          return undefined;
+        }
         if (now.secretKey !== record.secretKey || now.nextNonce > nonce) return undefined;
         claim = take(now, nonce);
         resolve();
@@ -222,6 +273,7 @@ const attempt = (locks: LockManager, record: StoredPlayer, at: { nonce: number }
         return new Promise<void>((release) => keepLock(key, nonce, () => release()));
       }).then(() => resolve(), reject); // a lock not kept is let go first
     });
+    if (staleError) throw staleError;
     return claim ?? nonce + 1;
   }).finally(() => clearTimeout(timer));
 };
@@ -230,8 +282,10 @@ const attempt = (locks: LockManager, record: StoredPlayer, at: { nonce: number }
  * The unlocked fallback: the first number from `nonce` on that storage hasn't passed, so a number this
  * claim already tried and saw taken is never handed out. Another key's record starts from its own count.
  */
-const takeFrom = (record: StoredPlayer, nonce: number): NonceClaim => {
+const takeFrom = (record: StoredPlayer, nonce: number, expectedSave?: SaveMark): NonceClaim => {
+  if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
   const now = forTickets();
+  if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
   return take(now, now.secretKey === record.secretKey ? Math.max(nonce, now.nextNonce) : now.nextNonce);
 };
 
@@ -243,28 +297,33 @@ const takeFrom = (record: StoredPlayer, nonce: number): NonceClaim => {
  * (insecure pages, old browsers), or the key's lock stays held past LOCK_WAIT_MS, this counts on in this
  * tab alone, from the number it reached.
  */
-export const claimNonce = async (): Promise<NonceClaim> => {
+export const claimNonce = async (expectedSave?: SaveMark): Promise<NonceClaim> => {
+  if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
-  if (typeof locks?.request !== 'function') return allocateNonce();
+  if (typeof locks?.request !== 'function') return allocateNonce(expectedSave);
   let record = forTickets();
   const at = { nonce: record.nextNonce };
   for (let tries = 0; tries < CLAIM_TRIES; tries++) {
+    if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
     let result: NonceClaim | number;
     try {
-      result = await attempt(locks, record, at);
+      result = await attempt(locks, record, at, expectedSave);
     } catch (error) {
+      if (error instanceof StaleSaveError) throw error;
       // take() refuses a number with no safe successor with a RangeError: the counter has run out, and
       // the unlocked fallback refuses it the same way, so say that rather than blame the lock.
       console.error(error instanceof RangeError ? COUNTER_EXHAUSTED : 'Could not hold a ticket number', error);
-      return takeFrom(record, at.nonce);
+      if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
+      return takeFrom(record, at.nonce, expectedSave);
     }
     if (typeof result !== 'number') return result;
+    if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
     const now = forTickets();
     // Another key was switched in: start from its counter, never mixing the two.
     at.nonce = now.secretKey !== record.secretKey ? now.nextNonce : Math.max(result, now.nextNonce);
     record = now;
   }
-  return takeFrom(record, at.nonce);
+  return takeFrom(record, at.nonce, expectedSave);
 };
 
 /**
@@ -339,40 +398,6 @@ export const withAllowedName = (raw: string): string => {
 export const isCurrentPlayer = (secretKey: string): boolean => (read() ?? memory)?.secretKey === secretKey;
 
 /**
- * Changed by every save-file import and move, before either writes an incoming value, so a tab that
- * loaded the save from before can tell even when the same player comes back.
- */
-export const SAVE_STAMP_KEY = 'brainrot-save-stamp-v1';
-
-/** A new value for SAVE_STAMP_KEY. */
-export const newSaveStamp = (): string => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-
-/** Which save this browser holds: the player, whether its record is stored, and the import stamp. */
-export interface SaveMark {
-  key: string;
-  stored: boolean;
-  stamp: string | null;
-}
-
-export const saveMark = (): SaveMark => {
-  // First, so a browser without a player stores its new guest before `stored` is read.
-  const key = getPlayer().publicKeyHex;
-  let stamp: string | null = null;
-  try {
-    stamp = localStorage.getItem(SAVE_STAMP_KEY);
-  } catch { /* Storage unavailable: no import can have happened either. */ }
-  return { key, stored: read() !== null, stamp };
-};
-
-/**
- * Whether storage still holds the save `loaded` was taken from: the same player, no import since,
- * and its record not cleared (a tab that loaded without a stored record, as when storage is
- * unavailable, stays the same if one appears).
- */
-export const sameSave = (loaded: SaveMark, now: SaveMark): boolean =>
-  loaded.key === now.key && loaded.stamp === now.stamp && (now.stored || !loaded.stored);
-
-/**
  * Stores this tab's ticket count again when another tab's write left a lower one for the same key
  * (two tabs' writes can land out of order), so the count outlasts this tab. Another key, or a removed
  * record, is left alone. False when the count needed storing and storage refused it.
@@ -394,6 +419,18 @@ const keepTicketCount = (): boolean => {
 export const watchPlayer = (onChange: () => void, onCountRefused?: () => void): (() => void) => {
   const listener = (event: StorageEvent) => {
     if (event.key === STORAGE_KEY && !keepTicketCount()) onCountRefused?.();
+    if (event.key === null || event.key === STORAGE_KEY || event.key === SAVE_STAMP_KEY) onChange();
+  };
+  window.addEventListener('storage', listener);
+  return () => window.removeEventListener('storage', listener);
+};
+
+/**
+ * Like watchPlayer, for a view that only needs to know when the stored player may have changed
+ * (a share sheet): it never writes, so it cannot touch the ticket count or raise its refusal.
+ */
+export const watchStoredPlayer = (onChange: () => void): (() => void) => {
+  const listener = (event: StorageEvent) => {
     if (event.key === null || event.key === STORAGE_KEY || event.key === SAVE_STAMP_KEY) onChange();
   };
   window.addEventListener('storage', listener);

@@ -8,17 +8,21 @@ from a 390 px wide screen.
 
 ## Principles
 
-1. **The pack is the hero.** Each screen has one primary action: on the home screen it's opening the
+1. **The pack is the hero.** (The Open pack button, landing Card guide link and logo cluster below are
+   superseded by the first-pack flow decision, #898.) Each screen has one primary action: on the home screen it's opening the
    pack; during a reveal it's the next card; in the summary it's moving on to the next pack. Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
    and wordmark), the gear, the pack and the quiet Card guide link under it: the tabs and the era
    picker come once their first pack is saved and they leave it. There the Open pack button is brand
    filled, the one obvious action (#80); once the nav is in it steps back to secondary under the swipe.
    The tear line is the wrapper's seam (#267): a white perforation over a soft brand-and-foil band, with
-   a brand arrowhead at each end. A swipe along it covering a fifth of the pack opens it on release (over
-   and back counts by its span), three tenths while still moving; a vertical drag never does, and a
-   swipe under a fifth is let go without opening. These are design choices (`RELEASE_CUT_RATIO` 0.2,
-   `DRAG_CUT_RATIO` 0.3 and a 32px floor in `usePackCutter.ts`, checked in `tests/browser/pack-swipe.spec.ts`).
+   a brand arrowhead at each end. A swipe can start anywhere in the top third of the pack (at least 80px
+   under the seam), not only on it, and may drift up or down by up to 1.5 times its distance across
+   (#626). One covering 12% of the pack opens it on release (over and back counts by its span),
+   three tenths while still moving; a mostly vertical drag never does, and a swipe under 12% is
+   let go without opening. These are design choices (`RELEASE_CUT_RATIO` 0.12, `DRAG_CUT_RATIO` 0.3,
+   `MAX_DRIFT_RATIO` 1.5, the start band and a 32px floor in `usePackCutter.ts`, checked in
+   `tests/browser/pack-swipe.spec.ts`).
    The Open pack button under the pack opens it for a tap, a key or a screen reader.
    A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
    away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
@@ -62,6 +66,89 @@ from a 390 px wide screen.
     card viewer offers Retry, and failed art also retries when the device comes back online. Standard UI transitions
     are 120–320 ms (rare pull celebrations and card shimmers run longer, and specific card/reveal effects animate
     properties like box-shadow or clip-path).
+
+## First-pack flow decision (#898)
+
+Accepted direction, written before any implementation; the slices below build it. Where it
+disagrees with the Principles or the headline rules, **this section wins**; the slice that changes
+each screen reconciles the older text (marked "superseded" where it stands).
+
+**Story.** *Tear a sealed pack, find the card worth showing, chase a better one.* The goal on
+landing is to tear one pack. The payoff is the best card (it comes last) and one number, the pack's Brainrot
+Score (card points added up, times the combo). A pull is worth sharing when the card is rare or the score is high; another pack is worth
+opening because the score can be beaten and the set checklist (SOS 007/012) has holes.
+
+**Result metric: Brainrot Score, not 1-in-X.** The Hall of Fame, Profile, shared pulls and proofs
+already use it, so it is one idea everywhere, bigger is better, and it is something to beat. "1 in N
+packs score this high" needs a population, a direction and a "Most packs" fallback that stings
+(#778). Rarity is still told by the card's own badge. The combo name and multiplier stay: they are
+how the score is built, not a second metric. `scoreAtLeastChance` and every calculation stay in the engine, but no surface shows the
+chance: the Card guide is per set and has no pack score to compare, and its only caller is the
+results line (`PackSummaryUI.tsx`) that goes.
+
+### Flow, phone first (390 px), then desktop
+
+1. **Landing.** The header logo is the only Brainrot TCG brand on screen. The wrapper carries the
+   set's identity itself: set name and code printed on the art in the set's colour, with the name
+   also as real text for assistive tech. No wordmark or mark on the wrapper, no era label ("Jul-Oct"
+   stays in the picker, shelf and collection) and no card faces, which suggest the body swipes to
+   another pack. A new player sees logo, gear, pack and one cue: no Card guide link, era picker or
+   tabs until the first pack is saved. The guide stays in Settings, Help and on the summary.
+2. **Opening cue.** The pack is one control named "Open pack, {set name}". Swipe along the seam,
+   tap or click, or Space or Enter with focus on it: all run the same single opening (the click a
+   swipe ends in is swallowed; keys are scoped to the focused pack, never the page). No separate
+   Open pack button. Focus is a visible ring on the wrapper; while the ticket works it reads
+   "Opening..." and further input is ignored. A finger and a partial tear play along the seam, at
+   most twice, and stop at the first touch. Reduced motion shows the arrowheads and a caption
+   ("Swipe across to open"; desktop "Drag across, or click") with no motion. Swiping the pack body
+   only ever opens it; switching packs is never a swipe on the pack.
+3. **First-card cue.** On the first card of a player's first pack only, the back lifts at one corner
+   as if to flip, once, over the existing hint ("Tap card to flip", then "Swipe or tap for the next
+   card"). It stops on first input and is the caption alone under reduced motion. Tap flips and
+   advances; a sideways swipe advances after the flip. Nothing else is taught.
+4. **Reveal.** One new-card cue: the lower row (rarity, points, New). The on-art New sticker on the
+   active card goes; the announcement stays. In landscape under 500 px tall the card gets at least
+   70% of the height (about 250 px at 640x360, not 110), with the rarity row, hint and Skip in a
+   column beside it; the X, Skip and advance stay reachable.
+5. **Result.** One composition, a graded slab: the five cards in reveal order (best last) under one
+   label, **[score] Brainrot Score** then **[combo] x[multiplier]**, plus the Hall of Fame line only
+   when the pull qualifies. At most three short lines; no 1-in-X, XP or fingerprint (that is on the
+   share). Next pack is the one primary action, Share secondary. Tiles keep their own New stickers:
+   they name different cards.
+6. **Next pack and share.** Next pack returns to a sealed pack under the same cue rules (no replayed
+   demonstration once a pack is saved). Share makes the best card's image and link, as today.
+7. **Desktop (900 px up).** The same flow in a centred column; the pack opens by click, Space, Enter
+   or drag. A pack carousel is **not** added now: a new player has one pack and the picker already
+   serves returning players. Revisit with two or more started eras. Phones keep the picker.
+
+### Guardrails
+
+Every cue describes an interaction that works when it ships (the opening cue lands with the
+tap, Space and Enter path in #628, never before it), stops once understood, never blocks the action
+and has a static form under reduced motion. Scoring, proofs, saved ownership and released sets and
+versions are untouched; wrapper art changes wait for the owner's art review. Check each slice at 360,
+390 and 1280 px, enlarged text, reduced motion, keyboard only and landscape 640x360. A reviewer
+walkthrough is not a physical-device test.
+
+**Superseded:** the Open pack button and its prominence styling, the landing Card guide link, the
+wrapper's era label and logo/set clusters, the on-art New sticker on the active card, and the 1-in-X
+line, "no multiplier shows", "combo with its odds" and "a swipe or Open pack away" in the
+results rules below (#339).
+
+**Slices** (each issue's acceptance is updated to match):
+- #628: pack surface as the single Open pack control (swipe, tap, Space/Enter, busy state), button
+  removed, landing de-cluttered, honest cue.
+- #627: stationary-click loop from pack to summary; ignore clicks for about 400 ms after a stage
+  change and during Opening so no viewer opens. The loop deliberately ends at the summary, where
+  the player reads the score, views cards and shares, so a stray click must not skip it; Next pack
+  stays the one deliberate move. This replaces #627's pack-after-pack criterion.
+- #778: results show the score only; direction and card-sum x combo explained once in the Card
+  guide, with no chance line.
+- #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card
+  fan, and the fingerprint once on the certificate.
+- #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
+  44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
+  the tap path.
 
 ## Looks like a card game, not like an AI demo
 
@@ -214,7 +301,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   opens the era you open packs from (else the newest started one), then the other started eras newest
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
-- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss.
+- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss after 8 s (10 s for a grouped toast); hovering or focusing
+  a toast holds it, and it gets its full time again when the pointer or focus leaves.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
@@ -318,12 +406,8 @@ pack order). That is the shipped best-card rule: `revealOrder`
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
 
-On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] · 1 in
-[n] packs score this high** from `scoreAtLeastChance` (`src/engine/odds.ts`), the exact share of all
-packs of the set that score at least this much over the whole pack (rarity, holo, finish, misprint and
-combo). Past even odds it reads **[combo] · Most packs score this high**, and it is just the combo
-when the set's modifier table is unknown. Then the Hall of Fame line when the pull
-qualifies. The combo is named once and no multiplier shows: the Card guide (one tap, no fold) has
+(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. Then the Hall of Fame line when the pull
+qualifies. The Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers, and Score = card
 points added up × combo multiplier. There is no per-pack breakdown.
 

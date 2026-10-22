@@ -115,6 +115,24 @@ a.app-logo--link:focus-visible {
   padding-bottom: var(--safe-bottom);
 }
 
+/* A short phone on its side with enlarged text has no room for the header, set picker, pack and Card guide
+   above the tab bar. The app scrolls (the same box that already clips the pack falling in) instead of letting
+   the guide slide under the tabs; the guide stays pinned just above them (Scoring.css) (#684). Normal text
+   fits, so nothing scrolls there. */
+@media (max-width: 899px) and (max-height: 520px) {
+  .app:not(.is-focus) {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .app:not(.is-focus, .no-nav) .app-main {
+    min-height: min-content;
+    /* The tab bar is its 64px list plus a 1px top border. */
+    padding-bottom: calc(var(--nav-height) + 1px + var(--safe-bottom));
+  }
+}
+
 @media (min-width: 900px) {
   /* The nav sits in the header here, so the header (rings included) layers over the page below it.
      Not on phones: a z-index there would trap the fixed bottom nav inside the header. */
@@ -123,6 +141,10 @@ a.app-logo--link:focus-visible {
     z-index: var(--z-header);
     justify-content: space-between;
     padding-top: var(--space-4);
+    /* With enlarged text the logo, four tabs and Settings no longer share one row: the tabs and the gear
+       drop to a second line rather than past the edge of the window (#615). At normal size nothing wraps. */
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
   }
 
   /* The logo shares the row with the tabs and the gear (about 28rem with their gaps), so it scales

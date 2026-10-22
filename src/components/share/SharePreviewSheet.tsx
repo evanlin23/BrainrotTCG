@@ -27,7 +27,10 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
   const [failed, setFailed] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [shareFailed, setShareFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const doneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True while a native share is pending, so a second tap cannot start another share.
+  const sharing = useRef(false);
 
   useEffect(() => {
     let src = '';
@@ -38,18 +41,30 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
         src = URL.createObjectURL(blob);
         setImage({ blob, src });
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.error('Could not draw the share image', error);
         if (!cancelled) setFailed(true);
       });
     return () => {
       cancelled = true;
       if (src) URL.revokeObjectURL(src);
-      if (doneTimer.current) clearTimeout(doneTimer.current);
     };
     // The image depends only on what was opened; makeImage is a fresh closure each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
+
+  // Only unmounting clears the pending message timer; redrawing the image must not cancel it early.
+  useEffect(
+    () => () => {
+      if (doneTimer.current) clearTimeout(doneTimer.current);
+    },
+    [],
+  );
+
+  const onRetry = () => {
+    setFailed(false);
+    setAttempt((n) => n + 1);
+  };
 
   const flash = (message: string, isFailure = false) => {
     if (doneTimer.current) clearTimeout(doneTimer.current);
@@ -78,13 +93,21 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
     flash('Image saved');
   };
   const onShareTo = async () => {
+    if (!url && !image) return;
+    if (sharing.current) return;
+    sharing.current = true;
     if (doneTimer.current) {
       clearTimeout(doneTimer.current);
       doneTimer.current = null;
     }
     setDone(null);
     setShareFailed(false);
-    const result = await shareTo({ url, text, title, image: image ? { blob: image.blob, filename: imageName } : undefined });
+    let result: Awaited<ReturnType<typeof shareTo>>;
+    try {
+      result = await shareTo({ url, text, title, image: image ? { blob: image.blob, filename: imageName } : undefined });
+    } finally {
+      sharing.current = false;
+    }
     if (result === 'failed') {
       if (url) {
         if (await copyText(url)) flash('Link copied');
@@ -124,7 +147,7 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
               <Copy aria-hidden="true" /> Copy text
             </button>
             {canShareTo() && (
-              <button type="button" className="link-btn" onClick={onShareTo}>
+              <button type="button" className="link-btn" onClick={onShareTo} disabled={!url && !image}>
                 <Share2 aria-hidden="true" /> Share to…
               </button>
             )}
@@ -139,7 +162,16 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
               <img src={image.src} alt="The image you'll share" />
             ) : (
               <span className="share-preview-wait" role="status">
-                {failed ? "Couldn't draw the image" : 'Drawing the image…'}
+                {failed ? (
+                  <>
+                    <span>Couldn't draw the image</span>
+                    <button type="button" className="btn btn--secondary btn--sm share-retry-btn" onClick={onRetry}>
+                      Retry
+                    </button>
+                  </>
+                ) : (
+                  'Drawing the image…'
+                )}
               </span>
             )}
           </figure>
