@@ -177,17 +177,23 @@ export const getHistory = (): readonly HistoryEntry[] => {
 };
 
 /** A pack's cards as the app shows them, or null if the history has none for it. */
-export const historyCards = (entry: HistoryEntry): CardWithMeta[] | null =>
-  entry.cards
-    ?.map((c, i): CardWithMeta | null => {
-      const card = getCard(`${entry.setId}/${c.id}`);
-      if (!card) return null;
-      const meta: CardWithMeta = { ...card, uniqueId: i, isRevealed: true, isHolo: c.holo };
-      if (c.finish) meta.finish = c.finish;
-      if (c.misprint) meta.misprint = true;
-      return meta;
-    })
-    .filter((c): c is CardWithMeta => c !== null) ?? null;
+export const historyCards = (entry: HistoryEntry): CardWithMeta[] | null => {
+  const set = getSet(entry.setId, entry.setVersion);
+  return (
+    entry.cards
+      ?.map((c, i): CardWithMeta | null => {
+        const card = getCard(`${entry.setId}/${c.id}`);
+        // The rarity it was pulled at (#701); a set version this build doesn't know has none to give.
+        const rarity = set?.cards.find((d) => d.id === c.id)?.rarity;
+        if (!card || !rarity) return null;
+        const meta: CardWithMeta = { ...card, rarity, uniqueId: i, isRevealed: true, isHolo: c.holo };
+        if (c.finish) meta.finish = c.finish;
+        if (c.misprint) meta.misprint = true;
+        return meta;
+      })
+      .filter((c): c is CardWithMeta => c !== null) ?? null
+  );
+};
 
 /** Good enough for the Hall of Fame (the same rule as its Submit button). */
 export const isHallOfFameWorthy = (entry: Pick<HistoryEntry, 'hand' | 'score'>): boolean => {
