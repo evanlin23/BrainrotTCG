@@ -7,6 +7,7 @@ import qrcode from 'qrcode-generator';
 import type { Finish, PackScore } from '../engine';
 import { FINISH_INFO, modifierLabel } from './modifiers';
 import { holdFinishedCardImage } from './finishImage';
+import { BLANK_CARD_ART, isApprovedCardArt } from './cardArt';
 import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../styles/logoMark';
 import { BRAND as YELLOW, CHIP_BG, FINISH_GLOWS, FOIL_STOPS, INK, MUTED, PAPER } from '../styles/palette';
 
@@ -39,30 +40,6 @@ const H = 1920;
 /** Allow slow mobile networks without leaving the poster stuck on "Drawing the image…" indefinitely. */
 export const POSTER_IMAGE_TIMEOUT_MS = 10_000;
 
-const withDeadline = <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> =>
-  new Promise<T>((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      reject(new Error(message));
-    }, timeoutMs);
-    promise.then(
-      (value) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-
 export const loadPosterImageElement = (
   src: string,
   timeoutMs = POSTER_IMAGE_TIMEOUT_MS,
@@ -89,10 +66,14 @@ export const loadPosterImageElement = (
     img.src = src;
   });
 
-const loadImage = async (src: string, finish?: Finish | null, timeoutMs = POSTER_IMAGE_TIMEOUT_MS) => {
+const loadImage = async (art: string, wanted?: Finish | null, timeoutMs = POSTER_IMAGE_TIMEOUT_MS) => {
+  // Art this build won't request (an unknown historical card's stored address) is drawn as an empty slot.
+  const approved = isApprovedCardArt(art);
+  const src = approved ? art : BLANK_CARD_ART;
+  const finish = approved ? wanted : null;
   const finished = holdFinishedCardImage(src, finish);
   try {
-    const imageUrl = await withDeadline(finished.image, timeoutMs, `Poster finish render timed out: ${src}`);
+    const imageUrl = await finished.image;
     return await loadPosterImageElement(imageUrl, timeoutMs);
   } finally {
     // A loaded image keeps its pixels, so the render can be evicted while the poster is drawn.

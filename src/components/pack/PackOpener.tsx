@@ -176,8 +176,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Mining taking a while: say so, rather than leave a torn pack sitting still.
   const [slowOpen, setSlowOpen] = useState(false);
   /**
-   * A press on the pack just missed the tear line ('miss'), or tapped it without swiping ('tap'), so
-   * it shows where, or how, to swipe for a moment.
+   * A press on the pack landed below the band a swipe can start in ('miss'), or tapped in that band
+   * without swiping ('tap'), so it shows where, or how, to swipe for a moment.
    */
   const [nudging, setNudging] = useState<false | 'miss' | 'tap'>(false);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
