@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLatestSet } from '../../content/sets';
 import { ALL_CARDS } from '../../data/cards';
 import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
-import { importSaveFile, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE, NO_ROOM_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
 import { SAVE_STAMP_KEY, type SaveMark } from '../../game/player';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundGain } from '../../constants/audio';
 import { DEFAULT_SETTINGS, effectsLevel } from '../../utils/settings';
@@ -95,8 +95,72 @@ describe('Settings: bringing the old address save', () => {
   });
 });
 
+describe('focus after the old address Replace question (#978)', () => {
+  /** A different save is already here, so Bring it asks first; the question's Keep mine has the focus. */
+  const ask = async () => {
+    localStorage.setItem('brainrot-player-v1', player('bb'));
+    localStorage.setItem(COLLECTION, '{"original":{"normalCount":2}}');
+    await click('Bring it');
+    expect(document.activeElement).toBe(button('Keep mine'));
+  };
+
+  it('hands the focus to Bring it when Keep mine answers the question', async () => {
+    await ask();
+    await click('Keep mine');
+    expect(note().textContent).toBe('Kept the save you have here.');
+    expect(document.activeElement).toBe(button('Bring it'));
+  });
+
+  it('hands the focus to Bring it when the save does not fit and nothing changed', async () => {
+    await ask();
+    const write = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+      if (key === 'brainrot-before-move-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError');
+      write.call(this, key, value);
+    });
+    await click('Replace');
+    expect(note().textContent).toBe(FULL_MOVE_NOTE);
+    expect(document.activeElement).toBe(button('Bring it'));
+  });
+
+  it('does not take the focus from another control when Bring it reports no save', async () => {
+    fetchOldSave.mockResolvedValue('none');
+    act(() => button('Export').focus());
+    await click('Bring it');
+    expect(note().textContent).toBe('There was no save at the old address.');
+    expect(document.activeElement).toBe(button('Export'));
+  });
+
+  it('does not move the focus on the first render or on a later one', () => {
+    expect(document.activeElement).toBe(document.body);
+    act(() => button('Export').focus());
+    act(() => root.render(<SettingsPage settings={{ ...DEFAULT_SETTINGS, effectsVolume: 0.5 }} onSettingsChange={() => {}} onImportSave={() => null} />));
+    expect(document.activeElement).toBe(button('Export'));
+  });
+});
+
 describe('Settings: exporting a backup file', () => {
   const backupNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Back up')!;
+
+  it('says the backup was downloaded, and keeps the warning that the file is private (#805)', async () => {
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:mock'), revokeObjectURL: vi.fn() });
+
+    expect(backupNote().textContent).toBe(EXPORT_KEY_NOTE);
+    await click('Export');
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(backupNote().textContent).toMatch(/^Backup downloaded — keep it private\./);
+    expect(backupNote().textContent).toContain('secret player key');
+    // Exporting again keeps the confirmation (the file is made each time) and re-announces it: the
+    // status region gets a new text node, which is what a screen reader reads out.
+    const firstAnnouncement = backupNote().firstElementChild!;
+    await click('Export');
+    expect(clickSpy).toHaveBeenCalledTimes(2);
+    expect(backupNote().textContent).toBe(EXPORT_DONE_NOTE);
+    expect(firstAnnouncement.isConnected).toBe(false);
+    expect(backupNote().firstElementChild).not.toBe(firstAnnouncement);
+  });
 
   it('shows visible failure message when browser storage reads are denied, and succeeds on retry', async () => {
     localStorage.setItem('brainrot-player-v1', player('aa'));
@@ -125,7 +189,7 @@ describe('Settings: exporting a backup file', () => {
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
 
     await click('Export');
-    expect(backupNote().textContent).toBe('Includes your secret player key. Keep the file private.');
+    expect(backupNote().textContent).toBe(EXPORT_DONE_NOTE);
     expect(createObjectURL).toHaveBeenCalled();
     expect(clickSpy).toHaveBeenCalled();
   });
@@ -520,6 +584,38 @@ describe('Settings: importing a backup file', () => {
     };
     const importButton = () => button('Import');
 
+    it('moves focus from Import to Keep mine when the question opens after a file pick', async () => {
+      renderWith(() => null);
+      act(() => importButton().focus());
+      await pick(OTHER);
+      expect(button('Import')).toBeUndefined();
+      expect(document.activeElement).toBe(button('Keep mine'));
+    });
+
+    it('moves focus from the page to Keep mine when the question opens after a file pick', async () => {
+      renderWith(() => null);
+      expect(document.activeElement).toBe(document.body);
+      await pick(OTHER);
+      expect(document.activeElement).toBe(button('Keep mine'));
+    });
+
+    it('leaves the focus on another control when the question opens', async () => {
+      renderWith(() => null);
+      act(() => button('Export').focus());
+      await pick(OTHER);
+      expect(button('Keep mine')).toBeDefined();
+      expect(document.activeElement).toBe(button('Export'));
+    });
+
+    it('moves focus from Import to Keep mine when a file with no progress here has no room for a copy', async () => {
+      const onImportSave = vi.fn((_content: string, keepCopy?: boolean): string | null => (keepCopy ? NO_ROOM_FOR_COPY_NOTE : null));
+      act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+      act(() => importButton().focus());
+      await pick(OTHER);
+      expect(button('Replace without a copy')).toBeDefined();
+      expect(document.activeElement).toBe(button('Keep mine'));
+    });
+
     it('puts focus on Import after Keep mine', async () => {
       renderWith(() => null);
       await askAndFocus('Keep mine');
@@ -536,10 +632,10 @@ describe('Settings: importing a backup file', () => {
       expect(onImportSave).toHaveBeenCalledTimes(1);
       expect(document.activeElement).toBe(importButton());
 
-      onImportSave.mockReturnValue("This browser's storage has no room for this file. Your previous save data was restored.");
+      onImportSave.mockReturnValue(NO_ROOM_NOTE);
       await askAndFocus('Replace');
       await click('Replace');
-      expect(restoreNote().textContent).toBe("This browser's storage has no room for this file. Your previous save data was restored.");
+      expect(restoreNote().textContent).toBe(NO_ROOM_NOTE);
       expect(document.activeElement).toBe(importButton());
     });
 
