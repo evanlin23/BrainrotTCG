@@ -72,6 +72,7 @@ import {
   utcDay,
   verifyProof,
   type RankableEntry,
+  type TicketFn,
   type VerifiedPull,
   type Finish,
 } from '../src/engine/index.ts';
@@ -485,25 +486,27 @@ export const build = async (output = OUTPUT) => {
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);
 };
 
-const SEEN_PATH = 'hof-inbox-seen.json';
+export const SEEN_PATH = 'hof-inbox-seen.json';
 /** How far back to read the relays. Seen events are skipped, so a long window only costs a download. */
-const INBOX_WINDOW_S = 7 * 24 * 60 * 60;
+export const INBOX_WINDOW_S = 7 * 24 * 60 * 60;
 /** Pulls re-derived per run (about 0.1 s each), so a flood of submissions can't run the job forever. */
-const INBOX_BUDGET = 300;
+export const INBOX_BUDGET = 300;
 /** Entries filed per run (two GitHub requests each), well under GitHub's limits on creating content. */
-const INBOX_MAX_FILED = 20;
+export const INBOX_MAX_FILED = 20;
 /**
  * Events per request. Relays advertise their own maximum (NIP-11 `max_limit`), and asking for more
  * can get the connection dropped: relay.nostr.net allows 100, and relay.damus.io hangs up at 500.
  */
-const INBOX_PAGE_SIZE = 100;
+export const INBOX_PAGE_SIZE = 100;
 /** Requests per relay for older events, so a burst of junk can't push real submissions out of reach. */
-const INBOX_PAGES = 50;
+export const INBOX_PAGES = 50;
+/** Event ids remembered between runs; the newest are kept. */
+export const INBOX_SEEN_CAP = 20000;
 
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
 const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
 
-export const inbox = async () => {
+export const inbox = async (ticketFn?: TicketFn) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('inbox needs GITHUB_TOKEN to file issues');
   const seen = new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
@@ -544,6 +547,7 @@ export const inbox = async () => {
     budget: INBOX_BUDGET,
     maxFiled: INBOX_MAX_FILED,
     lookup: getSet,
+    ticketFn,
     log: console.log,
     // Filed by the bot, so the issue-opened workflow doesn't run on it again; the marker comment is
     // the "first verified" time, exactly as for issues people open themselves. The marker goes on
@@ -579,7 +583,7 @@ export const inbox = async () => {
   if (deferred) console.log(`${deferred} events left for the next run`);
 
   // Keep the cache bounded; the newest ids matter (older events fall out of the window anyway).
-  writeFileSync(SEEN_PATH, JSON.stringify([...seen].slice(-20000)));
+  writeFileSync(SEEN_PATH, JSON.stringify([...seen].slice(-INBOX_SEEN_CAP)));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `added=${added}\n`);
   console.log(`${events.length} events read, ${added} added`);
 };

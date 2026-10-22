@@ -147,6 +147,34 @@ runs the real relay reader, inbox and build against in-memory GitHub and relays
 issues and byte-identical output. Whether Discord, Slack or X
 actually unfurl a page is still checked by hand, against a deployed address.
 
+### Intake capacity harness (offline)
+
+`npx tsx scripts/hof-capacity.ts` runs the real `inbox()` for many scheduled runs against the same
+in-memory fakes, to see backlog, age and API calls under bursts, backlogs and outages, with the
+shipped caps (300 attempts and 20 filings a run, paging, the 7-day window, the seen cache). It sends
+nothing to GitHub, a relay or Pages. What is real and what is not:
+
+- Ticket verification is **stubbed** (two pre-mined stand-in tickets); proof and event signatures are
+  real. Time is a **fake clock** in model seconds (nothing sleeps). Run times are **modeled**:
+  derivations x a small real Argon2 sample (`--argon-samples`, default 3) plus requests x placeholder
+  latencies. They are not observed production throughput; timing under `timing` is report-only.
+- Inputs per scenario: arrival phases, cadence, duplicate, invalid and qualifying fractions, relay
+  retention, relay or GitHub outages, write limits or failures, existing issues, seen-cache filler,
+  modeled costs and the bounds (events, runs, wall time, heap). Hitting a bound ends the scenario with
+  `exit: aborted: ...` and fails a check. Window or retention expiry is counted apart from delivery.
+
+```
+npx tsx scripts/hof-capacity.ts --list
+npx tsx scripts/hof-capacity.ts [--scenario name]... [--seed text] [--out report.json]
+npx tsx scripts/hof-capacity.ts --include-slow          # also paging-cap, a minute or two
+npx tsx scripts/hof-capacity.ts --scenario synthetic-30-packs-per-second --include-synthetic-225
+```
+
+The default scenarios take about a minute. The report holds the seed, config, runner metadata and the
+raw per-run summaries; it exits 1 if a deterministic check or bound fails. The 30 packs/second
+scenario is #225's synthetic future opt-in, not a claim the service supports it, and needs its flag.
+`scripts/hof-capacity.test.ts` (`npx vitest run scripts/hof-capacity.test.ts`) covers small versions.
+
 ## Browser smoke
 
 `npm run test:browser` (Playwright, Chromium) builds the checkout and owns a strict-port preview at
