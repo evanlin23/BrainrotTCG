@@ -2,13 +2,14 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkPull, previewFor, pullUrl, type CheckedPull } from '../../game/pulls';
+import { checkPull, previewFor, pullUrl, UnknownCardError, type CheckedPull } from '../../game/pulls';
 import { OUT_OF_MEMORY_ADVICE, TicketMemoryError } from '../../game/ticketPool';
 import { ProofError } from '../../engine';
 import PullViewerPage from './PullViewerPage';
 
 // The pull is a stand-in: this checks only how the player's name is shown.
 vi.mock('../../game/pulls', () => ({
+  UnknownCardError: class UnknownCardError extends Error {},
   checkPull: vi.fn(),
   previewFor: vi.fn(),
   pullUrl: vi.fn((proof: string, preview?: string) => preview ? `https://example.invalid/#/pull/${proof}?p=${preview}` : `https://example.invalid/#/pull/${proof}`),
@@ -38,6 +39,8 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  vi.mocked(previewFor).mockReset();
 });
 
 const subtitle = async (name: string) => {
@@ -72,6 +75,8 @@ describe('PullViewerPage', () => {
     expect(retry).toBeDefined();
     await act(async () => retry!.click());
     expect(checkPull).toHaveBeenCalledTimes(2);
+    expect(checkPull).toHaveBeenNthCalledWith(1, 'proof', expect.any(AbortSignal));
+    expect(checkPull).toHaveBeenNthCalledWith(2, 'proof', expect.any(AbortSignal));
     expect(document.body.textContent).toContain('Verified on this device');
   });
 
@@ -94,6 +99,8 @@ describe('PullViewerPage', () => {
     expect(retry).toBeDefined();
     await act(async () => retry!.click());
     expect(checkPull).toHaveBeenCalledTimes(2);
+    expect(checkPull).toHaveBeenNthCalledWith(1, 'proof', expect.any(AbortSignal));
+    expect(checkPull).toHaveBeenNthCalledWith(2, 'proof', expect.any(AbortSignal));
     expect(document.body.textContent).toContain('Verified on this device');
     expect(document.body.textContent).toContain('Worker Recovered #abcd');
   });
@@ -191,5 +198,50 @@ describe('PullViewerPage', () => {
     // Clean resolve of B
     await act(async () => resolveB(pull('Player B')));
     expect(document.body.textContent).toContain('Verified on this device');
+  });
+
+  it('shows a card the app does not have as not valid, with no retry, since it fails the same way everywhere', async () => {
+    vi.mocked(checkPull).mockReset().mockRejectedValueOnce(new UnknownCardError('Unknown card og/missing'));
+    await act(async () => root.render(<PullViewerPage proof="proof" onClose={() => {}} />));
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Not a valid pull');
+    expect(text).toContain('Unknown card og/missing');
+    expect(text).not.toContain('Try again');
+    expect(text).not.toContain("Couldn't verify on this device");
+  });
+
+  it('ignores a late failure or result for proof A after switching to proof B', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let rejectA!: (error: Error) => void;
+    let resolveB!: (val: CheckedPull) => void;
+    const pendingA = new Promise<CheckedPull>((_, rej) => { rejectA = rej; });
+    const pendingB = new Promise<CheckedPull>((res) => { resolveB = res; });
+    vi.mocked(checkPull).mockReset().mockReturnValueOnce(pendingA).mockReturnValueOnce(pendingB);
+
+    await act(async () => root.render(<PullViewerPage proof="proofA" onClose={() => {}} />));
+    const signalA = vi.mocked(checkPull).mock.calls[0][1]!;
+    await act(async () => root.render(<PullViewerPage proof="proofB" onClose={() => {}} />));
+    expect(vi.mocked(checkPull)).toHaveBeenNthCalledWith(2, 'proofB', expect.any(AbortSignal));
+    expect(signalA.aborted).toBe(true);
+
+    // A fails late: its error must not replace B's checking state.
+    await act(async () => rejectA(new Error('Temporary WASM failure')));
+    expect(document.body.textContent).toContain('Re-opening the pack on your device');
+    expect(document.body.textContent).not.toContain("Couldn't verify on this device");
+
+    await act(async () => resolveB(pull('Player B')));
+    expect(document.body.textContent).toContain('Player B #abcd');
+  });
+
+  it('ignores a late result for a proof after the page unmounts, and aborts its check', async () => {
+    let resolveA!: (val: CheckedPull) => void;
+    vi.mocked(checkPull).mockReset().mockReturnValueOnce(new Promise<CheckedPull>((res) => { resolveA = res; }));
+    await act(async () => root.render(<PullViewerPage proof="proofA" onClose={() => {}} />));
+    const signal = vi.mocked(checkPull).mock.calls[0][1]!;
+    expect(signal.aborted).toBe(false);
+    await act(async () => root.render(null));
+    expect(signal.aborted).toBe(true);
+    await act(async () => resolveA(pull('Player A')));
+    expect(document.body.textContent).not.toContain('Player A');
   });
 });

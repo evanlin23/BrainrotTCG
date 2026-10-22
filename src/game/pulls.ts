@@ -51,10 +51,18 @@ export interface OpenedPack extends PullRef {
   unrecorded?: boolean;
 }
 
+/** A pulled card the app has no card for: the same on every device, so a retry can't help. */
+export class UnknownCardError extends Error {
+  constructor(cardId: string) {
+    super(`Unknown card ${cardId}`);
+    this.name = 'UnknownCardError';
+  }
+}
+
 export const toCardsWithMeta = (pulled: { setId: string; cardId: string; isHolo: boolean; finish?: Finish | null; misprint?: boolean }[]): CardWithMeta[] =>
   pulled.map((p) => {
     const card: Card | undefined = getCard(`${p.setId}/${p.cardId}`);
-    if (!card) throw new Error(`Unknown card ${p.setId}/${p.cardId}`);
+    if (!card) throw new UnknownCardError(`${p.setId}/${p.cardId}`);
     return { ...card, uniqueId: Math.random(), isRevealed: false, isHolo: p.isHolo, ...(p.finish !== undefined ? { finish: p.finish, misprint: !!p.misprint } : {}) };
   });
 

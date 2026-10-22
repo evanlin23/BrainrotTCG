@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
-import { checkPull, previewFor, pullUrl, type CheckedPull } from '../../game/pulls';
+import { checkPull, previewFor, pullUrl, UnknownCardError, type CheckedPull } from '../../game/pulls';
 import { isMemoryError, OUT_OF_MEMORY_ADVICE } from '../../game/ticketPool';
 import { ProofError, publicName } from '../../engine';
 import { setCode } from '../../content/sets';
@@ -43,15 +43,16 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
     checkPull(proof, stop.signal)
       .then((pull) => !cancelled && setState({ status: 'ok', pull }))
       .catch((error: unknown) => {
-        if (cancelled || stop.signal.aborted || (error instanceof DOMException && error.name === 'AbortError') || (error instanceof Error && error.name === 'AbortError')) {
-          return;
-        }
+        if (cancelled || stop.signal.aborted) return;
         if (error instanceof ProofError) {
           if (error.rule === 'set') {
             setState({ status: 'unknown_set', reason: error.message });
           } else {
             setState({ status: 'invalid', reason: error.message });
           }
+        } else if (error instanceof UnknownCardError) {
+          // The same on every device, so offering a retry would be wrong.
+          setState({ status: 'invalid', reason: error.message });
         } else if (isMemoryError(error)) {
           console.error('Pull verification failed', error);
           setState({
