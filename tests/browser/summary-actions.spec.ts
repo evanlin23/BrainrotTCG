@@ -223,7 +223,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
   expect(await page.locator('.summary-content').evaluate((list) => list.scrollHeight - list.clientHeight)).toBeLessThanOrEqual(0);
   for (const locator of [
     page.locator('.summary-title'),
-    page.locator('.pack-headline-odds'),
+    page.locator('.pack-headline-combo'),
     ...Array.from({ length: 5 }, (_, index) => page.locator('.summary-card').nth(index)),
     page.getByRole('button', { name: 'Share', exact: true }),
     page.getByRole('button', { name: 'Next pack' }),
