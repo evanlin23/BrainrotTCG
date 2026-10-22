@@ -31,11 +31,14 @@ const fixture = (): Record<string, unknown> => ({
 });
 const ENCODED = Object.keys(fixture()).filter((field) => typeof fixture()[field] === 'string' && field !== 'exportedAt');
 
+const ORIGINAL_SECRET = 'bb'.repeat(32);
 const ORIGINAL: [string, string][] = [
-  [PLAYER_KEY, player('bb'.repeat(32), 12)],
+  [PLAYER_KEY, player(ORIGINAL_SECRET, 12)],
   [STORAGE_KEYS.COLLECTION, '{}'],
   [STORAGE_KEYS.STATS, '{"packsOpened":12,"holoCards":{}}'],
   [STORAGE_KEYS.SETTINGS, '{"particlesEnabled":false}'],
+  // The fixture omits pulls: a file from another player must clear this player's, not keep them.
+  [STORAGE_KEYS.PULLS, '[]'],
 ];
 const store = new Map<string, string>();
 const write = vi.fn((key: string, value: string) => { store.set(key, value); });
@@ -93,6 +96,21 @@ const editedSave = (rng: Rng): { raw: string; edit: string } => {
   }
 };
 
+/** The fixture with a collection entry's normalCount and stats.packsOpened set to these numbers. */
+const withCounts = (normalCount: number, packsOpened = normalCount) => ({
+  ...fixture(),
+  collection: JSON.stringify({ [ALL_CARDS[0].key]: { card: ALL_CARDS[0], normalCount, holoCount: 0 } }),
+  stats: JSON.stringify({ packsOpened, holoCards: {}, highestPackCards: [] }),
+});
+
+/** The save is refused, and no write reaches storage or the identity. */
+const expectRefusedUnchanged = (save: Record<string, unknown>) => {
+  const before = new Map(store);
+  expect(importSaveFile(JSON.stringify(save))).not.toBeNull();
+  expect(write).not.toHaveBeenCalled();
+  expect(store).toEqual(before);
+};
+
 type Importer = (raw: string) => string | null;
 
 /** Refusals change nothing; admissions store each supplied field byte for byte; validators never throw. */
@@ -117,8 +135,12 @@ const admissionProperty = (importer: Importer, outcomes = { accepted: 0, rejecte
     }
     outcomes.accepted++;
     const save = JSON.parse(raw) as Record<string, unknown>;
+    const otherPlayer = typeof save.player === 'string' && (JSON.parse(save.player) as { secretKey: string }).secretKey !== ORIGINAL_SECRET;
     for (const [field, key] of Object.entries(FIELD_KEYS)) {
       if (typeof save[field] === 'string') expect(store.get(key), field).toBe(save[field]);
+      // An omitted field keeps this browser's value, unless the file brings another player: then that
+      // player's fields are cleared, so identities never mix (settings belong to the device).
+      else expect(store.get(key), `omitted ${field}`).toBe(otherPlayer && key !== STORAGE_KEYS.SETTINGS ? undefined : before.get(key));
     }
     expect(store.get(DATA_VERSION_KEY)).toBe(String(save.dataVersion ?? CURRENT_DATA_VERSION));
     if (typeof save.player === 'string') expect(JSON.parse(store.get(PLAYER_KEY)!).secretKey).toBe(JSON.parse(save.player).secretKey);
@@ -126,8 +148,9 @@ const admissionProperty = (importer: Importer, outcomes = { accepted: 0, rejecte
 );
 
 describe('Save & backup admission properties', () => {
-  it('admits the unedited fixture', () => {
+  it('admits the unedited fixture, clearing the fields it omits for the other player', () => {
     expect(importSaveFile(JSON.stringify(fixture()))).toBeNull();
+    expect(store.has(STORAGE_KEYS.PULLS)).toBe(false);
   });
 
   it('refuses every truncation of a valid save without writes', () => {
@@ -154,10 +177,29 @@ describe('Save & backup admission properties', () => {
   });
 
   it.each(UNSAFE_COUNTERS)('refuses ticket counter %s without writes', (nextNonce) => {
-    const before = new Map(store);
-    expect(importSaveFile(JSON.stringify({ ...fixture(), player: player(undefined, nextNonce) }))).not.toBeNull();
-    expect(write).not.toHaveBeenCalled();
-    expect(store).toEqual(before);
+    expectRefusedUnchanged({ ...fixture(), player: player(undefined, nextNonce) });
+  });
+
+  it.each(SAFE_COUNTERS)('admits card and pack counts of %s verbatim', (value) => {
+    const save = withCounts(value);
+    expect(importSaveFile(JSON.stringify(save))).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe(save.collection);
+    expect(store.get(STORAGE_KEYS.STATS)).toBe(save.stats);
+  });
+
+  it.each(UNSAFE_COUNTERS)('refuses a card count of %s without writes', (value) => {
+    expectRefusedUnchanged(withCounts(value, 1));
+  });
+
+  it.each(UNSAFE_COUNTERS)('refuses a packs-opened count of %s without writes', (value) => {
+    expectRefusedUnchanged(withCounts(1, value));
+  });
+
+  it.each([
+    'null', '[]', '"quiet"', '1', '{"particlesEnabled":"yes"}', '{"soundEnabled":1}', '{"effectsVolume":"1"}',
+    '{"musicVolume":null}', '{"cardBack":7}', '{"packFoil":false}',
+  ])('refuses settings %s without writes', (settings) => {
+    expectRefusedUnchanged({ ...fixture(), settings });
   });
 
   it('detects an injected admission mistake (a field written before validation), naming the seed', async () => {
