@@ -389,7 +389,7 @@ test('closing a shared pull opened over a pack keeps the pack, and one Back then
   await openPackSummary(page);
 
   await page.evaluate((proof) => { location.hash = `#/pull/${proof}`; }, vector.proof);
-  const viewer = page.getByRole('dialog').filter({ hasText: 'Verified on this device' });
+  const viewer = page.getByRole('dialog').filter({ hasText: 'This pull checks out — re-verified in your browser just now' });
   await expect(viewer).toBeVisible({ timeout: 30000 });
   await viewer.getByRole('button', { name: 'Close', exact: true }).first().click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
