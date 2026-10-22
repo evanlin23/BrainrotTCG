@@ -300,3 +300,86 @@ it('still recovers a pack the collection couldn’t store when the player is the
   expect(shelf()).toEqual([]);
   expect(banner()).toBeNull();
 }, 60_000);
+
+it('refuses stale replacement import when another tab imported a save, and allows a reconfirmed import', async () => {
+  const initialSeed = {
+    ...SEED,
+    [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 5, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
+  };
+  app = await mountedApp(initialSeed);
+  await app.mount();
+
+  // Open Settings in Tab A
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+
+  const pickFile = async (save: object) => {
+    const input = document.querySelector<HTMLInputElement>('.settings input[type="file"]')!;
+    Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(save)], 'save.json')], configurable: true });
+    await app!.interact(() => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  };
+
+  const incomingKey = '03'.repeat(32);
+  const incomingSave = {
+    version: 2, exportedAt: '2026-10-14T00:00:00.000Z', dataVersion: 3,
+    player: record(incomingKey, 'Incoming Player'),
+    stats: JSON.stringify({ packsOpened: 10, holoCards: {}, highestPackCards: [] }),
+    collection: '{}', achievements: '{}', hallOfFame: '{}',
+    settings: JSON.stringify({ effectsVolume: 0 }),
+    history: '[]',
+  };
+
+  // 1. In Tab A: select incoming save and wait for Replace prompt
+  await pickFile(incomingSave);
+  await app.until('replacement prompt appears', () => expect(button(document, 'Replace')).not.toBeUndefined());
+  expect(document.querySelector('.settings [role="status"]')?.textContent).toContain("Replace this browser's save");
+
+  // 2. Tab B: actual successful import of Switched Player
+  const switchedKey = '04'.repeat(32);
+  const switchedSave = {
+    version: 2, exportedAt: '2026-10-14T00:00:00.000Z', dataVersion: 3,
+    player: record(switchedKey, 'Switched Player'),
+    stats: JSON.stringify({ packsOpened: 20, holoCards: {}, highestPackCards: [] }),
+    collection: '{}', achievements: '{}', hallOfFame: '{}',
+    settings: JSON.stringify({ effectsVolume: 0 }),
+    history: '[]',
+  };
+  const { importSaveFile } = await import('../game/saveFile');
+  expect(importSaveFile(JSON.stringify(switchedSave))).toBeNull();
+
+  // Tab A receives storage event from Tab B
+  await storageEvent(PLAYER_KEY);
+
+  // 3. Stale prompt/Replace in Tab A causes zero replacement writes against Switched
+  const replaceBtn = button(document, 'Replace');
+  if (replaceBtn) {
+    await app.interact(() => replaceBtn.click());
+  }
+  // Switched save remains intact in storage
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).name).toBe('Switched Player');
+  expect((JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!) as Stats).packsOpened).toBe(20);
+  expect(button(document, 'Replace')).toBeUndefined();
+
+  // 4. Refreshed/reconfirmed import succeeds
+  await app.reload();
+  const reloadSpy = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+
+  await pickFile(incomingSave);
+  await app.until('fresh replacement prompt appears', () => expect(button(document, 'Replace')).not.toBeUndefined());
+  expect(document.querySelector('.settings [role="status"]')?.textContent).toContain('Switched Player');
+
+  await app.interact(() => button(document, 'Replace')!.click());
+  expect(reloadSpy).toHaveBeenCalled();
+  reloadSpy.mockRestore();
+
+  // Incoming Player is now imported in storage
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).name).toBe('Incoming Player');
+  // And the backup in storage holds Switched Player
+  const backup = JSON.parse(localStorage.getItem('brainrot-before-import-v1')!);
+  expect(backup[PLAYER_KEY]).toContain('Switched Player');
+}, 60_000);

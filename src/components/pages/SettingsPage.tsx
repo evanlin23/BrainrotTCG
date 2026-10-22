@@ -12,13 +12,14 @@ import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import KeptAsideActions from '../ui/KeptAsideActions';
 import '../../styles/Settings.css';
-import { downloadSaveFile, NO_ROOM_FOR_COPY_NOTE } from '../../game/saveFile';
+import { downloadSaveFile, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { sameSave, saveMark, type SaveMark } from '../../game/player';
 
 interface SettingsPageProps {
     settings: Settings;
     onSettingsChange: (settings: Settings) => void;
     /** Returns an error to show, or null (the page then reloads with the imported save). keepCopy false skips the copy of the current save. */
-    onImportSave: (data: string, keepCopy?: boolean) => string | null;
+    onImportSave: (data: string, keepCopy?: boolean, expectedSave?: SaveMark) => string | null;
     saveWarning?: string;
     /** Shown beside the warning when only a reload fixes it (the save changed in another tab). */
     onReload?: () => void;
@@ -90,6 +91,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [withoutCopy, setWithoutCopy] = useState(false);
     /** "this browser's save (X) with the file's (Y)" while the player is asked to replace a save. */
     const [replacing, setReplacing] = useState<string | null>(null);
+    /** Snapshot of the save identity when the replacement prompt was prepared. */
+    const [reviewedSave, setReviewedSave] = useState<SaveMark | null>(null);
+
+    const isStale = Boolean(saveWarning && onReload);
+    const activePendingImport = isStale ? null : pendingImport;
+    const activeWithoutCopy = isStale ? false : withoutCopy;
+    const activeReplacing = isStale ? null : replacing;
 
     /** "Name, 14 packs" for a save's player and stats (as stored, or as in a backup file). */
     const describe = (player: string | null | undefined, stats: string | null | undefined) => {
@@ -103,17 +111,28 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     };
 
     /** `saves` names the two saves the player agreed to swap; null when nothing asked first. */
-    const runImport = (content: string, keepCopy = true, saves: string | null = null) => {
+    const runImport = (content: string, keepCopy = true, saves: string | null = null, expectedSave: SaveMark | null = reviewedSave) => {
+        if (isStale || (expectedSave && !sameSave(expectedSave, saveMark()))) {
+            setPendingImport(null);
+            setReplacing(null);
+            setWithoutCopy(false);
+            setReviewedSave(null);
+            setImportNote(STALE_SAVE_WARNING);
+            return;
+        }
         setPendingImport(null);
         setWithoutCopy(false);
-        const error = onImportSave(content, keepCopy);
+        const error = onImportSave(content, keepCopy, expectedSave ?? undefined);
         if (!error) return;
         // Nothing changed; the player may export first, then choose to replace without the copy.
         if (keepCopy && error === NO_ROOM_FOR_COPY_NOTE) {
             setImportNote(saves ? `${error} Replace ${saves} without keeping a copy?` : error);
             setPendingImport(content);
             setWithoutCopy(true);
-        } else setImportNote(error);
+        } else {
+            setReviewedSave(null);
+            setImportNote(error);
+        }
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -138,11 +157,14 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     return false;
                 }
             })();
+            const mark = saveMark();
             if (!hasProgress() || (sameKey && describe(here, localStorage.getItem(STORAGE_KEYS.STATS)) === describe(incoming.player, incoming.stats))) {
                 setReplacing(null);
-                return runImport(content);
+                setReviewedSave(null);
+                return runImport(content, true, null, mark);
             }
             const saves = `this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(incoming.player, incoming.stats)})`;
+            setReviewedSave(mark);
             setReplacing(saves);
             setPendingImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
@@ -225,12 +247,12 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             <Download aria-hidden="true" /> Export
                         </button>
                     </div>
-                    <div className={pendingImport ? 'settings-row settings-row--wrap' : 'settings-row'}>
+                    <div className={activePendingImport ? 'settings-row settings-row--wrap' : 'settings-row'}>
                         <span className="settings-text">
                             <span className="settings-label">Restore</span>
-                            <span className="settings-desc" role="status">{importNote}</span>
+                            <span className="settings-desc" role="status">{isStale ? STALE_SAVE_WARNING : importNote}</span>
                         </span>
-                        {pendingImport ? (
+                        {activePendingImport ? (
                             <span className="settings-actions">
                                 <button
                                     type="button"
@@ -238,13 +260,14 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                     onClick={() => {
                                         setPendingImport(null);
                                         setWithoutCopy(false);
+                                        setReviewedSave(null);
                                         setImportNote('Kept your save.');
                                     }}
                                 >
                                     Keep mine
                                 </button>
-                                <button type="button" className="btn btn--primary btn--sm" onClick={() => runImport(pendingImport, !withoutCopy, replacing)}>
-                                    {withoutCopy ? 'Replace without a copy' : 'Replace'}
+                                <button type="button" className="btn btn--primary btn--sm" onClick={() => runImport(activePendingImport, !activeWithoutCopy, activeReplacing, reviewedSave)}>
+                                    {activeWithoutCopy ? 'Replace without a copy' : 'Replace'}
                                 </button>
                             </span>
                         ) : (

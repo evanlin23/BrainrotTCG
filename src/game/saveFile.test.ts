@@ -3,9 +3,9 @@ import { STORAGE_KEYS } from '../constants';
 import { ALL_CARDS } from '../data/cards';
 import type { CollectionItem } from '../types';
 import { CURRENT_DATA_VERSION, hydrateCollection, runMigrations } from '../utils/migrations';
-import { COPIES_NOTE, exportSaveFile, FILE_TOO_BIG_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE } from './saveFile';
+import { COPIES_NOTE, exportSaveFile, FILE_TOO_BIG_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from './saveFile';
 import { readSettings } from '../utils/settings';
-import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY } from './player';
+import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY, saveMark } from './player';
 import { recordPack } from './history';
 import type { OpenedPack } from './pulls';
 
@@ -131,6 +131,17 @@ describe('Save & backup preflight', () => {
     store.set(STORAGE_KEYS.SETTINGS, '{"particlesEnabled":false}');
     expect(importSaveFile(saved)).toBeNull();
     expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).showAllPages).toBe(true);
+  });
+
+  it('refuses import and writes nothing when expectedSave no longer matches current storage', () => {
+    const mark = saveMark();
+    // Simulate another tab's import/switch by modifying SAVE_STAMP_KEY
+    store.set(SAVE_STAMP_KEY, 'new-stamp-from-other-tab');
+    const save = fixture();
+    const result = importSaveFile(JSON.stringify(save), { expectedSave: mark });
+    expect(result).toBe(STALE_SAVE_WARNING);
+    expect(store.get(STORAGE_KEYS.COLLECTION)).toBe('{}');
+    expect(store.get('brainrot-before-import-v1')).toBeUndefined();
   });
 
   it('imports a current real-card fixture and preserves the previous save as a backup', () => {

@@ -6,7 +6,9 @@ import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrat
 import { isArchive } from './collectionRecovery';
 import { isBestCardsStore, resetBestCards } from './bestCards';
 import { isLegacyPull, isStored } from './history';
-import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
+import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY, sameSave, saveMark, type SaveMark } from './player';
+
+export const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -214,7 +216,10 @@ const restoreFields = (changed: string[], previous: Map<string, string | null>):
  * A copy refused for another reason is NO_COPY_NOTE: no room was shown to be missing, so no offer to go on.
  * This validates structure, not the authenticity of cached cards/scores, and is not an atomic commit.
  */
-export const importSaveFile = (raw: string, { keepCopy = true }: { keepCopy?: boolean } = {}): string | null => {
+export const importSaveFile = (raw: string, { keepCopy = true, expectedSave }: { keepCopy?: boolean; expectedSave?: SaveMark } = {}): string | null => {
+  if (expectedSave && !sameSave(expectedSave, saveMark())) {
+    return STALE_SAVE_WARNING;
+  }
   try {
     const save: unknown = JSON.parse(raw);
     if (!record(save) || (save.version !== 1 && save.version !== 2)

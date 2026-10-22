@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLatestSet } from '../../content/sets';
 import { ALL_CARDS } from '../../data/cards';
 import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
-import { NO_ROOM_FOR_COPY_NOTE } from '../../game/saveFile';
+import { NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { SAVE_STAMP_KEY, type SaveMark } from '../../game/player';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundGain } from '../../constants/audio';
 import { DEFAULT_SETTINGS, effectsLevel } from '../../utils/settings';
 import SettingsPage from './SettingsPage';
@@ -130,6 +131,73 @@ describe('Settings: importing a backup file', () => {
     await click('Replace without a copy');
     expect(onImportSave.mock.calls.map(([content, keepCopy]) => [JSON.parse(content).player, keepCopy]))
       .toEqual([[player('bb'), true], [player('aa'), true], [player('aa'), false]]);
+  });
+
+  it('invalidates pending replacement approval when storage changes before Replace is clicked', async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean, _expectedSave?: SaveMark): string | null => null);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    expect(restoreNote().textContent).toContain('Replace');
+    expect(button('Replace')).toBeDefined();
+
+    // Storage changes before clicking Replace (e.g. another tab imports a save)
+    localStorage.setItem(SAVE_STAMP_KEY, 'stamp-changed-elsewhere');
+
+    await click('Replace');
+    expect(restoreNote().textContent).toBe(STALE_SAVE_WARNING);
+    expect(button('Replace')).toBeUndefined();
+    expect(onImportSave).not.toHaveBeenCalled();
+
+    // A fresh selection after storage changed reflects the new save and can succeed
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    expect(restoreNote().textContent).toContain('Replace');
+    expect(button('Replace')).toBeDefined();
+    await click('Replace');
+    expect(onImportSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates pending replacement without a copy retry when storage changes before clicking', async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean, _expectedSave?: SaveMark): string | null => NO_ROOM_FOR_COPY_NOTE);
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} />));
+
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    await click('Replace');
+    expect(button('Replace without a copy')).toBeDefined();
+
+    // Storage changes before clicking "Replace without a copy"
+    localStorage.setItem(SAVE_STAMP_KEY, 'stamp-changed-elsewhere');
+
+    await click('Replace without a copy');
+    expect(restoreNote().textContent).toBe(STALE_SAVE_WARNING);
+    expect(button('Replace without a copy')).toBeUndefined();
+    // onImportSave was only called for the initial Replace attempt, not the stale retry
+    expect(onImportSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears pending replacement prompt when saveWarning with onReload arrives', async () => {
+    const stats = JSON.stringify({ packsOpened: 3 });
+    localStorage.setItem('brainrot-player-v1', player('aa'));
+    localStorage.setItem('brainrot-stats-v1', stats);
+    const onImportSave = vi.fn((_content: string, _keepCopy?: boolean): string | null => null);
+    const renderPage = (warning?: string, onReload?: () => void) => {
+      act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={onImportSave} saveWarning={warning} onReload={onReload} />));
+    };
+    renderPage();
+
+    await pick({ player: player('bb'), stats: JSON.stringify({ packsOpened: 5 }) });
+    expect(button('Replace')).toBeDefined();
+
+    // Stale warning arrives from tab guard
+    renderPage(STALE_SAVE_WARNING, () => {});
+    expect(button('Replace')).toBeUndefined();
+    expect(button('Keep mine')).toBeUndefined();
   });
 });
 
