@@ -91,6 +91,10 @@
   font-weight: 600;
 }
 
+.share-done.is-failed {
+  color: var(--danger);
+}
+
 .share-hof {
   display: grid;
   grid-template-columns: auto 1fr auto;
