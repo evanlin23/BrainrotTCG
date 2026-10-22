@@ -20,6 +20,15 @@
   color: var(--text-muted);
 }
 
+/* The shared button never wraps; this one's label must, or enlarged text pushes it off a narrow phone. */
+.pulls-empty .btn {
+  max-width: 100%;
+  padding-block: var(--space-2);
+  white-space: normal;
+  line-height: 1.2;
+  text-align: center;
+}
+
 .pulls-history-title,
 .best-cards-title {
   margin-bottom: var(--space-2);
