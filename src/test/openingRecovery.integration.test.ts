@@ -202,6 +202,42 @@ it('refuses a late pack opening when another tab imports a backup of the same pl
   expect(storedCards()).toBe(0);
 }, 60_000);
 
+it('refuses a tear after another tab imported player B, even before this tab hears of it, leaving B untouched', async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  await app.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+
+  const saveB = JSON.stringify({
+    version: 2,
+    exportedAt: '2026-01-01T00:00:00Z',
+    collection: '{}',
+    stats: JSON.stringify({ packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
+    player: JSON.stringify({ secretKey: '02'.repeat(32), name: 'Player B', nextNonce: 0, createdAt: 2 }),
+  });
+  // No StorageEvent: storage already holds B, but this tab's (late) event hasn't arrived.
+  await app.interact(async () => {
+    const { importSaveFile } = await import('../game/saveFile');
+    expect(importSaveFile(saveB)).toBeNull();
+  });
+  const bestCardsB = localStorage.getItem(STORAGE_KEYS.BEST_CARDS);
+  await pressPack();
+
+  await app.until('the pack stays sealed and says the save changed', () => {
+    expect(document.querySelector('.pack-refusal-text')?.textContent).toBe(
+      'Your save changed in another tab, so this pack stayed sealed. Reload to keep opening packs here.',
+    );
+  });
+  expect(app.takeErrors(/^Could not open pack/)).toEqual([expect.stringContaining('StaleSaveError')]);
+  expect(document.querySelector('.reveal-container')).toBeNull();
+  expect(document.querySelector('.reveal-skip')).toBeNull();
+  expect(read<{ secretKey: string; nextNonce: number }>(PLAYER_KEY)).toMatchObject({ secretKey: '02'.repeat(32), nextNonce: 0 });
+  expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(0);
+  expect(await history()).toEqual([]);
+  expect(localStorage.getItem(STORAGE_KEYS.BEST_CARDS)).toBe(bestCardsB);
+  expectShelvesEmpty();
+  expect(storedCards()).toBe(0);
+}, 60_000);
+
 it('spends nothing for a pack whose ticket was still mining at a reload, and opens that nonce once later', async () => {
   let delayMs = 60_000;
   app = await mountedApp(SEED, { tickets: () => ({ delayMs }) });

@@ -52,9 +52,11 @@ const countPopstate = () => {
   popstated();
 };
 
+/** The save the tab loaded, which every tear binds its claim to. */
+const MOUNTED_SAVE = { key: 'ab'.repeat(32), stored: true, stamp: null };
 const render = (disabled: boolean, openBlocked = false, settings = DEFAULT_SETTINGS) =>
   act(() => root.render(
-    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} />,
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} mountedSave={MOUNTED_SAVE} />,
   ));
 
 beforeEach(() => {
@@ -192,7 +194,7 @@ describe('the controls under the pack (#312)', () => {
 
     await pastTheTear();
     expect(openPack).toHaveBeenCalledOnce();
-    expect(openPack).toHaveBeenCalledWith(SETS[0]);
+    expect(openPack).toHaveBeenCalledWith(SETS[0], MOUNTED_SAVE);
   });
 
   it('says why a refused ticket opened nothing, and Try again asks for it again', async () => {

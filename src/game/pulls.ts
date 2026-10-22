@@ -71,8 +71,6 @@ export const prefetchNextPack = (set: SetDefinition) => {
     .catch(() => undefined);
 };
 
-export { StaleSaveError };
-
 /**
  * Open a pack: mine (or reuse) the next number's ticket, then consume the number, derive the cards and
  * record its mapping. The number is claimed only once its ticket is in hand, so no mining sits between
@@ -82,6 +80,8 @@ export { StaleSaveError };
  */
 export const openPack = async (set: SetDefinition, expectedSave?: SaveMark): Promise<OpenedPack> => {
   const initiatingSave = expectedSave ?? saveMark();
+  // The tab's save was already replaced: mine nothing for (and never claim from) the other player.
+  if (!sameSave(initiatingSave, saveMark())) throw new StaleSaveError();
   const owner = getPlayer();
   const next = peekNonce();
   let ticket = await getTicket(setKey(set), owner.publicKey, next);

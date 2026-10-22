@@ -435,6 +435,27 @@ describe('claiming the next ticket number', () => {
     expect(stored()).toEqual(original);
   });
 
+  it("refuses to restart a claim on the new player's counter when the save is replaced after a turn found its number taken", async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    const incoming = identity();
+    const locks = fakeLocks();
+    const lock = (nonce: number) => `brainrot-ticket:${ORIGINAL_KEY}:${nonce}`;
+    // Another tab of the same player holds 12, so this turn is turned away and the claim would try again.
+    locks.held.add(lock(12));
+    const request = vi.fn(async (name: string, options: { ifAvailable?: boolean }, callback: (lock: { name: string } | null) => unknown) => {
+      const result = await locks.request(name, options, callback);
+      if (name === lock(12)) store.set(PLAYER_KEY, JSON.stringify(incoming));
+      return result;
+    });
+    vi.stubGlobal('navigator', { locks: { request } });
+    await expect(player.claimNonce(initiating)).rejects.toBeInstanceOf(player.StaleSaveError);
+    expect(request).toHaveBeenCalledWith(lock(12), expect.anything(), expect.any(Function));
+    expect(request.mock.calls.map(([name]) => name).some((name) => !name.includes(ORIGINAL_KEY))).toBe(false);
+    expect(stored()).toEqual(incoming);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it("refuses fallback claiming when the save changed during lock wait or lock failure", async () => {
     store.set(PLAYER_KEY, JSON.stringify(original));
     const initiating = player.saveMark();

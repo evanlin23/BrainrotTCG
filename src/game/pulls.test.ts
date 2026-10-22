@@ -5,8 +5,8 @@ import { encodeCard } from './cardCode';
 import { generatePack, packSeedFromTicket } from '../engine';
 import { getBestCards, resetBestCards } from './bestCards';
 import { recordTicket } from './history';
-import { getPlayer } from './player';
-import { clearPendingPack, openPack, savePendingPack, StaleSaveError, takePendingPacks, type OpenedPack } from './pulls';
+import { clearPendingPack, openPack, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
+import { getPlayer, StaleSaveError } from './player';
 
 // Any ticket will do: these tests are about where an opened pack is kept, and when its number is spent.
 const ticketFor = (nonce: number) => new Uint8Array(32).fill(nonce & 255);
@@ -714,11 +714,14 @@ describe('opening a pack', () => {
     // Another tab switches player while this one mines.
     const incomingPlayer = { secretKey: 'ff'.repeat(32), name: 'Replacement', nextNonce: 0, createdAt: 1 };
     data.set(PLAYER, JSON.stringify(incomingPlayer));
+    const bestBefore = data.get(STORAGE_KEYS.BEST_CARDS);
     mining.release();
     await expect(opening).rejects.toBeInstanceOf(StaleSaveError);
-    // Replacement player's counter, history and pending shelf stay untouched.
+    // Replacement player's counter, history, best cards and pending shelf stay untouched.
     expect(counter()).toBe(0);
     expect(recorded().map((e) => e.n)).toEqual([before.nonce]);
+    expect(data.get(STORAGE_KEYS.BEST_CARDS)).toBe(bestBefore);
+    expect(getBestCards(getPlayer().publicKeyHex, 0).cards).toEqual([]);
   });
 
   it('refuses to claim when the save was replaced by a backup of the same player (new stamp) during mining', async () => {
