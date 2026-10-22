@@ -209,8 +209,12 @@ test('at the default text size the revealed labels also clear the provenance lin
   expect(errors).toEqual([]);
 });
 
-test('the hint names the pack summary on the last card, and Space then opens it (#790)', async ({ page, baseURL }) => {
+test('the hint names the pack summary on the last card, and Space then opens it (#790)', async ({ page, baseURL, isMobile }) => {
   test.setTimeout(90000);
+  // The phone project has a coarse pointer, so its hints are the touch wording; Space still drives it.
+  const words = isMobile
+    ? { flip: 'Tap card to flip', next: 'Swipe or tap for the next card', summary: 'Swipe or tap to see the pack summary' }
+    : { flip: 'Click or press Space to flip', next: 'Click or press Space for the next card', summary: 'Click or press Space to see the pack summary' };
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
@@ -220,11 +224,11 @@ test('the hint names the pack summary on the last card, and Space then opens it 
   const hint = page.locator('.tip-text');
   for (let n = 1; n <= 5; n++) {
     await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 15000 });
-    await expect(hint).toHaveText('Click or press Space to flip');
+    await expect(hint).toHaveText(words.flip);
     await page.keyboard.press('Space');
     await expect(card).toHaveAttribute('aria-label', new RegExp(`Card ${n} of 5: `), { timeout: 10000 });
     // A good pull holds the input for a moment ("Big pull!"); the hint then says what the press opens.
-    await expect(hint).toHaveText(n < 5 ? 'Click or press Space for the next card' : 'Click or press Space to see the pack summary', { timeout: 10000 });
+    await expect(hint).toHaveText(n < 5 ? words.next : words.summary, { timeout: 10000 });
     await page.keyboard.press('Space');
   }
   await expect(page.locator('.summary-title')).toBeFocused({ timeout: 15000 });
