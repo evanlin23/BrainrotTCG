@@ -51,14 +51,18 @@ const subtitle = async (name: string) => {
 };
 
 describe('PullViewerPage', () => {
-  it("shows the player's name beside the key fingerprint", async () => {
-    expect(await subtitle('Pack Ripper')).toContain('Pack Ripper #abcd');
+  it("shows the player's name under the title and the key fingerprint once, on the certificate (#639)", async () => {
+    const text = await subtitle('Pack Ripper');
+    expect(document.querySelector('.sheet-subtitle')!.textContent).toBe('Original · Pack Ripper');
+    expect(text).toContain('Cert abcd');
+    expect(text.match(/abcd/g)).toHaveLength(1);
   });
 
   it("shows a valid pull whose display name isn't allowed as Player, never the name itself", async () => {
     const text = await subtitle('xXfuckXx');
     expect(text).toContain('Verified on this device');
-    expect(text).toContain('Player #abcd');
+    expect(document.querySelector('.sheet-subtitle')!.textContent).toBe('Original · Player');
+    expect(text).toContain('Cert abcd');
     expect(text).not.toMatch(/fuck/i);
   });
 
@@ -104,7 +108,8 @@ describe('PullViewerPage', () => {
     expect(checkPull).toHaveBeenNthCalledWith(1, 'proof', expect.any(AbortSignal));
     expect(checkPull).toHaveBeenNthCalledWith(2, 'proof', expect.any(AbortSignal));
     expect(document.body.textContent).toContain('Verified on this device');
-    expect(document.body.textContent).toContain('Worker Recovered #abcd');
+    expect(document.body.textContent).toContain('Original · Worker Recovered');
+    expect(document.body.textContent).toContain('Cert abcd');
   });
 
   it('reports an unknown set or version without asserting fabrication and offers next actions', async () => {
@@ -202,7 +207,8 @@ describe('PullViewerPage', () => {
 
     await act(async () => root.render(<PullViewerPage proof="proofA" onClose={() => {}} />));
     expect(document.body.textContent).toContain('Full House');
-    expect(document.body.textContent).toContain('Player A #abcd');
+    expect(document.body.textContent).toContain('Original · Player A');
+    expect(document.body.textContent).toContain('Cert abcd');
 
     // Copy link on A uses proofA and preview-A
     const copyBtnA = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy link'));
@@ -218,14 +224,15 @@ describe('PullViewerPage', () => {
     expect(document.body.textContent).toContain('Re-opening the pack on your device');
     expect(document.body.textContent).not.toContain('Full House');
     expect(document.body.textContent).not.toContain('Player A');
-    expect(document.body.textContent).not.toContain('#abcd');
+    expect(document.body.textContent).not.toContain('abcd');
     // Copy button is retired during checking
     expect([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy link'))).toBeUndefined();
 
     // Now B resolves
     await act(async () => resolveB(pullB));
     expect(document.body.textContent).toContain('Royal Flush');
-    expect(document.body.textContent).toContain('Player B #ef01');
+    expect(document.body.textContent).toContain('Original · Player B');
+    expect(document.body.textContent).toContain('Cert ef01');
 
     const copyBtnB = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy link'));
     expect(copyBtnB).toBeDefined();
@@ -351,7 +358,8 @@ describe('PullViewerPage', () => {
     expect(document.body.textContent).not.toContain("Couldn't verify on this device");
 
     await act(async () => resolveB(pull('Player B')));
-    expect(document.body.textContent).toContain('Player B #abcd');
+    expect(document.body.textContent).toContain('Original · Player B');
+    expect(document.body.textContent).toContain('Cert abcd');
   });
 
   it('ignores a late result for a proof after the page unmounts, and aborts its check', async () => {

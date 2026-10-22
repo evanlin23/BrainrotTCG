@@ -241,14 +241,22 @@ for (const { vector, entry } of cases) {
     await expect(pull).toContainText('Verified on this device');
     await expect(pull.locator('.pull-viewer-whose')).toHaveText(`${vector.name || 'Someone'} pulled this pack in ${set.name}.`);
     await expect(pull.locator('.sheet-subtitle')).toContainText(`${set.name} · ${vector.name || 'Anonymous'}`);
-    await expect(pull.locator('.share-fp')).toHaveText(`#${vector.fingerprint}`);
+    // The fingerprint is printed once, on the certificate (#639).
+    await expect(pull.locator('.share-fp')).toHaveCount(0);
     await expect(pull.locator('.pull-viewer-cert')).toContainText(`Cert ${vector.fingerprint} ·`);
+    expect(((await pull.textContent()) ?? '').split(vector.fingerprint)).toHaveLength(2);
     await expect(pull.locator('.pull-viewer-cert')).toContainText(`#${vector.nonce}`);
     await expect(pull.locator('.score-panel-total')).toHaveText(vector.score.toLocaleString('en-US'));
-    // The combo leads the pull headline (#339); the score panel keeps the math.
-    await expect(pull.locator('.pack-headline-combo')).toContainText(`${vector.hand} ×${vector.multiplier.toLocaleString('en-US')}`);
-    await expect(pull.locator('.score-panel-math')).toContainText(`${vector.points.toLocaleString('en-US')} pts ×`);
-    await expect(pull.locator('.score-panel-math strong')).toHaveText(vector.multiplier.toLocaleString('en-US'));
+    // The combo is named once: by the title for a combo, by the headline's "No Matches ×1" for none (#639).
+    // Either way the multiplier is not repeated, and the score panel keeps the math.
+    if (vector.hand === 'No Matches') {
+      await expect(pull.locator('.pack-headline-combo')).toHaveText('No Matches ×1');
+      await expect(pull.locator('.score-panel-math strong')).toHaveCount(0);
+    } else {
+      await expect(pull.locator('.pack-headline')).toHaveCount(0);
+      await expect(pull.locator('.score-panel-math')).toContainText(`${vector.points.toLocaleString('en-US')} pts ×`);
+      await expect(pull.locator('.score-panel-math strong')).toHaveText(vector.multiplier.toLocaleString('en-US'));
+    }
     const cards = pull.locator('.pack-viewer-cards > button');
     await expect(cards).toHaveCount(vector.cards.length);
     for (const [index, expected] of vector.cards.entries()) {
@@ -330,7 +338,7 @@ test('opens a pull shared through a card page naming its modifier', async ({ pag
   const pull = page.getByRole('dialog', { name: vector.hand, exact: true });
   await expect(pull).toBeVisible({ timeout: VIEWER_TIMEOUT });
   await expect(pull).toContainText('Verified on this device');
-  await expect(pull.locator('.share-fp')).toHaveText(`#${vector.fingerprint}`);
+  await expect(pull.locator('.pull-viewer-cert')).toContainText(`Cert ${vector.fingerprint} ·`);
   await expect(pull.locator('.pack-viewer-cards > button')).toHaveCount(vector.cards.length);
   expect(await proofState(page)).toEqual(before);
   const finishedCardIds = vector.cards.flatMap((card) => 'finish' in card && card.finish ? [card.cardId] : []);

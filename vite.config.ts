@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { testBudget } from './scripts/test-budget.ts'
+import { CANONICAL_SITE_URL, robotsTxt, siteFromEnv, sitemapXml } from './scripts/crawler-files.ts'
 
-const GITHUB_PAGES_URL = 'https://evanlin23.github.io/BrainrotTCG/'
 const buildRevision = () => {
   // This checkout's revision, wherever the build is started from.
   const cwd = fileURLToPath(new URL('.', import.meta.url))
@@ -12,11 +12,21 @@ const buildRevision = () => {
   catch { return 'unknown' }
 }
 
-/** The page's own address in its link-preview tags: SITE_URL (with or without its trailing /) when the site is hosted elsewhere. */
-const siteUrl = (): Plugin => ({
-  name: 'site-url',
-  transformIndexHtml: (html) => (process.env.SITE_URL ? html.replaceAll(GITHUB_PAGES_URL, `${process.env.SITE_URL.replace(/\/+$/, '')}/`) : html),
-})
+/**
+ * The site's address (SITE_URL, with or without its trailing /, or production's) in index.html's
+ * link-preview tags, and the robots.txt and sitemap.xml beside it (scripts/crawler-files.ts).
+ */
+const siteUrl = (): Plugin => {
+  const site = siteFromEnv(process.env.SITE_URL)
+  return {
+    name: 'site-url',
+    transformIndexHtml: (html) => html.replaceAll(CANONICAL_SITE_URL, site),
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'robots.txt', source: robotsTxt(site) })
+      this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: sitemapXml(site) })
+    },
+  }
+}
 
 /** Replaces text in Vite's generated code, failing the build if a Vite upgrade changed it. */
 const patchHelper = (code: string, from: string, to: string) => {

@@ -31,10 +31,12 @@ interface SettingsPageProps {
     onRecoveryChanged?: () => void;
     /** The pack being opened: Help's card guide shows its odds. */
     guideSet?: SetDefinition;
+    /** The tabs and pack picker already show on their own (a saved pack or a collected card): "Show every page" would change nothing, so it is left out. */
+    pagesUnlocked?: boolean;
 }
 
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const [exportNote, setExportNote] = useState(EXPORT_KEY_NOTE);
     // Counts successful exports; it keys the note's text so a repeat Export is announced again.
@@ -42,6 +44,9 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const importRef = useRef<HTMLButtonElement>(null);
+    /** Set when an answer to the Replace question removes its buttons: Import takes the focus they held. */
+    const refocusImport = useRef(false);
     const activeImportTokenRef = useRef(0);
     const activeReaderRef = useRef<FileReader | null>(null);
     const handleExportSave = () => {
@@ -76,6 +81,12 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [oldSaveNote, setOldSaveNote] = useState('Played at the old address? Bring that save here.');
     const [oldSave, setOldSave] = useState<{ save: unknown } | null>(null);
     const keepRef = useRef<HTMLButtonElement>(null);
+    // The Replace / Keep mine buttons leave with the answer: focus goes to Import, which stays in the row, not to the page.
+    useEffect(() => {
+        if (!refocusImport.current) return;
+        refocusImport.current = false;
+        importRef.current?.focus();
+    });
     // Leaving the page drops a preview still waiting to play.
     useEffect(() => () => clearTimeout(samplePending), []);
     useEffect(() => {
@@ -309,12 +320,14 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                         checked={!!settings.showDraftSets}
                         onChange={() => onSettingsChange({ ...settings, showDraftSets: !settings.showDraftSets })}
                     />
-                    <SwitchRow
-                        label="Show every page"
-                        desc="Cards, Rankings, Profile and the pack picker, before your first pack is saved"
-                        checked={settings.showAllPages === true}
-                        onChange={() => onSettingsChange({ ...settings, showAllPages: settings.showAllPages !== true })}
-                    />
+                    {!pagesUnlocked && (
+                        <SwitchRow
+                            label="Show every page"
+                            desc="Cards, Rankings, Profile and the pack picker, before your first pack is saved"
+                            checked={settings.showAllPages === true}
+                            onChange={() => onSettingsChange({ ...settings, showAllPages: settings.showAllPages !== true })}
+                        />
+                    )}
                 </div>
             </section>
 
@@ -336,7 +349,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             }} />
                         </div>
                     )}
-                    <div className="settings-row">
+                    <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
                             <span className="settings-desc" role="status"><span key={exportCount}>{exportNote}</span></span>
@@ -345,7 +358,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             <Download aria-hidden="true" /> Export
                         </button>
                     </div>
-                    <div className={activePendingImport ? 'settings-row settings-row--wrap' : 'settings-row'}>
+                    <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Restore</span>
                             <span className="settings-desc" role="status">{isStale ? STALE_SAVE_WARNING : importNote}</span>
@@ -356,6 +369,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     onClick={() => {
+                                        refocusImport.current = true;
                                         setPendingImport(null);
                                         setWithoutCopy(false);
                                         setReviewedSave(null);
@@ -364,12 +378,16 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                 >
                                     Keep mine
                                 </button>
-                                <button type="button" className="btn btn--primary btn--sm" onClick={() => runImport(activePendingImport, !activeWithoutCopy, activeReplacing, reviewedSave)}>
+                                <button type="button" className="btn btn--primary btn--sm" onClick={() => {
+                                    // A no-room answer asks again with the same buttons, so they keep the focus; anything else removes them.
+                                    refocusImport.current = true;
+                                    runImport(activePendingImport, !activeWithoutCopy, activeReplacing, reviewedSave);
+                                }}>
                                     {activeWithoutCopy ? 'Replace without a copy' : 'Replace'}
                                 </button>
                             </span>
                         ) : (
-                            <button type="button" className="btn btn--secondary btn--sm" onClick={handleImportClick}>
+                            <button type="button" ref={importRef} className="btn btn--secondary btn--sm" onClick={handleImportClick}>
                                 <Upload aria-hidden="true" /> Import
                             </button>
                         )}
