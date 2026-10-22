@@ -20,7 +20,8 @@ describe('confetti and reduced motion', () => {
   it('bursts for big rarities and holo cards when motion is allowed', () => {
     triggerRarityConfetti('LEGENDARY');
     expect(confetti).toHaveBeenCalledOnce();
-    triggerRarityConfetti('COMMON');
+    // Ordinary rarities have no confetti of their own: the Particles copy says so.
+    for (const rarity of ['COMMON', 'UNCOMMON', 'RARE'] as const) triggerRarityConfetti(rarity);
     expect(confetti).toHaveBeenCalledOnce();
     triggerHoloSparkles();
     vi.runAllTimers();

@@ -576,3 +576,14 @@ describe('Settings: effects volume preview', () => {
     expect(played).toEqual([CARD_FLIP_SRC]);
   });
 });
+
+describe('Settings: particles copy', () => {
+  it('says where particles apply, so plain pulls without them do not read as a broken toggle', () => {
+    const label = [...document.body.querySelectorAll('*')].find((el) => el.children.length === 0 && el.textContent === 'Particles');
+    const text = label?.parentElement?.textContent ?? '';
+    expect(text).toMatch(/Epic and better/);
+    expect(text).toMatch(/holos/);
+    expect(text).toMatch(/swipe a pack open/);
+    expect(text).toMatch(/Plain cards just flip/);
+  });
+});
