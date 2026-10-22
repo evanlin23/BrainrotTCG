@@ -6,7 +6,26 @@
 
 .card-image[data-state='rendering'],
 .card-image[data-state='loading'] {
-  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%) 0 0 / 200% 100%;
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%) 0 0 / 200% 100%;
+}
+
+/* Rankings rows and pull rows draw cards 26-30px wide, where the shimmer above is hardly lighter than the
+   page and reads as a dark box. Their placeholder is a paper-tinted wash on --surface-3 (over 2:1 against
+   --bg at its dimmest) with the shimmer's highlight running over it. A holo pull-row thumb keeps its foil
+   ring (Pulls.css, which is more specific). */
+.hof-cards .card-image:is([data-state='rendering'], [data-state='loading']),
+.pull-row-thumbs .card-image:is([data-state='rendering'], [data-state='loading']) {
+  background:
+    linear-gradient(90deg, transparent 0%, var(--border) 50%, transparent 100%) 0 0 / 200% 100%,
+    linear-gradient(var(--border-strong), var(--border-strong)),
+    var(--surface-3);
+}
+
+/* Until its art can show, a slot is an empty frame: the finish caption printed over it (the pull
+   viewer's .mod-label, the binder's .collection-mods) would make it read as a card back, so it waits.
+   The button's accessible name already carries the finish. */
+.card-image:is([data-state='rendering'], [data-state='loading']) ~ :is(.mod-label, .collection-mods) {
+  visibility: hidden;
 }
 
 /* A failed image keeps its box as a flat, hatched slot instead of a broken-image icon; so does art that is never requested. */
