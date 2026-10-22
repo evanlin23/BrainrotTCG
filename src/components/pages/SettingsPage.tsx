@@ -45,6 +45,9 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const importRef = useRef<HTMLButtonElement>(null);
     /** Set when an answer to the Replace question removes its buttons: Import takes the focus they held. */
     const refocusImport = useRef(false);
+    const restoreKeepRef = useRef<HTMLButtonElement>(null);
+    /** Set when the Replace question opens while the focus was on Import (or on the page): Keep mine takes it. */
+    const focusRestoreKeep = useRef(false);
     const activeImportTokenRef = useRef(0);
     const activeReaderRef = useRef<FileReader | null>(null);
     const handleExportSave = () => {
@@ -78,11 +81,24 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [oldSaveNote, setOldSaveNote] = useState('Played at the old address? Bring that save here.');
     const [oldSave, setOldSave] = useState<{ save: unknown } | null>(null);
     const keepRef = useRef<HTMLButtonElement>(null);
+    const bringRef = useRef<HTMLButtonElement>(null);
+    /** Set when an answer to the old address's Replace question removes its buttons: Bring it takes the focus they held. */
+    const refocusBring = useRef(false);
     // The Replace / Keep mine buttons leave with the answer: focus goes to Import, which stays in the row, not to the page.
     useEffect(() => {
         if (!refocusImport.current) return;
         refocusImport.current = false;
         importRef.current?.focus();
+    });
+    useEffect(() => {
+        if (!focusRestoreKeep.current) return;
+        focusRestoreKeep.current = false;
+        restoreKeepRef.current?.focus();
+    });
+    useEffect(() => {
+        if (!refocusBring.current) return;
+        refocusBring.current = false;
+        bringRef.current?.focus();
     });
     // Leaving the page drops a preview still waiting to play.
     useEffect(() => () => clearTimeout(samplePending), []);
@@ -147,6 +163,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         }
     };
 
+    /** Import leaves with the question that replaces it: its focus, or the page's after a file pick, moves to Keep mine. A focus the player has moved elsewhere stays there. */
+    const askInPlaceOfImport = (content: string) => {
+        const held = document.activeElement;
+        if (importRef.current && (!held || held === document.body || held === importRef.current)) focusRestoreKeep.current = true;
+        setPendingImport(content);
+    };
+
     /** `saves` names the two saves the player agreed to swap; null when nothing asked first. */
     const runImport = (content: string, keepCopy = true, saves: string | null = null, expectedSave: SaveMark | null = reviewedSave) => {
         if (isStale || (expectedSave && !sameSave(expectedSave, saveMark()))) {
@@ -166,7 +189,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             // "Replace without a copy" must refuse if storage changes from the save this attempt checked.
             setReviewedSave(expectedSave);
             setImportNote(saves ? `${error} Replace ${saves} without keeping a copy?` : error);
-            setPendingImport(content);
+            askInPlaceOfImport(content);
             setWithoutCopy(true);
         } else {
             setReviewedSave(null);
@@ -251,7 +274,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             const saves = `this browser's save (${currentDesc}) with the file's (${incomingDesc})`;
             setReviewedSave(mark);
             setReplacing(saves);
-            setPendingImport(content);
+            askInPlaceOfImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
         };
 
@@ -364,6 +387,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             <span className="settings-actions">
                                 <button
                                     type="button"
+                                    ref={restoreKeepRef}
                                     className="btn btn--secondary btn--sm"
                                     onClick={() => {
                                         refocusImport.current = true;
@@ -398,15 +422,21 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             </span>
                             {oldSave ? (
                                 <span className="settings-actions">
-                                    <button type="button" ref={keepRef} className="btn btn--secondary btn--sm quiet-focus" onClick={() => showBringResult('kept')}>
+                                    <button type="button" ref={keepRef} className="btn btn--secondary btn--sm quiet-focus" onClick={() => {
+                                        refocusBring.current = true;
+                                        showBringResult('kept');
+                                    }}>
                                         Keep mine
                                     </button>
-                                    <button type="button" className="btn btn--primary btn--sm" onClick={() => showBringResult(importSave(oldSave.save, () => true))}>
+                                    <button type="button" className="btn btn--primary btn--sm" onClick={() => {
+                                        refocusBring.current = true;
+                                        showBringResult(importSave(oldSave.save, () => true));
+                                    }}>
                                         Replace
                                     </button>
                                 </span>
                             ) : (
-                                <button type="button" className="btn btn--secondary btn--sm" onClick={handleBringOldSave}>
+                                <button type="button" ref={bringRef} className="btn btn--secondary btn--sm" onClick={handleBringOldSave}>
                                     <History aria-hidden="true" /> Bring it
                                 </button>
                             )}
