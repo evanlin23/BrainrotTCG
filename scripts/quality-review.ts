@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isMainModule } from './main-module.ts';
+import { BLOCKER_DISPOSITIONS, RECORD_PATH } from './release-blockers.ts';
 
 /**
  * Bounded recurring quality review for the trusted /work lifecycle (#713).
@@ -9,7 +10,7 @@ import { isMainModule } from './main-module.ts';
  * checkpoint the coordinator runs `check`; if a review is due it spends at most the budget on one
  * small slice, then runs `record` and keeps the single state line it prints in the ledger.
  * Rules, all enforced here:
- * - It only reads evidence that already exists (reports, `git log`). It never runs the suite, an
+ * - It only reads evidence that already exists (reports, history of origin/main). It never runs the suite, an
  *   audit or an agent, and it makes no network calls.
  * - Every signal is pass, fail, blocked or unrun. A failed, blocked or unrun slice never refreshes
  *   the "passed" date or revision, and keeps its journey and hotspot so the same slice is retried.
@@ -21,6 +22,12 @@ import { isMainModule } from './main-module.ts';
 
 export type Status = 'pass' | 'fail' | 'blocked' | 'unrun';
 export const STATUSES: readonly Status[] = ['pass', 'fail', 'blocked', 'unrun'];
+/** .claude/hooks/orient.mjs truncates a ledger line at 240 characters; the state line stays well under. */
+export const MAX_STATE_CHARS = 215;
+/** Longest hotspot path kept in the line (the longest non-test source path today is 51). */
+export const MAX_HOTSPOT_CHARS = 60;
+/** Newest issue numbers kept in the state line. */
+export const MAX_STATE_ISSUES = 4;
 
 export interface Budget { tasks: number; minutes: number; providerRuns: number }
 export const DEFAULT_CADENCE_DAYS = 7;
@@ -56,16 +63,21 @@ export const dayOf = (now: Date): string => now.toISOString().slice(0, 10);
 
 const STATE_PREFIX = 'quality review:';
 
-/** One ledger line, e.g. `quality review: every=7d budget=3t/45m/2p last=pass@2026-10-20:abc1234 ...`. */
+/** One ledger line, e.g. `quality review: last=pass@2026-10-20:abc1234 ...`. Default cadence and budget are omitted. */
 export const formatState = (state: ReviewState): string => {
-  const parts = [`every=${state.cadenceDays}d`, `budget=${state.budget.tasks}t/${state.budget.minutes}m/${state.budget.providerRuns}p`];
+  const parts: string[] = [];
+  const { tasks, minutes, providerRuns } = state.budget;
+  if (state.cadenceDays !== DEFAULT_CADENCE_DAYS) parts.push(`every=${state.cadenceDays}d`);
+  if (tasks !== DEFAULT_BUDGET.tasks || minutes !== DEFAULT_BUDGET.minutes || providerRuns !== DEFAULT_BUDGET.providerRuns) parts.push(`budget=${tasks}t/${minutes}m/${providerRuns}p`);
   if (state.lastStatus && state.lastDate && state.lastRev) parts.push(`last=${state.lastStatus}@${state.lastDate}:${state.lastRev}`);
-  if (state.passedDate && state.passedRev) parts.push(`passed=${state.passedDate}:${state.passedRev}`);
+  // A pass is also the passed review: only write `passed` when it differs from `last`.
+  const passedIsLast = state.lastStatus === 'pass' && state.passedDate === state.lastDate && state.passedRev === state.lastRev;
+  if (state.passedDate && state.passedRev && !passedIsLast) parts.push(`passed=${state.passedDate}:${state.passedRev}`);
   if (state.nextDue) parts.push(`next=${state.nextDue}`);
   if (state.journey) parts.push(`journey=${state.journey}`);
   if (state.hotspot) parts.push(`hotspot=${state.hotspot}`);
   if (state.issues.length > 0) parts.push(`issues=${state.issues.map((n) => `#${n}`).join(',')}`);
-  return `${STATE_PREFIX} ${parts.join(' ')}`;
+  return [STATE_PREFIX, ...parts].join(' ');
 };
 
 /** Parses the ledger line. Throws on anything malformed, so a bad line is never read as "passed". */
@@ -109,6 +121,7 @@ export const parseState = (line: string): ReviewState => {
       state.issues = value.split(',').map((item) => Number(item.slice(1)));
     } else bad(key);
   }
+  if (state.lastStatus === 'pass' && !state.passedDate) { state.passedDate = state.lastDate; state.passedRev = state.lastRev; }
   return state;
 };
 
@@ -186,7 +199,8 @@ export const pickHotspot = (changes: readonly Change[], previous?: string): Chan
 
 export interface Tools { claude: boolean; chromium: boolean }
 
-export interface PlannedItem extends SliceItem { planned: boolean; reason: string; cost: Budget }
+/** `applicable: false` is nothing to review (not a blocker): the coordinator leaves it out of the record's status. */
+export interface PlannedItem extends SliceItem { planned: boolean; applicable: boolean; reason: string; cost: Budget }
 
 /**
  * Fits the slice into the budget in order (journey first). An item that cannot run is blocked with
@@ -195,13 +209,13 @@ export interface PlannedItem extends SliceItem { planned: boolean; reason: strin
 export const planSlice = (journey: Journey, hotspot: Change | null, budget: Budget, tools: Tools): PlannedItem[] => {
   const left = { ...budget };
   const items: PlannedItem[] = [];
-  const add = (item: SliceItem, cost: Budget, missing: string | null): void => {
+  const add = (item: SliceItem, cost: Budget, missing: string | null, applicable = true): void => {
     const over = left.tasks < cost.tasks ? 'task budget exhausted'
       : left.minutes < cost.minutes ? 'time budget exhausted'
       : left.providerRuns < cost.providerRuns ? 'provider-use budget exhausted' : null;
     const reason = missing ?? over;
     if (!reason) { left.tasks -= cost.tasks; left.minutes -= cost.minutes; left.providerRuns -= cost.providerRuns; }
-    items.push({ ...item, planned: !reason, reason: reason ?? 'planned', cost });
+    items.push({ ...item, planned: !reason, applicable, reason: reason ?? 'planned', cost });
   };
   const viaAgent = journey.agentTask !== null;
   const missingTools = viaAgent && (!tools.claude || !tools.chromium)
@@ -211,7 +225,7 @@ export const planSlice = (journey: Journey, hotspot: Change | null, budget: Budg
     { tasks: 1, minutes: viaAgent ? 10 : 5, providerRuns: viaAgent ? 1 : 0 }, missingTools);
   add(
     { kind: 'hotspot', id: hotspot?.file ?? null, detail: hotspot ? `${hotspot.commits} commits, ${hotspot.lines} lines: read-only review` : 'no changed code file in range' },
-    { tasks: 1, minutes: 10, providerRuns: 0 }, hotspot ? null : 'nothing changed to review');
+    { tasks: 1, minutes: 10, providerRuns: 0 }, hotspot ? null : 'not applicable: no code changed since the last review', hotspot !== null);
   return items;
 };
 
@@ -232,7 +246,7 @@ export const SOURCES: readonly Source[] = [
   { id: 'performance', label: 'Performance (report-only)', issue: '#702', path: 'test-results/performance/summary.json', native: 'report-only' },
   { id: 'capacity', label: 'Capacity', issue: '#708/#709/#242', path: 'test-results/capacity/summary.json' },
   { id: 'compatibility', label: 'Compatibility', issue: '#658', path: `${EVIDENCE_DIR}/compatibility.json` },
-  { id: 'release-checks', label: 'Release blockers and checks', issue: '#705-#707', path: 'config/release-blockers.json', native: 'release-blockers' },
+  { id: 'release-blockers', label: 'Release blockers record', issue: '#759', path: RECORD_PATH, native: 'release-blockers' },
   { id: 'dependency-advisories', label: 'Dependency advisory disposition', issue: 'docs/DEVELOPMENT.md', path: `${EVIDENCE_DIR}/dependency-advisories.json` },
   { id: 'branch-hygiene', label: 'Branch hygiene', issue: '#710', path: `${EVIDENCE_DIR}/branch-hygiene.json` },
   { id: 'agent-audit', label: 'Agent task audit (simulated reviewers)', issue: '#239', path: 'test-results/agent-audit.json', native: 'agent-audit' },
@@ -243,6 +257,8 @@ export const SOURCES: readonly Source[] = [
 ];
 
 export interface FileRead { text: string; mtime: string }
+/** Last commit day of a repo file on origin/main (from `git`), keyed by path; a file with no entry has no known date. */
+export type CommitDates = Readonly<Record<string, string | undefined>>;
 export type ReadFile = (path: string) => FileRead | null;
 
 export interface Signal {
@@ -253,57 +269,65 @@ export interface Signal {
 const asStatus = (value: unknown): Status | null => (STATUSES.includes(value as Status) ? (value as Status) : null);
 const clip = (value: unknown): string => String(value ?? '').replace(/\s+/g, ' ').slice(0, 100);
 
-const interpret = (source: Source, read: FileRead): { status: Status; date: string | null; detail: string } => {
+type Reading = { status: Status; date: string | null; detail: string };
+
+const stampOf = (json: Record<string, unknown>): string | null =>
+  [json.date, json.generatedAt, json.finishedAt, json.createdAt].map((value) => String(value ?? '').slice(0, 10)).find((value) => DAY.test(value)) ?? null;
+
+/** Open means anything not `resolved`: unresolved, an exception (expired or not) or a corrective release, and an unknown or missing disposition fails closed. */
+const interpretBlockers = (json: Record<string, unknown>, today: string, date: string | null): Reading => {
+  if (!Array.isArray(json.blockers)) return { status: 'fail', date, detail: 'blocker list missing or malformed' };
+  const blockers: unknown[] = json.blockers;
+  let open = 0; let invalid = 0; let expired = 0;
+  for (const item of blockers) {
+    const entry = (typeof item === 'object' && item !== null ? item : {}) as { disposition?: unknown; mitigation?: { expiresAt?: unknown } };
+    const known = BLOCKER_DISPOSITIONS.includes(entry.disposition as (typeof BLOCKER_DISPOSITIONS)[number]);
+    if (entry.disposition === 'resolved') continue;
+    open++;
+    if (!known) invalid++;
+    else if (entry.disposition === 'mitigated_exception' && !(String(entry.mitigation?.expiresAt ?? '').slice(0, 10) > today)) expired++;
+  }
+  const notes = [invalid > 0 && `${invalid} invalid`, expired > 0 && `${expired} expired exception`].filter(Boolean).join(', ');
+  return { status: open === 0 ? 'pass' : 'fail', date, detail: `${open} of ${blockers.length} blockers open${notes ? ` (${notes})` : ''}; record only, no checks run` };
+};
+
+const interpret = (source: Source, read: FileRead, today: string, committed: CommitDates): Reading => {
   let json: Record<string, unknown>;
   try { json = JSON.parse(read.text) as Record<string, unknown>; } catch { return { status: 'unrun', date: null, detail: 'unreadable report' }; }
-  const date = [json.date, json.generatedAt, json.finishedAt].map((value) => String(value ?? '').slice(0, 10)).find((value) => DAY.test(value)) ?? read.mtime;
+  if (typeof json !== 'object' || json === null) return { status: 'unrun', date: null, detail: 'unreadable report' };
+  // The blockers record carries no date: its last commit day on origin/main is the only honest one. A file mtime is a checkout time.
+  if (source.native === 'release-blockers') return interpretBlockers(json, today, committed[source.path] ?? null);
+  const date = stampOf(json) ?? read.mtime;
   if (source.native === 'agent-audit') {
     const outcome = json.outcome;
     const status: Status = outcome === 'completed' ? 'pass' : outcome === 'unrun' ? 'unrun' : 'blocked';
     return { status, date, detail: `outcome ${clip(outcome)}; simulated reviewers, not human evidence` };
   }
-  if (source.native === 'release-blockers') {
-    const open = Array.isArray(json.blockers) ? json.blockers.filter((item: { disposition?: string }) => item?.disposition === 'unresolved').length : -1;
-    return open < 0 ? { status: 'unrun', date, detail: 'no blocker list' } : { status: open === 0 ? 'pass' : 'fail', date, detail: `${open} unresolved blockers` };
+  if (source.native === 'report-only') {
+    // scripts/performance-reporter.ts: status is the Playwright run status; createdAt is when the run began.
+    const scenarios = Array.isArray(json.scenarios) ? json.scenarios as { recordedRuns?: unknown }[] : [];
+    const recorded = scenarios.reduce((sum, item) => sum + (typeof item?.recordedRuns === 'number' ? item.recordedRuns : 0), 0);
+    const stamp = stampOf(json);
+    if (scenarios.length === 0 || recorded === 0) return { status: 'unrun', date: stamp, detail: 'no samples recorded' };
+    return { status: json.status === 'passed' ? 'pass' : 'fail', date: stamp, detail: `run ${clip(json.status)}; timings are report-only, no budget` };
   }
-  if (source.native === 'report-only') return { status: 'pass', date, detail: 'report collected; timings have no pass/fail budget' };
   const status = asStatus(json.status);
   return status ? { status, date, detail: clip(json.detail) } : { status: 'unrun', date, detail: 'no recognised status in report' };
 };
 
-export const collectSignals = (read: ReadFile, today: string, maxAgeDays = DEFAULT_MAX_EVIDENCE_AGE_DAYS): Signal[] =>
+export const collectSignals = (read: ReadFile, today: string, committed: CommitDates = {}, maxAgeDays = DEFAULT_MAX_EVIDENCE_AGE_DAYS): Signal[] =>
   SOURCES.map((source) => {
     const found = read(source.path);
     const base = { id: source.id, label: source.label, issue: source.issue };
     if (!found) return { ...base, status: 'unrun', date: null, ageDays: null, fresh: false, detail: `no report at ${source.path}` };
-    const { status, date, detail } = interpret(source, found);
+    const { status, date, detail } = interpret(source, found, today, committed);
     const ageDays = date ? daysBetween(date, today) : null;
     return { ...base, status, date, ageDays, fresh: ageDays !== null && ageDays >= 0 && ageDays <= maxAgeDays, detail };
   });
 
-// --- Findings --------------------------------------------------------------------------------
-
-export interface Finding {
-  key: string;
-  reproduced: boolean;
-  /** True once issues and PRs were searched for this finding. */
-  searched: boolean;
-  /** Canonical open issue that already owns it, if the search found one. */
-  canonicalIssue?: number;
-}
-export interface Disposition { action: 'attach-evidence' | 'create-bounded-task' | 'search-first' | 'note-only'; target: string }
-
-/** Evidence goes to a canonical owner; a new task needs a reproduced, searched, non-duplicate gap. */
-export const dispositionFor = (finding: Finding): Disposition => {
-  if (!finding.searched) return { action: 'search-first', target: 'search issues and PRs before anything else' };
-  if (finding.canonicalIssue) return { action: 'attach-evidence', target: `comment the evidence on #${finding.canonicalIssue}` };
-  if (finding.reproduced) return { action: 'create-bounded-task', target: 'one bounded task issue, next action assigned; not a recurring audit issue' };
-  return { action: 'note-only', target: 'not reproduced: keep it in the report, open nothing' };
-};
-
 // --- Review and record -----------------------------------------------------------------------
 
-export interface GitInfo { head: string; commitsSinceLast: number | null; changes: Change[]; changedFiles: string[] }
+export interface GitInfo { head: string; commitsSinceLast: number | null; changes: Change[]; changedFiles: string[]; committed: CommitDates }
 
 export interface Review {
   today: string; decision: DueDecision; head: string; touched: string[];
@@ -313,7 +337,7 @@ export interface Review {
 export const review = (input: { state: ReviewState | null; now: Date; git: GitInfo; tools: Tools; read: ReadFile }): Review => {
   const today = dayOf(input.now);
   const decision = decideDue(input.state, today, input.git.commitsSinceLast);
-  const signals = collectSignals(input.read, today);
+  const signals = collectSignals(input.read, today, input.git.committed);
   const touched = touchedJourneys(input.git.changedFiles);
   if (!decision.due) return { today, decision, head: input.git.head, touched, journey: null, slice: [], criteria: [], signals };
   const budget = input.state?.budget ?? DEFAULT_BUDGET;
@@ -341,7 +365,7 @@ export const recordRun = (
     ...base,
     lastStatus: run.status, lastDate: today, lastRev: run.rev,
     nextDue: addDays(today, finished ? base.cadenceDays : RETRY_DAYS),
-    issues: [...new Set([...base.issues, ...(run.issues ?? [])])].slice(-20),
+    issues: [...new Set([...base.issues, ...(run.issues ?? [])])].slice(-MAX_STATE_ISSUES),
   };
   if (run.status === 'pass') { next.passedDate = today; next.passedRev = run.rev; }
   if (finished) {
@@ -354,9 +378,10 @@ export const recordRun = (
 export const formatReview = (result: Review): string => {
   const lines = [`quality review ${result.decision.due ? 'DUE' : 'not due'} (${result.decision.reason}) today=${result.today} head=${result.head}`];
   if (result.touched.length > 0) lines.push(`flow changes since last review (per-PR checks still apply now): ${result.touched.join(', ')}`);
+  if (!result.decision.due) return lines.join('\n');
   if (result.journey) {
     lines.push(`slice: journey ${result.journey.id} (${result.journey.label})`);
-    for (const item of result.slice) lines.push(`  ${item.kind} ${item.id ?? '-'}: ${item.planned ? 'planned' : `BLOCKED, ${item.reason}`}; ${item.detail}`);
+    for (const item of result.slice) lines.push(`  ${item.kind} ${item.id ?? '-'}: ${item.planned ? 'planned' : item.applicable ? `BLOCKED, ${item.reason}` : `n/a, ${item.reason}`}; ${item.detail}`);
     lines.push(...result.criteria.map((criterion) => `  criterion: ${criterion}`));
   }
   lines.push('signals (existing evidence only, nothing rerun):');
@@ -371,22 +396,39 @@ export const formatReview = (result: Review): string => {
 
 const git = (args: string[]): string => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 
-const readGit = (state: ReviewState | null): GitInfo => {
-  const head = git(['rev-parse', '--short', 'HEAD']);
-  let range = [`--since=${HISTORY_DAYS}.days.ago`];
+/** The only ref history is read from, so an unmerged branch never reaches a record or the churn ranking. */
+export const MAIN_REF = 'origin/main';
+
+const readGit = (state: ReviewState | null, now: Date): GitInfo => {
+  const head = git(['rev-parse', '--short', MAIN_REF]);
+  let range = [`--since=${addDays(dayOf(now), -HISTORY_DAYS)}`];
   let commitsSinceLast: number | null = null;
   if (state?.lastRev) {
-    try { git(['cat-file', '-e', `${state.lastRev}^{commit}`]); range = [`${state.lastRev}..HEAD`]; commitsSinceLast = Number(git(['rev-list', '--count', ...range])); } catch { /* Unknown revision: use dated history. */ }
+    try { git(['cat-file', '-e', `${state.lastRev}^{commit}`]); range = [`${state.lastRev}..${MAIN_REF}`]; commitsSinceLast = Number(git(['rev-list', '--count', ...range])); } catch { /* Unknown revision: use dated history. */ }
   }
   const counts = new Map<string, number>();
-  for (const file of git(['log', '--no-merges', '--name-only', '--format=', ...range, 'HEAD']).split('\n').filter(Boolean)) counts.set(file, (counts.get(file) ?? 0) + 1);
-  const changes = [...counts].filter(([file]) => isCode(file) && existsSync(file))
-    .map(([file, commits]) => ({ file, commits, lines: readFileSync(file, 'utf8').split('\n').length }));
-  return { head, commitsSinceLast, changes, changedFiles: [...counts.keys()] };
+  for (const file of git(['log', '--no-merges', '--name-only', '--format=', ...range, MAIN_REF]).split('\n').filter(Boolean)) counts.set(file, (counts.get(file) ?? 0) + 1);
+  const changes: Change[] = [];
+  for (const [file, commits] of counts) {
+    if (!isCode(file)) continue;
+    try { changes.push({ file, commits, lines: git(['show', `${MAIN_REF}:${file}`]).split('\n').length }); } catch { /* Deleted on main. */ }
+  }
+  const committed: Record<string, string> = {};
+  for (const source of SOURCES.filter((item) => item.native === 'release-blockers')) {
+    const day = git(['log', '-1', '--format=%cs', MAIN_REF, '--', source.path]);
+    if (DAY.test(day)) committed[source.path] = day;
+  }
+  return { head, commitsSinceLast, changes, changedFiles: [...counts.keys()], committed };
 };
 
 const readDisk: ReadFile = (path) => {
   try { return { text: readFileSync(path, 'utf8'), mtime: statSync(path).mtime.toISOString().slice(0, 10) }; } catch { return null; }
+};
+
+/** The blockers record is read as it is on origin/main, not as the working tree happens to have it. */
+const readMainOrDisk: ReadFile = (path) => {
+  if (path !== RECORD_PATH) return readDisk(path);
+  try { return { text: git(['show', `${MAIN_REF}:${path}`]), mtime: '' }; } catch { return null; }
 };
 
 const detectTools = async (): Promise<Tools> => {
@@ -404,15 +446,21 @@ export const main = async (args: string[]): Promise<number> => {
   if (Number.isNaN(now.getTime())) { console.error('Bad --now'); return 2; }
   const state = stateLine ? parseState(stateLine) : null;
   if (command === 'check') {
-    console.log(formatReview(review({ state, now, git: readGit(state), tools: await detectTools(), read: readDisk })));
+    console.log(formatReview(review({ state, now, git: readGit(state, now), tools: await detectTools(), read: readMainOrDisk })));
     return 0;
   }
   if (command === 'record') {
     const status = asStatus(option(rest, 'status'));
     if (!status) { console.error('record needs --status=pass|fail|blocked|unrun'); return 2; }
+    const journey = option(rest, 'journey');
+    const hotspot = option(rest, 'hotspot');
+    if (journey !== undefined && !JOURNEYS.some((item) => item.id === journey)) { console.error(`Bad --journey (one of ${JOURNEYS.map((item) => item.id).join(', ')})`); return 2; }
+    if (hotspot !== undefined && (!/^[\w./-]+$/.test(hotspot) || hotspot.length > MAX_HOTSPOT_CHARS)) { console.error(`Bad --hotspot (a repo path, at most ${MAX_HOTSPOT_CHARS} characters)`); return 2; }
     const issues = (option(rest, 'issues') ?? '').split(',').filter(Boolean).map((item) => Number(item.replace('#', '')));
     if (issues.some((n) => !Number.isInteger(n) || n < 1)) { console.error('Bad --issues'); return 2; }
-    console.log(formatState(recordRun(state, { now, rev: git(['rev-parse', '--short', 'HEAD']), status, journey: option(rest, 'journey') ?? null, hotspot: option(rest, 'hotspot') ?? null, issues })));
+    const line = formatState(recordRun(state, { now, rev: git(['rev-parse', '--short', MAIN_REF]), status, journey: journey ?? null, hotspot: hotspot ?? null, issues }));
+    if (line.length > MAX_STATE_CHARS) { console.error(`State line is ${line.length} characters (limit ${MAX_STATE_CHARS}); use a shorter --hotspot`); return 2; }
+    console.log(line);
     return 0;
   }
   console.error('Usage: tsx scripts/quality-review.ts check|record [--state="quality review: ..."|--state-file=.claude/state/NOW.md] [--now=ISO] [record: --status= --journey= --hotspot= --issues=#1,#2]');

@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  DEFAULT_BUDGET, JOURNEYS, REVIEW_CRITERIA, collectSignals, decideDue, dispositionFor, formatReview, formatState,
-  overallStatus, parseState, pickHotspot, pickJourney, planSlice, recordRun, review, touchedJourneys,
+  DEFAULT_BUDGET, JOURNEYS, MAX_HOTSPOT_CHARS, MAX_STATE_CHARS, MAX_STATE_ISSUES, REVIEW_CRITERIA, collectSignals, decideDue,
+  formatReview, formatState, main, overallStatus, parseState, pickHotspot, pickJourney, planSlice, recordRun, review,
+  touchedJourneys,
   type Change, type FileRead, type GitInfo, type ReadFile, type ReviewState, type Tools,
 } from './quality-review.ts';
 
@@ -22,7 +24,7 @@ const changes: Change[] = [
 ];
 const git = (overrides: Partial<GitInfo> = {}): GitInfo => ({
   head: 'fff0000', commitsSinceLast: 12, changes,
-  changedFiles: ['src/components/share/SharePanel.tsx', 'src/game/move.ts', 'docs/DEVELOPMENT.md'], ...overrides,
+  changedFiles: ['src/components/share/SharePanel.tsx', 'src/game/move.ts', 'docs/DEVELOPMENT.md'], committed: {}, ...overrides,
 });
 const files = (entries: Record<string, string>, mtime = '2026-10-21'): ReadFile =>
   (path): FileRead | null => (path in entries ? { text: entries[path], mtime } : null);
@@ -49,6 +51,16 @@ describe('dry run: not due', () => {
     expect(formatReview(result)).toContain('not due');
   });
 
+  it('prints only the due line and the flow-change line, not the signal dashboard', () => {
+    const result = review({ state: state({ ...passed, nextDue: '2026-10-29' }), now: NOW, git: git(), tools: ALL_TOOLS, read: files({}) });
+    expect(formatReview(result).split('\n')).toEqual([
+      'quality review not due (next due 2026-10-29) today=2026-10-22 head=fff0000',
+      'flow changes since last review (per-PR checks still apply now): sharing',
+    ]);
+    const quiet = review({ state: state({ ...passed, nextDue: '2026-10-29' }), now: NOW, git: git({ changedFiles: [] }), tools: ALL_TOOLS, read: files({}) });
+    expect(formatReview(quiet).split('\n')).toHaveLength(1);
+  });
+
   it('skips an idle week after a pass, but still reports flow changes', () => {
     expect(decideDue(passed, '2026-10-22', 0)).toMatchObject({ due: false, reason: 'idle: no commits since abc1234' });
     expect(touchedJourneys(git().changedFiles)).toEqual(['sharing']);
@@ -70,7 +82,9 @@ describe('dry run: due success', () => {
       ['hotspot', 'src/components/share/SharePanel.tsx', true],
     ]);
     expect(result.criteria).toBe(REVIEW_CRITERIA);
-    expect(formatReview(result)).toContain('fresh task-only reviewer');
+    const text = formatReview(result);
+    expect(text).toContain('fresh task-only reviewer');
+    expect(text).toContain('signals (existing evidence only, nothing rerun):');
   });
 
   it('records a pass: refreshes passed, rotates the slice and schedules one cadence out', () => {
@@ -92,7 +106,7 @@ describe('dry run: missing tools or budget exhausted', () => {
   it('blocks an agent-audit journey when claude or chromium is missing, and the record is not a pass', () => {
     const result = review({ state: passed, now: NOW, git: git(), tools: { claude: false, chromium: true }, read: files({}) });
     expect(result.slice[0]).toMatchObject({ planned: false, reason: 'missing tools: claude' });
-    const status = overallStatus(result.slice.map((item) => (item.planned ? 'pass' : 'blocked')));
+    const status = overallStatus(result.slice.filter((item) => item.applicable).map((item) => (item.planned ? 'pass' : 'blocked')));
     expect(status).toBe('blocked');
     const next = recordRun(passed, { now: NOW, rev: 'fff0000', status, journey: 'sharing', hotspot: 'x.ts' });
     expect(next).toMatchObject({ lastStatus: 'blocked', passedDate: '2026-10-13', passedRev: 'abc1234', nextDue: '2026-10-23', journey: 'opening', hotspot: 'src/game/move.ts' });
@@ -133,31 +147,75 @@ describe('hotspot', () => {
     expect(pickHotspot([changes[2], changes[3]])).toBeNull();
   });
 
-  it('is blocked, not passed, when nothing changed', () => {
+  it('is not applicable, not blocked, after a docs-only change, so the journey result can still pass', () => {
     const plan = planSlice(JOURNEYS[0], null, DEFAULT_BUDGET, ALL_TOOLS);
-    expect(plan[1]).toMatchObject({ id: null, planned: false, reason: 'nothing changed to review' });
+    expect(plan[1]).toMatchObject({ id: null, planned: false, applicable: false });
+    expect(plan[0]).toMatchObject({ planned: true, applicable: true });
+    const docsOnly = review({ state: passed, now: NOW, git: git({ changes: [changes[3]], changedFiles: ['docs/DEVELOPMENT.md'] }), tools: ALL_TOOLS, read: files({}) });
+    expect(formatReview(docsOnly)).toContain('n/a, not applicable');
+    expect(formatReview(docsOnly)).not.toContain('BLOCKED');
+    expect(overallStatus(docsOnly.slice.filter((item) => item.applicable).map(() => 'pass'))).toBe('pass');
+    expect(planSlice(JOURNEYS[0], null, DEFAULT_BUDGET, { claude: false, chromium: true })[0]).toMatchObject({ planned: false, applicable: true });
   });
 });
+
+const PERF = 'test-results/performance/summary.json';
+const BLOCKERS = 'config/release-blockers.json';
+const perf = (summary: object): Record<string, string> => ({ [PERF]: JSON.stringify(summary) });
+const signalOf = (id: string, entries: Record<string, string>, committed: Record<string, string> = {}) =>
+  collectSignals(files(entries), '2026-10-22', committed).find((signal) => signal.id === id)!;
 
 describe('evidence signals', () => {
   it('reports each signal as pass, fail, blocked or unrun with freshness, from existing files only', () => {
     const read = files({
-      'config/release-blockers.json': JSON.stringify({ blockers: [{ disposition: 'unresolved' }, { disposition: 'resolved' }] }),
+      [BLOCKERS]: JSON.stringify({ blockers: [{ disposition: 'unresolved' }, { disposition: 'resolved' }] }),
       'test-results/agent-audit.json': JSON.stringify({ outcome: 'incomplete', date: '2026-09-01' }),
-      'test-results/performance/summary.json': '{"runs":[]}',
       'test-results/quality-evidence/ci-review.json': JSON.stringify({ status: 'fail', date: '2026-10-21', detail: 'PR 900 red\nci' }),
       'test-results/quality-evidence/branch-hygiene.json': '{not json',
       'test-results/quality-evidence/compatibility.json': JSON.stringify({ status: 'great' }),
     });
-    const byId = Object.fromEntries(collectSignals(read, '2026-10-22').map((signal) => [signal.id, signal]));
-    expect(byId['release-checks']).toMatchObject({ status: 'fail', detail: '1 unresolved blockers', fresh: true });
+    const byId = Object.fromEntries(collectSignals(read, '2026-10-22', { [BLOCKERS]: '2026-10-21' }).map((signal) => [signal.id, signal]));
+    expect(byId['release-blockers']).toMatchObject({ status: 'fail', fresh: true, date: '2026-10-21' });
+    expect(byId['release-blockers'].detail).toContain('1 of 2 blockers open');
     expect(byId['agent-audit']).toMatchObject({ status: 'blocked', fresh: false, ageDays: 51 });
     expect(byId['agent-audit'].detail).toContain('not human evidence');
-    expect(byId.performance).toMatchObject({ status: 'pass', detail: expect.stringContaining('no pass/fail budget') });
     expect(byId['ci-review']).toMatchObject({ status: 'fail', detail: 'PR 900 red ci' });
     expect(byId['branch-hygiene'].status).toBe('unrun');
     expect(byId.compatibility.status).toBe('unrun');
     expect(byId.capacity).toMatchObject({ status: 'unrun', date: null, fresh: false });
+  });
+
+  it('performance follows the reporter: only a passed run with samples passes, and createdAt dates it', () => {
+    const scenarios = [{ scenario: 'first-cold', recordedRuns: 3, passedRuns: 3 }];
+    expect(signalOf('performance', perf({ status: 'passed', createdAt: '2026-10-20T08:00:00.000Z', scenarios }))).toMatchObject({ status: 'pass', date: '2026-10-20', fresh: true });
+    for (const status of ['failed', 'timedout', 'interrupted']) {
+      expect(signalOf('performance', perf({ status, createdAt: '2026-10-20T08:00:00.000Z', scenarios })).status, status).toBe('fail');
+    }
+    for (const empty of [{ scenarios: [] }, { scenarios: [{ scenario: 'first-cold', recordedRuns: 0 }] }, {}]) {
+      expect(signalOf('performance', perf({ status: 'passed', createdAt: '2026-10-20T08:00:00.000Z', ...empty })).status).toBe('unrun');
+    }
+    // No createdAt: the file's checkout mtime is not a date for the run.
+    expect(signalOf('performance', perf({ status: 'passed', scenarios }))).toMatchObject({ date: null, fresh: false });
+    // A bare parseable file used to read as a pass.
+    expect(signalOf('performance', { [PERF]: '{"runs":[]}' }).status).toBe('unrun');
+  });
+
+  it('release blockers: anything not resolved is open, bad data fails closed, and the date is the last commit', () => {
+    const record = (...blockers: unknown[]) => ({ [BLOCKERS]: JSON.stringify({ blockers }) });
+    expect(signalOf('release-blockers', record({ disposition: 'resolved' }), { [BLOCKERS]: '2026-10-21' })).toMatchObject({ status: 'pass', fresh: true });
+    const exception = (expiresAt: string) => ({ disposition: 'mitigated_exception', mitigation: { expiresAt } });
+    for (const open of [{ disposition: 'unresolved' }, { disposition: 'corrective_release' }, exception('2026-11-01T00:00:00Z'), exception('2026-10-01T00:00:00Z'), { disposition: 'wip' }, {}, null]) {
+      expect(signalOf('release-blockers', record({ disposition: 'resolved' }, open)).status, JSON.stringify(open)).toBe('fail');
+    }
+    expect(signalOf('release-blockers', record(exception('2026-10-01T00:00:00Z'))).detail).toContain('1 expired exception');
+    expect(signalOf('release-blockers', record({ disposition: 'wip' })).detail).toContain('1 invalid');
+    expect(signalOf('release-blockers', { [BLOCKERS]: '{"blockers":{}}' }).status).toBe('fail');
+    // The file's mtime (a checkout time) never makes it fresh; no commit date means no date.
+    const undated = signalOf('release-blockers', record({ disposition: 'resolved' }));
+    expect(undated).toMatchObject({ status: 'pass', date: null, fresh: false });
+    expect(signalOf('release-blockers', record({ disposition: 'resolved' }), { [BLOCKERS]: '2026-08-01' })).toMatchObject({ fresh: false, ageDays: 82 });
+    expect(undated.label).toBe('Release blockers record');
+    expect(undated.detail).not.toContain('#70');
   });
 
   it('keeps physical device, screen reader and native sharing unrun unless a person recorded them', () => {
@@ -176,19 +234,42 @@ describe('evidence signals', () => {
   });
 });
 
-describe('findings', () => {
-  it('known duplicate: attach evidence to the canonical issue, no new task', () => {
-    expect(dispositionFor({ key: 'share-copy', reproduced: true, searched: true, canonicalIssue: 701 })).toEqual({ action: 'attach-evidence', target: 'comment the evidence on #701' });
+describe('state line size', () => {
+  it('stays well under the ledger hook truncation limit, even with every field set', () => {
+    const hook = readFileSync(new URL('../.claude/hooks/orient.mjs', import.meta.url), 'utf8');
+    const limit = Number(/const MAX_LINE_CHARS = (\d+);/.exec(hook)?.[1]);
+    expect(MAX_STATE_CHARS).toBeLessThanOrEqual(limit - 20);
+    const longest = JOURNEYS.reduce((a, b) => (b.id.length > a.id.length ? b : a));
+    const full = state({
+      lastStatus: 'fail', lastDate: '2026-10-22', lastRev: 'abcdef1', passedDate: '2026-10-13', passedRev: 'abc1234',
+      nextDue: '2026-10-29', journey: longest.id, hotspot: 'a/'.repeat(MAX_HOTSPOT_CHARS / 2),
+      issues: [1234, 2345, 3456, 4567, 5678, 6789].slice(-MAX_STATE_ISSUES),
+    });
+    expect(formatState(full).length).toBeLessThanOrEqual(MAX_STATE_CHARS);
+    expect(parseState(formatState(full))).toEqual(full);
+    const kept = recordRun(null, { now: NOW, rev: 'abcdef1', status: 'pass', journey: 'sharing', hotspot: null, issues: [1, 2, 3, 4, 5, 6, 7] });
+    expect(kept.issues).toEqual([4, 5, 6, 7]);
   });
 
-  it('new reproduced defect: one bounded task, never a recurring audit issue', () => {
-    const result = dispositionFor({ key: 'x', reproduced: true, searched: true });
-    expect(result.action).toBe('create-bounded-task');
-    expect(result.target).toContain('not a recurring audit issue');
+  it('omits default cadence, budget and an unchanged passed pair, and restores them on parse', () => {
+    expect(formatState(passed)).toBe('quality review: last=pass@2026-10-13:abc1234 next=2026-10-20 journey=opening hotspot=src/game/move.ts issues=#701');
+    expect(formatState(state({ cadenceDays: 14, budget: { tasks: 1, minutes: 20, providerRuns: 0 } }))).toBe('quality review: every=14d budget=1t/20m/0p');
+    expect(formatState(state())).toBe('quality review:');
   });
+});
 
-  it('search first, and do not open anything for an unreproduced observation', () => {
-    expect(dispositionFor({ key: 'x', reproduced: true, searched: false }).action).toBe('search-first');
-    expect(dispositionFor({ key: 'x', reproduced: false, searched: true }).action).toBe('note-only');
+describe('record arguments', () => {
+  const run = async (...args: string[]): Promise<{ code: number; errors: string[] }> => {
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((message: unknown) => { errors.push(String(message)); });
+    try { return { code: await main(['record', '--now=2026-10-22T09:00:00Z', ...args]), errors }; } finally { spy.mockRestore(); }
+  };
+
+  it('rejects a journey or hotspot that parseState would refuse, before writing anything', async () => {
+    for (const bad of ['--journey=home', '--journey=', '--hotspot=has space.ts', '--hotspot=a;b.ts', `--hotspot=${'x'.repeat(MAX_HOTSPOT_CHARS + 1)}`, '--hotspot=']) {
+      const result = await run('--status=pass', bad);
+      expect(result.code, bad).toBe(2);
+      expect(result.errors[0], bad).toMatch(/^Bad --(journey|hotspot)/);
+    }
   });
 });
