@@ -96,6 +96,13 @@ describe('PullViewerPage', () => {
     expect(await render({})).toContain('Gurt pulled this pack in Original.');
   });
 
+  it('explains what the set version is and that old packs keep checking out under theirs (#804)', async () => {
+    const text = await render({});
+    expect(text).toContain('opened it in Original v1.');
+    expect(text).toContain("The version is the set's card list and odds when this pack was opened.");
+    expect(text).toContain('a pack always checks out under the version it was opened in, so later versions never change it.');
+  });
+
   it('says Someone, never the raw name, when the name is missing or blocked', async () => {
     expect(await render({}, '')).toContain('Someone pulled this pack in Original.');
     const blocked = await render({}, 'xXfuckXx');

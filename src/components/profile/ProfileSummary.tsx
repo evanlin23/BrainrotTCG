@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from 'react';
-import { POKER_HANDS, qualifiesForHallOfFame, xpForLevel, type HandKey, type ProfilePack, type ProfileStats } from '../../engine';
+import { POKER_HANDS, XP_PER_HAND, XP_PER_NEW_CARD, XP_PER_PACK, qualifiesForHallOfFame, xpForLevel, type HandKey, type ProfilePack, type ProfileStats } from '../../engine';
 import { COLLECTIBLE_CARDS, collectibleOwned, getSetCards } from '../../data/cards';
 import { SETS } from '../../content/sets';
 import { toCardsWithMeta } from '../../game/pulls';
@@ -15,6 +15,10 @@ const compact = new Intl.NumberFormat(undefined, { notation: 'compact', maximumF
 
 /** Hands worth bragging about, rarest first. */
 const SHOWN_HANDS: HandKey[] = ['FIVE_OF_A_KIND', 'FOUR_OF_A_KIND', 'FULL_HOUSE', 'THREE_OF_A_KIND', 'TWO_PAIR'];
+
+/** Combos that earn bonus XP, rarest first: from the engine's XP table, so the list can't drift from what levels are worked out from. */
+const XP_HANDS = (Object.keys(XP_PER_HAND) as HandKey[]).filter((h) => XP_PER_HAND[h] > 0).sort((a, b) => XP_PER_HAND[b] - XP_PER_HAND[a]);
+const NO_XP_HANDS = (Object.keys(XP_PER_HAND) as HandKey[]).filter((h) => XP_PER_HAND[h] === 0).map((h) => POKER_HANDS[h].name).join(' and ');
 
 interface ProfileSummaryProps {
   stats: ProfileStats;
@@ -100,6 +104,25 @@ const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNot
         </p>
       )}
       {partial && <p className="profile-footnote">{partialNote ?? '* so far, while the rest of the packs are re-opened'}</p>}
+      <details className="profile-how">
+        <summary>What do these numbers mean?</summary>
+        <p>
+          <strong>XP</strong> comes from three things: <span className="tabular">{XP_PER_PACK}</span> XP for every pack opened,{' '}
+          <span className="tabular">{XP_PER_NEW_CARD}</span> XP the first time you pull each different card (holo or not), and a combo bonus for the pack:{' '}
+          {XP_HANDS.map((h, i) => (
+            <span key={h}>
+              {i > 0 && ', '}
+              {POKER_HANDS[h].name} <span className="tabular">+{XP_PER_HAND[h].toLocaleString()}</span>
+            </span>
+          ))}
+          . {NO_XP_HANDS} earn no bonus. Level {stats.level + 1} needs <span className="tabular">{ceiling.toLocaleString()}</span> XP.
+        </p>
+        <p>
+          <strong>packs</strong> is how many packs opened. <strong>cards</strong> is how many different cards you have out of those you can still pull.{' '}
+          <strong>holo</strong> counts every holo card pulled, repeats included. <strong>best score</strong> is your highest Brainrot Score in a single pack.{' '}
+          <strong>Collection score</strong> adds up the points of every card you have pulled, with no combo multipliers.
+        </p>
+      </details>
 
       {best.length > 0 && (
         <section className="profile-block" aria-labelledby={bestId}>
