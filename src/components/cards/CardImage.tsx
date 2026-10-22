@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ImgHTMLAttributes, type MouseEvent } from 'react';
 import type { Finish } from '../../engine';
 import { holdFinishedCardImage } from '../../game/finishImage';
+import { BLANK_CARD_ART as BLANK, isApprovedCardArt } from '../../game/cardArt';
 import { cardFinishThumbUrl } from '../../content/art';
 import '../../styles/CardImage.css';
 
@@ -12,9 +13,6 @@ interface CardImageProps extends ImgHTMLAttributes<HTMLImageElement> {
   /** Offer a Retry button when the image fails. Only where a button may sit beside the image (not inside one). */
   retry?: boolean;
 }
-
-/** Shown while a finish renders, or after a failure, so the reserved box never shows plain art or a broken icon. */
-const BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 // Each Retry press, or the device coming back online, retries every card image that failed before it.
 let retryRound = 0;
@@ -66,8 +64,10 @@ interface ImageStatus {
 
 /**
  * Keep the same img element and existing holo/misprint layers, changing only its printed frame. The
- * box is reserved at the card's shape, and `data-state` (rendering, loading, ready, failed) drives the
- * placeholder, so loading never shifts layout and a failure never shows a broken image.
+ * box is reserved at the card's shape, and `data-state` (rendering, loading, ready, failed, blocked)
+ * drives the placeholder, so loading never shifts layout and a failure never shows a broken image.
+ * Art this build won't request (an unknown historical card's stored address, see game/cardArt) is
+ * `blocked`: the placeholder stays, nothing is fetched and Retry isn't offered.
  */
 const CardImage = ({
   src, finish, thumbnail = false, retry = false, className, style, onLoad, onError, draggable = false, ...props
@@ -80,13 +80,14 @@ const CardImage = ({
   const update = (patch: Omit<ImageStatus, 'id'>) =>
     setStored((previous) => ({ ...(previous.id === id ? previous : { id }), ...patch }));
 
+  const blocked = !isApprovedCardArt(src);
   const availableThumb = thumbnail ? cardFinishThumbUrl(src, finish) : undefined;
   // A failed thumbnail falls back to the existing full-size finish renderer.
   const thumb = status.thumbFailed ? undefined : availableThumb;
-  const needsRender = Boolean(finish) && !thumb;
-  const shown = thumb ?? (needsRender ? status.rendered : src);
+  const needsRender = Boolean(finish) && !thumb && !blocked;
+  const shown = blocked ? undefined : thumb ?? (needsRender ? status.rendered : src);
   const failed = status.failedIn !== undefined;
-  const state = failed ? 'failed' : !shown ? 'rendering' : status.loaded === shown ? 'ready' : 'loading';
+  const state = blocked ? 'blocked' : failed ? 'failed' : !shown ? 'rendering' : status.loaded === shown ? 'ready' : 'loading';
 
   useEffect(() => {
     if (!finish || !needsRender) return;
