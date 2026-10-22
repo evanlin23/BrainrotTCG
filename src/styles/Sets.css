@@ -183,6 +183,20 @@
   background: var(--surface-2);
 }
 
+/* Forced colours drop the selected tile's colour, leaving it identical to the rest (#683). A thicker
+   Highlight border marks it (padding gives the 2px back, so nothing shifts) and survives losing focus. */
+@media (forced-colors: active) {
+  .pack-tile {
+    border-color: ButtonText;
+  }
+
+  .pack-tile.selected {
+    padding: calc(var(--space-2) - 2px);
+    border-width: 3px;
+    border-color: Highlight;
+  }
+}
+
 .pack-tile-art {
   position: relative;
   display: block;
