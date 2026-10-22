@@ -137,21 +137,24 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
             </button>
           </div>
 
-          <p className="share-more">
-            {imageCopies && (
-              <button type="button" className="link-btn" onClick={onSave} disabled={!image}>
-                <Download aria-hidden="true" /> Save image
+          <details className="share-disclosure">
+            <summary>More sharing options</summary>
+            <p className="share-more">
+              {imageCopies && (
+                <button type="button" className="link-btn" onClick={onSave} disabled={!image}>
+                  <Download aria-hidden="true" /> Save image
+                </button>
+              )}
+              <button type="button" className="link-btn" onClick={async () => (await copyText(text)) && flash('Text copied')}>
+                <Copy aria-hidden="true" /> Copy text
               </button>
-            )}
-            <button type="button" className="link-btn" onClick={async () => (await copyText(text)) && flash('Text copied')}>
-              <Copy aria-hidden="true" /> Copy text
-            </button>
-            {canShareTo() && (
-              <button type="button" className="link-btn" onClick={onShareTo} disabled={!url && !image}>
-                <Share2 aria-hidden="true" /> Share to…
-              </button>
-            )}
-          </p>
+              {canShareTo() && (
+                <button type="button" className="link-btn" onClick={onShareTo} disabled={!url && !image}>
+                  <Share2 aria-hidden="true" /> Share to…
+                </button>
+              )}
+            </p>
+          </details>
           <p className={`share-done ${shareFailed ? 'is-failed' : ''}`} role="status">
             {done}
           </p>

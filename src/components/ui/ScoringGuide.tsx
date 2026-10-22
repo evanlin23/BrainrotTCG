@@ -13,9 +13,11 @@ import {
   handOdds,
   oneIn,
   type HandKey,
+  type Rarity,
   type SetDefinition,
 } from '../../engine';
 import { CARD_RARITIES } from '../../data/cards';
+import { SETS, getLatestSet, isOpenable } from '../../content/sets';
 import { formatOneIn } from '../../game/cardStats';
 import { FINISH_INFO } from '../../game/modifiers';
 import RarityBadge from './RarityBadge';
@@ -52,6 +54,22 @@ const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.
 /** A per-card chance in basis points, as the tables show it: "2.5%". */
 const formatPerCard = (basisPoints: number) => `${(basisPoints / 100).toLocaleString()}%`;
 
+/** How many of a set's cards have each rarity: handOdds splits a rarity's chance across them, so it shapes the combo table. */
+const cardsOfRarity = (set: SetDefinition, rarity: Rarity) => set.cards.filter((c) => c.rarity === rarity).length;
+
+/**
+ * Whether two sets roll packs the same way as far as the tables show: pack size, holo odds, modifier table,
+ * and for each rarity its chance and how many cards share it. Field by field, so key order doesn't matter.
+ */
+const sameRolls = (a: SetDefinition, b: SetDefinition) =>
+  a.packSize === b.packSize &&
+  a.holoOdds === b.holoOdds &&
+  a.modifiers === b.modifiers &&
+  RARITIES_RAREST_FIRST.every((r) => a.odds[r] === b.odds[r] && cardsOfRarity(a, r) === cardsOfRarity(b, r));
+
+/** Whether every set you can open today rolls its packs the way this one does. */
+const allSetsShareOdds = (set: SetDefinition) => SETS.filter(isOpenable).every((other) => sameRolls(other, set));
+
 /** The finish the worked example uses. */
 const EXAMPLE_FINISH = 'GOLD' as const;
 
@@ -68,8 +86,31 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
   const exampleModifierChance = (set.holoOdds / ODDS_TOTAL) * (hasModifiers ? MODIFIERS_V1.finishOdds[EXAMPLE_FINISH] / ODDS_TOTAL : 1);
   const exampleMultiplier = HOLO_MULTIPLIER * (hasModifiers ? FINISH_MULTIPLIER[EXAMPLE_FINISH] : 1);
 
+  const packSize = set.packSize;
+  const latestVersion = getLatestSet(set.id)?.version ?? set.version;
+  const isLatest = set.version === latestVersion;
+  const sharedOdds = isLatest && allSetsShareOdds(set);
+
   return (
     <Sheet title="Card guide" subtitle={`Rarity, modifiers and scoring for ${set.name}`} onClose={onClose} size="sm" scrollingHeading className="scoring-guide">
+        <h3>Packs and sets</h3>
+        <p className="scoring-note">
+          Every pack holds <strong>{packSize} cards</strong>, all from {set.name}: a pack never mixes sets, so to pull a card from
+          another set, open a pack in that set.
+        </p>
+        {isLatest && (
+          <p className="scoring-note">
+            {sharedOdds
+              ? 'Every set you can open uses these same odds, pack size and scoring, so the tables below hold for all of them.'
+              : `Odds or pack size differ between sets; these tables are for ${set.name}.`}
+          </p>
+        )}
+        <p className="scoring-note">
+          {set.name} is on <strong>version {set.version}</strong>. A set gets a new version when its cards, rarities, odds or pack size change.
+          A pack stays on the version it was opened in, so older packs and shared links still check out exactly as they did.
+          {!isLatest && ` This guide shows the older version ${set.version}; the current one is version ${latestVersion}.`}
+        </p>
+
         <h3>Rare, holo or extra?</h3>
         <p className="scoring-note">
           <strong>Rarity</strong> is which card you pulled, from {CARD_RARITIES[commonest].name} up to {CARD_RARITIES[rarest].name}. Rarer cards are worth more points.
@@ -93,7 +134,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         <p className="scoring-formula">
           Brainrot Score = <strong>card points</strong> added up × <strong>combo multiplier</strong>
         </p>
-        <p className="scoring-note">Add up the points of your five cards, then multiply by your combo. A higher score is better.</p>
+        <p className="scoring-note">Add up the points of your {packSize} cards, then multiply by your combo. A higher score is better.</p>
 
         <h3>Card rarity</h3>
         <table className="scoring-table">
@@ -181,6 +222,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
             ))}
           </tbody>
         </table>
+        <p className="scoring-note">Combo chances are for one {packSize}-card pack.</p>
     </Sheet>
   );
 };
