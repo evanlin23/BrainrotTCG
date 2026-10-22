@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { monitor } from './support';
 
 let primaryServer: Server;
@@ -184,7 +185,22 @@ test('worker outbound fetch is blocked and healthy worker still works', async ({
   });
   expect(egressResult).not.toBe('leaked');
   expect(externalHits).toBe(0);
-  expect(errors.unexpectedAttempts).toBeDefined();
+  // The worker's own egress attempt is recorded, not just refused.
+  await expect.poll(() => errors.blocked.some((b) => b.includes(externalOrigin))).toBe(true);
+});
+
+test('popup navigation to an external origin is blocked and recorded', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  // A real click gives the popup the user activation window.open needs.
+  await page.evaluate((target) => {
+    document.body.insertAdjacentHTML('beforeend', `<a id="popup-link" target="_blank" href="${target}popup-leak">leave</a>`);
+  }, externalUrl);
+  // The guard answers the popup's navigation with an empty 204, so no popup page ever appears.
+  await page.click('#popup-link');
+
+  expect(externalHits).toBe(0);
+  await expect.poll(() => errors.blocked.some((b) => b.includes(`${externalOrigin}/popup-leak`))).toBe(true);
 });
 
 test('same-origin POST write is refused with 403 and never reaches server', async ({ page }) => {
@@ -249,4 +265,128 @@ test('sanitization strips query parameters, hashes, bodies, and bounding to 40 e
     expect(entry).not.toContain('?');
     expect(entry).not.toContain('#');
   }
+});
+
+/** Opens a WebSocket from the page and resolves with how the attempt ended. */
+function openSocket(page: Page, url: string) {
+  return page.evaluate((target) => new Promise<string>((resolve) => {
+    const socket = new WebSocket(target);
+    socket.onopen = () => resolve('open');
+    socket.onerror = () => resolve('error');
+    socket.onclose = () => resolve('closed');
+  }), url);
+}
+
+const wsTarget = () => `ws://${new URL(externalUrl).host}/relay`;
+
+for (const [name, option] of [
+  ['undefined (default)', undefined],
+  ['false', false],
+] as const) {
+  test(`allowWebSocket ${name}: every attempt is recorded and closed`, async ({ page }) => {
+    const errors = await monitor(page, primaryUrl, 0, { allowWebSocket: option, failOnUnexpected: false });
+    await page.goto(primaryUrl);
+    expect(await openSocket(page, wsTarget())).not.toBe('open');
+    await expect.poll(() => errors.blocked.some((b) => b.includes(new URL(externalUrl).host))).toBe(true);
+    expect(externalHits).toBe(0);
+  });
+}
+
+test("the product's own relays are closed unconnected without being recorded", async ({ page }) => {
+  const errors = await monitor(page, primaryUrl);
+  await page.goto(primaryUrl);
+  expect(await openSocket(page, HOF_RELAYS[0]!)).not.toBe('open');
+  expect(errors.blocked).toEqual([]);
+});
+
+test('allowWebSocket true: attempts are allowed as unconnected mocks and not recorded', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { allowWebSocket: true });
+  await page.goto(primaryUrl);
+  expect(await openSocket(page, wsTarget())).toBe('open');
+  expect(errors.blocked).toEqual([]);
+  expect(externalHits).toBe(0);
+});
+
+test('allowWebSocket list: a matching prefix is allowed, anything else is recorded', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { allowWebSocket: [wsTarget()], failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  expect(await openSocket(page, wsTarget())).toBe('open');
+  expect(errors.blocked).toEqual([]);
+  expect(await openSocket(page, `ws://${new URL(externalUrl).host}/other`)).not.toBe('open');
+  await expect.poll(() => errors.blocked.some((b) => b.includes('/other'))).toBe(true);
+});
+
+test('allowWebSocket function: allowed unless it returns false or throws', async ({ page }) => {
+  const seen: string[] = [];
+  const errors = await monitor(page, primaryUrl, 0, {
+    allowWebSocket: (socket) => {
+      seen.push(socket.url());
+      if (socket.url().endsWith('/refuse')) return false;
+      if (socket.url().endsWith('/throw')) throw new Error('handler bug');
+    },
+    failOnUnexpected: false,
+  });
+  await page.goto(primaryUrl);
+  const host = new URL(externalUrl).host;
+  expect(await openSocket(page, `ws://${host}/fine`)).toBe('open');
+  expect(errors.blocked).toEqual([]);
+  expect(await openSocket(page, `ws://${host}/refuse`)).not.toBe('open');
+  expect(await openSocket(page, `ws://${host}/throw`)).not.toBe('open');
+  await expect.poll(() => errors.blocked.filter((b) => b.includes('disallowed websocket')).length).toBe(2);
+  expect(seen).toHaveLength(3);
+});
+
+// Teardown failure is the core acceptance: test.fail() passes only if the guard fails the test
+// once the page closes. Each scenario has a recording twin above (failOnUnexpected: false).
+test.describe('teardown fails on unexpected attempts', () => {
+  test('blocked HTTP attempt fails the test at teardown', async ({ page }) => {
+    test.fail();
+    await monitor(page, primaryUrl);
+    await page.goto(primaryUrl);
+    await page.evaluate((target) => fetch(`${target}leak`).catch(() => undefined), externalUrl);
+  });
+
+  test('blocked WebSocket attempt fails the test at teardown', async ({ page }) => {
+    test.fail();
+    await monitor(page, primaryUrl);
+    await page.goto(primaryUrl);
+    await openSocket(page, wsTarget());
+  });
+
+  test('a WebSocket the allow function refuses fails the test at teardown', async ({ page }) => {
+    test.fail();
+    await monitor(page, primaryUrl, 0, { allowWebSocket: () => false });
+    await page.goto(primaryUrl);
+    await openSocket(page, wsTarget());
+  });
+});
+
+test.describe('continueAllowed keeps the original same-origin routing', () => {
+  test('local reads are continued natively; writes and external requests are still refused', async ({ page }) => {
+    const errors = await monitor(page, primaryUrl, 0, { continueAllowed: true, failOnUnexpected: false });
+    await page.goto(primaryUrl);
+    const result = await page.evaluate(async (target) => {
+      const read = await fetch('/asset.json');
+      const write = await fetch('/write', { method: 'POST', body: 'x' });
+      await fetch(`${target}leak`).catch(() => undefined);
+      return { read: read.status, write: write.status, csp: read.headers.get('content-security-policy') };
+    }, externalUrl);
+    expect(result.read).toBe(200);
+    expect(result.csp).toBeNull();
+    expect(result.write).toBe(403);
+    expect(primaryAssetHits).toBe(1);
+    expect(primaryWriteHits).toBe(0);
+    expect(externalHits).toBe(0);
+    expect(errors.blocked.some((b) => b.includes('disallowed write'))).toBe(true);
+    expect(errors.blocked.some((b) => b.includes('blocked cross-origin'))).toBe(true);
+  });
+
+  // continue() lets the browser follow redirects itself, so this mode cannot stop an escape; it
+  // must at least record it so the test fails at teardown. Perf runs only talk to the built preview.
+  test('a redirect escape cannot be stopped but is recorded', async ({ page }) => {
+    const errors = await monitor(page, primaryUrl, 0, { continueAllowed: true, failOnUnexpected: false });
+    await page.goto(primaryUrl);
+    await page.evaluate(() => fetch('/redirect-escape').catch(() => undefined));
+    await expect.poll(() => errors.blocked.some((b) => b.includes('redirect escape') && b.includes(externalOrigin))).toBe(true);
+  });
 });

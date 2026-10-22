@@ -1,8 +1,9 @@
 import { readdirSync } from 'node:fs';
-import { test, expect, type Page, type Locator, type BrowserContext } from '@playwright/test';
+import { test, expect, type Page, type Locator, type WebSocketRoute } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
+import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import type { Finish, Rarity } from '../../src/engine/types';
 
 // On-disk boundary shapes: importing UI Stats pulls TSX/Vite assets into the Node test project.
@@ -28,16 +29,48 @@ export interface MonitorOptions {
   allowedPaths?: string[];
   allowedMethods?: string[];
   allowWrites?: boolean;
-  allowWebSocket?: boolean | string[] | ((socket: unknown) => void);
+  /**
+   * Which WebSocket attempts are allowed. `false` or omitted: none, every attempt is recorded and
+   * closed. `true`: all, left as an unconnected mock (no server is ever contacted). A list: URLs
+   * starting with one of its prefixes are allowed, others are recorded. A function: gets the socket
+   * (to script fake relay messages) and allows it unless it returns `false` or throws. Allowed
+   * sockets are never connected to a server, so nothing reaches the network either way. The
+   * product's own Hall of Fame relays are the one exception: closed unconnected and not recorded.
+   */
+  allowWebSocket?: boolean | string[] | ((socket: WebSocketRoute) => boolean | void);
+  /** Fail the running test at teardown when the guard recorded an attempt. Default true. */
   failOnUnexpected?: boolean;
+  /**
+   * Keep the original same-origin `route.continue()` (after the origin, method and path checks)
+   * instead of fetching and fulfilling the response. Cold performance runs need it: fulfilled
+   * responses skip CDP network throttling and change byte accounting. Redirects and CSP are then
+   * only observed, never enforced.
+   */
+  continueAllowed?: boolean;
 }
 
 export type MonitorErrors = string[] & {
+  /** Sanitized unexpected network attempts (at most 40), kept apart from product errors. */
   blocked: string[];
-  unexpectedAttempts: string[];
+  /**
+   * The monitor's HTTP policy for guards that cannot use `page.route` (warm runs, which keep the
+   * HTTP cache): null when the request is allowed, otherwise the status and body to answer with.
+   * A refusal is recorded like any other unexpected attempt.
+   */
+  refuse(method: string, url: string): { status: number; body: string } | null;
 };
 
 const MAX_BLOCKED_ENTRIES = 40;
+function originOf(urlString: string): string {
+  try {
+    return new URL(urlString).origin;
+  } catch {
+    return '';
+  }
+}
+/** The relays the product itself dials; browser fixtures close them unconnected without recording. */
+const productRelayOrigins = new Set(HOF_RELAYS.map(originOf));
+const CSP_REPORT_PATH = '/__network-guard/csp-report';
 
 function sanitizeUrl(urlString: string): string {
   try {
@@ -80,6 +113,7 @@ export async function monitor(
     allowWrites = false,
     allowWebSocket,
     failOnUnexpected = true,
+    continueAllowed = false,
   } = options;
 
   const errors = [] as unknown as MonitorErrors;
@@ -90,14 +124,8 @@ export async function monitor(
     writable: true,
     configurable: true,
   });
-  Object.defineProperty(errors, 'unexpectedAttempts', {
-    value: blocked,
-    enumerable: false,
-    writable: true,
-    configurable: true,
-  });
   const noteBlocked = (entry: string) => {
-    if (blocked.length < MAX_BLOCKED_ENTRIES) {
+    if (blocked.length < MAX_BLOCKED_ENTRIES && !blocked.includes(entry)) {
       blocked.push(entry);
     }
   };
@@ -166,25 +194,96 @@ export async function monitor(
   page.on('close', checkUnexpectedTeardown);
   page.context().on('close', checkUnexpectedTeardown);
 
-  // Context-wide guards also cover popups and other pages. No server connection is established
-  // by this handler, including relay WebSocket writes.
-  if (allowWebSocket === false) {
-    await page.context().routeWebSocket('**/*', (socket) => {
-      noteBlocked(sanitizeAttempt('WS', socket.url(), 'disallowed websocket'));
+  // Context-wide guards also cover popups and other pages. A socket the handler never connects to a
+  // server stays a local mock, so no WebSocket attempt reaches the network, allowed or not.
+  const wsPrefixes = Array.isArray(allowWebSocket) ? allowWebSocket : [];
+  await page.context().routeWebSocket('**/*', (socket) => {
+    if (productRelayOrigins.has(originOf(socket.url()))) {
+      // The product's own Hall of Fame relays: an expected failure, closed unconnected, not an attempt.
       socket.close();
+      return;
+    }
+    let allowed = false;
+    if (allowWebSocket === true) allowed = true;
+    else if (Array.isArray(allowWebSocket)) allowed = wsPrefixes.some((prefix) => socket.url().startsWith(prefix));
+    else if (typeof allowWebSocket === 'function') {
+      try {
+        allowed = allowWebSocket(socket) !== false;
+      } catch {
+        allowed = false;
+      }
+    }
+    if (allowed) return;
+    noteBlocked(sanitizeAttempt('WS', socket.url(), 'disallowed websocket'));
+    socket.close();
+  });
+
+  // Page CSP: same origin plus the fixture allowlist only (never a blanket ws: or wss:). WebSocket
+  // origins follow the allowed HTTP origins and the allowed prefixes.
+  const wsOrigins = [...allowedOrigins].map((o) => o.replace(/^http/, 'ws'));
+  const prefixOrigins = wsPrefixes.flatMap((prefix) => {
+    try {
+      return [new URL(prefix).origin];
+    } catch {
+      return [];
+    }
+  });
+  const connectOrigins = ["'self'", ...allowedOrigins, ...wsOrigins, ...prefixOrigins].join(' ');
+  const imgOrigins = ["'self'", 'data:', 'blob:', ...allowedOrigins].join(' ');
+  const csp = [
+    "default-src 'self' data: blob:",
+    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+    "style-src 'self' 'unsafe-inline'",
+    `connect-src ${connectOrigins}`,
+    "font-src 'self' data:",
+    "media-src 'self' data: blob:",
+    `img-src ${imgOrigins}`,
+    "worker-src 'self' blob:",
+    "form-action 'none'",
+    "frame-src 'none'",
+    "base-uri 'self'",
+    // Violations inside workers never reach the page console, so the browser reports them here.
+    `report-uri ${origin}${CSP_REPORT_PATH}`,
+  ].join('; ');
+
+  // A redirect hop that leaves the allowlist is an unexpected attempt. Enforced below when
+  // responses are fetched; with continueAllowed the browser follows redirects itself, so the
+  // hop is only observed here.
+  const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+  const redirectTarget = (from: string, location: string | undefined): URL | null => {
+    if (!location) return null;
+    try {
+      return new URL(location, from);
+    } catch {
+      return null;
+    }
+  };
+  if (continueAllowed || !routeHttp) {
+    page.context().on('response', (response) => {
+      if (!REDIRECTS.has(response.status())) return;
+      const location = response.headers()['location'];
+      if (!location) return;
+      const target = redirectTarget(response.url(), location);
+      if (!target || !isAllowedUrl(target)) {
+        noteBlocked(sanitizeAttempt(response.request().method(), response.url(), `redirect escape: ${target ? sanitizeUrl(target.href) : 'unparseable target'}`));
+      }
     });
-  } else if (typeof allowWebSocket === 'function') {
-    await page.context().routeWebSocket('**/*', allowWebSocket as Parameters<BrowserContext['routeWebSocket']>[1]);
-  } else if (Array.isArray(allowWebSocket)) {
-    const prefixes = allowWebSocket;
-    await page.context().routeWebSocket('**/*', (socket) => {
-      if (prefixes.some((p) => socket.url().startsWith(p))) return;
-      noteBlocked(sanitizeAttempt('WS', socket.url(), 'unexpected websocket'));
-      socket.close();
-    });
-  } else {
-    await page.context().routeWebSocket('**/*', (socket) => socket.close());
   }
+
+  // One policy for every HTTP guard: origin, then method, then path. Records and returns the refusal.
+  const refuse = (method: string, url: URL): { status: number; body: string } | null => {
+    let refusal: { status: number; body: string; note: string };
+    if (!allowedOrigins.has(url.origin)) refusal = { status: 204, body: '', note: 'blocked cross-origin request' };
+    else if (!allowedMethods.has(method)) refusal = { status: 403, body: 'Forbidden write', note: 'disallowed write' };
+    else if (!isAllowedPath(url.pathname)) refusal = { status: 403, body: 'Forbidden path', note: 'disallowed path' };
+    else return null;
+    noteBlocked(sanitizeAttempt(method, url.href, refusal.note));
+    return refusal;
+  };
+  Object.defineProperty(errors, 'refuse', {
+    value: (method: string, url: string) => refuse(method.toUpperCase(), new URL(url)),
+    enumerable: false,
+  });
 
   // Playwright HTTP routing disables the HTTP cache, so warm performance runs guard HTTP themselves.
   if (routeHttp) {
@@ -193,20 +292,24 @@ export async function monitor(
       const reqUrl = new URL(request.url());
       const method = request.method().toUpperCase();
 
-      if (!allowedOrigins.has(reqUrl.origin)) {
-        noteBlocked(sanitizeAttempt(method, request.url(), 'blocked cross-origin request'));
+      if (method === 'POST' && reqUrl.origin === origin && reqUrl.pathname === CSP_REPORT_PATH) {
+        // The guard's own CSP violation report: record where the blocked request was headed, nothing else.
+        try {
+          const report = JSON.parse(request.postData() ?? '{}')['csp-report'] as { 'blocked-uri'?: string } | undefined;
+          const target = report?.['blocked-uri'] ?? '';
+          if (/^(https?|wss?):/.test(target)) noteBlocked(sanitizeAttempt('CSP', target, 'csp violation'));
+        } catch {
+          // A malformed report carries no evidence
+        }
         return route.fulfill({ status: 204 });
       }
 
-      if (!allowedMethods.has(method)) {
-        noteBlocked(sanitizeAttempt(method, request.url(), 'disallowed write'));
-        return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Forbidden write' });
+      const refusal = refuse(method, reqUrl);
+      if (refusal) {
+        return route.fulfill({ status: refusal.status, contentType: 'text/plain', body: refusal.body });
       }
 
-      if (!isAllowedPath(reqUrl.pathname)) {
-        noteBlocked(sanitizeAttempt(method, request.url(), 'disallowed path'));
-        return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Forbidden path' });
-      }
+      if (continueAllowed) return route.continue();
 
       let response;
       try {
@@ -215,49 +318,16 @@ export async function monitor(
         return route.abort();
       }
 
-      const status = response.status();
-      if (status >= 300 && status < 400) {
-        const location = response.headers()['location'];
-        let targetUrl: URL | null = null;
-        if (location) {
-          try {
-            targetUrl = new URL(location, request.url());
-          } catch {
-            targetUrl = null;
-          }
-        }
-        if (!targetUrl || !isAllowedUrl(targetUrl)) {
-          noteBlocked(
-            sanitizeAttempt(
-              method,
-              request.url(),
-              `blocked redirect escape: ${targetUrl ? sanitizeUrl(targetUrl.href) : location ?? 'unknown'}`,
-            ),
-          );
+      if (REDIRECTS.has(response.status())) {
+        const target = redirectTarget(request.url(), response.headers()['location']);
+        if (target && !isAllowedUrl(target)) {
+          noteBlocked(sanitizeAttempt(method, request.url(), `blocked redirect escape: ${sanitizeUrl(target.href)}`));
           return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Redirect blocked by network guard' });
         }
       }
 
-      const headers = { ...response.headers() };
-      const connectOrigins = ["'self'", 'ws:', 'wss:', ...Array.from(allowedOrigins)].join(' ');
-      const imgOrigins = ["'self'", 'data:', 'blob:', ...Array.from(allowedOrigins)].join(' ');
-      const csp = [
-        "default-src 'self' data: blob:",
-        "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
-        "style-src 'self' 'unsafe-inline'",
-        `connect-src ${connectOrigins}`,
-        "font-src 'self' data:",
-        "media-src 'self' data: blob:",
-        `img-src ${imgOrigins}`,
-        "worker-src 'self' blob:",
-        "form-action 'none'",
-        "frame-src 'none'",
-        "base-uri 'self'",
-      ].join('; ');
-      headers['content-security-policy'] = csp;
-
       try {
-        await route.fulfill({ response, headers });
+        await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': csp } });
       } catch {
         // In-flight requests aborted by page navigation or close
       }
