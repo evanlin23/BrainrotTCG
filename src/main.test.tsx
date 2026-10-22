@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 /** The startup steps main.tsx runs, with the real work (storage, IndexedDB, the engine) left out. */
 const startup = vi.hoisted(() => ({
   receiveSave: vi.fn<() => Promise<boolean>>(),
-  runMigrations: vi.fn(),
+  runMigrations: vi.fn(() => true),
   migratePullLog: vi.fn(),
   resumeReopening: vi.fn(),
   warmUpFirstPack: vi.fn(),
@@ -19,6 +19,7 @@ vi.mock('./App', () => ({ default: () => <p data-testid="app">The game</p> }));
 
 const HANDOVER_FAILED = expect.stringContaining('Bringing the save over failed');
 const app = () => document.querySelector('[data-testid="app"]');
+const crash = () => document.querySelector('main.app-crash');
 
 let errors: ReturnType<typeof vi.spyOn>;
 
@@ -76,5 +77,59 @@ describe('starting the game when the save hand-over fails', () => {
     expect(app()).toBeNull();
     expect(startup.runMigrations).not.toHaveBeenCalled();
     expect(errors).not.toHaveBeenCalled();
+  });
+});
+
+describe('startup migration failure containment (#660, #659)', () => {
+  it('renders crash fallback and halts before mounting ordinary app when runMigrations throws', async () => {
+    startup.receiveSave.mockResolvedValue(false);
+    startup.runMigrations.mockImplementation(() => {
+      throw new TypeError("Cannot read properties of null (reading 'id')");
+    });
+    await load();
+
+    await vi.waitFor(() => expect(crash()).not.toBeNull());
+    expect(app()).toBeNull();
+    expect(document.getElementById('root')!.children).toHaveLength(1);
+    expect(crash()!.querySelector('h1')?.textContent).toBe('Something went wrong');
+    expect(crash()!.querySelector('button')?.textContent).toBe('Reload');
+
+    // Does not advance to game setup
+    expect(startup.resumeReopening).not.toHaveBeenCalled();
+    expect(startup.warmUpFirstPack).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledWith(
+      'App startup failed before mount',
+      expect.any(TypeError),
+    );
+  });
+
+  it('offers the save as a file, not a reload, when saved data could not be upgraded', async () => {
+    startup.receiveSave.mockResolvedValue(false);
+    startup.runMigrations.mockReturnValue(false);
+    await load();
+
+    await vi.waitFor(() => expect(crash()).not.toBeNull());
+    expect(app()).toBeNull();
+    expect(crash()!.querySelector('h1')?.textContent).toBe('Your save needs room to update');
+    expect(crash()!.textContent).toContain("Reloading alone won't fix it.");
+    expect([...crash()!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Download save data', 'Reload']);
+    expect(startup.migratePullLog).not.toHaveBeenCalled();
+    expect(document.getElementById('root')!.children).toHaveLength(1);
+    expect(startup.resumeReopening).not.toHaveBeenCalled();
+    expect(startup.warmUpFirstPack).not.toHaveBeenCalled();
+  });
+
+  it('renders crash fallback when migratePullLog throws', async () => {
+    startup.receiveSave.mockResolvedValue(false);
+    startup.runMigrations.mockReturnValue(true);
+    startup.migratePullLog.mockImplementation(() => {
+      throw new Error('history pull log corrupt');
+    });
+    await load();
+
+    await vi.waitFor(() => expect(crash()).not.toBeNull());
+    expect(app()).toBeNull();
+    expect(startup.resumeReopening).not.toHaveBeenCalled();
+    expect(startup.warmUpFirstPack).not.toHaveBeenCalled();
   });
 });
