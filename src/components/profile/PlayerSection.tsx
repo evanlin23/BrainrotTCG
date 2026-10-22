@@ -9,6 +9,16 @@ const SAVE_STALE = "Your name wasn't saved: this save changed in another tab. Re
 
 type Player = ReturnType<typeof getPlayer>;
 
+/**
+ * The field's text capped at the name limit, counted in code points after NFC, the same order the
+ * stored name uses (normalizeName), so a decomposed "e" + accent counts once. Nothing else is
+ * trimmed or collapsed, so typing a space still works.
+ */
+const capDraft = (raw: string) =>
+  Array.from(raw.normalize('NFC'))
+    .slice(0, MAX_NAME_LENGTH)
+    .join('');
+
 interface PlayerSectionProps {
   /** A new name was stored. */
   onRenamed?: (player: Player) => void;
@@ -154,10 +164,13 @@ export default function PlayerSection({ onRenamed, canSave, onSaveFailed }: Play
               autoComplete="nickname"
               spellCheck={false}
               onChange={(event) => {
-                setNameDraft(Array.from(event.target.value).slice(0, MAX_NAME_LENGTH).join(''));
+                // Mid-composition (IME) the text is left alone; it is normalized and capped when composition ends.
+                const composing = (event.nativeEvent as InputEvent).isComposing;
+                setNameDraft(composing ? event.target.value : capDraft(event.target.value));
                 setNameStatus('');
                 failedDraft.current = null;
               }}
+              onCompositionEnd={(event) => setNameDraft(capDraft(event.currentTarget.value))}
               onKeyDown={(event) => {
                 if (event.key !== 'Escape') return;
                 // Escape only closes the field: it doesn't also close the page or a sheet behind it.

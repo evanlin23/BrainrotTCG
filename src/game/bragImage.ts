@@ -3,15 +3,15 @@
  * the five cards, the hand and value, who pulled it, and a QR code that opens
  * the verifiable pull. Drawn on a canvas from same-origin card images.
  */
-import qrcode from 'qrcode-generator';
 import type { Finish, PackScore } from '../engine';
 import { FINISH_INFO, modifierLabel } from './modifiers';
 import { holdFinishedCardImage } from './finishImage';
+import { planQr, QR_QUIET, type QrPlan } from './qrCode';
 import { BLANK_CARD_ART, isApprovedCardArt } from './cardArt';
 import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../styles/logoMark';
 import { BRAND as YELLOW, CHIP_BG, FINISH_GLOWS, FOIL_STOPS, INK, MUTED, PAPER } from '../styles/palette';
 
-interface PosterCard {
+export interface PosterCard {
   image: string;
   name: string;
   isHolo: boolean;
@@ -19,7 +19,7 @@ interface PosterCard {
   misprint?: boolean;
 }
 
-interface PosterInput {
+export interface PosterInput {
   cards: PosterCard[];
   score: PackScore;
   setName: string;
@@ -30,12 +30,43 @@ interface PosterInput {
   cert?: string;
   /** The set's colour, for its code chip. */
   setColor?: string;
+  /** Max time to wait for each card image before failing. */
+  timeoutMs?: number;
 }
 
 const W = 1080;
 const H = 1920;
 
-const loadImage = async (art: string, wanted?: Finish | null) => {
+/** Allow slow mobile networks without leaving the poster stuck on "Drawing the image…" indefinitely. */
+export const POSTER_IMAGE_TIMEOUT_MS = 10_000;
+
+export const loadPosterImageElement = (
+  src: string,
+  timeoutMs = POSTER_IMAGE_TIMEOUT_MS,
+): Promise<HTMLImageElement> =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    let settled = false;
+    const settle = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      img.onload = null;
+      img.onerror = null;
+      if (error) {
+        img.src = '';
+        reject(error);
+      } else {
+        resolve(img);
+      }
+    };
+    const timeout = setTimeout(() => settle(new Error(`Poster image load timed out: ${src}`)), timeoutMs);
+    img.onload = () => settle();
+    img.onerror = () => settle(new Error(`Could not load ${src}`));
+    img.src = src;
+  });
+
+const loadImage = async (art: string, wanted?: Finish | null, timeoutMs = POSTER_IMAGE_TIMEOUT_MS) => {
   // Art this build won't request (an unknown historical card's stored address) is drawn as an empty slot.
   const approved = isApprovedCardArt(art);
   const src = approved ? art : BLANK_CARD_ART;
@@ -43,12 +74,7 @@ const loadImage = async (art: string, wanted?: Finish | null) => {
   const finished = holdFinishedCardImage(src, finish);
   try {
     const imageUrl = await finished.image;
-    return await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`Could not load ${src}`));
-      img.src = imageUrl;
-    });
+    return await loadPosterImageElement(imageUrl, timeoutMs);
   } finally {
     // A loaded image keeps its pixels, so the render can be evicted while the poster is drawn.
     finished.release();
@@ -170,38 +196,15 @@ const drawCard = (ctx: CanvasRenderingContext2D, img: HTMLImageElement, card: Po
   ctx.restore();
 };
 
-/**
- * Denser QR codes than this stop scanning once a chat app shrinks the image (the 230px code at two
- * thirds size). Profile links grow with every set switch, so a long one can pass it.
- */
-const MAX_QR_MODULES = 85;
-
-/** The link's QR code, with less error correction if that keeps it scannable; null if it can't be. */
-const qrFor = (url: string): ReturnType<typeof qrcode> | null => {
-  for (const level of ['M', 'L'] as const) {
-    try {
-      const qr = qrcode(0, level);
-      qr.addData(url);
-      qr.make();
-      if (qr.getModuleCount() <= MAX_QR_MODULES) return qr;
-    } catch {
-      // Longer than any QR code holds.
-    }
-  }
-  return null;
-};
-
-const drawQr = (ctx: CanvasRenderingContext2D, qr: ReturnType<typeof qrcode>, x: number, y: number, size: number) => {
-  const n = qr.getModuleCount();
-  const quiet = 3;
-  const cell = size / (n + quiet * 2);
+/** Draws a verified code (see planQr) on whole-pixel cells, so what was decoded is what is exported. */
+const drawQr = (ctx: CanvasRenderingContext2D, qr: QrPlan, x: number, y: number) => {
   ctx.fillStyle = PAPER;
-  roundRect(ctx, x, y, size, size, 6);
+  roundRect(ctx, x, y, qr.side, qr.side, 6);
   ctx.fill();
   ctx.fillStyle = INK;
-  for (let r = 0; r < n; r++) {
-    for (let c = 0; c < n; c++) {
-      if (qr.isDark(r, c)) ctx.fillRect(x + (c + quiet) * cell, y + (r + quiet) * cell, Math.ceil(cell), Math.ceil(cell));
+  for (let r = 0; r < qr.count; r++) {
+    for (let c = 0; c < qr.count; c++) {
+      if (qr.isDark(r, c)) ctx.fillRect(x + (c + QR_QUIET) * qr.cell, y + (r + QR_QUIET) * qr.cell, qr.cell, qr.cell);
     }
   }
 };
@@ -290,7 +293,7 @@ const drawHeader = (ctx: CanvasRenderingContext2D, setName: string, code: string
 };
 
 /** A graded-card label: what it is, who, the cert, and (when there's a link) the QR that re-checks it. */
-const drawLabel = (
+const drawLabel = async (
   ctx: CanvasRenderingContext2D,
   label: { kind: string; verified: boolean; name: string; cert: string; hint: string; url?: string },
 ) => {
@@ -315,7 +318,8 @@ const drawLabel = (
   ctx.fillStyle = soft;
   ctx.font = `800 30px ${BODY_FONT}`;
   ctx.fillText(label.kind.toUpperCase(), x + 40, y + 64);
-  const qr = label.url ? qrFor(label.url) : null;
+  // A link too dense to read back from the drawn code gets no code, only the line saying so.
+  const qr = label.url ? await planQr(label.url) : null;
   const textWidth = qr ? 520 : w - 80;
   ctx.fillStyle = ink;
   fitFont(ctx, label.name, textWidth, 52, '800', BODY_FONT);
@@ -324,9 +328,9 @@ const drawLabel = (
   ctx.font = `600 32px ${BODY_FONT}`;
   ctx.fillText(label.cert, x + 40, y + 186);
   ctx.font = `500 28px ${BODY_FONT}`;
-  // Too long to scan: the link travels with the image instead.
+  // No code that provably scans: the link travels with the image instead.
   ctx.fillText(label.url && !qr ? 'Open the link sent with this to check it.' : label.hint, x + 40, y + 242);
-  if (qr) drawQr(ctx, qr, x + w - 40 - 230, y + 30, 230);
+  if (qr) drawQr(ctx, qr, x + w - 40 - qr.side, y + Math.round((h - qr.side) / 2));
 };
 
 const toPng = (canvas: HTMLCanvasElement) =>
@@ -339,7 +343,7 @@ export const renderPoster = async (input: PosterInput): Promise<Blob> => {
   drawHeader(ctx, input.setName, code, input.setColor);
 
   // Cards: three on top, two below, slightly fanned.
-  const images = await Promise.all(input.cards.map((c) => loadImage(c.image, c.finish)));
+  const images = await Promise.all(input.cards.map((c) => loadImage(c.image, c.finish, input.timeoutMs)));
   const slots = [
     { x: 215, y: 620, a: -0.06 },
     { x: 540, y: 600, a: 0 },
@@ -361,7 +365,7 @@ export const renderPoster = async (input: PosterInput): Promise<Blob> => {
   ctx.font = `600 40px ${BODY_FONT}`;
   ctx.fillText(`${score.toLocaleString('en-US')} Brainrot Score`, W / 2, 1500);
 
-  drawLabel(ctx, {
+  await drawLabel(ctx, {
     kind: 'Verifiable pull',
     verified: true,
     name: input.playerName,
@@ -384,6 +388,8 @@ export interface CardPosterInput {
   cert?: string;
   /** Points and pack odds for this version, e.g. "400 pts · 1 in 2,400 packs". */
   stats?: string;
+  /** Max time to wait for the card image before failing. */
+  timeoutMs?: number;
 }
 
 /** One card, big: its name, rarity and collector number, and the pull it came from when there is one. */
@@ -391,7 +397,7 @@ export const renderCardPoster = async (input: CardPosterInput): Promise<Blob> =>
   const { canvas, ctx } = await newCanvas();
   drawHeader(ctx, input.setName, input.setCode, input.setColor);
 
-  const image = await loadImage(input.card.image, input.card.finish);
+  const image = await loadImage(input.card.image, input.card.finish, input.timeoutMs);
   drawCard(ctx, image, input.card, W / 2, 790, 620, 0);
 
   ctx.textAlign = 'center';
@@ -409,7 +415,7 @@ export const renderCardPoster = async (input: CardPosterInput): Promise<Blob> =>
     ctx.fillText(input.stats, W / 2, 1530, W - 140);
   }
 
-  drawLabel(ctx, {
+  await drawLabel(ctx, {
     kind: input.url ? 'Verifiable pull' : 'From the collection of',
     verified: !!input.url,
     name: input.playerName,
@@ -444,6 +450,8 @@ export interface ProfilePosterInput {
   best?: { cards: PosterCard[]; hand: string; score: number; setName: string };
   /** The profile link (its QR re-checks every pack). */
   url?: string;
+  /** Max time to wait for each card image before failing. */
+  timeoutMs?: number;
 }
 
 const bar = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, fraction: number) => {
@@ -540,7 +548,7 @@ export const renderProfilePoster = async (input: ProfilePosterInput): Promise<Bl
     ctx.font = `800 36px ${BODY_FONT}`;
     fitFont(ctx, `Best pull · ${input.best.hand} · ${fmt(input.best.score)}`, w, 36, '800', BODY_FONT);
     ctx.fillText(`Best pull · ${input.best.hand} · ${fmt(input.best.score)}`, x, top);
-    const images = await Promise.all(input.best.cards.map((c) => loadImage(c.image, c.finish)));
+    const images = await Promise.all(input.best.cards.map((c) => loadImage(c.image, c.finish, input.timeoutMs)));
     const cardW = Math.min(170, (1520 - top - 60) * (687 / 1024));
     const gap = (w - cardW * 5) / 4;
     input.best.cards.forEach((card, i) => {
@@ -548,7 +556,7 @@ export const renderProfilePoster = async (input: ProfilePosterInput): Promise<Bl
     });
   }
 
-  drawLabel(ctx, {
+  await drawLabel(ctx, {
     kind: 'Verifiable profile',
     verified: !!input.url,
     name: input.playerName,

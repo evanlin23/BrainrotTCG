@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { monitor, expectDecoded, expectRecordedPack, dropArt, unexpectedArtErrors as unexpected } from './support';
+import { monitor, expectDecoded, expectRecordedPack, dropArt, holdArt, unexpectedArtErrors as unexpected } from './support';
 
 /**
  * Card art that won't load (#226): a phone that drops its connection, or runs out of memory, mid-pack.
@@ -50,7 +50,10 @@ test('a pull without its art says the poster could not be drawn, and Retry bring
   const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
   await expect(pull.locator('.sheet--deferred')).toHaveCount(0);
   // No art means no poster: it says so, and there is no blank image to copy or save.
-  await expect(pull.locator('.share-preview')).toHaveText("Couldn't draw the image");
+  const wait = pull.locator('.share-preview-wait');
+  await expect(wait).toContainText("Couldn't draw the image");
+  const sheetRetry = wait.getByRole('button', { name: 'Retry', exact: true });
+  await expect(sheetRetry).toBeVisible();
   await expect(pull.getByRole('img', { name: "The image you'll share", exact: true })).toHaveCount(0);
   const imageButtons = pull.getByRole('button', { name: /^(Copy|Save) image$/ });
   await expect(imageButtons.first()).toBeVisible();
@@ -77,5 +80,36 @@ test('a pull without its art says the poster could not be drawn, and Retry bring
   await expectDecoded(face, 1);
   await expect(retry).toHaveCount(0);
   await expectDecoded(faces, 5);
+
+  // With the art back, the poster's own Retry draws the image and turns on Copy and Save.
+  await viewer.press('Escape');
+  await sheetRetry.click();
+  await expect(pull.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(sheetRetry).toHaveCount(0);
+  for (const button of await imageButtons.all()) await expect(button).toBeEnabled();
+  expect(unexpected(errors)).toEqual([]);
+});
+
+test('a poster whose art never arrives times out with Retry instead of drawing forever', async ({ page, baseURL }) => {
+  test.setTimeout(90000);
+  const errors = await monitor(page, baseURL!, 1, { returning: true });
+  await page.route(/\/hall-of-fame\.json(\?.*)?$/, (route) => route.fulfill({ json: [] }));
+  const art = await holdArt(page);
+  await page.goto('./#/profile');
+  const main = page.getByRole('main', { name: 'Profile', exact: true });
+  await expect(main).toBeVisible();
+  await main.locator('.pulls-history .pull-row').first().click();
+
+  const pull = page.getByRole('dialog', { name: 'Share your pull', exact: true });
+  const wait = pull.locator('.share-preview-wait');
+  await expect(wait).toContainText('Drawing the image');
+  // The held requests never answer; the poster gives up after its own deadline (10s) rather than waiting for them.
+  await expect(wait).toContainText("Couldn't draw the image", { timeout: 30000 });
+  await expect(pull.getByRole('img', { name: "The image you'll share", exact: true })).toHaveCount(0);
+
+  art.set('serve');
+  await wait.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(pull.getByRole('img', { name: "The image you'll share", exact: true })).toBeVisible({ timeout: 30000 });
+  for (const button of await pull.getByRole('button', { name: /^(Copy|Save) image$/ }).all()) await expect(button).toBeEnabled();
   expect(unexpected(errors)).toEqual([]);
 });
