@@ -133,6 +133,13 @@ describe('Save & backup preflight', () => {
     expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).showAllPages).toBe(true);
   });
 
+  it('throws SecurityError when storage reads are denied during exportSaveFile', () => {
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+      throw new DOMException('Controlled storage read denial', 'SecurityError');
+    });
+    expect(() => exportSaveFile()).toThrow('Controlled storage read denial');
+  });
+
   it('imports a current real-card fixture and preserves the previous save as a backup', () => {
     const save = fixture();
     expect(importSaveFile(JSON.stringify(save))).toBeNull();

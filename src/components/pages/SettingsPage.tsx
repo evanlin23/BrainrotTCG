@@ -35,10 +35,18 @@ interface SettingsPageProps {
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
 const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
+    const [exportNote, setExportNote] = useState('Includes your secret player key. Keep the file private.');
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const handleExportSave = () => downloadSaveFile();
+    const handleExportSave = () => {
+        try {
+            downloadSaveFile();
+            setExportNote('Includes your secret player key. Keep the file private.');
+        } catch {
+            setExportNote("Couldn't read browser storage to export your save.");
+        }
+    };
 
     // After the site moved: fetch the save from the old address (game/move.ts). Replacing a different
     // save here is asked in this row, not in a browser dialog, which can open behind the old address's
@@ -123,26 +131,50 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         const reader = new FileReader();
         reader.onload = (event) => {
             const content = event.target?.result as string;
-            let incoming: { player?: string; stats?: string } = {};
+            let incoming: unknown;
             try {
                 incoming = JSON.parse(content);
             } catch {
                 return setImportNote("Couldn't read that file. Is it a save exported from Save & backup?");
             }
-            // Replacing real progress with someone else's (or an older) save asks first, in the page.
-            const here = localStorage.getItem('brainrot-player-v1');
+            if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+                return setImportNote("That file isn't a supported Brainrot TCG save.");
+            }
+            const saveObj = incoming as { player?: string; stats?: string };
+
+            let here: string | null;
+            let hereStats: string | null;
+            let progressExists: boolean;
+            try {
+                here = localStorage.getItem('brainrot-player-v1');
+                hereStats = localStorage.getItem(STORAGE_KEYS.STATS);
+                progressExists = hasProgress();
+            } catch {
+                return setImportNote("Couldn't read browser storage to check your current save.");
+            }
+
             const sameKey = (() => {
                 try {
-                    return !!incoming.player && JSON.parse(here ?? '{}').secretKey === JSON.parse(incoming.player).secretKey;
+                    return !!saveObj.player && JSON.parse(here ?? '{}').secretKey === JSON.parse(saveObj.player).secretKey;
                 } catch {
                     return false;
                 }
             })();
-            if (!hasProgress() || (sameKey && describe(here, localStorage.getItem(STORAGE_KEYS.STATS)) === describe(incoming.player, incoming.stats))) {
+
+            let currentDesc: string;
+            let incomingDesc: string;
+            try {
+                currentDesc = describe(here, hereStats);
+                incomingDesc = describe(saveObj.player, saveObj.stats);
+            } catch {
+                return setImportNote("Couldn't read browser storage to check your current save.");
+            }
+
+            if (!progressExists || (sameKey && currentDesc === incomingDesc)) {
                 setReplacing(null);
                 return runImport(content);
             }
-            const saves = `this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(incoming.player, incoming.stats)})`;
+            const saves = `this browser's save (${currentDesc}) with the file's (${incomingDesc})`;
             setReplacing(saves);
             setPendingImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
@@ -219,7 +251,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     <div className="settings-row">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
-                            <span className="settings-desc">Includes your secret player key. Keep the file private.</span>
+                            <span className="settings-desc" role="status">{exportNote}</span>
                         </span>
                         <button type="button" className="btn btn--secondary btn--sm" onClick={handleExportSave}>
                             <Download aria-hidden="true" /> Export
