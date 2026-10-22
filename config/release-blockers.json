@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "description": "Authoritative track of confirmed release blockers and explicit promotion dispositions",
+  "blockers": [
+    {
+      "id": "RB-660",
+      "canonicalIssue": 660,
+      "title": "Legacy save migration drops cards on damaged key format",
+      "category": "save_loss",
+      "severityRationale": "Can lead to player progress loss during migration if player key is damaged or non-standard",
+      "owner": "evanlin23",
+      "disposition": "resolved",
+      "resolution": {
+        "fixedInPr": 905,
+        "regressionTest": "src/test/collectionRecovery.integration.test.ts",
+        "verifiedHead": "62bf143"
+      }
+    },
+    {
+      "id": "RB-693",
+      "canonicalIssue": 693,
+      "title": "Unbounded restored counters in profile intake",
+      "category": "data_integrity",
+      "severityRationale": "Untrusted profile JSON can inflate pack counts beyond maximum plausible limits",
+      "owner": "evanlin23",
+      "disposition": "resolved",
+      "resolution": {
+        "fixedInPr": 906,
+        "regressionTest": "src/game/profile.test.ts",
+        "verifiedHead": "d70c40e"
+      }
+    },
+    {
+      "id": "RB-668",
+      "canonicalIssue": 668,
+      "title": "Stale save import replaces newer local progress without confirmation",
+      "category": "save_loss",
+      "severityRationale": "Importing an older backup can silently overwrite newer local collection progress",
+      "owner": "evanlin23",
+      "disposition": "resolved",
+      "resolution": {
+        "fixedInPr": 915,
+        "regressionTest": "src/utils/settings.test.ts",
+        "verifiedHead": "f789abc"
+      }
+    }
+  ]
+}

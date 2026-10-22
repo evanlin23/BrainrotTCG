@@ -138,6 +138,23 @@ an approval gate:
   private backups offline; a public profile link cannot recover the secret key. Do not test with a
   player's only save or claim an export includes data it does not serialize.
 
+### Release blocker criteria and promotion eligibility
+
+Promotion to production requires zero unresolved blockers in `config/release-blockers.json` (evaluated via `scripts/release-blockers.ts`).
+
+**What blocks release (narrow scope):**
+- **Save loss / identity mixing**: confirmed corruption, unintended erasure, or key confusion during save handling or migrations.
+- **Broken historical-proof compatibility**: invalidation of existing valid verifiable pack proofs or published Hall of Fame entries.
+- **Persistent startup blank screen**: fatal unhandled exceptions preventing initial page render.
+- **Inaccessible core actions**: unrecoverable failures in pack opening, card inspection, or primary navigation.
+*(General cosmetic issues, optional features, or missing device benchmarks are not release blockers).*
+
+**Disposition states:**
+- `resolved`: requires linked fix PR, verified regression test path, and commit SHA.
+- `unresolved`: fails promotion closed.
+- `mitigated_exception`: temporary narrow waiver with explicit scope, rationale, owner approval, mitigation evidence, active expiry date, and follow-up issue.
+- `corrective_release`: narrowly reviewed disposition for a release that specifically fixes a defect while other tracked items remain, with non-worsening and compatibility evidence.
+
 ## Recover on the same origin
 
 Claude performs rollbacks, following this runbook (owner decision, 2026-10-17). No live rollback or
