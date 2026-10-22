@@ -13,6 +13,16 @@
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/orient.sh"
           }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/install-deps.sh",
+            "timeout": 300
+          }
+        ]
       }
     ]
   },

@@ -22,7 +22,14 @@ automatically.
 ## Checks
 
 - While iterating: `npx vitest run <path>` for what you touched, `npx tsc --noEmit -p .` for types.
+- A checkout or worktree with no `node_modules` needs `npm ci` first (a SessionStart hook does it for the
+  main checkout, not for subagent worktrees); see docs/DEVELOPMENT.md for setup and rough run times
+  (`npm run check` about 2 min; use a 5-minute timeout).
 - Before pushing: `npm run check` (lint, types, all tests, set locks, card assets), once.
+- `npm run check` doesn't run the `tests/browser` specs; CI does. Run one locally
+  (`npx playwright test <spec>`, after `npx playwright install chromium` once) only when fixing a
+  browser-test failure or when a UI, CSS or gesture change can't be checked otherwise, and grep
+  `tests/browser` for any constant you changed.
 - CI runs `npm run check`, the build, the Python verifier, browser smoke and actionlint on every PR
   and feature-branch push. Leave the build and verifier to CI unless you changed `src/engine`,
   `spec/` or the build.
@@ -54,6 +61,9 @@ The owner wants hands-off engineering from one Claude window, within a weekly us
   run on main succeeds (back-to-back merges cancel earlier runs).
 - Ask the owner only for external access or decisions that are genuinely theirs. Add them under
   `needs owner` in the ledger and keep working on other items.
+
+Without `/work` (one assigned issue): skip the ledger and NOW.md, branch from main, follow the checks,
+open a draft PR if asked, don't merge, and put questions for the owner in the report or PR body.
 
 ## Token budget
 
