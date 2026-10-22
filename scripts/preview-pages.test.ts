@@ -124,17 +124,20 @@ describe('previewCacheContract', () => {
   it.each(['ci', 'deploy', 'browser-tests', 'performance-baseline'])('starts every preview cache key and restore prefix with it in %s.yml', (name) => {
     const workflow = readFileSync(`${ROOT}.github/workflows/${name}.yml`, 'utf8');
     const caches = [...workflow.matchAll(/- uses: actions\/cache[^\n]*\n\s+with:\n\s+path: \.cache\/previews\n\s+key: (.*)\n\s+restore-keys: (.*)\n/g)];
-    expect(caches.length).toBe(1);
-    const [step, key, restore] = caches[0];
-    const contract = '${{ steps.previews.outputs.contract }}';
-    expect(restore).toBe(`previews-${contract}-`);
-    expect(key.startsWith(restore)).toBe(true);
-    for (const input of ["'scripts/preview-pages.ts'", "'src/game/previewLinks.ts'", "'src/engine/**'", "'src/content/sets/index.ts'", "'src/content/sets/*/*.json'", "'src/content/sets/*/cards/*'", "'src/assets/images/card_back.webp'", "'package-lock.json'"]) {
-      expect(key).toContain(input);
+    // browser-tests.yml has two: the shards and the burn-in.
+    expect(caches.length).toBe(name === 'browser-tests' ? 2 : 1);
+    for (const cache of caches) {
+      const [, key, restore] = cache;
+      const contract = '${{ steps.previews.outputs.contract }}';
+      expect(restore).toBe(`previews-${contract}-`);
+      expect(key.startsWith(restore)).toBe(true);
+      for (const input of ["'scripts/preview-pages.ts'", "'src/game/previewLinks.ts'", "'src/engine/**'", "'src/content/sets/index.ts'", "'src/content/sets/*/*.json'", "'src/content/sets/*/cards/*'", "'src/assets/images/card_back.webp'", "'package-lock.json'"]) {
+        expect(key).toContain(input);
+      }
+      const before = workflow.slice(0, cache.index);
+      expect(before).toMatch(/- id: previews\n\s+run: \|\n\s+contract=\$\(npx tsx scripts\/preview-pages\.ts --cache-contract\)\n\s+echo "contract=\$contract" >> "\$GITHUB_OUTPUT"\n\s*$/);
+      expect(before.lastIndexOf('- run: npm ci')).toBeGreaterThan(before.lastIndexOf('runs-on:'));
     }
-    const before = workflow.slice(0, workflow.indexOf(step));
-    expect(before).toMatch(/- id: previews\n\s+run: \|\n\s+contract=\$\(npx tsx scripts\/preview-pages\.ts --cache-contract\)\n\s+echo "contract=\$contract" >> "\$GITHUB_OUTPUT"\n\s*$/);
-    expect(before.indexOf('- run: npm ci')).toBeGreaterThan(-1);
   });
 });
 
