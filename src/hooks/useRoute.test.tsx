@@ -46,7 +46,10 @@ const settle = async (check: () => boolean) => {
 };
 
 beforeEach(() => {
-  history.replaceState(null, '', '/BrainrotTCG/');
+  // The file shares one jsdom session history. A test that stepped Back leaves forward entries,
+  // which history.length counts and the next push discards. Pushing, like a fresh page load,
+  // drops them so each test starts on the last entry.
+  history.pushState(null, '', '/BrainrotTCG/');
 });
 afterEach(() => {
   act(() => root?.unmount());
