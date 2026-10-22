@@ -239,6 +239,39 @@ Using the results:
 3. The write-up gives the revision, conditions, task outcomes and what could not be checked. One
    agent's result is an observation, not a rate.
 
+## Quality review cadence
+
+The trusted `/work` lifecycle (`.claude/skills/work/SKILL.md`) runs `npx tsx scripts/quality-review.ts
+check` at setup and at checkpoints (#713). It reads the one `quality review:` ledger line and decides
+due or not due: due when the next-due day (default 7 days after a finished review, 1 day after a
+blocked or unrun one) has come and `main` changed since the last passed review. It never runs the
+suite or an audit, makes no network calls and wakes no one. When due it names one slice and its
+budget (default 3 tasks, 45 minutes, 2 provider runs):
+
+- one player journey, rotating through opening, collection and detail, sharing, own and shared
+  Profile, Rankings, Settings and help, and recovery, with a journey whose code changed since the
+  last review first. Opening, sharing and recovery use the task audit above (Claude only, a fresh
+  task-only reviewer, no coaching); the rest use fixture-based browser checks. Judge it with the
+  player job, primary fact, next action check (#712). Separate same-scope duplication from necessary
+  repeated context, accessible text and exported artifacts. A screenshot baseline (#745) never
+  stands in for that review.
+- one recently changed code hotspot (commits times lines from `git log`), rotating away from the last pick;
+- the status and age of existing signals: CI and review failures, test runtime and performance
+  (#702, report-only), capacity (#708/#709/#242), compatibility (#658), release blockers
+  (#705-#707), dependency advisories, branch hygiene (#710) and the last task audit. Each is
+  pass, fail, blocked or unrun. A missing report is unrun, and a physical device, a screen reader
+  and native sharing stay unrun until a person records a result.
+
+Reports come from their own tools (`test-results/...`) or a compact `{status, date, detail}` JSON in
+`test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
+saves or secrets). Findings are reproduced, then searched against issues and PRs: a duplicate gets its
+evidence attached to the canonical issue, only a reproduced non-duplicate gap becomes one bounded task
+with a next action, and the cadence never opens a recurring "audit" issue. `record` prints the new
+ledger line; only a pass moves the passed date, and a failed, blocked or unrun review keeps its slice
+for the retry. The cadence adds to per-PR checks (flow changes still get their reviews at once) and
+does not replace them. `scripts/quality-review.test.ts` holds the dry runs: not due, due success,
+missing tools or exhausted budget, known duplicate and new reproduced defect.
+
 ## Mounted integration tests
 
 `src/test/mountedApp.ts` mounts the real `App` in jsdom: StrictMode, migrations, the memory-only

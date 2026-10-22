@@ -31,6 +31,17 @@ merges, so a compaction or lost container costs little, and don't reimpose a cap
 3. Refresh: `git fetch origin main`, list open PRs (fields: number, title, draft, head, base) and the
    check runs of PRs you opened. Red CI on your own PRs comes before new work.
 4. More than about five open PRs and no triage recorded? Run /triage-prs first.
+5. Quality review due check: run `npx tsx scripts/quality-review.ts check --state-file=.claude/state/NOW.md`
+   at setup and at each checkpoint, only between tasks (never to wake a sleeping implementer or
+   start a workflow). Not due: carry on. Due: spend at most its budget (default 3 tasks, 45 minutes,
+   2 provider runs) on the one slice it names, using the existing tools: the task audit with a fresh,
+   uncoached reviewer, or a fixture-based browser check, plus one read-only hotspot review and the
+   signals it lists. It consumes existing evidence and never reruns the suite. Search issues and PRs
+   first; comment evidence on the canonical issue, and open one bounded task only for a reproduced,
+   non-duplicate gap, never a recurring "audit" issue. Then `... record --status=<pass|fail|blocked|unrun>
+   --journey=<id> --hotspot=<file> --issues=#n` and replace the ledger's one `quality review:` line.
+   A blocked, failed or unrun review never refreshes the passed date. Per-PR checks still run
+   for flow changes at once. Policy: docs/DEVELOPMENT.md (Quality review cadence).
 
 ## 2. Keep the ledger (budget: under 80 lines, 3,600 characters / ~900 tokens)
 
@@ -45,6 +56,7 @@ done: count merged this run, then the last five: PR, merge commit, one line
 needs owner: one line each; keep working around them
 current: item, branch or PR, step
 blockers: unresolved dependencies or environment gaps
+quality review: one line from scripts/quality-review.ts (cadence, budget, last, passed, next, scope, issues)
 ```
 
 The ledger is compact state, not history: git log and the merged PRs are the permanent record.

@@ -54,7 +54,7 @@ const totalChars = content.length;
 // scripts/agent-audit/orchestration.ts (a parity test checks they agree).
 // Only these keys start a section, so a hold whose text contains a colon stays a hold: every
 // non-blank line between `holds:` and the next known key counts as a hold (fail closed).
-const LEDGER_KEY = /^(ledger issue|source|authority|holds|order|done|needs owner|current|blockers)(?:\s*\([^)]*\))?\s*:(.*)$/i;
+const LEDGER_KEY = /^(ledger issue|source|authority|holds|order|done|needs owner|current|blockers|quality review)(?:\s*\([^)]*\))?\s*:(.*)$/i;
 const RUN_HEADER = /^#\s+run\b/i;
 
 let sourceIssue = '';
