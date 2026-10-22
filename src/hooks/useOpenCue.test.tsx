@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-import { StrictMode } from 'react';
-import { act } from 'react';
+import { StrictMode, act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
@@ -14,7 +13,8 @@ let latest: ReturnType<typeof useOpenCue>;
 let root: Root;
 
 const Probe = ({ enabled }: { enabled: boolean }) => {
-  latest = useOpenCue(enabled);
+  const result = useOpenCue(enabled);
+  useEffect(() => { latest = result; });
   return null;
 };
 const mount = (enabled = true, strict = false) => {
