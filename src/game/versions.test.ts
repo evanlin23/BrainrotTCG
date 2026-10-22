@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ownedVersions, sameVersion, versionOf } from './versions';
+import { isCardOwned, ownedCount, ownedVersions, sameVersion, versionOf } from './versions';
 import type { HistoryEntry } from './history';
 
 const entry = (cards: HistoryEntry['cards']): HistoryEntry => ({ setId: 'right-now', setVersion: 2, nonce: 0, key: 'ab', cards, hand: 'x', score: 0, openedAt: 0 });
@@ -30,5 +30,22 @@ describe('owned versions', () => {
   it('compares versions with defaults for missing fields', () => {
     expect(sameVersion(versionOf({ isHolo: true }), { isHolo: true, finish: null, misprint: false })).toBe(true);
     expect(sameVersion(versionOf({ finish: 'GOLD' }), versionOf({}))).toBe(false);
+  });
+
+  it('evaluates zero-copy and owned item records accurately', () => {
+    expect(ownedCount(undefined)).toBe(0);
+    expect(isCardOwned(undefined)).toBe(false);
+    expect(ownedCount(null)).toBe(0);
+    expect(isCardOwned(null)).toBe(false);
+    expect(ownedCount({ normalCount: 0, holoCount: 0 })).toBe(0);
+    expect(isCardOwned({ normalCount: 0, holoCount: 0 })).toBe(false);
+    expect(ownedCount({ normalCount: 1, holoCount: 0 })).toBe(1);
+    expect(isCardOwned({ normalCount: 1, holoCount: 0 })).toBe(true);
+    expect(ownedCount({ normalCount: 0, holoCount: 2 })).toBe(2);
+    expect(isCardOwned({ normalCount: 0, holoCount: 2 })).toBe(true);
+    expect(ownedCount({ count: 3, normalCount: 0, holoCount: 0 })).toBe(3);
+    expect(isCardOwned({ count: 3, normalCount: 0, holoCount: 0 })).toBe(true);
+    expect(ownedCount({ count: 0, normalCount: 0, holoCount: 0 })).toBe(0);
+    expect(isCardOwned({ count: 0, normalCount: 0, holoCount: 0 })).toBe(false);
   });
 });
