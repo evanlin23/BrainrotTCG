@@ -94,7 +94,11 @@ describe('ProfileViewerPage', () => {
     act(() => reports[0]({ checked, packs: [pack(0)], highlights: null, done: false, error: { message: OUT_OF_MEMORY } }));
     const text = document.body.textContent!;
     expect(status().textContent).toContain('only 1/2 packs re-opened');
-    expect(status().textContent).toContain('the rest are unchecked');
+    // One text run in the flex line (icon + label), so it wraps as a sentence, not in columns.
+    const line = status().querySelector('.profile-verify-line')!;
+    expect(line.children).toHaveLength(2);
+    expect(line.children[1].textContent).toBe('Check interrupted: only 1/2 packs re-opened on this device');
+    expect(text).toContain('the rest are unchecked');
     expect(text).toContain('from re-opened packs only');
     expect(text).not.toContain('claimed');
     expect(text).toContain('* from the 1 of 2 packs re-opened before the check stopped');
@@ -109,10 +113,19 @@ describe('ProfileViewerPage', () => {
     expect(document.body.textContent).toContain('claimed');
   });
 
+  it('does not say "only N/N" when an error arrives after every pack is in', () => {
+    act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
+    act(() => reports[0]({ checked, packs: [pack(0), pack(1)], highlights: null, done: false, error: { message: OUT_OF_MEMORY } }));
+    expect(status().textContent).toContain('Check interrupted before it finished');
+    expect(status().textContent).not.toContain('only');
+    expect(document.body.textContent).not.toContain('the rest are unchecked');
+    expect(document.body.textContent).not.toContain('before the check stopped');
+  });
+
   it('claims completed verification, with complete totals, only when every pack is in', () => {
     act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
     act(() => reports[0]({ checked, packs: [pack(0), pack(1)], highlights: [pack(0)], done: true }));
-    expect(status().textContent).toContain('Verified on this device: every pack was re-opened and the claims match');
+    expect(status().textContent).toContain('Verified on this device: every pack re-opened');
     expect(status().textContent).not.toMatch(/\d/);
     const text = document.body.textContent!;
     expect(text).toContain('actually hold');

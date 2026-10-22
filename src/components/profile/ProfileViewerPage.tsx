@@ -91,6 +91,8 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
   const total = checked.tickets.length;
   const reopened = packs.length;
   const interrupted = !!error && !fake;
+  // A late error can arrive after every pack is in; then "only N/N" would read wrongly.
+  const unfinished = reopened < total;
   const counts = (
     <span className="tabular">
       {reopened.toLocaleString()}/{total.toLocaleString()}
@@ -121,11 +123,14 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
             </>
           ) : error ? (
             <>
-              <ShieldAlert aria-hidden="true" /> Check interrupted: only {counts} packs re-opened on this device
+              <ShieldAlert aria-hidden="true" />
+              <span>
+                {unfinished ? <>Check interrupted: only {counts} packs re-opened on this device</> : 'Check interrupted before it finished'}
+              </span>
             </>
           ) : done ? (
             <>
-              <ShieldCheck aria-hidden="true" /> Verified on this device: every pack was re-opened and the claims match
+              <ShieldCheck aria-hidden="true" /> Verified on this device: every pack re-opened
             </>
           ) : (
             <>
@@ -148,9 +153,6 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
         {error && !fake && (
           <>
             <span className="profile-verify-sub">{error.message}</span>
-            <span className="profile-verify-sub">
-              The level and totals below come only from the packs already re-opened; the rest are unchecked.
-            </span>
             <button
               type="button"
               className="btn btn--secondary btn--sm profile-verify-retry"
@@ -167,7 +169,7 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
           stats={stats}
           levelNote={done ? undefined : interrupted ? 'from re-opened packs only' : 'claimed'}
           partial={!done}
-          partialNote={interrupted ? `* from the ${reopened.toLocaleString()} of ${total.toLocaleString()} packs re-opened before the check stopped` : undefined}
+          partialNote={interrupted && unfinished ? `* from the ${reopened.toLocaleString()} of ${total.toLocaleString()} packs re-opened before the check stopped` : undefined}
         />
       )}
 
@@ -183,7 +185,9 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
             : done
               ? "Your device re-opened each of those packs itself, and the claims match: the level, cards and best pulls above are what those tickets actually hold, so they can't be edited, and bad packs can't be left out."
               : interrupted
-                ? `The check stopped after ${reopened.toLocaleString()} of ${total.toLocaleString()} packs. The totals above come only from those packs, and the rest are unchecked, so the profile is not verified. Try again to carry on from where it stopped.`
+                ? unfinished
+                  ? `The check stopped after ${reopened.toLocaleString()} of ${total.toLocaleString()} packs. The totals above come only from those packs, and the rest are unchecked, so the profile is not verified. Try again to carry on from where it stopped.`
+                  : 'The check stopped before it finished, so the profile is not verified. Try again to run it once more.'
                 : `Your device is re-opening those packs now (${reopened.toLocaleString()} of ${total.toLocaleString()} so far). Until every pack is in, the level is only what the link claims and nothing here counts as verified.`}
         </p>
         <p>
