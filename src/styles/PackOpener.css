@@ -688,8 +688,10 @@
     box-shadow: 0 0 0 2px var(--brand), var(--shadow-1);
 }
 
+/* An outline, not the shadow: the button's own focus ring stays, and the light ring reads on the brand-filled first-visit button too. */
 .pack-open-button.is-prompted {
-    box-shadow: 0 0 0 3px var(--brand), var(--shadow-1);
+    outline: 2px solid var(--text);
+    outline-offset: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {

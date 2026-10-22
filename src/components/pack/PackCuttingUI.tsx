@@ -67,7 +67,7 @@ const PackCuttingUI = ({
         {/* A gesture surface only: the Open pack button under it is the control for keys and screen readers. */}
         <div
           ref={packRef}
-          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${tapped && !isCutting && !pressing ? 'is-tapped' : ''} ${fellShort && !isCutting && !pressing ? 'is-short' : ''}`}
+          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${tapped && !isCutting && !pressing ? 'is-tapped' : ''} ${fellShort && !isPackCut && !isCutting && !pressing ? 'is-short' : ''}`}
           style={{ '--pack-mask': `url("${packDesign}")` } as React.CSSProperties}
         >
           {/* Each half carries its foil with it when the wrapper tears. */}
@@ -93,7 +93,7 @@ const PackCuttingUI = ({
             <div className="swipe-hint">
               <MoveHorizontal className="swipe-hint-icon" aria-hidden="true" />
               <span className="swipe-hint-text">
-                {fellShort ? 'Not quite. Swipe farther, or tap Open pack' : nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across to open'}
+                {fellShort ? (touch ? 'Swipe farther or tap Open' : 'Drag farther or tap Open') : nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across to open'}
               </span>
             </div>
           )}
@@ -157,7 +157,7 @@ const PackCuttingUI = ({
           <button
             type="button"
             ref={openButtonRef}
-            className={`btn btn--secondary btn--sm pack-open-button quiet-focus${fellShort ? ' is-prompted' : ''}`}
+            className={`btn btn--secondary btn--sm pack-open-button quiet-focus${fellShort && !isPackCut ? ' is-prompted' : ''}`}
             onClick={onOpen}
             aria-disabled={isPackCut || undefined}
           >

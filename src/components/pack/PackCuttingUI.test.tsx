@@ -46,9 +46,17 @@ describe('the tear line under a press', () => {
     expect(shellClasses(render([], { fellShort: true, pressing: true }))).toEqual(['pack-shell', 'is-pressed']);
     expect(shellClasses(render([20, 30], { fellShort: true }))).toEqual(['pack-shell', 'is-cutting']);
     const html = render([], { fellShort: true });
-    expect(html).toContain('Not quite. Swipe farther, or tap Open pack');
+    expect(html).toMatch(/(Swipe|Drag) farther or tap Open</);
     expect(html).toMatch(/class="[^"]*\bpack-open-button\b[^"]*\bis-prompted\b/);
     expect(render([])).not.toContain('is-prompted');
+  });
+
+  it('drops the short-swipe answer once a retry tears the pack', () => {
+    const html = render([], { fellShort: true, isPackCut: true });
+    expect(shellClasses(html)).toEqual(['pack-shell', 'is-cut']);
+    expect(html).not.toContain('is-prompted');
+    expect(html).not.toContain('farther');
+    expect(html).toContain('Opening…');
   });
 
   it('hands over to the cut once the swipe draws', () => {

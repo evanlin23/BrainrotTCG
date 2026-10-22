@@ -207,7 +207,7 @@ describe('the controls under the pack (#312)', () => {
 
     act(() => cutter.shortSwipe());
     expect(shell.classList.contains('is-short')).toBe(true);
-    expect(hint()).toBe('Not quite. Swipe farther, or tap Open pack');
+    expect(hint()).toBe('Drag farther or tap Open');
     expect(openButton()?.classList.contains('is-prompted')).toBe(true);
 
     // The feedback lasts a moment, then the usual cue is back.

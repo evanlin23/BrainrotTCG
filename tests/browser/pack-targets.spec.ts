@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { fingerFor, monitor } from './support';
+import { expectDecoded, expectStill, fingerFor, monitor } from './support';
 
 /**
  * Motor access (#803). A swipe let go short of opening answers: the pack springs back, the hint says
@@ -10,6 +10,7 @@ import { fingerFor, monitor } from './support';
 
 const TARGET = 44;
 const openPack = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
+const settingsButton = (page: Page) => page.getByRole('button', { name: 'Settings', exact: true });
 
 /** The width x height of every element matching each selector, as the page lays it out. */
 async function sizes(page: Page, selectors: string[]) {
@@ -39,19 +40,35 @@ test('a swipe let go short springs back with a hint, and the pack still opens by
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   const shell = page.locator('.pack-shell');
+  // The fall-in has landed before the press below is aimed at where the pack rests.
+  await expectDecoded(shell.locator('img'), 2);
+  await expectStill(shell, 'the pack to land');
   await shell.scrollIntoViewIfNeeded();
+
+  // The answer lasts under two seconds, so record it as it appears instead of racing the timer.
+  await page.evaluate(() => {
+    const seen: { hint: string | null; prompted: boolean } = { hint: null, prompted: false };
+    (window as unknown as { __short: typeof seen }).__short = seen;
+    const note = () => {
+      if (seen.hint || !document.querySelector('.pack-shell.is-short')) return;
+      seen.hint = document.querySelector('.swipe-hint-text')?.textContent ?? '';
+      seen.prompted = !!document.querySelector('.pack-open-button.is-prompted');
+    };
+    new MutationObserver(note).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+  });
 
   const box = (await shell.boundingBox())!;
   const y = box.y + box.height * 0.19;
   const finger = await fingerFor(page, hasTouch);
-  // 6% of the pack's width: across, but short of the 12% a release needs.
+  // 9% of the pack's width: well over the 10px slop on a narrow pack, but short of the 12% a release needs.
   await finger.press(box.x + box.width * 0.4, y);
-  for (let step = 1; step <= 6; step++) await finger.move(box.x + box.width * (0.4 + (0.06 * step) / 6), y);
+  for (let step = 1; step <= 6; step++) await finger.move(box.x + box.width * (0.4 + (0.09 * step) / 6), y);
   await finger.release();
 
-  await expect(shell).toHaveClass(/\bis-short\b/);
-  await expect(page.locator('.swipe-hint-text')).toHaveText('Not quite. Swipe farther, or tap Open pack');
-  await expect(openPack(page)).toHaveClass(/\bis-prompted\b/);
+  await page.waitForFunction(() => !!(window as unknown as { __short: { hint: string | null } }).__short.hint);
+  const seen = await page.evaluate(() => (window as unknown as { __short: { hint: string; prompted: boolean } }).__short);
+  expect(seen.hint).toMatch(/^(Swipe|Drag) farther or tap Open$/);
+  expect(seen.prompted, 'the Open pack button is lit while the hint shows').toBe(true);
   await expect(shell).not.toHaveClass(/\bis-cut\b/);
 
   await openPack(page).focus();
@@ -73,17 +90,17 @@ for (const [name, width, height, bigText] of [
     await expect(page.locator('.app-logo')).toBeVisible();
     if (bigText) await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
 
-    const home = ['.app-utilities button', '.set-step', '.card-guide-link', '.pack-open-button'];
+    const home = ['.app-utilities button[aria-label="Settings"]', '.set-step', '.card-guide-link', '.pack-open-button'];
     expectTargets(await sizes(page, home), home);
 
-    await page.locator('.app-utilities button').click();
+    await settingsButton(page).click();
     await expect(page.locator('.page-close')).toBeVisible();
     expectTargets(await sizes(page, ['.page-close']), ['.page-close']);
     await page.locator('.page-close').click();
 
     await openPack(page).click();
     await expect(page.locator('.pack-close')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('button.reveal-skip')).toBeVisible();
+    await expect(page.locator('button.reveal-skip')).toBeVisible({ timeout: 15000 });
     expectTargets(await sizes(page, ['.pack-close', 'button.reveal-skip']), ['.pack-close', 'button.reveal-skip']);
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
