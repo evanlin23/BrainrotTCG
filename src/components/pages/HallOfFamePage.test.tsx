@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HallOfFameEntry } from '../../game/hallOfFameList';
-import { HALL_OF_FAME_MIN_MULTIPLIER, HALL_OF_FAME_MIN_SCORE } from '../../engine';
+import { HALL_OF_FAME_MIN_MULTIPLIER, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP } from '../../engine';
 import HallOfFamePage from './HallOfFamePage';
 
 const { loadHallOfFame, loadPending, checkPull } = vi.hoisted(() => ({ loadHallOfFame: vi.fn(), loadPending: vi.fn(), checkPull: vi.fn() }));
@@ -507,10 +507,12 @@ describe('How Rankings work', () => {
     expect(text).toContain('Nothing is filed automatically');
     expect(text).toMatch(/Opening a pack, or copying or sharing a link, does not enter you/);
     expect(text).toContain('results screen or Share sheet');
-    expect(text).toContain('Submit is missing if the pull does not qualify, is already listed or was opened under another key');
-    expect(text).toContain('re-derived from its proof');
+    expect(text).toContain('Submit is missing if the pull does not qualify, is already listed, was opened under another key or would not beat the lowest score on the lists');
+    expect(text).toContain(`ranks the best ${HALL_OF_FAME_TOP} pulls`);
+    expect(text).toContain('re-derived from its proof when filed, and newer ones on this device');
+    expect(text).toContain('usually filed within about an hour');
     expect(text).toContain('00:00 UTC');
-    expect(text).toContain('turned away');
+    expect(text).toContain('If the list could not load, or was out of date when you submitted, a pull that does not beat the lowest score is turned away');
     expect(text).toContain('display name and public key public');
     expect(text).toContain('Submitting is not a rank');
     expect(text).toContain('Hall of Fame');

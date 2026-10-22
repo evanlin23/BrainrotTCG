@@ -270,8 +270,8 @@ const HallOfFamePage = () => {
         <div className="hof-how-body">
           <p>
             Players share pulls here, ranked by Brainrot Score. Today ranks pulls filed since 00:00 UTC; All-time ranks the best{' '}
-            {HALL_OF_FAME_TOP}. Each was re-derived from its proof when filed (open one to check it yourself). Other screens call
-            this the Hall of Fame.
+            {HALL_OF_FAME_TOP} pulls. Each was re-derived from its proof when filed, and newer ones on this device (open one to check
+            it yourself). Other screens call this the Hall of Fame.
           </p>
           <p>
             <strong>Who qualifies:</strong> a Full House or better, or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+.
@@ -279,11 +279,12 @@ const HallOfFamePage = () => {
           <p>
             <strong>Nothing is filed automatically.</strong> Opening a pack, or copying or sharing a link, does not enter you. A
             qualifying pull offers Submit on its results screen or Share sheet, and submitting makes your display name and public
-            key public. Submit is missing if the pull does not qualify, is already listed or was opened under another key.
+            key public. Submit is missing if the pull does not qualify, is already listed, was opened under another key or would not beat the lowest score on the lists.
           </p>
           <p>
-            Submitting is not a rank. A submitted pull shows here once checked and, if it makes the list, is filed for good within
-            about an hour; one that does not beat the lowest score is turned away.
+            Submitting is not a rank. A submitted pull shows here once checked and, if it makes the list, is usually filed
+            within about an hour. If the list could not load, or was out of date when you submitted, a pull that does not beat the lowest
+            score is turned away.
           </p>
         </div>
       </details>

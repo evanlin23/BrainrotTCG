@@ -136,18 +136,27 @@ const populated = {
   cards: ['pirate-gaster', 'niu-lai', 'bukangi', 'huss-valley', 'la-peace'].map((cardId) => ({ cardId, isHolo: false })),
 };
 
-for (const { width, height, text, label, score = 546_000 } of [
-  { width: 320, height: 640, text: 200, label: '320x640 at 200% text' },
-  { width: 568, height: 320, text: 200, label: '568x320 at 200% text' },
-  { width: 390, height: 844, text: 100, label: 'a normal phone' },
-  { width: 1100, height: 800, text: 100, label: 'a wide screen' },
+// `stacked` is the layout the row must be in (four columns, or rank/score over cards over text). Asserting it
+// makes every case fail on a wrong threshold: no restack at all fails the stacked ones, and one threshold
+// of 18rem + 110px at every width (the strip is 62px, not 102px, at 420px and under) fails the 390, 375 and
+// 360px phones, which have room for the compact row.
+// Row width = viewport - 2 x gutter (16px up to 400px, 4vw above, doubled with 200% text).
+for (const { width, height, text, label, score = 546_000, stacked } of [
+  { width: 320, height: 640, text: 200, label: '320x640 at 200% text', stacked: true },
+  { width: 568, height: 320, text: 200, label: '568x320 at 200% text', stacked: true },
+  // Ordinary phones at 100% text keep today's compact single row (62px card strip at 420px and under).
+  { width: 390, height: 844, text: 100, label: 'a normal phone', stacked: false },
+  { width: 375, height: 667, text: 100, label: '375px at 100% text', stacked: false },
+  { width: 360, height: 800, text: 100, label: '360px at 100% text with an 8-digit score', score: 99_999_999, stacked: false },
+  { width: 1100, height: 800, text: 100, label: 'a wide screen', stacked: false },
   // Just above the restack threshold, where the fixed-width card strip used to push the row past its edge.
-  { width: 650, height: 800, text: 200, label: '650px at 200% text' },
-  { width: 500, height: 800, text: 150, label: '500px at 150% text' },
-  { width: 430, height: 900, text: 125, label: '430px at 125% text' },
-  // The longest score a row can carry.
-  { width: 320, height: 640, text: 100, label: '320px with an 8-digit score', score: 99_999_999 },
-  { width: 500, height: 800, text: 150, label: '500px at 150% text with an 8-digit score', score: 99_999_999 },
+  { width: 650, height: 800, text: 200, label: '650px at 200% text', stacked: true },
+  { width: 500, height: 800, text: 150, label: '500px at 150% text', stacked: true },
+  { width: 430, height: 900, text: 125, label: '430px at 125% text', stacked: true },
+  // Long scores: 8 digits is what a 5 of a Kind (x10,000) reaches with modifiers; the engine allows more.
+  { width: 320, height: 640, text: 100, label: '320px with an 8-digit score', score: 99_999_999, stacked: true },
+  { width: 320, height: 640, text: 200, label: '320px at 200% text with an 8-digit score', score: 99_999_999, stacked: true },
+  { width: 500, height: 800, text: 150, label: '500px at 150% text with an 8-digit score', score: 99_999_999, stacked: true },
 ]) {
   test.describe(`a populated Rankings row at ${label}`, () => {
     test.use({ viewport: { width, height } });
@@ -165,6 +174,9 @@ for (const { width, height, text, label, score = 546_000 } of [
       const row = rankings.locator('.hof-list .hof-entry').first();
       await expect(row).toHaveAttribute('aria-label', `Number 1: Full House by Collector in Right Now, score ${score}`);
       await row.scrollIntoViewIfNeeded();
+      // Four columns is the compact row; two is the restacked one.
+      const tracks = await row.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+      expect(tracks, stacked ? 'restacked' : 'compact').toBe(stacked ? 2 : 4);
 
       const fields = ['.hof-rank', '.hof-hand', '.hof-who', '.share-fp', '.hof-meta', '.hof-score'];
       const boxes = await Promise.all(fields.map(async (selector) => ({ selector, box: (await row.locator(selector).boundingBox())! })));
