@@ -10,7 +10,7 @@ import { getSet } from '../../content/sets';
 import { HALL_OF_FAME_MIN_MULTIPLIER, pullId, scorePulled, type ProfilePack, type ProfileStats } from '../../engine';
 import { toPulled } from '../../game/cardCode';
 import { getPlayer } from '../../game/player';
-import { submitToHallOfFame } from '../../game/share';
+import { resetSubmissionsForTest, submitToHallOfFame, SUBMITTED_KEY } from '../../game/share';
 
 const { myProfileInfo, myProfileProof, myStats, myPackCacheState, hydrateMyPacks } = vi.hoisted(() => ({
   myProfileInfo: vi.fn(), myProfileProof: vi.fn(), myStats: vi.fn(), myPackCacheState: vi.fn(), hydrateMyPacks: vi.fn(),
@@ -39,6 +39,7 @@ beforeEach(() => {
   // jsdom has no ResizeObserver; the profile card's Sheet only uses it to track overflow.
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   localStorage.clear();
+  resetSubmissionsForTest();
   myProfileInfo.mockReset().mockReturnValue({ packs: 3, filled: 0, missing: 0, cache: 'ready' });
   myProfileProof.mockReset();
   myStats.mockReset().mockImplementation(actual.myStats);
@@ -50,6 +51,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSubmissionsForTest();
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
@@ -365,6 +367,26 @@ describe('Hall of Fame submitted badge', () => {
     getHistory.mockReturnValue([{ ...entry(1, 1e9), key: '' }]);
     render();
     expect(badges()).toEqual([]);
+  });
+
+  it('updates submitted badges live when another tab records a submission in storage or clears storage', () => {
+    getHistory.mockReturnValue([entry(1, 1e9)]);
+    render();
+    expect(badges()).toEqual(['Not submitted']);
+
+    // Another tab completes a submission
+    localStorage.setItem(SUBMITTED_KEY, JSON.stringify([idOf(1)]));
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: SUBMITTED_KEY }));
+    });
+    expect(badges()).toEqual(['Submitted']);
+
+    // Another tab clears storage
+    localStorage.clear();
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: null }));
+    });
+    expect(badges()).toEqual(['Not submitted']);
   });
 });
 
