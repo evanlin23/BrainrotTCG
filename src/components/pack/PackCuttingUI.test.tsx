@@ -5,7 +5,7 @@ import { SETS } from '../../content/sets';
 import PackCuttingUI from './PackCuttingUI';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 
-const render = (xs: number[], { pressing = false, nudging = false, tapped = false, fellShort = false, isPackCut = false, waiting = false, refusal = null as PackRefusal | null } = {}) =>
+const render = (xs: number[], { pressing = false, nudging = false, fellShort = false, isPackCut = false, waiting = false, refusal = null as PackRefusal | null } = {}) =>
   renderToStaticMarkup(
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()}
@@ -16,7 +16,6 @@ const render = (xs: number[], { pressing = false, nudging = false, tapped = fals
       isCutting={xs.length > 1}
       pressing={pressing}
       nudging={nudging}
-      tapped={tapped}
       fellShort={fellShort}
       isPackCut={isPackCut}
       waiting={waiting}
@@ -26,7 +25,7 @@ const render = (xs: number[], { pressing = false, nudging = false, tapped = fals
   );
 
 /** The pack shell's classes. */
-const shellClasses = (html: string) => (html.match(/class="(pack-shell [^"]*)"/)?.[1] ?? '').split(/\s+/).filter(Boolean);
+const shellClasses = (html: string) => (html.match(/class="(pack-shell [^"]*)"/)?.[1] ?? '').split(/\s+/).filter((name) => name && name !== 'quiet-focus');
 
 describe('the tear line under a press', () => {
   it('lights up for a press on it before the swipe has a direction, in place of a nudge', () => {
@@ -35,28 +34,19 @@ describe('the tear line under a press', () => {
     expect(shellClasses(render([]))).toEqual(['pack-shell']);
   });
 
-  it('pulses the swipe hint after a tap on the seam, until the next press (#485)', () => {
-    expect(shellClasses(render([], { tapped: true }))).toEqual(['pack-shell', 'is-tapped']);
-    expect(shellClasses(render([], { tapped: true, pressing: true }))).toEqual(['pack-shell', 'is-pressed']);
-    expect(shellClasses(render([20, 30], { tapped: true }))).toEqual(['pack-shell', 'is-cutting']);
-  });
-
   it('springs back and says to go farther after a swipe let go short, until the next press (#803)', () => {
     expect(shellClasses(render([], { fellShort: true }))).toEqual(['pack-shell', 'is-short']);
     expect(shellClasses(render([], { fellShort: true, pressing: true }))).toEqual(['pack-shell', 'is-pressed']);
     expect(shellClasses(render([20, 30], { fellShort: true }))).toEqual(['pack-shell', 'is-cutting']);
     const html = render([], { fellShort: true });
-    expect(html).toMatch(/(Swipe|Drag) farther or tap Open</);
-    expect(html).toMatch(/class="[^"]*\bpack-open-button\b[^"]*\bis-prompted\b/);
-    expect(render([])).not.toContain('is-prompted');
+    expect(html).toMatch(/(Swipe farther, or tap the pack|Drag farther, or click the pack)</);
   });
 
   it('drops the short-swipe answer once a retry tears the pack', () => {
     const html = render([], { fellShort: true, isPackCut: true });
     expect(shellClasses(html)).toEqual(['pack-shell', 'is-cut']);
-    expect(html).not.toContain('is-prompted');
     expect(html).not.toContain('farther');
-    expect(html).toContain('Opening…');
+    expect(html).toContain('aria-label="Opening…"');
   });
 
   it('hands over to the cut once the swipe draws', () => {
@@ -89,22 +79,31 @@ describe('the controls under the pack (#312)', () => {
   /** Every element's opening tag, so attributes can be checked per element. */
   const tags = (html: string) => html.match(/<[a-z][^>]*>/g) ?? [];
 
-  it('opens it with a real Open pack button, and the pack itself is only a gesture surface', () => {
+  it('makes the pack itself the one control, named for its set', () => {
     const html = render([]);
-    expect(html).toMatch(/<button type="button" class="btn btn--secondary btn--sm pack-open-button quiet-focus">Open pack<\/button>/);
-    // No fake button: nothing but a real button takes the role, a Tab stop or a name that opens the pack.
-    expect(tags(html).filter((tag) => /role="button"|tabindex=/i.test(tag))).toEqual([]);
-    expect(html).not.toMatch(/aria-label="Open a /);
-    expect(shellClasses(html)).toEqual(['pack-shell']);
+    const shell = tags(html).find((tag) => tag.includes('data-pack-open'))!;
+    expect(shell).toContain('role="button"');
+    expect(shell).toContain('tabindex="0"');
+    expect(shell).toContain(`aria-label="Open pack, ${SETS[0].name}"`);
+    expect(shell).toContain('data-pack-open');
+    expect(shell).not.toMatch(/aria-busy|aria-disabled/);
+    // No second Open pack button, no era label on the wrapper, and one image that carries no name of its own.
+    expect(html).not.toContain('<button');
+    expect(html).not.toContain('pack-set-era');
+    expect(html).not.toContain('Brainrot TCG booster pack wrapper');
+    expect(tags(html).filter((tag) => /role="button"|tabindex=/i.test(tag))).toHaveLength(1);
   });
 
-  it('keeps the button while the pack is torn, done but still holding focus, and says it is opening', () => {
+  it('says it is opening while the pack is torn and the ticket works, and takes no input', () => {
     const html = render([], { isPackCut: true });
-    expect(html).toMatch(/<button type="button" class="[^"]*pack-open-button quiet-focus" aria-disabled="true">Opening…<\/button>/);
-    expect(html).not.toContain('Open pack');
+    const shell = tags(html).find((tag) => tag.includes('data-pack-open'))!;
+    expect(shell).toContain('aria-label="Opening…"');
+    expect(shell).toContain('aria-busy="true"');
+    expect(shell).toContain('aria-disabled="true"');
+    expect(html).not.toContain('Open pack,');
   });
 
-  it('says something different on the slow-ticket pill than on the button, so it never reads Opening… twice', () => {
+  it('says something different on the slow-ticket pill than on the pack, so it never reads Opening… twice', () => {
     const html = render([], { isPackCut: true, waiting: true });
     expect(html).toMatch(/<p class="pack-hint is-waiting" aria-hidden="true">Taking a moment…<\/p>/);
     expect(html.match(/Opening…/g)).toHaveLength(1);
@@ -114,17 +113,17 @@ describe('the controls under the pack (#312)', () => {
     expect(render([])).toContain('swipe-hint-text');
     expect(render([20, 30])).toContain('swipe-hint-text');
     expect(render([], { nudging: true })).toMatch(/along the dotted line/);
+    expect(render([])).toMatch(/(Swipe across to open|Drag across, or click)</);
     const torn = render([], { isPackCut: true });
     expect(torn).not.toContain('swipe-hint');
     expect(torn).not.toMatch(/Swipe across|Drag across|dotted line/);
   });
 
-  it('says why a refused pack stayed sealed, with a button to try again, in place of Open pack', () => {
+  it('says why a refused pack stayed sealed, with a button to try again', () => {
     for (const refusal of ['failed', 'blocked'] as const) {
       const html = render([], { refusal });
       expect(html).toContain(`<p class="pack-refusal-text">${REFUSAL_COPY[refusal].message.replace(/'/g, '&#x27;')}</p>`);
       expect(html).toMatch(new RegExp(`<button type="button" class="[^"]*pack-retry-button quiet-focus">${REFUSAL_COPY[refusal].action}</button>`));
-      expect(html).not.toContain('pack-open-button');
     }
     expect(REFUSAL_COPY.failed.action).toBe('Try again');
   });

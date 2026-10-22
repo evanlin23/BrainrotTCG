@@ -138,7 +138,7 @@ const proofState = async (page: Page) => ({
 async function walkDestinations(page: Page, baseURL: string) {
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
   const navItem = (name: string) => main.getByRole('button', { name, exact: true });
-  const opener = page.getByRole('button', { name: 'Open pack', exact: true });
+  const opener = page.getByRole('button', { name: /^Open pack/ });
   const pageNamed = (name: string) => page.getByRole('main', { name, exact: true });
   const backToOpening = async () => {
     await expect(page.locator('main.page')).toHaveCount(0);
@@ -301,7 +301,7 @@ for (const { vector, entry } of cases) {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page).toHaveURL(baseURL!);
     if (openable) await expect(page.locator('.set-picker .set-current-name')).toHaveText(set.name);
-    await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^Open pack/ })).toBeEnabled();
     await walkDestinations(page, baseURL!);
     await expect(page).toHaveURL(baseURL!);
     expect(await proofState(page)).toEqual(before);
@@ -373,7 +373,7 @@ for (const invalid of invalidCases) {
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page).toHaveURL(baseURL!);
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^Open pack/ })).toBeEnabled();
     await openRoute();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await proofState(page)).toEqual(before);

@@ -79,7 +79,8 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
 
   // The card is the reveal's button for the keyboard too: Space or Enter flips it, then moves on
   // (useKeyboardControls, which holds Space down to repeat). Each card is a new element, so focus follows
-  // from the card leaving, or from the pack after the tear. The card leaving unmounts after the new one
+  // from the card leaving, or from the pack after the tear (the sealed pack is inert as it leaves, but
+  // still the active element until the browser moves focus off it). The card leaving unmounts after the new one
   // mounts, so its null is ignored.
   const cardEl = useRef<HTMLButtonElement | null>(null);
   const cardRef = useCallback((el: HTMLButtonElement | null) => {
@@ -88,7 +89,7 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   const cardId = currentCard?.uniqueId;
   useEffect(() => {
     const active = document.activeElement;
-    if (!active || active === document.body || active.closest('.reveal-card')) cardEl.current?.focus({ preventScroll: true });
+    if (!active || active === document.body || active.closest('.reveal-card, .pack-shell')) cardEl.current?.focus({ preventScroll: true });
   }, [cardId]);
   // Face down it is only its place in the pack, so the name can't spoil the flip. Face up it carries the
   // card and its rarity, which the art shows by colour alone (the live region says it once, as it lands).

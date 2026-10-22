@@ -74,7 +74,7 @@ it('lets an experienced player show every page and the pack picker before saving
   await app.interact(() => showEveryPage()!.click());
   await app.until('the tabs hide again', () => expect(document.querySelector('.app-nav')).toBeNull());
 }, 30_000);
-const packLabel = () => (document.querySelector('.pack-open-button') && document.querySelector('.pack-set-name')?.textContent) || null;
+const packLabel = () => (document.querySelector('[data-pack-open]') && document.querySelector('.pack-set-name')?.textContent) || null;
 /** An old save, or one whose stats couldn't be read: cards but no pack count. */
 const CARDS_ONLY = {
   [STORAGE_KEYS.COLLECTION]: JSON.stringify(Object.fromEntries([getSetCards(SETS[0].id)[0]].map((card) => [card.key, { card, normalCount: 1, holoCount: 0 }]))),
@@ -90,7 +90,7 @@ it('shows a new player the set picker only once their first pack is saved, and n
 
   await app.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();
@@ -115,7 +115,7 @@ it('brings a new player the set picker and tabs as they leave a first pack whose
   await app.mount();
   await app.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();

@@ -29,7 +29,7 @@ async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewpo
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   if (textZoom !== 100) await page.addStyleTag({ content: `html { font-size: ${textZoom}% !important; }` });
-  const packShell = page.getByRole('button', { name: 'Open pack', exact: true });
+  const packShell = page.getByRole('button', { name: /^Open pack/ });
   await packShell.focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });

@@ -120,16 +120,16 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   await tryDrag(page, logo, 60, 0);
   expect(await selectedText(page)).toBe('');
   await logo.click({ clickCount: 3 });
-  await packShell.dblclick();
-  await packShell.click({ clickCount: 3 });
-  expect(await selectedText(page)).toBe('');
-  // A short vertical press-drag stays well inside the cut gesture's threshold.
+  // A short vertical press-drag stays well inside the cut gesture's threshold, and the click it ends
+  // in is not a tap, so the pack stays sealed.
   await tryDrag(page, packShell.locator('img').first(), 0, 40);
   expect(await dragStarts()).toBe(0);
   expect(await selectedText(page)).toBe('');
+  await expect(packShell).toHaveAttribute('aria-label', /^Open pack, /);
 
-  await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
-  await page.keyboard.press('Space');
+  // A tap opens the pack (#898), so the rapid clicks end here: the double click opens it once.
+  await packShell.dblclick();
+  expect(await selectedText(page)).toBe('');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   // The previous card stays in the DOM while it animates out; the current one is last.
   const card = page.locator('.reveal-card').last().locator('.card-wrapper');
@@ -202,7 +202,7 @@ test.describe('with a touch screen', () => {
     expect(await selectedText(page)).toBe('');
     await expect(packShell).not.toHaveClass(/\bis-cut\b/);
 
-    await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+    await page.getByRole('button', { name: /^Open pack/ }).focus();
     await page.keyboard.press('Space');
     const card = page.locator('.reveal-card').last().locator('.card-wrapper');
     await expect(card).toBeVisible({ timeout: 15000 });

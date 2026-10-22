@@ -12,7 +12,7 @@ const button = (label: string) => [...document.querySelectorAll<HTMLButtonElemen
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label)!;
 const $ = (selector: string) => document.querySelector<HTMLElement>(selector);
 /** The sealed pack's Open pack button: there only while the pack is sealed (#312). */
-const sealed = () => $('.pack-open-button');
+const sealed = () => $('[data-pack-open]');
 const progress = () => $('.reveal-progress')?.getAttribute('aria-valuenow');
 // Nonce 22 of this key deals a special-reveal card, which a big-pull pause holds for its full reveal.
 const preferences = ({ nextNonce = 0, pauseBigPulls = false } = {}) => ({

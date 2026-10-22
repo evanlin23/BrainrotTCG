@@ -55,7 +55,7 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
   await expect(page.locator('.app-logo')).toBeVisible();
 
   // Tab, from the top of the page, reaches the Open pack button.
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   await expect(pack).toBeVisible();
   let tabs = 0;
   while (!(await pack.evaluate((el) => el === document.activeElement))) {
@@ -198,7 +198,7 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
   await seedNonce21(page, baseURL!);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   await expect(pack).toBeVisible();
   await pack.focus();
   await page.keyboard.press('Space');
@@ -236,7 +236,7 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
 /** Opens the fixture pack by keyboard and waits for its first card, face down. */
 async function revealFirstCard(page: Page) {
   await page.goto('./');
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   await expect(pack).toBeVisible();
   await pack.focus();
   await page.keyboard.press('Space');

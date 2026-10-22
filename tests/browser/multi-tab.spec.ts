@@ -7,7 +7,7 @@ import { expectDecoded, expectRecordedPack, monitor, snapshot } from './support'
 // says its save changed, keeps its pack sealed and writes nothing, until a reload brings it current.
 
 const STALE = 'This save changed in another tab';
-const openPack = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
+const openPack = (page: Page) => page.getByRole('button', { name: /^Open pack/ });
 
 async function packsScreen(page: Page) {
   await page.goto('./');

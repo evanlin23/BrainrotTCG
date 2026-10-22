@@ -2,14 +2,14 @@ import { test, expect, type Page } from '@playwright/test';
 import { expectRecordedPack, monitor } from './support';
 
 /**
- * The pack's real controls (#312 S4): an Open pack button under the pack opens it like a finished
- * swipe, the pack itself is no longer a fake button, a keyboard alone gets from the page's load to
- * the summary with focus always on the stage's control, and at 200% text on a 320x568 phone the
- * dealt card keeps a usable stage. 200% text is emulated by doubling the root font size the rem
- * tokens use.
+ * The pack's one control (#312 S4, #628): the pack itself is a button named "Open pack, {set}", and a
+ * tap, a click, Space or Enter with focus on it open it like a finished swipe; Space or Enter anywhere
+ * else never does. A keyboard alone gets from the page's load to the summary with focus always on the
+ * stage's control, and at 200% text on a 320x568 phone the dealt card keeps a usable stage. 200% text
+ * is emulated by doubling the root font size the rem tokens use.
  */
 
-const openPack = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
+const openPack = (page: Page) => page.getByRole('button', { name: /^Open pack/ });
 
 /** Samples, every frame from now on, whether focus has fallen back to the page's body. */
 async function watchFocus(page: Page) {
@@ -33,17 +33,66 @@ test('clicking Open pack opens the pack through the same reveal and save as a sw
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
 
-  // The pack is a picture and a gesture surface, not a fake button; the button under it is real.
+  // The pack is the one control, named for its set, with no second Open pack button beside it.
   const shell = page.locator('.pack-shell');
   await expect(shell).toBeVisible();
-  expect(await shell.evaluate((el) => [el.getAttribute('role'), el.getAttribute('tabindex'), el.getAttribute('aria-label')])).toEqual([null, null, null]);
+  expect(await shell.evaluate((el) => [el.getAttribute('role'), el.getAttribute('tabindex'), el.getAttribute('aria-label')])).toEqual(['button', '0', expect.stringMatching(/^Open pack, .+/)]);
+  await expect(openPack(page)).toHaveCount(1);
   await expect(openPack(page)).toBeVisible();
   await expect(openPack(page)).toBeEnabled();
+  await expect(page.locator('main button')).toHaveCount(0);
 
   await openPack(page).click();
   await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
   await expect(page.locator('.reveal-card:focus')).toHaveAttribute('aria-label', 'Flip card 1 of 5');
 
+  await page.locator('button.reveal-skip').click();
+  await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
+  await expectRecordedPack(page);
+  expect(errors).toEqual([]);
+});
+
+test('clicks piling up on the pack open it once and spend one pack', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+  const pack = openPack(page);
+  await expect(pack).toBeVisible();
+
+  // Three clicks in one task, as a held-down or hammered click lands: one opening, not three.
+  await pack.evaluate((el) => {
+    const control = el as HTMLElement;
+    control.click();
+    control.click();
+    control.click();
+  });
+  await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
+  await page.locator('button.reveal-skip').click();
+  await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
+  await expectRecordedPack(page);
+  expect(errors).toEqual([]);
+});
+
+test('Space and Enter open the pack only with focus on it, never from the page around it', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!);
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+  const pack = openPack(page);
+  await expect(pack).toBeVisible();
+
+  // Focus on the page itself: both keys are the page's own, and the pack stays sealed.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Enter');
+  await expect(pack).toHaveAttribute('aria-label', /^Open pack, /);
+  await expect(page.locator('.pack-shell.is-cut')).toHaveCount(0);
+
+  // With focus on the pack, one press opens it once.
+  await pack.focus();
+  await page.keyboard.press('Space');
+  await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
   await page.locator('button.reveal-skip').click();
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
   await expectRecordedPack(page);
@@ -60,12 +109,12 @@ test('a keyboard alone goes from the page\'s load to the summary, and focus neve
   await expect(button).toBeVisible();
   let tabs = 0;
   while (!(await button.evaluate((el) => el === document.activeElement))) {
-    expect(++tabs, 'Tab never reached the Open pack button').toBeLessThan(40);
+    expect(++tabs, 'Tab never reached the pack').toBeLessThan(40);
     await page.keyboard.press('Tab');
   }
   const lostFocus = await watchFocus(page);
 
-  // Enter on the button opens it; Space flips each card and Enter moves on.
+  // Enter on the pack opens it; Space flips each card and Enter moves on.
   await page.keyboard.press('Enter');
   const card = page.locator('.reveal-card:focus');
   const live = page.locator('.sr-only[aria-live="polite"]');

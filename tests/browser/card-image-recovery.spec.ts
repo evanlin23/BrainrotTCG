@@ -16,7 +16,7 @@ test('a pack whose art will not load still opens and saves, and its cards come b
   await expect(page.locator('.app-logo')).toBeVisible();
   // The pack itself still draws: only card art is cut off.
   await expectDecoded(page.locator('.pack-shell img'), 2);
-  await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+  await page.getByRole('button', { name: /^Open pack/ }).focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   await page.locator('button.reveal-skip').click({ timeout: 15000 });

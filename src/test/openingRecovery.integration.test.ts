@@ -44,10 +44,10 @@ const expectNothingRecorded = async () => {
 };
 
 const pressPack = async () => {
-  await app!.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await app!.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await app!.interact(() => {
-    // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    // The pack itself: a tap is the same opening as a finished swipe (#312).
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();
@@ -56,11 +56,11 @@ const pressPack = async () => {
 /** The pack's one polite live region (#312). */
 const announced = () => document.querySelector('.pack-opener-container > [aria-live="polite"]')?.textContent;
 const REFUSED = "This pack didn't open, and no cards were dealt.";
-/** A refused pack says why, in place of the Open pack button, with Try again focused and announced. */
+/** A refused pack says why, with Try again focused and announced; the sealed pack stays on screen. */
 const expectRefused = (what: string) => app!.until(what, () => {
   expect(document.querySelector('.pack-refusal-text')?.textContent).toBe(REFUSED);
   expect(announced()).toBe(REFUSED);
-  expect(document.querySelector('.pack-open-button')).toBeNull();
+  expect(document.querySelector('[data-pack-open]')?.getAttribute('aria-label')).toMatch(/^Open pack, /);
   const retry = document.querySelector<HTMLButtonElement>('.pack-retry-button');
   expect(retry?.textContent).toBe('Try again');
   expect(document.activeElement).toBe(retry);
@@ -102,7 +102,7 @@ it('waits for a slow ticket with the app held on the pack, then records the late
   await pressPack();
   await app.until('a slow ticket says so', () => {
     expect(document.querySelector('.pack-hint.is-waiting')?.textContent).toBe('Taking a moment…');
-    expect(document.querySelector('.pack-open-button')?.textContent).toBe('Opening…');
+    expect(document.querySelector('[data-pack-open]')?.getAttribute('aria-label')).toBe('Opening…');
     expect(announced()).toBe('Opening the pack…');
   });
   // Nothing may swap the set or open over the pack meanwhile. Its number is claimed once the ticket is
@@ -205,7 +205,7 @@ it('refuses a late pack opening when another tab imports a backup of the same pl
 it('refuses a tear after another tab imported player B, even before this tab hears of it, leaving B untouched', async () => {
   app = await mountedApp(SEED);
   await app.mount();
-  await app.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await app.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
 
   const saveB = JSON.stringify({
     version: 2,
@@ -276,7 +276,7 @@ it('shows a failed ticket with its reason and Try again, records nothing, and re
   await tryAgain();
   // Try again went with the refusal: the Open pack button that came back has focus for the wait.
   expect(document.querySelector('.pack-retry-button')).toBeNull();
-  expect(document.activeElement).toBe(document.querySelector('.pack-open-button'));
+  expect(document.activeElement).toBe(document.querySelector('[data-pack-open]'));
   expect(document.activeElement).not.toBe(document.body);
   await finishReveal();
   const packs = await history();

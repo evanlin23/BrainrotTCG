@@ -1,6 +1,6 @@
 import { useIsPresent } from 'framer-motion';
 import { MoveHorizontal } from 'lucide-react';
-import type { Ref, RefObject } from 'react';
+import { useRef, type MouseEvent, type PointerEvent, type Ref, type RefObject } from 'react';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
 import { SPARK_LIFETIME_MS, type Spark } from '../../hooks/useSparks';
@@ -12,13 +12,12 @@ interface PackCuttingUIProps {
   packRef: RefObject<HTMLDivElement | null>;
   packDesign: string;
   set: SetDefinition;
-  /** The last tear didn't open a pack: say why, with a way to try again, in place of the Open pack button. */
+  /** The last tear didn't open a pack: say why, with a way to try again. */
   refusal?: PackRefusal | null;
-  /** Opens the pack exactly as a finished swipe does: the control for a tap, a click, a key or a screen reader. */
+  /** Opens the pack exactly as a finished swipe does: the pack is the control for a tap, a click, a key or a screen reader. */
   onOpen: () => void;
   /** The refusal's button: open again, or reload for a save another tab changed. */
   onRetry?: () => void;
-  openButtonRef?: Ref<HTMLButtonElement>;
   retryButtonRef?: Ref<HTMLButtonElement>;
   isCutting: boolean;
   /** A press landed on the tear line and hasn't gone across yet: light the line under it. */
@@ -28,13 +27,14 @@ interface PackCuttingUIProps {
   waiting?: boolean;
   /** A press just missed the tear line: show where to swipe. */
   nudging?: boolean;
-  /** A tap on the tear line didn't swipe: the swipe hint pulses to show how. */
-  tapped?: boolean;
-  /** A swipe was let go too short to open: the pack springs back and the hint says to go farther or tap (#803). */
+  /** A swipe was let go too short to open: the pack springs back and the hint says to go farther or tap the pack (#803). */
   fellShort?: boolean;
   cutPoints: CutPoint[];
   sparks: readonly Spark[];
 }
+
+/** A press that moves farther than this (px) before its release was a drag, not a tap. */
+export const TAP_SLOP_PX = 10;
 
 const PackCuttingUI = ({
   packRef,
@@ -43,36 +43,54 @@ const PackCuttingUI = ({
   refusal = null,
   onOpen,
   onRetry,
-  openButtonRef,
   retryButtonRef,
   isCutting,
   pressing = false,
   isPackCut,
   waiting = false,
   nudging = false,
-  tapped = false,
   fellShort = false,
   cutPoints,
   sparks,
 }: PackCuttingUIProps) => {
   const touch = useCoarsePointer();
-  // The torn pack flies off over the first card (#312 P2-6), so it drops its controls the moment it
-  // starts leaving: a focused Open pack button there would keep focus from the card, which takes it
-  // only from the page, and would still be read and queried for the exit's quarter second.
+  // The torn pack flies off over the first card (#312 P2-6), so it stops being the pack the moment it
+  // starts leaving: its marker goes (it is no longer the control to find, query or key), while focus
+  // stays on it until the first card takes it, which it does only from the pack or the page.
   const leaving = !useIsPresent();
+  // A drag that ends over the pack ends in a click too, which is not a tap: only a press that stayed put opens it.
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
+  const onPressStart = (event: PointerEvent) => {
+    pressedAt.current = { x: event.clientX, y: event.clientY };
+  };
+  const onPackClick = (event: MouseEvent) => {
+    const start = pressedAt.current;
+    pressedAt.current = null;
+    // A click with no press before it (a screen reader's, or a switch's) is always a tap.
+    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > TAP_SLOP_PX) return;
+    onOpen();
+  };
 
   return (
     <>
       <div className="pack-shell-wrap" inert={leaving || undefined}>
-        {/* A gesture surface only: the Open pack button under it is the control for keys and screen readers. */}
+        {/* The one Open pack control: a swipe along the seam, a tap or click, or Space or Enter with focus on it (useKeyboardControls) all run the same opening. Its name carries the set; while the ticket works it says Opening… and ignores input. */}
         <div
           ref={packRef}
-          className={`pack-shell ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${tapped && !isCutting && !pressing ? 'is-tapped' : ''} ${fellShort && !isPackCut && !isCutting && !pressing ? 'is-short' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-label={isPackCut ? 'Opening…' : `Open pack, ${set.name}`}
+          aria-busy={isPackCut || undefined}
+          aria-disabled={isPackCut || undefined}
+          data-pack-open={leaving ? undefined : true}
+          onPointerDown={onPressStart}
+          onClick={onPackClick}
+          className={`pack-shell quiet-focus ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${fellShort && !isPackCut && !isCutting && !pressing ? 'is-short' : ''}`}
           style={{ '--pack-mask': `url("${packDesign}")` } as React.CSSProperties}
         >
           {/* Each half carries its foil with it when the wrapper tears. */}
           <div className="pack-half pack-half-bottom">
-            <img src={packDesign} alt="Brainrot TCG booster pack wrapper" draggable="false" />
+            <img src={packDesign} alt="" draggable="false" />
           </div>
           <div className="pack-half pack-half-top" aria-hidden="true">
             <img src={packDesign} alt="" draggable="false" />
@@ -84,7 +102,6 @@ const PackCuttingUI = ({
               style={{ '--set-a': set.palette?.[0] ?? '#ff3df2', '--set-b': set.palette?.[1] ?? '#29f0ff' } as React.CSSProperties}
             >
               <span className="pack-set-name">{set.name}</span>
-              <span className="pack-set-era">{set.era}</span>
             </div>
           </div>
           <div className="tear-guide" />
@@ -93,7 +110,7 @@ const PackCuttingUI = ({
             <div className="swipe-hint">
               <MoveHorizontal className="swipe-hint-icon" aria-hidden="true" />
               <span className="swipe-hint-text">
-                {fellShort ? (touch ? 'Swipe farther or tap Open' : 'Drag farther or tap Open') : nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across to open'}
+                {fellShort ? (touch ? 'Swipe farther, or tap the pack' : 'Drag farther, or click the pack') : nudging ? (touch ? 'Swipe along the dotted line' : 'Drag along the dotted line') : touch ? 'Swipe across to open' : 'Drag across, or click'}
               </span>
             </div>
           )}
@@ -143,28 +160,17 @@ const PackCuttingUI = ({
           </p>
         )}
       </div>
-      {/* Under the tear line: the swipe is the show, this is the same opening for everyone else (#312). */}
-      <div className="pack-actions">
-        {leaving ? null : refusal ? (
+      {/* Under the tear line: why the last tear didn't open, with a way to try again. */}
+      {!leaving && refusal && (
+        <div className="pack-actions">
           <div className="pack-refusal">
             <p className="pack-refusal-text">{REFUSAL_COPY[refusal].message}</p>
             <button type="button" ref={retryButtonRef} className="btn btn--primary btn--sm pack-retry-button quiet-focus" onClick={onRetry}>
               {REFUSAL_COPY[refusal].action}
             </button>
           </div>
-        ) : (
-          // Stays mounted (and focused) through the tear, so focus has somewhere to be until the first card takes it.
-          <button
-            type="button"
-            ref={openButtonRef}
-            className={`btn btn--secondary btn--sm pack-open-button quiet-focus${fellShort && !isPackCut ? ' is-prompted' : ''}`}
-            onClick={onOpen}
-            aria-disabled={isPackCut || undefined}
-          >
-            {isPackCut ? 'Opening…' : 'Open pack'}
-          </button>
-        )}
-      </div>
+        </div>
+      )}
     </>
   );
 };

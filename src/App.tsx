@@ -546,8 +546,8 @@ function App() {
           isOwned={isOwned}
           onLeaveEarly={noticeKeptPack}
         />
-        {/* A quiet way into the card guide before any pack, a new player's first included; it steps aside with the chrome once a pack is torn. */}
-        {!packFocus && !packBusy && (
+        {/* A quiet way into the card guide once a first pack is saved (a new player sees only the pack); it steps aside with the chrome once a pack is torn. */}
+        {showNav && !packFocus && !packBusy && (
           <div className="card-guide-entry">
             <CardGuideButton set={selectedSet} />
           </div>
