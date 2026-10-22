@@ -4,7 +4,7 @@ import type { Card } from '../../data/cards';
 import { CARD_RARITIES, cardNumber } from '../../data/cards';
 import { getLatestSet, setCode } from '../../content/sets';
 import { getPlayer } from '../../game/player';
-import { findPackWithCard, getHistory } from '../../game/history';
+import { findPackWithCard, getHistory, isExactVersion } from '../../game/history';
 import { canShare, cardPreviewFor, proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { renderCardPoster } from '../../game/bragImage';
 import { modifierLabel } from '../../game/modifiers';
@@ -45,12 +45,10 @@ const CardShareSheet = ({ card, version, from, onClose }: CardShareSheetProps) =
       // If history already has cached cards for `from`, verify they contain this exact card variant.
       // If history has no cached cards for `from` (e.g. freshly opened summary, evicted cache, or stub), trust `from`.
       const fromEntry = getHistory().find(
-        (e) => e.setId === from.setId && e.setVersion === from.setVersion && e.nonce === from.nonce && (!from.publicKeyHex || from.publicKeyHex.startsWith(e.key)),
+        (e) => e.setId === from.setId && e.setVersion === from.setVersion && e.nonce === from.nonce && (from.publicKeyHex ?? player.publicKeyHex).startsWith(e.key),
       );
       if (fromEntry?.cards) {
-        const exactMatch = fromEntry.cards.some(
-          (c) => c.id === cardId && c.holo === isHolo && (c.finish ?? null) === (finish ?? null) && !!c.misprint === !!misprint,
-        );
+        const exactMatch = fromEntry.cards.some((c) => c.id === cardId && isExactVersion(c, { isHolo, finish, misprint }));
         if (exactMatch) return from;
       } else {
         return from;

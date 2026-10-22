@@ -374,11 +374,13 @@ export const migratePullLog = () => {
   }
 };
 
+/** Is this stored card exactly this version: the same holo, finish and misprint? */
+export const isExactVersion = (c: StoredCard, version: { isHolo: boolean; finish?: Finish | null; misprint?: boolean }): boolean =>
+  c.holo === version.isHolo && (c.finish ?? null) === (version.finish ?? null) && !!c.misprint === !!version.misprint;
+
 export interface FindPackOptions {
   /** If true, return only a pack holding the exact version (holo, finish, misprint). No same-holo or any-copy fallback. */
   exactOnly?: boolean;
-  /** If provided, look only for packs opened with this set version. */
-  setVersion?: number;
 }
 
 /**
@@ -394,9 +396,9 @@ export const findPackWithCard = (
   options?: FindPackOptions,
 ): HistoryEntry | null => {
   const mine = getHistory().filter(
-    (e) => e.setId === setId && (options?.setVersion === undefined || e.setVersion === options.setVersion) && e.cards && publicKeyHex.startsWith(e.key),
+    (e) => e.setId === setId && e.cards && publicKeyHex.startsWith(e.key),
   );
-  const exact = (c: StoredCard) => c.holo === version.isHolo && (c.finish ?? null) === (version.finish ?? null) && !!c.misprint === !!version.misprint;
+  const exact = (c: StoredCard) => isExactVersion(c, version);
   const has = (test: (c: StoredCard) => boolean) => mine.find((e) => e.cards!.some((c) => c.id === cardId && test(c)));
   if (options?.exactOnly) return has(exact) ?? null;
   return has(exact) ?? has((c) => c.holo === version.isHolo) ?? has(() => true) ?? null;

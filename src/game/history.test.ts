@@ -521,19 +521,4 @@ describe('finding a pack with a card', () => {
     const found = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false, finish: 'SILVER', misprint: false }, { exactOnly: true });
     expect(found?.nonce).toBe(2);
   });
-
-  it('filters by setVersion when provided', () => {
-    recordPack(pack(1, {
-      setVersion: 1,
-      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: null, misprint: false }] as unknown as OpenedPack['cards'],
-    }));
-    recordPack(pack(2, {
-      setVersion: 2,
-      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: null, misprint: false }] as unknown as OpenedPack['cards'],
-    }));
-
-    expect(findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false }, { setVersion: 1 })?.nonce).toBe(1);
-    expect(findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false }, { setVersion: 2 })?.nonce).toBe(2);
-    expect(findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false }, { setVersion: 3 })).toBeNull();
-  });
 });

@@ -227,4 +227,34 @@ describe('exact-variant proof attribution (issue #654)', () => {
     const note = document.querySelector('.share-note')!.textContent;
     expect(note).toContain("This device doesn't have a verified pack record for this silver card");
   });
+
+  const seed = (fromPack: PullRef, c?: string) =>
+    localStorage.setItem(
+      'brainrot-history-v1',
+      JSON.stringify([{ s: fromPack.setId, v: fromPack.setVersion, n: fromPack.nonce, k: fromPack.publicKeyHex!.slice(0, 16), ...(c === undefined ? {} : { c }), h: 'Pair', x: 100, t: 100 }]),
+    );
+  const fromPack = (): PullRef => ({ setId: card.setId, setVersion: getLatestSet(card.setId)!.version, nonce: 6, publicKeyHex: getPlayer().publicKeyHex });
+
+  it('keeps a from-pack whose cached cards hold the exact variant, without searching history', async () => {
+    const pack = fromPack();
+    seed(pack, `${cardId}S`);
+    const version = { isHolo: false, finish: 'SILVER' as const, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} from={pack} onClose={() => {}} />));
+
+    expect(findPackWithCard).not.toHaveBeenCalled();
+    const poster = vi.mocked(renderCardPoster).mock.calls[0][0];
+    expect(poster.url).toBe(pullUrl(proofFor(pack)));
+    expect(document.body.textContent).toContain('(ticket #6)');
+  });
+
+  it('trusts a from-pack when history has its ticket but no cached cards', async () => {
+    const pack = fromPack();
+    seed(pack);
+    const version = { isHolo: false, finish: 'SILVER' as const, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} from={pack} onClose={() => {}} />));
+
+    expect(findPackWithCard).not.toHaveBeenCalled();
+    expect(vi.mocked(renderCardPoster).mock.calls[0][0].url).toBe(pullUrl(proofFor(pack)));
+    expect(document.body.textContent).toContain('(ticket #6)');
+  });
 });
