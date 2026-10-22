@@ -2,12 +2,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkPull, type CheckedPull } from '../../game/pulls';
+import { checkPull, previewFor, pullUrl, type CheckedPull } from '../../game/pulls';
 import { OUT_OF_MEMORY_ADVICE, TicketMemoryError } from '../../game/ticketPool';
 import PullViewerPage from './PullViewerPage';
 
 // The pull is a stand-in: this checks only how the player's name is shown.
-vi.mock('../../game/pulls', () => ({ checkPull: vi.fn(), previewFor: vi.fn(), pullUrl: vi.fn(() => 'https://example.invalid/#/pull/proof') }));
+vi.mock('../../game/pulls', () => ({
+  checkPull: vi.fn(),
+  previewFor: vi.fn(),
+  pullUrl: vi.fn((proof: string, preview?: string) => preview ? `https://example.invalid/#/pull/${proof}?p=${preview}` : `https://example.invalid/#/pull/${proof}`),
+}));
 vi.mock('../ui/PackCardViewer', () => ({ default: () => null }));
 
 const pull = (name: string) =>
@@ -76,5 +80,70 @@ describe('PullViewerPage', () => {
     expect(text).toContain('Not a valid pull');
     expect(text).toContain('Bad signature');
     expect(text).not.toContain('Try again');
+  });
+
+  it('retires verified pull A immediately when navigating to pending pull B and does not leak A preview', async () => {
+    let resolveB!: (val: CheckedPull) => void;
+    const pendingB = new Promise<CheckedPull>((res) => { resolveB = res; });
+
+    const pullA = pull('Player A');
+    const pullB = { ...pull('Player B'), fingerprint: 'ef01', score: { hand: { name: 'Royal Flush' } } } as unknown as CheckedPull;
+
+    vi.mocked(checkPull).mockReset().mockResolvedValueOnce(pullA);
+    vi.mocked(previewFor).mockImplementation((cards) => cards === pullA.cardsWithMeta ? 'preview-A' : 'preview-B');
+
+    await act(async () => root.render(<PullViewerPage proof="proofA" onClose={() => {}} />));
+    expect(document.body.textContent).toContain('Full House');
+    expect(document.body.textContent).toContain('Player A #abcd');
+
+    // Copy link on A uses proofA and preview-A
+    const copyBtnA = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy link'));
+    expect(copyBtnA).toBeDefined();
+    await act(async () => copyBtnA!.click());
+    expect(pullUrl).toHaveBeenCalledWith('proofA', 'preview-A');
+
+    // Switch proof prop to proofB while checkPull is in-flight
+    vi.mocked(checkPull).mockReturnValueOnce(pendingB);
+    await act(async () => root.render(<PullViewerPage proof="proofB" onClose={() => {}} />));
+
+    // Checking state shown immediately; A's hand, player and cert are gone
+    expect(document.body.textContent).toContain('Re-opening the pack on your device');
+    expect(document.body.textContent).not.toContain('Full House');
+    expect(document.body.textContent).not.toContain('Player A');
+    expect(document.body.textContent).not.toContain('#abcd');
+    // Copy button is retired during checking
+    expect([...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy link'))).toBeUndefined();
+
+    // Now B resolves
+    await act(async () => resolveB(pullB));
+    expect(document.body.textContent).toContain('Royal Flush');
+    expect(document.body.textContent).toContain('Player B #ef01');
+
+    const copyBtnB = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Copy link'));
+    expect(copyBtnB).toBeDefined();
+    await act(async () => copyBtnB!.click());
+    expect(pullUrl).toHaveBeenCalledWith('proofB', 'preview-B');
+  });
+
+  it('retires invalid or memory-error state A immediately when proof prop changes to B', async () => {
+    let resolveB!: (val: CheckedPull) => void;
+    const pendingB = new Promise<CheckedPull>((res) => { resolveB = res; });
+
+    vi.mocked(checkPull).mockReset().mockRejectedValueOnce(new Error('Corrupt signature'));
+    await act(async () => root.render(<PullViewerPage proof="proofA" onClose={() => {}} />));
+    expect(document.body.textContent).toContain('Corrupt signature');
+
+    // Switch to proofB
+    vi.mocked(checkPull).mockReturnValueOnce(pendingB);
+    await act(async () => root.render(<PullViewerPage proof="proofB" onClose={() => {}} />));
+
+    // Error from A is immediately retired
+    expect(document.body.textContent).toContain('Re-opening the pack on your device');
+    expect(document.body.textContent).not.toContain('Corrupt signature');
+    expect(document.body.textContent).not.toContain('Not a valid pull');
+
+    // Clean resolve of B
+    await act(async () => resolveB(pull('Player B')));
+    expect(document.body.textContent).toContain('Verified on this device');
   });
 });

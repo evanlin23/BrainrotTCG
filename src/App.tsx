@@ -597,9 +597,9 @@ function App() {
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
 
-      {viewProof && <DeferredSheet load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closeLink }} />}
+      {viewProof && <DeferredSheet key={viewProof} load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closeLink }} />}
 
-      {viewProfile && <DeferredSheet load={loadPublicProfile} size="lg" title="Shared profile" screenProps={{ proof: viewProfile, onClose: closeLink }} />}
+      {viewProfile && <DeferredSheet key={viewProfile} load={loadPublicProfile} size="lg" title="Shared profile" screenProps={{ proof: viewProfile, onClose: closeLink }} />}
 
       {brokenLink && (
         <Sheet title="This link doesn't work" onClose={closeLink} size="sm">
