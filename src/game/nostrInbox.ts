@@ -40,20 +40,71 @@ export const signEvent = (e: Unsigned, secretKey: Uint8Array): NostrEvent => {
   return { ...e, id, sig: toHex(schnorr.sign(fromHex(id), secretKey)) };
 };
 
+/** Maximum raw WebSocket message length (in characters/bytes) accepted before JSON.parse. */
+export const MAX_RAW_MESSAGE_BYTES = 65_536; // 64 KiB
+
+/** Maximum length of Nostr event `content` field. */
+export const MAX_EVENT_CONTENT_BYTES = 16_384; // 16 KiB
+
+/** Maximum number of tags in a Nostr event. */
+export const MAX_EVENT_TAGS_COUNT = 50;
+
+/** Maximum number of elements in a single tag array. */
+export const MAX_EVENT_TAG_ITEMS = 10;
+
+/** Maximum length of any tag item string. */
+export const MAX_EVENT_TAG_VALUE_BYTES = 1_024; // 1 KiB
+
+/** Default per-page limit if not specified in Filter. */
+export const DEFAULT_PAGE_LIMIT = 100;
+
+/** Default maximum aggregate bytes of retained events across all relays. */
+export const DEFAULT_MAX_RETAINED_BYTES = 2 * 1024 * 1024; // 2 MiB
+
+/** Maximum invalid messages tolerated from a single relay before closing it. */
+export const MAX_RELAY_INVALID_MESSAGES = 50;
+
+/** Maximum timestamp in seconds (NIP-01 created_at sanity limit: year ~2049). */
+export const MAX_EVENT_TIMESTAMP = 2_500_000_000;
+
 const HEX64 = /^[0-9a-f]{64}$/;
-/** NIP-01's field types. Relays don't all enforce them, so anything read from one is checked first. */
-const isEventShape = (e: unknown): e is NostrEvent => {
+/** NIP-01's field types and bounds. Relays don't all enforce them, so anything read from one is checked first. */
+export const isEventShape = (e: unknown): e is NostrEvent => {
   if (!e || typeof e !== 'object') return false;
   const x = e as Record<string, unknown>;
   return (
     typeof x.id === 'string' && HEX64.test(x.id) &&
     typeof x.pubkey === 'string' && HEX64.test(x.pubkey) &&
     typeof x.sig === 'string' && /^[0-9a-f]{128}$/.test(x.sig) &&
-    Number.isSafeInteger(x.created_at) && Number.isSafeInteger(x.kind) &&
-    typeof x.content === 'string' &&
-    Array.isArray(x.tags) && x.tags.every((t) => Array.isArray(t) && t.every((v) => typeof v === 'string'))
+    typeof x.created_at === 'number' && Number.isSafeInteger(x.created_at) && x.created_at >= 0 && x.created_at <= MAX_EVENT_TIMESTAMP &&
+    typeof x.kind === 'number' && Number.isSafeInteger(x.kind) && x.kind >= 0 && x.kind <= 65_535 &&
+    typeof x.content === 'string' && x.content.length <= MAX_EVENT_CONTENT_BYTES &&
+    Array.isArray(x.tags) && x.tags.length <= MAX_EVENT_TAGS_COUNT &&
+    x.tags.every((t) => Array.isArray(t) && t.length <= MAX_EVENT_TAG_ITEMS && t.every((v) => typeof v === 'string' && v.length <= MAX_EVENT_TAG_VALUE_BYTES))
   );
 };
+
+/**
+ * Cheap filter predicate applied before expensive hashing/signature verification.
+ * Does not mutate the event.
+ */
+export const matchesFilter = (e: NostrEvent, f: Filter): boolean => {
+  if (f.kinds?.length && !f.kinds.includes(e.kind)) return false;
+  if (f.ids?.length && !f.ids.includes(e.id)) return false;
+  if (f['#t']?.length && !e.tags.some((t) => t[0] === 't' && f['#t']!.includes(t[1]))) return false;
+  if (f.since !== undefined && e.created_at < f.since) return false;
+  if (f.until !== undefined && e.created_at > f.until) return false;
+  return true;
+};
+
+/** Approximate in-memory / byte size of a Nostr event. */
+export const eventByteSize = (e: NostrEvent): number =>
+  e.id.length +
+  e.pubkey.length +
+  e.sig.length +
+  e.content.length +
+  e.tags.reduce((sum, tag) => sum + tag.reduce((tSum, item) => tSum + item.length, 0), 0) +
+  64;
 
 export const verifyEvent = (e: unknown): e is NostrEvent => {
   try {
@@ -179,7 +230,12 @@ const publishToRelay = (event: NostrEvent, relay: string, timeoutMs: number, ope
     socket.onopen = () => socket!.send(JSON.stringify(['EVENT', event]));
     socket.onmessage = (msg) => {
       try {
-        const data = JSON.parse(String(msg.data)) as unknown[];
+        const raw = typeof msg?.data === 'string' ? msg.data : null;
+        if (raw === null || raw.length > MAX_RAW_MESSAGE_BYTES) {
+          finish(false, 'oversized response');
+          return;
+        }
+        const data = JSON.parse(raw) as unknown[];
         if (data[0] === 'OK' && data[1] === event.id) finish(data[2] === true, String(data[3] ?? ''));
       } catch {
         // ignore anything that isn't JSON
@@ -221,14 +277,51 @@ export interface Filter {
   limit?: number;
 }
 
+export interface FetchEventsBounds {
+  /** Maximum raw WebSocket message length accepted before parsing. */
+  maxRawMessageBytes?: number;
+  /** Maximum unique events accepted from a single relay across all pages. */
+  maxRelayEvents?: number;
+  /** Maximum total WebSocket messages accepted from a single relay. */
+  maxRelayMessages?: number;
+  /** Maximum invalid frames accepted from a single relay before closing it. */
+  maxInvalidMessages?: number;
+  /** Maximum aggregate unique events retained across all relays. */
+  maxRetainedEvents?: number;
+  /** Maximum aggregate bytes of events retained across all relays. */
+  maxRetainedBytes?: number;
+  /** Custom event verification function (defaults to verifyEvent). */
+  verify?: (e: unknown) => boolean;
+}
+
 /**
  * Ask every relay for matching events and merge them by id. Only events whose signature checks out
  * are kept, so one relay serving a tampered copy can't hide the real one from the others. Relays
  * send the newest `limit` events per request; with `maxPages` > 1 it keeps asking for older ones
  * (`until` the oldest so far), so a burst of new events can't push older ones out of reach.
  */
-export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs = 10000, open: SocketFactory = defaultSocket, maxPages = 1, signal?: AbortSignal) => {
+export const fetchEvents = async (
+  filter: Filter,
+  relays = HOF_RELAYS,
+  timeoutMs = 10000,
+  open: SocketFactory = defaultSocket,
+  maxPages = 1,
+  signal?: AbortSignal,
+  bounds?: FetchEventsBounds,
+) => {
+  const pageLimit = filter.limit ?? (filter.ids ? filter.ids.length : DEFAULT_PAGE_LIMIT);
+  const maxRelayEvents = bounds?.maxRelayEvents ?? pageLimit * maxPages;
+  const maxInvalidMessages = bounds?.maxInvalidMessages ?? MAX_RELAY_INVALID_MESSAGES;
+  const maxRelayMessages = bounds?.maxRelayMessages ?? (maxRelayEvents + maxInvalidMessages + 20);
+  const maxRawMessageBytes = bounds?.maxRawMessageBytes ?? MAX_RAW_MESSAGE_BYTES;
+  const maxRetainedEvents = bounds?.maxRetainedEvents
+    ?? (filter.ids ? filter.ids.length : (filter.limit !== undefined ? Math.max(pageLimit * maxPages * relays.length, 1) : 500));
+  const maxRetainedBytes = bounds?.maxRetainedBytes
+    ?? Math.max(DEFAULT_MAX_RETAINED_BYTES, maxRetainedEvents * 4096);
+  const verifier = bounds?.verify ?? verifyEvent;
+
   const byId = new Map<string, NostrEvent>();
+  let retainedBytes = 0;
   const perRelay = await Promise.all(
     relays.map(
       (relay) =>
@@ -238,6 +331,8 @@ export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs
           let pages = 0;
           let pageNew = 0;
           let oldest = Infinity;
+          let totalMessages = 0;
+          let invalidCount = 0;
           const fromHere = new Set<string>();
           let done = false;
           let socket: Socket | null = null;
@@ -277,29 +372,99 @@ export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs
           socket.onopen = () => { if (!done) request(); };
           socket.onmessage = (msg) => {
             if (done) return;
+            totalMessages++;
+            if (totalMessages > maxRelayMessages) {
+              finish('message budget exceeded');
+              return;
+            }
+
+            const raw = typeof msg?.data === 'string' ? msg.data : null;
+            if (raw === null || raw.length > maxRawMessageBytes) {
+              invalidCount++;
+              if (invalidCount > maxInvalidMessages) finish('invalid message budget exceeded');
+              return;
+            }
+
+            let data: unknown;
             try {
-              const data = JSON.parse(String(msg.data)) as unknown[];
-              if (data[0] === 'EVENT' && data[1] === sub) {
-                const e = data[2];
-                count++;
-                if (isEventShape(e) && !fromHere.has(e.id)) {
-                  fromHere.add(e.id);
-                  oldest = Math.min(oldest, e.created_at);
-                  pageNew++;
-                  if (!byId.has(e.id) && verifyEvent(e)) byId.set(e.id, e);
-                }
-              } else if (data[0] === 'EOSE' && data[1] === sub) {
-                // Ask for anything older than this page until a page brings nothing new. (Relays cap
-                // `limit` at different sizes, so a short page doesn't prove there's nothing older.)
-                if (pageNew > 0 && pages < maxPages && Number.isFinite(oldest)) {
-                  socket!.send(JSON.stringify(['CLOSE', sub]));
-                  request(oldest);
-                } else finish();
-              } else if (data[0] === 'CLOSED' && data[1] === sub) {
-                finish(String(data[2] ?? 'closed'));
-              }
+              data = JSON.parse(raw);
             } catch {
-              // ignore anything that isn't JSON
+              invalidCount++;
+              if (invalidCount > maxInvalidMessages) finish('invalid message budget exceeded');
+              return;
+            }
+
+            if (!Array.isArray(data) || typeof data[0] !== 'string') {
+              invalidCount++;
+              if (invalidCount > maxInvalidMessages) finish('invalid message budget exceeded');
+              return;
+            }
+
+            const type = data[0];
+            if (type === 'NOTICE' || type === 'OK') {
+              return;
+            }
+
+            const subId = data[1];
+            if (subId !== sub) {
+              return;
+            }
+
+            if (type === 'EVENT') {
+              const e = data[2];
+              count++;
+
+              if (!isEventShape(e)) {
+                invalidCount++;
+                if (invalidCount > maxInvalidMessages) finish('invalid message budget exceeded');
+                return;
+              }
+
+              if (!fromHere.has(e.id)) {
+                if (fromHere.size >= maxRelayEvents) {
+                  finish('relay event budget exceeded');
+                  return;
+                }
+                fromHere.add(e.id);
+                oldest = Math.min(oldest, e.created_at);
+                pageNew++;
+
+                if (!matchesFilter(e, filter)) {
+                  return;
+                }
+
+                if (byId.has(e.id)) {
+                  return;
+                }
+
+                if (byId.size >= maxRetainedEvents) {
+                  finish('retained event budget exceeded');
+                  return;
+                }
+
+                const eBytes = eventByteSize(e);
+                if (retainedBytes + eBytes > maxRetainedBytes) {
+                  finish('retained byte budget exceeded');
+                  return;
+                }
+
+                if (verifier(e)) {
+                  byId.set(e.id, e);
+                  retainedBytes += eBytes;
+                }
+              }
+            } else if (type === 'EOSE') {
+              // Ask for anything older than this page until a page brings nothing new. (Relays cap
+              // `limit` at different sizes, so a short page doesn't prove there's nothing older.)
+              if (pageNew > 0 && pages < maxPages && Number.isFinite(oldest)) {
+                socket!.send(JSON.stringify(['CLOSE', sub]));
+                request(oldest);
+              } else finish();
+            } else if (type === 'CLOSED') {
+              finish(String(data[2] ?? 'closed'));
+            } else {
+              invalidCount++;
+              if (invalidCount > maxInvalidMessages) finish('invalid message budget exceeded');
             }
           };
           socket.onerror = () => finish('connection failed');
