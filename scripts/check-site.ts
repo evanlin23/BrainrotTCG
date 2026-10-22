@@ -6,7 +6,10 @@
  * - every page's link-preview tags point at SITE_URL (og:url, when a page has one, at that page's
  *   own address), and the picture they name is in the build, decodes as a JPEG, and has the size
  *   its og:image:width/height tags give (both are required);
- * - every page has og:title, og:image, twitter:image and a summary_large_image twitter:card;
+ * - every page has og:title, og:image, twitter:image and a summary_large_image twitter:card, and
+ *   index.html has og:url;
+ * - robots.txt and sitemap.xml are real (not the app's page) and name SITE_URL, and the sitemap lists
+ *   the app and no share, set or #/ address (scripts/crawler-files.ts);
  * - every share and set page scripts/preview-pages.ts writes for the set registry is there and
  *   forwards to BASE_PATH (a set's page to #/set/<set id> there);
  * - the cache contract (docs/HOSTING.md): everything in assets/ has a content hash in its name, pages
@@ -147,6 +150,31 @@ export const checkCacheContract = (files: readonly string[], base: string, heade
   return errors;
 };
 
+/**
+ * Problems with a build's robots.txt and sitemap.xml (undefined when missing) for `site`, ending in
+ * one /. A host with no such file answers with the app's own page, which is no robots.txt or sitemap.
+ */
+export const checkCrawlerFiles = (site: string, robots: string | undefined, sitemap: string | undefined): AssetValidationError[] => {
+  const errors: AssetValidationError[] = [];
+  const html = /^\s*<(?:!doctype|html)\b/i;
+  if (robots === undefined || html.test(robots)) errors.push({ path: 'robots.txt', error: robots === undefined ? 'Missing' : 'Is an HTML page' });
+  else {
+    if (!robots.split(/\r?\n/).some((line) => line.trim() === `Sitemap: ${site}sitemap.xml`)) errors.push({ path: 'robots.txt', error: `Doesn't name the sitemap at ${site}sitemap.xml` });
+    if (robots.split(/\r?\n/).some((line) => /^disallow:\s*\/\s*$/i.test(line.trim()))) errors.push({ path: 'robots.txt', error: 'Blocks the whole site' });
+  }
+  if (sitemap === undefined || !/^<\?xml\b/.test(sitemap) || !/<urlset\b[^>]*xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9"/.test(sitemap)) {
+    errors.push({ path: 'sitemap.xml', error: sitemap === undefined ? 'Missing' : "Isn't a sitemap (an XML urlset)" });
+    return errors;
+  }
+  const locs = [...sitemap.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => unescape(m[1]));
+  if (!locs.includes(site)) errors.push({ path: 'sitemap.xml', error: `Doesn't list the app at ${site}` });
+  for (const loc of locs) {
+    if (!loc.startsWith(site)) errors.push({ path: 'sitemap.xml', error: `Lists ${loc}, not under SITE_URL ${site}` });
+    else if (/#|^[ps]\//.test(loc.slice(site.length))) errors.push({ path: 'sitemap.xml', error: `Lists ${loc}, a share, set or in-app address` });
+  }
+  return errors;
+};
+
 // The build draws every link-preview picture as a JPEG (scripts/preview-pages.ts, public/og-image.jpg).
 const IMAGE_FORMATS: Record<string, AssetCheck['format']> = { '.jpg': 'jpeg', '.jpeg': 'jpeg' };
 
@@ -228,6 +256,7 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     for (const key of ['og:title', 'og:image', 'twitter:image']) if (!meta.get(key)) fail(file, `Has no ${key}`);
     if (meta.get('twitter:card') !== 'summary_large_image') fail(file, `twitter:card is ${meta.get('twitter:card') ?? 'missing'}, not summary_large_image`);
     const url = meta.get('og:url');
+    if (file === 'index.html' && url === undefined) fail(file, 'Has no og:url');
     if (url !== undefined && url !== pageUrl(site, file)) fail(file, `og:url is ${url}, not ${pageUrl(site, file)}`);
     for (const key of ['og:image', 'twitter:image']) {
       const url = meta.get(key);
@@ -265,6 +294,9 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
   for (const [page, what] of expected) {
     if (!present.has(page)) fail(page, `Missing: the preview page for ${what}`);
   }
+
+  const optional = (file: string) => (present.has(file) ? readFileSync(path.join(outDir, file), 'utf8') : undefined);
+  errors.push(...checkCrawlerFiles(site, optional('robots.txt'), optional('sitemap.xml')));
 
   const headersFile = path.join(outDir, '_headers');
   errors.push(...checkCacheContract(files, base, existsSync(headersFile) ? readFileSync(headersFile, 'utf8') : undefined, sourceNames()));

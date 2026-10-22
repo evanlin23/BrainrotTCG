@@ -4,7 +4,8 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
-import { checkCacheContract, checkFileCount, checkSite, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { checkCacheContract, checkCrawlerFiles, checkFileCount, checkSite, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
 interface Host {
@@ -81,6 +82,8 @@ const build = async (host: Host) => {
   write(`${outDir}assets/font-AbCd1234.woff2`, 'font');
   write(`${outDir}assets/paper-AbCd1234.webp`, 'paper');
   write(`${outDir}og-image.jpg`, JPEG);
+  write(`${outDir}robots.txt`, robotsTxt(site));
+  write(`${outDir}sitemap.xml`, sitemapXml(site));
   const { pages, images } = await writePages(outDir, host);
   const options: SiteCheckOptions = { outDir, base, site, versions: [SET], sets: [SET] };
   return { options, outDir, pages, images };
@@ -100,6 +103,46 @@ describe('metaTags', () => {
       'og:image:width': '1200',
       'og:title': 'A & B',
     });
+  });
+});
+
+describe('checkCrawlerFiles', () => {
+  const site = CLOUDFLARE.site;
+  const sitemap = (...locs: string[]) =>
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locs.map((loc) => `<url><loc>${loc}</loc></url>`).join('\n')}\n</urlset>\n`;
+
+  it('passes the files the build writes', () => {
+    expect(checkCrawlerFiles(site, robotsTxt(site), sitemapXml(site))).toEqual([]);
+  });
+
+  it("fails missing files, or the app's page served in their place", () => {
+    const app = '<!doctype html>\n<html lang="en"><head></head></html>';
+    expect(checkCrawlerFiles(site, undefined, undefined)).toEqual([
+      { path: 'robots.txt', error: 'Missing' },
+      { path: 'sitemap.xml', error: 'Missing' },
+    ]);
+    expect(checkCrawlerFiles(site, app, app)).toEqual([
+      { path: 'robots.txt', error: 'Is an HTML page' },
+      { path: 'sitemap.xml', error: "Isn't a sitemap (an XML urlset)" },
+    ]);
+  });
+
+  it('fails a robots.txt that blocks the site or names another sitemap', () => {
+    expect(checkCrawlerFiles(site, 'User-agent: *\nDisallow: /\n', sitemapXml(site))).toEqual([
+      { path: 'robots.txt', error: `Doesn't name the sitemap at ${site}sitemap.xml` },
+      { path: 'robots.txt', error: 'Blocks the whole site' },
+    ]);
+    expect(checkCrawlerFiles(site, robotsTxt(GITHUB.site), sitemapXml(site))).toEqual([{ path: 'robots.txt', error: `Doesn't name the sitemap at ${site}sitemap.xml` }]);
+  });
+
+  it('fails a sitemap that leaves out the app, or lists another site, share, set or in-app address', () => {
+    expect(checkCrawlerFiles(site, robotsTxt(site), sitemap(GITHUB.site, `${site}p/0123abcd.html`, `${site}s/genesis/`, `${site}#/cards`))).toEqual([
+      { path: 'sitemap.xml', error: `Doesn't list the app at ${site}` },
+      { path: 'sitemap.xml', error: `Lists ${GITHUB.site}, not under SITE_URL ${site}` },
+      { path: 'sitemap.xml', error: `Lists ${site}p/0123abcd.html, a share, set or in-app address` },
+      { path: 'sitemap.xml', error: `Lists ${site}s/genesis/, a share, set or in-app address` },
+      { path: 'sitemap.xml', error: `Lists ${site}#/cards, a share, set or in-app address` },
+    ]);
   });
 });
 
@@ -154,6 +197,19 @@ describe('checkSite', () => {
     expect((await checkSite(options)).errors).toEqual([
       { path: 'index.html', error: `og:url is ${CLOUDFLARE.site}p/, not ${CLOUDFLARE.site}` },
       { path: setPage, error: `og:url is ${CLOUDFLARE.site}, not ${CLOUDFLARE.site}s/${SET.id}/` },
+    ]);
+  });
+
+  it('fails a build whose index.html has no og:url, or that has no robots.txt or sitemap.xml', async () => {
+    const { options, outDir } = await build(CLOUDFLARE);
+    const file = `${outDir}index.html`;
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/\s*<meta property="og:url"[^>]*>/, ''));
+    unlinkSync(`${outDir}robots.txt`);
+    unlinkSync(`${outDir}sitemap.xml`);
+    expect((await checkSite(options)).errors).toEqual([
+      { path: 'index.html', error: 'Has no og:url' },
+      { path: 'robots.txt', error: 'Missing' },
+      { path: 'sitemap.xml', error: 'Missing' },
     ]);
   });
 
