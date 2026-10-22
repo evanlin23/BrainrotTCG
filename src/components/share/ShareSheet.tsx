@@ -93,18 +93,20 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
         )
       }
     >
-      <section className="share-pack-cards" aria-label="Cards in this pack">
-        <h3 className="section-title">Cards in this pack</h3>
-        <p className="share-note">Choose a card to view or share it. The controls above share the whole pack.</p>
-        {/* In the order the pack was revealed, best last, like its summary. */}
-        <PackCardViewer
-          cards={revealOrder(target.cards)}
-          displayMode="grid"
-          showValue={false}
-          canShareCards
-          set={getSet(target.ref.setId, target.ref.setVersion)}
-        />
-      </section>
+      <details className="share-disclosure">
+        <summary>Share an individual card</summary>
+        <section className="share-pack-cards" aria-label="Cards in this pack">
+          <p className="share-note">Choose a card to view or share it. The controls above share the whole pack.</p>
+          {/* In the order the pack was revealed, best last, like its summary. */}
+          <PackCardViewer
+            cards={revealOrder(target.cards)}
+            displayMode="grid"
+            showValue={false}
+            canShareCards
+            set={getSet(target.ref.setId, target.ref.setVersion)}
+          />
+        </section>
+      </details>
       <p className="share-note">
         <ShieldCheck aria-hidden="true" /> Anyone who opens the link or scans the code re-checks this exact pack on their own
         device.
