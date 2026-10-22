@@ -342,12 +342,16 @@
 /* Too narrow for rank, cards, text and score side by side (a phone at 150-200% text): rank and score
    share the top line, the cards sit under them and the hand, player and set get the full width. The card
    strip is a fixed width that doesn't grow with text (102px, or 62px at 420px and under, where the gap and
-   padding also shrink), so it is added to the rem threshold: 18rem + 110px above 420px, 18rem + 40px at or
+   padding also shrink), so it is added to the rem threshold: 18rem + 98px above 420px, 18rem + 40px at or
    below. A single threshold would restack ordinary phones at 100% text (a 390px screen leaves a 358px row,
-   under 18rem + 110px = 398px), which keep today's single compact row. Rows just above 18rem overflowed by
-   15-35px without the strip's share, and 8-digit scores need the room. The two blocks hold the same rules. */
-@media (min-width: 421px) {
-  @container (width < calc(18rem + 110px)) {
+   under 18rem + 98px = 386px), which keep today's single compact row. The 98px keeps 421-432px screens at
+   100% text compact too (the iPhone Pro Max and Plus at 428-430px leave a 394-396px row, a 421px screen
+   387px), while 430px at 125%, 500px at 150% and 650px at 200% still restack. At 360px and 100% text the
+   row is exactly 18rem + 40px (328px), so the strict < leaves it no headroom. Rows just above 18rem
+   overflowed by 15-35px without the strip's share, and 8-digit scores need the room. The two blocks hold
+   the same rules. */
+@media (width > 420px) {
+  @container (width < calc(18rem + 98px)) {
     .hof-entry {
       grid-template-columns: auto minmax(0, 1fr);
       grid-template-areas:
