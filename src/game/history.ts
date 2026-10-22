@@ -6,14 +6,13 @@
  * Stored compactly: thousands of packs fit comfortably in localStorage.
  */
 import { STORAGE_KEYS } from '../constants';
-import { POKER_HANDS, qualifiesForHallOfFame, scorePulled, type Finish, type Rarity } from '../engine';
-import { getCardDefinition, getSet } from '../content/sets';
-import { cardImageUrl } from '../content/art';
+import { POKER_HANDS, qualifiesForHallOfFame, scorePulled, type Finish } from '../engine';
+import { getSet } from '../content/sets';
 import { decodeCard, encodeCard, toPulled, type StoredCard } from './cardCode';
 import { getStoredPack, packStoreVersion } from './packStore';
 import type { OpenedPack } from './pulls';
 import type { CardWithMeta } from '../components/cards/Card';
-import { getCard, toCard, type Card } from '../data/cards';
+import { getCard } from '../data/cards';
 
 export interface HistoryEntry {
   setId: string;
@@ -176,39 +175,21 @@ export const getHistory = (): readonly HistoryEntry[] => {
 
 /** A pack's cards as the app shows them, or null if the history has none for it. */
 export const historyCards = (entry: HistoryEntry): CardWithMeta[] | null => {
-  if (!entry.cards) return null;
   const set = getSet(entry.setId, entry.setVersion);
-  return entry.cards.map((c, i): CardWithMeta => {
-    const versionDef = set?.cards.find((card) => card.id === c.id);
-    const catalogCard = getCard(`${entry.setId}/${c.id}`);
-    const anyDef = versionDef ?? (set ? undefined : getCardDefinition(entry.setId, c.id));
-
-    const baseCard: Card =
-      catalogCard ??
-      (anyDef
-        ? toCard(entry.setId, anyDef)
-        : {
-            key: `${entry.setId}/${c.id}`,
-            setId: entry.setId,
-            id: c.id,
-            name: c.id,
-            rarity: versionDef?.rarity ?? 'COMMON',
-            image: cardImageUrl(entry.setId, c.id),
-          });
-
-    const rarity: Rarity = versionDef?.rarity ?? baseCard.rarity;
-
-    const meta: CardWithMeta = {
-      ...baseCard,
-      rarity,
-      uniqueId: i,
-      isRevealed: true,
-      isHolo: c.holo,
-    };
-    if (c.finish) meta.finish = c.finish;
-    if (c.misprint) meta.misprint = true;
-    return meta;
-  });
+  return (
+    entry.cards
+      ?.map((c, i): CardWithMeta | null => {
+        const card = getCard(`${entry.setId}/${c.id}`);
+        // The rarity it was pulled at (#701); a set version this build doesn't know has none to give.
+        const rarity = set?.cards.find((d) => d.id === c.id)?.rarity;
+        if (!card || !rarity) return null;
+        const meta: CardWithMeta = { ...card, rarity, uniqueId: i, isRevealed: true, isHolo: c.holo };
+        if (c.finish) meta.finish = c.finish;
+        if (c.misprint) meta.misprint = true;
+        return meta;
+      })
+      .filter((c): c is CardWithMeta => c !== null) ?? null
+  );
 };
 
 /** Good enough for the Hall of Fame (the same rule as its Submit button). */

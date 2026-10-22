@@ -1,7 +1,7 @@
 /**
  * Opening packs and turning them into shareable, verifiable pull proofs.
  */
-import { getCard, scoreCards, toCard, type Card } from '../data/cards';
+import { getCard, scoreCards, type Card } from '../data/cards';
 import {
   encodeProof,
   generatePack,
@@ -15,12 +15,11 @@ import {
   type SetDefinition,
   type VerifiedPull,
 } from '../engine';
-import { ALL_SET_VERSIONS, getCardDefinition, getSet } from '../content/sets';
-import { cardImageUrl } from '../content/art';
+import { ALL_SET_VERSIONS, getSet } from '../content/sets';
 import { claimNonce, getPlayer, peekNonce } from './player';
 import { recordPack, recordTicket } from './history';
 import { recordBestCards } from './bestCards';
-import { decodeCard, encodeCard, modifiersFor, toPulled } from './cardCode';
+import { decodeCard, encodeCard, toPulled } from './cardCode';
 import { STORAGE_KEYS } from '../constants';
 import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADLINE_TOKENS, previewOf, previewPath, type ModifiedCard } from './previewLinks';
 import { revealOrder } from './reveal';
@@ -61,47 +60,17 @@ export type PulledCardLike = {
   misprint?: boolean;
 };
 
-export const toCardsWithMeta = (
-  pulled: readonly PulledCardLike[],
-  setVersion?: number | SetDefinition,
-): CardWithMeta[] => {
-  const setDef =
-    typeof setVersion === 'object'
-      ? setVersion
-      : typeof setVersion === 'number' && pulled[0]
-      ? getSet(pulled[0].setId, setVersion)
-      : undefined;
-
-  return pulled.map((p) => {
-    const versionDef = setDef?.cards.find((c) => c.id === p.cardId);
-    const catalogCard = getCard(`${p.setId}/${p.cardId}`);
-    const anyDef = versionDef ?? (setDef ? undefined : getCardDefinition(p.setId, p.cardId));
-
-    const baseCard: Card =
-      catalogCard ??
-      (anyDef
-        ? toCard(p.setId, anyDef)
-        : {
-            key: `${p.setId}/${p.cardId}`,
-            setId: p.setId,
-            id: p.cardId,
-            name: p.cardId,
-            rarity: p.rarity ?? 'COMMON',
-            image: cardImageUrl(p.setId, p.cardId),
-          });
-
-    const rarity: Rarity = p.rarity ?? versionDef?.rarity ?? baseCard.rarity;
-
-    return {
-      ...baseCard,
-      rarity,
-      uniqueId: Math.random(),
-      isRevealed: false,
-      isHolo: p.isHolo,
-      ...(p.finish !== undefined ? { finish: p.finish, misprint: !!p.misprint } : {}),
-    };
+/**
+ * Cards as the app shows them, at the rarity they were pulled at: a later version of their set may
+ * change it (#701). Throws for a card this build doesn't know, or one not in the given set version.
+ */
+export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefinition): CardWithMeta[] =>
+  pulled.map((p) => {
+    const card: Card | undefined = getCard(`${p.setId}/${p.cardId}`);
+    const rarity = p.rarity ?? (set ? set.cards.find((c) => c.id === p.cardId)?.rarity : card?.rarity);
+    if (!card || !rarity) throw new Error(`Unknown card ${p.setId}/${p.cardId}`);
+    return { ...card, rarity, uniqueId: Math.random(), isRevealed: false, isHolo: p.isHolo, ...(p.finish !== undefined ? { finish: p.finish, misprint: !!p.misprint } : {}) };
   });
-};
 
 /** Mine the next pack's ticket in the background. */
 export const prefetchNextPack = (set: SetDefinition) => {
@@ -468,16 +437,8 @@ export const takePendingPacks = (): OpenedPack[] => {
     const set = getSet(pending.s, pending.v);
     if (!set) continue;
     try {
-      const stored = pending.c.split(',').map(decodeCard);
-      const pulled =
-        toPulled(stored, set) ??
-        stored.map((c) => ({
-          setId: set.id,
-          cardId: c.id,
-          rarity: set.cards.find((card) => card.id === c.id)?.rarity,
-          isHolo: c.holo,
-          ...modifiersFor(c, set.modifiers === 1),
-        }));
+      const pulled = toPulled(pending.c.split(',').map(decodeCard), set);
+      if (!pulled) continue; // A card its set version doesn't have: the history still has the pack.
       const cards = toCardsWithMeta(pulled, set).map((c) => ({ ...c, isRevealed: true }));
       const flags = { ...(pending.d === 1 ? { counted: true } : {}), ...(legacy.includes(pending) ? { legacy: true } : {}) };
       packs.push({ setId: set.id, setVersion: set.version, nonce: pending.n, publicKeyHex: pending.k, cards, score: scoreCards(cards), openedAt: pending.t, ...flags });

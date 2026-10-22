@@ -171,6 +171,18 @@ describe('pending pack when storage refuses to remove it', () => {
 describe('a pack put back on the shelf', () => {
   beforeEach(reset);
 
+  it("skips a pack with a card its set version doesn't have instead of making one up", () => {
+    // Validate before writing: no placeholder card reaches the collection or the history (#701).
+    const v1Only = getSet('right-now', 1)!.cards.find((c) => !SET.cards.some((d) => d.id === c.id));
+    for (const id of ['not-a-card', ...(v1Only ? [v1Only.id] : [])]) {
+      const codes = JSON.parse(PENDING).c.split(',');
+      codes[2] = encodeCard({ id, holo: false });
+      put(mine(4), mine(5, { c: codes.join(',') }));
+      expect(takePendingPacks().map((p) => p.nonce)).toEqual([4]);
+      reset();
+    }
+  });
+
   it('counts an entry saved before the flag existed, once', () => {
     data.set(LEGACY, PENDING);
     expect(takePendingPacks()[0].counted).toBeUndefined();
