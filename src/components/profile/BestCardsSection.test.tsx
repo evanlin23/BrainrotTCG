@@ -292,6 +292,48 @@ describe('winners an older save never scored', () => {
     expect(document.activeElement).toBe(rows()[0]);
   });
 
+  it('leaves focus alone when the player moved elsewhere while the retry was running', async () => {
+    unscored();
+    derive.failing.add(0);
+    await act(async () => render());
+    const elsewhere = document.body.appendChild(document.createElement('button'));
+    try {
+      retryButton()!.focus();
+      derive.failing.clear();
+      const impl = rebuild.getMockImplementation()!;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      rebuild.mockImplementationOnce(async (...args: Parameters<typeof impl>) => {
+        await gate;
+        return impl(...args);
+      });
+      await act(async () => retryButton()!.click());
+      elsewhere.focus();
+      await act(async () => release());
+      expect(rows().length).toBeGreaterThan(0);
+      expect(retryButton()).toBeUndefined();
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
+  });
+
+  it('does not take focus for a later rebuild when the retry itself started none', async () => {
+    unscored();
+    derive.failing.add(0);
+    await act(async () => render());
+    retryButton()!.focus();
+    // The packs are no longer read in, so Try again starts nothing.
+    render({ cacheReady: false });
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    derive.failing.clear();
+    await act(async () => root.render(<BestCardsSection refreshKey="a" cacheReady />));
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rows().length).toBeGreaterThan(0);
+    expect(rows()).not.toContain(document.activeElement);
+  });
+
   it('keeps focus on Try again when the retry fails too', async () => {
     unscored();
     derive.failing.add(0);

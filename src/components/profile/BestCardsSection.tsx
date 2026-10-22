@@ -63,8 +63,8 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   const opener = useRef<HTMLButtonElement | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
-  /** Try again was pressed and its outcome isn't in yet. */
-  const retried = useRef(false);
+  /** Try again was pressed: 'asked' until its rebuild starts, 'running' until that rebuild settles. */
+  const retried = useRef<'asked' | 'running' | null>(null);
 
   // The viewer hands focus back to whatever had it, but Safari doesn't focus a button on click: land on the row regardless.
   // That is script focus, so the row is .quiet-focus: no ring after a press or click, the ring back after Escape or Tab (base.css, #312).
@@ -91,10 +91,15 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   // Winners this build can't score yet (their cached card is gone) are re-derived from their tickets, once per key
   // (and once more each time the player asks to try again, never on its own).
   useEffect(() => {
-    if (!cacheReady || !list.cards.some((c) => !c.card)) return;
+    // A retry that starts no rebuild has no outcome to move focus for.
+    const skip = () => {
+      if (retried.current === 'asked') retried.current = null;
+    };
+    if (!cacheReady || !list.cards.some((c) => !c.card)) return skip();
     const { player, nextNonce } = getPlayerTickets();
-    if (rebuilt.current.has(player.publicKeyHex)) return;
+    if (rebuilt.current.has(player.publicKeyHex)) return skip();
     rebuilt.current.add(player.publicKeyHex);
+    if (retried.current === 'asked') retried.current = 'running';
     setRebuilding(true);
     void rebuildBestCards(player.publicKeyHex, nextNonce)
       .then(({ cards, complete, unsaved, failed }) => {
@@ -114,7 +119,7 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   const retry = () => {
     if (rebuilding) return;
     rebuilt.current.delete(getPlayerTickets().player.publicKeyHex);
-    retried.current = true;
+    retried.current = 'asked';
     setAttempt((n) => n + 1);
   };
 
@@ -124,9 +129,13 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   const lost = unavailable && list.cards.some((c) => !c.card);
   // A retry that settles it removes the status and its button, which had focus: land on the first row, else the heading.
   useEffect(() => {
-    if (rebuilding || !retried.current) return;
-    retried.current = false;
+    if (rebuilding || retried.current !== 'running') return;
+    retried.current = null;
     if (lost) return;
+    // Only if focus was left behind (on the vanished button, so on the page) or is still in the section:
+    // a player who moved on meanwhile keeps their place.
+    const active = document.activeElement;
+    if (active && active !== document.body && !sectionRef.current?.contains(active)) return;
     (sectionRef.current?.querySelector<HTMLElement>('.best-card-row') ?? titleRef.current)?.focus({ preventScroll: true });
   }, [rebuilding, lost]);
 
