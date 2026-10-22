@@ -313,7 +313,7 @@ const SliderRow = ({ label, desc, value, onChange, onRelease }: { label: string;
     const text = percent === 0 ? 'Off' : `${percent}%`;
     const release = (e: React.SyntheticEvent<HTMLInputElement>) => onRelease?.(Number(e.currentTarget.value) / 100);
     return (
-        <div className="settings-row">
+        <div className="settings-row settings-row--slider">
             <span className="settings-text">
                 <label className="settings-label" htmlFor={id}>{label}</label>
                 <span className="settings-desc" id={`${id}-desc`}>{desc}</span>

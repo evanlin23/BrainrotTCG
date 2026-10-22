@@ -6,6 +6,7 @@ import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack } from '../../game/pulls';
+import { StaleSaveError } from '../../game/player';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 import { REFUSAL_COPY } from './refusal';
@@ -51,9 +52,11 @@ const countPopstate = () => {
   popstated();
 };
 
+/** The save the tab loaded, which every tear binds its claim to. */
+const MOUNTED_SAVE = { key: 'ab'.repeat(32), stored: true, stamp: null };
 const render = (disabled: boolean, openBlocked = false, settings = DEFAULT_SETTINGS) =>
   act(() => root.render(
-    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} />,
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={settings} disabled={disabled} openBlocked={openBlocked} mountedSave={MOUNTED_SAVE} />,
   ));
 
 beforeEach(() => {
@@ -191,7 +194,7 @@ describe('the controls under the pack (#312)', () => {
 
     await pastTheTear();
     expect(openPack).toHaveBeenCalledOnce();
-    expect(openPack).toHaveBeenCalledWith(SETS[0]);
+    expect(openPack).toHaveBeenCalledWith(SETS[0], MOUNTED_SAVE);
   });
 
   it('says why a refused ticket opened nothing, and Try again asks for it again', async () => {
@@ -218,6 +221,20 @@ describe('the controls under the pack (#312)', () => {
     expect(document.activeElement).toBe(openButton());
     await pastTheTear();
     expect(openPack).toHaveBeenCalledTimes(2);
+  });
+
+  it('says the save changed and stays sealed when openPack rejects with StaleSaveError', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(openPack).mockRejectedValueOnce(new StaleSaveError());
+    await render(false);
+    openButton()!.focus();
+    act(() => openButton()!.click());
+    await pastTheTear();
+
+    expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
+    expect(announced()).toBe(REFUSAL_COPY.blocked.message);
+    expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    await act(async () => { vi.advanceTimersByTime(100); });
   });
 
   it('keeps the pack sealed while another tab holds the save, and says so instead of tearing it', async () => {
