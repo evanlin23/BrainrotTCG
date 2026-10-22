@@ -179,6 +179,28 @@ describe('KeptAsideActions', () => {
     expect(anchorClick).not.toHaveBeenCalled();
     expect(onGone).toHaveBeenCalledOnce();
   });
+
+  it('shows failure note and keeps controls reachable when storage read is denied on Download, succeeding on retry', async () => {
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const getItem = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => {
+      if (key === STORAGE_KEYS.COLLECTION_RECOVERY) throw new DOMException('Controlled storage read denial', 'SecurityError');
+      return getItem.call(localStorage, key);
+    });
+
+    await click('Download');
+    expect(anchorClick).not.toHaveBeenCalled();
+    expect(onGone).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Couldn't read browser storage to download your recovery file.");
+    expect(labels()).toEqual(['Download', 'Discard']);
+
+    // Restore access
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(getItem);
+    await click('Download');
+    expect(anchorClick).toHaveBeenCalledOnce();
+    expect(onGone).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Couldn't read browser storage to download your recovery file.");
+  });
 });
 
 describe('KeptAsideActions leaving with focus inside', () => {

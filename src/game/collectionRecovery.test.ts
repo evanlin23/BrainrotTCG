@@ -4,7 +4,7 @@ import { ALL_CARDS } from '../data/cards';
 import { hydrateCollection } from '../utils/migrations';
 import {
   ARCHIVE_BUDGET, COLLECTION_RECOVERY_NOTES, collectionRecoveryDismissed, collectionRecoveryFile, collectionRecoveryNote,
-  collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, hasCollectionRecovery,
+  collectionRecoveryPrint, collectionRecoveryState, discardCollectionRecovery, dismissCollectionRecovery, downloadCollectionRecovery, hasCollectionRecovery,
   persistCollection,
 } from './collectionRecovery';
 
@@ -241,6 +241,33 @@ describe('downloading and discarding kept-aside data', () => {
     const data = seed(null);
     data.set(ARCHIVE, '{broken');
     expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw: '{broken', player: null, kind: 'unparseable-archive' });
+  });
+
+  it('distinguishes unavailable archive from missing archive when storage reads are denied', () => {
+    const data = seed(null);
+    data.set(ARCHIVE, JSON.stringify({ raw: '{"kept":1}', player: null }));
+    expect(collectionRecoveryState()).toBe('stored');
+
+    const getItem = localStorage.getItem;
+    vi.spyOn(localStorage, 'getItem').mockImplementation((key: string) => {
+      if (key === ARCHIVE) throw new DOMException('Storage read denied', 'SecurityError');
+      return getItem(key);
+    });
+
+    // Does NOT claim the archive is gone ('none')
+    expect(collectionRecoveryState()).toBe('unavailable');
+    expect(hasCollectionRecovery()).toBe(false);
+    expect(collectionRecoveryNote()).toBe(COLLECTION_RECOVERY_NOTES.unavailable);
+
+    // collectionRecoveryFile throws instead of generating a partial file or returning null
+    expect(() => collectionRecoveryFile()).toThrow('Storage read denied');
+
+    // downloadCollectionRecovery reports 'unavailable'
+    expect(downloadCollectionRecovery()).toBe('unavailable');
+
+    // Restore access: download succeeds
+    vi.spyOn(localStorage, 'getItem').mockImplementation(getItem);
+    expect(downloadCollectionRecovery()).toBe('downloaded');
   });
 
   it('discards the stored archive, its hidden-note fingerprint and the unsaved payloads', () => {
