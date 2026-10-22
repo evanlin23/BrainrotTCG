@@ -121,11 +121,13 @@
   list-style: none;
 }
 
+/* Name, era and count share a line while they fit and wrap onto the next (never off the right edge)
+   when the player's text size or a long name leaves no room. */
 .collection-later li {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-3);
+  column-gap: var(--space-3);
   padding: var(--space-2) 0;
 }
 
@@ -134,6 +136,9 @@
 }
 
 .collection-later-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 600;
 }
 

@@ -3,6 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SETS } from '../../content/sets';
+import { getCard } from '../../data/cards';
+import type { CollectionItem } from '../../types';
 import SetPicker from './SetPicker';
 
 const copyText = vi.hoisted(() => vi.fn(async (value: string) => value.length > 0));
@@ -96,5 +98,22 @@ describe('SetPicker set link', () => {
     render([...released, draft], draft.id);
     openShelf();
     expect(copyButton()).toBeUndefined();
+  });
+
+  it('excludes zero-copy records from set progress', () => {
+    const zeroCollection: Record<string, CollectionItem> = Object.fromEntries(
+      set.cards.map((c) => {
+        const key = `${set.id}/${c.id}`;
+        return [key, { card: getCard(key)!, normalCount: 0, holoCount: 0 } satisfies CollectionItem];
+      }),
+    );
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<SetPicker sets={released} selectedId={set.id} onSelect={() => {}} collection={zeroCollection} />));
+    openShelf();
+    const activeTile = document.querySelector('.pack-tile.selected')!;
+    expect(activeTile.querySelector('.pack-tile-progress')?.textContent).toContain(`0/${set.cards.length}`);
+    expect(activeTile.querySelector('.set-badge')).toBeNull();
   });
 });

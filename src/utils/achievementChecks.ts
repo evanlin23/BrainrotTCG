@@ -6,6 +6,7 @@ import { isOpenable, SETS } from '../content/sets';
 import { setCompleteId, setMasterId } from '../data/achievements';
 import { POKER_HANDS } from '../engine';
 import { historyCards, type HistoryEntry } from '../game/history';
+import { isCardOwned } from '../game/versions';
 
 type AchievementMap = Record<string, AchievementData | number>;
 
@@ -51,7 +52,7 @@ export const getCollectedByRarity = (collection: Record<string, CollectionItem>)
   };
   // Only released sets count toward completion (draft-set cards are previews).
   COLLECTIBLE_CARDS.forEach(card => {
-    if (collection[card.key]) result[card.rarity].push(card.key);
+    if (isCardOwned(collection[card.key])) result[card.rarity].push(card.key);
   });
   return result;
 };
@@ -90,6 +91,7 @@ export const getMaxCopiesOfCard = (collection: Record<string, CollectionItem>): 
  */
 export const getAccountValue = (collection: Record<string, CollectionItem>): number => {
   return Object.values(collection).reduce((sum, item) => {
+    if (!isCardOwned(item)) return sum;
     const normalCount = item.count ?? item.normalCount ?? 0;
     const points = cardPoints(item.card.rarity, false);
     const holoValue = cardPoints(item.card.rarity, true);
@@ -128,10 +130,10 @@ export const checkCollectionAchievements = (
   const newAchievements: string[] = [];
 
   // Collection size milestones
-  const uniqueCards = Object.keys(collection).length;
+  const uniqueCards = Object.values(collection).filter(isCardOwned).length;
   if (uniqueCards >= 5) addIfNew(newAchievements, 'collect_5', achievements);
   if (uniqueCards >= 10) addIfNew(newAchievements, 'collect_10', achievements);
-  if (COLLECTIBLE_CARDS.every(card => collection[card.key])) {
+  if (COLLECTIBLE_CARDS.every(card => isCardOwned(collection[card.key]))) {
     addIfNew(newAchievements, 'complete_collection', achievements);
   }
 
@@ -147,7 +149,7 @@ export const checkCollectionAchievements = (
   if (holoCount > 0) addIfNew(newAchievements, 'first_holo', achievements);
 
   // Rarity discoveries based on collection
-  const collectedRarities = new Set(Object.values(collection).map(item => item.card.rarity));
+  const collectedRarities = new Set(Object.values(collection).filter(isCardOwned).map(item => item.card.rarity));
   if (collectedRarities.has('COMMON')) addIfNew(newAchievements, 'first_common', achievements);
   if (collectedRarities.has('UNCOMMON')) addIfNew(newAchievements, 'first_uncommon', achievements);
   if (collectedRarities.has('RARE')) addIfNew(newAchievements, 'first_rare', achievements);
@@ -203,7 +205,7 @@ export const checkCollectionAchievements = (
   // Each openable set: every card, then every card as a holo
   for (const set of SETS.filter(isOpenable)) {
     const keys = set.cards.map((c) => `${set.id}/${c.id}`);
-    if (keys.every((key) => collection[key])) addIfNew(newAchievements, setCompleteId(set.id), achievements);
+    if (keys.every((key) => isCardOwned(collection[key]))) addIfNew(newAchievements, setCompleteId(set.id), achievements);
     if (keys.every((key) => (collection[key]?.holoCount ?? 0) > 0)) addIfNew(newAchievements, setMasterId(set.id), achievements);
   }
 

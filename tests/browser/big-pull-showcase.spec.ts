@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { TOAST_MS } from '../../src/constants/config';
 import { monitor } from './support';
 
 /**
@@ -134,7 +135,7 @@ test('shows a big pull with its ribbon clear of the card, and holds notices unti
   expect(heldIndex, 'no notice was up when the skip began').toBeLessThan(before.length);
   const held = recorded[heldIndex];
   // A notice still on its own time was held; one already timing out may have left first.
-  const stillUp = recorded[heldIndex + 1].at - held.at < 2900;
+  const stillUp = recorded[heldIndex + 1].at - held.at < TOAST_MS - 100;
   await expect.poll(async () => (await frames()).slice(end + 1).find((f) => f.toast)?.toast ?? null, { timeout: 5000 })
     .toEqual(stillUp ? held.toast : expect.any(String));
   expect(errors).toEqual([]);

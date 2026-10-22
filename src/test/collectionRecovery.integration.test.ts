@@ -99,6 +99,8 @@ it('keeps unreadable collection entries through pack writes and offers them to d
 
   // One note in the banner, with its actions; then in Save & backup while the banner steps aside.
   expect(warnings()).toEqual([expect.stringMatching(/Unreadable collection data was kept aside in this browser\. Download a copy, or discard it/)]);
+  expect(warnings()[0]).toContain('secret player key');
+  expect(warnings()[0]).toContain('Keep the file private and never attach it to a public bug report.');
   expect(warnings()[0]).not.toMatch(/couldn't be saved/);
   expect(button('Download')).toBeDefined();
   expect(button('Discard')).toBeDefined();
@@ -108,6 +110,8 @@ it('keeps unreadable collection entries through pack writes and offers them to d
   expect(button('Export')).toBeDefined();
   expect(warnings()).toEqual([]);
   expect(keptAside()).toMatch(/Kept-aside data[\s\S]*kept aside in this browser/);
+  expect(keptAside()).toContain('secret player key');
+  expect(keptAside()).toContain('Keep the file private and never attach it to a public bug report.');
   expect(button('Download')).toBeDefined();
   expect(button('Discard')).toBeDefined();
   await app.interact(() => button('Close Settings').click());
@@ -137,6 +141,8 @@ it('saves the collection, and keeps the unreadable entries in this tab to downlo
   expect(localStorage.getItem(STORAGE_KEYS.COLLECTION_RECOVERY)).toBeNull();
   expect(app.takeErrors(/kept in this tab only/)).toEqual([expect.stringContaining('QuotaExceededError')]);
   expect(warnings()).toEqual([expect.stringMatching(/no room to store it, so it lasts only until this tab closes or reloads\. Download it now/)]);
+  expect(warnings()[0]).toContain('secret player key');
+  expect(warnings()[0]).toContain('Keep the file private and never attach it to a public bug report.');
   expect(warnings()[0]).not.toMatch(/couldn't be saved/);
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!).packsOpened).toBe(1);
 

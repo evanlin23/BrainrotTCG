@@ -123,6 +123,17 @@
   padding: 0 var(--space-4);
 }
 
+@media (max-width: 899px) and (max-height: 520px) {
+  /* The app scrolls here (index.css); the guide stays in view just above the tab bar. */
+  .card-guide-entry {
+    position: sticky;
+    bottom: calc(var(--nav-height) + 1px + var(--safe-bottom));
+    /* Level with the set picker, which it follows, so it paints over the picker it can overlap. */
+    z-index: 3;
+    background: var(--bg);
+  }
+}
+
 /* ---- Scoring guide (inside a Sheet) ---- */
 
 .scoring-formula {
