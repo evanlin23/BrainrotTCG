@@ -1,8 +1,12 @@
 // Offline contracts for the workflows that touch the Hall of Fame and the ones a fork pull request
 // can start. Read as text (there's no YAML parser here), so this only covers the shape these files
-// already have: two-space indents, block-style `permissions`, one job per `  name:` line.
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+// already have: two-space indents, block-style `permissions`, one job per `  name:` line. One step's
+// shell also runs here, against a fake `gh`.
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const read = (name: string) => readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
 
@@ -121,6 +125,53 @@ describe('Hall of Fame workflows (offline contracts)', () => {
     expect(verify).toContain('REJECTED: ${{ steps.check.outputs.rejected }}');
     expect(verify).toContain('if [ "$REJECTED" = "true" ]; then gh issue edit "$ISSUE" --add-label rejected; fi');
     expect(verify).not.toContain('--remove-label rejected');
+  });
+
+  describe('the issue workflow\'s "Comment and label" step, run under bash -e with a fake gh', () => {
+    /** The step's shell, dedented, as the runner writes it to a script file. */
+    const script = () => {
+      const run = runCommands(jobs(read('hall-of-fame.yml')).verify.join('\n')).find((r) => r.includes('gh issue comment'));
+      expect(run, 'Comment and label step').toBeDefined();
+      const lines = run!.split('\n').slice(1);
+      const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.search(/\S/)));
+      return lines.map((l) => l.slice(indent)).join('\n');
+    };
+    // Logs every call; like the real gh, refuses a comment with an empty body.
+    const FAKE_GH = `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_LOG"
+if [ "$1 $2" = "issue comment" ]; then
+  file=""
+  while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && file="$2"; shift; done
+  [ -s "$file" ] || { echo "body cannot be blank" >&2; exit 1; }
+fi
+`;
+    let dir: string;
+    beforeEach(() => {
+      dir = mkdtempSync(path.join(os.tmpdir(), 'hof-step-'));
+      mkdirSync(path.join(dir, 'bin'));
+      writeFileSync(path.join(dir, 'bin', 'gh'), FAKE_GH, { mode: 0o755 });
+      writeFileSync(path.join(dir, 'step.sh'), script());
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    /** Runs the step as Actions does (`bash --noprofile --norc -eo pipefail`); returns its `gh issue` calls. */
+    const runStep = (comment: string) => {
+      writeFileSync(path.join(dir, 'hof-comment.md'), comment);
+      const log = path.join(dir, 'gh.log');
+      const env = { PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, ISSUE: '7', VERIFIED: 'true', LABEL: 'verified', REJECTED: 'false' };
+      const ran = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
+      expect(ran.status, ran.stderr).toBe(0);
+      return readFileSync(log, 'utf8').trim().split('\n').filter((l) => l.startsWith('issue '));
+    };
+    const LABELLED = ['issue edit 7 --add-label hall-of-fame,verified', 'issue edit 7 --remove-label not-verified', 'issue edit 7 --remove-label daily', 'issue close 7 --reason completed'];
+
+    it('repairs the labels of an already-commented pull without commenting again (#650)', () => {
+      expect(runStep('')).toEqual(LABELLED);
+    });
+
+    it('comments, then labels, a new verification', () => {
+      expect(runStep('**Verified!**')).toEqual(['issue comment 7 --body-file hof-comment.md', ...LABELLED]);
+    });
   });
 
   it('the issue workflow only runs on Hall of Fame issues', () => {

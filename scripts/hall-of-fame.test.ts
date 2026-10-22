@@ -469,6 +469,52 @@ describe('verify-issue (issue workflow)', () => {
     expect(completedResult.outputs).toEqual({ verified: 'true', changed: 'false', label: 'verified', rejected: 'false' });
   });
 
+  describe('repairing the labels of a pull already verified on the issue (#650)', () => {
+    // First verified late on the 16th, when that day's top had room; retried on the 17th.
+    const markedAt = '2026-10-16T23:50:00Z';
+    const marked = { 7: [comment(BOT, marker(fourOfAKind), markedAt)] };
+    const seventeenthFull = dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP).filter((e) => e.id.startsWith('today-')).map((e) => ({ ...e, id: `17-${e.id}` }));
+    beforeEach(() => clockAt('2026-10-17T12:00:00Z'));
+    const REPAIR = { verified: 'true', changed: 'true', label: 'daily', rejected: 'false' };
+
+    it('labels it by the day it was first verified, not by today', async () => {
+      const gh = fakeGitHub({ issues: [], comments: marked, published: [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1), ...seventeenthFull] });
+      const result = await run(link(fourOfAKind));
+      expect(result.outputs).toEqual(REPAIR);
+      expect(result.comment).toBe('');
+      expect(gh.writes()).toEqual([]);
+    });
+
+    it("isn't turned down if that day's top has filled since, and is labelled daily rather than made permanent", async () => {
+      const gh = fakeGitHub({ issues: [], comments: marked, published: [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP), ...seventeenthFull] });
+      const result = await run(link(fourOfAKind));
+      expect(result.outputs).toEqual(REPAIR);
+      expect(result.comment).toBe('');
+      expect(gh.writes()).toEqual([]);
+    });
+
+    it("stays daily while another issue carries it under daily, without looking that issue up", async () => {
+      const other = issue(5, fourOfAKind, { labels: ['hall-of-fame', 'daily'], updated: '2026-10-16T09:00:00Z' });
+      const gh = fakeGitHub({ issues: [other], comments: marked, published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1) });
+      const result = await run(link(fourOfAKind));
+      expect(result.outputs).toEqual(REPAIR);
+      expect(result.comment).toBe('');
+      expect(gh.requests.some((r) => r.path === '/issues')).toBe(false);
+    });
+
+    it('labels it again after an edit away and back, or after `verified` was taken off by hand, with no new comment', async () => {
+      // Intended: any edit to an issue with the marker restores the label; the owner keeps an issue out with `rejected`.
+      const allTime = { 7: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] };
+      const gh = fakeGitHub({ issues: [], comments: allTime, published: [] });
+      for (const labels of [['hall-of-fame', 'not-verified'], ['hall-of-fame']]) {
+        const result = await run(link(fourOfAKind), labels);
+        expect(result.outputs, labels.join()).toEqual({ ...REPAIR, label: 'verified' });
+        expect(result.comment).toBe('');
+      }
+      expect(gh.writes()).toEqual([]);
+    });
+  });
+
   it("turns down a missing link, a forged pull, one that doesn't qualify, and one that wouldn't join", async () => {
     const pull = await verifyProof(fourOfAKind, getSet);
     const gh = fakeGitHub({ issues: [], published: [{ id: idOf(fourOfAKind), setId: pull.set.id, score: pull.score }] });
