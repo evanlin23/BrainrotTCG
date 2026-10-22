@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { checkPull, previewFor, pullUrl, UnknownCardError, type CheckedPull } from '../../game/pulls';
 import { isMemoryError, OUT_OF_MEMORY_ADVICE } from '../../game/ticketPool';
-import { ANONYMOUS_NAME, NAME_PLACEHOLDER, ProofError, publicName, type SetDefinition } from '../../engine';
+import { ProofError, publicName, visitorName, type SetDefinition } from '../../engine';
 import { setCode } from '../../content/sets';
 import PackCardViewer from '../ui/PackCardViewer';
 import Sheet from '../ui/Sheet';
@@ -163,8 +163,7 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
 
   const { pull } = state;
   // The sharer's name comes from the verified proof only; blank or blocked names read as "Someone".
-  const sharer = publicName(pull.proof.name);
-  const who = sharer === ANONYMOUS_NAME || sharer === NAME_PLACEHOLDER ? 'Someone' : sharer;
+  const who = visitorName(pull.proof.name);
   // Chase the same set when it can be opened as it was pulled; otherwise the usual packs screen.
   const chase = onOpenSet && canOpenSet?.(pull.set) ? () => onOpenSet(pull.set.id) : undefined;
   // The title names the combo once; a pull with none stays "A pull" and its body says No Matches.

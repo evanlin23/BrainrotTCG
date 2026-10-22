@@ -206,8 +206,8 @@ changes what verifies: `isNameAllowed` (`src/engine/nameFilter.ts`) only decides
 published and shown. Settings rename and save import refuse a blocked name. The relay inbox skips a
 blocked-name pull before verifying it (no budget spent), `verify-issue` refuses one and labels its
 issue `rejected`, the build leaves `rejected` issues and blocked names out, and the page's pending
-check skips them. Other players' names show through `publicName`: a blocked one reads "Player"
-beside the key fingerprint in Rankings, shared pull links and shared profiles.
+check skips them. Other players' names show through `visitorName` (`publicName`, with a blank or blocked one
+read as "Someone"), beside the key fingerprint in Rankings, shared pull links and shared profiles.
 
 - Removal, including a reported name the check missed: the owner adds the `rejected` label to the
   entry's issue and the next deploy leaves it out. The workflows never take that label off, and the

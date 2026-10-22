@@ -151,6 +151,14 @@ results rules below (#339).
   the score panel is the one score line (9,850, then "Brainrot Score · 4,925 pts × 2"), and the
   fingerprint is only on the "Cert" strip, not the subtitle. A pull with no combo keeps its "No
   Matches ×1" headline under the title "A pull". Other pack viewers are untitled and unchanged.
+- #1003: pages a cold visitor lands on speak to someone who didn't make the pack. An unnamed
+  (blank or blocked) player is "Someone" on the shared-pull sheet, the shared profile and every
+  Hall of Fame row (`visitorName()` in `nameFilter.ts`). The ranked list gets no "#2"-style suffix:
+  each row already carries the key fingerprint ("Someone #abcd"), which tells two unnamed players
+  apart and is what a named row shows too. The profile's check line reads "This profile checks out:
+  every pack re-opened in your browser", and its in-progress and interrupted lines say "in your
+  browser" too: it says what was checked and where, never whose device made the packs, so one
+  line is true for the owner and a guest alike without a branch on who is looking.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
   44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
   the tap path.

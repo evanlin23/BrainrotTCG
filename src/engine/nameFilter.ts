@@ -28,6 +28,8 @@ import { normalizeName } from './identity';
 export const NAME_PLACEHOLDER = 'Player';
 /** What other players see for a blank name. */
 export const ANONYMOUS_NAME = 'Anonymous';
+/** What a visitor reading someone else's pull, profile or ranking row sees for a blank or blocked name. */
+export const SOMEONE_NAME = 'Someone';
 
 /** Words blocked anywhere inside a word. */
 const STRONG = [
@@ -207,4 +209,13 @@ export const publicName = (name: string): string => {
   const clean = normalizeName(name);
   if (!clean) return ANONYMOUS_NAME;
   return isNameAllowed(clean) ? clean : NAME_PLACEHOLDER;
+};
+
+/**
+ * The name a visitor sees for another player on shared pages (pulls, profiles, the Hall of Fame): the
+ * public name, except that a blank or blocked one reads SOMEONE_NAME. Display only.
+ */
+export const visitorName = (name: string): string => {
+  const shown = publicName(name);
+  return shown === ANONYMOUS_NAME || shown === NAME_PLACEHOLDER ? SOMEONE_NAME : shown;
 };
