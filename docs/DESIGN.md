@@ -217,7 +217,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   opens the era you open packs from (else the newest started one), then the other started eras newest
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
-- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss.
+- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss after 8 s (10 s for a grouped toast); hovering or focusing
+  a toast holds it, and it gets its full time again when the pointer or focus leaves.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload

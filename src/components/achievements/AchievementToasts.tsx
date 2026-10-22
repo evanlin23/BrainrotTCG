@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Award, ChevronsUp, Layers } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
+import { GROUPED_TOAST_MS, TOAST_MS } from '../../constants/config';
 import '../../styles/Toasts.css';
 
 /** An achievement, or (with a kicker) something else worth a toast, like a level-up. */
@@ -37,11 +38,10 @@ interface AchievementToastsProps {
 const GROUP_AT = 3;
 
 /**
- * How long a toast stays up (WCAG 2.2.1: time to read, decide and tap, not a glance). Hovering or
+ * How long a toast stays up is TOAST_MS or GROUPED_TOAST_MS (constants/config). Hovering or
  * focusing it holds it until the pointer or focus leaves, and then it gets its full time again.
  */
-export const TOAST_MS = 8000;
-export const GROUPED_TOAST_MS = 10_000;
+export { GROUPED_TOAST_MS, TOAST_MS };
 
 /**
  * Achievement unlocks, one small toast at a time at the top of the screen. A burst (one lucky pack
