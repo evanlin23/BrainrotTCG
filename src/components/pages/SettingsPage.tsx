@@ -42,6 +42,9 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const importRef = useRef<HTMLButtonElement>(null);
+    /** Set when an answer to the Replace question removes its buttons: Import takes the focus they held. */
+    const refocusImport = useRef(false);
     const activeImportTokenRef = useRef(0);
     const activeReaderRef = useRef<FileReader | null>(null);
     const handleExportSave = () => {
@@ -75,6 +78,12 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [oldSaveNote, setOldSaveNote] = useState('Played at the old address? Bring that save here.');
     const [oldSave, setOldSave] = useState<{ save: unknown } | null>(null);
     const keepRef = useRef<HTMLButtonElement>(null);
+    // The Replace / Keep mine buttons leave with the answer: focus goes to Import, which stays in the row, not to the page.
+    useEffect(() => {
+        if (!refocusImport.current) return;
+        refocusImport.current = false;
+        importRef.current?.focus();
+    });
     // Leaving the page drops a preview still waiting to play.
     useEffect(() => () => clearTimeout(samplePending), []);
     useEffect(() => {
@@ -357,6 +366,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     onClick={() => {
+                                        refocusImport.current = true;
                                         setPendingImport(null);
                                         setWithoutCopy(false);
                                         setReviewedSave(null);
@@ -365,12 +375,16 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                 >
                                     Keep mine
                                 </button>
-                                <button type="button" className="btn btn--primary btn--sm" onClick={() => runImport(activePendingImport, !activeWithoutCopy, activeReplacing, reviewedSave)}>
+                                <button type="button" className="btn btn--primary btn--sm" onClick={() => {
+                                    // A no-room answer asks again with the same buttons, so they keep the focus; anything else removes them.
+                                    refocusImport.current = true;
+                                    runImport(activePendingImport, !activeWithoutCopy, activeReplacing, reviewedSave);
+                                }}>
                                     {activeWithoutCopy ? 'Replace without a copy' : 'Replace'}
                                 </button>
                             </span>
                         ) : (
-                            <button type="button" className="btn btn--secondary btn--sm" onClick={handleImportClick}>
+                            <button type="button" ref={importRef} className="btn btn--secondary btn--sm" onClick={handleImportClick}>
                                 <Upload aria-hidden="true" /> Import
                             </button>
                         )}
