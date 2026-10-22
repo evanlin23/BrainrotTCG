@@ -17,8 +17,16 @@ interface SheetProps {
   footer?: ReactNode;
   /** No panel chrome: content floats on the backdrop (e.g. a single big card). */
   bare?: boolean;
+  /**
+   * On a screen too short for it (a phone with enlarged text), the title and subtitle scroll away with
+   * the content instead of holding most of the sheet; Close stays put and the dialog keeps its name.
+   */
+  scrollingHeading?: boolean;
   className?: string;
 }
+
+/** The heading may take this share of the sheet before it moves into the scrolling body. */
+const HEADING_SHARE = 0.3;
 
 /** Sheets currently open, newest last: only the top one reacts to Escape and owns focus. */
 const stack: string[] = [];
@@ -31,10 +39,13 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
  * both starts and ends there); traps focus while open and gives it back to whatever opened it; locks
  * page scroll.
  */
-const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare = false, className = '' }: SheetProps) => {
+const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare = false, scrollingHeading = false, className = '' }: SheetProps) => {
   const id = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLDivElement>(null);
+  /** The heading is too tall for the room: it scrolls with the body. Its height is the same in either place. */
+  const [headingScrolls, setHeadingScrolls] = useState(false);
   /** A body that scrolls but has nothing to tab to (a guide, an empty list) is itself a tab stop. */
   const [bodyFocusable, setBodyFocusable] = useState(false);
   /** Replacing a loading placeholder that is already on screen: no second entrance. Fixed at mount. */
@@ -117,8 +128,28 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
     return () => observer.disconnect();
   }, [children]);
 
+  useEffect(() => {
+    const panel = panelRef.current;
+    const heading = headingRef.current;
+    if (!scrollingHeading || !panel || !heading || bare) return;
+    const check = () => setHeadingScrolls(heading.offsetHeight > panel.clientHeight * HEADING_SHARE);
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(panel);
+    observer.observe(heading);
+    return () => observer.disconnect();
+  }, [scrollingHeading, bare, headingScrolls]);
+
   const titleId = `${id}-title`;
   const isEmpty = (target: EventTarget) => target === panelRef.current || target === bodyRef.current;
+  const heading = (
+    <div ref={headingRef} className={`sheet-heading ${headingScrolls ? 'sheet-heading--scrolls' : ''}`}>
+      <h2 id={titleId} className={bare ? 'sr-only' : 'sheet-title'}>
+        {title}
+      </h2>
+      {subtitle && !bare && <p className="sheet-subtitle">{subtitle}</p>}
+    </div>
+  );
   return createPortal(
     <div className={`sheet-root sheet-root--${size} ${bare ? 'sheet-root--bare' : ''} ${settled ? 'sheet-root--settled' : ''}`}>
       <div className="sheet-backdrop" onClick={onClose} aria-hidden="true" />
@@ -139,18 +170,14 @@ const Sheet = ({ title, onClose, children, size = 'md', subtitle, footer, bare =
           if (pressed && isEmpty(event.target)) onClose();
         } : undefined}
       >
-        <div className="sheet-header">
-          <div className="sheet-heading">
-            <h2 id={titleId} className={bare ? 'sr-only' : 'sheet-title'}>
-              {title}
-            </h2>
-            {subtitle && !bare && <p className="sheet-subtitle">{subtitle}</p>}
-          </div>
+        <div className={`sheet-header ${headingScrolls ? 'sheet-header--close-only' : ''}`}>
+          {!headingScrolls && heading}
           <button type="button" className="icon-btn sheet-close" onClick={onClose} aria-label="Close">
             <X strokeWidth={2.4} />
           </button>
         </div>
         <div ref={bodyRef} className="sheet-body" tabIndex={bodyFocusable ? 0 : undefined}>
+          {headingScrolls && heading}
           {/* A sheet opened from inside this one is new: it plays its own entrance. */}
           <SheetSettledContext value={false}>{children}</SheetSettledContext>
         </div>

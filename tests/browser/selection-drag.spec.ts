@@ -75,6 +75,20 @@ const scrollOf = (target: Locator) => target.evaluate((element) => {
 });
 
 /**
+ * A point on the image that is really the image: a toast hangs over the top of the summary for several
+ * seconds (WCAG time to read) and, in a window this short, can cover the image's middle, where a
+ * press lands on the toast and scrolls nothing. The lowest visible point is clear of it.
+ */
+const uncoveredPoint = (target: Locator) => target.evaluate((element) => {
+  const box = element.getBoundingClientRect();
+  const x = box.x + box.width / 2;
+  for (let y = Math.min(box.bottom, innerHeight) - 4; y > Math.max(box.top, 0); y -= 4) {
+    if (document.elementFromPoint(x, y) === element) return { x, y };
+  }
+  throw new Error('no part of the image is uncovered');
+});
+
+/**
  * Shortens the window until the summary overflows, then scrolls by a gesture that starts on one of
  * its no-drag card images: suppressing the native drag must not take the scroll with it. The summary
  * is compact now (the phone's overflowed by only 67px at 340px), so the window is short enough that
@@ -87,8 +101,8 @@ async function expectSummaryScrolls(page: Page, scroll: (x: number, y: number, d
   await image.scrollIntoViewIfNeeded();
   const before = await scrollOf(image);
   const down = before.top < before.max / 2;
-  const box = (await image.boundingBox())!;
-  await scroll(box.x + box.width / 2, box.y + box.height / 2, down);
+  const { x, y } = await uncoveredPoint(image);
+  await scroll(x, y, down);
   await expect.poll(async () => ((await scrollOf(image)).top - before.top) * (down ? 1 : -1)).toBeGreaterThan(20);
 }
 

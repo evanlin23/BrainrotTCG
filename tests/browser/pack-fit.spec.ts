@@ -489,6 +489,20 @@ test.describe('360x640', () => {
     expect(pill.height, 'the nudge wording wraps to two lines at most').toBeLessThanOrEqual(44.5);
     await expectHintClearOfButton(page, 'after the miss');
     await finger.release();
+
+    // A swipe let go short answers in its own words (#803): the same two lines, clear of the button.
+    const start = (await packShell.boundingBox())!;
+    const startY = start.y + start.height * 0.19;
+    await finger.press(start.x + start.width * 0.4, startY);
+    for (let step = 1; step <= 6; step++) await finger.move(start.x + start.width * (0.4 + (0.09 * step) / 6), startY);
+    await finger.release();
+    await expect(packShell).toHaveClass(/\bis-short\b/);
+    await expect(page.locator('.swipe-hint-text')).toContainText('farther');
+    // Measured once the spring-back has settled: mid-turn the tilted pill's box is taller than its lines.
+    await expectStill(packShell, 'the spring-back to settle');
+    const shortPill = (await page.locator('.swipe-hint').boundingBox())!;
+    expect(shortPill.height, 'the short-swipe wording wraps to two lines at most').toBeLessThanOrEqual(44.5);
+    await expectHintClearOfButton(page, 'after the short swipe');
     expect(errors).toEqual([]);
   });
 });
