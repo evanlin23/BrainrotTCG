@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs';
-import { expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type Page, type Locator, type BrowserContext } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
@@ -21,36 +21,249 @@ interface Stats {
   highestPackHandName?: string; highestPackFlexValue?: number;
 }
 
+export interface MonitorOptions {
+  routeHttp?: boolean;
+  returning?: boolean;
+  allowedOrigins?: string[];
+  allowedPaths?: string[];
+  allowedMethods?: string[];
+  allowWrites?: boolean;
+  allowWebSocket?: boolean | string[] | ((socket: unknown) => void);
+  failOnUnexpected?: boolean;
+}
+
+export type MonitorErrors = string[] & {
+  blocked: string[];
+  unexpectedAttempts: string[];
+};
+
+const MAX_BLOCKED_ENTRIES = 40;
+
+function sanitizeUrl(urlString: string): string {
+  try {
+    const url = new URL(urlString);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return 'invalid-url';
+  }
+}
+
+function sanitizeAttempt(method: string, urlString: string, note?: string): string {
+  const sanitized = `${method.toUpperCase()} ${sanitizeUrl(urlString)}`;
+  return note ? `[${note}] ${sanitized}` : sanitized;
+}
+
 /**
- * Collects page errors and seeds a fixture player. `returning` also records saved packs, so the tabs
- * show: a new player sees only the packs screen until their first pack is saved (#222).
+ * Collects page errors, enforces network guard isolation, and seeds a fixture player.
+ * `returning` also records saved packs, so the tabs show: a new player sees only the packs screen
+ * until their first pack is saved (#222).
+ *
+ * Network isolation rules:
+ * - Only intended local read requests/paths are permitted; writes are refused with 403.
+ * - Redirects are inspected with maxRedirects: 0; any redirect escape outside allowed origin/path is refused with 403.
+ * - CSP is applied to enforce boundaries inside workers.
+ * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence.
+ * - routeHttp: false preserves the HTTP cache for warm performance measurements (baseline.spec.ts).
  */
-export async function monitor(page: Page, baseURL: string, historyRecords = 0, { routeHttp = true, returning = false } = {}) {
-  const errors: string[] = [];
-  const origin = new URL(baseURL).origin;
+export async function monitor(
+  page: Page,
+  baseURL: string,
+  historyRecords = 0,
+  options: MonitorOptions = {},
+): Promise<MonitorErrors> {
+  const {
+    routeHttp = true,
+    returning = false,
+    allowedOrigins: extraOrigins = [],
+    allowedPaths: customPaths,
+    allowedMethods: customMethods,
+    allowWrites = false,
+    allowWebSocket,
+    failOnUnexpected = true,
+  } = options;
+
+  const errors = [] as unknown as MonitorErrors;
+  const blocked: string[] = [];
+  Object.defineProperty(errors, 'blocked', {
+    value: blocked,
+    enumerable: false,
+    writable: true,
+    configurable: true,
+  });
+  Object.defineProperty(errors, 'unexpectedAttempts', {
+    value: blocked,
+    enumerable: false,
+    writable: true,
+    configurable: true,
+  });
+  const noteBlocked = (entry: string) => {
+    if (blocked.length < MAX_BLOCKED_ENTRIES) {
+      blocked.push(entry);
+    }
+  };
+
+  const base = new URL(baseURL);
+  const origin = base.origin;
+  const allowedOrigins = new Set<string>([origin, ...extraOrigins]);
+  const allowedPaths = customPaths ?? [base.pathname];
+  const allowedMethods = new Set<string>(
+    (customMethods ?? (allowWrites ? ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH'] : ['GET', 'HEAD'])).map((m) => m.toUpperCase()),
+  );
+
+  const isAllowedPath = (pathname: string): boolean => {
+    return allowedPaths.some(
+      (p) => pathname.startsWith(p) || pathname === p.replace(/\/$/, '') || p === '/',
+    );
+  };
+
+  const isAllowedUrl = (url: URL): boolean => {
+    return allowedOrigins.has(url.origin) && isAllowedPath(url.pathname);
+  };
+
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') {
+      const text = message.text();
+      if (text.includes('Content Security Policy')) {
+        const match = text.match(/(?:Connecting to|Refused to load|Refused to send|Refused to frame|Refused to connect).*?'([^']+)'/);
+        const target = match ? match[1] : '';
+        if (target.startsWith('http://') || target.startsWith('https://') || target.startsWith('ws://') || target.startsWith('wss://')) {
+          noteBlocked(sanitizeAttempt('CSP', target, 'csp violation'));
+        }
+      }
+      errors.push(text);
+    }
   });
   page.on('response', (response) => {
-    if (new URL(response.url()).origin === origin && response.status() >= 400) {
+    if (allowedOrigins.has(new URL(response.url()).origin) && response.status() >= 400) {
       errors.push(`${response.status()} ${response.url()}`);
     }
   });
   page.on('requestfailed', (request) => {
-    if (new URL(request.url()).origin === origin) {
+    if (allowedOrigins.has(new URL(request.url()).origin)) {
       errors.push(`${request.failure()?.errorText} ${request.url()}`);
     }
   });
+
+  let failedTeardown = false;
+  const checkUnexpectedTeardown = () => {
+    if (failedTeardown) return;
+    if (failOnUnexpected && blocked.length > 0) {
+      failedTeardown = true;
+      try {
+        const currentTest = test.info();
+        if (currentTest) {
+          currentTest.status = 'failed';
+          currentTest.errors.push({
+            message: `Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`,
+          });
+        }
+      } catch {
+        // test.info() unavailable outside active test runner
+      }
+    }
+  };
+  page.on('close', checkUnexpectedTeardown);
+  page.context().on('close', checkUnexpectedTeardown);
+
   // Context-wide guards also cover popups and other pages. No server connection is established
   // by this handler, including relay WebSocket writes.
-  await page.context().routeWebSocket('**/*', (socket) => socket.close());
+  if (allowWebSocket === false) {
+    await page.context().routeWebSocket('**/*', (socket) => {
+      noteBlocked(sanitizeAttempt('WS', socket.url(), 'disallowed websocket'));
+      socket.close();
+    });
+  } else if (typeof allowWebSocket === 'function') {
+    await page.context().routeWebSocket('**/*', allowWebSocket as Parameters<BrowserContext['routeWebSocket']>[1]);
+  } else if (Array.isArray(allowWebSocket)) {
+    const prefixes = allowWebSocket;
+    await page.context().routeWebSocket('**/*', (socket) => {
+      if (prefixes.some((p) => socket.url().startsWith(p))) return;
+      noteBlocked(sanitizeAttempt('WS', socket.url(), 'unexpected websocket'));
+      socket.close();
+    });
+  } else {
+    await page.context().routeWebSocket('**/*', (socket) => socket.close());
+  }
+
   // Playwright HTTP routing disables the HTTP cache, so warm performance runs guard HTTP themselves.
-  if (routeHttp) await page.context().route('**/*', (route) => {
-    if (new URL(route.request().url()).origin === origin) return route.continue();
-    // Empty responses avoid disguising local load failures with broad console-error filters.
-    return route.fulfill({ status: 204 });
-  });
+  if (routeHttp) {
+    await page.context().route('**/*', async (route) => {
+      const request = route.request();
+      const reqUrl = new URL(request.url());
+      const method = request.method().toUpperCase();
+
+      if (!allowedOrigins.has(reqUrl.origin)) {
+        noteBlocked(sanitizeAttempt(method, request.url(), 'blocked cross-origin request'));
+        return route.fulfill({ status: 204 });
+      }
+
+      if (!allowedMethods.has(method)) {
+        noteBlocked(sanitizeAttempt(method, request.url(), 'disallowed write'));
+        return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Forbidden write' });
+      }
+
+      if (!isAllowedPath(reqUrl.pathname)) {
+        noteBlocked(sanitizeAttempt(method, request.url(), 'disallowed path'));
+        return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Forbidden path' });
+      }
+
+      let response;
+      try {
+        response = await route.fetch({ maxRedirects: 0 });
+      } catch {
+        return route.abort();
+      }
+
+      const status = response.status();
+      if (status >= 300 && status < 400) {
+        const location = response.headers()['location'];
+        let targetUrl: URL | null = null;
+        if (location) {
+          try {
+            targetUrl = new URL(location, request.url());
+          } catch {
+            targetUrl = null;
+          }
+        }
+        if (!targetUrl || !isAllowedUrl(targetUrl)) {
+          noteBlocked(
+            sanitizeAttempt(
+              method,
+              request.url(),
+              `blocked redirect escape: ${targetUrl ? sanitizeUrl(targetUrl.href) : location ?? 'unknown'}`,
+            ),
+          );
+          return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Redirect blocked by network guard' });
+        }
+      }
+
+      const headers = { ...response.headers() };
+      const connectOrigins = ["'self'", 'ws:', 'wss:', ...Array.from(allowedOrigins)].join(' ');
+      const imgOrigins = ["'self'", 'data:', 'blob:', ...Array.from(allowedOrigins)].join(' ');
+      const csp = [
+        "default-src 'self' data: blob:",
+        "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+        "style-src 'self' 'unsafe-inline'",
+        `connect-src ${connectOrigins}`,
+        "font-src 'self' data:",
+        "media-src 'self' data: blob:",
+        `img-src ${imgOrigins}`,
+        "worker-src 'self' blob:",
+        "form-action 'none'",
+        "frame-src 'none'",
+        "base-uri 'self'",
+      ].join('; ');
+      headers['content-security-policy'] = csp;
+
+      try {
+        await route.fulfill({ response, headers });
+      } catch {
+        // In-flight requests aborted by page navigation or close
+      }
+    });
+  }
+
   await page.addInitScript(({ historyRecords, returning, keys, origin }) => {
     if (window.location.origin !== origin) return;
     // Fresh smoke seeds identity/audio only; optional performance history below is synthetic.
