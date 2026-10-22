@@ -40,7 +40,7 @@ export const profileUrl = (profile: string): string => `${siteUrl()}#/profile/${
 /** A ticket whose cards are in the pack store but not read into memory yet (or never re-opened). */
 const awaitsCache = (t: Ticket): boolean => !!t.set && t.fromCache && !t.pack;
 
-interface Ticket {
+export interface Ticket {
   nonce: number;
   set: SetDefinition | null;
   /** Null when this device has no record of the pack (yet). */
@@ -54,15 +54,17 @@ interface Ticket {
 
 type PlayerTickets = ReturnType<typeof getPlayerTickets>;
 
-/** Every used ticket; absent original mappings stay unknown rather than guessing a different pack. */
+/** Every used ticket with recorded history; absent original mappings stay unknown rather than guessing a different pack. */
 function* ticketsOf({ player, nextNonce: total }: PlayerTickets): Generator<Ticket> {
   const known = new Map<number, HistoryEntry>();
   for (const e of historyForKey(player.publicKeyHex)) {
+    if (e.nonce < 0 || e.nonce >= total) continue;
     const other = known.get(e.nonce);
     if (!other || firstOpened(e, other) < 0) known.set(e.nonce, e);
   }
   const setOf = (e: HistoryEntry | undefined) => (e ? getSet(e.setId, e.setVersion) : undefined);
-  for (let nonce = 0; nonce < total; nonce++) {
+  const sortedNonces = Array.from(known.keys()).sort((a, b) => a - b);
+  for (const nonce of sortedNonces) {
     const entry = known.get(nonce);
     const set = setOf(entry) ?? null;
     if (!set) {
@@ -135,7 +137,7 @@ const ticketList = ({ player, nextNonce }: PlayerTickets): TicketList => {
 };
 
 /** Shared and read-only: don't change the list or its tickets. */
-const myTickets = (snapshot: PlayerTickets = getPlayerTickets()): readonly Ticket[] => ticketList(snapshot).tickets;
+export const myTickets = (snapshot: PlayerTickets = getPlayerTickets()): readonly Ticket[] => ticketList(snapshot).tickets;
 
 /** For tests: forget the last ticket list. */
 export const resetTicketList = () => {
@@ -326,8 +328,9 @@ export const watchMyPacks = (): (() => void) => {
   };
 };
 
-const requireOriginalMappings = (tickets: readonly Ticket[]): readonly (Ticket & { set: SetDefinition })[] => {
-  if (tickets.some((ticket) => !ticket.set || ticket.filled)) {
+const requireOriginalMappings = (tickets: readonly Ticket[], total: number): readonly (Ticket & { set: SetDefinition })[] => {
+  if (total === 0) return [];
+  if (tickets.length !== total || tickets.some((ticket) => !ticket.set || ticket.filled)) {
     throw new Error('Some original pack set/version mappings are missing. A complete profile cannot be proved from this save.');
   }
   return tickets as readonly (Ticket & { set: SetDefinition })[];
@@ -355,18 +358,23 @@ export interface MyProfile {
 
 export const myProfileInfo = (): MyProfile | null => {
   const snapshot = getPlayerTickets();
-  let packs = 0;
-  let filled = 0;
-  let missing = 0;
+  const total = snapshot.nextNonce;
+  if (total <= 0) return null;
+  const tickets = myTickets(snapshot);
+  let validSetCount = 0;
+  let hasPackCount = 0;
   let waiting = false;
-  for (const t of myTickets(snapshot)) {
-    packs++;
-    if (t.filled) filled++;
-    if (!t.pack) missing++;
+  for (const t of tickets) {
+    if (t.set && !t.filled) validSetCount++;
+    if (t.pack) hasPackCount++;
     if (awaitsCache(t)) waiting = true;
   }
-  if (packs === 0) return null;
-  return { packs, filled, missing, cache: waiting ? stateFor(snapshot) : 'ready' };
+  return {
+    packs: total,
+    filled: total - validSetCount,
+    missing: total - hasPackCount,
+    cache: waiting ? stateFor(snapshot) : 'ready',
+  };
 };
 
 /**
@@ -400,7 +408,7 @@ export const syncMyBestCards = (): BestCards => {
  */
 export const myProfileProof = async (onProgress?: (done: number, total: number) => void): Promise<string | null> => {
   const asked = getPlayerTickets();
-  if (requireOriginalMappings(myTickets(asked)).length === 0) return null;
+  if (requireOriginalMappings(myTickets(asked), asked.nextNonce).length === 0) return null;
   const stop = onProgress && onReopenProgress((s) => onProgress(s.done, s.total));
   try {
     await reopen(asked);
@@ -413,7 +421,7 @@ export const myProfileProof = async (onProgress?: (done: number, total: number) 
   if (now.player.publicKeyHex !== asked.player.publicKeyHex || now.nextNonce < asked.nextNonce) {
     throw new Error('Your save changed while the profile link was being prepared. Try again.');
   }
-  const tickets = requireOriginalMappings(myTickets(asked));
+  const tickets = requireOriginalMappings(myTickets(asked), asked.nextNonce);
   const packs = tickets.flatMap((t) => (t.pack ? [t.pack] : []));
   if (packs.length !== tickets.length) throw new Error('Some packs could not be re-opened');
   const { player } = asked;

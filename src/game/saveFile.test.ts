@@ -8,6 +8,7 @@ import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY } from './player';
 import { recordPack } from './history';
 import type { OpenedPack } from './pulls';
+import { myProfileInfo, myStats, resetTicketList } from './profiles';
 
 const player = (secretKey = 'aa'.repeat(32), nextNonce = 7) => JSON.stringify({ secretKey, name: 'Combo Miner', nextNonce, createdAt: 1 });
 const fixture = () => ({
@@ -510,5 +511,31 @@ describe('a nearly full browser storage', () => {
     expect(importSaveFile(JSON.stringify(save), { keepCopy })).toBe(keepCopy ? NO_ROOM_FOR_COPY_NOTE : FILE_TOO_BIG_NOTE + COPIES_NOTE);
     expect(store).toEqual(before);
     expect(write.mock.calls.some(([key, value]) => key === STORAGE_KEYS.STATS && value === save.stats)).toBe(true); // it got partway
+  });
+
+  it('imports a save with extreme safe-integer counter without capping, and summaries run boundedly (#693)', () => {
+    const extremePlayer = JSON.stringify({
+      secretKey: '01'.repeat(32),
+      name: 'Audit fixture',
+      nextNonce: Number.MAX_SAFE_INTEGER,
+      createdAt: 1,
+    });
+    const save = {
+      version: 2,
+      dataVersion: 3,
+      exportedAt: new Date(0).toISOString(),
+      player: extremePlayer,
+      history: '[]',
+    };
+    resetTicketList();
+    expect(importSaveFile(JSON.stringify(save))).toBeNull();
+    expect(exportPlayer()).toBe(extremePlayer);
+    expect(myProfileInfo()).toMatchObject({
+      packs: Number.MAX_SAFE_INTEGER,
+      filled: Number.MAX_SAFE_INTEGER,
+      missing: Number.MAX_SAFE_INTEGER,
+      cache: 'ready',
+    });
+    expect(myStats()).toMatchObject({ level: 1, xp: 0 });
   });
 });

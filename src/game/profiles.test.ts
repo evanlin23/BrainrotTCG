@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../constants';
 import { getSet } from '../content/sets';
-import { checkProfile, computeTicket, derivePack, toHex } from '../engine';
-import { encodeCard } from './cardCode';
+import { checkProfile, computeTicket, derivePack, scorePulled, toHex } from '../engine';
+import { decodeCard, encodeCard, toPulled } from './cardCode';
 import { getStoredPack, putStoredPacks, resetPackStore } from './packStore';
 import { getHistory, recordPack } from './history';
 import type { OpenedPack } from './pulls';
 import { getPlayer } from './player';
-import { hydrateMyPacks, myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, resumeReopening } from './profiles';
+import { hydrateMyPacks, myProfileInfo, myProfileProof, myProgress, myStats, myTickets, onReopenProgress, profileUrl, reopenMyPacks, resetTicketList, resumeReopening, syncMyBestCards } from './profiles';
 
 // No Worker or IndexedDB here: tickets are mined on this thread and the pack store stays in memory.
 const data = new Map<string, string>();
@@ -243,3 +243,125 @@ it('links a profile under the site address, with or without a base path', () => 
     else g.window = before;
   }
 });
+
+describe('bounded profile processing for large or sparse ticket counters (#693)', () => {
+  beforeEach(() => {
+    data.clear();
+    resetPackStore();
+    resetTicketList();
+  });
+
+  it('bounds ticket enumeration to recorded history, not nextNonce', () => {
+    data.set('brainrot-player-v1', JSON.stringify({ secretKey: SECRET, name: 'Tester', nextNonce: 1_000_000, createdAt: 0 }));
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+    resetTicketList();
+
+    // Tickets array should be empty, not 1,000,000 dummy tickets
+    expect(myTickets()).toHaveLength(0);
+
+    // Profile info, stats, and progress calculate in O(recorded) time without expanding missing nonces
+    const info = myProfileInfo();
+    expect(info).toEqual({
+      packs: 1_000_000,
+      filled: 1_000_000,
+      missing: 1_000_000,
+      cache: 'ready',
+    });
+
+    const stats = myStats();
+    expect(stats).toMatchObject({
+      level: 1,
+      xp: 0,
+      packs: 0,
+    });
+    expect(stats?.best).toEqual([]);
+
+    const progress = myProgress();
+    expect(progress).toMatchObject({
+      level: 1,
+      xp: 0,
+      gained: 0,
+    });
+  });
+
+  it('handles extreme safe-integer counter (Number.MAX_SAFE_INTEGER) without memory exhaustion', () => {
+    data.set('brainrot-player-v1', JSON.stringify({ secretKey: SECRET, name: 'Tester', nextNonce: Number.MAX_SAFE_INTEGER, createdAt: 0 }));
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+    resetTicketList();
+
+    expect(myTickets()).toHaveLength(0);
+    expect(myProfileInfo()).toEqual({
+      packs: Number.MAX_SAFE_INTEGER,
+      filled: Number.MAX_SAFE_INTEGER,
+      missing: Number.MAX_SAFE_INTEGER,
+      cache: 'ready',
+    });
+    expect(myStats()?.level).toBe(1);
+    expect(syncMyBestCards()).toMatchObject({ cards: [], complete: false });
+  });
+
+  it('processes high-nonce mapping sparsely without enumerating preceding missing nonces', async () => {
+    const HIGH_NONCE = 999_999_999;
+    data.set('brainrot-player-v1', JSON.stringify({ secretKey: SECRET, name: 'Tester', nextNonce: 1_000_000_000, createdAt: 0 }));
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    const code = await codeOf(HIGH_NONCE);
+    const pulled = toPulled(code.split(',').map(decodeCard), SET)!;
+    const score = scorePulled(pulled);
+    const history = [{
+      s: SET.id,
+      v: SET.version,
+      n: HIGH_NONCE,
+      k: key,
+      c: code,
+      h: score.hand.name,
+      x: score.score,
+      t: 1000,
+    }];
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    resetTicketList();
+
+    // Only 1 ticket materialized
+    const tickets = myTickets();
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0].nonce).toBe(HIGH_NONCE);
+    expect(tickets[0].set?.id).toBe(SET.id);
+    expect(tickets[0].pack).not.toBeNull();
+
+    // Profile info counts 1 valid set, 1 pack present, and 999_999_999 missing
+    const info = myProfileInfo();
+    expect(info).toEqual({
+      packs: 1_000_000_000,
+      filled: 999_999_999,
+      missing: 999_999_999,
+      cache: 'ready',
+    });
+
+    // Stats reflect the high-nonce pack's score and XP
+    const stats = myStats();
+    expect(stats?.packs).toBe(1);
+    expect(stats?.xp).toBeGreaterThan(0);
+    expect(stats?.best).toHaveLength(1);
+    expect(stats?.best[0].nonce).toBe(HIGH_NONCE);
+
+    // Profile proof refuses because nonces 0..999_999_998 are missing
+    await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
+  });
+
+  it('ignores out-of-range nonces in history (< 0 or >= nextNonce)', () => {
+    data.set('brainrot-player-v1', JSON.stringify({ secretKey: SECRET, name: 'Tester', nextNonce: 10, createdAt: 0 }));
+    const key = getPlayer().publicKeyHex.slice(0, 16);
+    const history = [
+      { s: SET.id, v: SET.version, n: -1, k: key, h: 'No Matches', x: 0, t: 1 },
+      { s: SET.id, v: SET.version, n: 5, k: key, h: 'No Matches', x: 0, t: 2 },
+      { s: SET.id, v: SET.version, n: 10, k: key, h: 'No Matches', x: 0, t: 3 },
+      { s: SET.id, v: SET.version, n: 999, k: key, h: 'No Matches', x: 0, t: 4 },
+    ];
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    resetTicketList();
+
+    const tickets = myTickets({ player: getPlayer(), nextNonce: 10 });
+    expect(tickets).toHaveLength(1);
+    expect(tickets[0].nonce).toBe(5);
+  });
+});
+
