@@ -178,6 +178,7 @@ describe('card close-up tilt', () => {
     layOut();
     move(100, 100);
     expect(cardEl().style.transform).toBe(LEVEL);
+    expect(cardEl().dataset.tilt).toBeUndefined();
     act(() => root.unmount());
     root = createRoot(host);
     reduce = false;
@@ -195,14 +196,18 @@ describe('card close-up tilt', () => {
     move(100, 100);
     expect(cardEl().style.transform).not.toBe(LEVEL);
 
+    expect(cardEl().dataset.tilt).toBe('live');
+
     setReduce(true);
     expect(mousemoves(remove)).toBe(1);
+    expect(cardEl().dataset.tilt).toBeUndefined();
     expect(cardEl().style.transform).toBe(LEVEL);
     move(0, 0);
     expect(cardEl().style.transform).toBe(LEVEL);
 
     // Turning it back off tilts again, from the next mouse move, not from the old angle.
     setReduce(false);
+    expect(cardEl().dataset.tilt).toBe('live');
     expect(cardEl().style.transform).toBe(LEVEL);
     move(100, 100);
     expect(cardEl().style.transform).not.toBe(LEVEL);

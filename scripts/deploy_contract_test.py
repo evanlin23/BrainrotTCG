@@ -25,6 +25,8 @@ ENV = {
     'GITHUB_RUN_ID': '123456',
     'SITE_URL': 'https://brainrottcg.pages.dev/',
 }
+# The pinned checkout as the workflows write it, so a version bump doesn't break the tests that edit it.
+CHECKOUT = re.search(r'actions/checkout@[0-9a-f]{40} # v[\d.]+', (WORKFLOWS / 'ci.yml').read_text(encoding='utf-8')).group(0)
 
 
 def step_named(workflow, job, name):
@@ -206,13 +208,13 @@ class Workflows(unittest.TestCase):
         self.assertBroken('deploy.yml', 'permissions: {}\n', 'permissions:\n  contents: read\n', 'grant no token scopes')
 
     def test_token_kept_by_checkout(self):
-        self.assertBroken('deploy.yml', """    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        self.assertBroken('deploy.yml', f"""    steps:
+      - uses: {CHECKOUT}
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node""", """    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node""", f"""    steps:
+      - uses: {CHECKOUT}
 
       - uses: actions/setup-node""", 'must not keep the token')
 
@@ -261,10 +263,10 @@ class Workflows(unittest.TestCase):
                           '', 'build must seal')
 
     def test_unpinned_action(self):
-        self.assertBroken('ci.yml', """  workflow-validation:
+        self.assertBroken('ci.yml', f"""  workflow-validation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: {CHECKOUT}
 """, """  workflow-validation:
     runs-on: ubuntu-latest
     steps:
