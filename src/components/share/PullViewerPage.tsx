@@ -153,7 +153,7 @@ const PullViewerPage = ({ proof, onClose }: PullViewerPageProps) => {
           Cert {pull.fingerprint} · {setCode(pull.set)} #{pull.proof.nonce}
         </span>
       </p>
-      <PackCardViewer cards={pull.cardsWithMeta} displayMode="carousel" />
+      <PackCardViewer cards={pull.cardsWithMeta} displayMode="carousel" set={pull.set} />
       <details className="pull-viewer-how">
         <summary>How do we know?</summary>
         <p>
