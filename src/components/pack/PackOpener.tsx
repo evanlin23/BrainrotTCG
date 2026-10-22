@@ -23,6 +23,7 @@ import ShowcaseRibbon from './ShowcaseRibbon';
 import { revealAnnouncement } from '../cards/cardLabel';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 import { packImageUrl } from '../../content/art';
+import { StaleSaveError, type SaveMark } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
 
@@ -61,6 +62,8 @@ interface PackOpenerProps {
   disabled?: boolean;
   /** No new pack may start (the save changed in another tab); one already opening still finishes. */
   openBlocked?: boolean;
+  /** The save this tab loaded: a tear claims a ticket only while storage still holds it. */
+  mountedSave?: SaveMark;
   settings: Settings;
   /** The chosen, unlocked back, shared by the active card and the remaining stack. */
   cardBack?: string;
@@ -70,7 +73,7 @@ interface PackOpenerProps {
   onLeaveEarly?: (pack: OpenedPack) => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   /** Why the last tear didn't open a pack, shown under it with a way to try again. */
@@ -111,7 +114,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     let pack: OpenedPack;
     try {
       // Usually instant: the ticket was mined while the pack was on screen.
-      pack = await openPack(set);
+      pack = await openPack(set, mountedSave);
     } catch (error) {
       console.error('Could not open pack', error);
       setIsPackCut(false);
@@ -121,7 +124,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         setLeavingOpen(false);
         landingRef.current.resetCutState();
       } else {
-        setRefusal('failed');
+        setRefusal(error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed');
       }
       return;
     }
@@ -151,7 +154,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setOpenedCards(markNew(revealOrder(pack.cards), (key) => isOwned?.(key) ?? true));
     setCurrentIndex(0);
     setIsOpening(true);
-  }, [set, preloadAudio, isOwned]);
+  }, [set, mountedSave, preloadAudio, isOwned]);
 
   // The reveal's sounds download once it has been drawn and the page is idle, and not at all while
   // effects are muted (each one only plays when effectsVolume > 0).
@@ -176,8 +179,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Mining taking a while: say so, rather than leave a torn pack sitting still.
   const [slowOpen, setSlowOpen] = useState(false);
   /**
-   * A press on the pack just missed the tear line ('miss'), or tapped it without swiping ('tap'), so
-   * it shows where, or how, to swipe for a moment.
+   * A press on the pack landed below the band a swipe can start in ('miss'), or tapped in that band
+   * without swiping ('tap'), so it shows where, or how, to swipe for a moment.
    */
   const [nudging, setNudging] = useState<false | 'miss' | 'tap'>(false);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

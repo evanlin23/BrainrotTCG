@@ -4,6 +4,7 @@ import PackHeadline from '../pack/PackHeadline';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
 import type { CardWithMeta } from '../cards/Card';
+import type { SetDefinition } from '../../engine';
 import { scoreCards } from '../../data/cards';
 import { hydrateCard } from '../../utils/migrations';
 import { modifierLabel, modifierThumb } from '../../game/modifiers';
@@ -19,6 +20,8 @@ interface PackCardViewerProps {
     className?: string;
     /** The player's own pack: its cards can be shared one by one. */
     canShareCards?: boolean;
+    /** The set, at the version the pack was opened, whose odds and modifiers the card guide shows (#676). */
+    set?: SetDefinition;
 }
 
 const PackCardViewer = ({
@@ -28,6 +31,7 @@ const PackCardViewer = ({
     onCardClick,
     className = '',
     canShareCards = false,
+    set,
 }: PackCardViewerProps) => {
     const [selectedCard, setSelectedCard] = useState<CardWithMeta | null>(null);
 
@@ -60,6 +64,7 @@ const PackCardViewer = ({
                         points={points}
                         multiplier={pokerHand.multiplier}
                         score={score}
+                        set={set}
                         setId={cards[0]?.setId}
                     />
                 </>

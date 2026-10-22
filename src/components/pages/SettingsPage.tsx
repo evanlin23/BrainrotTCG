@@ -38,7 +38,25 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const activeImportTokenRef = useRef(0);
+    const activeReaderRef = useRef<FileReader | null>(null);
     const handleExportSave = () => downloadSaveFile();
+
+    // Leaving Settings retires pending read/import intent, preventing later writes or reloads from that screen.
+    useEffect(() => {
+        return () => {
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            activeImportTokenRef.current++;
+            if (activeReaderRef.current) {
+                try {
+                    activeReaderRef.current.abort();
+                } catch {
+                    // Ignore abort errors
+                }
+                activeReaderRef.current = null;
+            }
+        };
+    }, []);
 
     // After the site moved: fetch the save from the old address (game/move.ts). Replacing a different
     // save here is asked in this row, not in a browser dialog, which can open behind the old address's
@@ -120,34 +138,79 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         const file = e.target.files?.[0];
         if (!file) return;
 
+        // Give each selection a current-operation token; retire/abort earlier readers and their callbacks.
+        const token = ++activeImportTokenRef.current;
+        if (activeReaderRef.current) {
+            try {
+                activeReaderRef.current.abort();
+            } catch {
+                // Ignore abort errors
+            }
+            activeReaderRef.current = null;
+        }
+        setPendingImport(null);
+        setReplacing(null);
+        setWithoutCopy(false);
+        setImportNote('Load a backup file');
+
         const reader = new FileReader();
+        activeReaderRef.current = reader;
+
         reader.onload = (event) => {
+            if (activeImportTokenRef.current !== token) return;
+            activeReaderRef.current = null;
+
             const content = event.target?.result as string;
-            let incoming: { player?: string; stats?: string } = {};
+            let incoming: unknown;
             try {
                 incoming = JSON.parse(content);
             } catch {
                 return setImportNote("Couldn't read that file. Is it a save exported from Save & backup?");
             }
+            if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+                return setImportNote("That file isn't a supported Brainrot TCG save.");
+            }
+            const saveObj = incoming as { player?: string; stats?: string };
             // Replacing real progress with someone else's (or an older) save asks first, in the page.
             const here = localStorage.getItem('brainrot-player-v1');
             const sameKey = (() => {
                 try {
-                    return !!incoming.player && JSON.parse(here ?? '{}').secretKey === JSON.parse(incoming.player).secretKey;
+                    return !!saveObj.player && JSON.parse(here ?? '{}').secretKey === JSON.parse(saveObj.player).secretKey;
                 } catch {
                     return false;
                 }
             })();
-            if (!hasProgress() || (sameKey && describe(here, localStorage.getItem(STORAGE_KEYS.STATS)) === describe(incoming.player, incoming.stats))) {
+            if (!hasProgress() || (sameKey && describe(here, localStorage.getItem(STORAGE_KEYS.STATS)) === describe(saveObj.player, saveObj.stats))) {
                 setReplacing(null);
                 return runImport(content);
             }
-            const saves = `this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(incoming.player, incoming.stats)})`;
+            const saves = `this browser's save (${describe(here, localStorage.getItem(STORAGE_KEYS.STATS))}) with the file's (${describe(saveObj.player, saveObj.stats)})`;
             setReplacing(saves);
             setPendingImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
         };
-        reader.readAsText(file);
+
+        reader.onerror = () => {
+            if (activeImportTokenRef.current !== token) return;
+            if (reader.error?.name === 'AbortError') return;
+            activeReaderRef.current = null;
+            setImportNote("Couldn't read that file. Try selecting it again.");
+        };
+
+        reader.onabort = () => {
+            if (activeReaderRef.current === reader) {
+                activeReaderRef.current = null;
+            }
+        };
+
+        try {
+            reader.readAsText(file);
+        } catch {
+            if (activeImportTokenRef.current === token) {
+                activeReaderRef.current = null;
+                setImportNote("Couldn't read that file. Try selecting it again.");
+            }
+        }
 
         // Reset input so the same file can be selected again
         e.target.value = '';
@@ -313,7 +376,7 @@ const SliderRow = ({ label, desc, value, onChange, onRelease }: { label: string;
     const text = percent === 0 ? 'Off' : `${percent}%`;
     const release = (e: React.SyntheticEvent<HTMLInputElement>) => onRelease?.(Number(e.currentTarget.value) / 100);
     return (
-        <div className="settings-row">
+        <div className="settings-row settings-row--slider">
             <span className="settings-text">
                 <label className="settings-label" htmlFor={id}>{label}</label>
                 <span className="settings-desc" id={`${id}-desc`}>{desc}</span>

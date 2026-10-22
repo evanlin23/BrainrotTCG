@@ -10,12 +10,20 @@ import { toPulled } from '../../game/cardCode';
 import { getBestCards, mergeBestCards, resetBestCards, type BestCandidate } from '../../game/bestCards';
 
 const KEY = 'ab'.repeat(32);
-const { used, sync, rebuild } = vi.hoisted(() => ({ used: { value: 0 }, sync: { fail: false }, rebuild: vi.fn() }));
+const { used, sync, rebuild, derive, who } = vi.hoisted(() => ({
+  used: { value: 0 },
+  /** The player on screen; a test changes it to switch players mid-rebuild. */
+  who: { key: 'ab'.repeat(32) },
+  sync: { fail: false },
+  rebuild: vi.fn(),
+  /** Nonces whose ticket derivation fails right now (a transient failure the real rebuild reports as `failed`). */
+  derive: { failing: new Set<number>() },
+}));
 
 // Only the key and ticket count are faked; the list itself is read from (jsdom's) real storage.
 vi.mock('../../game/player', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../game/player')>()),
-  getPlayerTickets: () => ({ player: { publicKeyHex: 'ab'.repeat(32) }, nextNonce: used.value }),
+  getPlayerTickets: () => ({ player: { publicKeyHex: who.key }, nextNonce: used.value }),
 }));
 // Weighing the packs a profile can recover needs the pack cache; here it just re-reads the list.
 vi.mock('../../game/profiles', async (importOriginal) => {
@@ -33,6 +41,7 @@ vi.mock('../../game/profiles', async (importOriginal) => {
 vi.mock('../../game/bestCards', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../game/bestCards')>();
   const ticketFn: TicketFn = async (_set, key, nonce) => {
+    if (derive.failing.has(nonce)) throw new Error('Argon2 unavailable');
     const ticket = new Uint8Array(32);
     ticket.set(key.subarray(0, 31));
     ticket[31] = nonce & 255;
@@ -74,8 +83,10 @@ beforeEach(() => {
   localStorage.clear();
   resetBestCards();
   used.value = 0;
+  who.key = KEY;
   sync.fail = false;
   rebuild.mockClear();
+  derive.failing.clear();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -230,12 +241,155 @@ describe('winners an older save never scored', () => {
     expect(rebuild).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the page working when a rebuild fails', async () => {
+  const retryButton = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again');
+  const status = () => container.querySelector('[role="status"]');
+
+  it('says the cards are unavailable, not that there are none, when the rebuild fails to derive a pack', async () => {
+    unscored();
+    derive.failing.add(0); // the real rebuild catches this and returns failed=1
+    await act(async () => render());
+    expect(rows()).toHaveLength(0);
+    expect(text(container)).not.toContain('None on this device yet.');
+    expect(text(status()!)).toContain("couldn't be loaded just now");
+    expect(retryButton()).toBeDefined();
+    expect(getBestCards(KEY, 1).cards).toHaveLength(2); // the references are kept
+
+    // Packs changing or the list refreshing never mines again by itself.
+    await act(async () => root.render(<BestCardsSection refreshKey="b" cacheReady />));
+    expect(rebuild).toHaveBeenCalledTimes(1);
+
+    derive.failing.clear();
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rows().length).toBeGreaterThan(0);
+    expect(status()).toBeNull();
+    expect(retryButton()).toBeUndefined();
+  });
+
+  it('says the same when the rebuild rejects, and retries the same load', async () => {
     unscored();
     rebuild.mockRejectedValueOnce(new Error('no Argon2'));
     await act(async () => render());
     expect(rows()).toHaveLength(0);
-    expect(text(container)).toContain('None on this device yet.');
+    expect(text(container)).not.toContain('None on this device yet.');
+    expect(text(status()!)).toContain("couldn't be loaded just now");
+
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rebuild).toHaveBeenLastCalledWith(KEY, 1);
+    expect(rows().length).toBeGreaterThan(0);
+    expect(retryButton()).toBeUndefined();
+  });
+
+  it('moves focus to the first row after a Try again that settles it, since the button it was on is gone', async () => {
+    unscored();
+    derive.failing.add(0);
+    await act(async () => render());
+    retryButton()!.focus();
+    derive.failing.clear();
+    await act(async () => retryButton()!.click());
+    expect(retryButton()).toBeUndefined();
+    expect(document.activeElement).toBe(rows()[0]);
+  });
+
+  it('leaves focus alone when the player moved elsewhere while the retry was running', async () => {
+    unscored();
+    derive.failing.add(0);
+    await act(async () => render());
+    const elsewhere = document.body.appendChild(document.createElement('button'));
+    try {
+      retryButton()!.focus();
+      derive.failing.clear();
+      const impl = rebuild.getMockImplementation()!;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      rebuild.mockImplementationOnce(async (...args: Parameters<typeof impl>) => {
+        await gate;
+        return impl(...args);
+      });
+      await act(async () => retryButton()!.click());
+      elsewhere.focus();
+      await act(async () => release());
+      expect(rows().length).toBeGreaterThan(0);
+      expect(retryButton()).toBeUndefined();
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
+  });
+
+  it('does not take focus for a later rebuild when the retry itself started none', async () => {
+    unscored();
+    derive.failing.add(0);
+    await act(async () => render());
+    retryButton()!.focus();
+    // The packs are no longer read in, so Try again starts nothing.
+    render({ cacheReady: false });
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    derive.failing.clear();
+    await act(async () => root.render(<BestCardsSection refreshKey="a" cacheReady />));
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rows().length).toBeGreaterThan(0);
+    expect(rows()).not.toContain(document.activeElement);
+  });
+
+  it('keeps focus on Try again when the retry fails too', async () => {
+    unscored();
+    derive.failing.add(0);
+    await act(async () => render());
+    retryButton()!.focus();
+    await act(async () => retryButton()!.click());
+    expect(document.activeElement).toBe(retryButton());
+  });
+
+  it('drops a rebuild that finishes after the player changed', async () => {
+    unscored();
+    let finish!: () => void;
+    const real = rebuild.getMockImplementation()!;
+    rebuild.mockImplementationOnce(
+      (key: string, n: number) => new Promise((resolve) => { finish = () => resolve(real(key, n)); }),
+    );
+    await act(async () => render());
+    who.key = 'cd'.repeat(32);
+    await act(async () => finish());
+    expect(rows()).toHaveLength(0);
+    expect(status()).toBeNull();
+  });
+
+  it('drops a rejection that arrives after the player changed', async () => {
+    unscored();
+    let fail!: () => void;
+    rebuild.mockImplementationOnce(() => new Promise((_, reject) => { fail = () => reject(new Error('no Argon2')); }));
+    await act(async () => render());
+    who.key = 'cd'.repeat(32);
+    await act(async () => fail());
+    expect(status()).toBeNull();
+    expect(retryButton()).toBeUndefined();
+  });
+
+  it('keeps the cards that did load, and a failed retry keeps the guidance', async () => {
+    localStorage.setItem(
+      STORAGE_KEYS.BEST_CARDS,
+      JSON.stringify({ [KEY]: { w: 2, b: [{ s: SET.id, v: SET.version, n: 0, i: 0, t: 1000 }, { s: SET.id, v: SET.version, n: 1, i: 0, t: 1001 }] } }),
+    );
+    used.value = 2;
+    derive.failing.add(1);
+    await act(async () => render());
+    const partial = rows().length;
+    expect(partial).toBeGreaterThan(0); // pack 0 rebuilt and is listed
+    expect(text(status()!)).toContain('Some of your best cards');
+
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    expect(rows()).toHaveLength(partial);
+    expect(retryButton()).toBeDefined();
+
+    derive.failing.clear();
+    await act(async () => retryButton()!.click());
+    expect(getBestCards(KEY, 2).cards.every((c) => c.card)).toBe(true);
+    expect(rows().length).toBeGreaterThan(partial);
+    expect(status()).toBeNull();
   });
 });
 
