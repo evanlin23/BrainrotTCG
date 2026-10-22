@@ -28,6 +28,7 @@ beforeEach(() => {
     static revokeObjectURL() {}
   });
   vi.mocked(shareActions.canCopyImage).mockReturnValue(false);
+  vi.spyOn(console, 'error').mockImplementation(() => {});
   onClose = vi.fn<() => void>();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
@@ -83,6 +84,175 @@ describe('share preview actions', () => {
     await open();
     act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  describe('native sharing with canShareTo', () => {
+    const shareToButton = () => [...document.querySelectorAll<HTMLButtonElement>('.share-more button')]
+      .find((el) => el.textContent?.includes('Share to…'));
+    const copyTextButton = () => [...document.querySelectorAll<HTMLButtonElement>('.share-more button')]
+      .find((el) => el.textContent?.includes('Copy text'));
+
+    beforeEach(() => {
+      vi.mocked(shareActions.canShareTo).mockReturnValue(true);
+    });
+
+    it('disables Share to… for an image-only card until the image is ready, preserving Copy text', async () => {
+      let resolveImage!: (blob: Blob) => void;
+      const makeImage = vi.fn(
+        () =>
+          new Promise<Blob>((resolve) => {
+            resolveImage = resolve;
+          }),
+      );
+
+      await act(async () => {
+        root.render(
+          <SharePreviewSheet
+            title="Share card"
+            makeImage={makeImage}
+            imageName="card.png"
+            text="Look at this card!"
+            onClose={onClose}
+          />,
+        );
+      });
+
+      // While image is pending, Share to… is disabled
+      const btn = shareToButton();
+      expect(btn).not.toBeNull();
+      expect(btn?.disabled).toBe(true);
+
+      // Attempting to click disabled Share to… does not invoke shareTo
+      await act(async () => {
+        btn?.click();
+      });
+      expect(shareActions.shareTo).not.toHaveBeenCalled();
+
+      // Intentional text-only copying is available
+      const textBtn = copyTextButton();
+      expect(textBtn?.disabled).toBe(false);
+      await act(async () => {
+        textBtn?.click();
+      });
+      expect(shareActions.copyText).toHaveBeenCalledWith('Look at this card!');
+
+      // Once the image resolves, Share to… enables
+      await act(async () => {
+        resolveImage(poster);
+      });
+      expect(btn?.disabled).toBe(false);
+
+      // Activating Share to… passes the image payload
+      await act(async () => {
+        btn?.click();
+      });
+      expect(shareActions.shareTo).toHaveBeenCalledWith({
+        url: undefined,
+        text: 'Look at this card!',
+        title: 'Share card',
+        image: { blob: poster, filename: 'card.png' },
+      });
+    });
+
+    it('preserves intentional link sharing while a URL-bearing poster is still drawing', async () => {
+      const makeImage = vi.fn(() => new Promise<Blob>(() => {})); // remains pending
+
+      await act(async () => {
+        root.render(
+          <SharePreviewSheet
+            title="Share pull"
+            makeImage={makeImage}
+            imageName="pull.png"
+            url="https://example.invalid/#/pull/xyz"
+            text="Check out this pull!"
+            onClose={onClose}
+          />,
+        );
+      });
+
+      // With URL present, Share to… is enabled even while image is drawing
+      const btn = shareToButton();
+      expect(btn).not.toBeNull();
+      expect(btn?.disabled).toBe(false);
+
+      await act(async () => {
+        btn?.click();
+      });
+
+      // Shares URL/text payload without waiting for the image
+      expect(shareActions.shareTo).toHaveBeenCalledWith({
+        url: 'https://example.invalid/#/pull/xyz',
+        text: 'Check out this pull!',
+        title: 'Share pull',
+        image: undefined,
+      });
+    });
+
+    it('keeps Share to… disabled when image-only draw fails, preserving Copy text', async () => {
+      const makeImage = vi.fn(async () => {
+        throw new Error('Stalled image network failure');
+      });
+
+      await act(async () => {
+        root.render(
+          <SharePreviewSheet
+            title="Share card"
+            makeImage={makeImage}
+            imageName="card.png"
+            text="Look at this card!"
+            onClose={onClose}
+          />,
+        );
+      });
+
+      // Failed drawing leaves Share to… disabled
+      const btn = shareToButton();
+      expect(btn?.disabled).toBe(true);
+
+      // Failure state is reported
+      expect(document.querySelector('.share-preview-wait')?.textContent).toBe("Couldn't draw the image");
+
+      // Attempting to click does not call shareTo
+      await act(async () => {
+        btn?.click();
+      });
+      expect(shareActions.shareTo).not.toHaveBeenCalled();
+
+      // Text copying remains available
+      const textBtn = copyTextButton();
+      expect(textBtn?.disabled).toBe(false);
+      await act(async () => {
+        textBtn?.click();
+      });
+      expect(shareActions.copyText).toHaveBeenCalledWith('Look at this card!');
+    });
+
+    it('handles native share cancellation without flashing false errors', async () => {
+      vi.mocked(shareActions.shareTo).mockResolvedValueOnce('cancelled');
+
+      await act(async () => {
+        root.render(
+          <SharePreviewSheet
+            title="Share card"
+            makeImage={async () => poster}
+            imageName="card.png"
+            text="Look at this card!"
+            onClose={onClose}
+          />,
+        );
+      });
+
+      const btn = shareToButton();
+      expect(btn?.disabled).toBe(false);
+
+      await act(async () => {
+        btn?.click();
+      });
+
+      expect(shareActions.shareTo).toHaveBeenCalled();
+      // No link copied flash or error status
+      expect(done()).toBe('');
+    });
   });
 
   it('keeps extra actions with the share buttons, ahead of the preview, and other content after it', async () => {
