@@ -187,6 +187,27 @@ test('slow collection art shows a placeholder the size of the art, then fills it
   expect(errors).toEqual([]);
 });
 
+test('a finished tile prints its finish caption only once its art is drawn (#762)', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const errors = await openCollection(page, baseURL!);
+  const art = await holdArt(page);
+  const { main, tiles } = await showCollection(page);
+  await expect.poll(() => art.requests()).toBeGreaterThan(0);
+
+  // Held art leaves the Gold tile as an empty frame, not a dark face with a finish label on it.
+  const caption = main.locator('.collection-item .collection-mods');
+  await expect(caption).toHaveCount(1);
+  await expectTiles(tiles, 'loading');
+  await expect(caption).toBeHidden();
+  await expect(main.locator('.collection-item:has(.collection-mods)')).toHaveAccessibleName(/best finish Gold/);
+
+  art.set('serve');
+  await expectTiles(tiles, 'ready');
+  await expect(caption).toBeVisible();
+  await expect(caption).toHaveText('Gold');
+  expect(unexpectedArtErrors(errors)).toEqual([]);
+});
+
 test('art held while the viewport crosses the phone and desktop breakpoints still ends up drawn', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await openCollection(page, baseURL!);
