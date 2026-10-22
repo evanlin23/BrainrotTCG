@@ -111,6 +111,19 @@ describe('original ticket provenance admission', () => {
     await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
   }, 30_000);
 
+  it.each([
+    ['a fractional nonce', 1, 0.5],
+    ['a string nonce', 1, '1'],
+    ['a string twin of a recorded nonce', 2, '1'],
+  ])('does not let %s stand in for a ticket', async (_kind, index, nonce) => {
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+    history[index].n = nonce;
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    expect(myTickets().map((t) => t.nonce)).toEqual(index === 1 ? [0, 2] : [0, 1]);
+    expect(myProfileInfo()?.filled).toBe(1);
+    await expect(myProfileProof()).rejects.toThrow('original pack set/version mappings');
+  });
+
   it('does not count a cached guessed pack as recovered original provenance', async () => {
     const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
     history.splice(1, 1);
@@ -285,19 +298,18 @@ describe('bounded profile processing for large or sparse ticket counters (#693)'
   });
 
   it('handles extreme safe-integer counter (Number.MAX_SAFE_INTEGER) without memory exhaustion', () => {
-    data.set('brainrot-player-v1', JSON.stringify({ secretKey: SECRET, name: 'Tester', nextNonce: Number.MAX_SAFE_INTEGER, createdAt: 0 }));
-    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([]));
-    resetTicketList();
+    // A 1M counter first, as a sentinel: if enumeration ever expanded to nextNonce again, this fails
+    // (1M tickets) before the MAX_SAFE_INTEGER counter below could hang or exhaust memory.
+    for (const nextNonce of [1_000_000, Number.MAX_SAFE_INTEGER]) {
+      data.set('brainrot-player-v1', JSON.stringify({ secretKey: SECRET, name: 'Tester', nextNonce, createdAt: 0 }));
+      data.set(STORAGE_KEYS.HISTORY, JSON.stringify([]));
+      resetTicketList();
 
-    expect(myTickets()).toHaveLength(0);
-    expect(myProfileInfo()).toEqual({
-      packs: Number.MAX_SAFE_INTEGER,
-      filled: Number.MAX_SAFE_INTEGER,
-      missing: Number.MAX_SAFE_INTEGER,
-      cache: 'ready',
-    });
-    expect(myStats()?.level).toBe(1);
-    expect(syncMyBestCards()).toMatchObject({ cards: [], complete: false });
+      expect(myTickets()).toHaveLength(0);
+      expect(myProfileInfo()).toEqual({ packs: nextNonce, filled: nextNonce, missing: nextNonce, cache: 'ready' });
+      expect(myStats()?.level).toBe(1);
+      expect(syncMyBestCards()).toMatchObject({ cards: [], complete: false });
+    }
   });
 
   it('processes high-nonce mapping sparsely without enumerating preceding missing nonces', async () => {

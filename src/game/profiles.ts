@@ -58,7 +58,8 @@ type PlayerTickets = ReturnType<typeof getPlayerTickets>;
 function* ticketsOf({ player, nextNonce: total }: PlayerTickets): Generator<Ticket> {
   const known = new Map<number, HistoryEntry>();
   for (const e of historyForKey(player.publicKeyHex)) {
-    if (e.nonce < 0 || e.nonce >= total) continue;
+    // A tampered entry's nonce can be a fraction or a string: it is no ticket, and must not stand in for one.
+    if (!Number.isSafeInteger(e.nonce) || e.nonce < 0 || e.nonce >= total) continue;
     const other = known.get(e.nonce);
     if (!other || firstOpened(e, other) < 0) known.set(e.nonce, e);
   }
@@ -330,7 +331,8 @@ export const watchMyPacks = (): (() => void) => {
 
 const requireOriginalMappings = (tickets: readonly Ticket[], total: number): readonly (Ticket & { set: SetDefinition })[] => {
   if (total === 0) return [];
-  if (tickets.length !== total || tickets.some((ticket) => !ticket.set || ticket.filled)) {
+  // Exactly tickets 0..total-1, in order: runsOf signs them by position.
+  if (tickets.length !== total || tickets.some((ticket, i) => ticket.nonce !== i || !ticket.set || ticket.filled)) {
     throw new Error('Some original pack set/version mappings are missing. A complete profile cannot be proved from this save.');
   }
   return tickets as readonly (Ticket & { set: SetDefinition })[];
