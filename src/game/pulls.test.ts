@@ -5,8 +5,8 @@ import { encodeCard } from './cardCode';
 import { generatePack, packSeedFromTicket } from '../engine';
 import { getBestCards, resetBestCards } from './bestCards';
 import { recordTicket } from './history';
-import { getPlayer } from './player';
 import { clearPendingPack, openPack, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
+import { getPlayer, StaleSaveError } from './player';
 
 // Any ticket will do: these tests are about where an opened pack is kept, and when its number is spent.
 const ticketFor = (nonce: number) => new Uint8Array(32).fill(nonce & 255);
@@ -716,6 +716,38 @@ describe('opening a pack', () => {
     expect(recorded()[0]).toMatchObject({ n: before.nonce + 2, s: SET.id, v: SET.version, t: pack.openedAt });
     expect(recorded().filter((e) => e.n === before.nonce + 2)).toHaveLength(1);
     expect(counter()).toBe(before.nonce + 3);
+  });
+
+  it('refuses to claim or spend a replacement save when another tab switched player during mining', async () => {
+    const before = await openPack(SET);
+    const mining = slowMiner();
+    const opening = openPack(SET);
+    await nextTask();
+    // Another tab switches player while this one mines.
+    const incomingPlayer = { secretKey: 'ff'.repeat(32), name: 'Replacement', nextNonce: 0, createdAt: 1 };
+    data.set(PLAYER, JSON.stringify(incomingPlayer));
+    const bestBefore = data.get(STORAGE_KEYS.BEST_CARDS);
+    mining.release();
+    await expect(opening).rejects.toBeInstanceOf(StaleSaveError);
+    // Replacement player's counter, history, best cards and pending shelf stay untouched.
+    expect(counter()).toBe(0);
+    expect(recorded().map((e) => e.n)).toEqual([before.nonce]);
+    expect(data.get(STORAGE_KEYS.BEST_CARDS)).toBe(bestBefore);
+    expect(getBestCards(getPlayer().publicKeyHex, 0).cards).toEqual([]);
+  });
+
+  it('refuses to claim when the save was replaced by a backup of the same player (new stamp) during mining', async () => {
+    const before = await openPack(SET);
+    const mining = slowMiner();
+    const opening = openPack(SET);
+    await nextTask();
+    // Same player, but an import with a new stamp happened.
+    const { newSaveStamp, SAVE_STAMP_KEY } = await import('./player');
+    data.set(SAVE_STAMP_KEY, newSaveStamp());
+    mining.release();
+    await expect(opening).rejects.toBeInstanceOf(StaleSaveError);
+    expect(counter()).toBe(before.nonce + 1);
+    expect(recorded().map((e) => e.n)).toEqual([before.nonce]);
   });
 
   it('maps the number it claimed before mining it again, so a failed mine leaves a ticket to re-open, not a gap', async () => {

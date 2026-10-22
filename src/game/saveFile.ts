@@ -5,7 +5,7 @@ import { getCard } from '../data/cards';
 import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrateCardKey } from '../utils/migrations';
 import { isArchive } from './collectionRecovery';
 import { isBestCardsStore, resetBestCards } from './bestCards';
-import { isLegacyPull, isStored } from './history';
+import { isLegacyPull, isStored, withReadableCache } from './history';
 import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
 
 type RecordValue = Record<string, unknown>;
@@ -165,7 +165,9 @@ const IMPORT_BACKUP_KEY = 'brainrot-before-import-v1';
 
 /** Private backup: recovery payloads remain opaque, separate from the active identity/state. */
 export const exportSaveFile = (): string => JSON.stringify({
-  ...Object.fromEntries(SAVE_FIELDS.map(([field, key]) => [field, localStorage.getItem(key)])),
+  // History as this app reads it, so the file imports again (#652): its unreadable cached codes are dropped.
+  ...Object.fromEntries(SAVE_FIELDS.map(([field, key]) => [field,
+    key === STORAGE_KEYS.HISTORY ? withReadableCache(localStorage.getItem(key)) : localStorage.getItem(key)])),
   player: exportPlayer(),
   exportedAt: new Date().toISOString(),
   version: 2,
