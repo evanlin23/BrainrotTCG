@@ -170,3 +170,7 @@
 .misprint-chip[aria-pressed='true'] {
   text-shadow: none;
 }
+
+.uncertain-chip {
+  border-style: dashed;
+}

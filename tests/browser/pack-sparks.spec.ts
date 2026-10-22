@@ -30,7 +30,8 @@ interface SparkStart { x: number; y: number; hit: boolean; layerEvents: string }
 type SparkWindow = Window & { sparkStarts?: SparkStart[] };
 
 /**
- * Presses the tear line at 40% across, moves to 55% once the spark throttle has passed (so the move
+ * Presses the tear line at 40% across, moves to 50% (past the 10px slop, under the 12% that opens the
+ * pack on release, so it stays at rest) once the spark throttle has passed (so the move
  * draws its own burst), then, still pressed, reads where the drawn cut is on screen. A spark lives
  * 620ms, which a slow run can outlast before a read, so each one is read as it's added, held at its
  * first frame: where it starts.
@@ -39,7 +40,7 @@ async function cutAndRead(page: Page, packShell: Locator, touch: boolean) {
   const box = (await packShell.boundingBox())!;
   const y = box.y + box.height * TEAR_LINE;
   const from = box.x + box.width * 0.4;
-  const to = box.x + box.width * 0.55;
+  const to = box.x + box.width * 0.5;
   const onPack = await page.evaluate(([x, py]) => !!document.elementFromPoint(x, py)?.closest('.pack-shell'), [from, y]);
   expect(onPack, 'the press lands on the pack').toBe(true);
 
@@ -134,7 +135,7 @@ test.describe('with reduced motion', () => {
     const finger = await fingerFor(page, hasTouch);
     await finger.press(box.x + box.width * 0.4, y);
     await page.waitForTimeout(50);
-    await finger.move(box.x + box.width * 0.55, y);
+    await finger.move(box.x + box.width * 0.5, y);
     await expect(packShell.locator('.cut-line')).toHaveCount(1);
     await expect(packShell.locator('.drag-spark')).toHaveCount(0);
     // A still seam: no shimmer.

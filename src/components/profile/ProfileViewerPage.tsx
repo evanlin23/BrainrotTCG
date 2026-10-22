@@ -17,7 +17,9 @@ type State = { status: 'invalid'; reason: string } | ({ status: 'checking' } & P
 /**
  * Opened from a shared `#/profile/<proof>` link. The signature is checked at once, so the claimed
  * level shows right away; the best packs are re-opened first (about a second), then the rest, and
- * once every pack is in, the claims must match or the profile is marked fake.
+ * once every pack is in, the claims must match or the profile is marked fake. Copy only claims what
+ * has been checked: "Verified" appears only when every pack is in, an interrupted check shows just
+ * the re-opened packs as partial totals, and a failed claim gets no success explanation.
  */
 const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
   const [state, setState] = useState<State | null>(null);
@@ -47,6 +49,7 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
   const stats = useMemo(() => {
     if (state?.status !== 'checking') return null;
     const sofar = profileStats(state.packs);
+    // Verified, or stopped early: only what was actually re-opened. Never the claimed level.
     if (state.done || state.error) return sofar;
     const { xp } = state.checked.profile;
     return { ...sofar, xp, level: levelForXp(xp), packs: state.checked.tickets.length, best: state.highlights ?? [] };
@@ -86,15 +89,20 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
   const { checked, packs, done, error, highlights } = state;
   const fake = error?.rule === 'claims';
   const total = checked.tickets.length;
+  const reopened = packs.length;
+  const interrupted = !!error && !fake;
+  // A late error can arrive after every pack is in; then "only N/N" would read wrongly.
+  const unfinished = reopened < total;
+  const counts = (
+    <span className="tabular">
+      {reopened.toLocaleString()}/{total.toLocaleString()}
+    </span>
+  );
   const name = publicName(checked.profile.name);
   return (
     <Sheet
       title={name}
-      subtitle={
-        <>
-          <span className="share-fp">#{checked.fingerprint}</span> · {total.toLocaleString()} pack{total === 1 ? '' : 's'}
-        </>
-      }
+      subtitle={<span className="share-fp">#{checked.fingerprint}</span>}
       onClose={onClose}
       size="lg"
       className="profile-viewer"
@@ -115,17 +123,20 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
             </>
           ) : error ? (
             <>
-              <ShieldAlert aria-hidden="true" /> Couldn't finish re-opening the packs on this device
+              <ShieldAlert aria-hidden="true" />
+              <span>
+                {unfinished ? <>Check interrupted: only {counts} packs re-opened on this device</> : 'Check interrupted before it finished'}
+              </span>
             </>
           ) : done ? (
             <>
-              <ShieldCheck aria-hidden="true" /> Verified: {total === 1 ? 'its pack was' : `all ${total.toLocaleString()} packs`} re-opened on this device
+              <ShieldCheck aria-hidden="true" /> Verified on this device: every pack re-opened
             </>
           ) : (
             <>
-              <Loader2 aria-hidden="true" className="spin" /> Re-opening packs on this device…{' '}
-              <span className="tabular">
-                {packs.length.toLocaleString()}/{total.toLocaleString()}
+              <Loader2 aria-hidden="true" className="spin" />
+              <span>
+                Checking: packs re-opened on this device {counts}
               </span>
             </>
           )}
@@ -135,7 +146,11 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
             <span className="progress" aria-hidden="true">
               <span style={{ width: `${(packs.length / total) * 100}%` }} />
             </span>
-            {highlights && <span className="profile-verify-sub">Best pulls checked. Level is as claimed until every pack is in.</span>}
+            <span className="profile-verify-sub">
+              {highlights
+                ? 'Best pulls re-opened. The level is only what the link claims until every pack is in.'
+                : 'Not verified yet. The level is only what the link claims until every pack is in.'}
+            </span>
           </>
         )}
         {error && !fake && (
@@ -152,14 +167,37 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
         )}
       </div>
 
-      {stats && !fake && <ProfileSummary stats={stats} levelNote={done ? undefined : 'claimed'} partial={!done && !error} />}
+      {stats && !fake && (
+        <ProfileSummary
+          stats={stats}
+          levelNote={done ? undefined : interrupted ? 'from re-opened packs only' : 'claimed'}
+          partial={!done}
+          partialNote={
+            interrupted
+              ? unfinished
+                ? `* from the ${reopened.toLocaleString()} of ${total.toLocaleString()} packs re-opened before the check stopped`
+                : '* from the packs re-opened before the check stopped'
+              : undefined
+          }
+        />
+      )}
 
       <details className="profile-how">
         <summary>How do we know?</summary>
         <p>
           The link lists which set every one of this player's tickets went to, from their very first (#0) to #{total - 1}, with no
-          gaps, signed with their key. Your device re-opened each of those packs itself: the level, cards and best pulls above
-          are what those tickets actually hold, so they can't be edited, and bad packs can't be left out.
+          gaps, signed with their key. That signature is checked as soon as the link opens.
+        </p>
+        <p>
+          {fake
+            ? "The packs re-opened on this device don't match what the link claims, so this isn't a real profile and nothing about it counts as verified."
+            : done
+              ? "Your device re-opened each of those packs itself, and the claims match: the level, cards and best pulls above are what those tickets actually hold, so they can't be edited, and bad packs can't be left out."
+              : interrupted
+                ? unfinished
+                  ? `The check stopped after ${reopened.toLocaleString()} of ${total.toLocaleString()} packs. The totals above come only from those packs, and the rest are unchecked, so the profile is not verified. Try again to carry on from where it stopped.`
+                  : 'The check stopped before it finished, so the profile is not verified. Try again to run it once more.'
+                : `Your device is re-opening those packs now (${reopened.toLocaleString()} of ${total.toLocaleString()} so far). Until every pack is in, the level is only what the link claims and nothing here counts as verified.`}
         </p>
         <p>
           What a link can't show is packs opened after it was made, so a profile is a snapshot. Each ticket costs real work to

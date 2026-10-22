@@ -475,10 +475,10 @@ test.describe('360x640', () => {
     await expectHintClearOfButton(page, 'before the miss');
 
     const box = (await packShell.boundingBox())!;
-    // Well below the tear line (its widest tolerance is 52px), on the art and left of the Open pack
-    // button, which a press never cuts through: a miss, so the pack nudges.
+    // Well below the start band (the top third of the pack, or 80px under the tear line), on the art
+    // and left of the Open pack button, which a press never cuts through: a miss, so the pack nudges.
     const x = box.x + box.width * 0.12;
-    const y = box.y + box.height * 0.19 + 80;
+    const y = box.y + box.height * 0.6;
     const onPack = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.pack-shell'), [x, y]);
     expect(onPack, 'the press lands on the pack').toBe(true);
     const finger = await fingerFor(page, hasTouch);

@@ -63,6 +63,17 @@ describe('bringing a save over', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it("brings a save whose history holds an unreadable cached code, dropping only that code (#652)", () => {
+    const rows = [
+      { s: 'genesis', v: 1, n: 0, k: 'a', c: 'sig\u2028ma', h: 'No Match', x: 1, t: 1 },
+      { s: 'genesis', v: 1, n: 1, k: 'a', c: 'amogus', h: 'No Match', x: 2, t: 2 },
+    ];
+    expect(importSave({ ...OLD, 'brainrot-history-v1': JSON.stringify(rows) })).toBe('saved');
+    const { c: _unreadable, ...uncached } = rows[0];
+    expect(JSON.parse(store.get('brainrot-history-v1')!)).toStrictEqual([uncached, rows[1]]);
+    expect(store.get('brainrot-player-v1')).toBe(OLD['brainrot-player-v1']);
+  });
+
   it('brings a save over without a blocked display name, keeping its key and tickets', () => {
     const blocked = JSON.stringify({ ...JSON.parse(player('aa')), name: 'xXfuckXx' });
     expect(importSave({ ...OLD, 'brainrot-player-v1': blocked })).toBe('saved');

@@ -31,6 +31,21 @@ describe('set achievements', () => {
     expect(check(own(false))).not.toContain(setMasterId(set.id));
     expect(check(own(true))).toContain(setMasterId(set.id));
   });
+
+  it('does not unlock set completion for zero-copy records', () => {
+    const zeroCollection: Record<string, CollectionItem> = Object.fromEntries(
+      set.cards.map((c) => {
+        const key = `${set.id}/${c.id}`;
+        return [key, { card: getCard(key)!, normalCount: 0, holoCount: 0 }];
+      }),
+    );
+    expect(check(zeroCollection)).not.toContain(setCompleteId(set.id));
+    expect(check(zeroCollection)).not.toContain(setMasterId(set.id));
+    expect(check(zeroCollection)).not.toContain('collect_5');
+    expect(check(zeroCollection)).not.toContain('collect_10');
+    expect(check(zeroCollection)).not.toContain('complete_collection');
+    expect(check(zeroCollection)).not.toContain('first_common');
+  });
 });
 
 describe('pack achievements from the history', () => {
