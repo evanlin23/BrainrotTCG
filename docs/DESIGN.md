@@ -151,6 +151,10 @@ results rules below (#339).
   the score panel is the one score line (9,850, then "Brainrot Score · 4,925 pts × 2"), and the
   fingerprint is only on the "Cert" strip, not the subtitle. A pull with no combo keeps its "No
   Matches ×1" headline under the title "A pull". Other pack viewers are untitled and unchanged.
+- #802: the shared-pull sheet has no subtitle; "X pulled this pack in Set." is the one attribution
+  and an unnamed or blocked player reads "Someone" everywhere. The check reads "This pull checks
+  out — re-verified in your browser just now" for every viewer (the page can't tell owner from
+  guest without creating an identity), with the certificate and "How do we know?" one tap down.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
   44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
   the tap path.
