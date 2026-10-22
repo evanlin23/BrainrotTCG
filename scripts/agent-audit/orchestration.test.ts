@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
-  compactLedger,
   createTaskBrief,
   formatStartupOutput,
   parseReviewerReport,
@@ -81,7 +80,7 @@ describe('orchestration state projection & budget bounds', () => {
     expect(result.allowsMerge).toBe(false);
     expect(result.message).toContain('CRITICAL OVERFLOW');
     expect(result.message).toContain('hold line truncated');
-    expect(result.message).toContain('MERGE/DELETE NOTHING');
+    expect(result.message).toContain('MERGE/CLOSE/DELETE NOTHING');
   });
 
   it('fails closed (CRITICAL OVERFLOW / merge forbidden) if a hold is located past the truncation boundary', () => {
@@ -106,7 +105,7 @@ describe('orchestration state projection & budget bounds', () => {
     expect(result.allowsMerge).toBe(false);
     expect(result.message).toContain('CRITICAL OVERFLOW');
     expect(result.message).toContain('hold(s) past display boundary');
-    expect(result.message).toContain('MERGE/DELETE NOTHING');
+    expect(result.message).toContain('MERGE/CLOSE/DELETE NOTHING');
     expect(result.projection).not.toContain('#999'); // Verify hold is indeed not visible in projection
   });
 
@@ -200,7 +199,7 @@ describe('orchestration state projection & budget bounds', () => {
 });
 
 describe('startup output formatting', () => {
-  it('formats missing NOW.md state with clear instructions and merge/delete forbidden', () => {
+  it('formats missing NOW.md state with clear instructions and merge/close/delete forbidden', () => {
     const output = formatStartupOutput({
       branch: 'main',
       commit: '2bf6074 Cut coordinator',
@@ -209,7 +208,7 @@ describe('startup output formatting', () => {
 
     expect(output).toContain('Branch: main at 2bf6074 Cut coordinator');
     expect(output).toContain('No .claude/state/NOW.md here. Only /work uses it');
-    expect(output).toContain('Status: MISSING (merge/delete forbidden until loaded from ledger issue)');
+    expect(output).toContain('Status: MISSING (merge/close/delete forbidden until loaded from ledger issue)');
   });
 
   it('formats valid compact state with branch, commit and status', () => {
@@ -236,26 +235,36 @@ describe('startup output formatting', () => {
   });
 });
 
-describe('safe compaction of #387', () => {
-  it('compacts raw ledger into compact state preserving provenance, authority and ALL holds', () => {
-    const rawLedger387 = 'historical text '.repeat(1000);
-    const compacted = compactLedger(rawLedger387);
+// Excerpt of the "Claude work ledger" issue #387 working copy (2026-10-22), as mirrored to NOW.md.
+const LEDGER_387_EXCERPT = [
+  '# Run: Phase 1 completion (owner: "continue until done with phase 1", merge allowed), started 2026-10-22',
+  'ledger issue: #387 (order/scope: #716)',
+  'authority: #387 owner brief: whole Phase 1 queue, task cap lifted; review/fix/supersede PRs, implement',
+  '  missing Phase 1 work, close dup/superseded/obsolete PRs w/ reason, merge eligible reviewed PRs one at',
+  "  a time under CLAUDE.md bar. All design calls Claude's. Emulation counts as phone evidence (label it).",
+  '  Not allowed: push to main, admin bypass, real-data tests/deploys, Phase 2 social publishing, backend,',
+  '  set addition or set draft-flag removal. Owner-only: their accounts/settings/legal claims.',
+  'holds: none of the #387 holds (#292 #377 #378 #375 #380/#381 #203 #188 #284/#290 #313) are open PRs.',
+  '  #85/#490 deferred (whole-profile verification). Owner art/set/legal holds stand.',
+  'order (#716 rows; PR -> issue; tier o=opus s=sonnet):',
+  'R1: #904->#811 o, #905->#660/#659 o, #906->#693 o, #907->#652 o, #909->#621 o,',
+  'needs owner: #358 TikTok 2FA (owner-only); #703/#704 real AT/mobile; #705/#706 staging access',
+].join('\n');
 
-    const result = projectState(compacted);
+describe('#387 ledger snapshot', () => {
+  it('tracks every line of its authority and holds blocks and fails closed when either is cut off', () => {
+    const result = projectState(LEDGER_387_EXCERPT);
+    expect(result.sourceIssue).toBe('#387');
+    expect(result.holdsTracked).toBe(2);
     expect(result.status).toBe('ok');
-    expect(result.allowsMerge).toBe(true);
-    expect(result.holdsTracked).toBe(7);
-    expect(result.linesShown).toBeLessThanOrEqual(40);
-    expect(result.charsShown).toBeLessThanOrEqual(2500);
 
-    // Verify all key holds are preserved
-    expect(compacted).toContain('#85, #490');
-    expect(compacted).toContain('Genesis cards stay (#22)');
-    expect(compacted).toContain('No background music (#71)');
-    expect(compacted).toContain('Free forever, no loot boxes');
-    expect(compacted).toContain('Min-score floor untracked');
-    expect(compacted).toContain('Branch deletion remains Claude-only (#710)');
-    expect(compacted).toContain('ledger issue: #387');
+    const cutHolds = projectState(LEDGER_387_EXCERPT, { maxLines: 8 });
+    expect(cutHolds.allowsMerge).toBe(false);
+    expect(cutHolds.message).toContain('1 hold(s) past display boundary');
+
+    const cutAuthority = projectState(LEDGER_387_EXCERPT, { maxLines: 5 });
+    expect(cutAuthority.allowsMerge).toBe(false);
+    expect(cutAuthority.message).toContain('authority past display boundary');
   });
 });
 
@@ -329,7 +338,52 @@ describe('small task briefs and independent review validation', () => {
 
     const result = parseReviewerReport(report, '2bf6074');
     expect(result.allowsMerge).toBe(false);
-    expect(result.reason).toContain('changes-needed');
+    expect(result.reason).toContain('blocking findings');
+  });
+
+  // The exact reply template from .claude/agents/reviewer.md.
+  const templateReport = (verdict: string, head: string, findings: string[]) =>
+    [
+      `verdict: ${verdict}`,
+      `head: ${head}`,
+      'findings (most severe first, at most 5):',
+      ...findings,
+      'not checked: browser specs (CI covers them)',
+    ].join('\n');
+
+  it('parses the reviewer.md template and refuses an approve that carries a blocking finding', () => {
+    const report = templateReport('approve', '2bf6074', [
+      '- [blocking] .claude/hooks/orient.mjs:74: a hold with a colon ends the holds block',
+      '- [minor] SKILL.md:65: wording',
+    ]);
+    const result = parseReviewerReport(report, '2bf6074abc');
+    expect(result.findings).toHaveLength(2);
+    expect(result.findings[0]).toEqual({
+      severity: 'blocking',
+      location: '.claude/hooks/orient.mjs:74',
+      description: 'a hold with a colon ends the holds block',
+    });
+    expect(result.notChecked).toEqual(['browser specs (CI covers them)']);
+    expect(result.allowsMerge).toBe(false);
+    expect(result.reason).toContain('blocking findings');
+  });
+
+  it('allows a clean approve in the template format on a matching head', () => {
+    const result = parseReviewerReport(templateReport('approve', '2bf6074', ['- [minor] a.ts:1: nit']), '2bf6074abc');
+    expect(result.allowsMerge).toBe(true);
+  });
+
+  it('treats an unreadable finding bullet as blocking', () => {
+    const result = parseReviewerReport(templateReport('approve', '2bf6074', ['- saves can be lost']), '2bf6074');
+    expect(result.allowsMerge).toBe(false);
+    expect(result.findings[0].severity).toBe('blocking');
+  });
+
+  it('refuses a head shorter than 7 hex characters even when it prefixes the candidate', () => {
+    const result = parseReviewerReport(templateReport('approve', 'c', []), 'c143bbf');
+    expect(result.head).toBe('');
+    expect(result.allowsMerge).toBe(false);
+    expect(result.reason).toContain('does not match');
   });
 
   it('rejects merge if reviewer approved an older/stale head SHA', () => {
@@ -403,7 +457,7 @@ describe('orient hook pipe execution test', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('CRITICAL OVERFLOW');
-    expect(result.stdout).toContain('MERGE/DELETE NOTHING');
+    expect(result.stdout).toContain('MERGE/CLOSE/DELETE NOTHING');
     expect(result.stdout).not.toContain('#999 hold past line 80');
   });
 });
@@ -437,7 +491,7 @@ describe('orient hook hold tracking (fail closed)', () => {
     const stdout = runHook(colonHoldsAtBoundary, 'colon');
     expect(stdout).toContain('CRITICAL OVERFLOW');
     expect(stdout).toContain('2 hold(s) past display boundary');
-    expect(stdout).toContain('MERGE/DELETE NOTHING');
+    expect(stdout).toContain('MERGE/CLOSE/DELETE NOTHING');
     expect(stdout).not.toContain('Authority and holds intact');
     expect(stdout).not.toContain('Branch deletion remains Claude-only');
   });
@@ -447,7 +501,7 @@ describe('orient hook hold tracking (fail closed)', () => {
     for (let i = 0; i < 100; i++) longHistory.push(`done: old PR #${i}`);
     const fixtures: Record<string, string> = {
       colon: colonHoldsAtBoundary,
-      compact: compactLedger(),
+      ledger387: LEDGER_387_EXCERPT,
       history: longHistory.join('\n'),
       noHolds: ['# Run: No holds', 'ledger issue: #387', 'authority: allowed', 'order: #717'].join('\n'),
       hugeHold: ['# Run: Huge', 'authority: allowed', 'holds:', '- #85: ' + 'y'.repeat(500)].join('\n'),

@@ -29,7 +29,7 @@ if (uncommitted.length > 0) {
 
 if (!existsSync(statePath)) {
   console.log(`No ${stateRelativePath} here. Only /work uses it; /work rebuilds it from the "Claude work ledger" issue and merges nothing until it does.`);
-  console.log('--- Status: MISSING (merge/delete forbidden until loaded from ledger issue) ---');
+  console.log('--- Status: MISSING (merge/close/delete forbidden until loaded from ledger issue) ---');
   process.exit(0);
 }
 
@@ -37,7 +37,7 @@ let content = '';
 try {
   content = readFileSync(statePath, 'utf8');
 } catch {
-  console.log(`--- Error reading ${stateRelativePath}; merge/delete forbidden until loaded. ---`);
+  console.log(`--- Error reading ${stateRelativePath}; merge/close/delete forbidden until loaded. ---`);
   process.exit(0);
 }
 
@@ -49,11 +49,12 @@ const rawLines = content.split('\n');
 const totalLines = rawLines.length;
 const totalChars = content.length;
 
-// Top-level keys of the ledger format in .claude/skills/work/SKILL.md. Mirrors projectState in
+// Top-level keys of the ledger format in .claude/skills/work/SKILL.md, optionally with a note
+// such as `holds (fix first, then merge):`. Mirrors projectState in
 // scripts/agent-audit/orchestration.ts (a parity test checks they agree).
 // Only these keys start a section, so a hold whose text contains a colon stays a hold: every
 // non-blank line between `holds:` and the next known key counts as a hold (fail closed).
-const LEDGER_KEY = /^(ledger issue|source|authority|holds|order|done|needs owner|current|blockers)\s*:(.*)$/i;
+const LEDGER_KEY = /^(ledger issue|source|authority|holds|order|done|needs owner|current|blockers)(?:\s*\([^)]*\))?\s*:(.*)$/i;
 const RUN_HEADER = /^#\s+run\b/i;
 
 let sourceIssue = '';
@@ -136,9 +137,9 @@ const authorityIncomplete = authorityTruncated || authorityPastBoundary.length >
 
 let message = '';
 if (authorityEntries.length === 0 && holdEntries.length === 0 && totalLines > 5) {
-  message = 'CRITICAL: Authority and holds missing from state. MERGE/DELETE NOTHING until reconciled.';
+  message = 'CRITICAL: Authority and holds missing from state. MERGE/CLOSE/DELETE NOTHING until reconciled.';
 } else if (holdHeaders.length === 0 || authorityHeaders.length === 0) {
-  message = `CRITICAL: ${holdHeaders.length === 0 ? 'holds:' : 'authority:'} section missing from state. MERGE/DELETE NOTHING until reconciled.`;
+  message = `CRITICAL: ${holdHeaders.length === 0 ? 'holds:' : 'authority:'} section missing from state. MERGE/CLOSE/DELETE NOTHING until reconciled.`;
 } else if (holdsIncomplete || authorityIncomplete) {
   const reasons = [];
   if (holdTruncated) reasons.push('hold line truncated');
@@ -146,7 +147,7 @@ if (authorityEntries.length === 0 && holdEntries.length === 0 && totalLines > 5)
   if (holdHeaderPastBoundary) reasons.push('holds block past display boundary');
   if (authorityTruncated) reasons.push('authority line truncated');
   if (authorityPastBoundary.length > 0 || authorityHeaderPastBoundary) reasons.push('authority past display boundary');
-  message = `CRITICAL OVERFLOW: Authority or holds incomplete (${reasons.join(', ')}). MERGE/DELETE NOTHING until reconciled.`;
+  message = `CRITICAL OVERFLOW: Authority or holds incomplete (${reasons.join(', ')}). MERGE/CLOSE/DELETE NOTHING until reconciled.`;
 } else if (cutOffLineIndex < totalLines || currentChars < totalChars || truncatedLinesCount > 0) {
   message = `WARNING: State truncated to fit budget (${totalLines} lines, ${totalChars} chars -> ${projectedLines.length} lines, ${currentChars} chars shown). Authority and holds intact. Trim history/done before other work.`;
 } else {

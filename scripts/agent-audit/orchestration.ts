@@ -27,11 +27,12 @@ export interface ProjectOptions {
   maxLineChars?: number;
 }
 
-// Top-level keys of the ledger format in .claude/skills/work/SKILL.md. Keep in sync with
+// Top-level keys of the ledger format in .claude/skills/work/SKILL.md, optionally with a note
+// such as `holds (fix first, then merge):`. Keep in sync with
 // .claude/hooks/orient.mjs, which repeats this parser (a parity test checks they agree).
 // Only these keys start a section, so a hold whose text contains a colon stays a hold: every
 // non-blank line between `holds:` and the next known key counts as a hold (fail closed).
-const LEDGER_KEY = /^(ledger issue|source|authority|holds|order|done|needs owner|current|blockers)\s*:(.*)$/i;
+const LEDGER_KEY = /^(ledger issue|source|authority|holds|order|done|needs owner|current|blockers)(?:\s*\([^)]*\))?\s*:(.*)$/i;
 const RUN_HEADER = /^#\s+run\b/i;
 
 /**
@@ -42,7 +43,7 @@ const RUN_HEADER = /^#\s+run\b/i;
  * 2. Individual lines exceeding maxLineChars are truncated with an explicit marker.
  * 3. Never truncates a blocking hold into apparent permission: if any hold or authority
  *    entry is truncated or extends past the display boundary, status is critical_overflow
- *    and allowsMerge is set to false (MERGE/DELETE NOTHING until reconciled).
+ *    and allowsMerge is set to false (MERGE/CLOSE/DELETE NOTHING until reconciled).
  */
 export function projectState(content: string, options: ProjectOptions = {}): StateProjectionResult {
   const maxLines = options.maxLines ?? STATE_BUDGET.maxLines;
@@ -140,11 +141,11 @@ export function projectState(content: string, options: ProjectOptions = {}): Sta
   if (authorityEntries.length === 0 && holdEntries.length === 0 && totalLines > 5) {
     status = 'critical_overflow';
     allowsMerge = false;
-    message = 'CRITICAL: Authority and holds missing from state. MERGE/DELETE NOTHING until reconciled.';
+    message = 'CRITICAL: Authority and holds missing from state. MERGE/CLOSE/DELETE NOTHING until reconciled.';
   } else if (holdHeaders.length === 0 || authorityHeaders.length === 0) {
     status = 'critical_overflow';
     allowsMerge = false;
-    message = `CRITICAL: ${holdHeaders.length === 0 ? 'holds:' : 'authority:'} section missing from state. MERGE/DELETE NOTHING until reconciled.`;
+    message = `CRITICAL: ${holdHeaders.length === 0 ? 'holds:' : 'authority:'} section missing from state. MERGE/CLOSE/DELETE NOTHING until reconciled.`;
   } else if (holdsIncomplete || authorityIncomplete) {
     status = 'critical_overflow';
     allowsMerge = false;
@@ -154,7 +155,7 @@ export function projectState(content: string, options: ProjectOptions = {}): Sta
     if (holdHeaderPastBoundary) reasons.push('holds block past display boundary');
     if (authorityTruncated) reasons.push('authority line truncated');
     if (authorityPastBoundary.length > 0 || authorityHeaderPastBoundary) reasons.push('authority past display boundary');
-    message = `CRITICAL OVERFLOW: Authority or holds incomplete (${reasons.join(', ')}). MERGE/DELETE NOTHING until reconciled.`;
+    message = `CRITICAL OVERFLOW: Authority or holds incomplete (${reasons.join(', ')}). MERGE/CLOSE/DELETE NOTHING until reconciled.`;
   } else if (cutOffLineIndex < totalLines || currentChars < totalChars || truncatedLinesCount > 0) {
     status = 'non_blocking_overflow';
     allowsMerge = true;
@@ -205,7 +206,7 @@ export function formatStartupOutput(options: StartupOutputOptions): string {
 
   if (options.stateContent === null) {
     lines.push(`No ${statePath} here. Only /work uses it; /work rebuilds it from the "Claude work ledger" issue and merges nothing until it does.`);
-    lines.push('--- Status: MISSING (merge/delete forbidden until loaded from ledger issue) ---');
+    lines.push('--- Status: MISSING (merge/close/delete forbidden until loaded from ledger issue) ---');
     return lines.join('\n');
   }
 
@@ -311,34 +312,42 @@ export interface ReviewerReport {
   reason?: string;
 }
 
+/**
+ * Parses the reply format in .claude/agents/reviewer.md:
+ *   verdict: approve | changes-needed | block
+ *   head: <commit>
+ *   findings (most severe first, at most 5):
+ *   - [blocking|minor] path:line: what's wrong
+ *   not checked: ...
+ * Fails closed: an unreadable verdict is `block`, a head needs at least 7 hex characters and must
+ * prefix the candidate head, a finding bullet without a readable severity counts as blocking, and
+ * any blocking finding refuses the merge whatever the verdict says.
+ */
 export function parseReviewerReport(raw: string, currentHead: string): ReviewerReport {
-  const lines = raw.trim().split('\n');
-  let verdict: 'approve' | 'changes-needed' | 'block' = 'block';
+  let verdict: ReviewerReport['verdict'] = 'block';
   let head = '';
-  const findings: Array<{ severity: 'blocking' | 'minor'; location: string; description: string }> = [];
+  const findings: ReviewerReport['findings'] = [];
   const notChecked: string[] = [];
-  let inFindings = false;
-  let inNotChecked = false;
+  let section: 'findings' | 'not checked' | '' = '';
 
-  for (const line of lines) {
+  for (const line of raw.trim().split('\n')) {
     const trimmed = line.trim();
-    if (trimmed.startsWith('verdict:')) {
-      const value = trimmed.replace('verdict:', '').trim().toLowerCase();
-      if (value === 'approve' || value === 'changes-needed' || value === 'block') {
-        verdict = value;
-      }
-    } else if (trimmed.startsWith('head:')) {
-      head = trimmed.replace('head:', '').trim();
-    } else if (trimmed.startsWith('findings:')) {
-      inFindings = true;
-      inNotChecked = false;
-    } else if (trimmed.startsWith('not checked:')) {
-      inNotChecked = true;
-      inFindings = false;
-      const inline = trimmed.replace('not checked:', '').trim();
+    const verdictMatch = trimmed.match(/^verdict\s*:\s*(approve|changes-needed|block)\b/i);
+    const headMatch = trimmed.match(/^head\s*:\s*([0-9a-f]{7,40})\b/i);
+    if (/^verdict\s*:/i.test(trimmed)) {
+      section = '';
+      verdict = verdictMatch ? (verdictMatch[1].toLowerCase() as ReviewerReport['verdict']) : 'block';
+    } else if (/^head\s*:/i.test(trimmed)) {
+      section = '';
+      head = headMatch ? headMatch[1].toLowerCase() : '';
+    } else if (/^findings\b/i.test(trimmed)) {
+      section = 'findings';
+    } else if (/^not checked\b/i.test(trimmed)) {
+      section = 'not checked';
+      const inline = trimmed.replace(/^not checked\s*:?/i, '').trim();
       if (inline) notChecked.push(inline);
-    } else if (inFindings && trimmed.startsWith('-')) {
-      const match = trimmed.match(/^-\s*\[(blocking|minor)\]\s*([^:]+):\s*(.*)/i);
+    } else if (section === 'findings' && trimmed.startsWith('-')) {
+      const match = trimmed.match(/^-\s*\[(blocking|minor)\]\s*(.*?):\s(.*)$/i);
       if (match) {
         findings.push({
           severity: match[1].toLowerCase() as 'blocking' | 'minor',
@@ -348,68 +357,22 @@ export function parseReviewerReport(raw: string, currentHead: string): ReviewerR
       } else {
         findings.push({ severity: 'blocking', location: 'unknown', description: trimmed.slice(1).trim() });
       }
-    } else if (inNotChecked && trimmed.startsWith('-')) {
-      notChecked.push(trimmed.slice(1).trim());
+    } else if (section === 'not checked' && trimmed) {
+      notChecked.push(trimmed.replace(/^-\s*/, ''));
     }
   }
 
   const hasBlockingFindings = findings.some((f) => f.severity === 'blocking');
-  const headMatches = head.length > 0 && currentHead.startsWith(head);
+  const headMatches = head.length >= 7 && currentHead.toLowerCase().startsWith(head);
 
-  let allowsMerge = true;
   let reason: string | undefined;
-
-  if (verdict !== 'approve') {
-    allowsMerge = false;
+  if (hasBlockingFindings) {
+    reason = 'Review contains blocking findings';
+  } else if (verdict !== 'approve') {
     reason = `Review verdict is ${verdict}`;
   } else if (!headMatches) {
-    allowsMerge = false;
     reason = `Reviewer head (${head || 'unspecified'}) does not match current candidate head (${currentHead})`;
-  } else if (hasBlockingFindings) {
-    allowsMerge = false;
-    reason = 'Review contains blocking findings';
   }
 
-  return {
-    verdict,
-    head,
-    findings,
-    notChecked,
-    allowsMerge,
-    reason,
-  };
-}
-
-/**
- * Compacts an expansive historical ledger (such as #387) into bounded active state.
- * Preserves owner authority and all holds verbatim, while separating finished history
- * into concise git log references and issue provenance.
- */
-export function compactLedger(_fullLedger?: string): string {
-  // Extract key active sections
-  const holds: string[] = [
-    '- #85, #490: whole-profile / aggregate verification deferred by owner direction Oct 19',
-    '- Genesis cards stay (#22)',
-    '- No background music (#71)',
-    '- Free forever, no loot boxes, money only donations/cosmetics/merch (#76)',
-    '- Min-score floor untracked: blocker before wiring any min-score board (#223 intake)',
-    '- New sets under src/content/sets/ or removing "draft": true: owner approval required',
-    '- Branch deletion remains Claude-only (#710)',
-  ];
-
-  const authority = 'owner authorized Claude to review open PRs, fix/split drafts, implement Phase 1 under #716 queue order, and merge eligible PRs under CLAUDE.md bar. Needs owner: TikTok 2FA (#358), domain/SEO, new art/sets, legal/account holds.';
-
-  return [
-    '# Run: Phase 1 takeover (whole queue), started 2026-10-15',
-    'ledger issue: #387',
-    'source: PR #216 docs/CLAUDE_HANDOFF.md, #1 audit comment 6180236583, milestone 1, owner update Oct 21 #716',
-    `authority: ${authority}`,
-    'holds:',
-    ...holds,
-    'order: Phase 1 queue #716 (rows 1-11 serial order; read only next eligible issue)',
-    'done: 21 merged prior to Oct 21 (in git log). Last 5: #609 (2fe2cbd), #611 (b78e40b), #608 (860435e), #607 (c96cf65), #616 (a14661a). Full debugging logs archived in #387 history.',
-    'needs owner: #358 TikTok 2FA confirmation',
-    'current: Phase 1 queue execution under #716',
-    'blockers: none active',
-  ].join('\n');
+  return { verdict, head, findings, notChecked, allowsMerge: reason === undefined, reason };
 }

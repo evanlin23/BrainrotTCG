@@ -19,9 +19,9 @@ if [ -f "$state" ]; then
   head -80 "$state" | cut -c 1-240
   lines=$(grep -c '' "$state")
   [ "$lines" -gt 80 ] && echo "--- $state has $lines lines; only 80 shown (max 240 chars/line). ---"
-  echo "--- Status: UNVERIFIED (node unavailable, holds not checked). MERGE/DELETE NOTHING until holds are checked against the ledger issue. ---"
+  echo "--- Status: UNVERIFIED (node unavailable, holds not checked). MERGE/CLOSE/DELETE NOTHING until holds are checked against the ledger issue. ---"
 else
   echo "No $state here. Only /work uses it; /work rebuilds it from the \"Claude work ledger\" issue and merges nothing until it does."
-  echo "--- Status: MISSING (merge/delete forbidden until loaded from ledger issue) ---"
+  echo "--- Status: MISSING (merge/close/delete forbidden until loaded from ledger issue) ---"
 fi
 exit 0

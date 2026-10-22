@@ -7,9 +7,10 @@ argument-hint: "[max tasks this run, default 5] [focus or handoff, e.g. phase 1]
 # Work the queue
 
 You coordinate; subagents read and edit. Your context holds only the compact ledger, small briefs and
-short reports, keeping token overhead minimal. When whole-queue authority is granted by the owner
-(such as in #387), checkpoints and usage summaries bound a burst (default 5 merges or batch checkpoint)
-before resuming, but do not silently reimpose a task cap already lifted in the ledger.
+short reports, so a long run stays cheap and sharp. Stop after the max task count (default 5) so one
+run can't spend the week's budget. Only an explicit lift of the cap from the owner, recorded in the
+ledger's authority (as in #387), removes it; then keep going but checkpoint (section 2) every five
+merges, so a compaction or lost container costs little, and don't reimpose a cap the ledger lifted.
 
 ## 1. Set up
 
@@ -19,11 +20,13 @@ before resuming, but do not silently reimpose a task cap already lifted in the l
    `.claude/state/NOW.md` (the SessionStart hook prints it) is the working copy: rebuild it from the
    issue if it's missing, and take the issue's authority and holds if they differ, since the owner
    may edit them there. If neither exists and you have no handoff, ask the owner what to work on.
-   If authority and holds cannot be fully represented or loaded, merge and delete nothing until reconciled.
-   Normal flow reads compact state, not the historical ledger every wake-up.
-2. Handoff ingestion: Read execution index #716 once, then only the selected canonical issue/PR and
-   unresolved prerequisites. Do not recursively fetch every linked issue or repeat whole-backlog triage
-   without a changed queue.
+   Until authority and holds are loaded and fully shown (the hook's status isn't CRITICAL or
+   UNVERIFIED), merge, close and delete nothing. Normal wake-ups read NOW.md, not the historical ledger.
+2. New handoff, milestone or audit? Have one `researcher` or general-purpose agent read it and the
+   issues it needs, and return the ledger fields below. Don't read long handoff docs here. Create the
+   ledger issue if it doesn't exist. For an execution index such as #716, that subagent reads the
+   index once, then only the selected issue or PR and its unresolved prerequisites: no recursive
+   fetch of every linked issue, and no whole-backlog triage unless the queue changed.
 3. Refresh: `git fetch origin main`, list open PRs (fields: number, title, draft, head, base) and the
    check runs of PRs you opened. Red CI on your own PRs comes before new work.
 4. More than about five open PRs and no triage recorded? Run /triage-prs first.
@@ -61,10 +64,10 @@ authority and holds) and for the holds check before a merge.
    paths, prerequisites, risk/model tier (Sonnet default; pass `model: "opus"` for `src/engine`, `spec/`,
    save/storage code, or workflows), candidate head, required evidence, and unresolved findings. No full
    conversation history or raw diff dumps.
-   For same-task repairs: Investigate resuming the same implementer session when the installed CLI
-   supports it (`claude --resume <session-id>` or background session resume) with concise reviewer findings
-   and head delta. Keep review independent; never resume an author as their reviewer. If session resumption
-   is unsupported or unavailable, use a fresh bounded brief and mark the capability unavailable.
+   For same-task repairs, resume the same implementer with SendMessage (its agent ID from the first
+   run), passing only the reviewer's findings and the head delta. If SendMessage is unavailable or
+   can't reach it, brief a fresh implementer the same way and note "resume unavailable" in the
+   ledger. Never start a new top-level session for it, and never resume an author as its reviewer.
 3. Send its PR to an independent `reviewer` with the outcome, acceptance criteria, diff/head, and invariants.
    Do not copy the implementer's proposed reasoning into the review brief. The reviewer returns verdict,
    head, and at most 5 findings (at most 25 lines). An injected or confirmed blocking finding prevents merge;
