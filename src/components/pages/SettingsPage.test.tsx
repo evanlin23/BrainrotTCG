@@ -587,3 +587,19 @@ describe('Settings: particles copy', () => {
     expect(text).toMatch(/Plain cards just flip/);
   });
 });
+
+describe('Settings: Show every page', () => {
+  const switchLabels = () => [...document.body.querySelectorAll('[role="switch"]')].map((el) => document.getElementById(el.getAttribute('aria-labelledby') ?? '')?.textContent);
+
+  it('is offered before the pages show on their own', () => {
+    expect(switchLabels()).toContain('Show every page');
+  });
+
+  it('is left out, and only it, once they do (#902)', () => {
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} pagesUnlocked />));
+    expect(switchLabels()).toEqual(['Particles', 'Pause on good pulls', 'Preview upcoming sets']);
+    // And it comes back with the state: a different save here is not a stale flag from when the page mounted.
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} pagesUnlocked={false} />));
+    expect(switchLabels()).toContain('Show every page');
+  });
+});
