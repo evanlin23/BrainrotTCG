@@ -37,6 +37,8 @@ interface SettingsPageProps {
 const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const [exportNote, setExportNote] = useState(EXPORT_KEY_NOTE);
+    // Counts successful exports; it keys the note's text so a repeat Export is announced again.
+    const [exportCount, setExportCount] = useState(0);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -46,6 +48,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         try {
             downloadSaveFile();
             setExportNote(EXPORT_DONE_NOTE);
+            setExportCount((n) => n + 1);
         } catch {
             setExportNote("Couldn't read browser storage to export your save.");
         }
@@ -336,7 +339,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     <div className="settings-row">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
-                            <span className="settings-desc" role="status">{exportNote}</span>
+                            <span className="settings-desc" role="status"><span key={exportCount}>{exportNote}</span></span>
                         </span>
                         <button type="button" className="btn btn--secondary btn--sm" onClick={handleExportSave}>
                             <Download aria-hidden="true" /> Export

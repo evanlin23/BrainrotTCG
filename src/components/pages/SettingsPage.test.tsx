@@ -108,10 +108,14 @@ describe('Settings: exporting a backup file', () => {
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(backupNote().textContent).toMatch(/^Backup downloaded — keep it private\./);
     expect(backupNote().textContent).toContain('secret player key');
-    // Exporting again keeps the confirmation: the file is made each time.
+    // Exporting again keeps the confirmation (the file is made each time) and re-announces it: the
+    // status region gets a new text node, which is what a screen reader reads out.
+    const firstAnnouncement = backupNote().firstElementChild!;
     await click('Export');
     expect(clickSpy).toHaveBeenCalledTimes(2);
     expect(backupNote().textContent).toBe(EXPORT_DONE_NOTE);
+    expect(firstAnnouncement.isConnected).toBe(false);
+    expect(backupNote().firstElementChild).not.toBe(firstAnnouncement);
   });
 
   it('shows visible failure message when browser storage reads are denied, and succeeds on retry', async () => {
