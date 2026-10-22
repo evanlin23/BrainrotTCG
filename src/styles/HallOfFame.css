@@ -37,6 +37,106 @@
   font-size: var(--text-sm);
 }
 
+/* How Rankings work: always there, closed by default so the page stays short. */
+.hof-how {
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.hof-how summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hof-how summary::after {
+  content: '';
+  width: 0.5em;
+  height: 0.5em;
+  margin-inline-start: auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.hof-how[open] summary::after {
+  transform: rotate(-135deg);
+}
+
+.hof-how-body {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.hof-how-body strong {
+  color: var(--text);
+}
+
+/* First visit, before anything can be listed: placeholder rows in the shape of real ones. */
+.hof-skeleton {
+  display: grid;
+  list-style: none;
+}
+
+.hof-skeleton-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 72px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.hof-skeleton-row + .hof-skeleton-row {
+  border-top: 1px solid var(--border);
+}
+
+.hof-skeleton-lines {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.hof-skeleton-bar {
+  display: block;
+  height: 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  animation: hof-pulse 1.4s ease-in-out infinite;
+}
+
+.hof-skeleton-bar--rank {
+  width: 1.6rem;
+}
+
+.hof-skeleton-bar--cards {
+  width: 54px;
+  height: 42px;
+}
+
+.hof-skeleton-bar--short {
+  width: 60%;
+}
+
+@keyframes hof-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hof-skeleton-bar {
+    animation: none;
+  }
+}
+
 .hof-empty {
   display: grid;
   justify-items: center;
@@ -61,6 +161,11 @@
 .hof-list {
   display: grid;
   list-style: none;
+}
+
+/* Each row measures its own room, in rem, so enlarged text (which grows rem but not the viewport) restacks it. */
+.hof-list li {
+  container-type: inline-size;
 }
 
 .hof-entry {
@@ -231,6 +336,91 @@
 
   .hof-cards img + img {
     margin-left: -12px;
+  }
+}
+
+/* Too narrow for rank, cards, text and score side by side (a phone at 150-200% text): rank and score
+   share the top line, the cards sit under them and the hand, player and set get the full width. The card
+   strip is a fixed width that doesn't grow with text (102px, or 62px at 420px and under, where the gap and
+   padding also shrink), so it is added to the rem threshold: 18rem + 98px above 420px, 18rem + 40px at or
+   below. A single threshold would restack ordinary phones at 100% text (a 390px screen leaves a 358px row,
+   under 18rem + 98px = 386px), which keep today's single compact row. The 98px keeps 421-432px screens at
+   100% text compact too (the iPhone Pro Max and Plus at 428-430px leave a 394-396px row, a 421px screen
+   387px), while 430px at 125%, 500px at 150% and 650px at 200% still restack. At 360px and 100% text the
+   row is exactly 18rem + 40px (328px), so the strict < leaves it no headroom. Rows just above 18rem
+   overflowed by 15-35px without the strip's share, and 8-digit scores need the room. The two blocks hold
+   the same rules. */
+@media (width > 420px) {
+  @container (width < calc(18rem + 98px)) {
+    .hof-entry {
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas:
+        'rank side'
+        'cards cards'
+        'main main';
+      row-gap: var(--space-1);
+    }
+
+    .hof-rank {
+      grid-area: rank;
+      text-align: start;
+    }
+
+    .hof-cards {
+      grid-area: cards;
+    }
+
+    .hof-main {
+      grid-area: main;
+    }
+
+    .hof-side {
+      grid-area: side;
+    }
+
+    /* A score too long for the top line wraps inside its column rather than painting past the row. */
+    .hof-score {
+      overflow-wrap: anywhere;
+      text-align: end;
+      white-space: normal;
+    }
+  }
+}
+
+@media (max-width: 420px) {
+  @container (width < calc(18rem + 40px)) {
+    .hof-entry {
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas:
+        'rank side'
+        'cards cards'
+        'main main';
+      row-gap: var(--space-1);
+    }
+
+    .hof-rank {
+      grid-area: rank;
+      text-align: start;
+    }
+
+    .hof-cards {
+      grid-area: cards;
+    }
+
+    .hof-main {
+      grid-area: main;
+    }
+
+    .hof-side {
+      grid-area: side;
+    }
+
+    /* A score too long for the top line wraps inside its column rather than painting past the row. */
+    .hof-score {
+      overflow-wrap: anywhere;
+      text-align: end;
+      white-space: normal;
+    }
   }
 }
 
