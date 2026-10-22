@@ -3,17 +3,23 @@
   seal DIR          (build)   write DIR/dist/deployment-id.json and a manifest of every file's hash;
                               prints manifest_sha256=<hash of the manifest> for $GITHUB_OUTPUT
   verify DIR        (publish) the downloaded files are exactly the ones build sealed in this run
+  served DIR URL    (stage, publish) verify, then check URL serves every sealed file with its sealed
+                              hash; prints the release's identity as Markdown for $GITHUB_STEP_SUMMARY
   check-workflows   (CI) .github/workflows do what docs/HOSTING.md says, read from the YAML
 
 Standard library only, so the jobs that run it install nothing. Run it with `python3 -I`.
 """
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import sys
-from urllib.parse import urlsplit
+import time
+from urllib.error import HTTPError
+from urllib.parse import quote, urlsplit
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r'[0-9a-f]{40}')
@@ -37,12 +43,17 @@ def marker(env):
     require(re.fullmatch(r'[\w.-]+/[\w.-]+', repository), 'GITHUB_REPOSITORY is missing or malformed')
     require(SHA.fullmatch(sha), 'GITHUB_SHA is not a full commit hash')
     require(re.fullmatch(r'[1-9][0-9]*', run_id), 'GITHUB_RUN_ID is not a run number')
+    # The trailing / is optional in SITE_URL; the marker always has exactly one.
+    return {'repository': repository, 'run_id': run_id, 'sha': sha, 'url': address(url, 'SITE_URL')}
+
+
+def address(url, what):
+    """url ending in exactly one /, if it is a plain https:// address with or without one."""
     parts = urlsplit(url)
     require(not re.search(r'[\s?#]', url) and parts.scheme == 'https' and parts.hostname
             and not parts.username and not parts.password and parts.port is None and parts.path in ('', '/'),
-            f'SITE_URL {url!r} must be a plain https:// address, with or without one trailing /')
-    # The trailing / is optional in SITE_URL; the marker always has exactly one.
-    return {'repository': repository, 'run_id': run_id, 'sha': sha, 'url': url.removesuffix('/') + '/'}
+            f'{what} {url!r} must be a plain https:// address, with or without one trailing /')
+    return url.removesuffix('/') + '/'
 
 
 def canonical(value, **options):
@@ -91,6 +102,81 @@ def verify(release, env, digest):
     require(sealed.get('files') == hashes(dist), "the files don't match the sealed hashes")
     require((dist / 'deployment-id.json').read_text(encoding='utf-8') == canonical(expected),
             "dist/deployment-id.json doesn't name this run")
+    return sealed
+
+
+# --- What an address serves ----------------------------------------------------------------------
+# Staging and then production are checked the same way: each file build sealed, fetched where
+# Cloudflare Pages serves it, has its sealed hash. Pages serves a.html at /a and dir/index.html at
+# /dir/, and answers an unknown path with index.html, so a missing file fails too.
+
+UNSERVED = {'_headers', '_redirects'}  # Pages reads these as settings and doesn't serve them
+
+
+def served_path(name):
+    """Where Cloudflare Pages serves dist/<name>, relative to the site's root."""
+    if name == 'index.html' or name.endswith('/index.html'):
+        name = name.removesuffix('index.html')
+    elif name.endswith('.html'):
+        name = name.removesuffix('.html')
+    return quote(name)
+
+
+class SameOrigin(urllib.request.HTTPRedirectHandler):
+    """Follows redirects only within the address being checked."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlsplit(newurl)[:2] != urlsplit(req.full_url)[:2]:
+            raise HTTPError(newurl, code, f'redirects to another origin: {newurl}', headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def fetch(url):
+    """The body url serves, uncompressed (the bytes as sealed), or raises."""
+    request = urllib.request.Request(url, headers={'Accept-Encoding': 'identity', 'User-Agent': 'brainrottcg-deploy-check'})
+    with urllib.request.build_opener(SameOrigin).open(request, timeout=30) as response:
+        return response.read()
+
+
+def served(release, env, digest, url, get=fetch, tries=3, pause=5.0):
+    """verify, then check url serves every sealed file with its sealed hash. Returns the release's
+    identity as Markdown, for the step summary."""
+    sealed = verify(release, env, digest)
+    base = address(url, 'The address to check')
+    files = sealed['files']
+
+    def problem(name):
+        why = ''
+        for attempt in range(tries):
+            if attempt:
+                time.sleep(pause)  # a new deployment can take a moment to reach every edge
+            try:
+                if hashlib.sha256(get(base + served_path(name))).hexdigest() == files[name]:
+                    return None
+                why = 'different content'
+            except HTTPError as error:
+                why = f'HTTP {error.code}'
+            except OSError as error:
+                why = str(error) or type(error).__name__
+        return f'/{served_path(name)}: {why}'
+
+    names = [name for name in files if name not in UNSERVED]
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        problems = [p for p in pool.map(problem, names) if p]
+    require(not problems, '\n  '.join(
+        [f"{base} doesn't serve {len(problems)} of the {len(names)} sealed files as sealed. If only pages differ, "
+         'turn off Cloudflare Web Analytics (and any other setting that edits pages) for the project:']
+        + problems[:20] + ([f'and {len(problems) - 20} more'] if len(problems) > 20 else [])))
+    marker_ = sealed['marker']
+    return '\n'.join([
+        f'### Release served at {base}', '',
+        '| | |', '|---|---|',
+        f"| Commit | `{marker_['sha']}` |",
+        f"| Run | {marker_['run_id']} |",
+        f"| Built for | {marker_['url']} (base path /) |",
+        f'| Manifest sha256 | `{digest}` |',
+        f'| Files | {len(names)}, each served with its sealed hash |',
+        f"| hall-of-fame.json sha256 | `{files.get('hall-of-fame.json', 'none')}` |", ''])
 
 
 # --- Workflow files ------------------------------------------------------------------------------
@@ -239,7 +325,9 @@ def walk(node, path=()):
 
 
 CLOUDFLARE = "needs.site.outputs.host == 'cloudflare'"
-GUARD = {'name': 'Require the main source ref', 'env': {'SOURCE_REF': '${{ github.ref }}'},
+# Staging is on: Cloudflare is ready and CLOUDFLARE_STAGING_BRANCH names a valid branch (site checks both).
+STAGING = "needs.site.outputs.staging_url != ''"
+GUARD ={'name': 'Require the main source ref', 'env': {'SOURCE_REF': '${{ github.ref }}'},
          'run': 'test "$SOURCE_REF" = refs/heads/main'}
 # publish and deploy each start by checking this run's commit is still main's tip, so re-running a run
 # whose commit main has moved past (or only its publish or deploy job) fails instead of publishing an
@@ -269,11 +357,22 @@ PERMISSIONS = {
     'independent-verifier': {'contents': 'read'},
     'site': None,  # inherits the workflow's empty set
     'build': {'contents': 'read', 'issues': 'read'},
+    'stage': {'contents': 'read'},
+    'staging-checks': {'contents': 'read'},
     'publish': {'contents': 'read'},
     'deploy': {'pages': 'write', 'id-token': 'write'},
 }
-NEEDS = {'site': {'independent-verifier'}, 'build': {'site'}, 'publish': {'site', 'build'}, 'deploy': {'build', 'publish'}}
-SECRET_STEPS = {('site', 'site'), ('publish', 'Deploy to Cloudflare Pages')}
+NEEDS = {'site': {'independent-verifier'}, 'build': {'site'}, 'stage': {'site', 'build'},
+         'staging-checks': {'site', 'build', 'stage'}, 'publish': {'site', 'build', 'stage', 'staging-checks'},
+         'deploy': {'build', 'publish'}}
+SECRET_STEPS = {('site', 'site'), ('stage', 'Deploy to Cloudflare Pages staging'), ('publish', 'Deploy to Cloudflare Pages')}
+# The jobs that hold the Cloudflare secrets run in this environment, so its secrets and branch rule
+# (docs/HOSTING.md) cover them. No other job names an environment but deploy (github-pages).
+CLOUDFLARE_ENVIRONMENT = 'cloudflare-production'
+ENVIRONMENTS = {'site': CLOUDFLARE_ENVIRONMENT, 'stage': CLOUDFLARE_ENVIRONMENT, 'publish': CLOUDFLARE_ENVIRONMENT,
+                'deploy': {'name': 'github-pages', 'url': '${{ steps.deployment.outputs.page_url }}'}}
+# Where a step may be conditional on staging rather than on the Cloudflare host.
+STAGING_JOBS = {'stage', 'staging-checks'}
 
 
 def action(step):
@@ -300,23 +399,68 @@ def cloudflare(spec):
     return {**spec, 'if': CLOUDFLARE}
 
 
+def staging(spec):
+    return {**spec, 'if': STAGING}
+
+
+# The steps that take build's sealed files and deploy them with Wrangler, in stage and in publish.
+SEALED = [
+    {'uses': 'actions/checkout', 'with': {'persist-credentials': False, 'sparse-checkout-cone-mode': False,
+                                          'sparse-checkout': '/scripts/deploy_contract.py\n/tools/wrangler/\n'}},
+    {'uses': 'actions/download-artifact', 'with': {'artifact-ids': '${{ needs.build.outputs.artifact_id }}', 'path': 'release'}},
+    {'env': {'MANIFEST_SHA256': '${{ needs.build.outputs.manifest_sha256 }}', 'SITE_URL': '${{ needs.site.outputs.url }}'},
+     'run': 'python3 -I scripts/deploy_contract.py verify release'},
+    {'uses': 'actions/setup-node', 'with': {'node-version': 22, 'package-manager-cache': False}},
+    {'run': 'npm ci --prefix tools/wrangler --ignore-scripts'},
+]
+WRANGLER_ENV = {'CLOUDFLARE_API_TOKEN': '${{ secrets.CLOUDFLARE_API_TOKEN }}',
+                'CLOUDFLARE_ACCOUNT_ID': '${{ secrets.CLOUDFLARE_ACCOUNT_ID }}',
+                'PROJECT': "${{ vars.CLOUDFLARE_PROJECT || 'brainrottcg' }}"}
+
+
+def wrangler(branch):
+    return ('tools/wrangler/node_modules/.bin/wrangler pages deploy release/dist --project-name="$PROJECT" '
+            f'--branch={branch} --commit-hash="$GITHUB_SHA" --commit-dirty=true')
+
+
+def waits(run):
+    """Polls until the address serves this run's dist/deployment-id.json."""
+    return isinstance(run, str) and '| cmp -s release/dist/deployment-id.json - && exit 0' in run and '"${URL%/}/deployment-id.json?run=' in run
+
+
+def served_step(url):
+    return {'env': {'MANIFEST_SHA256': '${{ needs.build.outputs.manifest_sha256 }}', 'SITE_URL': '${{ needs.site.outputs.url }}',
+                    'URL': url},
+            'run': 'python3 -I scripts/deploy_contract.py served release "$URL" >> "$GITHUB_STEP_SUMMARY"'}
+
+
 PUBLISH = [
     cloudflare(TIP),
-    cloudflare({'uses': 'actions/checkout', 'with': {'persist-credentials': False, 'sparse-checkout-cone-mode': False,
-                                                    'sparse-checkout': '/scripts/deploy_contract.py\n/tools/wrangler/\n'}}),
-    cloudflare({'uses': 'actions/download-artifact', 'with': {'artifact-ids': '${{ needs.build.outputs.artifact_id }}', 'path': 'release'}}),
-    cloudflare({'env': {'MANIFEST_SHA256': '${{ needs.build.outputs.manifest_sha256 }}', 'SITE_URL': '${{ needs.site.outputs.url }}'},
-                'run': 'python3 -I scripts/deploy_contract.py verify release'}),
-    cloudflare({'uses': 'actions/setup-node', 'with': {'node-version': 22, 'package-manager-cache': False}}),
-    cloudflare({'run': 'npm ci --prefix tools/wrangler --ignore-scripts'}),
-    cloudflare({'env': {'CLOUDFLARE_API_TOKEN': '${{ secrets.CLOUDFLARE_API_TOKEN }}',
-                        'CLOUDFLARE_ACCOUNT_ID': '${{ secrets.CLOUDFLARE_ACCOUNT_ID }}',
-                        'PROJECT': "${{ vars.CLOUDFLARE_PROJECT || 'brainrottcg' }}"},
-                'run': 'tools/wrangler/node_modules/.bin/wrangler pages deploy release/dist --project-name="$PROJECT" '
-                       '--branch=main --commit-hash="$GITHUB_SHA" --commit-dirty=true'}),
-    cloudflare({'env': {'URL': '${{ needs.site.outputs.url }}'},
-                'run': lambda run: isinstance(run, str) and '| cmp -s release/dist/deployment-id.json - && exit 0' in run
-                and '"${URL%/}/deployment-id.json?run=' in run}),
+    *map(cloudflare, SEALED),
+    cloudflare({'env': WRANGLER_ENV, 'run': wrangler('main')}),
+    cloudflare({'env': {'URL': '${{ needs.site.outputs.url }}'}, 'run': waits}),
+    # With staging on, production must serve exactly what staging served and was tested on.
+    staging(served_step('${{ needs.site.outputs.url }}')),
+]
+# The same sealed files, deployed first to the staging branch's own address, and checked there.
+STAGE = [
+    staging(TIP),
+    *map(staging, SEALED),
+    staging({'env': {**WRANGLER_ENV, 'BRANCH': '${{ needs.site.outputs.staging_branch }}'}, 'run': wrangler('"$BRANCH"')}),
+    staging({'env': {'URL': '${{ needs.site.outputs.staging_url }}'}, 'run': waits}),
+    staging(served_step('${{ needs.site.outputs.staging_url }}')),
+]
+# The browser checks run the app's dependencies, so they get no secrets, against the staging address.
+# The specs that read ./dist get the sealed files (checked here too), not a new build.
+STAGING_CHECKS = [
+    staging({'uses': 'actions/checkout', 'with': {'persist-credentials': False}}),
+    staging({'uses': 'actions/setup-node', 'with': {'node-version': 22, 'cache': 'npm'}}),
+    staging({'run': 'npm ci'}),
+    staging({'run': 'npx playwright install --with-deps chromium'}),
+    staging(SEALED[1]),
+    staging(SEALED[2]),
+    staging({'run': 'cp -R release/dist dist'}),
+    staging({'env': {'STAGING_URL': '${{ needs.site.outputs.staging_url }}'}, 'run': 'npx playwright test -c playwright.staging.config.ts'}),
 ]
 DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
 # Only one deploy of main runs at a time, and a newer push to main cancels the older run: with GUARD
@@ -326,9 +470,12 @@ CONCURRENCY = {'group': 'pages-${{ github.ref }}', 'cancel-in-progress': True}
 # On GitHub Pages every publish step is skipped and this upload (never conditional) is the game; on
 # Cloudflare it is the redirect pages.
 PAGES_PATH = "${{ needs.site.outputs.host == 'cloudflare' && 'pages' || 'dist' }}"
-# The site lookup hands SITE_URL on ending in exactly one /, however many the variable ends in.
+# The site lookup hands SITE_URL on ending in exactly one /, however many the variable ends in, and
+# the staging address once it has checked it (deploy_contract_test.py runs the lookup).
 SITE_URL_OUTPUT = ('while [ "${url%/}" != "$url" ]; do url=${url%/}; done\n'
-                   '{ echo "host=cloudflare"; echo "url=$url/"; echo "base=/"; } >> "$GITHUB_OUTPUT"\n')
+                   '{ echo "host=cloudflare"; echo "url=$url/"; echo "base=/"; echo "pages=$pages"; '
+                   'echo "staging_branch=$STAGING_BRANCH"; echo "staging_url=$staging_url"; } >> "$GITHUB_OUTPUT"\n')
+SITE_OUTPUTS = ('host', 'url', 'base', 'pages', 'staging_branch', 'staging_url')
 
 
 def check_deploy(workflow):
@@ -348,6 +495,8 @@ def check_deploy(workflow):
         extra = set(job) - {'needs', 'runs-on', 'permissions', 'outputs', 'steps', 'environment'}
         if extra:
             problems.append(f'deploy.yml: job {name} has {sorted(extra)}')
+        if job.get('environment') != ENVIRONMENTS.get(name):
+            problems.append(f'deploy.yml: job {name} must run in environment {ENVIRONMENTS.get(name)}')
         if job.get('permissions') != PERMISSIONS[name]:
             problems.append(f'deploy.yml: job {name} permissions must be {PERMISSIONS[name]}')
         needs = job.get('needs', [])
@@ -357,19 +506,20 @@ def check_deploy(workflow):
             label = step_label(name, index, step)
             if set(step) - {'name', 'id', 'if', 'uses', 'with', 'env', 'run'}:
                 problems.append(f'deploy.yml: {label} has {sorted(set(step) - {"name", "id", "if", "uses", "with", "env", "run"})}')
-            if 'if' in step and step['if'] != CLOUDFLARE:
-                problems.append(f"deploy.yml: {label} may only be conditional on the Cloudflare host")
+            if 'if' in step and step['if'] != CLOUDFLARE and not (step['if'] == STAGING and name in STAGING_JOBS | {'publish'}):
+                problems.append(f'deploy.yml: {label} may only be conditional on the Cloudflare host, '
+                                'or on staging in stage, staging-checks and publish')
             if action(step) == 'actions/checkout' and (step.get('with') or {}).get('persist-credentials') is not False:
                 problems.append(f'deploy.yml: {label} must not keep the token (persist-credentials: false)')
     for path, text in walk(workflow):
         if re.search(r'\b(?:always|cancelled|failure)\(\)', text):
             problems.append(f'deploy.yml: {"/".join(map(str, path))} runs after a failure or cancel')
         if re.search(r'\bsecrets\b', text):
-            # Only as a value in the env of the site lookup or the Wrangler deploy: jobs/J/steps/N/env/KEY.
+            # Only as a value in the env of the site lookup or a Wrangler deploy: jobs/J/steps/N/env/KEY.
             in_env = len(path) == 6 and path[0] == 'jobs' and path[2] == 'steps' and path[4] == 'env'
             step = jobs[path[1]]['steps'][path[3]] if in_env else {}
             if not any(in_env and path[1] == job and label in (step.get('id'), step.get('name')) for job, label in SECRET_STEPS):
-                problems.append(f'deploy.yml: {"/".join(map(str, path))} uses a secret outside the site lookup and the Wrangler deploy')
+                problems.append(f'deploy.yml: {"/".join(map(str, path))} uses a secret outside the site lookup and the Wrangler deploys')
 
     site, build, publish, deploy = (jobs[name].get('steps') or [] for name in ('site', 'build', 'publish', 'deploy'))
     verifier = jobs['independent-verifier'].get('steps') or []
@@ -379,10 +529,10 @@ def check_deploy(workflow):
         problems.append('deploy.yml: site must be the main-ref guard, then the host lookup, and run no actions')
     elif not str(site[1].get('run', '')).endswith(SITE_URL_OUTPUT):
         problems.append(f'deploy.yml: the site lookup must end by handing on its address ending in one / ({SITE_URL_OUTPUT!r})')
-    if any(step == GUARD for job in ('build', 'publish', 'deploy', 'independent-verifier') for step in jobs[job].get('steps') or []):
+    if any(step == GUARD for job in set(jobs) - {'site'} for step in jobs[job].get('steps') or []):
         problems.append('deploy.yml: the main-ref guard belongs in site only')
-    if jobs['site'].get('outputs') != {key: f'${{{{ steps.site.outputs.{key} }}}}' for key in ('host', 'url', 'base')}:
-        problems.append('deploy.yml: site outputs must be host, url and base from the lookup')
+    if jobs['site'].get('outputs') != {key: f'${{{{ steps.site.outputs.{key} }}}}' for key in SITE_OUTPUTS}:
+        problems.append(f"deploy.yml: site outputs must be {', '.join(SITE_OUTPUTS)} from the lookup")
     for run in ('npm run check', 'npm run build'):
         if not any(step.get('run') == run and 'if' not in step for step in build):
             problems.append(f'deploy.yml: build must always run {run}')
@@ -405,11 +555,17 @@ def check_deploy(workflow):
         problems.append(f'deploy.yml: build must always upload one Pages artifact from {PAGES_PATH}')
     if len(publish) != len(PUBLISH) or not all(match(step, spec) for step, spec in zip(publish, PUBLISH)):
         problems.append('deploy.yml: publish must require the tip of main, check out its two files, download by artifact ID, verify the seal, '
-                        'set up Node, install Wrangler without scripts, deploy release/dist, then wait for deployment-id.json')
+                        'set up Node, install Wrangler without scripts, deploy release/dist, wait for deployment-id.json, '
+                        'then (with staging on) check production serves every sealed file')
+    stage, checks = (jobs[name].get('steps') or [] for name in ('stage', 'staging-checks'))
+    if len(stage) != len(STAGE) or not all(match(step, spec) for step, spec in zip(stage, STAGE)):
+        problems.append('deploy.yml: stage must, with staging on, do what publish does but deploy to the staging branch, '
+                        'then check staging serves every sealed file')
+    if len(checks) != len(STAGING_CHECKS) or not all(match(step, spec) for step, spec in zip(checks, STAGING_CHECKS)):
+        problems.append('deploy.yml: staging-checks must, with staging on, run playwright.staging.config.ts against staging '
+                        'with the sealed files as ./dist')
     if len(deploy) != len(DEPLOY) or not all(match(step, spec) for step, spec in zip(deploy, DEPLOY)):
         problems.append('deploy.yml: deploy must only require the tip of main, then deploy Pages')
-    if jobs['deploy'].get('environment') != {'name': 'github-pages', 'url': '${{ steps.deployment.outputs.page_url }}'}:
-        problems.append('deploy.yml: deploy must publish to the github-pages environment')
     return problems
 
 
@@ -446,12 +602,14 @@ def main(argv, env):
         print(f'manifest_sha256={seal(Path(args[0]), env)}')
     elif command == 'verify' and len(args) == 1:
         verify(Path(args[0]), env, env.get('MANIFEST_SHA256', ''))
+    elif command == 'served' and len(args) == 2:
+        print(served(Path(args[0]), env, env.get('MANIFEST_SHA256', ''), args[1]))
     elif command == 'check-workflows' and len(args) <= 1:
         problems = check_workflows(*map(Path, args))
         require(not problems, '\n  '.join(['the workflows break the deploy contract:'] + problems))
         print('Workflows keep the deploy contract.')
     else:
-        raise Rejected('usage: deploy_contract.py seal DIR | verify DIR | check-workflows [DIR]')
+        raise Rejected('usage: deploy_contract.py seal DIR | verify DIR | served DIR URL | check-workflows [DIR]')
 
 
 if __name__ == '__main__':

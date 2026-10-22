@@ -48,6 +48,11 @@ jobs:
           BASE_PATH: /
           SITE_URL: https://brainrottcg.pages.dev/
         run: npx playwright test tests/browser/built-site.spec.ts
+      # Staging (docs/HOSTING.md#staging): the same build is the staging copy at a subdomain of the
+      # project host and the real game elsewhere. The deploy runs this config against real staging.
+      - name: Check a staging copy is marked and kept apart
+        if: matrix.shard == 1
+        run: npx playwright test -c playwright.staging.config.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

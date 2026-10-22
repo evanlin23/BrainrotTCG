@@ -81,19 +81,91 @@ or not at all. This is a host change, not a release rollback; for a bad release,
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are plain repository secrets. Pull requests from
 forks never see them, but any workflow run in this repository can: a manual run from a branch runs
 that branch's own `deploy.yml`, so the main-ref guard and the deploy contract only bind the file on
-`main`, and the publish job has no main-only environment. Anyone who can push a branch here could
-therefore publish to the Cloudflare project.
+`main`. Anyone who can push a branch here could therefore publish to the Cloudflare project.
 
-Closing that is a settings change only the owner can make, in this order:
+The jobs that hold the secrets (`site`, `stage` and `publish`) already run in the environment
+`cloudflare-production`, which `scripts/deploy_contract.py` requires. GitHub creates it, with no
+rules, on the first deploy that uses it. Limiting it to `main` is a settings change only the owner
+can make, in this order:
 
-1. **Settings → Environments → New environment**, named `cloudflare-production`. Under
-   **Deployment branches and tags** choose **Selected branches and tags** and add the rule `main`.
+1. **Settings → Environments → `cloudflare-production`**. Under **Deployment branches and tags**
+   choose **Selected branches and tags** and add the rule `main`. Add no required reviewers: deploys,
+   including Hall of Fame refreshes, would then wait for someone to approve each one.
 2. In that environment, **Add environment secret** for `CLOUDFLARE_API_TOKEN` and
    `CLOUDFLARE_ACCOUNT_ID` (same values, or a fresh token as in step 3 of the move).
-3. Merge a PR that adds `environment: cloudflare-production` to the `site` and `publish` jobs and to
-   `scripts/deploy_contract.py`, and check that its deploy on `main` reaches Cloudflare.
-4. Only then delete the two repository secrets. Deleting them first, or before step 3 deploys, makes
-   the next deploy fall back to GitHub Pages as host ([switching back](#switching-back-to-github-pages)).
+3. Check that the next deploy on `main` reaches Cloudflare.
+4. Only then delete the two repository secrets. Deleting them first makes the next deploy fall back
+   to GitHub Pages as host ([switching back](#switching-back-to-github-pages)), or, with
+   [staging](#staging) on, stop with an error and publish nothing.
+
+## Staging
+
+Every release can first go to a staging copy, tested where it runs, and production then gets
+exactly the files staging served. It's off until the owner turns it on (below); while it's off,
+deploys work as before.
+
+With staging on, a deploy of `main` runs:
+
+1. **build** builds once, with no secrets, and seals the files (`deploy_contract.py seal`: a SHA-256
+   for every file, and one for the list).
+2. **stage** checks the seal, publishes those files as a Cloudflare Pages *preview* (Wrangler's
+   `--branch`, the branch named by `CLOUDFLARE_STAGING_BRANCH`) and waits until
+   `https://<branch>.<project>.pages.dev/` serves this run's `deployment-id.json`. Then it fetches
+   every sealed file from staging and fails if any one differs from its sealed hash.
+3. **staging-checks** runs browser checks (`playwright.staging.config.ts`: the built-site check,
+   the pack-opener and shared-pull smoke tests, and `tests/browser/staging.check.ts`) against the
+   staging address, with no secrets. Nothing is rebuilt: the tests' copy of the site is the sealed
+   one.
+4. **publish** runs only if both passed. It checks the seal again and publishes the same files to
+   production, then fetches every sealed file from production and fails if any differs. Both
+   comparisons print the release's identity (commit, run, manifest hash, file count, Hall of Fame
+   list hash) to the run summary, so the summaries of `stage` and `publish` show that the bytes
+   tested are the bytes released.
+5. **deploy** updates the GitHub Pages redirects as before, so old links and QR codes keep working.
+
+What keeps staging apart:
+
+- **Its own origin.** The staging address is a different origin from production and from the old
+  GitHub Pages address, so its browser storage, saves included, never mixes with theirs. The build
+  is told the project's host (`VITE_STAGING_HOST_SUFFIX`); at run time, any subdomain of it is
+  staging (`src/game/staging.ts`). Staging shows a banner, asks not to be indexed, never offers to
+  bring a save from the old address, and never publishes to the Hall of Fame. The same files at the
+  production address are the normal game.
+- **No real data.** Staging doesn't post to GitHub or anywhere public, and its browser checks run
+  without secrets. The Hall of Fame list it serves is the one built in, read-only.
+- **Fails closed.** With `CLOUDFLARE_STAGING_BRANCH` set, the site job stops the deploy, before
+  anything is built or published, if the Cloudflare secrets are missing, the project isn't ready, its
+  address isn't a `pages.dev` one, or the branch is `main`, the project's production branch, or not a
+  valid branch name (lowercase letters, digits and dashes, up to 28). It never falls back to GitHub
+  Pages as host while staging is on. Any failure in `stage` or `staging-checks` stops the run before
+  `publish`, and production keeps serving the previous release.
+
+### Turning it on, or off
+
+1. Nothing new on Cloudflare: staging is a preview in the same project, with the same token. The token
+   needs **Account → Cloudflare Pages → Edit** (step 3 of the move); its scope can't be checked from
+   this repository. Don't put an **Access policy** on the project's preview deployments, and keep
+   Cloudflare features that rewrite HTML (Web Analytics' automatic setup, for example) off: the
+   checks fetch staging without signing in and compare every file byte for byte.
+2. After this change is merged and a deploy on `main` succeeds, add the repository **variable** (not a
+   secret) `CLOUDFLARE_STAGING_BRANCH` with the value `staging` (**Settings → Secrets and variables →
+   Actions → Variables**). The next deploy goes through staging, at
+   `https://staging.brainrottcg.pages.dev/` (or the project's own address).
+3. To turn it off, delete the variable. Staging's last copy stays up as a preview until it's
+   deleted in the dashboard; it holds no secrets and writes nothing.
+
+### Not checked from here
+
+- The token's scope, and whether the project's previews are behind Access.
+- Whether Cloudflare sends `X-Robots-Tag: noindex` for previews; the page asks not to be indexed
+  either way.
+- Hall of Fame refreshes redeploy through the same jobs, so with staging on each one takes a few
+  minutes longer (two full fetches of the site and the browser checks).
+- The release-blocker gate (`scripts/release-blockers.ts`, #759) isn't wired into publish yet; that
+  is a follow-up to #706.
+
+Rollback is unchanged ([Recover on the same origin](#recover-on-the-same-origin)): roll back to an
+earlier *production* deployment. A staging preview is never a rollback target.
 
 ## Release evidence
 
@@ -109,7 +181,9 @@ an approval gate:
   is labelled as emulation), plus unrun checks and unresolved blockers. The
   [deploy workflow](../.github/workflows/deploy.yml) runs the independent Python verifier first and
   builds (`npm run check`, `npm run build`) and deploys only if it passes. The build job holds no
-  secrets and seals what it built; the Cloudflare job publishes only those sealed files. Only the
+  secrets and seals what it built; the Cloudflare job publishes only those sealed files. With
+  [staging](#staging) on, those same files are tested on staging first, and the run summaries of
+  `stage` and `publish` record that both served every sealed file unchanged. Only the
   last job may write Pages. Deploys of `main` run one at a time (one `pages-<ref>` concurrency group
   per ref, so a run from another branch can't cancel one of `main`): a newer push to `main` cancels
   an older run, and the site job stops any run not started from `main`. The publish
