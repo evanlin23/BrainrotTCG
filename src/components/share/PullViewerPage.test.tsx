@@ -77,4 +77,49 @@ describe('PullViewerPage', () => {
     expect(text).toContain('Bad signature');
     expect(text).not.toContain('Try again');
   });
+
+  const render = async (props: Partial<Parameters<typeof PullViewerPage>[0]>, name = 'Gurt') => {
+    vi.mocked(checkPull).mockReset().mockResolvedValueOnce(pull(name));
+    await act(async () => root.render(<PullViewerPage proof="proof" onClose={() => {}} {...props} />));
+    return document.body.textContent ?? '';
+  };
+  const button = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label));
+
+  it('says whose pull it is, and in which set, from the verified proof', async () => {
+    expect(await render({})).toContain('Gurt pulled this pack in Original.');
+  });
+
+  it('says Someone, never the raw name, when the name is missing or blocked', async () => {
+    expect(await render({}, '')).toContain('Someone pulled this pack in Original.');
+    const blocked = await render({}, 'xXfuckXx');
+    expect(blocked).toContain('Someone pulled this pack in Original.');
+    expect(blocked).not.toMatch(/fuck/i);
+  });
+
+  it('names nobody before the pull is verified', async () => {
+    vi.mocked(checkPull).mockReset().mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => root.render(<PullViewerPage proof="proof" onClose={() => {}} />));
+    expect(document.body.textContent).not.toContain('pulled this pack');
+  });
+
+  it("offers to open the pull's own set when it can be opened, and chooses it", async () => {
+    const onOpenSet = vi.fn();
+    const onClose = vi.fn();
+    const canOpenSet = vi.fn(() => true);
+    await render({ canOpenSet, onOpenSet, onClose });
+    expect(button('Open your own packs')).toBeUndefined();
+    await act(async () => button('Open Original packs')!.click());
+    expect(canOpenSet).toHaveBeenCalledWith(expect.objectContaining({ id: 'og', version: 1 }));
+    expect(onOpenSet).toHaveBeenCalledWith('og');
+  });
+
+  it('falls back to the usual packs screen when the set cannot be opened', async () => {
+    const onOpenSet = vi.fn();
+    const onClose = vi.fn();
+    await render({ canOpenSet: () => false, onOpenSet, onClose });
+    expect(button('Open Original packs')).toBeUndefined();
+    await act(async () => button('Open your own packs')!.click());
+    expect(onOpenSet).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

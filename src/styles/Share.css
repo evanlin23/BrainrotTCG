@@ -147,6 +147,12 @@
 }
 
 /* Like the label on a graded card: cream stock, dark print, a cert number to quote. */
+.pull-viewer-whose {
+  margin-bottom: var(--space-3);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .pull-viewer-badge {
   display: flex;
   flex-wrap: wrap;

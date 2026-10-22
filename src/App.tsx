@@ -15,7 +15,8 @@ import CardGuideButton from './components/ui/CardGuideButton';
 import { scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
-import { DEFAULT_SET_ID, SETS } from './content/sets';
+import { DEFAULT_SET_ID, isOpenable, SETS } from './content/sets';
+import type { SetDefinition } from './engine';
 import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
 import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
@@ -598,7 +599,16 @@ function App() {
 
       {shareTarget && <DeferredSheet load={loadShare} title="Share your pull" screenProps={{ target: shareTarget, onClose: () => setShareTarget(null) }} />}
 
-      {viewProof && <DeferredSheet load={loadPull} title="Shared pull" screenProps={{ proof: viewProof, onClose: closeLink }} />}
+      {viewProof && <DeferredSheet load={loadPull} title="Shared pull" screenProps={{
+        proof: viewProof,
+        onClose: closeLink,
+        // Not while a pack is open: the set can't change under it.
+        canOpenSet: (s: SetDefinition) => !packBusy && playableSets.some((p) => p.id === s.id && p.version === s.version && isOpenable(p)),
+        onOpenSet: (setId: string) => {
+          selectSet(setId);
+          closeLink();
+        },
+      }} />}
 
       {viewProfile && <DeferredSheet load={loadPublicProfile} size="lg" title="Shared profile" screenProps={{ proof: viewProfile, onClose: closeLink }} />}
 
