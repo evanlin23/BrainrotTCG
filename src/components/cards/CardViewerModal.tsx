@@ -77,7 +77,7 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: Ca
                 <button
                   key={versionName(version)}
                   type="button"
-                  className={`version-chip ${version.misprint ? 'misprint-chip' : ''}`}
+                  className={`version-chip ${version.misprint ? 'misprint-chip' : ''} ${version.uncertain ? 'uncertain-chip' : ''}`}
                   style={version.finish ? ({ '--finish': FINISH_INFO[version.finish].color } as React.CSSProperties) : undefined}
                   aria-pressed={sameVersion(shown, version)}
                   onClick={() => setShown(version)}
