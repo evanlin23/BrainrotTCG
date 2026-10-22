@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Request } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { verifyProof } from '../../src/engine/proof';
+import { toHex } from '../../src/engine/bytes';
+import { decodeProof, verifyProof } from '../../src/engine/proof';
 import type { PulledCard, SetDefinition } from '../../src/engine/types';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPreviewPath, headline, previewPath, type ModifiedCard } from '../../src/game/previewLinks';
@@ -240,14 +241,22 @@ for (const { vector, entry } of cases) {
     await expect(pull).toContainText('Verified on this device');
     await expect(pull.locator('.pull-viewer-whose')).toHaveText(`${vector.name || 'Someone'} pulled this pack in ${set.name}.`);
     await expect(pull.locator('.sheet-subtitle')).toContainText(`${set.name} · ${vector.name || 'Anonymous'}`);
-    await expect(pull.locator('.share-fp')).toHaveText(`#${vector.fingerprint}`);
+    // The fingerprint is printed once, on the certificate (#639).
+    await expect(pull.locator('.share-fp')).toHaveCount(0);
     await expect(pull.locator('.pull-viewer-cert')).toContainText(`Cert ${vector.fingerprint} ·`);
+    expect(((await pull.textContent()) ?? '').split(vector.fingerprint)).toHaveLength(2);
     await expect(pull.locator('.pull-viewer-cert')).toContainText(`#${vector.nonce}`);
     await expect(pull.locator('.score-panel-total')).toHaveText(vector.score.toLocaleString('en-US'));
-    // The combo leads the pull headline (#339); the score panel keeps the math.
-    await expect(pull.locator('.pack-headline-combo')).toContainText(`${vector.hand} ×${vector.multiplier.toLocaleString('en-US')}`);
-    await expect(pull.locator('.score-panel-math')).toContainText(`${vector.points.toLocaleString('en-US')} pts ×`);
-    await expect(pull.locator('.score-panel-math strong')).toHaveText(vector.multiplier.toLocaleString('en-US'));
+    // The combo is named once: by the title for a combo, by the headline's "No Matches ×1" for none (#639).
+    // Either way the multiplier is not repeated, and the score panel keeps the math.
+    if (vector.hand === 'No Matches') {
+      await expect(pull.locator('.pack-headline-combo')).toHaveText('No Matches ×1');
+      await expect(pull.locator('.score-panel-math strong')).toHaveCount(0);
+    } else {
+      await expect(pull.locator('.pack-headline')).toHaveCount(0);
+      await expect(pull.locator('.score-panel-math')).toContainText(`${vector.points.toLocaleString('en-US')} pts ×`);
+      await expect(pull.locator('.score-panel-math strong')).toHaveText(vector.multiplier.toLocaleString('en-US'));
+    }
     const cards = pull.locator('.pack-viewer-cards > button');
     await expect(cards).toHaveCount(vector.cards.length);
     for (const [index, expected] of vector.cards.entries()) {
@@ -329,7 +338,7 @@ test('opens a pull shared through a card page naming its modifier', async ({ pag
   const pull = page.getByRole('dialog', { name: vector.hand, exact: true });
   await expect(pull).toBeVisible({ timeout: VIEWER_TIMEOUT });
   await expect(pull).toContainText('Verified on this device');
-  await expect(pull.locator('.share-fp')).toHaveText(`#${vector.fingerprint}`);
+  await expect(pull.locator('.pull-viewer-cert')).toContainText(`Cert ${vector.fingerprint} ·`);
   await expect(pull.locator('.pack-viewer-cards > button')).toHaveCount(vector.cards.length);
   expect(await proofState(page)).toEqual(before);
   const finishedCardIds = vector.cards.flatMap((card) => 'finish' in card && card.finish ? [card.cardId] : []);
@@ -380,3 +389,64 @@ for (const invalid of invalidCases) {
     expect(loadFailures(errors, baseURL!)).toEqual([]);
   });
 }
+
+test('shows inability to verify unknown set without calling pull fabricated', async ({ page, baseURL }) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+  const unknownSet = vectors.invalid.find((v) => v.note === 'unknown set')!;
+  const { errors, openRoute } = await startJourney(page, baseURL!);
+  await openRoute(`./#/pull/${unknownSet.proof}`);
+  const dialog = page.getByRole('dialog', { name: "Couldn't check this pull", exact: true });
+  await expect(dialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  const { setId, setVersion } = decodeProof(unknownSet.proof);
+  await expect(dialog).toContainText(`Unknown set ${setId}@${setVersion}`);
+  await expect(dialog).not.toContainText('The link was edited, cut off or made up');
+  await expect(dialog.getByRole('button', { name: 'Open your own packs' })).toBeVisible();
+  expect(loadFailures(errors, baseURL!)).toEqual([]);
+});
+
+test('recovers from operational computation failure via retry on valid pull', async ({ page, baseURL }) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+  const vector = vectors.valid[0];
+  const { errors, openRoute } = await startJourney(page, baseURL!);
+  // Fail the first ticket job for this proof's player key with an operational error. The app's own
+  // background mining (another key, the next pack) passes through, so only the pull check is hit.
+  const publicKeyHex = toHex(decodeProof(vector.proof).publicKey);
+  await page.addInitScript((failKey) => {
+    let failedOnce = false;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      override postMessage(message: unknown, options?: Transferable[] | StructuredSerializeOptions) {
+        const job = message as { id?: number; setKey?: string; publicKeyHex?: string } | null;
+        if (!failedOnce && job && typeof job === 'object' && 'setKey' in job && job.publicKeyHex === failKey) {
+          failedOnce = true;
+          setTimeout(() => {
+            this.dispatchEvent(new MessageEvent('message', { data: { id: job.id, error: 'Temporary WASM failure (audit fixture)' } }));
+          }, 30);
+          return;
+        }
+        if (options === undefined) super.postMessage(message);
+        else super.postMessage(message, options as StructuredSerializeOptions);
+      }
+    };
+  }, publicKeyHex);
+  await openRoute(`./#/pull/${vector.proof}`);
+  const errorDialog = page.getByRole('dialog', { name: "Couldn't check this pull", exact: true });
+  await expect(errorDialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  await expect(errorDialog).toContainText("Couldn't verify on this device");
+  await expect(errorDialog).not.toContainText('Not a valid pull');
+  await expect(errorDialog).not.toContainText('The link was edited, cut off or made up');
+
+  // Retry recovers
+  const retryBtn = errorDialog.getByRole('button', { name: 'Try again' });
+  await expect(retryBtn).toBeVisible();
+  await retryBtn.click();
+
+  const pullDialog = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
+  await expect(pullDialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  await expect(pullDialog).toContainText('Verified on this device');
+  // The one console error is the app logging the failure we injected; nothing else may fail to load.
+  const failures = loadFailures(errors, baseURL!);
+  expect(failures).toHaveLength(1);
+  expect(failures[0]).toContain('Pull verification failed');
+  expect(failures[0]).toContain('Temporary WASM failure (audit fixture)');
+});

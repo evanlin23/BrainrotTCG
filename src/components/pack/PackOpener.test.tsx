@@ -379,7 +379,9 @@ describe('the random effect after a flip', () => {
     vi.stubGlobal('cancelIdleCallback', () => {});
     const plays: string[] = [];
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
-    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
+    // jsdom has no pause; leaving a pack or unmounting now pauses the clones still playing.
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
       plays.push(this.getAttribute('src') ?? '');
       return Promise.resolve();
     });
@@ -392,14 +394,14 @@ describe('the random effect after a flip', () => {
     act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
     await act(async () => { vi.advanceTimersByTime(500); });
     await act(async () => {});
-    return plays;
+    return { plays, pause, play };
   };
   afterEach(() => vi.useRealTimers());
 
   const flip = () => act(() => void document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true })));
 
   it('plays the flip at once and the effect EFFECT_DELAY_MS later', async () => {
-    const plays = await deal();
+    const { plays } = await deal();
     flip();
     expect(plays).toEqual([CARD_FLIP_SRC]);
     await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS - 1); });
@@ -409,16 +411,37 @@ describe('the random effect after a flip', () => {
   });
 
   it('drops an effect still waiting when the pack is closed', async () => {
-    const plays = await deal();
+    const { plays } = await deal();
     flip();
-    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
     act(() => document.querySelector<HTMLButtonElement>('.pack-close')!.click());
     await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
     expect(plays).toEqual([CARD_FLIP_SRC]);
   });
 
+  it('stops and releases the playing flip clone when the pack is closed', async () => {
+    const { pause, play } = await deal();
+    flip();
+    const [clone] = play.mock.contexts as HTMLAudioElement[];
+    expect(clone.getAttribute('src')).toBe(CARD_FLIP_SRC);
+    expect(pause.mock.contexts).not.toContain(clone);
+    act(() => document.querySelector<HTMLButtonElement>('.pack-close')!.click());
+    await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+    expect((pause.mock.contexts as unknown[]).filter((el) => el === clone)).toHaveLength(1);
+    expect(clone.getAttribute('src')).toBe('');
+  });
+
+  it('stops the playing flip clone when the opener unmounts', async () => {
+    const { pause, play } = await deal();
+    flip();
+    const [clone] = play.mock.contexts as HTMLAudioElement[];
+    act(() => root.unmount());
+    await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+    expect((pause.mock.contexts as unknown[]).filter((el) => el === clone)).toHaveLength(1);
+    expect(clone.getAttribute('src')).toBe('');
+  });
+
   it('drops an effect still waiting when the opener unmounts', async () => {
-    const plays = await deal();
+    const { plays } = await deal();
     flip();
     act(() => root.unmount());
     await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });

@@ -68,6 +68,34 @@ export function browserDiagnostics() {
 }
 
 /**
+ * Re-states the capture consent inside report text the player already edited, so toggling capture
+ * keeps their edits and redactions. Only `captureEnabled` and `events` are rewritten, and only where
+ * the player left them in. Returns undefined when the text is no longer a JSON object.
+ */
+export function restateCapture(draft: string): string | undefined {
+  let report: unknown;
+  try { report = JSON.parse(draft); } catch { return undefined; }
+  if (!report || typeof report !== 'object' || Array.isArray(report)) return undefined;
+  const fields = report as Record<string, unknown>;
+  const { captureEnabled, events: recorded } = diagnosticSnapshot({});
+  if ('captureEnabled' in fields) fields.captureEnabled = captureEnabled;
+  if ('events' in fields) fields.events = recorded;
+  return JSON.stringify(fields, null, 2);
+}
+
+/** Whether report text still carries recorded steps, even if the player has edited it out of valid JSON. */
+export function hasRecordedSteps(text: string) {
+  try {
+    const report: unknown = JSON.parse(text);
+    if (report && typeof report === 'object' && !Array.isArray(report)) {
+      const { events: recorded } = report as { events?: unknown };
+      return Array.isArray(recorded) && recorded.length > 0;
+    }
+  } catch { /* free text: fall through to the pattern */ }
+  return /"event"\s*:/.test(text);
+}
+
+/**
  * Listens on `target` from the moment it is called; it does not check opt-in itself. Only
  * setBrowserDiagnosticCapture(true), behind the report's checkbox, installs it, and recordDiagnostic
  * drops events while capture is off. Handlers record a fixed category and never read the event, so

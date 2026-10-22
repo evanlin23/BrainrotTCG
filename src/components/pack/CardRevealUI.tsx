@@ -34,6 +34,14 @@ const RevealCard = (props: ComponentPropsWithRef<typeof Motion.button>) => {
   return <Motion.button type="button" {...props} inert={!present || undefined} />;
 };
 
+/** The line under the card: what the next press does, in the controls this device supports. */
+const revealHint = ({ touch, revealed, locked, last }: { touch: boolean; revealed: boolean; locked: boolean; last: boolean }) => {
+  if (locked) return 'Big pull!';
+  if (!revealed) return touch ? 'Tap card to flip' : 'Click or press Space to flip';
+  const goes = last ? 'to see the pack summary' : 'for the next card';
+  return touch ? `Swipe or tap ${goes}` : `Click or press Space ${goes}`;
+};
+
 interface CardRevealUIProps {
   currentCard: CardWithMeta;
   cardBack?: string;
@@ -65,13 +73,9 @@ const CardRevealUI = ({ currentCard, cardBack, currentIndex, totalCards, hasMove
   const special = !!currentCard && isSpecialReveal(currentCard);
   const celebration = celebrating && !!revealed && special;
   const slow = !!currentCard && !special && (currentCard.rarity === 'LEGENDARY' || currentCard.rarity === 'BRAINROT');
-  const hint = revealLocked ? 'Big pull!' : touch
-    ? revealed
-      ? 'Swipe or tap for the next card'
-      : 'Tap card to flip'
-    : revealed
-      ? 'Click or press Space for the next card'
-      : 'Click or press Space to flip';
+  // Face up, the next move is a card, or on the last card the pack summary: the same click, Space, Enter, swipe
+  // or tap either way, so the words follow what it opens (#790).
+  const hint = revealHint({ touch, revealed: !!revealed, locked: revealLocked, last: remaining <= 0 });
 
   const { onDragEnd, onTap } = useCardSwipe(currentCard?.uniqueId, revealLocked, onInteraction);
   const stageEl = useRef<HTMLDivElement | null>(null);

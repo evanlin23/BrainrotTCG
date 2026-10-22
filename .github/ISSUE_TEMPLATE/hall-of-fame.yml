@@ -13,7 +13,7 @@ body:
     id: pull
     attributes:
       label: Pull link
-      placeholder: https://evanlin23.github.io/BrainrotTCG/#/pull/...
+      placeholder: https://brainrottcg.pages.dev/#/pull/...
     validations:
       required: true
   - type: textarea

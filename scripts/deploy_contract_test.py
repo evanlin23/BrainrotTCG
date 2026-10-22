@@ -41,16 +41,30 @@ class Workflows(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         shutil.copytree(WORKFLOWS, self.tmp / 'workflows')
 
-    def problems(self, file, old, new):
+    def problems(self, file, old, new, job=None):
+        """Replaces old, which must appear exactly once in the file, or in job's block if given."""
         path = self.tmp / 'workflows' / file
         text = path.read_text(encoding='utf-8')
-        self.assertEqual(text.count(old), 1, f'{file} should contain this text exactly once:\n{old}')
-        path.write_text(text.replace(old, new), encoding='utf-8')
+        start, end = 0, len(text)
+        if job:
+            start = text.index(f'\n  {job}:\n')
+            later = re.search(r'\n  [\w-]+:\n', text[start + 1:])
+            end = start + 1 + later.start() if later else len(text)
+        block = text[start:end]
+        self.assertEqual(block.count(old), 1, f'{file} {job or ""} should contain this text exactly once:\n{old}')
+        path.write_text(text[:start] + block.replace(old, new) + text[end:], encoding='utf-8')
         return dc.check_workflows(self.tmp / 'workflows')
 
-    def assertBroken(self, file, old, new, expected):
-        problems = self.problems(file, old, new)
+    def assertBroken(self, file, old, new, expected, job=None):
+        problems = self.problems(file, old, new, job)
         self.assertTrue(any(expected in p for p in problems), f'expected {expected!r} in {problems}')
+
+    def assertBrokenIn(self, jobs, old, new):
+        """Breaking old in each of jobs (in deploy.yml) is caught as '<job> must'."""
+        for job in jobs:
+            with self.subTest(job):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, f'{job} must', job)
 
     def test_real_workflows_keep_the_contract(self):
         self.assertEqual(dc.check_workflows(), [])
@@ -59,10 +73,23 @@ class Workflows(unittest.TestCase):
         self.assertBroken('deploy.yml', 'needs: [build, publish]', 'needs: build', 'job deploy must need exactly')
 
     def test_publish_without_site(self):
-        self.assertBroken('deploy.yml', 'needs: [site, build]', 'needs: [build]', 'job publish must need exactly')
+        self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks]', 'needs: [build, stage, staging-checks]',
+                          'job publish must need exactly')
 
     def test_publish_without_build(self):
-        self.assertBroken('deploy.yml', 'needs: [site, build]', 'needs: [site]', 'job publish must need exactly')
+        self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks]', 'needs: [site, stage, staging-checks]',
+                          'job publish must need exactly')
+
+    def test_publish_without_staging(self):
+        # Production must wait for staging to be served and checked.
+        for needs in ('[site, build]', '[site, build, stage]', '[site, build, staging-checks]'):
+            with self.subTest(needs):
+                self.setUp()
+                self.assertBroken('deploy.yml', 'needs: [site, build, stage, staging-checks]', f'needs: {needs}',
+                                  'job publish must need exactly')
+
+    def test_staging_checks_before_staging(self):
+        self.assertBroken('deploy.yml', 'needs: [site, build, stage]', 'needs: [site, build]', 'job staging-checks must need exactly')
 
     def test_secret_in_pages_deploy(self):
         for key in ('with', 'env'):
@@ -76,10 +103,15 @@ class Workflows(unittest.TestCase):
         # Without the Cloudflare secrets site answers host=github: every publish step is skipped, so
         # publish succeeds without running anything, and deploy (which needs it) uploads the game.
         jobs = dc.load(WORKFLOWS / 'deploy.yml')['jobs']
-        cloudflare_only = lambda step: step.get('if') == dc.CLOUDFLARE
-        self.assertNotIn('if', jobs['publish'])
-        self.assertNotIn('if', jobs['deploy'])
+        # Without staging (on either host) every stage and staging-checks step is skipped too.
+        cloudflare_only = lambda step: step.get('if') in (dc.CLOUDFLARE, dc.STAGING)
+        staging_only = lambda step: step.get('if') == dc.STAGING
+        for job in ('stage', 'staging-checks', 'publish', 'deploy'):
+            self.assertNotIn('if', jobs[job])
         self.assertTrue(jobs['publish']['steps'] and all(map(cloudflare_only, jobs['publish']['steps'])))
+        self.assertEqual([staging_only(s) for s in jobs['publish']['steps']].index(True), len(jobs['publish']['steps']) - 1)
+        for job in ('stage', 'staging-checks'):
+            self.assertTrue(jobs[job]['steps'] and all(map(staging_only, jobs[job]['steps'])))
         self.assertFalse(any('if' in step for step in jobs['deploy']['steps']))
         pages = [s for s in jobs['build']['steps'] if dc.action(s) == 'actions/upload-pages-artifact']
         self.assertEqual([s.get('if') for s in pages], [None])
@@ -87,14 +119,27 @@ class Workflows(unittest.TestCase):
 
     def test_github_host_path_broken(self):
         for old, new, expected in (
-                ('    needs: [site, build]\n', "    needs: [site, build]\n    if: needs.site.outputs.host == 'cloudflare'\n",
+                ('    needs: [site, build, stage, staging-checks]\n',
+                 "    needs: [site, build, stage, staging-checks]\n    if: needs.site.outputs.host == 'cloudflare'\n",
                  "job publish has ['if']"),
+                ('    needs: [site, build]\n', "    needs: [site, build]\n    if: needs.site.outputs.staging_url != ''\n",
+                 "job stage has ['if']"),
+                ('    needs: [site, build, stage]\n', "    needs: [site, build, stage]\n    if: needs.site.outputs.staging_url != ''\n",
+                 "job staging-checks has ['if']"),
                 ('    needs: [build, publish]\n', "    needs: [build, publish]\n    if: needs.site.outputs.host == 'cloudflare'\n",
                  "job deploy has ['if']"),
                 ('        id: deployment\n', "        id: deployment\n        if: needs.site.outputs.host == 'cloudflare'\n",
                  'deploy must only require the tip of main'),
                 ("        if: needs.site.outputs.host == 'cloudflare'\n        with:\n          artifact-ids:",
                  '        with:\n          artifact-ids:', 'publish must'),
+                ("      - if: needs.site.outputs.staging_url != ''\n        run: npx playwright install --with-deps chromium",
+                 '      - run: npx playwright install --with-deps chromium', 'staging-checks must'),
+                ("        if: needs.site.outputs.staging_url != ''\n        env:\n          CLOUDFLARE_API_TOKEN",
+                 "        if: needs.site.outputs.host == 'cloudflare'\n        env:\n          CLOUDFLARE_API_TOKEN", 'stage must'),
+                ("        if: needs.site.outputs.staging_url != ''\n        env:\n          MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}\n"
+                 '          SITE_URL: ${{ needs.site.outputs.url }}\n          URL: ${{ needs.site.outputs.url }}\n',
+                 '        env:\n          MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}\n'
+                 '          SITE_URL: ${{ needs.site.outputs.url }}\n          URL: ${{ needs.site.outputs.url }}\n', 'publish must'),
                 ("          path: ${{ needs.site.outputs.host == 'cloudflare' && 'pages' || 'dist' }}",
                  '          path: dist', 'build must always upload one Pages artifact'),
                 ('      - uses: actions/upload-pages-artifact', "      - if: needs.site.outputs.host == 'cloudflare'\n"
@@ -108,12 +153,19 @@ class Workflows(unittest.TestCase):
                           'runs after a failure or cancel')
 
     def test_download_by_name(self):
-        self.assertBroken('deploy.yml', 'artifact-ids: ${{ needs.build.outputs.artifact_id }}',
-                          'name: cloudflare-site-${{ github.run_attempt }}', 'publish must')
+        self.assertBrokenIn(('stage', 'staging-checks', 'publish'), 'artifact-ids: ${{ needs.build.outputs.artifact_id }}',
+                            'name: cloudflare-site-${{ github.run_attempt }}')
 
     def test_verify_without_digest(self):
-        self.assertBroken('deploy.yml', '          MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}\n', '',
-                          'publish must')
+        for job, step in (('stage', 'Check the files are the ones build sealed'), ('stage', 'Check staging serves every sealed file'),
+                          ('staging-checks', 'Check the files are the ones build sealed'),
+                          ('publish', 'Check the files are the ones build sealed'), ('publish', 'Check production serves every sealed file')):
+            with self.subTest(job=job, step=step):
+                def drop(jobs):
+                    del next(s for s in jobs[job]['steps'] if s.get('name') == step)['env']['MANIFEST_SHA256']
+                problems = self.deploy_problems(drop)
+                self.assertTrue(any(f'{job} must' in p for p in problems), problems)
+
 
     def test_verify_removed(self):
         self.assertBroken('deploy.yml', """      - name: Check the files are the ones build sealed
@@ -125,11 +177,54 @@ class Workflows(unittest.TestCase):
 """, '', 'publish must')
 
     def test_readiness_check_removed(self):
-        self.assertBroken('deploy.yml', '| cmp -s release/dist/deployment-id.json - && exit 0', '&& exit 0',
-                          'publish must')
+        self.assertBrokenIn(('stage', 'publish'), '| cmp -s release/dist/deployment-id.json - && exit 0', '&& exit 0')
 
     def test_readiness_check_needs_one_slash(self):
-        self.assertBroken('deploy.yml', '"${URL%/}/deployment-id.json?run=', '"${URL}deployment-id.json?run=', 'publish must')
+        self.assertBrokenIn(('stage', 'publish'), '"${URL%/}/deployment-id.json?run=', '"${URL}deployment-id.json?run=')
+
+    def test_served_check_removed_or_aimed_elsewhere(self):
+        self.assertBrokenIn(('stage', 'publish'), ' >> "$GITHUB_STEP_SUMMARY"', ' || true')
+        self.assertBrokenIn(('stage',), "          URL: ${{ needs.site.outputs.staging_url }}\n        run: python3",
+                            "          URL: ${{ needs.site.outputs.url }}\n        run: python3")
+        self.assertBrokenIn(('publish',), "          URL: ${{ needs.site.outputs.url }}\n        run: python3",
+                            "          URL: ${{ needs.site.outputs.staging_url }}\n        run: python3")
+
+    def test_staging_deploys_to_production(self):
+        # The staging deploy must name the staging branch, never main.
+        self.assertBrokenIn(('stage',), '--branch="$BRANCH"', '--branch=main')
+        self.assertBrokenIn(('stage',), 'BRANCH: ${{ needs.site.outputs.staging_branch }}', 'BRANCH: main')
+
+    def test_staging_checks_rebuild_or_skip(self):
+        self.assertBrokenIn(('staging-checks',), 'run: cp -R release/dist dist', 'run: npm run build')
+        self.assertBrokenIn(('staging-checks',), 'run: npx playwright test -c playwright.staging.config.ts',
+                            'run: npx playwright test -c playwright.staging.config.ts || true')
+        self.assertBrokenIn(('staging-checks',), 'STAGING_URL: ${{ needs.site.outputs.staging_url }}', 'STAGING_URL: ""')
+
+    def test_staging_checks_without_this_build(self):
+        drop = lambda jobs: jobs['staging-checks']['steps'].remove(
+            step_named({'jobs': jobs}, 'staging-checks', 'Check staging still serves this build'))
+        self.assertTrue(any('staging-checks must' in p for p in self.deploy_problems(drop)))
+        self.assertBrokenIn(('staging-checks',), '/deployment-id.json - && exit 0\n', '/deployment-id.json - || true\n')
+        self.assertBrokenIn(('staging-checks',), 'URL: ${{ needs.site.outputs.staging_url }}\n        run: |\n          curl',
+                            'URL: ${{ needs.site.outputs.url }}\n        run: |\n          curl')
+
+    def test_secret_in_staging_checks(self):
+        self.assertBroken('deploy.yml', '        run: cp -R release/dist dist\n',
+                          '        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n        run: cp -R release/dist dist\n',
+                          'uses a secret outside')
+
+    def test_secret_job_outside_environment(self):
+        for job in ('site', 'stage', 'publish'):
+            with self.subTest(job):
+                problems = self.deploy_problems(lambda jobs: jobs[job].pop('environment'))
+                self.assertIn(f'deploy.yml: job {job} must run in environment cloudflare-production', problems)
+        problems = self.deploy_problems(lambda jobs: jobs['staging-checks'].update(environment='cloudflare-production'))
+        self.assertIn('deploy.yml: job staging-checks must run in environment None', problems)
+
+    def test_staging_condition_elsewhere(self):
+        self.assertBroken('deploy.yml', "        id: handoff\n        if: needs.site.outputs.host == 'cloudflare'\n",
+                          "        id: handoff\n        if: needs.site.outputs.staging_url != ''\n",
+                          'may only be conditional on the Cloudflare host, or on staging in')
 
     def test_deploy_runs_more(self):
         self.assertBroken('deploy.yml', '          fi\n      - uses: actions/deploy-pages',
@@ -182,10 +277,13 @@ class Workflows(unittest.TestCase):
         self.assertTrue(any('deploy must only require the tip of main' in p for p in problems), problems)
 
     def test_secret_in_dependency_install(self):
-        self.assertBroken('deploy.yml', '        run: npm ci --prefix tools/wrangler --ignore-scripts\n',
-                          '        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n'
-                          '        run: npm ci --prefix tools/wrangler --ignore-scripts\n',
-                          'uses a secret outside')
+        for job in ('stage', 'publish'):
+            with self.subTest(job):
+                self.setUp()
+                self.assertBroken('deploy.yml', '        run: npm ci --prefix tools/wrangler --ignore-scripts\n',
+                                  '        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n'
+                                  '        run: npm ci --prefix tools/wrangler --ignore-scripts\n',
+                                  'uses a secret outside', job)
 
     def test_secret_in_build(self):
         self.assertBroken('deploy.yml', '      - run: npm ci\n',
@@ -193,16 +291,18 @@ class Workflows(unittest.TestCase):
                           'uses a secret outside')
 
     def test_wrangler_runs_more(self):
-        self.assertBroken('deploy.yml', '--commit-dirty=true\n', '--commit-dirty=true && npm test\n', 'publish must')
+        self.assertBrokenIn(('stage', 'publish'), '--commit-dirty=true\n', '--commit-dirty=true && npm test\n')
 
     def test_pages_write_on_build(self):
         self.assertBroken('deploy.yml', '      contents: read\n      issues: read\n',
                           '      contents: read\n      issues: read\n      pages: write\n', 'job build permissions')
 
     def test_contents_write(self):
-        self.assertBroken('deploy.yml', '    needs: [site, build]\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n',
-                          '    needs: [site, build]\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write\n',
-                          'job publish permissions')
+        for job in ('stage', 'staging-checks', 'publish'):
+            with self.subTest(job):
+                self.setUp()
+                self.assertBroken('deploy.yml', '    permissions:\n      contents: read\n', '    permissions:\n      contents: write\n',
+                                  f'job {job} permissions', job)
 
     def test_top_level_permissions(self):
         self.assertBroken('deploy.yml', 'permissions: {}\n', 'permissions:\n  contents: read\n', 'grant no token scopes')
@@ -273,13 +373,36 @@ class Workflows(unittest.TestCase):
       - uses: actions/checkout@v4
 """, 'not pinned to a commit')
 
+    # browser-tests.yml uploads from the shards and from the burn-in: break each upload in turn.
+    BROWSER_UPLOADS = ['playwright-test-results-shard-${{ matrix.shard }}', 'playwright-test-results-burn-in-${{ matrix.shard }}']
+
     def test_ci_upload_on_success(self):
-        self.assertBroken('browser-tests.yml', '        if: failure()\n', '        if: always()\n',
-                          'must upload only on failure() and keep it 7 days')
+        for name in self.BROWSER_UPLOADS:
+            with self.subTest(name):
+                self.assertBroken('browser-tests.yml', f'        if: failure()\n        with:\n          name: {name}\n',
+                                  f'        if: always()\n        with:\n          name: {name}\n',
+                                  'must upload only on failure() and keep it 7 days')
 
     def test_ci_upload_kept_longer(self):
-        self.assertBroken('browser-tests.yml', 'retention-days: 7\n', 'retention-days: 30\n',
-                          'must upload only on failure() and keep it 7 days')
+        for name in self.BROWSER_UPLOADS:
+            with self.subTest(name):
+                self.assertBroken('browser-tests.yml', f'name: {name}\n          path: test-results/\n          retention-days: 7\n',
+                                  f'name: {name}\n          path: test-results/\n          retention-days: 30\n',
+                                  'must upload only on failure() and keep it 7 days')
+
+    def test_browser_check_waits_for_the_burn_in(self):
+        # The required `browser-tests` check passes only after the burn-in. The burn-in may be
+        # skipped only when its plan ran and found no spec, and it has no event filter, because a
+        # push run and a pull request run of the same commit can each satisfy branch protection.
+        jobs = dc.load(WORKFLOWS / 'browser-tests.yml')['jobs']
+        gate = jobs['browser-tests']
+        self.assertEqual(set(gate['needs']), {'browser-shard', 'browser-burn-in-plan', 'browser-burn-in'})
+        self.assertEqual(gate['if'], 'always()')
+        script = gate['steps'][0]['run']
+        self.assertIn('test "$PLAN" = success', script)
+        self.assertIn('test "$BURN_IN" = success || { test "$BURN_IN" = skipped && test -z "$SPECS"; }', script)
+        self.assertNotIn('if', jobs['browser-burn-in-plan'])
+        self.assertEqual(jobs['browser-burn-in']['if'], "needs.browser-burn-in-plan.outputs.specs != ''")
 
     def test_ci_runs_this_test(self):
         ci = dc.load(WORKFLOWS / 'ci.yml')
@@ -553,6 +676,175 @@ class Handoff(unittest.TestCase):
                 self.assertNotEqual(check(marker.replace(b'123456', b'123455')), 0)
                 self.assertNotEqual(check(marker.rstrip(b'\n')), 0)
 
+    def test_staging_still_serves_this_build(self):
+        """staging-checks' check before the browser checks, with curl stubbed: one fetch, and it passes
+        only while staging serves this run's marker (a re-run after a later run on the same commit fails)."""
+        script = step_named(dc.load(WORKFLOWS / 'deploy.yml'), 'staging-checks', 'Check staging still serves this build')['run']
+        self.sealed()
+        bin_dir = self.tmp / 'bin'
+        bin_dir.mkdir()
+        served = self.tmp / 'served.json'
+        log = self.tmp / 'curl.log'
+        (bin_dir / 'curl').write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n[ -f "{served}" ] || exit 22\ncat "{served}"\n')
+        (bin_dir / 'curl').chmod(0o755)
+        marker = (self.dist / 'deployment-id.json').read_bytes()
+        env = {'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'URL': 'https://staging.brainrottcg.pages.dev/',
+               'GITHUB_RUN_ID': ENV['GITHUB_RUN_ID'], 'GITHUB_RUN_ATTEMPT': '2'}
+
+        def check(content):
+            log.write_text('')
+            served.unlink(missing_ok=True)
+            if content is not None:
+                served.write_bytes(content)
+            result = subprocess.run(['bash', '-e', '-c', script], cwd=self.tmp, env=env, capture_output=True, text=True)
+            self.assertEqual(len(log.read_text().splitlines()), 1)
+            return result
+
+        self.assertEqual(check(marker).returncode, 0)
+        self.assertIn('https://staging.brainrottcg.pages.dev/deployment-id.json?run=123456-2', log.read_text())
+        for name, content in (('another run', marker.replace(b'123456', b'123457')), ('changed', marker.rstrip(b'\n')),
+                              ('unreachable', None)):
+            with self.subTest(name):
+                result = check(content)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn('no longer serves this build', result.stdout)
+
+
+class Served(unittest.TestCase):
+    """served in stage and publish: the address serves every sealed file with its sealed hash."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.release = self.tmp / 'release'
+        self.dist = self.release / 'dist'
+        (self.dist / 'assets').mkdir(parents=True)
+        (self.dist / 's/genesis').mkdir(parents=True)
+        (self.dist / 'p').mkdir()
+        (self.dist / 'index.html').write_text('<!doctype html>app')
+        (self.dist / 'assets/app js.js').write_text('console.log(1)')
+        (self.dist / 's/genesis/index.html').write_text('set page')
+        (self.dist / 'p/abc.html').write_text('pull page')
+        (self.dist / 'hall-of-fame.json').write_text('[]')
+        (self.dist / '_headers').write_text('/assets/*\n  Cache-Control: immutable\n')
+        self.digest = dc.seal(self.release, ENV)
+        # What Cloudflare Pages serves, by URL: pretty paths for pages, nothing for _headers.
+        base = 'https://staging.brainrottcg.pages.dev/'
+        self.site = {base + dc.served_path(p.relative_to(self.dist).as_posix()): p.read_bytes()
+                     for p in self.dist.rglob('*') if p.is_file() and p.name != '_headers'}
+        self.base = base
+        self.asked = []
+
+    def get(self, url):
+        self.asked.append(url)
+        if url not in self.site:
+            return self.site[self.base]  # an unknown path gets index.html, as on Pages
+        return self.site[url]
+
+    def served(self, url=None, **kwargs):
+        return dc.served(self.release, ENV, self.digest, url or self.base, get=self.get, pause=0, **kwargs)
+
+    def test_paths(self):
+        self.assertEqual([dc.served_path(n) for n in ('index.html', 's/genesis/index.html', 'p/abc.html', 'assets/a b.js', 'og-image.jpg')],
+                         ['', 's/genesis/', 'p/abc', 'assets/a%20b.js', 'og-image.jpg'])
+
+    def test_every_file_as_sealed(self):
+        summary = self.served()
+        self.assertEqual(sorted(set(self.asked)), sorted(self.site))
+        self.assertIn('| Commit | `' + 'a' * 40 + '` |', summary)
+        self.assertIn(f'| Manifest sha256 | `{self.digest}` |', summary)
+        self.assertIn('| Files | 6, each served with its sealed hash |', summary)
+        self.assertIn('| hall-of-fame.json sha256 | `' + hashlib.sha256(b'[]').hexdigest() + '` |', summary)
+        self.assertIn('https://staging.brainrottcg.pages.dev/', summary)
+        self.served(self.base.rstrip('/'))
+
+    def test_changed_or_missing_file(self):
+        for change in ('changed', 'missing'):
+            with self.subTest(change):
+                self.setUp()
+                url = self.base + 'p/abc'
+                if change == 'changed':
+                    self.site[url] = b'<script>analytics()</script>pull page'
+                else:
+                    del self.site[url]  # served as index.html instead
+                with self.assertRaisesRegex(dc.Rejected, r"doesn't serve 1 of the 6 sealed files as sealed.*Web Analytics(.|\n)*/p/abc: different content"):
+                    self.served(tries=2)
+                self.assertEqual(self.asked.count(url), 2)
+
+    def test_retries_then_passes(self):
+        url, calls = self.base + 'p/abc', []
+
+        def flaky(u):
+            if u == url and len(calls) < 2:
+                calls.append(u)
+                raise dc.HTTPError(u, 503, 'busy', {}, None)
+            return self.get(u)
+        dc.served(self.release, ENV, self.digest, self.base, get=flaky, pause=0)
+        calls.clear()
+        with self.assertRaisesRegex(dc.Rejected, '/p/abc: HTTP 503'):
+            dc.served(self.release, ENV, self.digest, self.base, get=flaky, pause=0, tries=2)
+
+    def test_checks_the_seal_first(self):
+        (self.dist / 'p/abc.html').write_text('swapped after sealing')
+        with self.assertRaisesRegex(dc.Rejected, "the files don't match"):
+            self.served()
+        self.assertEqual(self.asked, [])
+
+    def test_address_shape(self):
+        for url in ('http://staging.brainrottcg.pages.dev/', 'https://staging.brainrottcg.pages.dev/x/', 'https://a.dev/?q', ''):
+            with self.subTest(url):
+                with self.assertRaisesRegex(dc.Rejected, 'must be a plain https://'):
+                    dc.served(self.release, ENV, self.digest, url, get=self.get, pause=0)
+
+    def test_fetch(self):
+        """fetch against a real server: bodies uncompressed, errors raised, no redirect to another origin."""
+        import http.server
+        import threading
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/a':
+                    body = self.headers.get('Accept-Encoding', '').encode()
+                    self.send_response(200)
+                    self.send_header('Content-Length', str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                elif self.path == '/same':
+                    self.send_response(308)
+                    self.send_header('Location', '/a')
+                    self.end_headers()
+                elif self.path == '/away':
+                    self.send_response(302)
+                    self.send_header('Location', 'http://127.0.0.2:1/a')
+                    self.end_headers()
+                else:
+                    self.send_error(404)
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        base = f'http://127.0.0.1:{server.server_address[1]}'
+        self.assertEqual(dc.fetch(base + '/a'), b'identity')
+        self.assertEqual(dc.fetch(base + '/same'), b'identity')
+        for path, code in (('/missing', 404), ('/away', 302)):
+            with self.subTest(path):
+                with self.assertRaises(dc.HTTPError) as caught:
+                    dc.fetch(base + path)
+                self.assertEqual(caught.exception.code, code)
+
+    def test_cli(self):
+        usage = subprocess.run([sys.executable, '-I', str(SCRIPT), 'served', str(self.release)], capture_output=True, text=True)
+        self.assertEqual(usage.returncode, 1)
+        self.assertIn('served DIR URL', usage.stderr)
+        # It checks the seal before fetching anything.
+        failed = subprocess.run([sys.executable, '-I', str(SCRIPT), 'served', str(self.release), self.base],
+                                env={**os.environ, **ENV, 'MANIFEST_SHA256': '0' * 64}, capture_output=True, text=True)
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("manifest.json isn't the one build sealed", failed.stderr)
+
 
 class Guard(unittest.TestCase):
     """The site job's first step, run as the workflow has it."""
@@ -611,17 +903,28 @@ class TipGuard(unittest.TestCase):
 class SiteLookup(unittest.TestCase):
     """The site job's lookup, run as the workflow has it with Cloudflare's API stubbed: SITE_URL may end in / or not."""
 
-    def outputs(self, custom_url):
+    PROJECT = {'success': True, 'result': {'subdomain': 'brainrottcg.pages.dev', 'production_branch': 'main'}}
+
+    def run_lookup(self, custom_url='', staging='', answer=PROJECT, secrets=True):
+        """(exit code, stdout, outputs) of the lookup."""
         script = dc.load(WORKFLOWS / 'deploy.yml')['jobs']['site']['steps'][1]['run']
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp)
-        (tmp / 'curl').write_text('#!/bin/sh\necho \'{"success":true,"result":{"subdomain":"brainrottcg.pages.dev"}}\'\n')
+        (tmp / 'answer.json').write_text(json.dumps(answer))
+        (tmp / 'curl').write_text(f'#!/bin/sh\ncat "{tmp}/answer.json"\n')
         (tmp / 'curl').chmod(0o755)
-        env = {'PATH': f'{tmp}:{os.environ["PATH"]}', 'GITHUB_OUTPUT': str(tmp / 'out'), 'CLOUDFLARE_API_TOKEN': 'token',
-               'CLOUDFLARE_ACCOUNT_ID': 'account', 'PROJECT': 'brainrottcg', 'CUSTOM_URL': custom_url,
+        (tmp / 'out').write_text('')
+        env = {'PATH': f'{tmp}:{os.environ["PATH"]}', 'GITHUB_OUTPUT': str(tmp / 'out'),
+               'CLOUDFLARE_API_TOKEN': 'token' if secrets else '', 'CLOUDFLARE_ACCOUNT_ID': 'account' if secrets else '',
+               'PROJECT': 'brainrottcg', 'CUSTOM_URL': custom_url, 'STAGING_BRANCH': staging,
                'OWNER': 'evanlin23', 'REPO': 'BrainrotTCG'}
-        subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script], env=env, check=True, capture_output=True)
-        return dict(line.split('=', 1) for line in (tmp / 'out').read_text().splitlines())
+        result = subprocess.run(['bash', '--noprofile', '--norc', '-eo', 'pipefail', '-c', script], env=env, capture_output=True, text=True)
+        return result.returncode, result.stdout, dict(line.split('=', 1) for line in (tmp / 'out').read_text().splitlines())
+
+    def outputs(self, custom_url, staging=''):
+        code, stdout, outputs = self.run_lookup(custom_url, staging)
+        self.assertEqual(code, 0, stdout)
+        return outputs
 
     def test_address_ends_in_one_slash(self):
         for custom_url, url in (('', 'https://brainrottcg.pages.dev/'), ('https://brainrottcg.com', 'https://brainrottcg.com/'),
@@ -629,8 +932,55 @@ class SiteLookup(unittest.TestCase):
                                 ('https://brainrottcg.com//', 'https://brainrottcg.com/'),
                                 ('https://brainrottcg.com///', 'https://brainrottcg.com/')):
             with self.subTest(custom_url):
-                self.assertEqual(self.outputs(custom_url), {'host': 'cloudflare', 'url': url, 'base': '/'})
+                # Staging off: no project host for the build, so no address it serves from is staging.
+                self.assertEqual(self.outputs(custom_url), {'host': 'cloudflare', 'url': url, 'base': '/', 'pages': '',
+                                                            'staging_branch': '', 'staging_url': ''})
                 self.assertEqual(dc.marker({**ENV, 'SITE_URL': url})['url'], url)
+
+    def test_staging_address(self):
+        for custom_url in ('', 'https://brainrottcg.com/'):
+            with self.subTest(custom_url):
+                outputs = self.outputs(custom_url, 'staging')
+                self.assertEqual(outputs['staging_branch'], 'staging')
+                self.assertEqual(outputs['staging_url'], 'https://staging.brainrottcg.pages.dev/')
+                self.assertEqual(outputs['pages'], 'brainrottcg.pages.dev')
+                self.assertNotEqual(outputs['url'], outputs['staging_url'])
+        self.assertEqual(self.outputs('', 'rc-2')['staging_url'], 'https://rc-2.brainrottcg.pages.dev/')
+
+    def test_staging_off_says_so(self):
+        code, stdout, _ = self.run_lookup()
+        self.assertEqual(code, 0)
+        self.assertIn('::notice::Staging is off', stdout)
+
+    def test_staging_refuses_a_bad_or_production_branch(self):
+        for branch in ('main', 'Staging', '-staging', 'staging-', 'stag ing', 'staging/next', 'a' * 29, 'staging\nmain', '$(id)'):
+            with self.subTest(branch):
+                code, stdout, outputs = self.run_lookup(staging=branch)
+                self.assertEqual(code, 1)
+                self.assertIn('::error::Staging is on', stdout)
+                self.assertEqual(outputs, {})
+        answer = {'success': True, 'result': {'subdomain': 'brainrottcg.pages.dev', 'production_branch': 'release'}}
+        code, stdout, outputs = self.run_lookup(staging='release', answer=answer)
+        self.assertEqual((code, outputs), (1, {}))
+        self.assertIn('names the production branch', stdout)
+
+    def test_staging_fails_closed_when_cloudflare_is_not_ready(self):
+        # Without staging, Cloudflare not being ready falls back to GitHub Pages as before; with it,
+        # nothing is published anywhere.
+        not_ready = {'success': False, 'errors': [{'code': 8000000, 'message': 'nope'}]}
+        odd = {'success': True, 'result': {'subdomain': 'brainrottcg.example.com', 'production_branch': 'main'}}
+        for name, kwargs in (('no secrets', {'secrets': False}), ('not ready', {'answer': not_ready})):
+            with self.subTest(name):
+                code, _, outputs = self.run_lookup(**kwargs)
+                self.assertEqual((code, outputs['host']), (0, 'github'))
+                code, stdout, outputs = self.run_lookup(staging='staging', **kwargs)
+                self.assertEqual((code, outputs), (1, {}))
+                self.assertIn('::error::Staging is on', stdout)
+        code, _, outputs = self.run_lookup(answer=odd)
+        self.assertEqual((code, outputs['pages'], outputs['staging_url']), (0, '', ''))
+        code, stdout, outputs = self.run_lookup(staging='staging', answer=odd)
+        self.assertEqual((code, outputs), (1, {}))
+        self.assertIn("isn't a pages.dev address", stdout)
 
 
 if __name__ == '__main__':

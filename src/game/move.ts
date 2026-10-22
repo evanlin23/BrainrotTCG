@@ -19,6 +19,7 @@ import { CURRENT_DATA_VERSION, DATA_VERSION_KEY } from '../utils/migrations';
 import { newSaveStamp, parsePlayer, SAVE_STAMP_KEY, ticketCount, withAllowedName } from './player';
 import { isQuotaError, isValidSaveValue } from './saveFile';
 import { withReadableCache } from './history';
+import { isStaging } from './staging';
 
 const OLD_ORIGIN: string = import.meta.env.VITE_OLD_ORIGIN || '';
 const OLD_SITE_URL: string = import.meta.env.VITE_OLD_SITE_URL || '';
@@ -55,7 +56,8 @@ export const PARTIAL_MOVE_NOTE = "Bringing the save over failed partway and coul
 
 export const FULL_MOVE_NOTE = "This browser's storage is full, so nothing changed. Free up some space, then try again.";
 
-export const canBringOldSave = (): boolean => !!OLD_ORIGIN && !!OLD_SITE_URL && OLD_ORIGIN !== window.location.origin;
+/** Never on staging (staging.ts): its saves are disposable, and the old address only hands saves to production. */
+export const canBringOldSave = (): boolean => !!OLD_ORIGIN && !!OLD_SITE_URL && OLD_ORIGIN !== window.location.origin && !isStaging();
 
 const secretOf = (player: string | null | undefined): string | undefined => {
   try {

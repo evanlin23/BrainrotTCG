@@ -23,6 +23,61 @@ check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it
    main. Only the owner approves new card sets or removing a set's draft flag. Merges to main deploy
    automatically. Never deploy, or submit real data such as Hall of Fame entries, as a test.
 
+## Review evidence
+
+The reviewer (`.claude/agents/reviewer.md`) picks evidence from the diff, by risk, and records the
+head, the evidence checked and remaining risks. Missing required evidence is `changes-needed` or an
+external blocker, never an implied pass. Don't trust the author's summary.
+
+| Change | Evidence |
+| --- | --- |
+| Docs, low risk | Links and `git diff --check`. |
+| Behaviour, storage, proof, engine, spec, migration, workflow | A counterexample from the contract, independent of the author's tests. Mocks keep the real boundary's types, error kinds and lifecycle. Migrations: the real startup entry. |
+| Visible flow | Player problem, observable acceptance, the screen's job, primary fact and next action. Empty, loading and error states; fit with existing navigation, components and tokens. Narrow, short and enlarged text, keyboard, reduced motion as relevant. Repeated facts: keep, merge, demote, disclose or remove. A screenshot or test count alone isn't approval. |
+| Architecture, public-resource growth | Responsibility owner, simpler existing option, async and resource lifetime, bounded untrusted data, compatibility. No speculative frameworks. |
+
+The reviewer can't render the PR. For a visible flow, the implementer gives bounded, sanitized
+before/after observations on the exact head, using the [DESIGN.md](DESIGN.md) rules and, for a
+meaningful flow change, [`npm run audit:agent`](#local-agent-usability-audit). Tests must be
+deterministic: reviewers block fixed sleeps, timing-dependent waits, and retries or skips a PR adds.
+
+## Defect learning and issue closure
+
+Closing a reproduced defect takes a short note on the issue, backed by the PR's final-head evidence
+(the evidence tiers above apply):
+
+1. **Root cause**, one sentence naming the code or contract that failed. Separate a pre-existing
+   defect from a regression this change introduced. Cite source, test or PR evidence; don't name the
+   introducing commit without tracing it.
+2. **Escape class**, why existing controls missed it:
+   - *missing_scenario*: an edge, cancellation, storage denial or limit was never exercised.
+   - *incorrect_expected_contract*: a test asserted the wrong behaviour or merged two failure kinds.
+   - *over_mocked_collaborator*: a mock hid the real boundary (the Review evidence row covers what
+     mocks must keep).
+   - *wrong_test_level*: the defect lives at a boundary or startup entry that only unit tests touched.
+   - *stale_evidence*: results came from an earlier head, or a failure was skipped.
+   - *missing_release_decision*: a deferral or specification gap nobody owned.
+3. **Regression test** at the lowest useful level, asserting observable behaviour. Show it fails on
+   the faulty behaviour and passes on the fix. Say whether it runs in a real browser or against an
+   injected boundary. Add the storage-denial, cancellation or resource-limit cases only where the
+   defect calls for them. A setup failure or skip isn't a detected failure.
+4. **Sibling scan**: search directly related paths for the same failure class. Link an existing issue
+   or file a bounded follow-up; don't widen the fix PR. If a durable invariant (guard, validation
+   boundary or fixture) would prevent recurrence, even for a first-time defect, name one small
+   verifiable prevention action with its canonical owner and link the existing check or issue. Don't
+   add overlapping tests. A recurring defect gets that task instead of another local patch.
+5. **Pending external checks** (physical device, external API) stay marked pending.
+
+Examples from merged fixes:
+
+- #647 (PR #912), `wrong_test_level`: the Settings import (FileReader) boundary dereferenced parsed
+  JSON before checking it was an object. Before 1209cf0 only `null` threw (`incoming.player`);
+  arrays and primitives reached the "Replace ... Yours is kept as a backup?" prompt. The regression
+  is in `SettingsPage.test.tsx` (non-object files give a message and no replacement prompt).
+- #695 (PR #919), `missing_scenario`: `reopenCache.ts` `flush` ran `removeItem` inside its `catch`,
+  so a fully denied storage threw from a timer. The regression is in `reopenCache.test.ts` (both
+  `setItem` and `removeItem` fail).
+
 ## Checks
 
 | When | Run |
@@ -110,6 +165,20 @@ once if the browser is missing) only when fixing a browser-test failure or when 
 can't be checked otherwise, and grep `tests/browser` for any constant you changed. Owner decision, 2026-10-16/17 (#8 and #211, both closed: "own phone fine, weaker = emulation"):
 Pixel 5 emulation counts as phone evidence when the PR labels it as emulation; a physical-device check is
 stronger, and is done by hand against the preview and described in the PR.
+
+Browser tests have no retries, so a test that fails once fails CI: fix its cause rather than re-running.
+Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
+close-up sets `data-tilt="live"` once it follows the mouse.
+
+The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
+adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes, in both
+projects:
+- 10 more times when few specs changed;
+- fewer as the list grows (see `scripts/burn-in-plan.ts`), but never fewer than 2, and no spec is dropped.
+
+Changes to `playwright.config.ts` or app code burn in nothing; the regular shards still run every spec
+once. Before pushing a new or changed spec, run the same locally with
+`npx playwright test <spec> --repeat-each=10`.
 
 ## Local agent usability audit
 

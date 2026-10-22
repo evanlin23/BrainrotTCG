@@ -112,7 +112,9 @@ results line (`PackSummaryUI.tsx`) that goes.
 4. **Reveal.** One new-card cue: the lower row (rarity, points, New). The on-art New sticker on the
    active card goes; the announcement stays. In landscape under 500 px tall the card gets at least
    70% of the height (about 250 px at 640x360, not 110), with the rarity row, hint and Skip in a
-   column beside it; the X, Skip and advance stay reachable.
+   column beside it; the X, Skip and advance stay reachable. On the last card the hint
+   says it opens the pack summary ("Click or press Space to see the pack summary", "Swipe or tap to
+   see the pack summary"), since the same press does.
 5. **Result.** One composition, a graded slab: the five cards in reveal order (best last) under one
    label, **[score] Brainrot Score** then **[combo] x[multiplier]**, plus the Hall of Fame line only
    when the pull qualifies. At most three short lines; no 1-in-X, XP or fingerprint (that is on the
@@ -148,7 +150,10 @@ results rules below (#339).
 - #778: results show the score only; direction and card-sum x combo explained once in the Card
   guide, with no chance line.
 - #639: shared pull shows attribution, then score once with combo and multiplier once, the five-card
-  fan, and the fingerprint once on the certificate.
+  fan, and the fingerprint once on the certificate. Built: the sheet title names the combo ("Pair"),
+  the score panel is the one score line (9,850, then "Brainrot Score · 4,925 pts × 2"), and the
+  fingerprint is only on the "Cert" strip, not the subtitle. A pull with no combo keeps its "No
+  Matches ×1" headline under the title "A pull". Other pack viewers are untitled and unchanged.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
   44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
   the tap path.
@@ -279,7 +284,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   player until their first pack is saved (#222) and while a pack is open. Someone who already knows the
   game can skip that: Settings → Sound & display → "Show every page" (off by default, kept in the
   settings and the save file) shows the tabs and the pack picker at once, so no page or feature is
-  gated behind a first pack. The header's gear
+  gated behind a first pack. Once a pack or a card is saved the pages show on their own and Settings
+  leaves the switch out (the stored choice is kept). The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
   problem).
 - **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit

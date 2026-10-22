@@ -225,6 +225,21 @@ test('a new player who turns on Show every page gets the tabs and the pack picke
   expect(errors).toEqual([]);
 });
 
+test('a returning player has no Show every page switch in Settings, and keeps every page (#902)', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!, 1, { returning: true });
+  await page.goto('./');
+  await expect(tab(page, 'Cards')).toBeVisible();
+  await gear(page).click();
+  const settings = pageNamed(page, 'Settings');
+  // The rest of Sound & display is there; the onboarding-only row and its explanation are not.
+  await expect(settings.getByRole('switch', { name: 'Particles', exact: true })).toBeVisible();
+  await expect(settings.getByRole('switch', { name: 'Show every page', exact: true })).toHaveCount(0);
+  await expect(settings.getByText('before your first pack is saved')).toHaveCount(0);
+  await expect(settings.getByRole('heading', { name: 'Save & backup', exact: true })).toBeVisible();
+  await expect(nav(page)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('the card guide link fits a 320 px phone at 200% text, under the pack it leaves alone', async ({ page, baseURL, hasTouch }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
   await page.setViewportSize({ width: 320, height: 568 });

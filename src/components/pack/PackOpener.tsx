@@ -94,7 +94,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const effectsVolume = effectsLevel(settings.effectsVolume);
   const pauseBigPulls = settings.pauseBigPulls !== false;
 
-  const { playAndCleanup, preloadAudio, loadDeferred, cleanupAudio, playRandom } = useAudio();
+  const { playAndCleanup, preloadAudio, loadDeferred, cleanupAudio, playRandom, stopAll } = useAudio();
 
   const openTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleInteractionRef = useRef<() => void>(() => {});
@@ -321,6 +321,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     revealLockedUntilRef.current = 0;
     setRevealLocked(false);
     setCelebratingCardId(null);
+    stopAll();
     if (preloadedAssets) {
       cleanupAudio(preloadedAssets.brainrotVoices);
       cleanupAudio([preloadedAssets.cardFlip]);
@@ -336,7 +337,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setHasMovedMouse(false);
     resetCutState();
     focusOpenRef.current = true;
-  }, [resetCutState, preloadedAssets, cleanupAudio, clearEffectTimers]);
+  }, [resetCutState, preloadedAssets, cleanupAudio, stopAll, clearEffectTimers]);
 
   // What a card shared from the summary links to: this pull (one object, so its proof is signed once).
   const pullRef = useMemo((): PullRef | undefined => openedPack
