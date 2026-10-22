@@ -15,11 +15,12 @@ import { REFUSAL_COPY } from './refusal';
 // and completeCut finishes one the way the real cutter does (the Open pack button calls it).
 // Its callbacks are stable, as the real hook's are: the opener's unmount cleanup depends on them.
 const cutter = vi.hoisted(() => ({
-  cutting: false, tear: () => {}, endCutAttempt: vi.fn(), completeCut: vi.fn(), resetCutState: () => {}, cleanup: () => {},
+  cutting: false, tear: () => {}, shortSwipe: () => {}, endCutAttempt: vi.fn(), completeCut: vi.fn(), resetCutState: () => {}, cleanup: () => {},
 }));
 vi.mock('../../hooks/usePackCutter', () => ({
-  usePackCutter: ({ onCutComplete }: { onCutComplete: () => void }) => {
+  usePackCutter: ({ onCutComplete, onShortSwipe }: { onCutComplete: () => void; onShortSwipe?: () => void }) => {
     cutter.tear = onCutComplete;
+    cutter.shortSwipe = onShortSwipe ?? (() => {});
     return {
       packRef: { current: null },
       isCutting: cutter.cutting,
@@ -195,6 +196,30 @@ describe('the controls under the pack (#312)', () => {
     await pastTheTear();
     expect(openPack).toHaveBeenCalledOnce();
     expect(openPack).toHaveBeenCalledWith(SETS[0], MOUNTED_SAVE);
+  });
+
+  it('answers a swipe let go short with a spring-back and a hint, then still opens with a tap (#803)', async () => {
+    await render(false);
+    const shell = $('.pack-shell')!;
+    const hint = () => $('.swipe-hint-text')?.textContent;
+    expect(hint()).toBe('Drag across to open');
+    expect(shell.classList.contains('is-short')).toBe(false);
+
+    act(() => cutter.shortSwipe());
+    expect(shell.classList.contains('is-short')).toBe(true);
+    expect(hint()).toBe('Drag farther or tap Open');
+    expect(openButton()?.classList.contains('is-prompted')).toBe(true);
+
+    // The feedback lasts a moment, then the usual cue is back.
+    await act(async () => { vi.advanceTimersByTime(1900); });
+    expect(shell.classList.contains('is-short')).toBe(false);
+    expect(hint()).toBe('Drag across to open');
+    expect(openButton()?.classList.contains('is-prompted')).toBe(false);
+
+    // And the button the hint names opens the pack.
+    act(() => cutter.shortSwipe());
+    act(() => openButton()!.click());
+    expect(cutter.completeCut).toHaveBeenCalledOnce();
   });
 
   it('says why a refused ticket opened nothing, and Try again asks for it again', async () => {

@@ -183,11 +183,11 @@ export async function mountedApp(storage: Record<string, string>,
       errors.splice(0, errors.length, ...rest);
       return taken;
     },
-    async until(description: string, assertion: () => void | Promise<void>) {
+    async until(description: string, assertion: () => void | Promise<void>, budgetMs = 10_000) {
       let last: unknown;
       // Advance simulated animation time inside act, polling only the named observable outcome.
       // Await real ticket computation in the same act scope; never retry the interaction itself.
-      for (let elapsed = 0; elapsed < 10_000; elapsed += 25) {
+      for (let elapsed = 0; elapsed < budgetMs; elapsed += 25) {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(25);
           await vi.dynamicImportSettled();
