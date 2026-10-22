@@ -413,6 +413,70 @@ describe('claiming the next ticket number', () => {
     expect(stored()).toEqual({ ...incoming, nextNonce: 8 });
   });
 
+  it("refuses to claim the new player's number when authorized for an initiating save that was replaced mid-claim", async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    const incoming = identity();
+    vi.stubGlobal('navigator', { locks: fakeLocks((name) => {
+      if (name.includes(ORIGINAL_KEY)) store.set(PLAYER_KEY, JSON.stringify(incoming));
+    }) });
+    await expect(player.claimNonce(initiating)).rejects.toBeInstanceOf(player.StaleSaveError);
+    // Incoming player's counter was not touched.
+    expect(stored()).toEqual(incoming);
+  });
+
+  it("refuses to claim when the save is replaced by a new import stamp of the same player mid-claim", async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    vi.stubGlobal('navigator', { locks: fakeLocks((name) => {
+      if (name.includes(ORIGINAL_KEY)) store.set(player.SAVE_STAMP_KEY, player.newSaveStamp());
+    }) });
+    await expect(player.claimNonce(initiating)).rejects.toBeInstanceOf(player.StaleSaveError);
+    expect(stored()).toEqual(original);
+  });
+
+  it("refuses to restart a claim on the new player's counter when the save is replaced after a turn found its number taken", async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    const incoming = identity();
+    const locks = fakeLocks();
+    const lock = (nonce: number) => `brainrot-ticket:${ORIGINAL_KEY}:${nonce}`;
+    // Another tab of the same player holds 12, so this turn is turned away and the claim would try again.
+    locks.held.add(lock(12));
+    const request = vi.fn(async (name: string, options: { ifAvailable?: boolean }, callback: (lock: { name: string } | null) => unknown) => {
+      const result = await locks.request(name, options, callback);
+      if (name === lock(12)) store.set(PLAYER_KEY, JSON.stringify(incoming));
+      return result;
+    });
+    vi.stubGlobal('navigator', { locks: { request } });
+    await expect(player.claimNonce(initiating)).rejects.toBeInstanceOf(player.StaleSaveError);
+    expect(request).toHaveBeenCalledWith(lock(12), expect.anything(), expect.any(Function));
+    expect(request.mock.calls.map(([name]) => name).some((name) => !name.includes(ORIGINAL_KEY))).toBe(false);
+    expect(stored()).toEqual(incoming);
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("refuses fallback claiming when the save changed during lock wait or lock failure", async () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    const incoming = identity();
+    vi.stubGlobal('navigator', { locks: { request: vi.fn(async () => {
+      store.set(PLAYER_KEY, JSON.stringify(incoming));
+      throw new DOMException('Denied', 'SecurityError');
+    }) } });
+    await expect(player.claimNonce(initiating)).rejects.toBeInstanceOf(player.StaleSaveError);
+    expect(stored()).toEqual(incoming);
+  });
+
+  it("refuses allocateNonce when the save changed", () => {
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    const initiating = player.saveMark();
+    const incoming = identity();
+    store.set(PLAYER_KEY, JSON.stringify(incoming));
+    expect(() => player.allocateNonce(initiating)).toThrow(player.StaleSaveError);
+    expect(stored()).toEqual(incoming);
+  });
+
   it('falls back to this tab alone where Web Locks are missing or refuse', async () => {
     store.set(PLAYER_KEY, JSON.stringify(original));
     vi.stubGlobal('navigator', {});
@@ -485,6 +549,29 @@ describe('claiming the next ticket number', () => {
     store.set(PLAYER_KEY, JSON.stringify(original));
     storageEvent(PLAYER_KEY);
     expect(stored()).toEqual(original);
+  });
+
+  it('watchStoredPlayer hears the same storage events as watchPlayer but never writes the count back', () => {
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    const storageEvent = (key: string | null) => target.dispatchEvent(Object.assign(new Event('storage'), { key }));
+    store.set(PLAYER_KEY, JSON.stringify(original));
+    expect(player.allocateNonce().nonce).toBe(12);
+    const changed = vi.fn();
+    const stop = player.watchStoredPlayer(changed);
+
+    // A lower count from another tab: watchPlayer would store 13 again, this leaves it alone.
+    store.set(PLAYER_KEY, JSON.stringify({ ...original, name: 'Renamed' }));
+    storageEvent(PLAYER_KEY);
+    expect(stored()).toEqual({ ...original, name: 'Renamed' });
+    storageEvent(player.SAVE_STAMP_KEY);
+    storageEvent(null);
+    storageEvent('unrelated');
+    expect(changed).toHaveBeenCalledTimes(3);
+
+    stop();
+    storageEvent(PLAYER_KEY);
+    expect(changed).toHaveBeenCalledTimes(3);
   });
 
   it('says so when storage refuses to restore the count over a lower one, and only then', () => {
