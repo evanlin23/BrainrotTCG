@@ -140,20 +140,38 @@ an approval gate:
 
 ### Release blocker criteria and promotion eligibility
 
-Promotion to production requires zero unresolved blockers in `config/release-blockers.json` (evaluated via `scripts/release-blockers.ts`).
+`config/release-blockers.json` records confirmed release blockers and their current disposition.
+`scripts/release-blockers.ts` decides eligibility for one exact candidate:
+`npx tsx scripts/release-blockers.ts --candidate <sha> [--base origin/main] [--corrective-target <issue>]`.
+It reads the record from the candidate's own tree and prints the record's sha256. Nothing consumes
+it yet: enforcement lands with the promotion gate (#706), so today it is advisory and does not by
+itself stop a deploy.
 
-**What blocks release (narrow scope):**
-- **Save loss / identity mixing**: confirmed corruption, unintended erasure, or key confusion during save handling or migrations.
-- **Broken historical-proof compatibility**: invalidation of existing valid verifiable pack proofs or published Hall of Fame entries.
-- **Persistent startup blank screen**: fatal unhandled exceptions preventing initial page render.
-- **Inaccessible core actions**: unrecoverable failures in pack opening, card inspection, or primary navigation.
-*(General cosmetic issues, optional features, or missing device benchmarks are not release blockers).*
+**What blocks release (narrow scope):** confirmed save loss or identity mixing (`save_loss`),
+broken historical-proof compatibility (`broken_proof`), a persistent startup blank screen
+(`startup_blank`), and core actions that can't be reached (`inaccessible_core`). Cosmetic issues,
+optional features and missing device benchmarks are not blockers; never add an entry from an issue
+title, label or count. Each entry records affected revisions, scenario, canonical issue, severity
+rationale, owner, required evidence and a classification: `regression`, `older_defect`,
+`unverified_hypothesis` or `missing_device_evidence`.
 
-**Disposition states:**
-- `resolved`: requires linked fix PR, verified regression test path, and commit SHA.
-- `unresolved`: fails promotion closed.
-- `mitigated_exception`: temporary narrow waiver with explicit scope, rationale, owner approval, mitigation evidence, active expiry date, and follow-up issue.
-- `corrective_release`: narrowly reviewed disposition for a release that specifically fixes a defect while other tracked items remain, with non-worsening and compatibility evidence.
+**Authority:** the record changes only through reviewed PRs to main. Issues, comments, labels and
+author assertions can't change release permission. `--base` reports dropping an entry that wasn't
+resolved, or rewriting an entry's issue or category. Resolved history stays in the issue and PR, so
+resolved entries may be pruned.
+
+**Dispositions** (anything missing, malformed or unverifiable fails closed):
+- `unresolved`: blocks promotion.
+- `resolved`: the fix PR, its full fix commit SHA, which must be in the candidate's history, and a
+  regression test path present in the candidate. The candidate's full test run is the passing
+  final-candidate regression.
+- `mitigated_exception`: scope, rationale, mitigation evidence, follow-up issue, and an approval by
+  evanlin23 that links the specific decision (`approvalRef`), lasting at most 30 days. The owner's
+  general work approval never counts as accepting a specific critical failure.
+- `corrective_release`: lets one candidate that fixes this blocker ship while other blockers stay
+  tracked. It needs non-worsening and compatibility evidence and an approval by evanlin23, linked as
+  above, for that exact candidate SHA; it applies only when the run declares
+  `--corrective-target` for this issue. There is no generic bugfix bypass.
 
 ## Recover on the same origin
 
