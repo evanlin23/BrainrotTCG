@@ -119,10 +119,10 @@ export interface ReleaseEligibilityResult {
 const SHA_RE = /^[0-9a-f]{40}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
-const positiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
-const isSha = (v: unknown): v is string => typeof v === 'string' && SHA_RE.test(v);
+export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const nonEmpty = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+export const positiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+export const isSha = (v: unknown): v is string => typeof v === 'string' && SHA_RE.test(v);
 const oneOf = <T extends string>(list: readonly T[], v: unknown): v is T => typeof v === 'string' && (list as readonly string[]).includes(v);
 const time = (v: unknown): number => (nonEmpty(v) ? Date.parse(v) : Number.NaN);
 
@@ -142,7 +142,7 @@ function approvalProblems(label: string, a: Record<string, unknown>, now: number
 }
 
 /** Problems with fields every blocker needs, or [] when the entry is well formed. */
-function entryProblems(b: Record<string, unknown>): string[] {
+export function entryProblems(b: Record<string, unknown>): string[] {
   const problems: string[] = [];
   if (!nonEmpty(b.id)) problems.push('id');
   if (!positiveInt(b.canonicalIssue)) problems.push('canonicalIssue');

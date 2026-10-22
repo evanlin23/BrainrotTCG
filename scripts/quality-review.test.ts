@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_BUDGET, JOURNEYS, MAX_HOTSPOT_CHARS, MAX_STATE_CHARS, MAX_STATE_ISSUES, REVIEW_CRITERIA, collectSignals, decideDue,
-  formatReview, formatState, main, overallStatus, parseState, pickHotspot, pickJourney, planSlice, recordRun, review,
-  touchedJourneys,
-  type Change, type FileRead, type GitInfo, type ReadFile, type ReviewState, type Tools,
+  formatReview, formatState, lastCommitDay, main, mainChecks, mainRev, overallStatus, parseState, pickHotspot, pickJourney, planSlice,
+  recordRun, review, touchedJourneys,
+  type Change, type FileRead, type GitInfo, type GitRun, type MainChecks, type ReadFile, type ReviewState, type Tools,
 } from './quality-review.ts';
 
 const NOW = new Date('2026-10-22T09:00:00Z');
@@ -161,20 +161,31 @@ describe('hotspot', () => {
 
 const PERF = 'test-results/performance/summary.json';
 const BLOCKERS = 'config/release-blockers.json';
+const SHA_A = 'a'.repeat(40);
+const SHA_B = 'b'.repeat(40);
+const ON_MAIN: MainChecks = { isOnMain: () => true, existsOnMain: () => true };
 const perf = (summary: object): Record<string, string> => ({ [PERF]: JSON.stringify(summary) });
-const signalOf = (id: string, entries: Record<string, string>, committed: Record<string, string> = {}) =>
-  collectSignals(files(entries), '2026-10-22', committed).find((signal) => signal.id === id)!;
+const signalOf = (id: string, entries: Record<string, string>, committed: Record<string, string> = {}, main: MainChecks = ON_MAIN) =>
+  collectSignals(files(entries), '2026-10-22', committed, main).find((signal) => signal.id === id)!;
+
+/** A release-blockers entry that evaluateReleaseEligibility accepts as well formed. */
+const blocker = (n: number, overrides: Record<string, unknown> = {}) => ({
+  id: `B${n}`, canonicalIssue: 100 + n, title: 'Title', category: 'save_loss', classification: 'regression', affectedRevisions: ['abc'],
+  scenario: 'Scenario', severityRationale: 'Why', owner: 'evanlin23', requiredEvidence: 'Evidence', disposition: 'unresolved', ...overrides,
+});
+const resolved = (n: number, overrides: Record<string, unknown> = {}) =>
+  blocker(n, { disposition: 'resolved', resolution: { fixedInPr: 1, fixCommit: SHA_A, regressionTest: 'src/x.test.ts' }, ...overrides });
 
 describe('evidence signals', () => {
   it('reports each signal as pass, fail, blocked or unrun with freshness, from existing files only', () => {
     const read = files({
-      [BLOCKERS]: JSON.stringify({ blockers: [{ disposition: 'unresolved' }, { disposition: 'resolved' }] }),
+      [BLOCKERS]: JSON.stringify({ version: 1, blockers: [blocker(1), resolved(2)] }),
       'test-results/agent-audit.json': JSON.stringify({ outcome: 'incomplete', date: '2026-09-01' }),
       'test-results/quality-evidence/ci-review.json': JSON.stringify({ status: 'fail', date: '2026-10-21', detail: 'PR 900 red\nci' }),
       'test-results/quality-evidence/branch-hygiene.json': '{not json',
       'test-results/quality-evidence/compatibility.json': JSON.stringify({ status: 'great' }),
     });
-    const byId = Object.fromEntries(collectSignals(read, '2026-10-22', { [BLOCKERS]: '2026-10-21' }).map((signal) => [signal.id, signal]));
+    const byId = Object.fromEntries(collectSignals(read, '2026-10-22', { [BLOCKERS]: '2026-10-21' }, ON_MAIN).map((signal) => [signal.id, signal]));
     expect(byId['release-blockers']).toMatchObject({ status: 'fail', fresh: true, date: '2026-10-21' });
     expect(byId['release-blockers'].detail).toContain('1 of 2 blockers open');
     expect(byId['agent-audit']).toMatchObject({ status: 'blocked', fresh: false, ageDays: 51 });
@@ -185,37 +196,117 @@ describe('evidence signals', () => {
     expect(byId.capacity).toMatchObject({ status: 'unrun', date: null, fresh: false });
   });
 
-  it('performance follows the reporter: only a passed run with samples passes, and createdAt dates it', () => {
+  it('a file mtime is labelled unverified and never reads as fresh', () => {
+    // files() stamps every file with mtime 2026-10-21, yesterday: it would be fresh if it counted.
+    const ci = signalOf('ci-review', { 'test-results/quality-evidence/ci-review.json': JSON.stringify({ status: 'pass' }) });
+    expect(ci).toMatchObject({ status: 'pass', date: null, ageDays: null, fresh: false, dateNote: 'unknown (mtime only: 2026-10-21)' });
+    const audit = signalOf('agent-audit', { 'test-results/agent-audit.json': '{"outcome":"completed"}' });
+    expect(audit).toMatchObject({ status: 'pass', date: null, fresh: false });
+    const stated = signalOf('ci-review', { 'test-results/quality-evidence/ci-review.json': JSON.stringify({ status: 'pass', date: '2026-10-21' }) });
+    expect(stated).toMatchObject({ fresh: true, dateNote: null });
+    const text = formatReview(review({ state: null, now: NOW, git: git({ commitsSinceLast: null }), tools: ALL_TOOLS, read: files({ 'test-results/quality-evidence/ci-review.json': '{"status":"pass"}' }) }));
+    expect(text).toContain('pass    ci-review [CLAUDE.md merge bar] date: unknown (mtime only: 2026-10-21)');
+    expect(text).not.toMatch(/ci-review[^\n]*2026-10-21 /);
+  });
+
+  it('performance follows the reporter: only a passed, clean run of a commit on main with samples passes, and createdAt dates it', () => {
     const scenarios = [{ scenario: 'first-cold', recordedRuns: 3, passedRuns: 3 }];
-    expect(signalOf('performance', perf({ status: 'passed', createdAt: '2026-10-20T08:00:00.000Z', scenarios }))).toMatchObject({ status: 'pass', date: '2026-10-20', fresh: true });
+    const run = { status: 'passed', createdAt: '2026-10-20T08:00:00.000Z', commit: SHA_A, trackedSourceDirty: false, scenarios };
+    const pass = signalOf('performance', perf(run));
+    expect(pass).toMatchObject({ status: 'pass', date: '2026-10-20', fresh: true });
+    expect(pass.detail).toContain('commit aaaaaaa');
     for (const status of ['failed', 'timedout', 'interrupted']) {
-      expect(signalOf('performance', perf({ status, createdAt: '2026-10-20T08:00:00.000Z', scenarios })).status, status).toBe('fail');
+      expect(signalOf('performance', perf({ ...run, status })).status, status).toBe('fail');
     }
-    for (const empty of [{ scenarios: [] }, { scenarios: [{ scenario: 'first-cold', recordedRuns: 0 }] }, {}]) {
-      expect(signalOf('performance', perf({ status: 'passed', createdAt: '2026-10-20T08:00:00.000Z', ...empty })).status).toBe('unrun');
+    for (const empty of [{ scenarios: [] }, { scenarios: [{ scenario: 'first-cold', recordedRuns: 0 }] }, { scenarios: undefined }]) {
+      expect(signalOf('performance', perf({ ...run, ...empty })).status).toBe('unrun');
     }
+    // Measured with local edits, or with the flag missing: not a pass.
+    for (const dirty of [{ trackedSourceDirty: true }, { trackedSourceDirty: undefined }]) {
+      const dirtyRun = signalOf('performance', perf({ ...run, ...dirty }));
+      expect(dirtyRun.status).toBe('unrun');
+      expect(dirtyRun.detail).toContain('commit aaaaaaa');
+      expect(dirtyRun.detail).toContain('tracked source was modified');
+    }
+    // A commit that is not an ancestor of origin/main (a branch or an unknown object) is not a pass either.
+    const offMain = signalOf('performance', perf(run), {}, { isOnMain: (commit) => commit !== SHA_A, existsOnMain: () => true });
+    expect(offMain.status).toBe('unrun');
+    expect(offMain.detail).toContain('not on origin/main');
+    expect(signalOf('performance', perf(run), {}, { isOnMain: () => false, existsOnMain: () => false }).status).toBe('unrun');
+    expect(signalOf('performance', perf({ ...run, commit: undefined })).status).toBe('unrun');
+    expect(signalOf('performance', perf({ ...run, commit: 'abc' })).status).toBe('unrun');
     // No createdAt: the file's checkout mtime is not a date for the run.
-    expect(signalOf('performance', perf({ status: 'passed', scenarios }))).toMatchObject({ date: null, fresh: false });
+    expect(signalOf('performance', perf({ ...run, createdAt: undefined }))).toMatchObject({ date: null, fresh: false, dateNote: 'unknown (mtime only: 2026-10-21)' });
     // A bare parseable file used to read as a pass.
     expect(signalOf('performance', { [PERF]: '{"runs":[]}' }).status).toBe('unrun');
   });
 
-  it('release blockers: anything not resolved is open, bad data fails closed, and the date is the last commit', () => {
-    const record = (...blockers: unknown[]) => ({ [BLOCKERS]: JSON.stringify({ blockers }) });
-    expect(signalOf('release-blockers', record({ disposition: 'resolved' }), { [BLOCKERS]: '2026-10-21' })).toMatchObject({ status: 'pass', fresh: true });
-    const exception = (expiresAt: string) => ({ disposition: 'mitigated_exception', mitigation: { expiresAt } });
-    for (const open of [{ disposition: 'unresolved' }, { disposition: 'corrective_release' }, exception('2026-11-01T00:00:00Z'), exception('2026-10-01T00:00:00Z'), { disposition: 'wip' }, {}, null]) {
-      expect(signalOf('release-blockers', record({ disposition: 'resolved' }, open)).status, JSON.stringify(open)).toBe('fail');
+  it('asks the injected git reader whether a commit and a path are on origin/main', () => {
+    const calls: string[][] = [];
+    const run: GitRun = (args) => {
+      calls.push(args);
+      if (args[0] === 'merge-base') { if (args[2] === SHA_A) return ''; throw new Error('not an ancestor'); }
+      if (args[0] === 'cat-file') { if (args[2] === 'origin/main:src/x.test.ts') return ''; throw new Error('missing'); }
+      throw new Error('unexpected');
+    };
+    const checks = mainChecks(run);
+    expect([checks.isOnMain(SHA_A), checks.isOnMain(SHA_B), checks.isOnMain('abc'), checks.existsOnMain('src/x.test.ts'), checks.existsOnMain('src/y.ts')]).toEqual([true, false, false, true, false]);
+    expect(calls[0]).toEqual(['merge-base', '--is-ancestor', SHA_A, 'origin/main']);
+    expect(signalOf('performance', perf({ status: 'passed', commit: SHA_B, trackedSourceDirty: false, scenarios: [{ recordedRuns: 1 }] }), {}, checks).status).toBe('unrun');
+  });
+
+  it('release blockers: anything not a valid resolved entry is open, bad data fails closed, and the date is the last commit', () => {
+    const record = (...blockers: unknown[]) => ({ [BLOCKERS]: JSON.stringify({ version: 1, blockers }) });
+    expect(signalOf('release-blockers', record(resolved(1)), { [BLOCKERS]: '2026-10-21' })).toMatchObject({ status: 'pass', fresh: true });
+    const exception = (expiresAt: string) => blocker(3, { disposition: 'mitigated_exception', mitigation: { expiresAt } });
+    for (const open of [blocker(3), blocker(3, { disposition: 'corrective_release' }), exception('2026-11-01T00:00:00Z'), exception('2026-10-01T00:00:00Z'), blocker(3, { disposition: 'wip' }), {}, null]) {
+      expect(signalOf('release-blockers', record(resolved(1), open)).status, JSON.stringify(open)).toBe('fail');
     }
     expect(signalOf('release-blockers', record(exception('2026-10-01T00:00:00Z'))).detail).toContain('1 expired exception');
-    expect(signalOf('release-blockers', record({ disposition: 'wip' })).detail).toContain('1 invalid');
-    expect(signalOf('release-blockers', { [BLOCKERS]: '{"blockers":{}}' }).status).toBe('fail');
+    expect(signalOf('release-blockers', record(blocker(3, { disposition: 'wip' }))).detail).toContain('1 invalid');
+    expect(signalOf('release-blockers', { [BLOCKERS]: '{"version":1,"blockers":{}}' }).status).toBe('fail');
     // The file's mtime (a checkout time) never makes it fresh; no commit date means no date.
-    const undated = signalOf('release-blockers', record({ disposition: 'resolved' }));
+    const undated = signalOf('release-blockers', record(resolved(1)));
     expect(undated).toMatchObject({ status: 'pass', date: null, fresh: false });
-    expect(signalOf('release-blockers', record({ disposition: 'resolved' }), { [BLOCKERS]: '2026-08-01' })).toMatchObject({ fresh: false, ageDays: 82 });
+    expect(signalOf('release-blockers', record(resolved(1)), { [BLOCKERS]: '2026-08-01' })).toMatchObject({ fresh: false, ageDays: 82 });
     expect(undated.label).toBe('Release blockers record');
     expect(undated.detail).not.toContain('#70');
+  });
+
+  it('release blockers: a record that release-blockers.ts rejects never reads as pass', () => {
+    const record = (version: unknown, ...blockers: unknown[]) => ({ [BLOCKERS]: JSON.stringify({ version, blockers }) });
+    expect(signalOf('release-blockers', record(1, resolved(1))).status).toBe('pass');
+    // Version: missing, other or mistyped is INVALID_RECORD there.
+    for (const version of [undefined, 0, 2, '1']) {
+      const result = signalOf('release-blockers', record(version, resolved(1)));
+      expect(result.status, String(version)).toBe('fail');
+      expect(result.detail).toContain('is not 1');
+    }
+    // Entries: the old test only looked at `disposition`, so a bare `resolved` used to pass.
+    const bareResolved = { disposition: 'resolved' };
+    const badEntries: Record<string, unknown> = {
+      'bare resolved': bareResolved,
+      'missing title': resolved(1, { title: '' }),
+      'bad category': resolved(1, { category: 'cosmetic' }),
+      'no affectedRevisions': resolved(1, { affectedRevisions: [] }),
+      'no resolution': blocker(1, { disposition: 'resolved' }),
+      'short fix commit': resolved(1, { resolution: { fixedInPr: 1, fixCommit: 'abc1234', regressionTest: 'src/x.test.ts' } }),
+      'no regression test': resolved(1, { resolution: { fixedInPr: 1, fixCommit: SHA_A, regressionTest: ' ' } }),
+      'no fixedInPr': resolved(1, { resolution: { fixCommit: SHA_A, regressionTest: 'src/x.test.ts' } }),
+      'array entry': [],
+    };
+    for (const [name, entry] of Object.entries(badEntries)) {
+      const result = signalOf('release-blockers', record(1, entry));
+      expect(result.status, name).toBe('fail');
+      expect(result.detail, name).toContain('1 invalid');
+    }
+    // Duplicate id or canonical issue.
+    expect(signalOf('release-blockers', record(1, resolved(1), resolved(1))).status).toBe('fail');
+    expect(signalOf('release-blockers', record(1, resolved(1), resolved(2, { canonicalIssue: 101 }))).status).toBe('fail');
+    // A fix commit or regression test that is not on origin/main (or cannot be checked) is not resolved.
+    expect(signalOf('release-blockers', record(1, resolved(1)), {}, { isOnMain: () => false, existsOnMain: () => true }).status).toBe('fail');
+    expect(signalOf('release-blockers', record(1, resolved(1)), {}, { isOnMain: () => true, existsOnMain: () => false }).status).toBe('fail');
+    expect(collectSignals(files(record(1, resolved(1))), '2026-10-22').find((signal) => signal.id === 'release-blockers')?.status).toBe('fail');
   });
 
   it('keeps physical device, screen reader and native sharing unrun unless a person recorded them', () => {
@@ -235,34 +326,120 @@ describe('evidence signals', () => {
 });
 
 describe('state line size', () => {
-  it('stays well under the ledger hook truncation limit, even with every field set', () => {
+  it('fits the ledger hook limit in the true worst case, with room for longer revisions', () => {
     const hook = readFileSync(new URL('../.claude/hooks/orient.mjs', import.meta.url), 'utf8');
     const limit = Number(/const MAX_LINE_CHARS = (\d+);/.exec(hook)?.[1]);
     expect(MAX_STATE_CHARS).toBeLessThanOrEqual(limit - 20);
     const longest = JOURNEYS.reduce((a, b) => (b.id.length > a.id.length ? b : a));
-    const full = state({
-      lastStatus: 'fail', lastDate: '2026-10-22', lastRev: 'abcdef1', passedDate: '2026-10-13', passedRev: 'abc1234',
-      nextDue: '2026-10-29', journey: longest.id, hotspot: 'a/'.repeat(MAX_HOTSPOT_CHARS / 2),
-      issues: [1234, 2345, 3456, 4567, 5678, 6789].slice(-MAX_STATE_ISSUES),
-    });
-    expect(formatState(full).length).toBeLessThanOrEqual(MAX_STATE_CHARS);
-    expect(parseState(formatState(full))).toEqual(full);
+    // Worst case: blocked (so `passed=` is a separate field and the previous slice is kept), the longest
+    // hotspot and journey, a three-digit non-default cadence, four four-digit issues, and 8-character
+    // revisions (the fixed width is 7).
+    const hotspot = 'a/'.repeat(MAX_HOTSPOT_CHARS / 2);
+    const worst = recordRun(
+      state({
+        cadenceDays: 999, lastStatus: 'pass', lastDate: '2026-10-13', lastRev: 'abc12345', passedDate: '2026-10-13', passedRev: 'abc12345',
+        journey: longest.id, hotspot,
+      }),
+      { now: NOW, rev: 'abcdef12', status: 'blocked', journey: null, hotspot: null, issues: [9996, 9997, 9998, 9999, 9995] },
+    );
+    expect(worst.issues).toHaveLength(MAX_STATE_ISSUES);
+    const line = formatState(worst);
+    expect(line).toContain('every=999d last=blocked@2026-10-22:abcdef12 passed=2026-10-13:abc12345');
+    expect(line).toContain(`journey=${longest.id} hotspot=${hotspot} issues=#9997,#9998,#9999,#9995`);
+    expect(line.length).toBeLessThanOrEqual(MAX_STATE_CHARS);
+    expect(parseState(line)).toEqual(worst);
+    // The same line with 9-character revisions is still under the limit.
+    expect(line.length + 2).toBeLessThanOrEqual(MAX_STATE_CHARS);
     const kept = recordRun(null, { now: NOW, rev: 'abcdef1', status: 'pass', journey: 'sharing', hotspot: null, issues: [1, 2, 3, 4, 5, 6, 7] });
     expect(kept.issues).toEqual([4, 5, 6, 7]);
   });
 
-  it('omits default cadence, budget and an unchanged passed pair, and restores them on parse', () => {
-    expect(formatState(passed)).toBe('quality review: last=pass@2026-10-13:abc1234 next=2026-10-20 journey=opening hotspot=src/game/move.ts issues=#701');
+  it('uses fixed 7-character revisions however long git would abbreviate', () => {
+    expect(mainRev(() => 'abcdef0123456789abcdef0123456789abcdef01')).toBe('abcdef0');
+    const args: string[][] = [];
+    mainRev((a) => { args.push(a); return 'a'.repeat(40); });
+    expect(args).toEqual([['rev-parse', 'origin/main']]);
+  });
+
+  it('omits default cadence, budget, next-due day and an unchanged passed pair, and restores them on parse', () => {
+    expect(formatState(passed)).toBe('quality review: last=pass@2026-10-13:abc1234 journey=opening hotspot=src/game/move.ts issues=#701');
+    expect(parseState(formatState(passed))).toEqual(passed);
     expect(formatState(state({ cadenceDays: 14, budget: { tasks: 1, minutes: 20, providerRuns: 0 } }))).toBe('quality review: every=14d budget=1t/20m/0p');
     expect(formatState(state())).toBe('quality review:');
+    // A blocked review is retried tomorrow by default; a hand-set day is kept.
+    const blocked = state({ lastStatus: 'blocked', lastDate: '2026-10-22', lastRev: 'abc1234', nextDue: '2026-10-23' });
+    expect(formatState(blocked)).toBe('quality review: last=blocked@2026-10-22:abc1234');
+    expect(parseState(formatState(blocked))).toEqual(blocked);
+    expect(formatState({ ...blocked, nextDue: '2026-10-30' })).toContain('next=2026-10-30');
+    expect(parseState('quality review: last=blocked@2026-10-22:abc1234 next=2026-10-30').nextDue).toBe('2026-10-30');
+  });
+});
+
+describe('record date in a shallow clone', () => {
+  const DAY_OF_RECORD = '2026-09-01';
+  const reader = (options: { shallow: boolean; log?: string; boundary?: string | null }) => {
+    const calls: string[][] = [];
+    const run: GitRun = (args) => {
+      calls.push(args);
+      if (args[0] === 'log') return options.log ?? `${SHA_A} ${DAY_OF_RECORD}`;
+      if (args.includes('--is-shallow-repository')) return options.shallow ? 'true' : 'false';
+      if (args.includes('--git-path')) return '.git/shallow';
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    };
+    const read: string[] = [];
+    const readText = (path: string): string => {
+      read.push(path);
+      if (options.boundary === null) throw new Error('ENOENT');
+      return `${options.boundary ?? ''}\n`;
+    };
+    return { run, readText, calls, read };
+  };
+
+  it('returns the commit day of the last change to the record in a full clone', () => {
+    const { run, readText, read } = reader({ shallow: false });
+    expect(lastCommitDay(run, readText, BLOCKERS)).toBe(DAY_OF_RECORD);
+    expect(read).toEqual([]);
+  });
+
+  it('records no date when git returns the shallow boundary commit: unknown, never fresh', () => {
+    // The record did not change inside the fetched history, so `git log -1` hands back the boundary.
+    const { run, readText, read, calls } = reader({ shallow: true, boundary: `${SHA_B}\n${SHA_A}` });
+    expect(lastCommitDay(run, readText, BLOCKERS)).toBeUndefined();
+    expect(read).toEqual(['.git/shallow']);
+    expect(calls[0]).toEqual(['log', '-1', '--format=%H %cs', 'origin/main', '--', BLOCKERS]);
+    // An undated record is never fresh, even though the log said 2026-09-01 (51 days old, so stale anyway) or a recent day.
+    const recent = reader({ shallow: true, log: `${SHA_A} 2026-10-21`, boundary: SHA_A });
+    const day = lastCommitDay(recent.run, recent.readText, BLOCKERS);
+    expect(day).toBeUndefined();
+    const committed: Record<string, string> = day ? { [BLOCKERS]: day } : {};
+    const record = { [BLOCKERS]: JSON.stringify({ version: 1, blockers: [resolved(1)] }) };
+    expect(signalOf('release-blockers', record, committed)).toMatchObject({ status: 'pass', date: null, ageDays: null, fresh: false });
+  });
+
+  it('keeps the date when the commit is a real change, not the boundary, in a shallow clone', () => {
+    const { run, readText } = reader({ shallow: true, boundary: SHA_B });
+    expect(lastCommitDay(run, readText, BLOCKERS)).toBe(DAY_OF_RECORD);
+  });
+
+  it('records no date when the shallow file cannot be read or git output is unusable', () => {
+    expect(lastCommitDay(reader({ shallow: true, boundary: null }).run, reader({ shallow: true, boundary: null }).readText, BLOCKERS)).toBeUndefined();
+    for (const log of ['', 'nonsense', `${SHA_A} yesterday`]) {
+      const { run, readText } = reader({ shallow: false, log });
+      expect(lastCommitDay(run, readText, BLOCKERS), log).toBeUndefined();
+    }
+    const failing: GitRun = () => { throw new Error('git failed'); };
+    expect(lastCommitDay(failing, () => '', BLOCKERS)).toBeUndefined();
   });
 });
 
 describe('record arguments', () => {
-  const run = async (...args: string[]): Promise<{ code: number; errors: string[] }> => {
+  const FAKE_MAIN: GitRun = () => 'a'.repeat(40);
+  const run = async (...args: string[]): Promise<{ code: number; errors: string[]; logs: string[] }> => {
     const errors: string[] = [];
-    const spy = vi.spyOn(console, 'error').mockImplementation((message: unknown) => { errors.push(String(message)); });
-    try { return { code: await main(['record', '--now=2026-10-22T09:00:00Z', ...args]), errors }; } finally { spy.mockRestore(); }
+    const logs: string[] = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((message: unknown) => { errors.push(String(message)); });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((message: unknown) => { logs.push(String(message)); });
+    try { return { code: await main(['record', '--now=2026-10-22T09:00:00Z', ...args], FAKE_MAIN), errors, logs }; } finally { errorSpy.mockRestore(); logSpy.mockRestore(); }
   };
 
   it('rejects a journey or hotspot that parseState would refuse, before writing anything', async () => {
@@ -271,5 +448,24 @@ describe('record arguments', () => {
       expect(result.code, bad).toBe(2);
       expect(result.errors[0], bad).toMatch(/^Bad --(journey|hotspot)/);
     }
+  });
+
+  it('prints the new line with a 7-character revision', async () => {
+    const result = await run('--status=pass', '--journey=sharing');
+    expect(result).toMatchObject({ code: 0, errors: [], logs: ['quality review: last=pass@2026-10-22:aaaaaaa journey=sharing'] });
+  });
+
+  it('refuses a line over the limit and names the optional fields that caused it, not --hotspot', async () => {
+    // A blocked review keeps the previous slice, so the previous line's own fields decide the size.
+    const long = 'quality review: every=999d budget=999t/9999m/999p last=pass@2026-10-13:abc1234 passed=2026-10-13:abc1234 '
+      + `journey=collection-detail hotspot=${'a/'.repeat(MAX_HOTSPOT_CHARS / 2)} issues=#10001,#10002,#10003,#10004`;
+    const result = await run(`--state=${long}`, '--status=blocked');
+    expect(result.code).toBe(2);
+    expect(result.logs).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatch(/^State line is \d+ characters \(limit 215\)/);
+    expect(Number(/is (\d+) characters/.exec(result.errors[0])?.[1])).toBeGreaterThan(MAX_STATE_CHARS);
+    expect(result.errors[0]).toContain('every=999d budget=999t/9999m/999p passed=2026-10-13:abc1234');
+    expect(result.errors[0]).not.toContain('--hotspot');
   });
 });
