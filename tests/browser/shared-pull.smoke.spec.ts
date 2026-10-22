@@ -371,3 +371,59 @@ for (const invalid of invalidCases) {
     expect(loadFailures(errors, baseURL!)).toEqual([]);
   });
 }
+
+test('shows inability to verify unknown set without calling pull fabricated', async ({ page, baseURL }) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+  const unknownSet = vectors.invalid.find((v) => v.note === 'unknown set')!;
+  const { errors, openRoute } = await startJourney(page, baseURL!);
+  await openRoute(`./#/pull/${unknownSet.proof}`);
+  const dialog = page.getByRole('dialog', { name: "Couldn't check this pull", exact: true });
+  await expect(dialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  await expect(dialog).toContainText('Unknown set no-such-set@0');
+  await expect(dialog).not.toContainText('The link was edited, cut off or made up');
+  await expect(dialog.getByRole('button', { name: 'Open your own packs' })).toBeVisible();
+  expect(loadFailures(errors, baseURL!)).toEqual([]);
+});
+
+test('recovers from operational computation failure via retry on valid pull', async ({ page, baseURL }) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+  const vector = vectors.valid[0];
+  const { errors, openRoute } = await startJourney(page, baseURL!);
+  // Intercept the ticket worker to return an operational WASM error on the first mining job
+  await page.addInitScript(() => {
+    let failedOnce = false;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      override postMessage(message: unknown, options?: Transferable[] | StructuredSerializeOptions) {
+        if (!failedOnce && message && typeof message === 'object' && 'id' in message && 'setKey' in message) {
+          failedOnce = true;
+          setTimeout(() => {
+            const errorEvent = new MessageEvent('message', {
+              data: { id: (message as { id: number }).id, error: 'Temporary WASM failure (audit fixture)' },
+            });
+            this.dispatchEvent(errorEvent);
+          }, 30);
+          return;
+        }
+        if (options === undefined) super.postMessage(message);
+        else super.postMessage(message, options as StructuredSerializeOptions);
+      }
+    };
+  });
+  await openRoute(`./#/pull/${vector.proof}`);
+  const errorDialog = page.getByRole('dialog', { name: "Couldn't check this pull", exact: true });
+  await expect(errorDialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  await expect(errorDialog).toContainText("Couldn't verify on this device");
+  await expect(errorDialog).not.toContainText('Not a valid pull');
+  await expect(errorDialog).not.toContainText('The link was edited, cut off or made up');
+
+  // Retry recovers
+  const retryBtn = errorDialog.getByRole('button', { name: 'Try again' });
+  await expect(retryBtn).toBeVisible();
+  await retryBtn.click();
+
+  const pullDialog = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
+  await expect(pullDialog).toBeVisible({ timeout: VIEWER_TIMEOUT });
+  await expect(pullDialog).toContainText('Verified on this device');
+  expect(loadFailures(errors, baseURL!)).toEqual([]);
+});
