@@ -2,10 +2,10 @@ import { fileURLToPath } from 'node:url';
 import type { Reporter, TestModule, Vitest, VitestPluginContext } from 'vitest/node';
 
 /**
- * Wall-time budget for `npm test` (the whole suite, with coverage). The baseline for 1,819+ tests
- * (147+ files) is ~111s with coverage on the uncontended 4-vCPU GitHub Actions CI reference runner
- * and ~48-52s on developer workstations (8+ cores). On constrained 2-core cgroup environments,
- * isolated worker process startup pushes runtime to ~150.8s (see docs/DEVELOPMENT.md, Test budgets).
+ * Wall-time budget for `npm test` (the whole suite, with coverage). At 1,819 tests in 147 files the
+ * uncontended 4-vCPU GitHub Actions runner (Node 22) took 111.2s, and three runs on a 2-core
+ * container took 150.7-155.5s; the cause of that gap is not isolated. See docs/DEVELOPMENT.md
+ * (Test budgets) before changing the budget.
  * The coverage floors live in vite.config.ts (test.coverage.thresholds).
  */
 export const RUNTIME_BUDGET_SECONDS = 150;
