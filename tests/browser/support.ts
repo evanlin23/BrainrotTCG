@@ -259,15 +259,29 @@ export async function monitor(
     }
   };
   if (continueAllowed || !routeHttp) {
-    page.context().on('response', (response) => {
-      if (!REDIRECTS.has(response.status())) return;
-      const location = response.headers()['location'];
+    const noteRedirect = (method: string, from: string, location: string | undefined) => {
       if (!location) return;
-      const target = redirectTarget(response.url(), location);
+      const target = redirectTarget(from, location);
       if (!target || !isAllowedUrl(target)) {
-        noteBlocked(sanitizeAttempt(response.request().method(), response.url(), `redirect escape: ${target ? sanitizeUrl(target.href) : 'unparseable target'}`));
+        noteBlocked(sanitizeAttempt(method, from, `redirect escape: ${target ? sanitizeUrl(target.href) : 'unparseable target'}`));
       }
+    };
+    page.context().on('response', (response) => {
+      if (REDIRECTS.has(response.status())) noteRedirect(response.request().method(), response.url(), response.headers()['location']);
     });
+    // Playwright sometimes folds a hop the browser followed itself into the final response (about
+    // 1 run in 50: a 200 for the first URL, no 302 and no redirected request), so the listener above
+    // misses it. Chromium's own Network events report every hop of the page's requests; the same
+    // hop seen both ways is recorded once.
+    if (page.context().browser()?.browserType().name() === 'chromium') {
+      const cdp = await page.context().newCDPSession(page);
+      const methods = new Map<string, string>();
+      cdp.on('Network.requestWillBeSent', ({ requestId, request, redirectResponse }) => {
+        if (!redirectResponse) methods.set(requestId, request.method);
+        else if (REDIRECTS.has(redirectResponse.status)) noteRedirect(methods.get(requestId) ?? request.method, redirectResponse.url, request.url);
+      });
+      await cdp.send('Network.enable');
+    }
   }
 
   // One policy for every HTTP guard: origin, then method, then path. Records and returns the refusal.
