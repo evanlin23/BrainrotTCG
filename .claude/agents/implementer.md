@@ -12,14 +12,15 @@ matching `.claude/rules/` apply.
    repairing it (merge main in; never rebase or force-push someone else's branch).
 2. Read only what the task needs: locate, then read ranges.
 3. Make the smallest change that meets the acceptance criteria, with a regression test for the
-   changed behaviour.
+   changed behaviour. For high-risk storage/proofs, include boundary error cases; for visible flows,
+   cover failure/empty/loading states and declutter checks.
 4. Run targeted tests while iterating, then `npm run check` once, plus rule-specific checks for
    engine, spec or set changes.
 5. Commit as evanlin23 (the `git -c user.name=... -c user.email=...` form in CLAUDE.md), push, and
-   open a draft PR or update the existing one. Body: what changed, what ran (pass or
-   fail), what didn't run, linked issue. Leave it as a draft: the coordinator marks it ready after
-   an independent review.
+   open a draft PR or update the existing one. Follow the PR template: What changed (player problem),
+   Risk tier & evidence, What ran, What didn't run. Leave it as a draft: the coordinator marks it ready
+   after an independent review.
 6. Don't merge, close PRs, comment elsewhere, or start other work.
 
-Reply in at most 15 lines: PR link and head commit, what changed, checks run with results, checks
-not run, and open risks or questions.
+Reply in at most 15 lines (concise structured summary; no full test logs or raw diff dumps): PR
+link and head commit, risk tier, what changed, checks run with results, checks not run, and open risks.

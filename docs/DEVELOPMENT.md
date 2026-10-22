@@ -22,6 +22,23 @@ dependency change. `npm run dev` starts the app; `npm run build && npm run previ
    main. Only the owner approves new card sets or removing a set's draft flag. Merges to main deploy
    automatically. Never deploy, or submit real data such as Hall of Fame entries, as a test.
 
+## Proportional review & evidence routing
+
+Every merge requires independent review approval of the exact candidate head. Evidence is chosen proportionally by change risk:
+
+| Change Risk | Focus & Invariants | Proportional Evidence Required |
+| --- | --- | --- |
+| **High-Risk** (Storage, Proofs, Engine, Spec, Migrations, Workflows) | Saves safe, proof integrity, error taxonomy preserved, zero regressions | Independent counterexample test derived from user/spec contract; test mocks preserve real boundary error taxonomy and lifecycle (e.g. operational failure vs invalid proof); real startup/migration entry-point verification. |
+| **Visible-Flow / UI** | Player job clarity, responsive layout, accessibility, state completeness | State the screen's player job, primary fact, and next action. Information review guard: audit repeated visible facts; choose keep/merge/demote/disclose/remove. Inspect narrow/short/enlarged text, keyboard navigation, reduced motion, and empty/loading/error states. |
+| **Architecture** | Clear boundaries, lifetime safety, backward compatibility | Responsibility ownership, simpler existing alternatives, async/resource lifetime, bounded untrusted data, compatibility. No speculative abstractions. |
+| **Routine / Docs** | Clarity, no dead links, style integrity | Local link checks, formatting, and `git diff --check`. No unnecessary heavy suites required. |
+
+### Escaped-defect and review invariants
+- **Never trust author self-review**: Reviewers judge independently by reading changed code and collaborating callers, not the author's summary or "tests passed".
+- **Mock fidelity**: Test fixtures and mocks must preserve real boundary error taxonomy. A generic `Error('bad')` mock cannot verify whether a caller distinguishes operational failures (e.g. storage denial, network timeout) from invalid data/proofs.
+- **Unresolved risk cannot be approved**: A `not checked` list is for recording items outside scope, never for waving through unresolved correctness risks. If material scope is unreviewed or critical evidence is missing, the verdict must be `changes-needed` or `block`.
+- **Presentation cap**: The 5-finding cap in review reports is a formatting limit, not a pass to hide blockers. If additional blockers exist, report `changes-needed`.
+
 ## Checks
 
 | When | Run |
