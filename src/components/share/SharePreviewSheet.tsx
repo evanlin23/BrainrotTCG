@@ -26,6 +26,7 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
   const [image, setImage] = useState<{ blob: Blob; src: string } | null>(null);
   const [failed, setFailed] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let src = '';
@@ -36,7 +37,7 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
         src = URL.createObjectURL(blob);
         setImage({ blob, src });
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.error('Could not draw the share image', error);
         if (!cancelled) setFailed(true);
       });
@@ -46,7 +47,12 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
     };
     // The image depends only on what was opened; makeImage is a fresh closure each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
+
+  const onRetry = () => {
+    setFailed(false);
+    setAttempt((n) => n + 1);
+  };
 
   const flash = (message: string) => {
     setDone(message);
@@ -113,7 +119,16 @@ const SharePreviewSheet = ({ title, subtitle, makeImage, imageName, url, text, o
               <img src={image.src} alt="The image you'll share" />
             ) : (
               <span className="share-preview-wait" role="status">
-                {failed ? "Couldn't draw the image" : 'Drawing the image…'}
+                {failed ? (
+                  <>
+                    <span>Couldn't draw the image</span>
+                    <button type="button" className="btn btn--secondary btn--sm share-retry-btn" onClick={onRetry}>
+                      Retry
+                    </button>
+                  </>
+                ) : (
+                  'Drawing the image…'
+                )}
               </span>
             )}
           </figure>
