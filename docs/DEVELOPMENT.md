@@ -370,11 +370,11 @@ npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=<seed>
 
 Adding the failing file's path to that command keeps the order of the tests within the file but
 not the order of files, so if the file alone passes, replay the whole suite.
-A failure comments on the open `test-order` issue that the workflow opened, or opens one, with the
+A failure, timeout or cancel comments on the open `test-order` issue that the workflow opened, or opens one, with the
 seed, revision, run link and replay command. File each root cause as its own issue and link it
 there. Fix the test, never loosen or skip it, and close the issue once a run passes again.
-`scripts/hof-workflows.test.ts` checks the workflow's permissions and runs its report step against
-a fake `gh`.
+`scripts/hof-workflows.test.ts` checks the workflow's permissions and runs its seed and report steps,
+in the shell each declares, against a fake `gh`.
 
 ## Performance baseline
 

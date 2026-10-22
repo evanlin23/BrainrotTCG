@@ -7,7 +7,7 @@ name: Nightly test order
 # a pull request: per-PR CI (ci.yml) and its budgets are unchanged. There are no retries. Replay a
 # failure with the seed and revision the run records (docs/DEVELOPMENT.md, Shuffled and repeat runs).
 #
-# A failure comments on the one open "test-order" issue this workflow opened, or opens it.
+# A failure, timeout or cancel comments on the one open "test-order" issue this workflow opened, or opens it.
 # GitHub's schedule has never fired for this repository (see hall-of-fame-inbox.yml), so a night
 # without a run is not a pass; run it by hand from the Actions tab, optionally with a seed.
 on:
@@ -89,10 +89,11 @@ jobs:
             echo "Replay: \`git checkout $GITHUB_SHA && npm ci && npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=$SEED\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Runs only when the test job failed. It never checks out or runs the repository's code.
+  # Runs when the test job did not pass. It never checks out or runs the repository's code.
   report:
     needs: shuffled
-    if: ${{ failure() && needs.shuffled.result == 'failure' }}
+    # Past timeout-minutes GitHub cancels a job rather than failing it, so cancelled counts too.
+    if: ${{ always() && needs.shuffled.result != 'success' && needs.shuffled.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -106,11 +107,15 @@ jobs:
           SEED: ${{ needs.shuffled.outputs.seed }}
           FIRST: ${{ needs.shuffled.outputs.first }}
           REPEAT: ${{ needs.shuffled.outputs.repeat }}
+          RESULT: ${{ needs.shuffled.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # pipefail: a failed issue lookup fails the step instead of opening a duplicate issue.
+        shell: bash
         run: |
           {
             echo "Nightly test order failed: $RUN_URL"
             echo
+            echo "- Test job: $RESULT (cancelled includes hitting its timeout)"
             echo "- Revision: \`$GITHUB_SHA\`"
             echo "- Seed: ${SEED:-none (failed before the tests ran)}"
             echo "- Shuffled run: ${FIRST:-not run}; repeat run, same seed: ${REPEAT:-not run}"

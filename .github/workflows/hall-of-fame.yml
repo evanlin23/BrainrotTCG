@@ -44,6 +44,7 @@ jobs:
           VERIFIED: ${{ steps.check.outputs.verified }}
           LABEL: ${{ steps.check.outputs.label }}
           REJECTED: ${{ steps.check.outputs.rejected }}
+        shell: bash
         run: |
           gh label create hall-of-fame --color FF3DF2 --description "Hall of Fame submission" 2>/dev/null || true
           gh label create verified --color 2BFF6A --description "Pull verified" 2>/dev/null || true

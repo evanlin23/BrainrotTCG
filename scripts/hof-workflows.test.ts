@@ -75,6 +75,40 @@ const runCommands = (text: string) => {
   });
 };
 
+/** The job's steps, each from its `- ` line up to the next step or comment at step level. */
+const steps = (job: string[]) => {
+  const out: string[][] = [];
+  let open = false;
+  for (const line of job) {
+    if (/^ {6}- /.test(line)) {
+      out.push([line]);
+      open = true;
+    } else if (open && (!line.trim() || /^ {8}/.test(line))) out[out.length - 1].push(line);
+    else open = false;
+  }
+  return out.map((s) => s.join('\n'));
+};
+
+/** The step whose script contains `needle`, and that script dedented as the runner writes it to a file. */
+const stepScript = (job: string[], needle: string) => {
+  const step = steps(job).find((s) => runCommands(s).some((r) => r.includes(needle)));
+  expect(step, `step running ${needle}`).toBeDefined();
+  const lines = runCommands(step!)[0].split('\n').slice(1);
+  const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.search(/\S/)));
+  return { step: step!, script: lines.map((l) => l.slice(indent)).join('\n') };
+};
+
+/**
+ * bash's arguments for a step, as GitHub documents them for Linux runners: `shell: bash` runs
+ * `bash --noprofile --norc -eo pipefail {0}`, no `shell:` runs `bash -e {0}`, without pipefail.
+ */
+const bashArgs = (step: string) => {
+  const shell = /^ {8}shell:\s*(\S+)/m.exec(step)?.[1];
+  if (shell === undefined) return ['-e'];
+  expect(shell, 'only bash steps are run here').toBe('bash');
+  return ['--noprofile', '--norc', '-eo', 'pipefail'];
+};
+
 describe('Hall of Fame workflows (offline contracts)', () => {
   const expected: Record<string, Record<string, Record<string, string>>> = {
     'hall-of-fame.yml': {
@@ -134,15 +168,8 @@ describe('Hall of Fame workflows (offline contracts)', () => {
     expect(condition?.trim()).toBe("if: needs.verify.outputs.verified == 'true' && needs.verify.outputs.redeploy == 'true'");
   });
 
-  describe('the issue workflow\'s "Comment and label" step, run under bash -e with a fake gh', () => {
-    /** The step's shell, dedented, as the runner writes it to a script file. */
-    const script = () => {
-      const run = runCommands(jobs(read('hall-of-fame.yml')).verify.join('\n')).find((r) => r.includes('gh issue comment'));
-      expect(run, 'Comment and label step').toBeDefined();
-      const lines = run!.split('\n').slice(1);
-      const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.search(/\S/)));
-      return lines.map((l) => l.slice(indent)).join('\n');
-    };
+  describe('the issue workflow\'s "Comment and label" step, run in the shell it declares with a fake gh', () => {
+    const { step, script } = stepScript(jobs(read('hall-of-fame.yml')).verify, 'gh issue comment');
     // Logs every call; like the real gh, refuses a comment with an empty body.
     const FAKE_GH = `#!/bin/sh
 printf '%s\\n' "$*" >> "$GH_LOG"
@@ -157,20 +184,24 @@ fi
       dir = mkdtempSync(path.join(os.tmpdir(), 'hof-step-'));
       mkdirSync(path.join(dir, 'bin'));
       writeFileSync(path.join(dir, 'bin', 'gh'), FAKE_GH, { mode: 0o755 });
-      writeFileSync(path.join(dir, 'step.sh'), script());
+      writeFileSync(path.join(dir, 'step.sh'), script);
     });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-    /** Runs the step as Actions does (`bash --noprofile --norc -eo pipefail`); returns its `gh issue` calls. */
+    /** Runs the step as Actions does for its `shell:`; returns its `gh issue` calls. */
     const runStep = (comment: string) => {
       writeFileSync(path.join(dir, 'hof-comment.md'), comment);
       const log = path.join(dir, 'gh.log');
       const env = { PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, ISSUE: '7', VERIFIED: 'true', LABEL: 'verified', REJECTED: 'false' };
-      const ran = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
+      const ran = spawnSync('bash', [...bashArgs(step), 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
       expect(ran.status, ran.stderr).toBe(0);
       return readFileSync(log, 'utf8').trim().split('\n').filter((l) => l.startsWith('issue '));
     };
     const LABELLED = ['issue edit 7 --add-label hall-of-fame,verified', 'issue edit 7 --remove-label not-verified', 'issue edit 7 --remove-label daily', 'issue close 7 --reason completed'];
+
+    it('runs under pipefail (`shell: bash`), not the default `bash -e`', () => {
+      expect(step).toMatch(/^ {8}shell: bash$/m);
+    });
 
     it('repairs the labels of an already-commented pull without commenting again (#650)', () => {
       expect(runStep('')).toEqual(LABELLED);
@@ -243,51 +274,102 @@ describe('test-order.yml, the nightly shuffled and repeat unit-test run (#768)',
     expect(shuffled).toContain('>> "$GITHUB_STEP_SUMMARY"');
   });
 
-  it('reports only a failed test job', () => {
+  it('reports a test job that failed, timed out or was cancelled, but not one that passed or never ran', () => {
+    // GitHub cancels a job that runs past timeout-minutes, and failure() is true only for a failed
+    // ancestor, so `failure()` alone would let a timed-out night go unreported.
+    expect(all.shuffled.join('\n')).toMatch(/^ {4}timeout-minutes: \d+$/m);
     const condition = all.report.find((l) => l.trim().startsWith('if:'));
-    expect(condition?.trim()).toBe("if: ${{ failure() && needs.shuffled.result == 'failure' }}");
+    expect(condition?.trim()).toBe("if: ${{ always() && needs.shuffled.result != 'success' && needs.shuffled.result != 'skipped' }}");
+    expect(all.report.join('\n')).toContain('RESULT: ${{ needs.shuffled.result }}');
   });
 
-  describe('the report step, run under bash -e with a fake gh', () => {
-    /** The step's shell, dedented, as the runner writes it to a script file. */
-    const script = () => {
-      const run = runCommands(all.report.join('\n')).find((r) => r.includes('gh issue create'));
-      expect(run, 'report step').toBeDefined();
-      const lines = run!.split('\n').slice(1);
-      const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.search(/\S/)));
-      return lines.map((l) => l.slice(indent)).join('\n');
+  describe('the seed step, run in the shell it declares', () => {
+    const { step, script } = stepScript(all.shuffled, 'GITHUB_OUTPUT');
+    const runSeed = (seed: string) => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'test-order-seed-'));
+      try {
+        writeFileSync(path.join(dir, 'step.sh'), script);
+        const out = path.join(dir, 'output');
+        writeFileSync(out, '');
+        const env = { PATH: process.env.PATH, INPUT_SEED: seed, GITHUB_RUN_ID: '98765432101', GITHUB_SHA: 'abc123', GITHUB_OUTPUT: out };
+        const ran = spawnSync('bash', [...bashArgs(step), 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
+        return { status: ran.status, output: readFileSync(out, 'utf8') };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     };
-    // Logs every call; `issue list` prints $FAKE_ISSUES, as `gh issue list --json number,author` does.
+
+    it('records a dispatched seed of 1-9 digits, or one from the run id', () => {
+      expect(runSeed('42')).toEqual({ status: 0, output: 'seed=42\n' });
+      expect(runSeed('123456789')).toEqual({ status: 0, output: 'seed=123456789\n' });
+      expect(runSeed('')).toEqual({ status: 0, output: 'seed=765432101\n' });
+    });
+
+    it.each(['abc', '12a', '-1', '4 2', '1234567890', '$(id)'])('fails on the dispatched seed %j and records none', (seed) => {
+      expect(runSeed(seed)).toEqual({ status: 1, output: '' });
+    });
+  });
+
+  describe('the report step, run in the shell it declares with a fake gh', () => {
+    const { step, script } = stepScript(all.report, 'gh issue create');
+    // Logs every call; `issue list` prints $FAKE_ISSUES, as `gh issue list --json number,author` does,
+    // or fails as an API error would when $FAKE_LIST_FAILS is set.
     const FAKE_GH = `#!/bin/sh
 printf '%s\\n' "$*" >> "$GH_LOG"
-if [ "$1 $2" = "issue list" ]; then printf '%s' "$FAKE_ISSUES"; fi
+if [ "$1 $2" = "issue list" ]; then
+  [ -z "$FAKE_LIST_FAILS" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+  printf '%s' "$FAKE_ISSUES"
+fi
 `;
     let dir: string;
     beforeEach(() => {
       dir = mkdtempSync(path.join(os.tmpdir(), 'test-order-step-'));
       mkdirSync(path.join(dir, 'bin'));
       writeFileSync(path.join(dir, 'bin', 'gh'), FAKE_GH, { mode: 0o755 });
-      writeFileSync(path.join(dir, 'step.sh'), script());
+      writeFileSync(path.join(dir, 'step.sh'), script);
     });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-    /** Runs the step; returns its `gh issue` calls other than the lookup, and the report it wrote. */
-    const runStep = (issues: { number: number; login: string }[], seed = '424242') => {
+    /** Runs the step as Actions does for its `shell:`; returns its exit status and `gh issue` calls other than the lookup. */
+    const execStep = (issues: { number: number; login: string }[], seed = '424242', extra: Record<string, string> = {}) => {
       const log = path.join(dir, 'gh.log');
       const env = {
         PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, GITHUB_SHA: 'abc123', SEED: seed,
-        FIRST: 'success', REPEAT: 'failure', RUN_URL: 'https://github.com/o/r/actions/runs/1',
+        FIRST: 'success', REPEAT: 'failure', RESULT: 'failure', RUN_URL: 'https://github.com/o/r/actions/runs/1',
         FAKE_ISSUES: JSON.stringify(issues.map(({ number, login }) => ({ number, author: { login } }))),
+        ...extra,
       };
-      const ran = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
-      expect(ran.status, ran.stderr).toBe(0);
+      const ran = spawnSync('bash', [...bashArgs(step), 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
       const calls = readFileSync(log, 'utf8').trim().split('\n').filter((l) => l.startsWith('issue ') && !l.startsWith('issue list'));
+      return { ran, calls };
+    };
+    /** Runs the step, which must succeed; returns its calls and the report it wrote. */
+    const runStep = (issues: { number: number; login: string }[], seed = '424242', extra: Record<string, string> = {}) => {
+      const { ran, calls } = execStep(issues, seed, extra);
+      expect(ran.status, ran.stderr).toBe(0);
       return { calls, report: readFileSync(path.join(dir, 'report.md'), 'utf8') };
     };
+
+    it('runs under pipefail (`shell: bash`), not the default `bash -e`', () => {
+      expect(step).toMatch(/^ {8}shell: bash$/m);
+    });
+
+    it('fails, opening and commenting on nothing, when the issue lookup fails', () => {
+      const { ran, calls } = execStep([{ number: 12, login: 'github-actions[bot]' }], '424242', { FAKE_LIST_FAILS: '1' });
+      expect(ran.status).not.toBe(0);
+      expect(calls).toEqual([]);
+    });
+
+    it('says the test job was cancelled, as a timeout leaves it', () => {
+      const { report } = runStep([], '424242', { FIRST: 'cancelled', REPEAT: '', RESULT: 'cancelled' });
+      expect(report).toContain('Test job: cancelled (cancelled includes hitting its timeout)');
+      expect(report).toContain('Shuffled run: cancelled; repeat run, same seed: not run');
+    });
 
     it('opens the issue when it has none open, with the seed, revision and replay command', () => {
       const { calls, report } = runStep([]);
       expect(calls).toEqual([CREATE]);
+      expect(report).toContain('Test job: failure');
       expect(report).toContain('Seed: 424242');
       expect(report).toContain('Revision: `abc123`');
       expect(report).toContain('Shuffled run: success; repeat run, same seed: failure');
