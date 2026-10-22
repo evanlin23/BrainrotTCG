@@ -52,6 +52,9 @@ const openButton = () => document.querySelector<HTMLButtonElement>('.pack-open-b
 const refusal = () => document.querySelector('.pack-refusal');
 const button = (within: ParentNode, label: string) => [...within.querySelectorAll<HTMLElement>('button')]
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label);
+/** Settings' Restore row status, where the import prompt and its refusals show. */
+const restoreNote = () => [...document.querySelectorAll('.settings [role="status"]')]
+  .find((el) => el.previousElementSibling?.textContent === 'Restore');
 
 /** The Open pack button under the pack, as a tap, a click or the keyboard opens it. */
 async function pressOpen() {
@@ -406,5 +409,165 @@ it('retires the open card share sheet when another tab saves a different player,
   } finally {
     vi.doUnmock('../game/bragImage');
     vi.doUnmock('../game/shareActions');
+  }
+}, 60_000);
+
+it('refuses stale replacement import when another tab imported a save, and allows a reconfirmed import', async () => {
+  const initialSeed = {
+    ...SEED,
+    [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 5, holoCards: {}, highestPackValue: 0, highestPackCards: [] }),
+  };
+  app = await mountedApp(initialSeed);
+  await app.mount();
+
+  // Open Settings in Tab A
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+
+  const pickFile = async (save: object) => {
+    const input = document.querySelector<HTMLInputElement>('.settings input[type="file"]')!;
+    Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(save)], 'save.json')], configurable: true });
+    await app!.interact(() => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  };
+
+  const incomingKey = '03'.repeat(32);
+  const incomingSave = {
+    version: 2, exportedAt: '2026-10-14T00:00:00.000Z', dataVersion: 3,
+    player: record(incomingKey, 'Incoming Player'),
+    stats: JSON.stringify({ packsOpened: 10, holoCards: {}, highestPackCards: [] }),
+    collection: '{}', achievements: '{}', hallOfFame: '{}',
+    settings: JSON.stringify({ effectsVolume: 0 }),
+    history: '[]',
+  };
+
+  // 1. In Tab A: select incoming save and wait for Replace prompt
+  await pickFile(incomingSave);
+  await app.until('replacement prompt appears', () => expect(button(document, 'Replace')).not.toBeUndefined());
+  expect(restoreNote()?.textContent).toContain("Replace this browser's save");
+
+  // 2. Tab B: actual successful import of Switched Player
+  const switchedKey = '04'.repeat(32);
+  const switchedSave = {
+    version: 2, exportedAt: '2026-10-14T00:00:00.000Z', dataVersion: 3,
+    player: record(switchedKey, 'Switched Player'),
+    stats: JSON.stringify({ packsOpened: 20, holoCards: {}, highestPackCards: [] }),
+    collection: '{}', achievements: '{}', hallOfFame: '{}',
+    settings: JSON.stringify({ effectsVolume: 0 }),
+    history: '[]',
+  };
+  const { importSaveFile } = await import('../game/saveFile');
+  expect(importSaveFile(JSON.stringify(switchedSave))).toBeNull();
+
+  // Tab A receives storage event from Tab B
+  await storageEvent(PLAYER_KEY);
+
+  // 3. Stale prompt/Replace in Tab A causes zero replacement writes against Switched
+  const replaceBtn = button(document, 'Replace');
+  if (replaceBtn) {
+    await app.interact(() => replaceBtn.click());
+  }
+  // Switched save remains intact in storage
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).name).toBe('Switched Player');
+  expect((JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!) as Stats).packsOpened).toBe(20);
+  expect(button(document, 'Replace')).toBeUndefined();
+
+  // 4. Refreshed/reconfirmed import succeeds
+  await app.reload();
+  const reloadSpy = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+
+  await pickFile(incomingSave);
+  await app.until('fresh replacement prompt appears', () => expect(button(document, 'Replace')).not.toBeUndefined());
+  expect(restoreNote()?.textContent).toContain('Switched Player');
+
+  await app.interact(() => button(document, 'Replace')!.click());
+  expect(reloadSpy).toHaveBeenCalled();
+  reloadSpy.mockRestore();
+
+  // Incoming Player is now imported in storage
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).name).toBe('Incoming Player');
+  // And the backup in storage holds Switched Player
+  const backup = JSON.parse(localStorage.getItem('brainrot-before-import-v1')!);
+  expect(backup[PLAYER_KEY]).toContain('Switched Player');
+}, 60_000);
+
+it("refuses at App's import commit boundary when another tab's import hasn't reached this tab yet (#668)", async () => {
+  app = await mountedApp(SEED);
+  await app.mount();
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  const reloadSpy = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+
+  // The other tab imports its save; its storage event is still on the way, so nothing here has gone stale yet.
+  otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', ...THEIR_SAVE });
+  const input = document.querySelector<HTMLInputElement>('.settings input[type="file"]')!;
+  const incoming = {
+    version: 2, exportedAt: '2026-10-14T00:00:00.000Z', dataVersion: 3,
+    player: record('03'.repeat(32), 'Incoming Player'),
+    stats: JSON.stringify({ packsOpened: 10, holoCards: {}, highestPackCards: [] }),
+    collection: '{}', achievements: '{}', hallOfFame: '{}', settings: JSON.stringify({ effectsVolume: 0 }), history: '[]',
+  };
+  Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(incoming)], 'save.json')], configurable: true });
+  await app.interact(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+  // Settings reads storage, so its prompt (and the mark it binds) describe the other tab's save.
+  await app.until('the replacement prompt appears', () => expect(button(document, 'Replace')).toBeDefined());
+  expect(restoreNote()?.textContent).toContain('Other tab');
+  const stored = Object.fromEntries(Object.entries(localStorage));
+
+  // This tab still holds the save it loaded, so App refuses the import: nothing is written or reloaded.
+  await app.interact(() => button(document, 'Replace')!.click());
+  expect(reloadSpy).not.toHaveBeenCalled();
+  expect(Object.fromEntries(Object.entries(localStorage))).toEqual(stored);
+  expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).name).toBe('Other tab');
+  expect(localStorage.getItem('brainrot-before-import-v1')).toBeNull();
+  expect(restoreNote()?.textContent).toContain(STALE);
+  expect(button(document.querySelector('.settings')!, 'Reload')).toBeDefined();
+  expect(button(document, 'Replace')).toBeUndefined();
+  expect(button(document, 'Keep mine')).toBeUndefined();
+  reloadSpy.mockRestore();
+}, 60_000);
+
+it('refuses "Replace without a copy" when another tab imported the same player after the import found no room (#668)', async () => {
+  // No progress here, so the file imports without a replacement prompt, until the copy of this save can't fit.
+  app = await mountedApp(SEED);
+  await app.mount();
+  await app.interact(() => button(document, 'Settings')!.click());
+  await app.until('Settings loads', () => expect(document.querySelector('.settings')).not.toBeNull());
+  const reloadSpy = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
+  const setItem = Storage.prototype.setItem;
+  const full = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+    if (key === 'brainrot-before-import-v1') throw new DOMException('Full', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  try {
+    const input = document.querySelector<HTMLInputElement>('.settings input[type="file"]')!;
+    const incoming = {
+      version: 2, exportedAt: '2026-10-14T00:00:00.000Z', dataVersion: 3,
+      player: record('03'.repeat(32), 'Incoming Player'),
+      stats: JSON.stringify({ packsOpened: 10, holoCards: {}, highestPackCards: [] }),
+      collection: '{}', achievements: '{}', hallOfFame: '{}', settings: JSON.stringify({ effectsVolume: 0 }), history: '[]',
+    };
+    Object.defineProperty(input, 'files', { value: [new File([JSON.stringify(incoming)], 'save.json')], configurable: true });
+    await app.interact(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await app.until('the no-room offer appears', () => expect(button(document, 'Replace without a copy')).toBeDefined());
+
+    // The other tab imports a save of this same player (only the stamp tells them apart); its storage event is on the way.
+    otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', [PLAYER_KEY]: record(MINE, 'This tab'), ...THEIR_PROGRESS });
+    const stored = Object.fromEntries(Object.entries(localStorage));
+
+    await app.interact(() => button(document, 'Replace without a copy')!.click());
+    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(Object.fromEntries(Object.entries(localStorage))).toEqual(stored);
+    expect(packsOpened()).toBe(3);
+    expect(localStorage.getItem('brainrot-before-import-v1')).toBeNull();
+    expect(restoreNote()?.textContent).toContain(STALE);
+    expect(button(document, 'Replace without a copy')).toBeUndefined();
+  } finally {
+    full.mockRestore();
+    reloadSpy.mockRestore();
   }
 }, 60_000);
