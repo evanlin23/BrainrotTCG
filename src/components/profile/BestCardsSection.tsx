@@ -61,6 +61,10 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   const mounted = useRef(true);
   const rebuilt = useRef(new Set<string>());
   const opener = useRef<HTMLButtonElement | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  /** Try again was pressed and its outcome isn't in yet. */
+  const retried = useRef(false);
 
   // The viewer hands focus back to whatever had it, but Safari doesn't focus a button on click: land on the row regardless.
   // That is script focus, so the row is .quiet-focus: no ring after a press or click, the ring back after Escape or Tab (base.css, #312).
@@ -100,7 +104,7 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
         setUnavailable(failed > 0);
       })
       .catch(() => {
-        if (mounted.current) setUnavailable(true);
+        if (mounted.current && getPlayerTickets().player.publicKeyHex === player.publicKeyHex) setUnavailable(true);
       })
       .finally(() => {
         if (mounted.current) setRebuilding(false);
@@ -110,6 +114,7 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   const retry = () => {
     if (rebuilding) return;
     rebuilt.current.delete(getPlayerTickets().player.publicKeyHex);
+    retried.current = true;
     setAttempt((n) => n + 1);
   };
 
@@ -117,11 +122,19 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   // No heading over a list that is still on its way in.
   // Only while winners are still unscored: packs read in later may have settled them.
   const lost = unavailable && list.cards.some((c) => !c.card);
+  // A retry that settles it removes the status and its button, which had focus: land on the first row, else the heading.
+  useEffect(() => {
+    if (rebuilding || !retried.current) return;
+    retried.current = false;
+    if (lost) return;
+    (sectionRef.current?.querySelector<HTMLElement>('.best-card-row') ?? titleRef.current)?.focus({ preventScroll: true });
+  }, [rebuilding, lost]);
+
   if (rows.length === 0 && !lost && (!cacheReady || rebuilding)) return null;
 
   return (
-    <section aria-labelledby="best-cards-title" className="best-cards">
-      <h2 id="best-cards-title" className="section-title best-cards-title">
+    <section ref={sectionRef} aria-labelledby="best-cards-title" className="best-cards">
+      <h2 id="best-cards-title" ref={titleRef} tabIndex={-1} className="section-title best-cards-title">
         Best cards
       </h2>
       {lost && (

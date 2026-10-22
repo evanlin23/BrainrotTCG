@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { IdCard, Link2 } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import PackCardViewer from '../ui/PackCardViewer';
@@ -122,6 +122,19 @@ const ProfilePage = ({
   // Until saved packs are read, a pack not in memory yet isn't one this device lacks.
   const unopened = mine?.cache === 'ready' ? mine.missing - mine.filled : 0;
   const [shown, setShown] = useState(FIRST_PAGE);
+  const listRef = useRef<HTMLUListElement>(null);
+  const historyTitleRef = useRef<HTMLHeadingElement>(null);
+  /** How many rows were showing when Show more was pressed: the rows after them are the new ones. */
+  const focusFrom = useRef<number | null>(null);
+  // After Show more, the pressed button may be gone (the last page), so focus would fall to the page: move it
+  // to the first new row you can open (a pack whose cards aren't saved here is a disabled row), else the heading.
+  useEffect(() => {
+    const from = focusFrom.current;
+    if (from === null) return;
+    focusFrom.current = null;
+    const fresh = [...(listRef.current?.querySelectorAll<HTMLButtonElement>(':scope > li > .pull-row') ?? [])].slice(from);
+    (fresh.find((b) => !b.disabled) ?? historyTitleRef.current)?.focus({ preventScroll: true });
+  }, [shown]);
   const [view, setView] = useState<PackView>('best');
   const tabsId = useId();
   const best = useMemo(() => [...history].sort(byBest), [history]);
@@ -296,7 +309,7 @@ const ProfilePage = ({
 
         {history.length > 0 && (
           <section aria-labelledby="pulls-history-title" className="pulls-history">
-            <h2 id="pulls-history-title" className="section-title pulls-history-title">
+            <h2 id="pulls-history-title" ref={historyTitleRef} tabIndex={-1} className="section-title pulls-history-title">
               All packs · {history.length.toLocaleString()}
             </h2>
             <Tabs
@@ -318,7 +331,7 @@ const ProfilePage = ({
                     : `None yet: a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+, qualifies for Rankings.`}
                 </p>
               )}
-              <ul className="pulls-list">
+              <ul ref={listRef} className="pulls-list">
                 {listed.slice(0, shown).map((entry) => (
                   <PullRow
                     key={`${entry.key}-${entry.nonce}-${entry.setId}@${entry.setVersion}-${entry.openedAt}`}
@@ -335,7 +348,14 @@ const ProfilePage = ({
                 ))}
               </ul>
               {shown < listed.length && (
-                <button type="button" className="btn btn--ghost btn--block" onClick={() => setShown((n) => n + PAGE)}>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--block"
+                  onClick={() => {
+                    focusFrom.current = shown;
+                    setShown(shown + PAGE);
+                  }}
+                >
                   Show more<span className="sr-only"> packs</span> · {(listed.length - shown).toLocaleString()} remaining
                 </button>
               )}

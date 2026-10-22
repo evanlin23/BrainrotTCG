@@ -183,6 +183,8 @@ describe('pack list order and Rankings wording', () => {
     const many = (n: number) => Array.from({ length: n }, (_, i) => entry(i % 2 ? 'Pair' : 'Full House', 100 + i, 1000 + i));
     const rowCount = () => document.querySelectorAll('section[aria-labelledby="pulls-history-title"] .pulls-list > li').length;
     const more = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.startsWith('Show more'));
+    const scores = () => [...document.querySelectorAll('.pull-row-score')].map((el) => el.textContent);
+    const pullRows = () => [...document.querySelectorAll<HTMLButtonElement>('section[aria-labelledby="pulls-history-title"] .pulls-list > li > .pull-row')];
 
     it('starts with five rows and the remaining count, and Show more adds the rest', () => {
       getHistory.mockReturnValue(many(35));
@@ -199,9 +201,10 @@ describe('pack list order and Rankings wording', () => {
       getHistory.mockReturnValue(all);
       render();
       // Best: highest score first; the five shown are the five best of all 35.
-      expect(hands()).toHaveLength(5);
+      const bestScores = all.map((e) => e.score).sort((a, b) => b - a).map((n) => String(n));
+      expect(scores()).toEqual(bestScores.slice(0, 5));
       act(() => more()!.click());
-      expect(hands()).toHaveLength(35);
+      expect(scores()).toEqual(bestScores);
       act(() => tab('Newest').click());
       expect(rowCount()).toBe(5);
       expect(hands()).toEqual(all.slice(0, 5).map((e) => e.hand));
@@ -211,6 +214,31 @@ describe('pack list order and Rankings wording', () => {
       expect(more()?.textContent).toContain(`${worthy - 5} remaining`);
       act(() => more()!.click());
       expect(rowCount()).toBe(worthy);
+    });
+
+    it('moves focus to the first new row you can open after Show more, which may remove the button that had it', () => {
+      const set = getSet('right-now', 1)!;
+      const saved = [{ id: set.cards[0].id, holo: false }];
+      // Best order is by score: rows 0-5 (the new row 5 can't be opened: no saved cards), then 6 onward can.
+      getHistory.mockReturnValue(
+        Array.from({ length: 35 }, (_, i) => ({ ...entry('Pair', 1000 - i, 1000 + i), setId: 'right-now', cards: i === 5 ? null : saved })),
+      );
+      render();
+      more()!.focus();
+      expect(document.activeElement).toBe(more());
+      act(() => more()!.click());
+      expect(more()).toBeUndefined();
+      expect(pullRows()[5].disabled).toBe(true);
+      expect(document.activeElement).toBe(pullRows()[6]);
+    });
+
+    it('moves focus to the section heading when no new row can be opened', () => {
+      getHistory.mockReturnValue(many(35)); // no saved cards: every row is disabled
+      render();
+      more()!.focus();
+      act(() => more()!.click());
+      expect(pullRows().every((b) => b.disabled)).toBe(true);
+      expect(document.activeElement).toBe(document.getElementById('pulls-history-title'));
     });
 
     it('shows no Show more for a short history', () => {
