@@ -7,6 +7,7 @@ import qrcode from 'qrcode-generator';
 import type { Finish, PackScore } from '../engine';
 import { FINISH_INFO, modifierLabel } from './modifiers';
 import { holdFinishedCardImage } from './finishImage';
+import { BLANK_CARD_ART, isApprovedCardArt } from './cardArt';
 import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../styles/logoMark';
 import { BRAND as YELLOW, CHIP_BG, FINISH_GLOWS, FOIL_STOPS, INK, MUTED, PAPER } from '../styles/palette';
 
@@ -34,7 +35,11 @@ interface PosterInput {
 const W = 1080;
 const H = 1920;
 
-const loadImage = async (src: string, finish?: Finish | null) => {
+const loadImage = async (art: string, wanted?: Finish | null) => {
+  // Art this build won't request (an unknown historical card's stored address) is drawn as an empty slot.
+  const approved = isApprovedCardArt(art);
+  const src = approved ? art : BLANK_CARD_ART;
+  const finish = approved ? wanted : null;
   const finished = holdFinishedCardImage(src, finish);
   try {
     const imageUrl = await finished.image;
