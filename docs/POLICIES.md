@@ -57,7 +57,11 @@ Renaming only changes future signatures; old proofs keep the name they were sign
 
 The game loads no third-party scripts, fonts or images: fonts, art and audio are bundled and served
 from the same origin, and the only other `fetch` is `hall-of-fame.json` from that origin
-[`src/styles/tokens.css`, `src/game/hallOfFameList.ts`]. A display name is free text up to 24
+[`src/styles/tokens.css`, `src/game/hallOfFameList.ts`]. An imported backup or old save can keep a
+historical card the game no longer ships, with whatever image address it was saved with. The save
+keeps it as it is, but the game requests that art only when the address is on this site and shows a
+placeholder for any other address, so importing a file can't make the page contact another host
+[`src/game/cardArt.ts`]. A display name is free text up to 24
 characters and can be a real name if the player types one, so "no personal data is collected" is
 not claimed.
 
