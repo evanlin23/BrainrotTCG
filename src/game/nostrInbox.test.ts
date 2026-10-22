@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { toHex } from '../engine/bytes';
 import {
@@ -7,12 +7,13 @@ import {
   hallOfFameEvent,
   HOF_KIND,
   HOF_TAG,
-  isEventShape,
+  isRetainable,
   matchesFilter,
-  MAX_EVENT_CONTENT_BYTES,
-  MAX_EVENT_TAG_VALUE_BYTES,
-  MAX_EVENT_TAGS_COUNT,
-  MAX_RAW_MESSAGE_BYTES,
+  MAX_EVENT_TAG_ITEMS,
+  MAX_EVENT_TAGS,
+  MAX_RAW_MESSAGE_CHARS,
+  MAX_RELAY_INVALID_MESSAGES,
+  MAX_RETAINED_EVENT_BYTES,
   proofFromEvent,
   publishEvent,
   publishUntilAccepted,
@@ -23,6 +24,12 @@ import {
   type NostrEvent,
   type SocketFactory,
 } from './nostrInbox';
+
+// Count signature checks (schnorr is frozen, so it can't be spied on in place).
+vi.mock('@noble/curves/secp256k1.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@noble/curves/secp256k1.js')>();
+  return { ...actual, schnorr: { ...actual.schnorr, verify: vi.fn(actual.schnorr.verify) } };
+});
 
 /** Shaped like a pull link's proof (base64url, 100–400 characters); these tests don't decode it. */
 const PROOF = `AQ${'abcXYZ09_-'.repeat(13)}`;
@@ -262,195 +269,176 @@ const createMockSocket = (handlers: MockSocketHandlers = {}): SocketFactory => (
   return socket;
 };
 
-describe('relay ingress boundaries (#621)', () => {
-  it('enforces limit 1 by rejecting excess events and halting crypto verification', async () => {
-    const verifySpy = vi.fn(verifyEvent);
-
-    // 12 valid events
-    const events = Array.from({ length: 12 }, (_, i) => hallOfFameEvent(PROOF, `pull-${i}`, 1_000_000 + i));
-    const rogueSocket = createMockSocket({
-      send: (raw, socket) => {
-        const msg = JSON.parse(raw) as unknown[];
-        if (msg[0] === 'REQ') {
-          const sub = msg[1];
-          for (const e of events) {
-            queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EVENT', sub, e]) }));
-          }
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EOSE', sub]) }));
-        }
-      },
-    });
-
-    const result = await fetchEvents({ kinds: [HOF_KIND], limit: 1 }, ['wss://rogue'], 500, rogueSocket, 1, undefined, { verify: verifySpy });
-    expect(result.events).toHaveLength(1);
-    expect(result.perRelay[0].error).toBe('relay event budget exceeded');
-    // Crypto must NOT be run on the 11 excess events!
-    expect(verifySpy).toHaveBeenCalledTimes(1);
+/** A relay that answers its first REQ with `frames(sub)` (strings sent as is, arrays as JSON), then EOSE. */
+const rogueRelay = (frames: (sub: unknown) => unknown[], close?: () => void): SocketFactory =>
+  createMockSocket({
+    send: (raw, socket) => {
+      const msg = JSON.parse(raw) as unknown[];
+      if (msg[0] !== 'REQ') return;
+      for (const f of [...frames(msg[1]), ['EOSE', msg[1]]]) {
+        queueMicrotask(() => socket.onmessage?.({ data: Array.isArray(f) ? JSON.stringify(f) : f }));
+      }
+    },
+    close,
   });
 
-  it('enforces limit 100 by rejecting excess events beyond 100 and halting crypto', async () => {
-    const verifySpy = vi.fn(verifyEvent);
+const key = schnorr.utils.randomSecretKey();
+const pubkey = toHex(schnorr.getPublicKey(key));
+/** A validly signed Hall of Fame event with whatever content and tags. */
+const signedHof = (created_at: number, content: string, tags: string[][] = [['t', HOF_TAG]]) =>
+  signEvent({ pubkey, created_at, kind: HOF_KIND, tags, content }, key);
 
-    // 103 valid events
+const verifyCalls = () => vi.mocked(schnorr.verify).mock.calls.length;
+
+describe('relay ingress boundaries (#621)', () => {
+  beforeEach(() => { vi.mocked(schnorr.verify).mockClear(); });
+
+  it('stops a relay that sends more than `limit` events, without verifying the excess', async () => {
+    const events = Array.from({ length: 12 }, (_, i) => hallOfFameEvent(PROOF, `pull-${i}`, 1_000_000 + i));
+    const result = await fetchEvents({ kinds: [HOF_KIND], limit: 1 }, ['wss://rogue'], 5000, rogueRelay((sub) => events.map((e) => ['EVENT', sub, e])));
+    expect(result.events).toHaveLength(1);
+    expect(result.perRelay[0].error).toBe('relay event budget exceeded');
+    expect(verifyCalls()).toBe(1);
+  });
+
+  it('keeps at most 100 of 103 events for limit 100', async () => {
     const events = Array.from({ length: 103 }, (_, i) => hallOfFameEvent(PROOF, `pull-${i}`, 1_000_000 + i));
-    const rogueSocket = createMockSocket({
-      send: (raw, socket) => {
-        const msg = JSON.parse(raw) as unknown[];
-        if (msg[0] === 'REQ') {
-          const sub = msg[1];
-          for (const e of events) {
-            queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EVENT', sub, e]) }));
-          }
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EOSE', sub]) }));
-        }
-      },
-    });
-
-    const result = await fetchEvents({ kinds: [HOF_KIND], limit: 100 }, ['wss://rogue'], 500, rogueSocket, 1, undefined, { verify: verifySpy });
+    const result = await fetchEvents({ kinds: [HOF_KIND], limit: 100 }, ['wss://rogue'], 5000, rogueRelay((sub) => events.map((e) => ['EVENT', sub, e])));
     expect(result.events).toHaveLength(100);
     expect(result.perRelay[0].error).toBe('relay event budget exceeded');
-    expect(verifySpy).toHaveBeenCalledTimes(100);
+    expect(verifyCalls()).toBe(100);
   });
 
-  it('rejects oversized raw messages before JSON.parse', async () => {
+  it('skips oversized frames unparsed without counting them as malformed', async () => {
     const jsonParseSpy = vi.spyOn(JSON, 'parse');
-    const validEvent = hallOfFameEvent(PROOF, 'valid', 1_000_000);
-    const hugeMessage = 'x'.repeat(MAX_RAW_MESSAGE_BYTES + 10);
-
-    const rogueSocket = createMockSocket({
-      send: (raw, socket) => {
-        const msg = JSON.parse(raw) as unknown[];
-        if (msg[0] === 'REQ') {
-          const sub = msg[1];
-          queueMicrotask(() => socket.onmessage?.({ data: hugeMessage }));
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EVENT', sub, validEvent]) }));
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EOSE', sub]) }));
-        }
-      },
-    });
-
-    const initialParseCalls = jsonParseSpy.mock.calls.length;
-    const result = await fetchEvents({ kinds: [HOF_KIND] }, ['wss://rogue'], 500, rogueSocket, 1);
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0].id).toBe(validEvent.id);
-
-    // Verify JSON.parse was never called on hugeMessage
-    const parseArgs = jsonParseSpy.mock.calls.slice(initialParseCalls).map((call) => call[0]);
-    expect(parseArgs).not.toContain(hugeMessage);
-
-    jsonParseSpy.mockRestore();
+    const valid = hallOfFameEvent(PROOF, 'valid', 1_000_000);
+    const huge = 'x'.repeat(MAX_RAW_MESSAGE_CHARS + 10);
+    try {
+      // More oversized frames than the malformed-frame budget: an honest relay allowing bigger
+      // events than we read could send these, so they must not close it.
+      const frames = (sub: unknown) => [...Array<string>(MAX_RELAY_INVALID_MESSAGES + 5).fill(huge), ['EVENT', sub, valid]];
+      const result = await fetchEvents({ kinds: [HOF_KIND] }, ['wss://big'], 5000, rogueRelay(frames));
+      expect(result.events).toEqual([valid]);
+      expect(result.perRelay[0].error).toBeUndefined();
+      expect(jsonParseSpy.mock.calls.map((call) => call[0])).not.toContain(huge);
+    } finally {
+      jsonParseSpy.mockRestore();
+    }
   });
 
-  it('rejects events with oversized content or tags without crypto verification', async () => {
-    const verifySpy = vi.fn(verifyEvent);
-
-    const sk = schnorr.utils.randomSecretKey();
-    const pubkey = toHex(schnorr.getPublicKey(sk));
-
-    // 1. Oversized content (e.g. 20 KB > MAX_EVENT_CONTENT_BYTES 16 KB)
-    const bigContentEvent = signEvent(
-      { pubkey, created_at: 1_000_000, kind: HOF_KIND, tags: [['t', HOF_TAG]], content: 'a'.repeat(MAX_EVENT_CONTENT_BYTES + 100) },
-      sk,
-    );
-
-    // 2. Excess tags (> MAX_EVENT_TAGS_COUNT 50)
-    const excessTags = Array.from({ length: MAX_EVENT_TAGS_COUNT + 5 }, (_, i) => ['t', `tag-${i}`]);
-    const excessTagsEvent = signEvent(
-      { pubkey, created_at: 1_000_000, kind: HOF_KIND, tags: excessTags, content: '{}' },
-      sk,
-    );
-
-    // 3. Oversized tag item (> MAX_EVENT_TAG_VALUE_BYTES 1024)
-    const bigTagEvent = signEvent(
-      { pubkey, created_at: 1_000_000, kind: HOF_KIND, tags: [['t', 'b'.repeat(MAX_EVENT_TAG_VALUE_BYTES + 50)]], content: '{}' },
-      sk,
-    );
-
-    expect(isEventShape(bigContentEvent)).toBe(false);
-    expect(isEventShape(excessTagsEvent)).toBe(false);
-    expect(isEventShape(bigTagEvent)).toBe(false);
-
-    const validEvent = hallOfFameEvent(PROOF, 'good', 1_000_000);
-    const rogueSocket = createMockSocket({
-      send: (raw, socket) => {
-        const msg = JSON.parse(raw) as unknown[];
-        if (msg[0] === 'REQ') {
-          const sub = msg[1];
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EVENT', sub, bigContentEvent]) }));
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EVENT', sub, excessTagsEvent]) }));
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EVENT', sub, bigTagEvent]) }));
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EVENT', sub, validEvent]) }));
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EOSE', sub]) }));
-        }
-      },
-    });
-
-    const result = await fetchEvents({ kinds: [HOF_KIND] }, ['wss://rogue'], 500, rogueSocket, 1, undefined, { verify: verifySpy });
-    expect(result.events).toEqual([validEvent]);
-    // Schnorr verify was ONLY called for validEvent!
-    expect(verifySpy).toHaveBeenCalledTimes(1);
+  it('pages on past well-formed events too big to keep, without verifying them', async () => {
+    // Valid Nostr an honest relay would serve (strfry allows 64 KB), but bigger than a Hall of Fame
+    // event needs: two pages' worth, newest first, with the real submission behind them.
+    // More of them than the malformed-frame budget, so counting them as malformed would close the relay.
+    const fat = [
+      ...Array.from({ length: 40 }, (_, i) => signedHof(2_000_000 + i, 'a'.repeat(5 * MAX_RETAINED_EVENT_BYTES))),
+      ...Array.from({ length: 40 }, (_, i) => signedHof(3_000_000 + i, '{}', [['t', HOF_TAG], ...Array.from({ length: 60 }, (_, j) => ['x', `${j}`])])),
+    ];
+    const real = hallOfFameEvent(PROOF, 'real', 1_000_000);
+    expect(fat.some(isRetainable)).toBe(false);
+    expect(isRetainable(real)).toBe(true);
+    const requests: string[] = [];
+    const result = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], limit: 20 }, ['wss://a'], 5000, fakeRelays({ 'wss://a': 'accept' }, [real, ...fat], requests), 20);
+    expect(result.events).toEqual([real]);
+    expect(result.perRelay[0].error).toBeUndefined();
+    expect(requests.length).toBeGreaterThan(5); // past every page of fat events, to the real one
+    expect(verifyCalls()).toBe(1);
   });
 
-  it('drops off-filter events before running crypto verification', async () => {
-    const verifySpy = vi.fn(verifyEvent);
-
-    const sk = schnorr.utils.randomSecretKey();
-    const pubkey = toHex(schnorr.getPublicKey(sk));
-
-    // Valid signatures on off-filter events
-    const wrongKind = signEvent({ pubkey, created_at: 1_000_000, kind: 1, tags: [['t', HOF_TAG]], content: 'test' }, sk);
-    const wrongTag = signEvent({ pubkey, created_at: 1_000_000, kind: HOF_KIND, tags: [['t', 'other-tag']], content: 'test' }, sk);
-    const tooOld = signEvent({ pubkey, created_at: 500, kind: HOF_KIND, tags: [['t', HOF_TAG]], content: 'test' }, sk);
-    const tooNew = signEvent({ pubkey, created_at: 5_000, kind: HOF_KIND, tags: [['t', HOF_TAG]], content: 'test' }, sk);
+  it('skips oversized or off-filter events without verifying them', async () => {
+    const bigContent = signedHof(1_000_000, 'a'.repeat(MAX_RETAINED_EVENT_BYTES));
+    const manyTags = signedHof(1_000_001, '{}', Array.from({ length: MAX_EVENT_TAGS + 1 }, (_, i) => ['t', `tag-${i}`]));
+    const longTag = signedHof(1_000_002, '{}', [['t', HOF_TAG, ...Array<string>(MAX_EVENT_TAG_ITEMS).fill('x')]]);
+    const wrongKind = signEvent({ pubkey, created_at: 1_500_000, kind: 1, tags: [['t', HOF_TAG]], content: 'test' }, key);
+    const wrongTag = signedHof(1_500_001, 'test', [['t', 'other-tag']]);
+    const tooOld = signedHof(500, 'test');
     const good = hallOfFameEvent(PROOF, 'good', 1_500_000);
-
-    const filter: Filter = { kinds: [HOF_KIND], '#t': [HOF_TAG], since: 1000, until: 2000 };
-    expect(matchesFilter(wrongKind, filter)).toBe(false);
-    expect(matchesFilter(wrongTag, filter)).toBe(false);
-    expect(matchesFilter(tooOld, filter)).toBe(false);
-    expect(matchesFilter(tooNew, filter)).toBe(false);
+    const filter: Filter = { kinds: [HOF_KIND], '#t': [HOF_TAG], since: 1000, until: 2_000_000 };
+    expect([bigContent, manyTags, longTag].some(isRetainable)).toBe(false);
+    expect([wrongKind, wrongTag, tooOld].some((e) => matchesFilter(e, filter))).toBe(false);
     expect(matchesFilter(good, filter)).toBe(true);
-
-    const rogueSocket = createMockSocket({
-      send: (raw, socket) => {
-        const msg = JSON.parse(raw) as unknown[];
-        if (msg[0] === 'REQ') {
-          const sub = msg[1];
-          for (const e of [wrongKind, wrongTag, tooOld, tooNew, good]) {
-            queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EVENT', sub, e]) }));
-          }
-          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['EOSE', sub]) }));
-        }
-      },
-    });
-
-    const result = await fetchEvents(filter, ['wss://rogue'], 500, rogueSocket, 1, undefined, { verify: verifySpy });
+    const all = [bigContent, manyTags, longTag, wrongKind, wrongTag, tooOld, good];
+    const result = await fetchEvents(filter, ['wss://rogue'], 5000, rogueRelay((sub) => all.map((e) => ['EVENT', sub, e])));
     expect(result.events).toEqual([good]);
-    // Schnorr verify was ONLY called for good, none of the 4 off-filter events!
-    expect(verifySpy).toHaveBeenCalledTimes(1);
+    expect(result.perRelay[0]).toEqual({ relay: 'wss://rogue', count: all.length, error: undefined });
+    expect(verifyCalls()).toBe(1);
   });
 
-  it('closes connection when invalid message budget is exhausted', async () => {
+  it('closes a relay that keeps sending malformed frames', async () => {
     let closed = false;
-    const rogueSocket = createMockSocket({
-      send: (_raw, socket) => {
-        for (let i = 0; i < 60; i++) {
-          queueMicrotask(() => socket.onmessage?.({ data: 'not valid json {{{' }));
-        }
-      },
-      close: () => { closed = true; },
-    });
-
-    const result = await fetchEvents({ kinds: [HOF_KIND] }, ['wss://spammer'], 500, rogueSocket, 1);
+    const frames = (sub: unknown) => [
+      ...Array<string>(30).fill('not valid json {{{'),
+      ...Array<unknown[]>(30).fill(['EVENT', sub, { id: 'nope' }]),
+    ];
+    const result = await fetchEvents({ kinds: [HOF_KIND] }, ['wss://spammer'], 5000, rogueRelay(frames, () => { closed = true; }));
     expect(closed).toBe(true);
     expect(result.perRelay[0].error).toBe('invalid message budget exceeded');
     expect(result.events).toEqual([]);
   });
 
-  it('computes event byte size accurately', () => {
-    const e = hallOfFameEvent(PROOF, 'test-pull', 1_000_000);
-    const size = eventByteSize(e);
-    expect(size).toBeGreaterThan(100);
-    expect(size).toBeLessThan(1000);
+  it('counts binary frames as malformed', async () => {
+    const socket = createMockSocket({
+      send: (raw, s) => {
+        const msg = JSON.parse(raw) as unknown[];
+        if (msg[0] !== 'REQ') return;
+        for (let i = 0; i <= MAX_RELAY_INVALID_MESSAGES; i++) queueMicrotask(() => s.onmessage?.({ data: new Uint8Array(4) }));
+      },
+    });
+    const result = await fetchEvents({ kinds: [HOF_KIND] }, ['wss://binary'], 5000, socket);
+    expect(result.perRelay[0].error).toBe('invalid message budget exceeded');
+  });
+
+  it('closes a relay that sends more frames than its message budget', async () => {
+    const e = hallOfFameEvent(PROOF, 'dup', 1_000_000);
+    const result = await fetchEvents({ kinds: [HOF_KIND], limit: 10 }, ['wss://chatty'], 5000, rogueRelay((sub) => Array<unknown[]>(500).fill(['EVENT', sub, e])));
+    expect(result.events).toEqual([e]);
+    // 10 events + 1 EOSE + 50 malformed + 100 spare.
+    expect(result.perRelay[0]).toEqual({ relay: 'wss://chatty', count: 161, error: 'message budget exceeded' });
+    expect(verifyCalls()).toBe(1);
+  });
+
+  it("gives each relay its own share of the retained-byte budget, so one can't starve the others", async () => {
+    const hog = Array.from({ length: 5 }, (_, i) => hallOfFameEvent(PROOF, `hog-${i}`, 1_000_000 + i));
+    const honest = Array.from({ length: 2 }, (_, i) => hallOfFameEvent(PROOF, `honest-${i}`, 1_000_000 + i));
+    const size = Math.max(...[...hog, ...honest].map(eventByteSize));
+    const relays: Record<string, NostrEvent[]> = { 'wss://hog': hog, 'wss://honest': honest };
+    // The hog connects and answers first.
+    const result = await fetchEvents({ kinds: [HOF_KIND] }, ['wss://hog', 'wss://honest'], 5000, (url) => rogueRelay((sub) => relays[url].map((e) => ['EVENT', sub, e]))(url), 1, undefined, { maxRetainedBytes: 2 * 2 * size });
+    expect(result.perRelay.map((r) => r.error)).toEqual(['retained byte budget exceeded', undefined]);
+    expect(result.events.map((e) => e.id)).toEqual(expect.arrayContaining(honest.map((e) => e.id)));
+    expect(result.events).toHaveLength(4);
+  });
+
+  it('keeps a full answer of the largest retainable events from every relay by default', async () => {
+    const tags = [['t', HOF_TAG]];
+    const padding = MAX_RETAINED_EVENT_BYTES - eventByteSize(signedHof(0, '', tags));
+    const relays = ['wss://a', 'wss://b', 'wss://c'];
+    const stored = Object.fromEntries(relays.map((r, n) => [r, Array.from({ length: 50 }, (_, i) => signedHof(1_000_000 + n * 100 + i, 'a'.repeat(padding), tags))]));
+    expect(eventByteSize(stored['wss://a'][0])).toBe(MAX_RETAINED_EVENT_BYTES);
+    const result = await fetchEvents({ kinds: [HOF_KIND], limit: 50 }, relays, 500, fakeRelays({ 'wss://a': 'accept', 'wss://b': 'accept', 'wss://c': 'accept' }, stored));
+    expect(result.events).toHaveLength(150);
+    expect(result.perRelay.map((r) => r.error)).toEqual([undefined, undefined, undefined]);
+  });
+
+  it('fits a Hall of Fame event with the longest proof and a score', () => {
+    const e = hallOfFameEvent(`AQ${'a'.repeat(398)}`, 'x'.repeat(64), 1_000_000, 123_456_789);
+    expect(eventByteSize(e)).toBeLessThan(MAX_RETAINED_EVENT_BYTES / 3);
+    expect(isRetainable(e)).toBe(true);
+  });
+});
+
+describe('publish replies', () => {
+  it('skips binary and oversized frames while waiting for OK', async () => {
+    const event = hallOfFameEvent(PROOF, 'x');
+    const socket = createMockSocket({
+      send: (raw, s) => {
+        const msg = JSON.parse(raw) as unknown[];
+        if (msg[0] !== 'EVENT') return;
+        queueMicrotask(() => s.onmessage?.({ data: new Uint8Array(4) }));
+        queueMicrotask(() => s.onmessage?.({ data: JSON.stringify(['NOTICE', 'x'.repeat(MAX_RAW_MESSAGE_CHARS)]) }));
+        queueMicrotask(() => s.onmessage?.({ data: JSON.stringify(['OK', event.id, true, '']) }));
+      },
+    });
+    expect(await publishEvent(event, ['wss://a'], 5000, socket)).toEqual([{ relay: 'wss://a', ok: true, message: '' }]);
   });
 });
