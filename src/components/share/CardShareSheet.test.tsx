@@ -9,7 +9,7 @@ import { renderCardPoster } from '../../game/bragImage';
 import { getPlayer } from '../../game/player';
 import { proofFor, pullUrl, type PullRef } from '../../game/pulls';
 import { cardStats } from '../../game/cardStats';
-import { copyImage, copyText, shareTo } from '../../game/shareActions';
+import { canCopyImage, copyImage, copyText, shareTo } from '../../game/shareActions';
 import { cardPreviewPath } from '../../game/previewLinks';
 import { fromHex, publicKeyFromSecret, toHex } from '../../engine';
 import CardShareSheet from './CardShareSheet';
@@ -158,6 +158,222 @@ describe('the link a card shares', () => {
     root = createRoot(container);
     const genesis = await linkFor('genesis', { isHolo: true });
     expect(genesis.link).toBe(pullUrl(genesis.proof, cardPreviewPath('genesis', genesis.card.key.split('/')[1])));
+  });
+});
+
+describe('exact-variant proof attribution (issue #654)', () => {
+  const card = getSetCards(DEFAULT_SET_ID)[0];
+  const cardId = card.key.split('/')[1];
+
+  it('queries history strictly with exactOnly: true', async () => {
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+    const version = { isHolo: false, finish: 'SILVER' as const, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} onClose={() => {}} />));
+
+    expect(findPackWithCard).toHaveBeenCalledWith(
+      getPlayer().publicKeyHex,
+      card.setId,
+      cardId,
+      { isHolo: false, finish: 'SILVER', misprint: false },
+      { exactOnly: true },
+    );
+  });
+
+  it('renders honest image-only preview without claiming card predates verifiable pulls when exact pack is missing', async () => {
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+    const version = { isHolo: false, finish: 'SILVER' as const, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} onClose={() => {}} />));
+
+    const note = document.querySelector('.share-note')!.textContent;
+    expect(note).toContain("This device doesn't have a verified pack record for this silver card, so there's no link to prove it.");
+    expect(note).not.toContain('it came before verifiable pulls');
+
+    const poster = vi.mocked(renderCardPoster).mock.calls[0][0];
+    expect(poster.url).toBeUndefined();
+    expect(poster.cert).toBeUndefined();
+    expect([...document.querySelectorAll('button')].some((el) => el.textContent?.includes('Copy link'))).toBe(false);
+  });
+
+  it('renders honest note for a plain card when exact record is absent', async () => {
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+    const version = { isHolo: false, finish: null, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} onClose={() => {}} />));
+
+    const note = document.querySelector('.share-note')!.textContent;
+    expect(note).toContain("This device doesn't have a verified pack record for this card, so there's no link to prove it.");
+    expect(note).not.toContain('it came before verifiable pulls');
+  });
+
+  it('rejects a from-pack whose cached cards lack the exact variant and searches history with exactOnly', async () => {
+    const fromPack: PullRef = {
+      setId: card.setId,
+      setVersion: getLatestSet(card.setId)!.version,
+      nonce: 6,
+      publicKeyHex: getPlayer().publicKeyHex,
+    };
+    // Seed history where pack #6 has the card plain, but NOT Silver
+    localStorage.setItem(
+      'brainrot-history-v1',
+      JSON.stringify([
+        {
+          s: fromPack.setId,
+          v: fromPack.setVersion,
+          n: 6,
+          k: fromPack.publicKeyHex!.slice(0, 16),
+          c: `${cardId}`, // plain only
+          h: 'Pair',
+          x: 100,
+          t: 100,
+        },
+      ]),
+    );
+
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+    const version = { isHolo: false, finish: 'SILVER' as const, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} from={fromPack} onClose={() => {}} />));
+
+    // Because pack #6 provably does not contain the Silver card, it was rejected
+    expect(findPackWithCard).toHaveBeenCalledWith(
+      getPlayer().publicKeyHex,
+      card.setId,
+      cardId,
+      { isHolo: false, finish: 'SILVER', misprint: false },
+      { exactOnly: true },
+    );
+    const note = document.querySelector('.share-note')!.textContent;
+    expect(note).toContain("This device doesn't have a verified pack record for this silver card");
+  });
+
+  const seed = (fromPack: PullRef, c?: string) =>
+    localStorage.setItem(
+      'brainrot-history-v1',
+      JSON.stringify([{ s: fromPack.setId, v: fromPack.setVersion, n: fromPack.nonce, k: fromPack.publicKeyHex!.slice(0, 16), ...(c === undefined ? {} : { c }), h: 'Pair', x: 100, t: 100 }]),
+    );
+  const fromPack = (): PullRef => ({ setId: card.setId, setVersion: getLatestSet(card.setId)!.version, nonce: 6, publicKeyHex: getPlayer().publicKeyHex });
+
+  it('keeps a from-pack whose cached cards hold the exact variant, without searching history', async () => {
+    const pack = fromPack();
+    seed(pack, `${cardId}S`);
+    const version = { isHolo: false, finish: 'SILVER' as const, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} from={pack} onClose={() => {}} />));
+
+    expect(findPackWithCard).not.toHaveBeenCalled();
+    const poster = vi.mocked(renderCardPoster).mock.calls[0][0];
+    expect(poster.url).toBe(pullUrl(proofFor(pack)));
+    expect(document.body.textContent).toContain('(ticket #6)');
+  });
+
+  it('trusts a from-pack when history has its ticket but no cached cards', async () => {
+    const pack = fromPack();
+    seed(pack);
+    const version = { isHolo: false, finish: 'SILVER' as const, misprint: false };
+    await act(async () => root.render(<CardShareSheet card={card} version={version} from={pack} onClose={() => {}} />));
+
+    expect(findPackWithCard).not.toHaveBeenCalled();
+    expect(vi.mocked(renderCardPoster).mock.calls[0][0].url).toBe(pullUrl(proofFor(pack)));
+    expect(document.body.textContent).toContain('(ticket #6)');
+  });
+});
+
+describe('native sharing failure recovery for card shares', () => {
+  const bukangi = getSetCards(DEFAULT_SET_ID).find((c) => c.name === 'Bukangi') ?? getSetCards(DEFAULT_SET_ID)[0];
+  let shareMock: ReturnType<typeof vi.fn>;
+
+  // These tests drive the real shareTo through navigator.share; the file-wide mock is put back after.
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import('../../game/shareActions')>('../../game/shareActions');
+    vi.mocked(shareTo).mockImplementation(actual.shareTo);
+    vi.mocked(canCopyImage).mockReturnValue(false);
+    shareMock = vi.fn();
+    vi.stubGlobal('navigator', {
+      share: shareMock,
+      canShare: vi.fn(() => true),
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+    });
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)' }));
+  });
+
+  afterEach(() => {
+    vi.mocked(shareTo).mockImplementation(async () => 'shared');
+    vi.mocked(canCopyImage).mockReturnValue(true);
+  });
+
+  const button = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('.share-sheet button')].find((el) =>
+      el.textContent?.trim().includes(label),
+    )!;
+  const done = () => document.querySelector('.share-done')!.textContent;
+  const isDoneFailed = () => document.querySelector('.share-done')!.classList.contains('is-failed');
+
+  it('shows failure feedback and directs to alternatives when native sharing fails for a card without proof URL', async () => {
+    // Injected native outcome: navigator.share rejects with NotAllowedError (permission denied)
+    shareMock.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+
+    await act(async () => root.render(<CardShareSheet card={bukangi} version={{ isHolo: false }} onClose={() => {}} />));
+
+    expect(document.body.textContent).toContain("so there's no link to prove it");
+    const shareBtn = button('Share to…');
+    expect(shareBtn).toBeDefined();
+
+    await act(async () => shareBtn.click());
+
+    expect(shareMock).toHaveBeenCalledTimes(1);
+    expect(done()).toBe('Sharing failed — use Save image or Copy text');
+    expect(isDoneFailed()).toBe(true);
+    expect(vi.mocked(copyText)).not.toHaveBeenCalled();
+  });
+
+  it('falls back to copying proof link when native sharing fails for a card with pack history', async () => {
+    // Injected native outcome: navigator.share rejects with NotAllowedError
+    shareMock.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+    const pack: PullRef = { setId: bukangi.setId, setVersion: getLatestSet(bukangi.setId)!.version, nonce: 42, publicKeyHex: getPlayer().publicKeyHex };
+
+    await act(async () => root.render(<CardShareSheet card={bukangi} version={{ isHolo: false }} from={pack} onClose={() => {}} />));
+
+    const shareBtn = button('Share to…');
+    await act(async () => shareBtn.click());
+
+    expect(shareMock).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(copyText)).toHaveBeenCalledWith(expect.stringContaining('#/pull/'));
+    expect(done()).toBe('Link copied');
+    expect(isDoneFailed()).toBe(false);
+  });
+
+  it('remains quiet on user cancellation (AbortError) without claiming success or copying', async () => {
+    // Injected native outcome: navigator.share rejects with AbortError (user dismissed share sheet)
+    shareMock.mockRejectedValue(new DOMException('Share canceled', 'AbortError'));
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+
+    await act(async () => root.render(<CardShareSheet card={bukangi} version={{ isHolo: false }} onClose={() => {}} />));
+
+    const shareBtn = button('Share to…');
+    await act(async () => shareBtn.click());
+
+    expect(shareMock).toHaveBeenCalledTimes(1);
+    expect(done()).toBe('');
+    expect(isDoneFailed()).toBe(false);
+    expect(vi.mocked(copyText)).not.toHaveBeenCalled();
+  });
+
+  it('allows retry and clears failure feedback when a retry attempt succeeds', async () => {
+    // First attempt rejects with NotAllowedError, second attempt succeeds
+    shareMock.mockRejectedValueOnce(new DOMException('Permission denied', 'NotAllowedError'));
+    vi.mocked(findPackWithCard).mockReturnValue(null);
+
+    await act(async () => root.render(<CardShareSheet card={bukangi} version={{ isHolo: false }} onClose={() => {}} />));
+
+    const shareBtn = button('Share to…');
+    await act(async () => shareBtn.click());
+    expect(done()).toBe('Sharing failed — use Save image or Copy text');
+    expect(isDoneFailed()).toBe(true);
+
+    shareMock.mockResolvedValueOnce(undefined);
+    await act(async () => shareBtn.click());
+
+    expect(shareMock).toHaveBeenCalledTimes(2);
+    expect(done()).toBe('');
+    expect(isDoneFailed()).toBe(false);
   });
 });
 

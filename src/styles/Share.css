@@ -91,6 +91,10 @@
   font-weight: 600;
 }
 
+.share-done.is-failed {
+  color: var(--danger);
+}
+
 .share-hof {
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -149,6 +153,12 @@
   .pull-viewer-spinner {
     animation-duration: var(--dur-loop);
   }
+}
+
+.pull-viewer-whose {
+  margin-bottom: var(--space-3);
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 /* Like the label on a graded card: cream stock, dark print, a cert number to quote. */
@@ -224,6 +234,17 @@
 .pull-viewer-actions > * {
   flex: 1 1 auto;
   width: auto;
+  min-width: 0;
+}
+
+/* A long set name wraps instead of pushing the footer wider than a phone or a 200% zoom. */
+.pull-viewer-actions .btn {
+  white-space: normal;
+  line-height: 1.2;
+  padding-block: var(--space-2);
+  text-align: center;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 
 /* Actions precede the full preview and card drill-down in both reading and visual order. */

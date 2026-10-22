@@ -320,6 +320,16 @@
   box-shadow: 0 0 0 1px var(--brand), var(--focus-shadow);
 }
 
+/* Forced colours drop the chosen reward's shadow, leaving it identical to the rest (#683). A thicker
+   Highlight border marks it (padding gives the 2px back) and survives losing focus. */
+@media (forced-colors: active) {
+  .reward-option[aria-checked='true'] {
+    padding: calc(var(--space-2) - 2px) calc(var(--space-1) - 2px);
+    border-width: 3px;
+    border-color: Highlight;
+  }
+}
+
 .reward-option.is-locked {
   cursor: not-allowed;
   opacity: var(--opacity-disabled);
