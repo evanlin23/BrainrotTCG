@@ -132,17 +132,17 @@ afterAll(() => {
 describe('check-sets', () => {
   describe('a consistent registry, lock and image tree', () => {
     it('locks new set versions with --update, then passes on the next check', () => {
-      const sets = [set('alpha'), set('alpha', { version: 2, modifiers: 1 }), set('beta')];
+      const sets = [set('beta'), set('alpha'), set('alpha', { version: 2, modifiers: 1 })];
       const t = makeTree(sets);
 
       const update = t.run('--update');
       expect(update.stderr).toBe('');
       expect(update.status).toBe(0);
-      expect(update.stdout).toBe('locked alpha@1\nlocked alpha@2\nlocked beta@1\n✓ 3 set version(s) OK\n');
+      expect(update.stdout).toBe('locked beta@1\nlocked alpha@1\nlocked alpha@2\n✓ 3 set version(s) OK\n');
 
       const lockText = t.readLockText()!;
       const lock = JSON.parse(lockText) as Record<string, string>;
-      // Sorted keys, 2-space indent, trailing newline, one sha256 per set version.
+      // Registry order is beta first; the lock is sorted. 2-space indent, trailing newline, one sha256 per set version.
       expect(Object.keys(lock)).toEqual(['alpha@1', 'alpha@2', 'beta@1']);
       expect(Object.values(lock).every((h) => /^[0-9a-f]{64}$/.test(h))).toBe(true);
       expect(new Set(Object.values(lock)).size).toBe(3);
