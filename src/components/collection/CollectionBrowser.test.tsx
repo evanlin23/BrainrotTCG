@@ -218,6 +218,10 @@ describe('every owned card stays reachable', () => {
     const ownedCollectible = COLLECTIBLE_CARDS.filter((card) => collection[card.key]).length;
     expect(page().querySelector('.page-subtitle')!.textContent).toMatch(new RegExp(`^${ownedCollectible}/${COLLECTIBLE_CARDS.length} cards · `));
 
+    // Card points are not a pack's Brainrot Score (that includes the combo multiplier).
+    expect(page().querySelector('.page-subtitle')!.textContent).toMatch(/ · [\d,]+ total card points$/);
+    expect(page().textContent).not.toContain('Brainrot Score');
+
     expandAll();
     expect(headers().every((h) => h.getAttribute('aria-expanded') === 'true')).toBe(true);
     expect(mountedPockets()).toBe(unboundedPockets(collection));
