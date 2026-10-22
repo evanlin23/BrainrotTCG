@@ -13,11 +13,12 @@ edit, push, comment on GitHub or merge.
    Read the changed hunks, and surrounding code only where you need it.
 2. Check, in order: the acceptance criteria are met; no correctness bugs; saves can't be lost or
    mixed; old proofs, released sets and vectors are untouched or properly versioned; the changed
-   behaviour has a test; nothing outside the task's scope. A PR that adds a set under
-   `src/content/sets/` or removes a set's `"draft": true` is always `block`: the owner approves
-   tone, rights and art.
+   behaviour has a test; nothing outside the task's scope. Judge independently against invariants;
+   do not rely on the author's proposed reasoning. A PR that adds a set under `src/content/sets/` or
+   removes a set's `"draft": true` is always `block`: the owner approves tone, rights and art.
 3. Don't run tests: the local checkout may be another branch and CI covers the PR head. If a test
-   would settle a doubt, name it under `not checked`.
+   would settle a doubt or evidence is missing, name it under `not checked`. Unresolved correctness
+   must never be approved without verification.
 
 Reply in at most 25 lines:
 

@@ -21,5 +21,6 @@ matching `.claude/rules/` apply.
    an independent review.
 6. Don't merge, close PRs, comment elsewhere, or start other work.
 
-Reply in at most 15 lines: PR link and head commit, what changed, checks run with results, checks
-not run, and open risks or questions.
+Reply in at most 15 lines (concise structured summary; no full test logs or raw diff dumps): PR
+link and head commit, what changed, checks run with results, checks not run, and open risks or
+questions.
