@@ -218,6 +218,10 @@ describe('every owned card stays reachable', () => {
     const ownedCollectible = COLLECTIBLE_CARDS.filter((card) => collection[card.key]).length;
     expect(page().querySelector('.page-subtitle')!.textContent).toMatch(new RegExp(`^${ownedCollectible}/${COLLECTIBLE_CARDS.length} cards · `));
 
+    // Card points are not a pack's Brainrot Score (that includes the combo multiplier).
+    expect(page().querySelector('.page-subtitle')!.textContent).toMatch(/ · [\d,]+ total card points$/);
+    expect(page().textContent).not.toContain('Brainrot Score');
+
     expandAll();
     expect(headers().every((h) => h.getAttribute('aria-expanded') === 'true')).toBe(true);
     expect(mountedPockets()).toBe(unboundedPockets(collection));
@@ -329,5 +333,52 @@ describe('completed sets', () => {
     expect(header.getAttribute('aria-expanded')).not.toBe(was);
     expect(document.activeElement).toBe(header);
     expect(tag()).toBe('Master');
+  });
+});
+
+describe('zero-copy records (#812)', () => {
+  it('does not treat zero-copy entries as owned or completed, and renders uncollected slots', () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    const zeroCollection: Record<string, CollectionItem> = Object.fromEntries(
+      cards.map((card) => [card.key, { card, normalCount: 0, holoCount: 0 } satisfies CollectionItem]),
+    );
+    render(zeroCollection);
+
+    expect(page().querySelector('.page-subtitle')?.textContent).toContain(`0/${COLLECTIBLE_CARDS.length} cards`);
+    expect(page().querySelector('.page-subtitle')?.textContent).toContain('0 total card points');
+
+    // With zero owned cards, the set is not started; it appears in the unstarted eras section
+    expect(page().querySelector('.collection-empty')?.textContent).toContain('Open packs to start your collection.');
+    const laterItem = [...page().querySelectorAll('.collection-later li')].find((li) =>
+      li.querySelector('.collection-later-name')?.textContent === set.name,
+    );
+    expect(laterItem).toBeDefined();
+    expect(laterItem?.querySelector('.collection-later-count')?.textContent).toBe(`0/${cards.length}`);
+    expect(page().querySelectorAll('button.collection-item').length).toBe(0);
+  });
+
+  it('keeps positive controls owned alongside zero-copy entries and renders zero-copy slots as uncollected', () => {
+    const set = SETS.find(isOpenable)!;
+    const cards = getSetCards(set.id);
+    const mixedCollection: Record<string, CollectionItem> = {
+      [cards[0].key]: { card: cards[0], normalCount: 1, holoCount: 0 },
+      [cards[1].key]: { card: cards[1], normalCount: 0, holoCount: 0 },
+    };
+    render(mixedCollection);
+
+    expect(page().querySelector('.page-subtitle')?.textContent).toContain(`1/${COLLECTIBLE_CARDS.length} cards`);
+    const header = headerOf(set.name);
+    expect(header.textContent).toContain(`1/${cards.length}`);
+    expect(header.querySelector('.set-badge')).toBeNull();
+
+    const grid = gridOf(header)!;
+    const itemButtons = grid.querySelectorAll('button.collection-item');
+    expect(itemButtons.length).toBe(1);
+    expect(itemButtons[0].getAttribute('aria-label')).toContain('1 owned');
+
+    // The zero-copy card renders as an uncollected slot, not a button
+    const slots = grid.querySelectorAll('.collection-slot');
+    expect(slots.length).toBeGreaterThan(0);
   });
 });
