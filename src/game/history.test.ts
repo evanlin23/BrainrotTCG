@@ -474,6 +474,55 @@ describe('finding a pack by its cards', () => {
   });
 });
 
+describe('finding a pack with a card', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    installStorage();
+  });
+
+  it('falls back to same-holo or any copy when exactOnly is false or omitted', () => {
+    // Ticket 1 has plain tung-tung-sahur
+    recordPack(pack(1, {
+      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: null, misprint: false }] as unknown as OpenedPack['cards'],
+    }));
+
+    // Looking for Silver tung-tung-sahur without exactOnly falls back to same-holo (isHolo: false)
+    const found = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false, finish: 'SILVER', misprint: false });
+    expect(found?.nonce).toBe(1);
+
+    // Looking for Holo tung-tung-sahur without exactOnly falls back to any copy
+    const foundAny = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: true, finish: null, misprint: false });
+    expect(foundAny?.nonce).toBe(1);
+  });
+
+  it('returns null when exactOnly is true and exact variant is missing from cache', () => {
+    // Ticket 1 has plain tung-tung-sahur (not Silver)
+    recordPack(pack(1, {
+      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: null, misprint: false }] as unknown as OpenedPack['cards'],
+    }));
+
+    // Looking for Silver with exactOnly: true strictly returns null
+    const found = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false, finish: 'SILVER', misprint: false }, { exactOnly: true });
+    expect(found).toBeNull();
+
+    // Looking for Holo with exactOnly: true strictly returns null
+    const foundHolo = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: true, finish: null, misprint: false }, { exactOnly: true });
+    expect(foundHolo).toBeNull();
+  });
+
+  it('returns the exact pack when exactOnly is true and variant is present', () => {
+    recordPack(pack(1, {
+      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: null, misprint: false }] as unknown as OpenedPack['cards'],
+    }));
+    recordPack(pack(2, {
+      cards: [{ id: 'tung-tung-sahur', isHolo: false, finish: 'SILVER', misprint: false }] as unknown as OpenedPack['cards'],
+    }));
+
+    const found = findPackWithCard(KEY, 'right-now', 'tung-tung-sahur', { isHolo: false, finish: 'SILVER', misprint: false }, { exactOnly: true });
+    expect(found?.nonce).toBe(2);
+  });
+});
+
 describe('malformed cached history card codes and safe recovery (#652)', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();

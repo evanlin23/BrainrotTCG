@@ -420,7 +420,7 @@ export const renderCardPoster = async (input: CardPosterInput): Promise<Blob> =>
     verified: !!input.url,
     name: input.playerName,
     cert: input.url ? `Cert ${input.fingerprint}${input.cert ? ` · ${input.cert}` : ''}` : `#${input.fingerprint}`,
-    hint: input.url ? 'Scan to re-open the pack it came from.' : 'Pulled before verifiable pulls existed.',
+    hint: input.url ? 'Scan to re-open the pack it came from.' : 'No pack record on this device.',
     url: input.url,
   });
   return toPng(canvas);
