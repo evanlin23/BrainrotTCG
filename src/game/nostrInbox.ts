@@ -40,9 +40,33 @@ export const signEvent = (e: Unsigned, secretKey: Uint8Array): NostrEvent => {
   return { ...e, id, sig: toHex(schnorr.sign(fromHex(id), secretKey)) };
 };
 
+/**
+ * Longest relay frame (JSON text) that gets parsed. strfry, which most of HOF_RELAYS run, caps an
+ * event at 64 KiB by default; this leaves room for the frame around it and JSON escapes. A longer
+ * frame is skipped unparsed (it still counts toward the relay's message budget).
+ */
+export const MAX_RAW_MESSAGE_CHARS = 131_072;
+
+/**
+ * What a Hall of Fame submission (or probe) needs, with room to spare: about 1 KB, three tags.
+ * Bigger events are valid Nostr that honest relays serve, so they count as seen (for paging and the
+ * relay's budget) but are skipped without hashing, verifying or keeping them.
+ */
+export const MAX_RETAINED_EVENT_BYTES = 4_096;
+export const MAX_EVENT_TAGS = 16;
+export const MAX_EVENT_TAG_ITEMS = 8;
+/** NIP-01 created_at sanity limit (year ~2049). */
+export const MAX_EVENT_TIMESTAMP = 2_500_000_000;
+
+/** Most events a relay sends per request when the filter sets no `limit` (strfry's default cap). */
+export const DEFAULT_PAGE_LIMIT = 500;
+
+/** Malformed frames (not JSON, wrong types) tolerated from a relay before closing it. Honest relays send none. */
+export const MAX_RELAY_INVALID_MESSAGES = 50;
+
 const HEX64 = /^[0-9a-f]{64}$/;
 /** NIP-01's field types. Relays don't all enforce them, so anything read from one is checked first. */
-const isEventShape = (e: unknown): e is NostrEvent => {
+export const isEventShape = (e: unknown): e is NostrEvent => {
   if (!e || typeof e !== 'object') return false;
   const x = e as Record<string, unknown>;
   return (
@@ -53,6 +77,32 @@ const isEventShape = (e: unknown): e is NostrEvent => {
     typeof x.content === 'string' &&
     Array.isArray(x.tags) && x.tags.every((t) => Array.isArray(t) && t.every((v) => typeof v === 'string'))
   );
+};
+
+/** Approximate size of an event in memory (its strings plus a little overhead). */
+export const eventByteSize = (e: NostrEvent): number =>
+  e.id.length + e.pubkey.length + e.sig.length + e.content.length +
+  e.tags.reduce((sum, tag) => sum + tag.reduce((tSum, item) => tSum + item.length, 0), 0) +
+  64;
+
+/** Small enough to hash, verify and keep: what a Hall of Fame event needs (MAX_RETAINED_EVENT_BYTES). */
+export const isRetainable = (e: NostrEvent): boolean =>
+  e.created_at >= 0 && e.created_at <= MAX_EVENT_TIMESTAMP &&
+  e.kind >= 0 && e.kind <= 65_535 &&
+  e.tags.length <= MAX_EVENT_TAGS && e.tags.every((t) => t.length <= MAX_EVENT_TAG_ITEMS) &&
+  eventByteSize(e) <= MAX_RETAINED_EVENT_BYTES;
+
+/**
+ * Cheap filter predicate applied before expensive hashing/signature verification.
+ * Does not mutate the event.
+ */
+export const matchesFilter = (e: NostrEvent, f: Filter): boolean => {
+  if (f.kinds?.length && !f.kinds.includes(e.kind)) return false;
+  if (f.ids?.length && !f.ids.includes(e.id)) return false;
+  if (f['#t']?.length && !e.tags.some((t) => t[0] === 't' && f['#t']!.includes(t[1]))) return false;
+  if (f.since !== undefined && e.created_at < f.since) return false;
+  if (f.until !== undefined && e.created_at > f.until) return false;
+  return true;
 };
 
 export const verifyEvent = (e: unknown): e is NostrEvent => {
@@ -179,7 +229,9 @@ const publishToRelay = (event: NostrEvent, relay: string, timeoutMs: number, ope
     socket.onopen = () => socket!.send(JSON.stringify(['EVENT', event]));
     socket.onmessage = (msg) => {
       try {
-        const data = JSON.parse(String(msg.data)) as unknown[];
+        // Skip binary and oversized frames unread, like anything else that isn't our OK.
+        if (typeof msg?.data !== 'string' || msg.data.length > MAX_RAW_MESSAGE_CHARS) return;
+        const data = JSON.parse(msg.data) as unknown[];
         if (data[0] === 'OK' && data[1] === event.id) finish(data[2] === true, String(data[3] ?? ''));
       } catch {
         // ignore anything that isn't JSON
@@ -222,12 +274,58 @@ export interface Filter {
 }
 
 /**
+ * Limits on what fetchEvents takes from relays. The defaults fit an honest relay answering the
+ * request (`limit` per page, `maxPages` pages), so only a relay sending more than it was asked for,
+ * or malformed frames, runs into them.
+ */
+export interface FetchEventsBounds {
+  /** Longest frame parsed; longer ones are skipped unread. */
+  maxRawMessageChars?: number;
+  /** Distinct well-formed events taken from one relay across all pages (kept or not). */
+  maxRelayEvents?: number;
+  /** Frames of any kind taken from one relay. */
+  maxRelayMessages?: number;
+  /** Malformed frames (not JSON, wrong types) taken from one relay. */
+  maxInvalidMessages?: number;
+  /** Events kept across all relays; each relay may add an equal share. */
+  maxRetainedEvents?: number;
+  /** Bytes of events kept across all relays (eventByteSize); each relay may add an equal share. */
+  maxRetainedBytes?: number;
+}
+
+/**
  * Ask every relay for matching events and merge them by id. Only events whose signature checks out
  * are kept, so one relay serving a tampered copy can't hide the real one from the others. Relays
  * send the newest `limit` events per request; with `maxPages` > 1 it keeps asking for older ones
  * (`until` the oldest so far), so a burst of new events can't push older ones out of reach.
+ *
+ * Relays are untrusted, so each is held to `bounds`: frames are size-checked before parsing, events
+ * bigger than a Hall of Fame event needs (isRetainable) or off the filter are skipped before any
+ * hashing, and a relay that sends more than it was asked for, or keeps sending malformed frames, is
+ * closed with an error naming the budget. Skipped events still count as seen, so paging carries on
+ * past them. Each relay keeps to its own share of the retained budgets, so one can't crowd out the rest.
  */
-export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs = 10000, open: SocketFactory = defaultSocket, maxPages = 1, signal?: AbortSignal) => {
+export const fetchEvents = async (
+  filter: Filter,
+  relays = HOF_RELAYS,
+  timeoutMs = 10000,
+  open: SocketFactory = defaultSocket,
+  maxPages = 1,
+  signal?: AbortSignal,
+  bounds: FetchEventsBounds = {},
+) => {
+  const pageLimit = filter.limit ?? filter.ids?.length ?? DEFAULT_PAGE_LIMIT;
+  const maxRelayEvents = bounds.maxRelayEvents ?? Math.max(1, pageLimit * maxPages);
+  const maxInvalidMessages = bounds.maxInvalidMessages ?? MAX_RELAY_INVALID_MESSAGES;
+  // Every event an honest relay may send, an EOSE per page, and room for NOTICEs and stragglers.
+  const maxRelayMessages = bounds.maxRelayMessages ?? maxRelayEvents + maxPages + maxInvalidMessages + 100;
+  const maxRawMessageChars = bounds.maxRawMessageChars ?? MAX_RAW_MESSAGE_CHARS;
+  const relayCount = Math.max(1, relays.length);
+  const maxRetainedEvents = bounds.maxRetainedEvents ?? maxRelayEvents * relayCount;
+  const maxRetainedBytes = bounds.maxRetainedBytes ?? maxRetainedEvents * MAX_RETAINED_EVENT_BYTES;
+  const relayEventShare = Math.ceil(maxRetainedEvents / relayCount);
+  const relayByteShare = Math.ceil(maxRetainedBytes / relayCount);
+
   const byId = new Map<string, NostrEvent>();
   const perRelay = await Promise.all(
     relays.map(
@@ -238,6 +336,10 @@ export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs
           let pages = 0;
           let pageNew = 0;
           let oldest = Infinity;
+          let messages = 0;
+          let invalid = 0;
+          let keptEvents = 0;
+          let keptBytes = 0;
           const fromHere = new Set<string>();
           let done = false;
           let socket: Socket | null = null;
@@ -254,6 +356,10 @@ export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs
             }
             try { socket?.close(); } catch { /* Already closed. */ }
             resolve({ relay, count, error });
+          };
+          /** A frame no honest relay sends; too many of them closes the relay. */
+          const malformed = () => {
+            if (++invalid > maxInvalidMessages) finish('invalid message budget exceeded');
           };
           const request = (until?: number) => {
             sub = `hof-${Math.random().toString(36).slice(2, 10)}`;
@@ -277,29 +383,50 @@ export const fetchEvents = async (filter: Filter, relays = HOF_RELAYS, timeoutMs
           socket.onopen = () => { if (!done) request(); };
           socket.onmessage = (msg) => {
             if (done) return;
+            if (++messages > maxRelayMessages) return finish('message budget exceeded');
+            const raw = msg?.data;
+            // NIP-01 is text frames only.
+            if (typeof raw !== 'string') return malformed();
+            // Relays may allow bigger events than we read; skip those unparsed.
+            if (raw.length > maxRawMessageChars) return;
+            let data: unknown;
             try {
-              const data = JSON.parse(String(msg.data)) as unknown[];
-              if (data[0] === 'EVENT' && data[1] === sub) {
-                const e = data[2];
-                count++;
-                if (isEventShape(e) && !fromHere.has(e.id)) {
-                  fromHere.add(e.id);
-                  oldest = Math.min(oldest, e.created_at);
-                  pageNew++;
-                  if (!byId.has(e.id) && verifyEvent(e)) byId.set(e.id, e);
-                }
-              } else if (data[0] === 'EOSE' && data[1] === sub) {
-                // Ask for anything older than this page until a page brings nothing new. (Relays cap
-                // `limit` at different sizes, so a short page doesn't prove there's nothing older.)
-                if (pageNew > 0 && pages < maxPages && Number.isFinite(oldest)) {
-                  socket!.send(JSON.stringify(['CLOSE', sub]));
-                  request(oldest);
-                } else finish();
-              } else if (data[0] === 'CLOSED' && data[1] === sub) {
-                finish(String(data[2] ?? 'closed'));
-              }
+              data = JSON.parse(raw);
             } catch {
-              // ignore anything that isn't JSON
+              return malformed();
+            }
+            if (!Array.isArray(data) || typeof data[0] !== 'string') return malformed();
+            // NOTICE, AUTH, other subscriptions' events and the like.
+            if (data[1] !== sub) return;
+            if (data[0] === 'EVENT') {
+              const e: unknown = data[2];
+              count++;
+              if (!isEventShape(e)) return malformed();
+              if (fromHere.has(e.id)) return;
+              if (fromHere.size >= maxRelayEvents) return finish('relay event budget exceeded');
+              fromHere.add(e.id);
+              oldest = Math.min(oldest, e.created_at);
+              pageNew++;
+              // Seen, so paging goes on past it, but not worth hashing: too big for a Hall of Fame
+              // event, off the filter, or already kept from another relay.
+              if (!isRetainable(e) || !matchesFilter(e, filter) || byId.has(e.id)) return;
+              const size = eventByteSize(e);
+              if (keptEvents >= relayEventShare) return finish('retained event budget exceeded');
+              if (keptBytes + size > relayByteShare) return finish('retained byte budget exceeded');
+              if (verifyEvent(e)) {
+                byId.set(e.id, e);
+                keptEvents++;
+                keptBytes += size;
+              }
+            } else if (data[0] === 'EOSE') {
+              // Ask for anything older than this page until a page brings nothing new. (Relays cap
+              // `limit` at different sizes, so a short page doesn't prove there's nothing older.)
+              if (pageNew > 0 && pages < maxPages && Number.isFinite(oldest)) {
+                socket!.send(JSON.stringify(['CLOSE', sub]));
+                request(oldest);
+              } else finish();
+            } else if (data[0] === 'CLOSED') {
+              finish(String(data[2] ?? 'closed'));
             }
           };
           socket.onerror = () => finish('connection failed');

@@ -129,3 +129,132 @@ it('migrates a pre-versioning save on load without losing its cards or pulls, th
   expect(await history()).toHaveLength(2);
   expect(JSON.stringify(Object.entries(localStorage).sort())).toBe(saved);
 }, 60_000);
+
+it('cold-starts and reloads cleanly when legacy stats contains null/malformed highestPackCards elements (#660)', async () => {
+  const DAMAGED_SAVE = {
+    ...LEGACY_SAVE,
+    [STORAGE_KEYS.STATS]: JSON.stringify({
+      packsOpened: 1,
+      holoCards: { image: true },
+      highestPackValue: 50,
+      highestPackCards: [null],
+    }),
+  };
+
+  app = await mountedApp(DAMAGED_SAVE);
+  await app.mount();
+
+  // Storage is upgraded without crash
+  expect(localStorage.getItem(DATA_VERSION_KEY)).toBe(String(CURRENT_DATA_VERSION));
+  const stats = stored<Stats & { highestPackCardsUnreadable?: unknown[] }>(STORAGE_KEYS.STATS);
+  expect(stats.highestPackCards).toEqual([]);
+  expect(stats.highestPackCardsUnreadable).toEqual([null]);
+  expect(stats.highestPackLegacy).toBeUndefined();
+  expect(stats.highestPackFlexValue).toBeUndefined();
+
+  // Can open pack and advance game state normally
+  await openPack(app);
+  await app.until('the new pack is recorded', async () => expect(await history()).toHaveLength(2));
+  expect(stored<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(2);
+
+  // Reload does not crash and preserves raw recovery data
+  const saved = JSON.stringify(Object.entries(localStorage).sort());
+  await app.reload();
+  expect(await history()).toHaveLength(2);
+  expect(JSON.stringify(Object.entries(localStorage).sort())).toBe(saved);
+  const afterReloadStats = stored<Stats & { highestPackCardsUnreadable?: unknown[] }>(STORAGE_KEYS.STATS);
+  expect(afterReloadStats.highestPackCardsUnreadable).toEqual([null]);
+}, 60_000);
+
+it('hydrates readable cards and preserves unreadable items when legacy highestPackCards has mixed elements (#660)', async () => {
+  const MIXED_SAVE = {
+    ...LEGACY_SAVE,
+    [STORAGE_KEYS.STATS]: JSON.stringify({
+      packsOpened: 1,
+      holoCards: { image: true },
+      highestPackValue: 50,
+      highestPackCards: [{ id: 'image', isHolo: true }, null, { id: 'image2' }],
+    }),
+  };
+
+  app = await mountedApp(MIXED_SAVE);
+  await app.mount();
+
+  expect(localStorage.getItem(DATA_VERSION_KEY)).toBe(String(CURRENT_DATA_VERSION));
+  const stats = stored<Stats & { highestPackCardsUnreadable?: unknown[]; highestPackValue?: number }>(STORAGE_KEYS.STATS);
+  expect(stats.highestPackCards?.map((c) => c.key)).toEqual([
+    'genesis/chimpanzini-bananini',
+    'genesis/amogus',
+  ]);
+  expect(stats.highestPackCardsUnreadable).toEqual([null]);
+  expect(stats.highestPackLegacy).toBe(true);
+  // Two of three cards can't score the whole pack: it keeps its legacy value instead of a rescore.
+  expect(stats.highestPackFlexValue).toBeUndefined();
+  expect(stats.highestPackValue).toBe(50);
+
+  // Verify Profile page renders the readable legacy best pull
+  await app.interact(() => button('Profile').click());
+  await app.until('Profile page displays Best before verifiable pulls', () => {
+    expect([...document.querySelectorAll('.pulls-page .pulls-legacy h2')].map((h) => h.textContent)).toEqual(['Best before verifiable pulls']);
+  });
+  await app.interact(() => button('Close Profile').click());
+}, 60_000);
+
+it('survives an existing malformed cached card code across startup and reload without an error loop (#652)', async () => {
+  const malformedHistory = JSON.stringify([{
+    s: 'right-now',
+    v: 2,
+    n: 0,
+    k: PUBLIC.slice(0, 16),
+    c: 'sigma\nid',
+    h: 'Pair',
+    x: 200,
+    t: OPENED,
+  }]);
+  const storage: Record<string, string> = {
+    'brainrot-player-v1': JSON.stringify({ secretKey: SECRET, name: 'Recovery tester', nextNonce: 1, createdAt: 1 }),
+    [STORAGE_KEYS.HISTORY]: malformedHistory,
+    [DATA_VERSION_KEY]: String(CURRENT_DATA_VERSION),
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ particlesEnabled: false }),
+    [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 1, holoCards: {} }),
+  };
+
+  app = await mountedApp(storage);
+  await app.mount();
+  // Opening screen mounts normally, not the crash fallback
+  expect(document.body.textContent).not.toContain('Something went wrong');
+  expect(document.querySelector('main.app-main')).not.toBeNull();
+
+  // Reload does not throw or loop into error
+  await app.reload();
+  expect(document.body.textContent).not.toContain('Something went wrong');
+  expect(document.querySelector('main.app-main')).not.toBeNull();
+
+  // Raw stored data in localStorage was preserved
+  expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBe(malformedHistory);
+}, 60_000);
+
+it('refuses a Settings import whose history holds a line break in a cached code, and reloads cleanly (#652)', async () => {
+  // The issue's fixture: a history-only file into a fresh browser, with an LF inside a card id.
+  const save = JSON.stringify({
+    version: 2, exportedAt: '2026-10-18T00:00:00.000Z', dataVersion: CURRENT_DATA_VERSION,
+    history: JSON.stringify([{ s: 'right-now', v: 2, n: 0, k: PUBLIC.slice(0, 16), c: 'sigma\nid', h: 'Pair', x: 200, t: OPENED }]),
+  });
+  app = await mountedApp({ [STORAGE_KEYS.SETTINGS]: JSON.stringify({ particlesEnabled: false }) });
+  await app.mount();
+  await app.interact(() => button('Settings').click());
+  await app.until('Save & backup loads', () => expect(button('Import')).toBeDefined());
+  const before = JSON.stringify(Object.entries(localStorage).sort());
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, 'files', { value: [new File([save], 'save.json', { type: 'application/json' })] });
+  await app.interact(() => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await app.until('the refusal is explained', () => expect(document.body.textContent)
+    .toContain('The history in this save is invalid. Nothing was imported.'));
+  expect(JSON.stringify(Object.entries(localStorage).sort())).toBe(before);
+  expect(localStorage.getItem(STORAGE_KEYS.HISTORY)).toBeNull();
+
+  await app.reload();
+  expect(document.body.textContent).not.toContain('Something went wrong');
+  expect(document.querySelector('main.app-main')).not.toBeNull();
+  expect(await history()).toEqual([]);
+}, 60_000);

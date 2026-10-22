@@ -28,7 +28,7 @@ export const bragText = (cards: (ModifiedCard & { rarity: Rarity })[], score: Pa
   ].join('\n');
 };
 
-const SUBMITTED_KEY = 'brainrot-hof-submitted-v1';
+export const SUBMITTED_KEY = 'brainrot-hof-submitted-v1';
 
 /** Sent from this tab, so the label holds even when storage refuses the write below. */
 const sentHere = new Set<string>();
@@ -36,6 +36,26 @@ const sentHere = new Set<string>();
 const sending = new Map<string, Promise<boolean>>();
 const listeners = new Set<() => void>();
 const changed = () => listeners.forEach((listener) => listener());
+
+let storageListening = false;
+
+const onStorage = (event: StorageEvent) => {
+  if (event.key === null || event.key === SUBMITTED_KEY) {
+    changed();
+  }
+};
+
+const attachStorage = () => {
+  if (storageListening || typeof window === 'undefined') return;
+  window.addEventListener('storage', onStorage);
+  storageListening = true;
+};
+
+const detachStorage = () => {
+  if (!storageListening || typeof window === 'undefined') return;
+  window.removeEventListener('storage', onStorage);
+  storageListening = false;
+};
 
 /** Pulls this device has already sent to the Hall of Fame inbox. */
 export const wasSubmitted = (id: string): boolean => {
@@ -55,12 +75,27 @@ export const wasSubmitted = (id: string): boolean => {
 export const submissionStatus = (id: string): 'idle' | 'sending' | 'sent' =>
   sending.has(id) ? 'sending' : wasSubmitted(id) ? 'sent' : 'idle';
 
-/** Called whenever a send starts or settles; returns the unsubscribe. */
+/** Called whenever a send starts or settles, or another tab changes submitted IDs; returns the unsubscribe. */
 export const onSubmissionChange = (listener: () => void) => {
   listeners.add(listener);
+  attachStorage();
+  let unsubscribed = false;
   return () => {
+    if (unsubscribed) return;
+    unsubscribed = true;
     listeners.delete(listener);
+    if (listeners.size === 0) {
+      detachStorage();
+    }
   };
+};
+
+/** Testing-only reset to clear in-memory sent tracking, active send promises, and listeners. */
+export const resetSubmissionsForTest = () => {
+  sentHere.clear();
+  sending.clear();
+  listeners.clear();
+  detachStorage();
 };
 
 /**
