@@ -9,8 +9,15 @@ permissions:
   contents: read
 
 jobs:
-  browser-tests:
+  # The suite runs in three shards at once to cut wall time; each shard keeps one worker, since the
+  # specs were written to run one at a time.
+  browser-shard:
+    name: browser-tests shard ${{ matrix.shard }}/3
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -32,9 +39,11 @@ jobs:
           path: .cache/previews
           key: previews-${{ steps.previews.outputs.contract }}-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/engine/**', 'src/content/sets/index.ts', 'src/content/sets/*/*.json', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp', 'package-lock.json') }}
           restore-keys: previews-${{ steps.previews.outputs.contract }}-
-      - run: npm run test:browser
-      # The deploy also builds for the root on Cloudflare Pages (docs/HOSTING.md): smoke that build too.
+      - run: npm run test:browser -- --shard=${{ matrix.shard }}/3
+      # The deploy also builds for the root on Cloudflare Pages (docs/HOSTING.md): smoke that build too,
+      # once, in the first shard.
       - name: Smoke the build for the root path
+        if: matrix.shard == 1
         env:
           BASE_PATH: /
           SITE_URL: https://brainrottcg.pages.dev/
@@ -42,6 +51,19 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: playwright-test-results
+          name: playwright-test-results-shard-${{ matrix.shard }}
           path: test-results/
           retention-days: 7
+
+  # The check that branch protection and reviews look for: it passes only when every shard passed.
+  browser-tests:
+    needs: browser-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every shard to pass
+        env:
+          RESULT: ${{ needs.browser-shard.result }}
+        run: |
+          echo "Shards: $RESULT"
+          test "$RESULT" = success
