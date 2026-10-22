@@ -166,6 +166,20 @@ can't be checked otherwise, and grep `tests/browser` for any constant you change
 Pixel 5 emulation counts as phone evidence when the PR labels it as emulation; a physical-device check is
 stronger, and is done by hand against the preview and described in the PR.
 
+Browser tests have no retries, so a test that fails once fails CI: fix its cause rather than re-running.
+Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
+close-up sets `data-tilt="live"` once it follows the mouse.
+
+The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
+adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes, in both
+projects:
+- 10 more times when few specs changed;
+- fewer as the list grows (see `scripts/burn-in-plan.ts`), but never fewer than 2, and no spec is dropped.
+
+Changes to `playwright.config.ts` or app code burn in nothing; the regular shards still run every spec
+once. Before pushing a new or changed spec, run the same locally with
+`npx playwright test <spec> --repeat-each=10`.
+
 ## Local agent usability audit
 
 Owner decision, 2026-10-17: usability audits use Claude Code only (no Codex or other providers),

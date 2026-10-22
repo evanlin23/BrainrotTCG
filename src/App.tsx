@@ -337,6 +337,21 @@ function App() {
     setNotificationQueue((prev) => [notice, ...prev]);
   }, []);
 
+  // Packs the last visit left mid-reveal, added to the collection on this load: one notice for all of
+  // them, not one each. Shown like the early-close one, so a failed or refused save hides it too.
+  const noticeRecoveredPacks = useCallback((count: number) => {
+    if (count < 1) return;
+    keptNotices.current += 1;
+    const notice: ToastItem = {
+      id: `pack-kept-${keptNotices.current}`,
+      kicker: 'Pack kept',
+      name: count === 1 ? 'A pack from your last visit is in Cards' : `${count} packs from your last visit are in Cards`,
+      description: count === 1 ? 'Tap to see it.' : 'Tap to see them.',
+      opens: 'collection',
+    };
+    setNotificationQueue((prev) => [notice, ...prev]);
+  }, []);
+
   const dismissNotifications = useCallback((ids: string[]) => {
     setNotificationQueue(prev => prev.filter(a => !ids.includes(a.id)));
   }, []);
@@ -402,6 +417,8 @@ function App() {
     const taken = takePendingPacks();
     packsTaken(taken);
     taken.reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
+    // Not for a tab already known to be stale: it stores nothing, and the notice would flash before the warning.
+    if (samePlayer() && progressCurrent()) noticeRecoveredPacks(taken.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -425,11 +442,11 @@ function App() {
     return out;
   }, [stats.packsOpened, collection]);
 
-  // A collection write can fail after its pack's notice is queued: once the save warning shows, the
-  // "Pack kept" notice would contradict it, so it never shows (the warning never clears).
+  // A collection write can fail, or be refused for a stale tab, after its pack's notice is queued: once
+  // a save warning shows, the "Pack kept" notice would contradict it, so it never shows (neither clears).
   const visibleNotifications = useMemo(
-    () => (saveFailed ? notificationQueue.filter((toast) => !toast.id.startsWith('pack-kept-')) : notificationQueue),
-    [saveFailed, notificationQueue],
+    () => (saveFailed || staleSave ? notificationQueue.filter((toast) => !toast.id.startsWith('pack-kept-')) : notificationQueue),
+    [saveFailed, staleSave, notificationQueue],
   );
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
   // A sheet (Share, or a shared link) leaves no tab current; Settings is none of the tabs either.
@@ -442,9 +459,10 @@ function App() {
   // A pack whose save failed still counts in memory, so its cards stay reachable this session. If the
   // pending shelf kept it, the next load restores and counts it, so the tabs show at once; only a total
   // storage refusal makes the next load a new player's. Settings' "Show every page" switch brings both
-  // back at once for someone who knows the game (#222).
-  const showNav = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus)
-    || settings.showAllPages === true;
+  // back at once for someone who knows the game (#222); once the pages are there on their own, Settings
+  // leaves the switch out (#902), so it asks the same question.
+  const pagesUnlocked = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus);
+  const showNav = pagesUnlocked || settings.showAllPages === true;
   const onPage = route !== 'open';
   const logoMark = (
     <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
@@ -598,6 +616,7 @@ function App() {
           recoveryAllowed: recoveryCurrent,
           onRecoveryChanged: recoveryChanged,
           guideSet: selectedSet,
+          pagesUnlocked,
         }} />
       )}
 

@@ -2,7 +2,7 @@
 
 A meme-themed Trading Card Game pack opener built with React.
 
-# Play live: https://evanlin23.github.io/BrainrotTCG
+# Play live: https://brainrottcg.pages.dev
 
 ## Inspiration
 
@@ -70,7 +70,7 @@ and [spec/verify_pull.py](spec/verify_pull.py) is a second verifier written only
 
 ```bash
 pip install cryptography==50.0.1
-python3 spec/verify_pull.py 'https://evanlin23.github.io/BrainrotTCG/#/pull/...'
+python3 spec/verify_pull.py 'https://brainrottcg.pages.dev/#/pull/...'
 ```
 
 CI runs both verifiers against the same test vectors, including forged and malformed proofs.

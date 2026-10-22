@@ -142,6 +142,20 @@ describe('Hall of Fame in the pack share sheet', () => {
 });
 
 describe('cards in this pack', () => {
+  it('puts the individual-card gallery behind a named control, apart from the whole-pack actions', async () => {
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    const disclosure = document.querySelector<HTMLDetailsElement>('details.share-disclosure:has(.share-pack-cards)')!;
+    const summary = disclosure.querySelector('summary')!;
+    expect(summary.textContent).toBe('Share an individual card');
+    expect(disclosure.open).toBe(false);
+    expect(disclosure.querySelector('section[aria-label="Cards in this pack"]')).not.toBeNull();
+    expect(disclosure.textContent).toContain('The controls above share the whole pack.');
+    // The poster stays a plain preview, not a tap target.
+    expect(document.querySelector('.share-preview')!.closest('button, a, [role="button"]')).toBeNull();
+    act(() => summary.click());
+    expect(disclosure.open).toBe(true);
+  });
+
   it('shows a reopened pack in the order it was revealed, best last, not the order it was stored', async () => {
     const set = getSet(DEFAULT_SET_ID, 1)!;
     // Stored (engine) order: a Gold, a Holo, then plain cards, so revealing moves the extras to the end.

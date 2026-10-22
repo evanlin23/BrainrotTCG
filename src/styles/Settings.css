@@ -45,6 +45,28 @@
   flex: 1 1 7rem;
 }
 
+/* Backup rows: the text keeps a readable column, and the buttons drop below it when text or screen leaves no room beside it. */
+.settings-row--reflow {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.settings-row--reflow > .settings-text {
+  flex: 1 1 8rem;
+}
+
+/* Their answers (Keep mine, Replace, Replace without a copy) wrap onto lines of their own, and a long label wraps within its button. */
+.settings-row--reflow .settings-actions {
+  flex-wrap: wrap;
+}
+
+.settings-row--reflow .settings-actions .btn {
+  white-space: normal;
+  line-height: 1.2;
+  padding-block: var(--space-2);
+  text-align: center;
+}
+
 /* Two buttons answering a question in the row: they drop below its text when there's no room. */
 .settings-help-actions {
   display: flex;

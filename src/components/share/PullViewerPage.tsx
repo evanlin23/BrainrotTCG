@@ -212,6 +212,11 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
           {pull.set.version}. It came out exactly as shown, and the player's signature matches. Each ticket costs real work to
           mine, so a pull can't be edited or picked from a pile of fakes.
         </p>
+        <p>
+          The version is the set&apos;s card list and odds when this pack was opened. A set gets a new version when its cards,
+          rarities, odds or pack size change, and a pack always checks out under the version it was opened in, so later
+          versions never change it.
+        </p>
       </details>
     </Sheet>
   );
