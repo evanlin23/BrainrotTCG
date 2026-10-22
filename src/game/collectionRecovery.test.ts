@@ -254,20 +254,44 @@ describe('downloading and discarding kept-aside data', () => {
       return getItem(key);
     });
 
-    // Does NOT claim the archive is gone ('none')
+    // Not 'none': the archive may still be there. No note of its own (callers keep the one showing).
     expect(collectionRecoveryState()).toBe('unavailable');
     expect(hasCollectionRecovery()).toBe(false);
-    expect(collectionRecoveryNote()).toBe(COLLECTION_RECOVERY_NOTES.unavailable);
-
-    // collectionRecoveryFile throws instead of generating a partial file or returning null
+    expect(collectionRecoveryNote()).toBeUndefined();
+    // No file at all rather than an empty or partial one, and the download says why.
     expect(() => collectionRecoveryFile()).toThrow('Storage read denied');
-
-    // downloadCollectionRecovery reports 'unavailable'
     expect(downloadCollectionRecovery()).toBe('unavailable');
 
-    // Restore access: download succeeds
+    // Access back: the exact archive is what the file holds.
     vi.spyOn(localStorage, 'getItem').mockImplementation(getItem);
-    expect(downloadCollectionRecovery()).toBe('downloaded');
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ raw: '{"kept":1}', player: null });
+  });
+
+  it('raises no kept-aside note when every storage read is denied and nothing is kept', () => {
+    vi.stubGlobal('localStorage', { getItem: () => { throw new DOMException('denied', 'SecurityError'); } });
+    expect(collectionRecoveryState()).toBe('unavailable');
+    expect(collectionRecoveryNote()).toBeUndefined();
+    expect(hasCollectionRecovery()).toBe(false);
+  });
+
+  it('builds no partial file from this visit\'s unsaved payloads while the stored archive can\'t be read', () => {
+    const data = seed('{"2":null}', (key) => key === ARCHIVE);
+    expect(persistCollection({})).toBe('recovered');
+    const stored = { raw: '{"0":null}', player: null };
+    data.set(ARCHIVE, JSON.stringify(stored));
+    const getItem = localStorage.getItem;
+    vi.spyOn(localStorage, 'getItem').mockImplementation((key: string) => {
+      if (key === ARCHIVE) throw new DOMException('Storage read denied', 'SecurityError');
+      return getItem(key);
+    });
+
+    expect(collectionRecoveryState()).toBe('unsaved');
+    expect(() => collectionRecoveryFile()).toThrow('Storage read denied');
+    expect(downloadCollectionRecovery()).toBe('unavailable');
+    expect(data.get(ARCHIVE)).toBe(JSON.stringify(stored));
+
+    vi.spyOn(localStorage, 'getItem').mockImplementation(getItem);
+    expect(JSON.parse(collectionRecoveryFile()!.text)).toEqual({ ...stored, later: [{ raw: '{"2":null}', player: null }] });
   });
 
   it('discards the stored archive, its hidden-note fingerprint and the unsaved payloads', () => {

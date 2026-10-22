@@ -193,6 +193,10 @@ describe('KeptAsideActions', () => {
     expect(onGone).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Couldn't read browser storage to download your recovery file.");
     expect(labels()).toEqual(['Download', 'Discard']);
+    // Nothing removed or rewritten: the archive and its hidden-note fingerprint are byte for byte as they were.
+    expect(getItem.call(localStorage, STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(ARCHIVE);
+    expect(getItem.call(localStorage, STORAGE_KEYS.COLLECTION_RECOVERY_SEEN)).toBe('seen');
+    expect(onChanged).not.toHaveBeenCalled();
 
     // Restore access
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(getItem);
