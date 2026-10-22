@@ -6,6 +6,11 @@ const CARD_IMAGES = import.meta.glob('./sets/*/cards/*.webp', { eager: true, que
 export const cardImageUrl = (setId: string, cardId: string): string =>
   CARD_IMAGES[`./sets/${setId}/cards/${cardId}.webp`] ?? '';
 
+const CATALOG_IMAGES = new Set(Object.values(CARD_IMAGES));
+
+/** True for the art this build itself ships for a card, whatever address the bundler gave it. */
+export const isCatalogCardImage = (image: string): boolean => CATALOG_IMAGES.has(image);
+
 /** Pre-rendered collection finishes: normal image loading, with no client-side canvas work. */
 const FINISH_THUMBS = import.meta.glob('./sets/*/finish-thumbs/*.webp', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 const FINISH_THUMBS_BY_IMAGE = new Map<string, Partial<Record<Finish, string>>>();
