@@ -16,6 +16,7 @@ import { scoreCards } from './data/cards';
 import { getAchievementById } from './data/achievements';
 import { CardWithMeta } from './components/cards/Card';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
+import { isCardOwned } from './game/versions';
 import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
 import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
@@ -279,7 +280,7 @@ function App() {
     if (!historyReady || modifiersChecked.current || !samePlayer()) return;
     modifiersChecked.current = historyPacksState() === 'ready';
     const pulled = getHistory().flatMap((e) => (e.cards ?? []).map((c) => ({ isHolo: c.holo, finish: c.finish, misprint: c.misprint })));
-    const tallied = Object.values(collection).flatMap((item) => [
+    const tallied = Object.values(collection).filter(isCardOwned).flatMap((item) => [
       ...Object.entries(item?.finishes ?? {}).filter(([, n]) => (n ?? 0) > 0).map(([finish]) => ({ isHolo: false, finish })),
       ...((item?.misprints ?? 0) > 0 ? [{ isHolo: false, misprint: true }] : []),
     ]);
@@ -409,12 +410,12 @@ function App() {
   }, []);
 
   // For the NEW sticker: the collection as it was before the pack being opened.
-  const isOwned = useCallback((cardKey: string) => !!collection[cardKey], [collection]);
+  const isOwned = useCallback((cardKey: string) => isCardOwned(collection[cardKey]), [collection]);
 
   // Progress shown on the counting achievements that are still locked.
   const achievementProgress = useMemo(() => {
     const packs = stats.packsOpened || 0;
-    const items = Object.values(collection);
+    const items = Object.values(collection).filter(isCardOwned);
     const unique = items.length;
     const holos = items.reduce((n, item) => n + (item?.holoCount || 0), 0);
     const out: Record<string, [number, number, string]> = {};
@@ -442,7 +443,7 @@ function App() {
   // pending shelf kept it, the next load restores and counts it, so the tabs show at once; only a total
   // storage refusal makes the next load a new player's. Settings' "Show every page" switch brings both
   // back at once for someone who knows the game (#222).
-  const showNav = (stats.packsOpened || 0) > 0 || Object.keys(collection).length > 0 || (packBusy && !packFocus)
+  const showNav = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus)
     || settings.showAllPages === true;
   const onPage = route !== 'open';
   const logoMark = (

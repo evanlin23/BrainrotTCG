@@ -29,6 +29,20 @@ export const sameVersion = (a: CardVersion, b: CardVersion): boolean =>
   !!a.misprint === !!b.misprint &&
   !!a.uncertain === !!b.uncertain;
 
+/**
+ * Total copies owned of a collection card, counting normal and holo copies (and legacy count).
+ */
+export const ownedCount = (item: (Pick<CollectionItem, 'normalCount' | 'holoCount'> & { count?: number }) | undefined | null): number => {
+  if (!item) return 0;
+  return (item.normalCount || item.count || 0) + (item.holoCount || 0);
+};
+
+/**
+ * Whether any copies of this card are owned. Zero-copy records are not owned.
+ */
+export const isCardOwned = (item: (Pick<CollectionItem, 'normalCount' | 'holoCount'> & { count?: number }) | undefined | null): boolean =>
+  ownedCount(item) > 0;
+
 export interface OwnedVersion {
   version: CardVersion;
   count: number;
