@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Check, ChevronRight, Share2 } from 'lucide-react';
+import { getSet } from '../../content/sets';
 import { ACHIEVEMENTS, type Achievement } from '../../data/achievements';
 import type { AchievementData } from '../../types';
 import type { CardWithMeta } from '../cards/Card';
@@ -57,6 +58,10 @@ const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull,
     if (openRequest !== undefined) setOpen(true);
   }
   const selectedRef = useMemo(() => (selected ? refFor(selected) : null), [selected]);
+  const selectedSet = useMemo(
+    () => (selectedRef ? getSet(selectedRef.setId, selectedRef.setVersion) : undefined),
+    [selectedRef],
+  );
 
   const { unlocked, locked } = useMemo(() => {
     const unlocked: Unlocked[] = [];
@@ -159,7 +164,7 @@ const AchievementsSection = ({ unlockedAchievements, progress = {}, onSharePull,
           onClose={() => setSelected(null)}
           size="md"
         >
-          <PackCardViewer cards={selected.pack} displayMode="carousel" canShareCards />
+          <PackCardViewer cards={selected.pack} displayMode="carousel" canShareCards set={selectedSet} />
           {onSharePull && selectedRef && (
             <button
               type="button"
