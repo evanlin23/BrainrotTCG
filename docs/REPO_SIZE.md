@@ -10,7 +10,7 @@ bytes). They show proportions; times vary with the network. Re-run the commands 
 | --- | --- |
 | Full clone, all history (1530 commits, 326 branches, 461 on `main`, 6107 blobs) | 227.6 MiB, 5.6 s |
 | Shallow clone (`--depth=1`) | 125.3 MiB `.git` + 131.5 MiB working tree on disk, 3.3 s |
-| Working tree (tracked files, by file size) | 128.4 MiB in 1371 files |
+| Working tree (tracked files, by file size) | 128.4 MiB in 1370 files |
 
 Where the working tree goes:
 
@@ -21,7 +21,7 @@ Where the working tree goes:
 | everything else (code, docs, tests, spec, audio, fonts, screenshots) | about 10 MiB | | |
 
 Where the history goes (blobs by path, compressed): `src/assets` 46.6 MiB, mostly full-size images that
-have since been replaced (the tree now holds 1.4 MiB there), then the per-set `art/` PNGs and the WebP
+have since been replaced (the tree now holds 1.3 MiB there), then the per-set `art/` PNGs and the WebP
 cards. PNG is 119.5 MiB of the history and WebP 93.6 MiB. Old blobs are only removable by rewriting
 published history, which is not on the table (see below).
 
@@ -29,12 +29,14 @@ Branches are not the weight: a clone of `main` alone (461 commits) is also about
 branches add almost nothing and deleting them (#710) would not shrink a clone. The weight is `main`'s own
 history.
 
-CI is not where the weight hurts: `actions/checkout` is already depth 1, so each job pays the 125 MiB
-shallow clone (a few seconds), and the checks that follow take minutes. Nothing in the workflows was
-changed for this.
+CI is not where the weight hurts: most jobs run `actions/checkout` at its default depth 1, so each pays
+the 125 MiB shallow clone (a few seconds), and the checks that follow take minutes. Two other patterns
+are already in use: the burn-in plan job in `browser-tests.yml` fetches full history with
+`filter: blob:none` (the blobless recipe below), and two `deploy.yml` jobs check out only the scripts
+they need with `sparse-checkout`. Nothing in the workflows was changed for this.
 
-Art only grows. Each monthly set adds about 6-7 MiB of art PNG (genesis alone is 23.0 MiB) and about
-4.2-4.5 MiB of served WebP, so the tree gains about 11 MiB a month and history about as much.
+Art only grows. Leaving out genesis (23.0 MiB of art), a set adds about 5-7 MiB of art PNG (2.7-6.9 MiB,
+mean 5.6) and 4.0-4.5 MiB of served WebP (mean 4.2), about 10 MiB a set, and history about as much.
 
 ## Lighter checkouts (reversible)
 
@@ -93,14 +95,15 @@ These all need the owner, because each moves or rewrites something permanent. No
 - **Rewriting history** to drop old images (the `src/assets` blobs above): rewrites published
   history and every clone. Not allowed here.
 - **Git LFS**: keeps the workflow, but moving files already committed into LFS only shrinks history if
-  it is rewritten. It also needs `lfs: true` on every `actions/checkout` step (CI and deploy) and sits
-  inside GitHub's LFS storage and bandwidth quotas, which grow with each set and each CI run. Needs the
-  owner's decision on cost.
+  it is rewritten. It also needs `lfs: true` on each `actions/checkout` that reads the art (the sparse
+  deploy checkouts read scripts only), and sits inside GitHub's LFS storage and bandwidth quotas, which
+  grow with each set and each CI run that fetches the art. Needs the owner's decision on cost.
 - **Art out of the repo** (object storage or the CDN the site deploys through, with an in-repo manifest):
-  the cards are immutable per set version, which suits it. It is a new product and credentials: the
-  Cloudflare token in [HOSTING.md](HOSTING.md) is scoped to Pages edit only, so object storage needs a
-  new product and a wider or second token. It also needs upload and fetch steps in `check:card-assets`
-  and the build, and a plan for provenance (`CREDITS.md`) and rebuilding old sets. Needs the owner's
+  the cards are immutable per set version, which suits it. It is a new product and credentials.
+  [HOSTING.md](HOSTING.md) tells the owner to create the Cloudflare token with Pages edit only and says
+  its actual scope can't be checked from the repo, so the owner would confirm it; if it is Pages-only,
+  object storage needs a new product and a wider or second token. It also needs upload and fetch steps
+  in `check:card-assets` and the build, and a plan for provenance (`CREDITS.md`) and rebuilding old sets. Needs the owner's
   access and cost decision.
 - **Dropping the PNG source art from the tree**: it is the provenance of each released card. Moving
   it elsewhere belongs with the option above, not on its own.

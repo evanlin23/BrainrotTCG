@@ -12,7 +12,7 @@ dependency change. A fresh checkout or worktree has no `node_modules` and needs 
 check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
 A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (about 55 MiB
-and 3 s) that skips the PNG source art. Without it, `npm run cards` can't run and `npm run check` can't
+of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without it, `npm run cards` can't run and `npm run check` can't
 test for placeholder art, so CI is authoritative; run `git sparse-checkout disable` before editing or
 adding a set.
 
