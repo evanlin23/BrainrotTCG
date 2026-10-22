@@ -249,18 +249,33 @@ const LEDGER_387_EXCERPT = [
   'order (#716 rows; PR -> issue; tier o=opus s=sonnet):',
   'R1: #904->#811 o, #905->#660/#659 o, #906->#693 o, #907->#652 o, #909->#621 o,',
   'needs owner: #358 TikTok 2FA (owner-only); #703/#704 real AT/mobile; #705/#706 staging access',
+  '',
+  '# Run: Phase 1 review sweep (historical), 2026-10-18',
+  'holds (fix first, then merge):',
+  '  #377 fix first, then merge',
+  '  #378 fix first, then merge',
+  'done: #899 #900 merged',
 ].join('\n');
 
 describe('#387 ledger snapshot', () => {
   it('tracks every line of its authority and holds blocks and fails closed when either is cut off', () => {
     const result = projectState(LEDGER_387_EXCERPT);
     expect(result.sourceIssue).toBe('#387');
-    expect(result.holdsTracked).toBe(2);
+    expect(result.holdsTracked).toBe(4);
     expect(result.status).toBe('ok');
 
     const cutHolds = projectState(LEDGER_387_EXCERPT, { maxLines: 8 });
     expect(cutHolds.allowsMerge).toBe(false);
-    expect(cutHolds.message).toContain('1 hold(s) past display boundary');
+    expect(cutHolds.message).toContain('3 hold(s) past display boundary');
+
+    // The historical `holds (fix first, then merge):` block counts as holds too.
+    const cutHistoricalHolds = projectState(LEDGER_387_EXCERPT, { maxLines: 15 });
+    expect(cutHistoricalHolds.allowsMerge).toBe(false);
+    expect(cutHistoricalHolds.message).toContain('2 hold(s) past display boundary');
+
+    const cutHistoricalHeader = projectState(LEDGER_387_EXCERPT, { maxLines: 14 });
+    expect(cutHistoricalHeader.allowsMerge).toBe(false);
+    expect(cutHistoricalHeader.message).toContain('holds block past display boundary');
 
     const cutAuthority = projectState(LEDGER_387_EXCERPT, { maxLines: 5 });
     expect(cutAuthority.allowsMerge).toBe(false);
@@ -377,6 +392,30 @@ describe('small task briefs and independent review validation', () => {
     const result = parseReviewerReport(templateReport('approve', '2bf6074', ['- saves can be lost']), '2bf6074');
     expect(result.allowsMerge).toBe(false);
     expect(result.findings[0].severity).toBe('blocking');
+  });
+
+  it.each([
+    ['a * bullet', '* [blocking] a.ts:1: x'],
+    ['a numbered bullet', '1. [blocking] a.ts:1: x'],
+    ['an unbulleted line', '[blocking] a.ts:1: x'],
+    ['an unreadable unbulleted line', 'saves can be lost'],
+  ])('refuses an approve whose findings carry %s', (_label, line) => {
+    const result = parseReviewerReport(templateReport('approve', '2bf6074', [line]), '2bf6074');
+    expect(result.allowsMerge).toBe(false);
+    expect(result.findings[0].severity).toBe('blocking');
+  });
+
+  it('refuses an approve with a [blocking] tag outside the findings block', () => {
+    const report = ['verdict: approve', 'head: 2bf6074', '[blocking] a.ts:1: x', 'findings:', 'none'].join('\n');
+    const result = parseReviewerReport(report, '2bf6074');
+    expect(result.allowsMerge).toBe(false);
+  });
+
+  it('reads `none` and non-dash minor bullets as mergeable', () => {
+    expect(parseReviewerReport(templateReport('approve', '2bf6074', ['none']), '2bf6074').allowsMerge).toBe(true);
+    const minor = parseReviewerReport(templateReport('approve', '2bf6074', ['* [minor] a.ts:1: nit']), '2bf6074');
+    expect(minor.allowsMerge).toBe(true);
+    expect(minor.findings[0].severity).toBe('minor');
   });
 
   it('refuses a head shorter than 7 hex characters even when it prefixes the candidate', () => {

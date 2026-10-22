@@ -303,6 +303,9 @@ export function createTaskBrief(params: TaskBrief): string {
   return lines.join('\n');
 }
 
+// Bullet markers a reviewer may put before a finding: -, *, +, • or `1.` / `1)`.
+const FINDING_BULLET = /^(?:[-*+•]|\d+[.)])\s*/;
+
 export interface ReviewerReport {
   verdict: 'approve' | 'changes-needed' | 'block';
   head: string;
@@ -320,8 +323,9 @@ export interface ReviewerReport {
  *   - [blocking|minor] path:line: what's wrong
  *   not checked: ...
  * Fails closed: an unreadable verdict is `block`, a head needs at least 7 hex characters and must
- * prefix the candidate head, a finding bullet without a readable severity counts as blocking, and
- * any blocking finding refuses the merge whatever the verdict says.
+ * prefix the candidate head, any non-blank findings line (`-`, `*`, numbered or unbulleted) that
+ * isn't a readable finding or `none` counts as blocking, a `[blocking]` tag anywhere in the report
+ * counts as blocking, and any blocking finding refuses the merge whatever the verdict says.
  */
 export function parseReviewerReport(raw: string, currentHead: string): ReviewerReport {
   let verdict: ReviewerReport['verdict'] = 'block';
@@ -346,23 +350,24 @@ export function parseReviewerReport(raw: string, currentHead: string): ReviewerR
       section = 'not checked';
       const inline = trimmed.replace(/^not checked\s*:?/i, '').trim();
       if (inline) notChecked.push(inline);
-    } else if (section === 'findings' && trimmed.startsWith('-')) {
-      const match = trimmed.match(/^-\s*\[(blocking|minor)\]\s*(.*?):\s(.*)$/i);
+    } else if (section === 'findings' && trimmed) {
+      const body = trimmed.replace(FINDING_BULLET, '').trim();
+      const match = body.match(/^\[(blocking|minor)\]\s*(.*?):\s(.*)$/i);
       if (match) {
         findings.push({
           severity: match[1].toLowerCase() as 'blocking' | 'minor',
           location: match[2].trim(),
           description: match[3].trim(),
         });
-      } else {
-        findings.push({ severity: 'blocking', location: 'unknown', description: trimmed.slice(1).trim() });
+      } else if (!/^\(?none\.?\)?$/i.test(body)) {
+        findings.push({ severity: 'blocking', location: 'unknown', description: body });
       }
     } else if (section === 'not checked' && trimmed) {
       notChecked.push(trimmed.replace(/^-\s*/, ''));
     }
   }
 
-  const hasBlockingFindings = findings.some((f) => f.severity === 'blocking');
+  const hasBlockingFindings = findings.some((f) => f.severity === 'blocking') || /\[blocking\]/i.test(raw);
   const headMatches = head.length >= 7 && currentHead.toLowerCase().startsWith(head);
 
   let reason: string | undefined;

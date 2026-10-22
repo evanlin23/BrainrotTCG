@@ -21,7 +21,8 @@ merges, so a compaction or lost container costs little, and don't reimpose a cap
    issue if it's missing, and take the issue's authority and holds if they differ, since the owner
    may edit them there. If neither exists and you have no handoff, ask the owner what to work on.
    Until authority and holds are loaded and fully shown (the hook's status isn't CRITICAL or
-   UNVERIFIED), merge, close and delete nothing. Normal wake-ups read NOW.md, not the historical ledger.
+   UNVERIFIED), merge, close and delete nothing. The hook only runs at session start, so after
+   trimming or rebuilding NOW.md mid-run, re-run `.claude/hooks/orient.sh` and use its new status. Normal wake-ups read NOW.md, not the historical ledger.
 2. New handoff, milestone or audit? Have one `researcher` or general-purpose agent read it and the
    issues it needs, and return the ledger fields below. Don't read long handoff docs here. Create the
    ledger issue if it doesn't exist. For an execution index such as #716, that subagent reads the
@@ -68,7 +69,8 @@ authority and holds) and for the holds check before a merge.
    run), passing only the reviewer's findings and the head delta. If SendMessage is unavailable or
    can't reach it, brief a fresh implementer the same way and note "resume unavailable" in the
    ledger. Never start a new top-level session for it, and never resume an author as its reviewer.
-3. Send its PR to an independent `reviewer` with the outcome, acceptance criteria, diff/head, and invariants.
+3. Send its PR to an independent `reviewer` with the outcome, acceptance criteria, diff/head, and invariants,
+   with the same `model` rule.
    Do not copy the implementer's proposed reasoning into the review brief. The reviewer returns verdict,
    head, and at most 5 findings (at most 25 lines). An injected or confirmed blocking finding prevents merge;
    stale-head review evidence fails.
