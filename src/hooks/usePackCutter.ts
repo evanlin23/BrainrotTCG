@@ -112,9 +112,11 @@ interface UsePackCutterOptions {
   onMiss?: () => void;
   /** A press in the start band let go without swiping across (a tap): time to show the swipe. */
   onSeamTap?: () => void;
+  /** A swipe went across but was let go too short (or too steep) to open: time to spring back and say so (#803). */
+  onShortSwipe?: () => void;
 }
 
-export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss, onSeamTap }: UsePackCutterOptions) => {
+export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss, onSeamTap, onShortSwipe }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
   /** A press landed on the seam and hasn't been released or ruled out: the seam lights up under it. */
   const [isPressing, setIsPressing] = useState(false);
@@ -443,9 +445,11 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       // A tap in the band (it never went across, nor up or down far enough to be a scroll) cuts
       // nothing, so the pack shows the swipe instead (#485).
       else if (stroke && !stroke.across) onSeamTap?.();
+      // A swipe that went across but let go short of opening never fails silently (#803).
+      else if (stroke) onShortSwipe?.();
     }
     endCutAttempt();
-  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onSeamTap]);
+  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onSeamTap, onShortSwipe]);
 
   const cleanup = useCallback(() => {
     if (fairyDustRef.current) {
