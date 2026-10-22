@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { soundVolume } from '../constants/audio';
 
 export interface PreloadedAssets {
@@ -11,24 +11,41 @@ export interface PreloadedAssets {
  * Hook for managing audio playback with cleanup
  */
 export const useAudio = () => {
-  const activeAudioRef = useRef<HTMLAudioElement[]>([]);
+  // The playback clones this hook made and has not released yet; nothing else is ever stopped here.
+  const activeAudioRef = useRef<Set<HTMLAudioElement>>(new Set());
+
+  /** Stops and releases one owned clone. Safe to repeat: a clone already released is left alone. */
+  const disposeClone = useCallback((clone: HTMLAudioElement) => {
+    if (!activeAudioRef.current.delete(clone)) return;
+    clone.onended = null;
+    clone.onerror = null;
+    clone.pause();
+    clone.src = '';
+  }, []);
+
+  /** Stops every clone still playing, for a pack that is finished or left. */
+  const stopAll = useCallback(() => {
+    [...activeAudioRef.current].forEach(disposeClone);
+  }, [disposeClone]);
+
+  // Unmounting ends whatever is still playing.
+  useEffect(() => stopAll, [stopAll]);
 
   /**
-   * Play audio (at `volume`, 0 to 1, scaled by the sound's own gain) and automatically clean up when finished
+   * Play audio (at `volume`, 0 to 1, scaled by the sound's own gain) and release it when it ends,
+   * fails to play or errors
    */
   const playAndCleanup = useCallback((audio: HTMLAudioElement, volume = 1) => {
     const clone = audio.cloneNode() as HTMLAudioElement;
     clone.volume = soundVolume(audio.getAttribute('src'), volume);
-    activeAudioRef.current.push(clone);
+    activeAudioRef.current.add(clone);
 
-    clone.onended = () => {
-      clone.src = '';
-      activeAudioRef.current = activeAudioRef.current.filter(a => a !== clone);
-    };
+    clone.onended = () => disposeClone(clone);
+    clone.onerror = () => disposeClone(clone);
 
-    clone.play().catch(() => {});
+    clone.play().catch(() => disposeClone(clone));
     return clone;
-  }, []);
+  }, [disposeClone]);
 
   /**
    * Preload multiple audio files. With `defer`, nothing downloads until `loadDeferred` (a sound
@@ -79,5 +96,6 @@ export const useAudio = () => {
     loadDeferred,
     cleanupAudio,
     playRandom,
+    stopAll,
   };
 };
