@@ -99,6 +99,19 @@ describe('scoring', () => {
     // 4 commons (10 each) + a holo common (10 x 20), with a pair
     expect(scorePack([card('a'), card('a'), card('b'), card('c'), card('d', true)])).toMatchObject({ points: 240, score: 480 });
   });
+  it('counts copies of one card whatever its holo, finish or misprint, and keeps same-rarity cards apart (#645)', () => {
+    expect(handFromCounts([1, 1, 1, 1, 1])).toBe('NO_MATCH');
+    expect(handFromCounts([2, 1, 1, 1])).toBe('PAIR');
+    expect(handFromCounts([3, 2])).toBe('FULL_HOUSE');
+    const plain = card('a');
+    const holo = card('a', true);
+    const gold = { ...card('a'), finish: 'GOLD' as const };
+    const misprint = { ...card('a'), misprint: true };
+    const other = card('b');
+    expect(getPokerHand([gold, plain, other, other, other]).name).toBe('Full House');
+    expect(getPokerHand([holo, misprint, plain, other, other]).name).toBe('Full House');
+    expect(getPokerHand([plain, other]).name).toBe('No Matches');
+  });
 });
 
 describe('odds', () => {
