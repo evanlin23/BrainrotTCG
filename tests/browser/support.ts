@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs';
-import { test, expect, type Page, type Locator, type WebSocketRoute } from '@playwright/test';
+import { test, expect, type Page, type Locator, type Request, type WebSocketRoute } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
@@ -68,11 +68,6 @@ export interface MonitorOptions {
    * one in the environment, which is null unless STAGING_URL and the token are set.
    */
   access?: StagingAccess | null;
-  /**
-   * How long the guard's fetch of one request (each redirect hop on its own) may take before it is
-   * recorded as failed and aborted. Default MONITORED_FETCH_TIMEOUT_MS.
-   */
-  fetchTimeout?: number;
 }
 
 export type MonitorErrors = string[] & {
@@ -80,9 +75,16 @@ export type MonitorErrors = string[] & {
   blocked: string[];
   /**
    * Sanitized monitored requests whose fetch failed (at most 40): the method, the URL without its
-   * query and the reason, for a page that only saw net::ERR_FAILED.
+   * query and the reason, for a page that only saw net::ERR_FAILED. A fulfill or abort Playwright
+   * refuses is recorded the same way.
    */
   failed: string[];
+  /**
+   * Requests the guard took on that the page is still waiting for ("METHOD url", sanitized): not yet
+   * answered, or answered in a way the browser never finished. A test that fails names them at
+   * teardown, so a wait that ran out says which request it was waiting on.
+   */
+  readonly pending: string[];
   /**
    * The monitor's HTTP policy for guards that cannot use `page.route` (warm runs, which keep the
    * HTTP cache): null when the request is allowed, otherwise the status and body to answer with.
@@ -92,12 +94,6 @@ export type MonitorErrors = string[] & {
 };
 
 const MAX_BLOCKED_ENTRIES = 40;
-/**
- * Under the 20 s waits journeys use (and Playwright's own 30 s for route.fetch), so a request a server
- * never answers is aborted and named at teardown. Left to Playwright's default, it outlasted the wait
- * that needed it, then ended with the closing page as teardown, so nothing said which request it was.
- */
-export const MONITORED_FETCH_TIMEOUT_MS = 10_000;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 function originOf(urlString: string): string {
   try {
@@ -177,7 +173,6 @@ export async function monitor(
     failOnUnexpected = true,
     continueAllowed = false,
     access = stagingAccess(),
-    fetchTimeout = MONITORED_FETCH_TIMEOUT_MS,
   } = options;
 
   const errors = [] as unknown as MonitorErrors;
@@ -198,6 +193,14 @@ export async function monitor(
   const noteFailed = (entry: string) => {
     if (failed.length < MAX_BLOCKED_ENTRIES && !failed.includes(entry)) failed.push(entry);
   };
+  // Added when the guard takes a request on, removed once the browser finishes or fails it, so a request
+  // left paused (its fetch still running, or a fulfill the browser never completed) stays named.
+  const pending = new Map<Request, string>();
+  Object.defineProperty(errors, 'pending', { get: () => [...pending.values()], enumerable: false });
+  page.context().on('requestfinished', (request) => pending.delete(request));
+  page.context().on('requestfailed', (request) => pending.delete(request));
+  const isTargetClosed = (error: unknown) => error instanceof Error && error.name === 'TargetClosedError';
+  const secrets = Object.values(access?.headers ?? {});
 
   const base = new URL(baseURL);
   const origin = base.origin;
@@ -258,6 +261,12 @@ export async function monitor(
   let failedTeardown = false;
   const checkUnexpectedTeardown = () => {
     if (failedTeardown || !failOnUnexpected) return;
+    let currentTest;
+    try {
+      currentTest = test.info();
+    } catch {
+      return; // test.info() unavailable outside active test runner
+    }
     const messages = [];
     if (blocked.length > 0) {
       messages.push(`Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`);
@@ -265,17 +274,16 @@ export async function monitor(
     if (failed.length > 0) {
       messages.push(`Monitored request${failed.length === 1 ? '' : 's'} failed in the network guard (${failed.length}):\n${failed.join('\n')}`);
     }
+    // Recorded at close: the fetch of a request still waiting ends only after this, and as teardown. A
+    // passing test simply didn't need it, so it is named only in a test that is failing anyway, often on
+    // a wait for that very request.
+    if (pending.size > 0 && (messages.length > 0 || currentTest.status !== 'passed')) {
+      messages.push(`Monitored request${pending.size === 1 ? '' : 's'} still waiting when the page closed (${pending.size}):\n${[...pending.values()].join('\n')}`);
+    }
     if (messages.length > 0) {
       failedTeardown = true;
-      try {
-        const currentTest = test.info();
-        if (currentTest) {
-          currentTest.status = 'failed';
-          for (const message of messages) currentTest.errors.push({ message });
-        }
-      } catch {
-        // test.info() unavailable outside active test runner
-      }
+      if (currentTest.status === 'passed') currentTest.status = 'failed';
+      for (const message of messages) currentTest.errors.push({ message });
     }
   };
   page.on('close', checkUnexpectedTeardown);
@@ -423,7 +431,8 @@ export async function monitor(
           const target = report?.['blocked-uri'] ?? '';
           if (/^(https?|wss?):/.test(target)) noteBlocked(sanitizeAttempt('CSP', target, 'csp violation'));
         } catch {
-          // A malformed report carries no evidence
+          // Something was blocked, even if the report can't say what
+          noteBlocked(sanitizeAttempt('CSP', `${origin}${CSP_REPORT_PATH}`, 'malformed csp report'));
         }
         return route.fulfill({ status: 204 });
       }
@@ -439,13 +448,33 @@ export async function monitor(
 
       if (continueAllowed && !access) return route.continue();
       const token = accessHeaders(request.url(), access);
+      pending.set(request, sanitizeAttempt(method, request.url()));
 
       let response;
       let url = request.url();
+      /**
+       * Answers the request with `answer`, or aborts it. A refusal other than the page or context
+       * closing is recorded: the request it leaves paused holds the page's load with nothing saying why.
+       * Once Playwright has refused a fulfill it refuses the abort too, so that request stays pending.
+       */
+      const end = async (answer?: () => Promise<void>) => {
+        const tried = async (step: string, call: () => Promise<void>) => {
+          try {
+            await call();
+            return true;
+          } catch (error) {
+            if (isTargetClosed(error)) return true;
+            noteFailed(sanitizeAttempt(method, url, `${step} failed: ${fetchFailureReason(error, secrets)}`));
+            return false;
+          }
+        };
+        if (answer && await tried('fulfill', answer)) return;
+        await tried('abort', () => route.abort());
+      };
       try {
         // One connection per request: a kept-alive socket the preview server closes while the machine is
         // busy fails the next request with ECONNRESET, which aborted a chunk or the favicon and failed the test.
-        const fetchOptions = { headers: { ...request.headers(), connection: 'close', ...token }, timeout: fetchTimeout };
+        const fetchOptions = { headers: { ...request.headers(), connection: 'close', ...token } };
         response = await route.fetch({ maxRedirects: 0, ...fetchOptions });
         // The browser sends the hop after a fulfilled redirect itself, past this handler, so on
         // staging it would go without the token: follow staging's redirects to its own origin here.
@@ -459,25 +488,21 @@ export async function monitor(
       } catch (error) {
         // The page only sees net::ERR_FAILED, so name the request and why for teardown (#1046). A fetch
         // cut off because the page or context closed is teardown itself.
-        if (!(error instanceof Error && error.name === 'TargetClosedError')) {
-          noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, Object.values(access?.headers ?? {}))}`));
-        }
-        return route.abort();
+        if (!isTargetClosed(error)) noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, secrets)}`));
+        return end();
       }
 
       if (REDIRECTS.has(response.status())) {
         const target = redirectTarget(url, response.headers()['location']);
         if (target && !isAllowedUrl(target)) {
           noteBlocked(sanitizeAttempt(method, url, `blocked redirect escape: ${sanitizeUrl(target.href)}`));
-          return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Redirect blocked by network guard' });
+          return end(() => route.fulfill({ status: 403, contentType: 'text/plain', body: 'Redirect blocked by network guard' }));
         }
       }
 
-      try {
-        await route.fulfill({ response, headers: continueAllowed ? response.headers() : { ...response.headers(), 'content-security-policy': csp } });
-      } catch {
-        // In-flight requests aborted by page navigation or close
-      }
+      // A request the page dropped meanwhile (a navigation, say) fulfills without an error.
+      const fetched = response;
+      return end(() => route.fulfill({ response: fetched, headers: continueAllowed ? fetched.headers() : { ...fetched.headers(), 'content-security-policy': csp } }));
     });
   }
 

@@ -162,17 +162,60 @@ test('a monitored request whose fetch fails is recorded with its method, URL and
   expect(errors.blocked).toEqual([]);
 });
 
-// A request the server never answered kept the guard's fetch waiting for Playwright's default 30 s,
-// past the 20 s wait a journey had on it (a next-pack picture or the ticket worker's script), so that
-// wait failed first and the fetch ended with the closing page, recorded nowhere (deploy of bc12640).
-test('a monitored request the server never answers is aborted and recorded within the fetch timeout', async ({ page }) => {
-  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false, fetchTimeout: 500 });
+// missing_scenario: a request that never finished held a journey's wait (deploy of bc12640) or the
+// page's load (deploy of 80aa840) until the test ran out, and nothing said which request it was. The
+// guard keeps every request it took on until the browser finishes it; teardown twins are below.
+test('a monitored request the server never answers is named as pending while the page waits', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
   await page.goto(primaryUrl);
-  const result = await page.evaluate(() => fetch('/stall').then(() => 'loaded', (error: Error) => error.name));
+  await page.evaluate(() => { void fetch('/stall?key=not-for-logs'); });
 
-  expect(result).toBe('TypeError');
-  expect(errors.failed).toEqual([`[fetch failed: Timeout 500ms exceeded.] GET ${primaryOrigin}/stall`]);
-  expect(errors.blocked).toEqual([]);
+  await expect.poll(() => errors.pending).toEqual([`GET ${primaryOrigin}/stall`]);
+  expect(errors.failed).toEqual([]);
+});
+
+test('a fulfill Playwright refuses is recorded, and the request it leaves paused stays pending', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  // Page routes run before the guard's: this one hands the guard a response that is already released,
+  // so Playwright takes the guard's fulfill and then refuses it, as it does a protocol error.
+  await page.route('**/asset.json', async (route) => {
+    const fetch = route.fetch.bind(route);
+    route.fetch = async (options) => {
+      const response = await fetch(options);
+      await response.dispose();
+      return response;
+    };
+    await route.fallback();
+  });
+  await page.goto(primaryUrl);
+  await page.evaluate(() => { void fetch('/asset.json'); });
+
+  // Playwright refuses the abort after that too, so the request stays paused until the page closes.
+  await expect.poll(() => errors.failed).toEqual([
+    `[fulfill failed: Fetch response has been disposed] GET ${primaryOrigin}/asset.json`,
+    `[abort failed: Route is already handled!] GET ${primaryOrigin}/asset.json`,
+  ]);
+  expect(errors.pending).toEqual([`GET ${primaryOrigin}/asset.json`]);
+});
+
+test('a request still pending when a passing test closes its page does not fail the test', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl);
+  await page.goto(primaryUrl);
+  await page.evaluate(() => { void fetch('/stall'); });
+  await expect.poll(() => errors.pending).toEqual([`GET ${primaryOrigin}/stall`]);
+
+  await page.close();
+  expect(test.info().errors).toEqual([]);
+  expect(test.info().status).toBe('passed');
+});
+
+test('a CSP report the guard cannot read is still recorded', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  const status = await page.evaluate(() => fetch('/__network-guard/csp-report', { method: 'POST', body: 'not json' }).then((res) => res.status));
+
+  expect(status).toBe(204);
+  expect(errors.blocked).toEqual([`[malformed csp report] CSP ${primaryOrigin}/__network-guard/csp-report`]);
 });
 
 test('each monitored request asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
@@ -439,6 +482,21 @@ test.describe('teardown fails on unexpected attempts', () => {
     await monitor(page, primaryUrl);
     await page.goto(primaryUrl);
     await page.evaluate(() => fetch('/hang-up').catch(() => undefined));
+  });
+
+  test('a request still pending when a failing test closes its page is named at teardown', async ({ page }) => {
+    test.fail();
+    const errors = await monitor(page, primaryUrl);
+    await page.goto(primaryUrl);
+    await page.evaluate(() => { void fetch('/stall'); });
+    await expect.poll(() => errors.pending).toEqual([`GET ${primaryOrigin}/stall`]);
+    // Stands in for the wait that ran out on it.
+    expect.soft(errors.pending, 'the page waits on nothing').toEqual([]);
+
+    await page.close();
+    expect(test.info().errors.map((error) => error.message)).toContain(
+      `Monitored request still waiting when the page closed (1):\nGET ${primaryOrigin}/stall`,
+    );
   });
 
   test('blocked HTTP attempt fails the test at teardown', async ({ page }) => {

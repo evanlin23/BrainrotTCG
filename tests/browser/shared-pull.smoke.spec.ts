@@ -135,9 +135,10 @@ async function startJourney(page: Page, baseURL: string, { returning = false } =
     if (page.url() !== 'about:blank') {
       await fontsSettled();
       await packArtLoaded(page);
+      // One value, so a wait that runs out names the job, picture or request it was still waiting on.
       const busy = () => page.evaluate(() => (window as unknown as { __journeyBusy: () => string[] }).__journeyBusy());
-      await expect.poll(busy, { timeout: VIEWER_TIMEOUT }).toEqual([]);
-      await expect.poll(() => [...inFlight].map((request) => request.url())).toEqual([]);
+      await expect.poll(async () => ({ busy: await busy(), requests: [...inFlight].map((request) => new URL(request.url()).pathname) }), { timeout: VIEWER_TIMEOUT })
+        .toEqual({ busy: [], requests: [] });
       if (route !== undefined) await page.goto('about:blank');
     }
     const response = route === undefined ? await page.reload() : await page.goto(route);
