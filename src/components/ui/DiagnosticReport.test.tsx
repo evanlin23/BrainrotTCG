@@ -51,6 +51,19 @@ describe('Clear recorded steps', () => {
     expect(status()).toContain('from your edited text');
   });
 
+  it('says so when an edit moved a step elsewhere in the text, where clearing does not reach', () => {
+    open();
+    const report = JSON.parse(textarea().value) as Record<string, unknown>;
+    edit(JSON.stringify({ ...report, copied: [{ step: 1, event: 'pack-open' }] }));
+
+    act(() => button('Clear recorded steps').click());
+
+    const after = JSON.parse(textarea().value) as Record<string, unknown>;
+    expect(after.events).toEqual([]);
+    expect(after.copied).toEqual([{ step: 1, event: 'pack-open' }]);
+    expect(status()).toBe('Recorded steps cleared from this tab. Your edits were kept, and steps you moved elsewhere in the text are still in it.');
+  });
+
   it('keeps edited text that is no longer report JSON, and says its steps were not removed', () => {
     open();
     edit('Reviewed report');
