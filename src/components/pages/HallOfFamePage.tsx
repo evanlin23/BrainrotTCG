@@ -4,11 +4,12 @@ import CardImage from '../cards/CardImage';
 import Sheet from '../ui/Sheet';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
+import { QUALIFY_RULE, RANKINGS_HELP } from '../ui/rankingsRule';
 import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
 import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
-import { dailyPulls, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
+import { dailyPulls, HALL_OF_FAME_TOP, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
 
 // Hackathon legends ("Where it started"): screenshots from before pulls were verifiable.
 import adiImage from '../../assets/images/hall_of_fame/adi-four-of-a-kind.webp';
@@ -222,7 +223,7 @@ const HallOfFamePage = () => {
 
   const guidance = (
     <>
-      Pull a Full House or better (or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+), share it, and submit it from the share sheet.
+      Pull {QUALIFY_RULE}, share it, and submit it from the share sheet.
     </>
   );
 
@@ -266,7 +267,7 @@ const HallOfFamePage = () => {
       </div>
 
       <details className="hof-how">
-        <summary>How Rankings work</summary>
+        <summary>{RANKINGS_HELP}</summary>
         <div className="hof-how-body">
           <p>
             Players share pulls here, ranked by Brainrot Score. Today ranks pulls filed since 00:00 UTC; All-time ranks the best{' '}
@@ -274,7 +275,7 @@ const HallOfFamePage = () => {
             it yourself). Other screens call this the Hall of Fame.
           </p>
           <p>
-            <strong>Who qualifies:</strong> a Full House or better, or a Brainrot Score of {HALL_OF_FAME_MIN_SCORE.toLocaleString()}+.
+            <strong>Who qualifies:</strong> {QUALIFY_RULE}.
           </p>
           <p>
             <strong>Nothing is filed automatically.</strong> Opening a pack, or copying or sharing a link, does not enter you. A

@@ -116,8 +116,9 @@ results line (`PackSummaryUI.tsx`) that goes.
    says it opens the pack summary ("Click or press Space to see the pack summary", "Swipe or tap to
    see the pack summary"), since the same press does.
 5. **Result.** One composition, a graded slab: the five cards in reveal order (best last) under one
-   label, **[score] Brainrot Score** then **[combo] x[multiplier]**, plus the Hall of Fame line only
-   when the pull qualifies. At most three short lines; no 1-in-X, XP or fingerprint (that is on the
+   label, **[score] Brainrot Score** then **[combo] x[multiplier]**, plus a Rankings line: Submit
+   when the pull qualifies, or, when it doesn't, one short muted sentence that says why there is no
+   Submit (#1004). At most three short lines; no 1-in-X, XP or fingerprint (that is on the
    share). Next pack is the one primary action, Share secondary. Tiles keep their own New stickers:
    they name different cards.
 6. **Next pack and share.** Next pack returns to a sealed pack under the same cue rules (no replayed
@@ -328,6 +329,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   A closed "How Rankings work" disclosure sits above the lists in every state (loading, failed,
   feed unavailable, empty, populated, both tabs): who qualifies, that nothing is filed
   automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
+  Where Submit is missing because a pull doesn't qualify, the results screen and the share sheet say
+  so in one sentence made from the same rule text (`ui/rankingsRule.ts`) and name "How Rankings
+  work"; both surfaces say "Rankings", and "Hall of Fame" appears only in the disclosure's
+  "other screens call this the Hall of Fame".
 - **Collection eras** (`collection/CollectionBrowser.tsx`): each started era's header is a button
   inside its heading (name, era, owned count, chevron) that shows or hides its grid. The page always
   opens the era you open packs from (else the newest started one), then the other started eras newest
@@ -438,8 +443,8 @@ pack order). That is the shipped best-card rule: `revealOrder`
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
 it explains the formula, not pull excitement.
 
-(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. Then the Hall of Fame line when the pull
-qualifies. The Card guide (one tap, no fold) has
+(Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. Then the Rankings line: Submit when the pull
+qualifies, or the one-sentence reason there is none when it doesn't (#1004). The Card guide (one tap, no fold) has
 points per rarity, the holo, finish and misprint bonuses, the combo multipliers (with a note that a combo counts copies of the same card, and worked
 examples), and Score = card points added up × combo multiplier. There is no per-pack breakdown.
 

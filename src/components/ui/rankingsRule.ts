@@ -1,0 +1,10 @@
+import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
+
+/** Who qualifies for Rankings, worded once so the Rankings page, the share sheet and the results screen agree. */
+export const QUALIFY_RULE = `a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+`;
+
+/** The Rankings page section that explains Submit, named where Submit is missing (#1004). */
+export const RANKINGS_HELP = 'How Rankings work';
+
+/** Why a pull that doesn't qualify has no Submit, in one short sentence. */
+export const NOT_QUALIFYING = `Doesn't qualify for Rankings, which take ${QUALIFY_RULE}. See ${RANKINGS_HELP}.`;
