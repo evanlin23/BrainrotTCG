@@ -333,11 +333,14 @@ const logMotion = (page: Page) => page.addInitScript(() => {
     log.push({ kind: 'waapi', what: [...props].join('+'), ms: Number(timing.duration ?? 0), iterations: timing.iterations ?? 1, target: className(this) });
     return animate.call(this, keyframes as Keyframe[], options);
   };
+  // An animation on ::before or ::after is reported on its element, and only a subtree look finds it.
   const started = (event: Event) => {
     const el = event.target as Element;
     const name = (event as AnimationEvent).animationName ?? (event as TransitionEvent).propertyName;
-    const timing = el.getAnimations()
-      .find((a) => ((a as CSSAnimation).animationName ?? (a as CSSTransition).transitionProperty) === name)?.effect?.getComputedTiming();
+    const pseudo = (event as AnimationEvent | TransitionEvent).pseudoElement || null;
+    const timing = el.getAnimations({ subtree: true })
+      .find((a) => ((a as CSSAnimation).animationName ?? (a as CSSTransition).transitionProperty) === name
+        && (a.effect as KeyframeEffect).target === el && (a.effect as KeyframeEffect).pseudoElement === pseudo)?.effect?.getComputedTiming();
     log.push({ kind: event.type, what: name, ms: Number(timing?.duration ?? -1), iterations: Number(timing?.iterations ?? 1), target: className(el) });
   };
   document.addEventListener('animationstart', started, true);
@@ -417,7 +420,9 @@ for (const mode of MOTION_MODES) {
         // framer-motion 14 runs the flip's rotateY spring as one Web Animation per flip (#673), not as
         // per-frame style writes that the stylesheet's transition picked up.
         expect(log.filter((entry) => entry.kind === 'waapi' && entry.what === 'transform' && entry.target === 'card-inner').length, 'the cards flipped').toBe(5);
-        expect(log.some((entry) => entry.iterations === Infinity), 'nothing looped').toBe(true);
+        // Niu Lai is holo, so its face's shimmer (on ::after) loops for as long as it shows. The loading
+        // shimmer and the open cue's arrows loop too, but only while art renders or the cue plays.
+        expect(log.some((entry) => entry.what === 'holoRainbowShimmer' && entry.target === 'card-face' && entry.iterations === Infinity), 'nothing looped').toBe(true);
       }
       expect(errors).toEqual([]);
     });
