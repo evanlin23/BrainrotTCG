@@ -143,7 +143,6 @@ it.each(['QuotaExceededError', 'SecurityError'])(
     app.takeErrors(/^Failed to save to localStorage key /);
     expect(Object.fromEntries(PROGRESS.map((key) => [key, localStorage.getItem(key)]))).toEqual(saved);
   },
-  60_000,
 );
 
 it('warns when the ticket mapping of a new pack cannot be written to the history', async () => {

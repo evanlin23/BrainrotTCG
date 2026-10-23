@@ -232,7 +232,6 @@ describe('saved packs read on demand', () => {
       expect(historyPacksState()).toBe('ready');
       expect(errors).not.toHaveBeenCalled();
     },
-    30_000,
   );
 
   it("keeps your own stats when another player's saved pack can't be read, and holds back only the history", async () => {

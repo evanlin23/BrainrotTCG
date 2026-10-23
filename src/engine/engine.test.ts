@@ -123,11 +123,11 @@ const rollSlot = (set: SetDefinition, draws: readonly number[]) => {
   const asked: number[] = [];
   const [card] = packFromDraws({ ...set, packSize: 1 }, { int: (n) => draws[asked.push(n) - 1] });
   const version: Version = { cardId: card.cardId, isHolo: card.isHolo, finish: card.finish ?? null, misprint: !!card.misprint };
-  return { version, asked };
+  return { version, rarity: card.rarity, asked };
 };
 
-/** Whether two slots asked for the same draws (the card draw's range is its rarity's pool, so it may differ). */
-const sameDraws = (a: number[], b: number[]) => a.length === b.length && a.every((n, j) => j === 1 || n === b[j]);
+/** The draws a slot asks for, with the card draw's range (its rarity's pool) set to `pool`. */
+const withPool = (ranges: readonly number[], pool: number) => ranges.map((n, j) => (j === 1 ? pool : n));
 
 const exactSlots = new Map<SetDefinition, { cards: Map<string, number>; slot: { version: Version; chance: number }[] }>();
 
@@ -135,47 +135,59 @@ const exactSlots = new Map<SetDefinition, { cards: Map<string, number>; slot: { 
  * The exact chance of every version one slot of `set` can roll, read off generatePack's own rules
  * (packFromDraws) by trying every value of every draw instead of sampling seeds. The rarity and card
  * draws are tried together over every value. Each later draw (holo, then with modifiers finish and
- * misprint) is tried over its whole range with every other draw at the bottom, and then the top, of
- * its range: it must ask for the same draws, move at most one field that no other draw moves, never
- * the card, and split that field the same way both times. A version's chance is then its card's
- * chance times the share of each later draw's value. Cached per set.
+ * misprint) is tried over its whole range with the other draws at the bottom of their ranges with
+ * the rarity draw at each rarity's first value, and then at the top of their ranges: it must ask for
+ * the same draws, move at most one field that no other draw moves, never the card, and split that
+ * field the same way every time. A version's chance is then its card's chance times the share of
+ * each later draw's value. Cached per set.
  */
 const exactSlot = (set: SetDefinition) => {
   const cached = exactSlots.get(set);
   if (cached) return cached;
-  const bottom = rollSlot(set, [0, 0, 0, 0, 0]);
-  const ranges = bottom.asked;
+  const ranges = rollSlot(set, [0, 0, 0, 0, 0]).asked;
+  expect(ranges[0], 'the rarity draw spans the odds').toBe(ODDS_TOTAL);
   const cards = new Map<string, number>();
   const rolled = new Map<string, { version: Version; chance: number }>();
+  // Each rarity's first rarity-draw value, with every other draw at the bottom of its range.
+  const firsts: number[][] = [];
+  let previous: string | undefined;
   for (let rarity = 0; rarity < ranges[0]; rarity++) {
-    const pool = rollSlot(set, [rarity, 0, 0, 0, 0]).asked[1];
+    const first = rollSlot(set, [rarity, 0, 0, 0, 0]);
+    const pool = first.asked[1];
+    expect(pool, `rarity draw ${rarity} picks from every ${first.rarity} card`).toBe(set.cards.filter((c) => c.rarity === first.rarity).length);
+    if (first.rarity !== previous) firsts.push(ranges.map((_, j) => (j === 0 ? rarity : 0)));
+    previous = first.rarity;
     for (let pick = 0; pick < pool; pick++) {
       const { version, asked } = rollSlot(set, [rarity, pick, 0, 0, 0]);
-      if (!sameDraws(asked, ranges)) expect(asked).toEqual(ranges);
+      expect(asked, `rarity draw ${rarity}, card draw ${pick}`).toEqual(withPool(ranges, pool));
       const chance = 1 / ranges[0] / pool;
       cards.set(version.cardId, (cards.get(version.cardId) ?? 0) + chance);
       const key = JSON.stringify(version);
       rolled.set(key, { version, chance: (rolled.get(key)?.chance ?? 0) + chance });
     }
   }
+  expect(firsts, 'one first value per rarity with odds').toHaveLength(Object.values(set.odds).filter((odds) => odds > 0).length);
   const topPool = rollSlot(set, [ranges[0] - 1, 0, 0, 0, 0]).asked[1];
-  const ends = [ranges.map(() => 0), ranges.map((n, j) => (j === 1 ? topPool : n) - 1)];
+  const ends = [...firsts, ranges.map((n, j) => (j === 1 ? topPool : n) - 1)];
   const movedBy = new Set<string>();
   let slot = [...rolled.values()];
   for (let j = 2; j < ranges.length; j++) {
-    const [low, high] = ends.map((end) => {
+    const [low, ...others] = ends.map((end) => {
       const tally = new Map(VERSION_FIELDS.map((field) => [field, new Map<unknown, number>()]));
+      const asks = new Set<string>();
       for (let value = 0; value < ranges[j]; value++) {
         const draws = [...end];
         draws[j] = value;
         const { version, asked } = rollSlot(set, draws);
-        if (!sameDraws(asked, ranges)) expect(asked).toEqual(ranges);
+        asks.add(asked.join());
         for (const field of VERSION_FIELDS) tally.get(field)!.set(version[field], (tally.get(field)!.get(version[field]) ?? 0) + 1);
       }
+      const pool = rollSlot(set, end).asked[1];
+      expect([...asks], `draw ${j} with the other draws at ${end}`).toEqual([withPool(ranges, pool).join()]);
       const moved = VERSION_FIELDS.filter((field) => tally.get(field)!.size > 1);
       return { moved, split: moved.map((field) => tally.get(field)) };
     });
-    expect(high, `draw ${j} at the top of the other draws`).toEqual(low);
+    others.forEach((other, k) => expect(other, `draw ${j} with the other draws at ${ends[k + 1]}`).toEqual(low));
     expect(low.moved.length, `draw ${j} moves one field`).toBeLessThanOrEqual(1);
     const field = low.moved[0];
     if (!field) continue;

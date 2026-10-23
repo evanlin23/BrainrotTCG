@@ -588,7 +588,8 @@ packs, about 5 s each with coverage) passed the 5 s default under load. The fix 
   rules actually roll, exactly, in well under a second. One sampled test (40,000 packs through the
   real RNG) stays as the bridge from seeds to draws. `src/engine/odds.test.ts` brute-forces packs
   as multisets with multinomial weights instead of every ordering.
-- **One hang guard.** No test sets its own timeout. `HANG_TIMEOUT_MS` (120 s) only names a test
+- **One hang guard.** No test sets its own timeout, and `scripts/test-budget.test.ts` fails if a test
+  file under `src/` or `scripts/` gives a test or hook one again. `HANG_TIMEOUT_MS` (120 s) only names a test
   that never finishes: it sits about 20x above the slowest test with coverage and 5x above it at 4x
   contention, so load alone can't reach it. A child process started with `spawnSync` blocks the
   worker, so such tests keep their own `timeout` on the child (60 s for the set and Hall of Fame
