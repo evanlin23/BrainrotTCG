@@ -20,6 +20,7 @@ import { DEFAULT_SET_ID, SETS } from './content/sets';
 import type { SetDefinition } from './engine';
 import { canOpenSharedSet } from './game/sharedPullSet';
 import { isCardOwned } from './game/versions';
+import { warmUpForPack } from './game/warmUp';
 import { takePendingPacks, type OpenedPack } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
 import { downloadSaveFile, exportSaveFile, importSaveFile, NEW_PLAYER_PARTIAL_NOTE, PARTIAL_IMPORT_NOTE, STALE_SAVE_WARNING, startNewPlayer } from './game/saveFile';
@@ -50,8 +51,9 @@ import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 
 // Keep loaders stable. A page or sheet is requested when its route or state opens it, or a moment
 // earlier when the player points at, focuses or presses what opens it: never at startup (unless the
-// address opens it) or on idle.
-/** The toasts and their styles are fetched when the first one is due, so the first screen doesn't carry them: a new player sees none before a pack is saved. */
+// address opens it) or on idle. The toasts are neither: one is due within seconds of a pack, so
+// their fetch is warmed once the sealed pack's art has settled and the page is idle (game/warmUp).
+/** The toasts and their styles stay off the first screen's load: fetched ahead of the first pack once idle, or when the first is due. */
 const loadToasts = sheetLoader(() => import('./components/achievements/AchievementToasts'));
 const loadProfilePage = sheetLoader(() => import('./components/profile/ProfilePage'));
 const loadPublicProfile = sheetLoader(() => import('./components/profile/ProfileViewerPage'));
@@ -417,6 +419,17 @@ function App() {
   // again when the next toast is due; the queue keeps what was waiting.
   const [toastsLoaded, setToastsLoaded] = useState(!!loadToasts.loaded);
   const toastsDue = visibleNotifications.length > 0;
+  // Ahead of the first pack, so opening one offline still gets its toast; a failure is left to the due-fetch below.
+  useEffect(() => {
+    if (toastsLoaded) return;
+    let live = true;
+    warmUpForPack(() => {
+      loadToasts().then(() => live && setToastsLoaded(true), () => {});
+    });
+    return () => {
+      live = false;
+    };
+  }, [toastsLoaded]);
   useEffect(() => {
     if (toastsLoaded || !toastsDue) return;
     let live = true;
