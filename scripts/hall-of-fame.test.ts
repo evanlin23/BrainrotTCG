@@ -612,9 +612,9 @@ describe('verify-issue (issue workflow)', () => {
   describe('closing a duplicate of an earlier issue (#21)', () => {
     const NOW = '2026-10-16T12:00:00Z';
     /** Issue `number` with this event, opened at `created` (and, if edited, edited at `updated`). */
-    const runAs = async (action: string, number: number, { created = NOW, updated = created, labels = ['hall-of-fame'] }: { created?: string; updated?: string; labels?: string[] } = {}) => {
+    const runAs = async (action: string, number: number, { created = NOW, updated = created, labels = ['hall-of-fame'], stateReason = null }: { created?: string; updated?: string; labels?: string[]; stateReason?: string | null } = {}) => {
       rmSync('github-output', { force: true });
-      writeFileSync('event.json', JSON.stringify({ action, issue: { ...issue(number, fourOfAKind, { labels, updated }), created_at: created } }));
+      writeFileSync('event.json', JSON.stringify({ action, issue: { ...issue(number, fourOfAKind, { labels, updated }), created_at: created, state_reason: stateReason } }));
       await verifyIssue();
       return { comment: readFileSync('hof-comment.md', 'utf8'), outputs: outputs() };
     };
@@ -638,7 +638,9 @@ describe('verify-issue (issue workflow)', () => {
       expect(result.outputs).toEqual(DUPLICATE(3));
       expect(result.comment).toContain('**Not added.**');
       expect(result.comment).toContain('\n\nDuplicate of #3\n');
-      expect(result.comment).toContain('reopen this issue');
+      // The submitter can't reopen an issue the bot closed, so it asks a maintainer to.
+      expect(result.comment).toContain('comment here asking a maintainer to reopen it');
+      expect(result.comment).not.toContain('reopen this issue');
       expect(result.comment).toContain('https://github.com/evanlin23/BrainrotTCG/issues/new/choose');
       expect(result.comment).not.toContain('hof-verified');
       // The earlier issue is read, never written: only this issue's own step closes it.
@@ -711,14 +713,21 @@ describe('verify-issue (issue workflow)', () => {
       expect((await runAs('opened', 7)).outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
     });
 
-    it('closes nothing on a reopened issue, which is how a person contests it', async () => {
+    it("closes nothing on an issue a maintainer reopened, which is the owner's override, nor on its later edits", async () => {
       const published = await listing();
       const gh = fakeGitHub({ issues: [old(3)], comments: { 3: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] }, published: published(3) });
-      const result = await runAs('reopened', 7, { updated: NOW });
+      const result = await runAs('reopened', 7, { updated: NOW, stateReason: 'reopened' });
       expect(result.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
       expect(result.comment).toContain('already in the Hall of Fame');
       // Not even looked for.
       expect(gh.requests.filter((r) => r.path !== '/issues/7/comments')).toEqual([]);
+      // Edited after the reopen: GitHub keeps `state_reason: reopened`, and it still isn't closed.
+      const edited = await runAs('edited', 7, { created: '2026-10-10T00:00:00Z', updated: NOW, stateReason: 'reopened' });
+      expect(edited.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+      expect(edited.comment).not.toContain('Duplicate of');
+      expect(gh.requests.filter((r) => r.path !== '/issues/7/comments')).toEqual([]);
+      // The same edit on an issue nobody reopened is closed.
+      expect((await runAs('edited', 7, { created: '2026-10-10T00:00:00Z', updated: NOW })).outputs).toEqual(DUPLICATE(3));
     });
 
     it("closes nothing when GitHub can't be read", async () => {

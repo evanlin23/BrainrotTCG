@@ -240,8 +240,10 @@ read as "Someone"), beside the key fingerprint in Rankings, shared pull links an
 - Duplicates (#21): `verify-issue` closes an opened or edited issue, as a duplicate, when a
   lower-numbered issue that isn't `rejected` already holds the same pull (same `pullId`) under
   `verified` or `daily`, and the bot verified it there before GitHub received this issue's body. It
-  says which issue, and how to contest it. It never touches the other issue, never closes on
-  `reopened` (reopening is the override), and closes nothing when GitHub can't be read. Of two issues
+  says which issue, and how to contest it: comment asking a maintainer to reopen it, or file a new
+  issue (the submitter can't reopen an issue the bot closed). It never touches the other issue, and
+  never closes one a maintainer reopened, on `reopened` or any later edit: reopening is the owner's
+  override. It closes nothing when GitHub can't be read. Of two issues
   received at once, neither closes: the earlier-numbered one never yields to a later one, and the
   later one was received before the other was verified.
 - An entry verified before the word list blocked its name drops out at the next deploy and no longer

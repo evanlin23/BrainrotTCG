@@ -120,6 +120,8 @@ interface Issue {
   user: { login: string } | null;
   labels: ({ name?: string } | string)[];
   pull_request?: unknown;
+  /** `reopened` once a maintainer has reopened it, and it stays so through later edits. */
+  state_reason?: string | null;
 }
 
 const labelNames = (issue: Issue) => issue.labels.map((l) => (typeof l === 'string' ? l : l.name ?? ''));
@@ -291,8 +293,10 @@ export const verifyIssue = async () => {
     const list = await publishedList();
     const day = today();
     const reason = list && joinRefusal(result.pull, list, day);
-    // Only an issue opened or edited is closed: reopening one is how a person keeps it open.
-    const received = event.action === 'opened' ? event.issue.created_at : event.action === 'edited' ? event.issue.updated_at : null;
+    // Only an issue opened or edited is closed. Reopening one (only a maintainer can, once the bot has
+    // closed it) keeps it open, through later edits too.
+    const reopened = event.issue.state_reason === 'reopened';
+    const received = reopened ? null : event.action === 'opened' ? event.issue.created_at : event.action === 'edited' ? event.issue.updated_at : null;
     const original = received && token ? await duplicateOf(result.entry.id, event.issue.number, received, list, token) : null;
     if (original) result = { ok: false, reason: duplicateReason(original), duplicateOf: original };
     else if (reason) result = { ok: false, reason };
@@ -448,7 +452,7 @@ const duplicateOf = async (id: string, number: number, received: string, list: r
 
 /** Why a duplicate is closed, and how to contest it. `original` is a number from GitHub, not issue text. */
 const duplicateReason = (original: number) =>
-  `#${original} already holds this pull and its place in the Hall of Fame, so this issue is closed as a duplicate. If that's wrong, reopen this issue, or tell the maintainers through a [new issue](https://github.com/${REPO}/issues/new/choose).\n\nDuplicate of #${original}`;
+  `#${original} already holds this pull and its place in the Hall of Fame, so this issue is closed as a duplicate. If that's wrong, comment here asking a maintainer to reopen it, or tell the maintainers through a [new issue](https://github.com/${REPO}/issues/new/choose).\n\nDuplicate of #${original}`;
 
 /**
  * Issues the bot has verified (it adds the labels; submitters can't add labels themselves): every
