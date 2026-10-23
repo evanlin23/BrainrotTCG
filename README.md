@@ -99,6 +99,7 @@ covers is in [Development and verification](docs/DEVELOPMENT.md#browser-smoke).
 
 Contributing? Start with [Development and verification](docs/DEVELOPMENT.md) before taking an issue.
 Policy on money, privacy and kids, and content and IP is in [docs/POLICIES.md](docs/POLICIES.md).
+Conduct, name reports and takedown requests are in the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

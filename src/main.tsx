@@ -1,9 +1,9 @@
 import { StrictMode, type ReactNode } from 'react'
-import { MotionConfig } from 'framer-motion'
 import { createRoot } from 'react-dom/client'
 import './styles/index.css'
 import App from './App'
 import AppErrorBoundary, { CrashFallback } from './components/ui/AppErrorBoundary'
+import MotionProvider from './components/ui/MotionProvider'
 import MigrationRecovery from './components/ui/MigrationRecovery'
 import { trackInputModality } from './components/ui/inputModality'
 import { runMigrations } from './utils/migrations'
@@ -12,6 +12,10 @@ import { receiveSave } from './game/move'
 import { resumeReopening } from './game/profiles'
 import { warmUpFirstPack } from './game/warmUp'
 import { markStaging } from './game/staging'
+import { STORAGE_KEYS } from './constants'
+import { setMotionSetting } from './utils/motion'
+import { readSettings } from './utils/settings'
+import { getStoredData } from './utils/storage'
 
 markStaging()
 
@@ -55,13 +59,14 @@ handedOver.then((receiver) => {
   // their own handling (the hand-over is skipped, migrations show the screens above).
   // Script-moved focus rings for keyboard players only (base.css); this says which kind they are.
   trackInputModality()
+  // The saved Motion setting applies from the first paint (App keeps it current afterwards).
+  setMotionSetting(readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)).motion ?? 'auto')
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <AppErrorBoundary>
-        {/* Respect the OS "reduce motion" setting for every framer-motion animation. */}
-        <MotionConfig reducedMotion="user">
+        <MotionProvider>
           <App />
-        </MotionConfig>
+        </MotionProvider>
       </AppErrorBoundary>
     </StrictMode>,
   )

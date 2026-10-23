@@ -6,7 +6,7 @@ import { reloadPage } from '../../game/reload';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundVolume } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
-import type { Settings } from '../../types';
+import type { MotionSetting, Settings } from '../../types';
 import type { SetDefinition } from '../../engine';
 import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
@@ -334,6 +334,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                         onChange={(effectsVolume) => onSettingsChange({ ...settings, effectsVolume })}
                         onRelease={(effectsVolume) => playSample(effectsVolume)}
                     />
+                    <ChoiceRow<MotionSetting>
+                        label="Motion"
+                        desc="Auto follows your device's reduced-motion setting. Reduced keeps reveals and celebrations calm whatever your device says. Scores and saves don't change."
+                        value={settings.motion ?? 'auto'}
+                        options={[{ value: 'auto', label: 'Auto' }, { value: 'reduced', label: 'Reduced' }]}
+                        onChange={(motion) => onSettingsChange({ ...settings, motion })}
+                    />
                     <SwitchRow
                         label="Particles"
                         desc="Confetti on Epic and better pulls, finishes and misprints; sparkles on holos; sparks as you swipe a pack open. Plain cards just flip."
@@ -514,6 +521,41 @@ const SliderRow = ({ label, desc, value, onChange, onRelease }: { label: string;
                     onKeyUp={release}
                 />
                 <span className="settings-value tabular" aria-hidden="true">{text}</span>
+            </span>
+        </div>
+    );
+};
+
+const ChoiceRow = <T extends string>({ label, desc, value, options, onChange }: { label: string; desc: string; value: T; options: { value: T; label: string }[]; onChange: (value: T) => void }) => {
+    const id = useId();
+    // A radio group, as in the rewards pickers: one Tab stop (the chosen one), arrow keys move the choice.
+    const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+        if (!step) return;
+        event.preventDefault();
+        const at = Math.max(0, options.findIndex((option) => option.value === value));
+        const next = options[(at + step + options.length) % options.length];
+        onChange(next.value);
+        event.currentTarget.querySelector<HTMLElement>(`[data-choice="${next.value}"]`)?.focus();
+    };
+    return (
+        <div className="settings-row settings-row--choice">
+            <span className="settings-text">
+                <span className="settings-label" id={`${id}-label`}>{label}</span>
+                <span className="settings-desc" id={`${id}-desc`}>{desc}</span>
+            </span>
+            <span className="settings-choice" role="radiogroup" aria-labelledby={`${id}-label`} aria-describedby={`${id}-desc`} onKeyDown={onKeyDown}>
+                {options.map((option) => (
+                    <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        data-choice={option.value}
+                        aria-checked={option.value === value}
+                        tabIndex={option.value === value ? 0 : -1}
+                        onClick={() => onChange(option.value)}
+                    >{option.label}</button>
+                ))}
             </span>
         </div>
     );

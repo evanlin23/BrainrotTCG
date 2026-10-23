@@ -38,6 +38,11 @@ from a 390 px wide screen.
    until the pack is done, so the reveal owns the screen. Every stage of a pack, from the tear to the
    summary, has the same top bar with one X ("Back to packs"), and Escape and the browser's Back do
    what it does. Tapping empty space never leaves a pack.
+   The sealed pack falls in from above only the first time the packs screen is on screen after the page
+   loads (a load straight into #/cards waits until the packs screen is shown). Every return (Back, Escape,
+   the X, Next pack) uses a short entrance instead: it fades in while rising about 24px over 180 ms, with
+   no rotation, so the stage never passes over the header or the gear and takes a tap as soon as it is at
+   rest. Reduced motion makes the return instant (#720).
 4. **Places are pages, moments are sheets.** Cards, Rankings, Profile and Settings are pages with an
    address (`#/cards` and so on), a title and the browser's Back; the packs screen stays mounted under
    them so a pack in progress survives. Sheets are only for things over the current place: sharing,
@@ -100,7 +105,15 @@ results line (`PackSummaryUI.tsx`) that goes.
    swipe ends in is swallowed; keys are scoped to the focused pack, never the page). No separate
    Open pack button. Focus is a visible ring on the wrapper; while the ticket works it reads
    "Opening..." and further input is ignored. A finger and a partial tear play along the seam, at
-   most twice (counted per device, never part of a save), and stop at the first touch. A press that
+   most twice (counted per device, never part of a save), and stop at the first touch. After that, and
+   for every player, a sealed pack left untouched keeps one quiet cue that never retires: its top
+   strip lifts about 1.5% of the pack's height (roughly 10px on a phone) along the seam every few
+   seconds and settles back, a gap opening from nothing, with no slit or clip animated: only
+   transform moves, so it runs off the main thread. It stops at a press (the finger's whole time down,
+   wherever it landed), the missed-press nudge, the refusal and the finger cue, and after the cut. It
+   returns once a short swipe's hint has gone. Only the
+   picture moves; the tear line and the pack's box stay put. Reduced motion has no gap (an open slit
+   can read as a damaged pack): a short still dashed perforation shows just above the tear line. A press that
    wanders more than a tap's slop (10px) is a drag and never opens the pack, even back where it began.
    The focus ring is drawn inside the pack's edge so the stage never clips it. Reduced motion shows the arrowheads and a caption
    ("Swipe across to open"; desktop "Drag across, or click") with no motion. Swiping the pack body
@@ -214,6 +227,16 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
 | States | `--focus-ring`, `--focus-outline`, `--focus-outline-quiet`, `--opacity-disabled` | see the rules below |
 | Layers | `--z-stage-fx` (5), `--z-header` (40), `--z-nav` (50), `--z-hud` (60), `--z-sheet` (100), `--z-toast` (200) | the only z-index values above 3 |
 
+- **Motion setting.** Settings > Motion is Auto (follows the device, live) or Reduced (calm whatever the device
+  says), saved with the other settings; Auto is the default and an older or unreadable value reads as Auto. Reduced
+  sets `data-motion="reduced"` on `<html>` (main.tsx before the first render, App on every change) and
+  `prefersReducedMotion()` in `utils/motion.ts` reads it, so scripts and framer-motion (`MotionProvider`) follow the
+  same signal. Write `@media (prefers-reduced-motion: reduce)` blocks as always: the build (`scripts/reduced-motion-css.ts`)
+  repeats each under `:root[data-motion="reduced"]` (through `:where()`, so a copy has the specificity of its original)
+  and keeps `no-preference` blocks off while Reduced is on, so there is no second set of rules to keep in step. It stops
+  the build on a query or selector it cannot mirror: a combined or nested query, or a selector led by `html` (lead it with `:root`).
+  The two choices are a radio group (one Tab stop, arrow keys move the choice), like the reward pickers.
+  Reduced changes presentation only: scoring, saving and proofs are untouched, and the Particles and big-pull pause settings keep their own meaning.
 - **Layers.** Inside a component, stack with 1-3 under `isolation: isolate` (DOM order breaks ties).
   Anything that must clear its siblings takes a `--z-*` token. `tests/style-scan.test.ts` fails on a
   raw z-index above 3.

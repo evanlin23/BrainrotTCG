@@ -228,10 +228,12 @@
   --dur-loop: 3000ms;
   --dur-spin: 900ms;
   /* Loops: a breath (waiting pack, big-pull tell), a shimmer (skeletons, swipe hint, seam), a slow foil
-     drift. Not zeroed below: index.css stops every loop under reduced motion. */
+     drift, the sealed pack's idle lift (one lift per period). Not zeroed below: index.css stops every loop
+     under reduced motion. */
   --dur-pulse: 1200ms;
   --dur-shimmer: 1500ms;
   --dur-drift: 6000ms;
+  --dur-idle: 5500ms;
 
   /* Layout */
   --touch-target: 44px;
