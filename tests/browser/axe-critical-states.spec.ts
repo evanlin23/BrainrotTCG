@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AXE_EXCEPTIONS, AXE_RULES, type AxeException, expectAxeClean, problems, scanPage } from './axe-scan';
+import { AXE_EXCEPTIONS, AXE_RULES, AXE_STATES, type AxeException, expectAxeClean, invalidExceptions, problems, scanPage, settle } from './axe-scan';
 import { expectDecoded, monitor } from './support';
 
 /**
@@ -105,10 +105,41 @@ test.describe('the scanner reports what is wrong', () => {
   });
 
   test('an empty page cannot pass', async ({ page }) => {
-    await page.setContent('<!doctype html><html><head></head><body></body></html>');
+    // A title and a language, so the only thing wrong is that there is nothing to judge.
+    await page.setContent(page5(''));
     const report = await scanPage(page, 'wiring-empty');
-    expect(report.notApplied).toContain('color-contrast');
-    expect(problems(report)).not.toEqual([]);
+    expect(report.violations).toEqual([]);
+    expect(problems(report)).toEqual(['color-contrast found nothing to check']);
+  });
+
+  test('a scan that passed no nodes cannot pass', async ({ page }) => {
+    await page.setContent(page5('<div id="empty"></div>'));
+    const report = await scanPage(page, 'wiring-scope', '#empty');
+    expect(report.passedNodes).toBe(0);
+    expect(problems(report)).toContain('axe passed no nodes at all');
+  });
+
+  test('the scan waits for a colour transition to finish', async ({ page }) => {
+    await page.setContent(page5('<p id="words" style="margin:0;color:#ccc;background:#fff;transition:color 600ms linear">Fading words</p>'));
+    const running = await page.evaluate(() => {
+      const words = document.getElementById('words')!;
+      words.style.color = '#000';
+      return document.getAnimations().length;
+    });
+    expect(running).toBe(1);
+    await settle(page);
+    expect(await page.evaluate(() => ({ color: getComputedStyle(document.getElementById('words')!).color, running: document.getAnimations().length })))
+      .toEqual({ color: 'rgb(0, 0, 0)', running: 0 });
+  });
+
+  test('the scan does not wait on a paused animation, and reads a looping one at rest', async ({ page }) => {
+    await page.setContent(page5('<style>@keyframes fade { to { opacity: 0.3 } } .held { animation: fade 600ms paused } .pulse { animation: fade 600ms ease-in-out infinite alternate }'
+      + ' @media (prefers-reduced-motion: reduce) { .pulse { animation: none } }</style><p class="held">Held words</p><p class="pulse">Pulsing words</p>'));
+    expect(await page.evaluate(() => document.getAnimations().length)).toBe(2);
+    const report = await scanPage(page, 'wiring-motion');
+    expect(report.violations).toEqual([]);
+    // The page's own motion setting is back once the scan is over.
+    expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(false);
   });
 
   test('contrast on art is reported as unjudged, not as passed', async ({ page }) => {
@@ -127,7 +158,7 @@ test.describe('the scanner reports what is wrong', () => {
       bare.append(document.createElementNS('http://www.w3.org/2000/svg', 'svg'));
       document.body.append(bare);
     });
-    await expect(expectAxeClean(page, testInfo, 'first-pack-defect')).rejects.toThrow(/button-name/);
+    await expect(expectAxeClean(page, testInfo, 'first-pack')).rejects.toThrow(/button-name/);
     expect(errors).toEqual([]);
   });
 
@@ -151,8 +182,19 @@ test.describe('the scanner reports what is wrong', () => {
     expect(problems(gone).some((line) => line.startsWith('stale exception'))).toBe(true);
   });
 
-  test('every rule in the list exists, and the exception list names only listed rules', () => {
-    for (const exception of AXE_EXCEPTIONS) expect(AXE_RULES).toContain(exception.rule);
+  test('the exception list is complete, and names only listed rules and states', () => {
+    expect(invalidExceptions(AXE_EXCEPTIONS)).toEqual([]);
     expect(new Set(AXE_RULES).size).toBe(AXE_RULES.length);
+    expect(new Set(AXE_STATES).size).toBe(AXE_STATES.length);
+  });
+
+  test('an incomplete or misnamed exception is reported', () => {
+    const complete: AxeException = { state: 'summary', rule: 'button-name', selector: '#x', reason: 'why', owner: 'who', removeWhen: 'when' };
+    expect(invalidExceptions([complete])).toEqual([]);
+    expect(invalidExceptions([{ ...complete, reason: ' ', owner: '', removeWhen: '' }])).toEqual([
+      'button-name in summary has no reason', 'button-name in summary has no owner', 'button-name in summary has no removeWhen',
+    ]);
+    expect(invalidExceptions([{ ...complete, state: 'sumary', selector: '' }])).toEqual(['unknown state "sumary"', 'button-name in sumary has no selector']);
+    expect(invalidExceptions([{ ...complete, rule: 'button-nme' as AxeException['rule'] }])).toEqual(['unknown rule "button-nme"']);
   });
 });
