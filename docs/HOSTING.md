@@ -319,18 +319,26 @@ old UI. The GitHub redirect's copy may differ until refreshed; record that expli
 
 Every deploy ends with these checks in its `smoke` job (bounded to 15 minutes, no secrets, a
 read-only token), once publish and deploy are done. `scripts/production-smoke.ts` makes the GETs
-below, expecting this run's own `sha` and `run_id` in the marker, and also checks each script and
-stylesheet the page names (JavaScript or CSS, never HTML), that every ranking proof decodes, that the
-preview image decodes at its stated size, and on Cloudflare that the old address forwards (its page
-and an unknown link both forward here, keeping the path and hash) and serves the same Hall of Fame
-list. A check that fails is tried at most three times, 5 and then 10 seconds apart, for an edge still
-catching up. Then `playwright.production.config.ts` runs the shared-pull smoke specs against
-production in a fresh browser context: public proof fixtures, card and share pages, malformed links
-and every lazy screen, with every write and every request to another origin refused, so nothing
-reaches a relay, the Hall of Fame or analytics. A failure turns the deploy run red, and its summary
-names the newest deploy run on `main` that passed as the rollback target (see
-[Recover on the same origin](#recover-on-the-same-origin); otherwise fix forward on `main`). Nothing
-is uploaded: traces stay on the discarded runner. Use the steps below after a dashboard rollback or
+below. On Cloudflare it first asks for the marker until it names this run's own `sha` and `run_id`
+(every 6 seconds, at most 10 times, while the edge still serves an older run or doesn't answer),
+and fails at once on a newer run or another address; nothing else is read before that, so no check
+reads an older release. GitHub Pages has no marker, so its checks start once `deploy-pages` returns.
+Then, once each with no retries, it checks each script and stylesheet the page names (JavaScript or
+CSS, never HTML), that every ranking proof decodes and that the preview image decodes at its stated
+size. If those pass, on Cloudflare it checks that the old address forwards (its page and an unknown
+link both forward here, keeping the path and hash), serves the same Hall of Fame list, and that its
+copy of a set page keeps production's link preview (`og:image` and its size); what the old address
+must serve is exact, so it is asked again like the marker while GitHub Pages catches up. Then
+`playwright.production.config.ts` runs the shared-pull smoke specs against production in a fresh
+browser context: public proof fixtures, card and share pages, malformed links and every lazy
+screen, with every write and every request to another origin refused, so nothing reaches a relay,
+the Hall of Fame or analytics. A failure turns the deploy run red. A last step always runs
+(`production-smoke.ts --status`): it calls the release known-good only when both the HTTP and the
+browser checks passed, and otherwise names the newest deploy run on `main` that passed on an
+earlier commit as the rollback target, or says to fix forward when there is none. That run may
+predate these checks or have been a GitHub Pages run, so check its `smoke` job before trusting it
+(see [Recover on the same origin](#recover-on-the-same-origin); otherwise fix forward on `main`).
+Nothing is uploaded: traces stay on the discarded runner. Use the steps below after a dashboard rollback or
 other recovery, which starts no deploy run.
 
 Smoke check, GETs only (`curl -fsS`), each with a fresh `?run=<anything>` so no cache answers (as

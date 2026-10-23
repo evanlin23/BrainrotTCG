@@ -319,11 +319,17 @@ class Workflows(unittest.TestCase):
         changes = {
             'skipped': lambda steps: steps.pop(3),
             'ignored': lambda steps: steps[3].update(run=steps[3]['run'].replace('.ts', '.ts || true')),
-            'browser skipped': lambda steps: steps.pop(),
-            'other config': lambda steps: steps[-1].update(run='npx playwright test -c playwright.staging.config.ts'),
-            'conditional': lambda steps: steps[-1].update({'if': "needs.site.outputs.host == 'cloudflare'"}),
-            'continues on error': lambda steps: steps[-1].update({'continue-on-error': True}),
+            'browser skipped': lambda steps: steps.pop(5),
+            'other config': lambda steps: steps[5].update(run='npx playwright test -c playwright.staging.config.ts'),
+            'conditional': lambda steps: steps[5].update({'if': "needs.site.outputs.host == 'cloudflare'"}),
+            'browser runs always': lambda steps: steps[5].update({'if': 'always()'}),
+            'continues on error': lambda steps: steps[5].update({'continue-on-error': True}),
             'other address': lambda steps: steps[3]['env'].update(SITE_URL='${{ needs.site.outputs.staging_url }}'),
+            'no status': lambda steps: steps.pop(),
+            'status only on success': lambda steps: steps[-1].pop('if'),
+            'status reads one outcome twice': lambda steps: steps[-1]['env'].update(BROWSER_OUTCOME='${{ steps.http.outcome }}'),
+            'status of another check': lambda steps: steps[5].update(id='checks'),
+            'status before the checks': lambda steps: steps.insert(3, steps.pop()),
         }
         for label, change in changes.items():
             with self.subTest(label):

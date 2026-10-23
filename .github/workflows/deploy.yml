@@ -469,7 +469,8 @@ jobs:
     # Read-only checks that production (and, on Cloudflare, the old address) serves this release,
     # once publish and deploy are done (scripts/production-smoke.ts, docs/HOSTING.md). GETs only:
     # the browser checks refuse every write and every request to another origin. A failure turns
-    # this run red and names the release to go back to; nothing is uploaded or kept.
+    # this run red; the last step always runs, and calls the release known-good only when both
+    # checks passed, or else names the release to go back to. Nothing is uploaded or kept.
     needs: [site, deploy]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -487,14 +488,26 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Check production serves this release
+        id: http
+        env:
+          SITE_URL: ${{ needs.site.outputs.url }}
+          HOST: ${{ needs.site.outputs.host }}
+          OLD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: npx tsx scripts/production-smoke.ts >> "$GITHUB_STEP_SUMMARY"
+      - run: npx playwright install --with-deps chromium
+      - name: Browser checks on production
+        id: browser
+        env:
+          PRODUCTION_URL: ${{ needs.site.outputs.url }}
+        run: npx playwright test -c playwright.production.config.ts
+      # Runs whatever the checks did: names the rollback target when either failed or never ran.
+      - name: Record the release status
+        if: always()
         env:
           SITE_URL: ${{ needs.site.outputs.url }}
           HOST: ${{ needs.site.outputs.host }}
           OLD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
           GH_TOKEN: ${{ github.token }}
-        run: npx tsx scripts/production-smoke.ts >> "$GITHUB_STEP_SUMMARY"
-      - run: npx playwright install --with-deps chromium
-      - name: Browser checks on production
-        env:
-          PRODUCTION_URL: ${{ needs.site.outputs.url }}
-        run: npx playwright test -c playwright.production.config.ts
+          HTTP_OUTCOME: ${{ steps.http.outcome }}
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
+        run: npx tsx scripts/production-smoke.ts --status >> "$GITHUB_STEP_SUMMARY"

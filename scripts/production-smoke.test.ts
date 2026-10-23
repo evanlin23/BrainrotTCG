@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { redirectPage } from './redirect-site.ts';
 import {
-  FIRST_PAUSE_MS, OLD_LINK, SET_ID, SMOKE_TRIES, httpGet, main, pageAssets, rankingProblem, retried, smoke, summary, targetFromEnv,
+  OLD_LINK, POLLS, POLL_MS, SET_ID, httpGet, main, mainStatus, pageAssets, pickPrevious, rankingProblem, smoke, status, targetFromEnv,
   type Get, type Got, type Target,
 } from './production-smoke.ts';
 
@@ -51,6 +51,7 @@ const site = (changes: Record<string, Got | Error> = {}): { get: Get; asked: str
     [OLD]: html(redirectPage(URL_, '/BrainrotTCG/')),
     [`${OLD}${OLD_LINK}`]: html(redirectPage(URL_, '/BrainrotTCG/'), 404),
     [`${OLD}hall-of-fame.json`]: got('application/json; charset=utf-8', RANKING),
+    [`${OLD}s/${SET_ID}/`]: html(SET_PAGE),
     ...changes,
   };
   const asked: string[] = [];
@@ -66,7 +67,9 @@ const site = (changes: Record<string, Got | Error> = {}): { get: Get; asked: str
 const noPause = async () => {};
 const previous = vi.fn(async () => ({ sha: 'b'.repeat(40), url: 'https://github.com/evanlin23/BrainrotTCG/actions/runs/41' }));
 const run = (changes: Record<string, Got | Error> = {}, env: Record<string, string> = ENV) =>
-  main(env, site(changes).get, previous, { pause: noPause });
+  main(env, site(changes).get, { pause: noPause });
+const marker = (run: string, sha = SHA) =>
+  got('application/json', JSON.stringify({ repository: 'evanlin23/BrainrotTCG', run_id: run, sha, url: URL_ }));
 const failed = async (changes: Record<string, Got | Error>) => {
   const report = await smoke(TARGET, site(changes).get, { pause: noPause });
   return report.checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`);
@@ -88,19 +91,22 @@ describe('a healthy production', () => {
       [`Set page and its link-preview picture (s/${SET_ID}/)`, true],
       ['Old address forwards here', true],
     ]);
-    expect(report.evidence).toEqual({ entry: 'assets/index-AbCd1234.js', assets: 3, ranking: { entries: 1, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) } });
+    expect(report.evidence).toEqual({
+      entry: 'assets/index-AbCd1234.js', assets: 3, ranking: { entries: 1, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      preview: { image: `${URL_}s/${SET_ID}/preview.jpg`, width: '8', height: '4' },
+    });
+    expect(asked).toContain(`${OLD}s/${SET_ID}/?smoke=42-2`);
     expect(asked.every((url) => url.startsWith(URL_) || url.startsWith(OLD))).toBe(true);
     expect(asked.filter((url) => !url.includes('/assets/')).every((url) => url.endsWith('smoke=42-2'))).toBe(true);
   });
 
-  it('exits 0 with a healthy summary, without looking up an older release', async () => {
+  it('exits 0 saying the HTTP checks passed, without yet calling the release known-good', async () => {
     const { code, out, errors } = await run();
     expect(code).toBe(0);
     expect(errors).toEqual([]);
-    expect(out).toContain('### Production smoke check: healthy');
-    expect(out).toContain('known-good target');
+    expect(out).toContain('### Production HTTP checks: passed');
+    expect(out).not.toContain('known-good');
     expect(out).toContain('`assets/index-AbCd1234.js`');
-    expect(previous).not.toHaveBeenCalled();
   });
 
   it('on GitHub Pages checks the game at its base path, with no marker or old address', async () => {
@@ -115,7 +121,7 @@ describe('a healthy production', () => {
       [`${base}s/${SET_ID}/preview.jpg`]: got('image/jpeg', jpeg),
     };
     const get: Get = async (url) => pages[url.replace(/\?smoke=.*$/, '')] ?? html('', 404);
-    const { code, out } = await main({ ...ENV, SITE_URL: base, HOST: 'github', OLD_URL: '' }, get, previous, { pause: noPause });
+    const { code, out } = await main({ ...ENV, SITE_URL: base, HOST: 'github', OLD_URL: '' }, get, { pause: noPause });
     expect(code).toBe(0);
     expect(out).toContain('| Address | https://evanlin23.github.io/BrainrotTCG/ (GitHub Pages) |');
     expect(out).not.toContain('Release marker');
@@ -125,8 +131,11 @@ describe('a healthy production', () => {
 
 describe('a broken production fails loudly', () => {
   it.each([
-    ['another commit', { [`${URL_}deployment-id.json`]: got('application/json', JSON.stringify({ repository: 'evanlin23/BrainrotTCG', run_id: '41', sha: 'b'.repeat(40), url: URL_ })) },
-      "Release marker (deployment-id.json): serves commit bbbbbbbbbbbb from run 41, not this run's commit aaaaaaaaaaaa (run 42)"],
+    ['a newer deploy', { [`${URL_}deployment-id.json`]: marker('43', 'b'.repeat(40)) },
+      "Release marker (deployment-id.json): serves commit bbbbbbbbbbbb from run 43, not this run's commit aaaaaaaaaaaa (run 42): a newer deploy"],
+    ['this run with another commit', { [`${URL_}deployment-id.json`]: marker('42', 'b'.repeat(40)) }, 'this run with another commit'],
+    ['a marker that never catches up', { [`${URL_}deployment-id.json`]: marker('41', 'b'.repeat(40)) },
+      `from run 41, not this run's commit aaaaaaaaaaaa (run 42): an older run: a stale edge or a dashboard rollback (still, after ${POLLS} tries`],
     ['a marker for another address', { [`${URL_}deployment-id.json`]: got('application/json', JSON.stringify({ repository: 'evanlin23/BrainrotTCG', run_id: '42', sha: SHA, url: OLD })) },
       `names evanlin23/BrainrotTCG at ${OLD}, not evanlin23/BrainrotTCG at ${URL_}`],
     ['no marker', { [`${URL_}deployment-id.json`]: html('<!doctype html>the app', 404) }, 'Release marker (deployment-id.json): HTTP 404'],
@@ -153,6 +162,11 @@ describe('a broken production fails loudly', () => {
       `${OLD}: isn't the forwarding page this commit draws for ${URL_}`],
     ['old links answered by the app', { [`${OLD}${OLD_LINK}`]: html(redirectPage(URL_, '/BrainrotTCG/')) }, `${OLD}${OLD_LINK}: HTTP 200, not 404`],
     ['an old Hall of Fame list out of step', { [`${OLD}hall-of-fame.json`]: got('application/json', '[]') }, `${OLD}hall-of-fame.json differs from production's`],
+    ['old set pages without a link preview', { [`${OLD}s/${SET_ID}/`]: html('<!doctype html>') },
+      `${OLD}s/${SET_ID}/: its link preview is missing at ?x?, not production's ${URL_}s/${SET_ID}/preview.jpg at 8x4`],
+    ['old set pages with another link preview', { [`${OLD}s/${SET_ID}/`]: html(SET_PAGE.replace('content="8"', 'content="16"')) },
+      `${OLD}s/${SET_ID}/: its link preview is ${URL_}s/${SET_ID}/preview.jpg at 16x4`],
+    ['no old set pages', { [`${OLD}s/${SET_ID}/`]: html(redirectPage(URL_, '/BrainrotTCG/'), 404) }, `${OLD}s/${SET_ID}/: HTTP 404`],
     ['an unreachable address', { [URL_]: new TypeError('fetch failed') }, 'App entry, scripts and stylesheets: TypeError: fetch failed'],
     ['a timeout', { [`${URL_}hall-of-fame.json`]: Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }) },
       'TimeoutError: The operation was aborted due to timeout'],
@@ -162,7 +176,7 @@ describe('a broken production fails loudly', () => {
     expect(problems[0]).toContain(expected);
   });
 
-  it('exits 1 with an error per failed check, and names the newest release that passed', async () => {
+  it('exits 1 with an error per failed check, leaving the rollback target to the status step', async () => {
     const { code, out, errors } = await run({
       [`${URL_}assets/vendor-Xy12Ab34.js`]: html('<!doctype html>the app'),
       [`${URL_}hall-of-fame.json`]: got('application/json', 'nope'),
@@ -172,41 +186,147 @@ describe('a broken production fails loudly', () => {
       `::error title=App entry, scripts and stylesheets::${URL_}: assets/vendor-Xy12Ab34.js: served as text/html; charset=utf-8, not JavaScript`,
       `::error title=Hall of Fame list (hall-of-fame.json)::${URL_}: not JSON`,
     ]);
-    expect(out).toContain('### Production smoke check: FAILING');
-    expect(out).toContain('[bbbbbbbbbbbb](https://github.com/evanlin23/BrainrotTCG/actions/runs/41)');
-    expect(out).toContain("Don't roll back blindly");
-    expect(previous).toHaveBeenCalledTimes(1);
-  });
-
-  it('says when no release that passed can be found', () => {
-    const report = { checks: [{ name: 'x', ok: false, detail: 'a | b' }], evidence: {} };
-    const out = summary(TARGET, report, 'gh run list failed: no token');
-    expect(out).toContain('No deploy run on main that passed could be found (gh run list failed: no token).');
-    expect(out).toContain('| x | FAIL: a \\| b |');
-    expect(out).toContain('| Entry script | not found |');
+    expect(out).toContain('### Production HTTP checks: FAILING');
+    expect(out).not.toContain('known-good');
   });
 });
 
-describe('retries', () => {
-  it('a check that fails and then passes passes, after one pause', async () => {
+describe('waiting for this release', () => {
+  /** Production as an edge that serves run 41's release until the first pause, then this run's. */
+  const stale = (fresh: Record<string, Got>) => {
+    let caughtUp = false;
+    const before = site({ [`${URL_}deployment-id.json`]: marker('41', 'b'.repeat(40)) });
+    const after = site(fresh);
+    const asked: string[] = [];
+    const get: Get = (url) => { asked.push(url); return (caughtUp ? after : before).get(url); };
     const pauses: number[] = [];
-    const check = vi.fn().mockResolvedValueOnce({ name: 'x', ok: false, detail: 'slow edge' }).mockResolvedValue({ name: 'x', ok: true, detail: 'fine' });
-    expect(await retried(check, SMOKE_TRIES, async (ms) => { pauses.push(ms); })).toEqual({ name: 'x', ok: true, detail: 'fine' });
-    expect(pauses).toEqual([FIRST_PAUSE_MS]);
+    const pause = async (ms: number) => { pauses.push(ms); caughtUp = true; };
+    return { get, asked, pauses, pause };
+  };
+
+  it("checks this run's release, not the one the edge served before it caught up", async () => {
+    // This run's index names an entry script the edge doesn't serve: the release is broken, and only a
+    // check that waits for the marker sees it.
+    const edge = stale({ [URL_]: html(ENTRY.replace('index-AbCd1234.js', 'index-NeWw5678.js')) });
+    const report = await smoke(TARGET, edge.get, { pause: edge.pause });
+    expect(edge.pauses).toEqual([POLL_MS]);
+    expect(report.checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`))
+      .toEqual(['App entry, scripts and stylesheets: assets/index-NeWw5678.js: HTTP 404']);
   });
 
-  it('a check that keeps failing is tried SMOKE_TRIES times with growing pauses, then fails', async () => {
-    const pauses: number[] = [];
-    const check = vi.fn().mockResolvedValue({ name: 'x', ok: false, detail: 'down' });
-    expect((await retried(check, SMOKE_TRIES, async (ms) => { pauses.push(ms); })).ok).toBe(false);
-    expect(check).toHaveBeenCalledTimes(SMOKE_TRIES);
-    expect(pauses).toEqual([FIRST_PAUSE_MS, 2 * FIRST_PAUSE_MS]);
+  it('reads nothing else until the marker names this run', async () => {
+    const edge = stale({});
+    const report = await smoke(TARGET, edge.get, { pause: edge.pause });
+    expect(report.checks.every((c) => c.ok)).toBe(true);
+    expect(edge.asked.slice(0, 2).map((url) => url.replace(/\?.*$/, ''))).toEqual([`${URL_}deployment-id.json`, `${URL_}deployment-id.json`]);
   });
 
-  it('a broken production is asked a bounded number of times', async () => {
+  it('gives up after POLLS asks, POLL_MS apart, and reads nothing else', async () => {
+    const { get, asked } = site({ [`${URL_}deployment-id.json`]: marker('41', 'b'.repeat(40)) });
+    const pauses: number[] = [];
+    const report = await smoke(TARGET, get, { pause: async (ms) => { pauses.push(ms); } });
+    expect(report.checks.map((c) => c.ok)).toEqual([false]);
+    expect(asked).toHaveLength(POLLS);
+    expect(pauses).toEqual(Array(POLLS - 1).fill(POLL_MS));
+  });
+
+  it.each([
+    ['a newer run', marker('43', 'b'.repeat(40))],
+    ['this run with another commit', marker('42', 'b'.repeat(40))],
+    ['no marker', html('<!doctype html>the app', 404)],
+  ])('fails at once on %s', async (_, answer) => {
+    const { get, asked } = site({ [`${URL_}deployment-id.json`]: answer });
+    const pause = vi.fn(async () => {});
+    const report = await smoke(TARGET, get, { pause });
+    expect(report.checks.map((c) => c.ok)).toEqual([false]);
+    expect(pause).not.toHaveBeenCalled();
+    expect(asked).toHaveLength(1);
+  });
+
+  it.each([
+    ['an unreachable address', new TypeError('fetch failed')],
+    ['a server error', got('text/html', 'busy', 503)],
+  ])('asks again after %s', async (_, answer) => {
+    let first = true;
+    const { get } = site();
+    const flaky: Get = async (url) => {
+      if (first && url.startsWith(`${URL_}deployment-id.json`)) {
+        first = false;
+        if (answer instanceof Error) throw answer;
+        return answer;
+      }
+      return get(url);
+    };
+    const pause = vi.fn(async () => {});
+    expect((await smoke(TARGET, flaky, { pause })).checks.every((c) => c.ok)).toBe(true);
+    expect(pause).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads this release's content once, with no retries", async () => {
     const { get, asked } = site({ [`${URL_}hall-of-fame.json`]: got('application/json', 'nope') });
-    await smoke(TARGET, get, { pause: noPause });
-    expect(asked.filter((url) => url.startsWith(`${URL_}hall-of-fame.json`))).toHaveLength(SMOKE_TRIES);
+    const pause = vi.fn(async () => {});
+    await smoke(TARGET, get, { pause });
+    expect(asked.filter((url) => url.startsWith(`${URL_}hall-of-fame.json`))).toHaveLength(1);
+    expect(asked.some((url) => url.startsWith(OLD))).toBe(false);
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it('asks the old address again while GitHub Pages catches up, since what it must serve is exact', async () => {
+    let caughtUp = false;
+    const { get } = site();
+    const before = site({ [`${OLD}hall-of-fame.json`]: got('application/json', '[]') });
+    const report = await smoke(TARGET, (url) => (caughtUp || !url.startsWith(OLD) ? get(url) : before.get(url)),
+      { pause: async () => { caughtUp = true; } });
+    expect(report.checks.every((c) => c.ok)).toBe(true);
+  });
+});
+
+describe('release status', () => {
+  const statusOf = (http: string, browser: string, prev = previous) =>
+    mainStatus({ ...ENV, HTTP_OUTCOME: http, BROWSER_OUTCOME: browser }, prev);
+
+  it('is known-good only once the HTTP and browser checks both passed', async () => {
+    const { code, out } = await statusOf('success', 'success');
+    expect(code).toBe(0);
+    expect(out).toContain('### Release status: known-good');
+    expect(out).toContain('known-good target for the next one to roll back to');
+    expect(previous).not.toHaveBeenCalled();
+  });
+
+  it('names an earlier release to go back to when the browser checks fail', async () => {
+    const { code, out } = await statusOf('success', 'failure');
+    expect(code).toBe(0);
+    expect(out).toContain('### Release status: FAILING');
+    expect(out).toContain('| HTTP checks | success |');
+    expect(out).toContain('| Browser checks | failure |');
+    expect(out).not.toContain('known-good');
+    expect(out).toContain('[bbbbbbbbbbbb](https://github.com/evanlin23/BrainrotTCG/actions/runs/41)');
+    expect(out).toContain("Don't roll back blindly");
+    expect(previous).toHaveBeenCalledWith(SHA);
+  });
+
+  it('is FAILING when the HTTP checks failed and the browser checks never ran', async () => {
+    const { out } = await statusOf('failure', 'skipped');
+    expect(out).toContain('### Release status: FAILING');
+    expect(out).toContain('| Browser checks | skipped |');
+    expect(out).toContain('[bbbbbbbbbbbb]');
+  });
+
+  it('says to fix forward when no earlier release can be found', async () => {
+    const out = status(TARGET, 'failure', '', 'gh run list failed: no token');
+    expect(out).toContain('| Browser checks | not run |');
+    expect(out).toContain('No earlier release on main could be found (gh run list failed: no token): fix forward on main.');
+  });
+
+  it("never offers this run's own commit, or nothing, as the rollback target", () => {
+    const run = (sha: string, n: number) => ({ headSha: sha, url: `https://github.com/evanlin23/BrainrotTCG/actions/runs/${n}` });
+    expect(pickPrevious([run(SHA, 40), run('b'.repeat(40), 39)], SHA)).toEqual({ sha: 'b'.repeat(40), url: run('b', 39).url });
+    expect(pickPrevious([run(SHA, 40)], SHA)).toBeNull();
+    expect(pickPrevious([], SHA)).toBeNull();
+  });
+
+  it('exits 2 when the environment is wrong', async () => {
+    expect((await mainStatus({ ...ENV, GITHUB_SHA: '' }, previous)).code).toBe(2);
   });
 });
 
@@ -237,7 +357,7 @@ describe('parsing', () => {
 
   it('exits 2 without checking anything when the environment is wrong', async () => {
     const { get, asked } = site();
-    expect(await main({ ...ENV, GITHUB_RUN_ID: '' }, get, previous)).toEqual({ code: 2, out: '', errors: [expect.stringMatching(/^::error::GITHUB_REPOSITORY/)] });
+    expect(await main({ ...ENV, GITHUB_RUN_ID: '' }, get)).toEqual({ code: 2, out: '', errors: [expect.stringMatching(/^::error::GITHUB_REPOSITORY/)] });
     expect(asked).toEqual([]);
   });
 

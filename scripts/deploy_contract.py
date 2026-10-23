@@ -398,6 +398,11 @@ def match(step, spec):
     return True
 
 
+def smoke_status(name, index, step, jobs):
+    """Whether step is smoke's last step and exactly the status step, the one step that runs always."""
+    return name == 'smoke' and index == len(jobs['smoke'].get('steps') or []) - 1 and match(step, SMOKE_STATUS)
+
+
 def cloudflare(spec):
     return {**spec, 'if': CLOUDFLARE}
 
@@ -476,17 +481,23 @@ STAGING_CHECKS = [
 ]
 DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
 # Read-only checks of production once publish and deploy are done (scripts/production-smoke.ts): no
-# secrets, never conditional, and every step's failure fails the run.
+# secrets, and every check's failure fails the run. Only the last step is conditional, and only to run
+# always: it reads both checks' outcomes and says whether the release is known-good, or what to go
+# back to.
+SMOKE_ENV = {'SITE_URL': '${{ needs.site.outputs.url }}', 'HOST': '${{ needs.site.outputs.host }}',
+             'OLD_URL': 'https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/'}
+SMOKE_STATUS = {'if': 'always()', 'env': {**SMOKE_ENV, 'GH_TOKEN': '${{ github.token }}',
+                                          'HTTP_OUTCOME': '${{ steps.http.outcome }}', 'BROWSER_OUTCOME': '${{ steps.browser.outcome }}'},
+                'run': 'npx tsx scripts/production-smoke.ts --status >> "$GITHUB_STEP_SUMMARY"'}
 SMOKE = [
     {'uses': 'actions/checkout', 'with': {'persist-credentials': False}},
     {'uses': 'actions/setup-node', 'with': {'node-version': 22, 'cache': 'npm'}},
     {'run': 'npm ci'},
-    {'env': {'SITE_URL': '${{ needs.site.outputs.url }}', 'HOST': '${{ needs.site.outputs.host }}',
-             'OLD_URL': 'https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/',
-             'GH_TOKEN': '${{ github.token }}'},
-     'run': 'npx tsx scripts/production-smoke.ts >> "$GITHUB_STEP_SUMMARY"'},
+    {'id': 'http', 'env': SMOKE_ENV, 'run': 'npx tsx scripts/production-smoke.ts >> "$GITHUB_STEP_SUMMARY"'},
     {'run': 'npx playwright install --with-deps chromium'},
-    {'env': {'PRODUCTION_URL': '${{ needs.site.outputs.url }}'}, 'run': 'npx playwright test -c playwright.production.config.ts'},
+    {'id': 'browser', 'env': {'PRODUCTION_URL': '${{ needs.site.outputs.url }}'},
+     'run': 'npx playwright test -c playwright.production.config.ts'},
+    SMOKE_STATUS,
 ]
 # Only one deploy of main runs at a time, and a newer push to main cancels the older run: with GUARD
 # and TIP, this is what stops an older build publishing over a newer one. One group per ref, so a run
@@ -533,13 +544,16 @@ def check_deploy(workflow):
             label = step_label(name, index, step)
             if set(step) - {'name', 'id', 'if', 'uses', 'with', 'env', 'run'}:
                 problems.append(f'deploy.yml: {label} has {sorted(set(step) - {"name", "id", "if", "uses", "with", "env", "run"})}')
-            if 'if' in step and step['if'] != CLOUDFLARE and not (step['if'] == STAGING and name in STAGING_JOBS | {'publish'}):
+            if 'if' in step and step['if'] != CLOUDFLARE and not (step['if'] == STAGING and name in STAGING_JOBS | {'publish'}) \
+                    and not smoke_status(name, index, step, jobs):
                 problems.append(f'deploy.yml: {label} may only be conditional on the Cloudflare host, '
                                 'or on staging in stage, staging-checks and publish')
             if action(step) == 'actions/checkout' and (step.get('with') or {}).get('persist-credentials') is not False:
                 problems.append(f'deploy.yml: {label} must not keep the token (persist-credentials: false)')
     for path, text in walk(workflow):
-        if re.search(r'\b(?:always|cancelled|failure)\(\)', text):
+        status = len(path) == 5 and path[0] == 'jobs' and path[2] == 'steps' and path[4] == 'if' \
+            and smoke_status(path[1], path[3], jobs[path[1]]['steps'][path[3]], jobs)
+        if re.search(r'\b(?:always|cancelled|failure)\(\)', text) and not status:
             problems.append(f'deploy.yml: {"/".join(map(str, path))} runs after a failure or cancel')
         if re.search(r'\bsecrets\b', text):
             # Only as a value in the env of the site lookup or a Wrangler deploy: jobs/J/steps/N/env/KEY.
@@ -596,7 +610,8 @@ def check_deploy(workflow):
     smoke = jobs['smoke'].get('steps') or []
     if len(smoke) != len(SMOKE) or not all(match(step, spec) for step, spec in zip(smoke, SMOKE)):
         problems.append('deploy.yml: smoke must check out without the token, install, run scripts/production-smoke.ts '
-                        'against the site address, then run playwright.production.config.ts there')
+                        'against the site address, then run playwright.production.config.ts there, then always record '
+                        'the release status from both outcomes (production-smoke.ts --status)')
     return problems
 
 

@@ -4,24 +4,30 @@
  * after publish and deploy, then runs the browser checks (playwright.production.config.ts).
  *
  * GETs only, each with a time limit and a fresh `?smoke=` query so no cache answers. Nothing is
- * submitted, written or deployed. A failed check is tried again at most SMOKE_TRIES times in all,
- * after a short growing pause, so a slow edge doesn't fail a good release but a broken one still
- * fails within about a minute:
+ * submitted, written or deployed.
  *
- * - (Cloudflare) deployment-id.json names this run's commit, run and address;
+ * - (Cloudflare) deployment-id.json names this run's commit, run and address. While it names an older
+ *   run (an edge that hasn't caught up) or doesn't answer, it is asked again, POLL_MS apart, at most
+ *   POLLS times; nothing else is read until it names this run, and another run's marker fails.
+ * Then, once each, with no retries:
  * - the address serves HTML naming a hashed assets/index-*.js entry, and every script and stylesheet
  *   it names is JavaScript or CSS (not the HTML fallback a missing file gets);
  * - hall-of-fame.json is a JSON list of entries whose proofs decode;
- * - a released set's page names a link-preview picture that decodes at its stated size;
+ * - a released set's page names a link-preview picture that decodes at its stated size.
+ * Then, if those passed:
  * - (Cloudflare) the old GitHub address serves exactly the forwarding page this commit draws, both at
- *   its root and for an old link (its 404.html), and its own hall-of-fame.json matches production's.
+ *   its root and for an old link (its 404.html), its own hall-of-fame.json matches production's, and
+ *   its copy of the set page keeps production's link preview. What it must serve is exact, so it is
+ *   asked again like the marker while GitHub Pages catches up.
  *
  *   SITE_URL=https://brainrottcg.pages.dev/ HOST=cloudflare OLD_URL=https://evanlin23.github.io/BrainrotTCG/ \
  *     GITHUB_REPOSITORY=evanlin23/BrainrotTCG GITHUB_SHA=<sha> GITHUB_RUN_ID=<run> npx tsx scripts/production-smoke.ts
  *
- * Prints the release's status as Markdown (for $GITHUB_STEP_SUMMARY), an ::error:: line per failed
- * check, and exits 1 if any failed. On a failure it names the newest deploy run on main that passed,
- * as a candidate to roll back to only after the checks in docs/HOSTING.md#recover-on-the-same-origin.
+ * Prints the HTTP checks' results as Markdown (for $GITHUB_STEP_SUMMARY), an ::error:: line per failed
+ * check, and exits 1 if any failed. With --status, once the browser checks have run too, it prints
+ * whether the release is known-good (HTTP_OUTCOME and BROWSER_OUTCOME both success) and otherwise
+ * names the newest deploy run on main that passed on an earlier commit, as a candidate to roll back to
+ * only after the checks in docs/HOSTING.md#recover-on-the-same-origin.
  */
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -34,9 +40,9 @@ import { redirectPage } from './redirect-site.ts';
 
 /** How long one GET may take, body included. */
 export const TIMEOUT_MS = 15_000;
-/** Tries per check in all; the pauses between them double from FIRST_PAUSE_MS. */
-export const SMOKE_TRIES = 3;
-export const FIRST_PAUSE_MS = 5_000;
+/** How many times, POLL_MS apart, the marker (and the old address) is asked before giving up. */
+export const POLLS = 10;
+export const POLL_MS = 6_000;
 /** At most this many scripts and stylesheets are fetched from the entry page. */
 export const MAX_ASSETS = 24;
 /** A released set, so its page is permanent (docs/ADDING_A_SET.md). */
@@ -78,6 +84,8 @@ export interface Evidence {
   entry?: string;
   assets?: number;
   ranking?: { entries: number; sha256: string };
+  /** The set page's link-preview tags, which the old address's copy must repeat. */
+  preview?: { image: string; width: string; height: string };
 }
 
 export interface Report {
@@ -111,33 +119,52 @@ const fetched = async (get: Get, url: string): Promise<Got | string> => {
   }
 };
 
+const defaultPause = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
+
 /** Same origin as base and under its path. */
 const within = (base: string, href: string) => {
   const url = new URL(href, base);
   return url.origin === new URL(base).origin && url.pathname.startsWith(new URL(base).pathname) ? url.href : null;
 };
 
-export const checkMarker = async (target: Target, get: Get): Promise<Check> => {
+/** One read of the marker, and whether to ask again: the address may still serve an older run of
+ * this repository (an edge that hasn't caught up) or be briefly unreachable. Anything else fails now. */
+export const readMarker = async (target: Target, get: Get): Promise<{ check: Check; wait: boolean }> => {
   const name = 'Release marker (deployment-id.json)';
   const got = await fetched(get, tagged(target, `${target.url}deployment-id.json`));
-  if (typeof got === 'string') return fail(name, got);
+  if (typeof got === 'string') return { check: fail(name, got), wait: true };
   const bad = notOk(got);
-  if (bad) return fail(name, bad);
+  if (bad) return { check: fail(name, bad), wait: got.status >= 500 };
   let marker: Record<string, unknown>;
   try {
     marker = JSON.parse(got.body.toString('utf8')) as Record<string, unknown>;
   } catch {
-    return fail(name, 'not JSON');
+    return { check: fail(name, 'not JSON'), wait: false };
   }
-  if (!marker || typeof marker !== 'object') return fail(name, 'not a JSON object');
-  if (marker.sha !== target.sha || marker.run_id !== target.runId) {
-    return fail(name, `serves commit ${short(marker.sha)} from run ${String(marker.run_id)}, not this run's commit ${short(target.sha)} `
-      + `(run ${target.runId}): a newer deploy, a dashboard rollback or a stale edge`);
-  }
+  if (!marker || typeof marker !== 'object') return { check: fail(name, 'not a JSON object'), wait: false };
   if (marker.url !== target.url || marker.repository !== target.repository) {
-    return fail(name, `names ${String(marker.repository)} at ${String(marker.url)}, not ${target.repository} at ${target.url}`);
+    return { check: fail(name, `names ${String(marker.repository)} at ${String(marker.url)}, not ${target.repository} at ${target.url}`), wait: false };
   }
-  return pass(name, `commit ${short(target.sha)}, run ${target.runId}`);
+  if (marker.sha === target.sha && marker.run_id === target.runId) return { check: pass(name, `commit ${short(target.sha)}, run ${target.runId}`), wait: false };
+  const run = typeof marker.run_id === 'string' && /^[1-9]\d*$/.test(marker.run_id) ? BigInt(marker.run_id) : null;
+  const older = run !== null && run < BigInt(target.runId);
+  const why = older ? 'an older run: a stale edge or a dashboard rollback'
+    : run === BigInt(target.runId) ? 'this run with another commit' : 'a newer deploy, or no run';
+  return {
+    check: fail(name, `serves commit ${short(marker.sha)} from run ${String(marker.run_id)}, not this run's commit ${short(target.sha)} `
+      + `(run ${target.runId}): ${why}`),
+    wait: older,
+  };
+};
+
+/** The marker, asked POLL_MS apart while it names an older run or doesn't answer, at most polls times. */
+export const awaitMarker = async (target: Target, get: Get, polls = POLLS, pause = defaultPause): Promise<Check> => {
+  let { check, wait } = await readMarker(target, get);
+  for (let asked = 1; wait && asked < polls; asked++) {
+    await pause(POLL_MS);
+    ({ check, wait } = await readMarker(target, get));
+  }
+  return wait ? fail(check.name, `${check.detail} (still, after ${polls} tries ${POLL_MS / 1000} s apart)`) : check;
 };
 
 const ATTRIBUTE = (key: string) => new RegExp(`\\b${key}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i');
@@ -255,7 +282,7 @@ export const pictureProblem = async (body: Buffer, width: number, height: number
   }
 };
 
-export const checkSetPage = async (target: Target, get: Get): Promise<Check> => {
+export const checkSetPage = async (target: Target, get: Get, evidence: Evidence): Promise<Check> => {
   const name = `Set page and its link-preview picture (s/${SET_ID}/)`;
   const got = await fetched(get, tagged(target, `${target.url}s/${SET_ID}/`));
   if (typeof got === 'string') return fail(name, got);
@@ -268,6 +295,7 @@ export const checkSetPage = async (target: Target, get: Get): Promise<Check> => 
   const height = Number(tags.get('og:image:height'));
   const url = image ? within(target.url, image) : null;
   if (!url || !(width > 0) || !(height > 0)) return fail(name, `names no picture under ${target.url} with its size (og:image ${image ?? 'missing'})`);
+  evidence.preview = { image: image!, width: tags.get('og:image:width')!, height: tags.get('og:image:height')! };
   const picture = await fetched(get, tagged(target, url));
   const path = url.slice(target.url.length);
   if (typeof picture === 'string') return fail(name, `${path}: ${picture}`);
@@ -278,74 +306,123 @@ export const checkSetPage = async (target: Target, get: Get): Promise<Check> => 
   return problem ? fail(name, `${path} ${problem}`) : pass(name, `${path} decodes at ${width}x${height}`);
 };
 
+/** Why the old address's copy of the set page doesn't keep production's link preview, or null. */
+const oldPreviewProblem = (got: Got | string, preview: Evidence['preview']): string | null => {
+  if (typeof got === 'string') return got;
+  const bad = notOk(got);
+  if (bad) return bad;
+  if (!isHtml(got)) return `served as ${got.type || 'no type'}, not HTML`;
+  const tags = metaTags(got.body.toString('utf8'));
+  const old = { image: tags.get('og:image'), width: tags.get('og:image:width'), height: tags.get('og:image:height') };
+  if (!preview) return null;
+  if (old.image !== preview.image || old.width !== preview.width || old.height !== preview.height) {
+    return `its link preview is ${old.image ?? 'missing'} at ${old.width ?? '?'}x${old.height ?? '?'}, not production's `
+      + `${preview.image} at ${preview.width}x${preview.height}`;
+  }
+  return null;
+};
+
 export const checkOldAddress = async (target: Target, get: Get, evidence: Evidence): Promise<Check> => {
   const name = 'Old address forwards here';
   const old = target.oldUrl!;
   const page = redirectPage(target.url, new URL(old).pathname);
-  const problems: string[] = [];
-  for (const [path, status] of [['', 200], [OLD_LINK, 404]] as const) {
-    const got = await fetched(get, tagged(target, `${old}${path}`));
-    const where = `${old}${path}`;
-    if (typeof got === 'string') problems.push(`${where}: ${got}`);
-    else if (got.status !== status) problems.push(`${where}: HTTP ${got.status}${got.location ? ` to ${got.location}` : ''}, not ${status}`);
-    else if (!isHtml(got)) problems.push(`${where}: served as ${got.type || 'no type'}, not HTML`);
-    else if (got.body.toString('utf8') !== page) problems.push(`${where}: isn't the forwarding page this commit draws for ${target.url}`);
-  }
-  const ranking = await getRanking(get, tagged(target, `${old}hall-of-fame.json`));
+  const [pages, ranking, setPage] = await Promise.all([
+    Promise.all(([['', 200], [OLD_LINK, 404]] as const).map(async ([path, status]) => {
+      const got = await fetched(get, tagged(target, `${old}${path}`));
+      const where = `${old}${path}`;
+      if (typeof got === 'string') return `${where}: ${got}`;
+      if (got.status !== status) return `${where}: HTTP ${got.status}${got.location ? ` to ${got.location}` : ''}, not ${status}`;
+      if (!isHtml(got)) return `${where}: served as ${got.type || 'no type'}, not HTML`;
+      if (got.body.toString('utf8') !== page) return `${where}: isn't the forwarding page this commit draws for ${target.url}`;
+      return null;
+    })),
+    getRanking(get, tagged(target, `${old}hall-of-fame.json`)),
+    fetched(get, tagged(target, `${old}s/${SET_ID}/`)),
+  ]);
+  const problems = pages.filter((p): p is string => p !== null);
   if (typeof ranking === 'string') problems.push(`${old}hall-of-fame.json: ${ranking}`);
   else if (evidence.ranking && sha256(ranking.body) !== evidence.ranking.sha256) problems.push(`${old}hall-of-fame.json differs from production's`);
-  return problems.length ? fail(name, problems.join('; ')) : pass(name, `${old} and its old links forward to ${target.url}`);
+  const preview = oldPreviewProblem(setPage, evidence.preview);
+  if (preview) problems.push(`${old}s/${SET_ID}/: ${preview}`);
+  return problems.length ? fail(name, problems.join('; '))
+    : pass(name, `${old} and its old links forward to ${target.url}; its set pages keep their link preview`);
 };
 
-const defaultPause = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
-
-/** check, tried again after a pause while it fails, at most tries times in all. */
-export const retried = async (check: () => Promise<Check>, tries = SMOKE_TRIES, pause = defaultPause): Promise<Check> => {
+/** check, asked again after POLL_MS while it fails, at most polls times in all. Only for checks whose
+ * expected answer is exact, so an older release can't pass them. */
+const untilPasses = async (check: () => Promise<Check>, polls: number, pause: (ms: number) => Promise<void>): Promise<Check> => {
   let result = await check();
-  for (let attempt = 1; attempt < tries && !result.ok; attempt++) {
-    await pause(FIRST_PAUSE_MS * 2 ** (attempt - 1));
+  for (let asked = 1; asked < polls && !result.ok; asked++) {
+    await pause(POLL_MS);
     result = await check();
   }
-  return result;
+  return result.ok || polls < 2 ? result : fail(result.name, `${result.detail} (still, after ${polls} tries ${POLL_MS / 1000} s apart)`);
 };
 
-export const smoke = async (target: Target, get: Get, options: { tries?: number; pause?: (ms: number) => Promise<void> } = {}): Promise<Report> => {
+export const smoke = async (target: Target, get: Get, options: { polls?: number; pause?: (ms: number) => Promise<void> } = {}): Promise<Report> => {
+  const { polls = POLLS, pause = defaultPause } = options;
   const evidence: Evidence = {};
-  const run = (check: () => Promise<Check>) => retried(check, options.tries, options.pause);
-  const first = await Promise.all([
-    ...(target.host === 'cloudflare' ? [run(() => checkMarker(target, get))] : []),
-    run(() => checkEntry(target, get, evidence)),
-    run(() => checkRanking(target, get, evidence)),
-    run(() => checkSetPage(target, get)),
+  // Cloudflare: nothing else is read until the address serves this run, so no check reads an older
+  // release. GitHub Pages has no marker; deploy-pages returns once the release is live.
+  const marker = target.host === 'cloudflare' ? [await awaitMarker(target, get, polls, pause)] : [];
+  if (marker.some((c) => !c.ok)) return { checks: marker, evidence };
+  const content = await Promise.all([
+    checkEntry(target, get, evidence),
+    checkRanking(target, get, evidence),
+    checkSetPage(target, get, evidence),
   ]);
-  // The old address's list is compared with production's, so it goes once that is read.
-  const old = target.host === 'cloudflare' && target.oldUrl ? [await run(() => checkOldAddress(target, get, evidence))] : [];
-  return { checks: [...first, ...old], evidence };
+  // The old address is compared with what production serves, so it goes once that is read; what it
+  // must serve is exact, so it is asked again while GitHub Pages catches up.
+  const old = target.host === 'cloudflare' && target.oldUrl && content.every((c) => c.ok)
+    ? [await untilPasses(() => checkOldAddress(target, get, evidence), polls, pause)] : [];
+  return { checks: [...marker, ...content, ...old], evidence };
 };
 
-/** The newest deploy run on main that passed (its smoke job included), or why it couldn't be found. */
-export type PreviousRelease = () => Promise<{ sha: string; url: string } | string>;
+export interface Release { sha: string; url: string }
+/** The newest deploy run on main that passed, on a commit other than sha, or why it couldn't be found. */
+export type PreviousRelease = (sha: string) => Promise<Release | string>;
 
-export const summary = (target: Target, report: Report, previous: { sha: string; url: string } | string | null): string => {
-  const healthy = report.checks.every((c) => c.ok);
+const table = (target: Target) => [
+  '| | |', '|---|---|',
+  `| Address | ${target.url} (${target.host === 'cloudflare' ? 'Cloudflare Pages' : 'GitHub Pages'}) |`,
+  `| Commit | \`${target.sha}\` |`,
+  `| Run | ${target.runId} |`,
+];
+
+/** The HTTP checks' results. Whether the release is known-good waits for the browser checks (status). */
+export const summary = (target: Target, report: Report): string => {
+  const passed = report.checks.every((c) => c.ok);
   const { evidence } = report;
   const lines = [
-    `### Production smoke check: ${healthy ? 'healthy' : 'FAILING'}`, '',
-    '| | |', '|---|---|',
-    `| Address | ${target.url} (${target.host === 'cloudflare' ? 'Cloudflare Pages' : 'GitHub Pages'}) |`,
-    `| Commit | \`${target.sha}\` |`,
-    `| Run | ${target.runId} |`,
+    `### Production HTTP checks: ${passed ? 'passed' : 'FAILING'}`, '',
+    ...table(target),
     `| Entry script | ${evidence.entry ? `\`${evidence.entry}\`` : 'not found'} |`,
     `| hall-of-fame.json | ${evidence.ranking ? `${evidence.ranking.entries} entries, sha256 \`${evidence.ranking.sha256}\`` : 'not read'} |`,
     '', '| Check | Result |', '|---|---|',
     ...report.checks.map((c) => `| ${c.name} | ${c.ok ? 'pass' : 'FAIL'}: ${c.detail.replace(/\|/g, '\\|')} |`), '',
   ];
-  if (healthy) {
+  if (target.host === 'cloudflare' && !passed && report.checks.length === 1) {
+    lines.push('The address never served this run, so its content was not checked.', '');
+  }
+  return `${lines.join('\n')}\n`;
+};
+
+/** The release's status once the HTTP and browser checks are done (each a step outcome). */
+export const status = (target: Target, http: string, browser: string, previous: Release | string | null): string => {
+  const good = http === 'success' && browser === 'success';
+  const lines = [
+    `### Release status: ${good ? 'known-good' : 'FAILING'}`, '',
+    ...table(target),
+    `| HTTP checks | ${http || 'not run'} |`,
+    `| Browser checks | ${browser || 'not run'} |`, '',
+  ];
+  if (good) {
     lines.push('This release is the known-good target for the next one to roll back to.');
   } else {
     const rollback = typeof previous === 'object' && previous
-      ? `The newest deploy run on main that passed these checks: [${short(previous.sha)}](${previous.url}).`
-      : `No deploy run on main that passed could be found${previous ? ` (${previous})` : ''}.`;
+      ? `The newest deploy run on main that passed, on an earlier commit: [${short(previous.sha)}](${previous.url}). `
+        + 'Check that its smoke job ran and passed before trusting it.'
+      : `No earlier release on main could be found${previous ? ` (${previous})` : ''}: fix forward on main.`;
     lines.push(`${rollback} Don't roll back blindly: a rollback target must still read this release's saves, proofs and sets `
       + '(docs/HOSTING.md#recover-on-the-same-origin); otherwise fix forward on main.');
   }
@@ -369,12 +446,17 @@ export const httpGet: Get = async (url) => {
 
 const exec = promisify(execFile);
 
-export const previousRelease: PreviousRelease = async () => {
+/** From gh's list of passing deploy runs on main, newest first: the first on a commit other than sha. */
+export const pickPrevious = (runs: { headSha: string; url: string }[], sha: string): Release | null => {
+  const run = runs.find((r) => r.headSha !== sha);
+  return run ? { sha: run.headSha, url: run.url } : null;
+};
+
+export const previousRelease: PreviousRelease = async (sha) => {
   try {
     const { stdout } = await exec('gh', ['run', 'list', '--workflow', 'deploy.yml', '--branch', 'main', '--status', 'success',
-      '--limit', '1', '--json', 'headSha,url'], { timeout: TIMEOUT_MS });
-    const [latest] = JSON.parse(stdout) as { headSha: string; url: string }[];
-    return latest ? { sha: latest.headSha, url: latest.url } : 'none listed';
+      '--limit', '20', '--json', 'headSha,url'], { timeout: TIMEOUT_MS });
+    return pickPrevious(JSON.parse(stdout) as { headSha: string; url: string }[], sha) ?? 'no earlier commit among the last 20 that passed';
   } catch (error) {
     return `gh run list failed: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`;
   }
@@ -396,18 +478,29 @@ export const targetFromEnv = (env: NodeJS.ProcessEnv): Target | string => {
   return { url, host, oldUrl, repository, sha, runId, tag: `${runId}-${attempt}` };
 };
 
-export const main = async (env: NodeJS.ProcessEnv, get: Get = httpGet, previous: PreviousRelease = previousRelease,
-  options: { tries?: number; pause?: (ms: number) => Promise<void> } = {}): Promise<{ code: number; out: string; errors: string[] }> => {
+/** The HTTP checks: prints their results and exits 1 if any failed. */
+export const main = async (env: NodeJS.ProcessEnv, get: Get = httpGet,
+  options: { polls?: number; pause?: (ms: number) => Promise<void> } = {}): Promise<{ code: number; out: string; errors: string[] }> => {
   const target = targetFromEnv(env);
   if (typeof target === 'string') return { code: 2, out: '', errors: [`::error::${target}`] };
   const report = await smoke(target, get, options);
   const failed = report.checks.filter((c) => !c.ok);
-  const out = summary(target, report, failed.length ? await previous() : null);
-  return { code: failed.length ? 1 : 0, out, errors: failed.map((c) => `::error title=${c.name}::${target.url}: ${c.detail}`) };
+  return { code: failed.length ? 1 : 0, out: summary(target, report), errors: failed.map((c) => `::error title=${c.name}::${target.url}: ${c.detail}`) };
+};
+
+/** --status: the release's status from the HTTP_OUTCOME and BROWSER_OUTCOME of the smoke job's steps.
+ * It runs whatever they did, and exits 0: a failed step has already turned the run red. */
+export const mainStatus = async (env: NodeJS.ProcessEnv, previous: PreviousRelease = previousRelease): Promise<{ code: number; out: string; errors: string[] }> => {
+  const target = targetFromEnv(env);
+  if (typeof target === 'string') return { code: 2, out: '', errors: [`::error::${target}`] };
+  const http = env.HTTP_OUTCOME ?? '';
+  const browser = env.BROWSER_OUTCOME ?? '';
+  const good = http === 'success' && browser === 'success';
+  return { code: 0, out: status(target, http, browser, good ? null : await previous(target.sha)), errors: [] };
 };
 
 if (isMainModule(import.meta.url)) {
-  const { code, out, errors } = await main(process.env);
+  const { code, out, errors } = process.argv.includes('--status') ? await mainStatus(process.env) : await main(process.env);
   process.stdout.write(out);
   for (const line of errors) console.error(line);
   process.exitCode = code;
