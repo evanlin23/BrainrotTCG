@@ -2,8 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import {
-  expectDecoded, expectRecordedPack, holdTickets, monitor, pickWithImport, relaysAnswerEmpty, sameStorage, settingsOf,
-  snapshot, storageOf,
+  expectDecoded, expectRecordedPack, holdTickets, monitor, pickWithImport, relaysAnswerEmpty, releaseTickets, sameStorage,
+  settingsOf, snapshot, storageOf,
 } from './support';
 
 /**
@@ -208,7 +208,7 @@ test.describe('damaged backup files', () => {
       ['an unknown data version', tampered({ dataVersion: 99 }), false, 'This save uses an unsupported data version.'],
       ['a negative pack count', tampered({ stats: JSON.stringify({ ...field('stats'), packsOpened: -1 }) }), true, 'The stats in this save is invalid. Nothing was imported.'],
       ['a negative ticket in the history', tampered({ history: JSON.stringify((field('history') as Record<string, unknown>[]).map((record) => ({ ...record, n: -1 }))) }), false, 'The history in this save is invalid. Nothing was imported.'],
-      ['a negative ticket counter', tampered({ player: JSON.stringify({ ...field('player'), nextNonce: -1 }) }), false, 'The player identity in this save is invalid. Nothing was imported.'],
+      ['a negative ticket counter', tampered({ player: JSON.stringify({ ...field('player'), nextNonce: -1 }) }), false, "That file's player record can't be read, so it has no player key that works and can't be restored. Nothing was imported."],
     ];
     for (const [name, content, asks, refusal] of files) {
       await test.step(name, async () => {
@@ -245,13 +245,17 @@ test.describe('offline mid-session', () => {
       offline = value;
       await page.context().setOffline(value);
     };
+    // The next pack's ticket mines only once the connection is down, so prefetchNextPack can't put this
+    // pack's art in the memory cache first (it fetches the pictures as soon as the ticket is in).
+    await holdTickets(page);
     await page.goto('./');
     await packsScreen(page);
 
     // Offline: the pack opens and is recorded; only pictures fail to load. It opens before any card art
-    // has shown on this page (Rankings shows the saved pack's), so none of it can come from the page's
-    // memory cache without a request.
+    // has shown on this page (Rankings shows the saved pack's), and its prefetch ran offline, so none of
+    // it can come from the page's memory cache without a request.
     await setOffline(true);
+    await releaseTickets(page);
     await openOne(page);
     expect(await tickets(page)).toEqual([0, 1]);
     expect(await nextNonce(page)).toBe(2);
