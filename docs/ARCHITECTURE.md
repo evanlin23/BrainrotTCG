@@ -47,6 +47,8 @@ checks both implementations against both sets of test vectors.
 
 ## Layers
 
+`npm run check:imports` enforces which layer may import which (DEVELOPMENT.md, Import boundaries).
+
 ```
 src/engine/        Pure TypeScript. No React, no DOM, no Vite. Runs in the browser, a Web Worker and Node (CI).
   pack.ts            seeded PRNG + deterministic pack generation (integer-only odds)

@@ -35,4 +35,20 @@ export default defineConfig([
     files: ['scripts/**/*.{js,ts}', 'tests/**/*.{js,ts}', 'playwright*.config.ts'],
     languageOptions: { globals: globals.node },
   },
+  {
+    // src/engine runs in the browser, a Web Worker and Node, so it can't reach the DOM or storage.
+    // The import map (scripts/check-import-boundaries.ts) covers imports; this covers globals (#711).
+    files: ['src/engine/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        ...[
+          'window', 'document', 'localStorage', 'sessionStorage', 'indexedDB', 'navigator', 'location', 'history',
+          'screen', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame', 'alert', 'confirm', 'prompt',
+          'Image', 'HTMLElement', 'Element', 'Document',
+        ].map((name) => ({ name, message: 'src/engine is DOM-free (CLAUDE.md layers). Take it as a parameter or move this to src/game.' })),
+      ],
+    },
+  },
 ])

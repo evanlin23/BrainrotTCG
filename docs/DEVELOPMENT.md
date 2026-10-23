@@ -88,7 +88,7 @@ Examples from merged fixes:
 | When | Run |
 | --- | --- |
 | While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
-| Before pushing | `npm run check` (lint, typecheck, all tests within the test budgets, set locks, card assets), once |
+| Before pushing | `npm run check` (lint, import boundaries, typecheck, all tests within the test budgets, set locks, card assets), once |
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build or link previews | also `npm run build && npm run check:site`, and the same with `BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
@@ -126,6 +126,30 @@ tarball and hash are for Linux on x86-64 (linux_amd64), as CI uses; elsewhere us
 platform's release asset checked against the release's published checksums. With Docker,
 `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12 -shellcheck=''` runs the same release,
 but the image isn't hash-checked. Both ignore ShellCheck (`-shellcheck=''`), as CI does.
+
+### Import boundaries
+
+`npm run check:imports` (part of `npm run check`) enforces the layers in
+[ARCHITECTURE.md](ARCHITECTURE.md). The map is `ALLOWED_LAYERS` in
+[`scripts/check-import-boundaries.ts`](../scripts/check-import-boundaries.ts): each layer lists the
+layers its non-test files may import, and everything else fails with the file, line and import. In
+short, `src/engine` imports nothing from another layer and only `hash-wasm` and `@noble/*` from
+outside, `src/game` never imports `components`, `hooks` or `App`, `hooks` never import `components`,
+`components` never import `App`, and `scripts` import engine, game, content and style code but never
+UI. The check reads every `src/` and `scripts/` file with TypeScript's import scanner, so
+`import type`, `export ... from` (a barrel is checked as the file it is), `import()` and tsconfig
+`paths` aliases count. Test files (`*.test.*`, `src/test/`, `tests/`) may cross layers, but
+production code can't import them. A new directory under `src/` fails until it is added to the map.
+
+An exception (`EXCEPTIONS` in the same file) names one file's import of one target and needs a reason,
+an owner issue and a removal condition. It fails the check once the import is gone, so remove the
+entry in the PR that fixes the import. There is no wildcard or per-directory exception.
+
+Not covered: browser globals and DOM types used without an import (only `src/engine` has an ESLint
+`no-restricted-globals` rule), `import.meta.glob`, UI packages in `game`, `utils` and `types`
+(`game/modifiers.ts` imports a React type, `utils/confettiEffects.ts` uses `canvas-confetti`), and
+import cycles between layers that allow each other (`game` and `utils`, `game` and `types`). It
+doesn't measure file size or complexity.
 
 The card asset check (`npm run check:card-assets`) decodes every registered card WebP and checks
 generated geometry. It covers openable pack wrappers/thumbnails, retained pack art when present,
