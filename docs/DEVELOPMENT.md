@@ -352,11 +352,11 @@ budgets, checked in this order:
 
 | Budget | Baseline (October 2026, Node 22.23.3) | Enforced | Set in |
 | --- | --- | --- | --- |
-| Wall time of the whole run | 120.9 to 196.3 s (median 167.7 s) on the four latest successful main runs on CI, at 2,388 to 2,667 tests; 111.2 s at 1,819 tests (`2bf6074`); median 150.8 s (150.7-155.5 s) on a 2-core container at 1,819 tests | at most 300 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
+| Wall time of the whole run | 120.9 to 196.3 s (median 167.7 s) on the four latest successful main runs on CI, at 2,388 to 2,667 tests; 111.2 s at 1,819 tests (`2bf6074`); median 150.8 s (150.7-155.5 s) on a 2-core container at 1,819 tests, 150.0 s at 2,667 | at most 400 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
 | Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 91.2-91.4%, statements 94.7-94.8%, lines 96.5-96.7% on those main runs | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
 
 After the test summary, and before the coverage summary, the run prints
-`Test budget: N tests in M files took Xs (budget 300s)`, and it fails only past the budget. The
+`Test budget: N tests in M files took Xs (budget 400s)`, and it fails only past the budget. The
 runtime budget holds for every `npm test` run, whatever flags follow `--`: the `testBudget()` plugin
 in `vite.config.ts` adds its reporter after `--reporter` flags replace the configured ones, so
 `npm test -- --reporter=dot` keeps it, and `npm test -- --coverage.enabled=false` drops only the
@@ -386,11 +386,16 @@ load two of them once passed the 5 s default timeout, so `npm test` passes `--te
   | 39876011560 | `819311f` | 2,667 / 181 | 196.3 s | 91.38% / 94.82% / 96.67% | 235 s |
 
   Median 167.7 s, range 120.9-196.3 s. The spread is not suite growth: the fastest run came after
-  two slower ones with 4-7% fewer tests, and seconds per test ranged from 47 ms to 74 ms. Every run
-  reports the same phase mix (tests 72-74%, import 11-13%, environment 8-9%), so the variation
-  tracks the shared runner and not a slow or hanging file. The whole `npm run check` step took
-  145-235 s, about 24-39 s over the test time for lint, types, set locks and card assets. For
-  comparison, one run on the 2-core container at 2,701 tests took 154.5 s.
+  two slower ones with 4-7% fewer tests, and seconds per test ranged from 47 ms to 74 ms. The same
+  commit (`819311f`) took 196.3 s in the push run above and 190.6 s in main run 39880083163 (a
+  `workflow_dispatch` run, build job 120175204245: 2,667 tests in 181 files, `npm run check` step
+  about 226 s), so the slow end is a stable runner class and not a one-off tail. It is not a slow
+  or hanging file either: the per-file profile is the same in every run. `check-sets.test.ts` is
+  8-9% of the summed file time each time, the top 10 files are about 51%, and they are the same
+  files in the same order. The whole `npm run check` step took 145-235 s, about 24-39 s over the
+  test time for lint, types, set locks and card assets. For comparison, a run on the 2-core
+  container at the same commit and test count (`819311f`, 2,667 tests) took 150.0 s, inside the CI
+  range, so the 2-core container is not slower than CI at this size.
 - **Earlier growth**: CI runs at 1,926 tests in 151 files took 141.2 s and 112.7 s on the same head
   (PR #941), and the claude/train-1 integration branch took 157.9 s at 1,990 tests in 155 files
   (job 119941611004), over the old 150 s budget with every test passing. The slowest files there
@@ -398,8 +403,9 @@ load two of them once passed the 5 s default timeout, so `npm test` passes `--te
 - **2-core container**: three serial `npm test` runs at `2bf6074` (Node 22.23.3, Vitest 5.0.4, 2 CPU
   cores by cgroup quota, 8 GiB memory, nothing else running) took 155.5 s, 150.7 s and 150.8 s
   (median 150.8 s, mean 152.3 s). All 1,819 assertions and the coverage floors passed, but every run
-  exited 1 on the 150 s budget. The cause of the gap to CI is not isolated: no profile was taken, so
-  it could be CPU count, per-file worker startup, hardware differences or something else.
+  exited 1 on the 150 s budget. At `819311f` (2,667 tests) the same container took 150.0 s, inside
+  the CI range of 120.9-196.3 s, so there is no gap to CI to explain at this size: the runs on the
+  hosted runner differ from each other by 1.6x (196.3 s over 120.9 s) for the same tests.
 - **Developer workstations**: no figure has been measured here. To get one, run `npm test` three
   times on an idle machine and record Node version, core count, memory and the `Test budget:` line.
 - **On 2 cores or a loaded machine**: the budget line can fail while every assertion and floor
@@ -410,11 +416,13 @@ load two of them once passed the 5 s default timeout, so `npm test` passes `--te
   `npx vitest run <path>`, which skips both budgets.
 
 The coverage floors sit about 13-16 points below the baseline (91.2% branches, 94.7% statements,
-96.5% lines against 75%, 78%, 80%). The runtime budget is 300 s, about 1.5x the slowest main CI run
-(196.3 s) and 1.8x the median (167.7 s), leaving about 104 s of headroom over the slowest. That is
-below the twice-the-slowest rule below, but no run has tripped it and the spread between runs is
-runner noise, so it was left alone: a raise needs a profile that separates slow-test work from policy
-(#702). If a main run passes about 250 s, profile the slowest files first. Local runs on a loaded 4-core or 2-core container are
+96.5% lines against 75%, 78%, 80%). The runtime budget is 400 s, about 2.0x the slowest main CI run
+(196.3 s) and 2.4x the median (167.7 s), which is the twice-the-slowest rule below. It was 300 s,
+but the hosted runner varies by 1.6x between runs of the same commit, and the suite grew 47% (1,819
+to 2,667 tests) in the time since the first budget, so 300 s was about 1.5x the slowest run and
+would trip at about 4,000 tests (73 ms per test at the slowest rate) on an ordinary run. At 400 s the
+budget trips at about 5,400 tests at that rate. A hung test is caught by the 15 s per-test timeout,
+not by this budget. If a main run passes about 300 s, profile the slowest files first. Local runs on a loaded 4-core or 2-core container are
 slower than CI, so a local overrun alone isn't a regression. Ordinary
 work shouldn't trip the floors. To move one, run `npm test` three
 times on an up-to-date branch, set each floor a few points below the lowest figure and the runtime
