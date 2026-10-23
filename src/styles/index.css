@@ -163,9 +163,6 @@ a.app-logo--link:focus-visible {
        drop to a second line rather than past the edge of the window (#615). At normal size nothing wraps. */
     flex-wrap: wrap;
     row-gap: var(--space-2);
-    /* The full-size logo row comes to 85.5px, which put the pack stage on a half pixel: its fade could
-       then paint it rounded either way from run to run (#1129). A whole-pixel floor keeps it still. */
-    min-height: 86px;
   }
 
   /* The logo shares the row with the tabs and the gear (about 28rem with their gaps), so it scales
@@ -178,6 +175,9 @@ a.app-logo--link:focus-visible {
   .app-logo {
     flex-shrink: 0;
     font-size: clamp(1.75rem, 10vw - 3.375rem, 3.25rem);
+    /* Whole pixels, so the header and the pack stage under it start on a whole pixel. On a half pixel
+       (58.5px at 1280px wide) the stage's fade painted it rounded either way from run to run (#1129). */
+    font-size: round(clamp(1.75rem, 10vw - 3.375rem, 3.25rem), 1px);
   }
 
   .app-main,
