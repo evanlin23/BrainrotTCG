@@ -87,10 +87,12 @@ for (const [scenario, note] of Object.entries(PULLS)) for (let repetition = 1; r
       await page.goto(`./#/pull/${proofOf(note)}`);
       await page.waitForFunction(() => window.artPending.slotsReadyAt.filter((t) => t !== undefined).length === 5, undefined, { timeout: 90_000 });
       const { verifiedAt, slotsReadyAt } = await page.evaluate(() => window.artPending);
+      // The comparison is from the moment the pull checks out; without it the numbers mean nothing.
+      if (verifiedAt === undefined) throw new Error('The pull showed all five cards but never showed as verified');
       const slots = slotsReadyAt.map((t) => Math.round(t!));
       const measurement = {
-        browser: browser.version(), scenario, verifiedMs: Math.round(verifiedAt!), slotsReadyMs: slots,
-        placeholderAfterVerifiedMs: Math.max(...slots) - Math.round(verifiedAt!), art: await artTransfer(page),
+        browser: browser.version(), scenario, verifiedMs: Math.round(verifiedAt), slotsReadyMs: slots,
+        placeholderAfterVerifiedMs: Math.max(...slots) - Math.round(verifiedAt), art: await artTransfer(page),
       };
       console.log(`art-pending ${JSON.stringify(measurement)}`);
       await testInfo.attach('art-pending', { body: Buffer.from(JSON.stringify(measurement)), contentType: 'application/json' });
@@ -118,8 +120,9 @@ for (let repetition = 1; repetition <= REPETITIONS; repetition++) {
       await page.getByRole('main', { name: 'Rankings', exact: true }).getByRole('tab', { name: 'All-time', exact: true }).click();
       await page.waitForFunction(() => window.artPending.onScreenReadyAt !== undefined, undefined, { timeout: 90_000 });
       const { firstRowAt, firstRowReadyAt, onScreenReadyAt } = await page.evaluate(() => window.artPending);
+      if (firstRowAt === undefined || firstRowReadyAt === undefined) throw new Error('The on-screen thumbs showed but the probe never saw the first row and its thumbs');
       const measurement = {
-        browser: browser.version(), scenario: 'rankings', firstRowMs: Math.round(firstRowAt!), firstRowThumbsMs: Math.round(firstRowReadyAt!),
+        browser: browser.version(), scenario: 'rankings', firstRowMs: Math.round(firstRowAt), firstRowThumbsMs: Math.round(firstRowReadyAt),
         onScreenThumbsMs: Math.round(onScreenReadyAt!), artByThen: await artTransfer(page),
       };
       console.log(`art-pending ${JSON.stringify(measurement)}`);

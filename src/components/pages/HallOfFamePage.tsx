@@ -204,6 +204,8 @@ const HallOfFamePage = () => {
   const renderEntry = (entry: HallOfFameEntry, rank: number) => {
     const who = visitorName(entry.name);
     const via = provenanceText(entry.githubUser);
+    // The top rows are what a phone shows first: their art goes ahead, and rows further down wait to be scrolled near (#762).
+    const order = rank < ON_FIRST_SCREEN ? { fetchPriority: 'high' } as const : { loading: 'lazy' } as const;
     return (
       <li key={entry.id}>
         <a className="hof-entry" href={`#/pull/${entry.proof}`} aria-label={`Number ${rank + 1}: ${entry.hand} by ${who} in ${entry.setName}, score ${entry.score}${via ? `, ${via}` : ''}`}>
@@ -211,8 +213,7 @@ const HallOfFamePage = () => {
           <span className="hof-cards" aria-hidden="true">
             {entry.cards.map((c, i) => {
               const card = getCard(`${entry.setId}/${c.cardId}`);
-              // The top rows are what a phone shows first: their art goes ahead of the rows further down (#762).
-              return card ? <CardImage key={i} src={card.image} finish={c.finish} thumbnail alt="" fetchPriority={rank < ON_FIRST_SCREEN ? 'high' : undefined} className={`${card.rarity.toLowerCase()} ${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} /> : null;
+              return card ? <CardImage key={i} src={card.image} finish={c.finish} thumbnail alt="" {...order} className={`${card.rarity.toLowerCase()} ${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} /> : null;
             })}
           </span>
           <span className="hof-main">

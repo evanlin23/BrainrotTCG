@@ -3,6 +3,7 @@ import { extractProof } from '../engine/proof';
 import { extractProfile } from '../engine/profile';
 import { recordDiagnostic } from '../game/diagnostics';
 import { HISTORY_ENTRY_EVENT, isLinkHash, pageForHash, pageHash, type Page } from '../game/route';
+import { routeShown } from '../game/warmUp';
 
 /** A pull or profile link that got cut off or mangled on the way (chat apps do that). Your own `#/profile` page isn't one. */
 export const isBrokenLink = (hash: string) => !pageForHash(hash) && isLinkHash(hash) && !extractProof(hash) && !extractProfile(hash);
@@ -95,6 +96,7 @@ export const useRoute = () => {
     const next = read();
     shown.current = { state: entryState(), route: next.route };
     setState((previous) => (same(previous, next) ? previous : next));
+    routeShown();
   }, []);
 
   useEffect(() => {

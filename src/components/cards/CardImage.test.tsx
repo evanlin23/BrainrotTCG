@@ -282,6 +282,41 @@ describe('failure and retry', () => {
     }
   });
 
+  it('lets loaded art show after a second when its decode never settles, and decodes art the img already had (#762)', async () => {
+    const decodes: (() => void)[] = [];
+    Object.defineProperty(HTMLImageElement.prototype, 'decode', {
+      configurable: true,
+      value: () => new Promise<void>((resolve) => decodes.push(resolve)),
+    });
+    vi.useFakeTimers();
+    const complete = vi.spyOn(HTMLImageElement.prototype, 'complete', 'get');
+    const naturalWidth = vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get');
+    try {
+      const plain = ALL_CARDS[0];
+      await act(async () => root.render(<CardImage src={plain.image} thumbnail alt="" />));
+      const img = container.querySelector('img')!;
+      await fire(img, 'load');
+      await act(async () => vi.advanceTimersByTime(999));
+      expect(img.dataset.state).toBe('loading');
+      await act(async () => vi.advanceTimersByTime(1));
+      expect(img.dataset.state).toBe('ready');
+
+      // The same art in the full-size view gets no load event, but still waits for its decode.
+      complete.mockReturnValue(true);
+      naturalWidth.mockReturnValue(256);
+      await act(async () => root.render(<CardImage src={plain.image} alt="" />));
+      expect(decodes).toHaveLength(2);
+      expect(img.dataset.state).toBe('loading');
+      await act(async () => decodes[1]());
+      expect(img.dataset.state).toBe('ready');
+    } finally {
+      vi.useRealTimers();
+      complete.mockRestore();
+      naturalWidth.mockRestore();
+      delete (HTMLImageElement.prototype as { decode?: unknown }).decode;
+    }
+  });
+
   it('keeps a loaded image ready when the same card without a finish switches between thumbnail and full size (#484)', async () => {
     const plain = ALL_CARDS[0];
     await act(async () => root.render(<CardImage src={plain.image} thumbnail alt="" />));

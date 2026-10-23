@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getSet } from '../content/sets';
 import { packArtSettled } from './packArt';
 import { prefetchNextPack } from './pulls';
+import { useRoute } from '../hooks/useRoute';
+
+type Route = ReturnType<typeof useRoute>;
 
 const mined = vi.hoisted(() => Promise.resolve(new Uint8Array(32).fill(7)));
 vi.mock('./ticketMiner', () => ({
@@ -27,26 +32,30 @@ describe('prefetchNextPack', () => {
     expect(images.every((image) => image.src.length > 0)).toBe(true);
   });
 
-  it('leaves the bandwidth to a shared pull until the Open screen shows (#762)', async () => {
+  it.each([
+    ['a shared pull', '#/pull/some-proof', (route: Route) => route.closeLink()],
+    ['another page', '#/rankings', (route: Route) => route.closePage()],
+  ])('leaves the bandwidth to %s until the app moves to the Open screen (#762)', async (_, hash, close) => {
     const images: { src: string }[] = [];
     vi.stubGlobal('Image', class { src = ''; constructor() { images.push(this); } });
-    history.replaceState(null, '', '#/pull/some-proof');
+    let route!: Route;
+    const Probe = () => {
+      route = useRoute();
+      return null;
+    };
+    history.replaceState(null, '', hash);
+    const root = createRoot(document.createElement('div'));
+    act(() => root.render(createElement(Probe)));
     packArtSettled();
     prefetchNextPack(getSet('right-now', 2)!);
     await mined;
     await Promise.resolve();
     expect(images).toEqual([]);
 
-    // Another page is no better: its cards are on screen too.
-    history.replaceState(null, '', '#/rankings');
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-    expect(images).toEqual([]);
-
-    history.replaceState(null, '', location.pathname);
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    // The app's own moves use replaceState, which fires no hashchange: the route itself lets the art go.
+    act(() => close(route));
+    expect(location.hash).toBe('');
     expect(images.length).toBeGreaterThan(0);
-    const fetched = images.length;
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-    expect(images).toHaveLength(fetched);
+    act(() => root.unmount());
   });
 });

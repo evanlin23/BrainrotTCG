@@ -117,11 +117,19 @@ const CardImage = ({
   useLayoutEffect(() => {
     current.current = id;
   });
+  /**
+   * Ready once the pixels are decoded, so the placeholder never gives way to an empty frame on a slow
+   * device (#762). A decode that fails, is missing or hangs past a second still leaves the loaded image.
+   */
+  const settle = (img: HTMLImageElement) =>
+    void Promise.race([img.decode?.(), new Promise((done) => setTimeout(done, 1000))]).catch(() => undefined).then(() => {
+      if (current.current === id && img.getAttribute('src') === shown) update({ loaded: shown });
+    });
   // A fresh status for a URL the img already shows (a card without a finish switching between its
   // thumbnail and full-size view keeps the same src) gets no new load event: take the load it had.
   useLayoutEffect(() => {
     const img = imageRef.current;
-    if (state === 'loading' && img?.complete && img.naturalWidth > 0 && img.getAttribute('src') === shown) update({ loaded: shown });
+    if (state === 'loading' && img?.complete && img.naturalWidth > 0 && img.getAttribute('src') === shown) settle(img);
     // `update` only closes over `id`, which changes `state`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, shown]);
@@ -162,14 +170,7 @@ const CardImage = ({
       data-state={state}
       onLoad={(event) => {
         const img = event.currentTarget;
-        if (!failed && shown && img.getAttribute('src') === shown) {
-          // Ready once the pixels are decoded, so the placeholder never gives way to an empty frame on a
-          // slow device (#762). A decode that fails still leaves the image the load event reported.
-          if (typeof img.decode !== 'function') update({ loaded: shown });
-          else void img.decode().catch(() => undefined).then(() => {
-            if (current.current === id && img.getAttribute('src') === shown) update({ loaded: shown });
-          });
-        }
+        if (!failed && shown && img.getAttribute('src') === shown) settle(img);
         onLoad?.(event);
       }}
       onError={(event) => {

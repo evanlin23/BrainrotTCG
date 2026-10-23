@@ -17,6 +17,8 @@ const vectors = JSON.parse(readFileSync(new URL('../../spec/vectors-python.json'
   valid: { note: string; proof: string; hand: string; score: number; cards: { finish: string | null }[] }[];
 };
 const vector = vectors.valid.find((v) => v.note === 'modifiers (§5.4): a Silver misprint, stacked')!;
+/** A pull whose set isn't offered to chase here, so it offers "Open your own packs" (a chase button fetches that set's art itself). */
+const plain = vectors.valid.find((v) => v.note === 'mined Full House')!;
 const finished = vector.cards.filter((card) => card.finish).length;
 
 /** Freezes the page clock after load starts, so the app's own timeouts never fire during the hold. */
@@ -28,11 +30,11 @@ async function freezeClock(page: Page) {
 /** Each slot's painted placeholder, from its computed background. */
 const backgrounds = (slots: Locator) => slots.evaluateAll((images) => images.map((img) => getComputedStyle(img).backgroundImage));
 
-async function openSharedPull(page: Page) {
-  const pull = page.getByRole('dialog', { name: vector.hand, exact: true });
-  await page.goto(`./#/pull/${vector.proof}`);
+async function openSharedPull(page: Page, shared = vector) {
+  const pull = page.getByRole('dialog', { name: shared.hand, exact: true });
+  await page.goto(`./#/pull/${shared.proof}`);
   await expect(pull).toContainText('This pull checks out — re-verified in your browser just now', { timeout: 20000 });
-  await expect(pull.locator('.score-panel-total')).toHaveText(vector.score.toLocaleString('en-US'));
+  await expect(pull.locator('.score-panel-total')).toHaveText(shared.score.toLocaleString('en-US'));
   return pull;
 }
 
@@ -83,14 +85,17 @@ test('the action to open packs works while a shared pull\'s art is still held', 
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   const art = await holdArt(page);
   await freezeClock(page);
-  const pull = await openSharedPull(page);
+  const pull = await openSharedPull(page, plain);
   await expect.poll(() => art.requests()).toBeGreaterThan(0);
   const slots = pull.locator('.pack-viewer-cards img.card-image');
   await expect.poll(() => slots.evaluateAll((images) => images.every((img) => (img as HTMLImageElement).dataset.state === 'loading'))).toBe(true);
 
-  await pull.getByRole('button', { name: /^Open (your own|.+) packs$/ }).click();
+  const whilePullShows = art.requests();
+  await pull.getByRole('button', { name: 'Open your own packs', exact: true }).click();
   await expect(pull).toBeHidden();
   await expect(page.getByRole('button', { name: /^Open pack/ })).toBeEnabled();
+  // The next pack's art waited for the pull's own; now the Open screen shows, it is fetched ahead.
+  await expect.poll(() => art.requests(), { timeout: 20000 }).toBeGreaterThan(whilePullShows);
 
   art.set('serve');
   expect(unexpectedArtErrors(errors)).toEqual([]);
