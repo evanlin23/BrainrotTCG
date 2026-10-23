@@ -12,13 +12,21 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # Two commits: on a pull request, GitHub's merge commit and the base it merges onto.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run check
+      # Every old vector and set lock entry is still there, unchanged (docs/ARCHITECTURE.md,
+      # Compatibility rules). The base files are read as data; nothing from the base runs.
+      - name: Keep old vectors and set locks
+        if: github.event_name == 'pull_request'
+        run: npm run check:history -- --base HEAD^1
       # Link-preview pictures (scripts/preview-pages.ts) take minutes to draw from scratch; keep them.
       # The key covers everything that decides which pictures there are and how they look. Their
       # cache contract (the script, sharp's versions, PREVIEW_CACHE_VERSION) starts the restore
