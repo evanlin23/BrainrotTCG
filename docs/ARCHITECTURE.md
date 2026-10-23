@@ -66,7 +66,7 @@ src/content/       Set data, art and registry; existing schemas use the existing
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
   sets/<set>/art/      source art (real images, full cards, or SVG placeholders)
   sets/<set>/cards/    built card images (npm run cards); committed
-  sets/<set>/finish-thumbs/  small ready-made metallic finishes for the collection; committed
+  sets/<set>/finish-thumbs/  small ready-made metallic finishes for the collection and the other small card views; committed
   sets/<set>/pack.webp the set's booster pack wrapper, built from its colours and rarest cards
   sets/index.ts        the registry: every version of every set (old versions and archived sets stay for old proofs)
   sets.lock.json       hash of each released set@version (npm run check:sets)
@@ -677,8 +677,10 @@ stored compactly in the pack history (`src/game/cardCode.ts`: `sigma*G!` is a ho
 card views and the PNG exporter use `src/game/finishImage.ts`, caching full-size results per card/finish
 in a 16-entry LRU. Each view holds its render while mounted; an evicted render's blob URL is revoked
 only after its last holder lets go, so no mounted `<img>` loses its source.
-Collection tiles load pre-rendered 344px WebP finishes directly, with native lazy loading and no
-canvas recolouring or PNG encoding on first load. They use the same recolouring function before
+Every small card view (collection tiles, the pull dialog and pack summary slots, Rankings and pull-row
+thumbnails) loads pre-rendered 344px WebP finishes directly, with no canvas recolouring or PNG
+encoding on first load, so a finished card waits on one small request like a plain one (#762). Only
+the full-size viewer, the reveal and exports render finishes from full art. They use the same recolouring function before
 resizing. `npm run cards` rebuilds these thumbnails and the small lossless mask
 (`src/assets/images/card-frame-mask.webp`); `npm run cards:finish-thumbs` refreshes just the thumbnails.
 Input hashes include the source image, mask, recolouring code and output settings, so changed cards
