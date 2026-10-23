@@ -286,9 +286,49 @@ class Workflows(unittest.TestCase):
                                   'uses a secret outside', job)
 
     def test_secret_in_build(self):
-        self.assertBroken('deploy.yml', '      - run: npm ci\n',
-                          '      - run: npm ci\n        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
-                          'uses a secret outside')
+        for job in ('build', 'smoke'):
+            with self.subTest(job):
+                self.setUp()
+                self.assertBroken('deploy.yml', '      - run: npm ci\n',
+                                  '      - run: npm ci\n        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
+                                  'uses a secret outside', job)
+
+    def test_smoke_before_deploy(self):
+        self.assertBroken('deploy.yml', '    needs: [site, deploy]\n', '    needs: [site, publish]\n',
+                          'job smoke must need exactly', 'smoke')
+
+    def test_smoke_writes(self):
+        for old, new in (('      contents: read\n', '      contents: write\n'), ('      actions: read\n', '      actions: write\n'),
+                         ('      actions: read\n', '      actions: read\n      pages: write\n'),
+                         ('      actions: read\n', '      actions: read\n      id-token: write\n')):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, 'job smoke permissions', 'smoke')
+
+    def test_smoke_unbounded(self):
+        for new in ('', '    timeout-minutes: 360\n'):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', '    timeout-minutes: 15\n', new, 'job smoke timeout-minutes must be 15', 'smoke')
+
+    def test_timeout_elsewhere(self):
+        self.assertBroken('deploy.yml', '    needs: [build, publish]\n', '    needs: [build, publish]\n    timeout-minutes: 15\n',
+                          'job deploy timeout-minutes must be unset', 'deploy')
+
+    def test_smoke_weakened(self):
+        changes = {
+            'skipped': lambda steps: steps.pop(3),
+            'ignored': lambda steps: steps[3].update(run=steps[3]['run'].replace('.ts', '.ts || true')),
+            'browser skipped': lambda steps: steps.pop(),
+            'other config': lambda steps: steps[-1].update(run='npx playwright test -c playwright.staging.config.ts'),
+            'conditional': lambda steps: steps[-1].update({'if': "needs.site.outputs.host == 'cloudflare'"}),
+            'continues on error': lambda steps: steps[-1].update({'continue-on-error': True}),
+            'other address': lambda steps: steps[3]['env'].update(SITE_URL='${{ needs.site.outputs.staging_url }}'),
+        }
+        for label, change in changes.items():
+            with self.subTest(label):
+                problems = self.deploy_problems(lambda jobs: change(jobs['smoke']['steps']))
+                self.assertTrue(any('smoke must' in p for p in problems), problems)
 
     def test_wrangler_runs_more(self):
         self.assertBrokenIn(('stage', 'publish'), '--commit-dirty=true\n', '--commit-dirty=true && npm test\n')
