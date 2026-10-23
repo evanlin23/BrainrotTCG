@@ -401,27 +401,34 @@ restored later doesn't come back to a closed day. A day with no deploy while it 
 archived.
 
 Carrying days forward means reading the deployed site (GitHub Pages, which keeps serving these files
-after a move). The build reads it before anything else, and the deploy fails rather than drop a day:
+after a move). The build reads it before anything else, with a `?run=` query the CDN hasn't cached (as
+the smoke check does), and the deploy fails rather than drop a day:
 
-- `hall-of-fame.json` must answer 200 with a JSON list, or the site can't be read.
-- Only a 404 for `rankings.json` means a site from before these files. The history starts with the
-  open days, and the log says `No rankings.json deployed: starting the rankings history`.
-- Any other answer fails, and so does an archive that is listed but not deployed or that fails its
-  strict check (`parseRankingsFile`, `parseDailyArchive`). That covers an error status, a network
-  error, or a page in place of the file, such as a fallback.
+- Only a 404 means a file isn't deployed. For `hall-of-fame.json` that is a new site, or one whose
+  Pages were turned off, and the log says `No hall-of-fame.json deployed: a new site`; the build
+  lists it again from the issues. For `rankings.json` it is a site from before these files. The
+  history starts with the open days, and the log says
+  `No rankings.json deployed: starting the rankings history`.
+- Any other answer fails, and so does a list that isn't a JSON list, or an archive that is listed but
+  not deployed or that fails its strict check (`parseRankingsFile`, `parseDailyArchive`). That covers
+  an error status, a network error, or a page in place of the file, such as a fallback.
 
 The two signals move together, since every path writes both files or neither:
 
 - The deploy's build step writes both into `public/`, and `npm run build` copies them into `dist/`.
-- If GitHub is down, it keeps the deployed rankings as they are.
+- If GitHub is down, it keeps the deployed `hall-of-fame.json` and rankings as they are. With no
+  `hall-of-fame.json` deployed there is nothing to keep, and the deploy fails rather than publish the
+  committed empty list.
 - After a move, the old address's pages (`scripts/redirect-site.ts`) copy both.
 - Only a local build without a token writes no rankings.
 
 The edge is rollback. Deploying code from before these files publishes a site without
 `rankings.json`, and the next build starts the history again: the closed days archived until then
-are lost. Restoring an older deploy of this code brings back its older archives, so the days closed
-since it ran are lost too. Keep the deployed `rankings.json` and archives before a rollback if the
-history matters.
+are lost. Keep the deployed `rankings.json` and archives before deploying such code if the history
+matters. A Cloudflare rollback serves its older archives only until the next deploy: it doesn't
+revert the GitHub Pages redirect's copy, which the build reads, so that build carries the current
+archives forward, not the rolled-back ones. GitHub Pages has no rollback in this workflow
+(docs/HOSTING.md).
 
 ## Sharing and link previews
 

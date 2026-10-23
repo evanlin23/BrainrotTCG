@@ -94,7 +94,7 @@ interface Fixture {
   comments?: Record<number, Comment[]>;
   /** The deployed hall-of-fame.json, or undefined for a 404. */
   published?: unknown[];
-  /** The deployed rankings files by path: a text, or the status the site answers with (else a 404). */
+  /** The deployed rankings files (and hall-of-fame.json, in place of `published`) by path: a text, or the status the site answers with (else a 404). */
   site?: Record<string, string | number>;
   /** Requests GitHub answers with a 500. */
   fail?: (request: Request) => boolean;
@@ -124,8 +124,8 @@ const fakeGitHub = (fixture: Fixture) => {
     vi.fn(async (input: string | URL, init: RequestInit = {}) => {
       const url = String(input);
       const method = init.method ?? 'GET';
-      const deployed = /^https:\/\/[^/]+\.github\.io\/[^/]+\/(hall-of-fame\.json|rankings\.json|rankings\/daily-\d{4}-\d{2}\.json)$/.exec(url)?.[1];
-      if (deployed === 'hall-of-fame.json') return fixture.published ? json(fixture.published) : json({ message: 'Not Found' }, 404);
+      const deployed = /^https:\/\/[^/]+\.github\.io\/[^/]+\/(hall-of-fame\.json|rankings\.json|rankings\/daily-\d{4}-\d{2}\.json)\?run=\d+-\d+$/.exec(url)?.[1];
+      if (deployed === 'hall-of-fame.json' && fixture.site?.[deployed] === undefined) return fixture.published ? json(fixture.published) : json({ message: 'Not Found' }, 404);
       if (deployed) {
         const file = fixture.site?.[deployed];
         return typeof file === 'string' ? new Response(file) : new Response('Not Found', { status: file ?? 404 });
@@ -238,11 +238,18 @@ describe('build (deploy workflow)', () => {
     expect(gh.requests).toEqual([]);
   });
 
-  it('keeps the existing list when GitHub is down', async () => {
-    const gh = fakeGitHub({ published: [], issues: [issue(1, fourOfAKind)], fail: () => true });
-    writeFileSync(output(), '[{"kept":true}]\n');
+  it('keeps the deployed list when GitHub is down', async () => {
+    const gh = fakeGitHub({ published: [{ deployed: true }], issues: [issue(1, fourOfAKind)], fail: () => true });
+    writeFileSync(output(), '[]\n');
     await build(output());
-    expect(readFileSync(output(), 'utf8')).toBe('[{"kept":true}]\n');
+    expect(readFileSync(output(), 'utf8')).toBe('[{"deployed":true}]');
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it('fails the deploy, writing nothing, when GitHub is down and no list is deployed', async () => {
+    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], fail: () => true });
+    await expect(build(output())).rejects.toThrow('Could not list Hall of Fame issues, and the deployed site has no hall-of-fame.json to keep');
+    expect(existsSync(output())).toBe(false);
     expect(gh.writes()).toEqual([]);
   });
 
@@ -420,7 +427,9 @@ describe('rankings (#223)', () => {
     const site = (files: Record<string, string | number | Error>) => {
       const requested: string[] = [];
       const get = vi.fn(async (input: string | URL) => {
-        const file = String(input).replace(/^https:\/\/[^/]+\.github\.io\/[^/]+\//, '');
+        const file = String(input)
+          .replace(/^https:\/\/[^/]+\.github\.io\/[^/]+\//, '')
+          .replace(/\?run=4242-1$/, '');
         requested.push(file);
         const answer = files[file];
         if (answer instanceof Error) throw answer;
@@ -429,11 +438,36 @@ describe('rankings (#223)', () => {
       return { get: get as unknown as typeof fetch, requested };
     };
 
+    beforeEach(() => {
+      vi.stubEnv('GITHUB_RUN_ID', '4242');
+      vi.stubEnv('GITHUB_RUN_ATTEMPT', '1');
+    });
+
     it('starts the history, and says so, when the site has a list but no rankings.json', async () => {
       const { get, requested } = site({ 'hall-of-fame.json': '[]\n' });
-      expect(await deployedRankings(get)).toEqual({ index: null, archives: new Map() });
+      expect(await deployedRankings(get)).toEqual({ list: '[]\n', index: null, archives: new Map() });
       expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX]);
       expect(console.log).toHaveBeenCalledWith('No rankings.json deployed: starting the rankings history');
+    });
+
+    it('reads a new site, with neither file, as one to start', async () => {
+      const { get, requested } = site({});
+      expect(await deployedRankings(get)).toEqual({ list: null, index: null, archives: new Map() });
+      expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX]);
+      expect(console.log).toHaveBeenCalledWith('No hall-of-fame.json deployed: a new site');
+    });
+
+    it("asks GitHub Pages past its CDN's cache, with the run in the query", async () => {
+      const urls: string[] = [];
+      const get = vi.fn(async (input: string | URL) => {
+        urls.push(String(input));
+        return new Response('Not Found', { status: 404 });
+      }) as unknown as typeof fetch;
+      await deployedRankings(get);
+      expect(urls).toEqual([
+        'https://evanlin23.github.io/BrainrotTCG/hall-of-fame.json?run=4242-1',
+        'https://evanlin23.github.io/BrainrotTCG/rankings.json?run=4242-1',
+      ]);
     });
 
     it('reads rankings.json and every archive it lists', async () => {
@@ -449,7 +483,6 @@ describe('rankings (#223)', () => {
     });
 
     it.each([
-      ['no hall-of-fame.json', { 'hall-of-fame.json': 404 }, 'The deployed site has no hall-of-fame.json'],
       ['hall-of-fame.json answering 500', { 'hall-of-fame.json': 500 }, 'The deployed hall-of-fame.json answered 500'],
       ['hall-of-fame.json as a page', { 'hall-of-fame.json': '<!doctype html><title>Brainrot TCG</title>' }, "isn't a JSON list"],
       ["hall-of-fame.json that isn't a list", { 'hall-of-fame.json': '{}' }, "isn't a JSON list"],
@@ -505,17 +538,29 @@ describe('rankings (#223)', () => {
       expect(file.days[0].board.entries.map((e: ArchivedPull) => e.issue)).toEqual([1]);
     });
 
-    it('keeps the deployed rankings unchanged when GitHub is down', async () => {
+    it('keeps the deployed list and rankings unchanged when GitHub is down', async () => {
       clockAt('2026-10-16T12:00:00Z');
-      github({ site: deployed, fail: (r) => r.path === '/issues' });
+      const published = [{ issue: 1, deployed: true }];
+      github({ site: deployed, published, fail: (r) => r.path === '/issues' });
+      writeFileSync(output(), '[]\n');
       await build(output());
       expect(read(RANKINGS_INDEX)).toBe(deployed[RANKINGS_INDEX]);
       expect(read(archivePath('2026-09'))).toBe(september);
       expect(read(archivePath('2026-10'))).toBe(october);
+      expect(readFileSync(output(), 'utf8')).toBe(JSON.stringify(published));
+    });
+
+    it('builds a new site, with nothing deployed, from the issues', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      github({ published: undefined });
+      await build(output());
+      expect(JSON.parse(readFileSync(output(), 'utf8')).map((e: { issue: number }) => e.issue)).toEqual([1]);
+      expect(JSON.parse(read(RANKINGS_INDEX)).archive).toEqual(['2026-10']);
+      expect(console.log).toHaveBeenCalledWith('No hall-of-fame.json deployed: a new site');
     });
 
     it.each([
-      ['the site has no hall-of-fame.json', { published: undefined }, 'The deployed site has no hall-of-fame.json'],
+      ['hall-of-fame.json answers 500', { site: { 'hall-of-fame.json': 500 } }, 'The deployed hall-of-fame.json answered 500'],
       ['rankings.json is deployed but an archive it lists is not', { site: { [RANKINGS_INDEX]: deployed[RANKINGS_INDEX], [archivePath('2026-10')]: october } }, "which isn't deployed"],
       ['rankings.json answers with a page', { site: { [RANKINGS_INDEX]: '<!doctype html><title>Brainrot TCG</title>' } }, "The deployed rankings.json isn't JSON"],
     ])('fails the deploy, writing nothing, when %s', async (_, fixture, error) => {

@@ -51,7 +51,7 @@ export class FakeGitHub {
   constructor(
     readonly issues: FakeIssue[] = [],
     readonly comments: Record<number, FakeComment[]> = {},
-    /** The deployed hall-of-fame.json (always deployed, so a list by default), or undefined for a 404. */
+    /** The deployed hall-of-fame.json (a list by default), or undefined for a 404. */
     public published: unknown[] | undefined = [],
     /** The deployed rankings files by path: a text, or the status the site answers with (else a 404). */
     public site: Record<string, string | number> = {},
@@ -72,7 +72,7 @@ export class FakeGitHub {
   /** The answer to a request for this fake, or null if the URL isn't GitHub's. */
   handle(url: string, init: RequestInit = {}): Response | null {
     const method = init.method ?? 'GET';
-    const deployed = /^https:\/\/[^/]+\.github\.io\/[^/]+\/(hall-of-fame\.json|rankings\.json|rankings\/daily-\d{4}-\d{2}\.json)$/.exec(url)?.[1];
+    const deployed = /^https:\/\/[^/]+\.github\.io\/[^/]+\/(hall-of-fame\.json|rankings\.json|rankings\/daily-\d{4}-\d{2}\.json)\?run=\d+-\d+$/.exec(url)?.[1];
     if (deployed === 'hall-of-fame.json') return this.published ? json(this.published) : json({ message: 'Not Found' }, 404);
     if (deployed) {
       const file = this.site[deployed];

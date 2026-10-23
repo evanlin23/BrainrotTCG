@@ -354,7 +354,9 @@ host, use the compatible feature-PR/forward-fix path above; there is no rollback
 
 UI and ranking recovery are separate decisions. A provider rollback also restores its bundled
 `hall-of-fame.json`, which can omit newer winners or reintroduce moderated entries, and its rankings
-archives, which the next build carries forward (docs/ARCHITECTURE.md, "Published rankings"). Keep verified issue
+archives. A Cloudflare rollback doesn't revert the GitHub Pages redirect's copy, which the next build
+reads, so that build carries the current archives forward, not the rolled-back ones
+(docs/ARCHITECTURE.md, "Published rankings"). Keep verified issue
 records/moderation intact, retain the current snapshot for comparison, and rebuild ranking data from
 current trusted evidence with compatible code. Do not undo submissions or rejected labels to match an
 old UI. The GitHub redirect's copy may differ until refreshed; record that explicitly.
