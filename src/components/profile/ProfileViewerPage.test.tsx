@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ProfileViewerPage from './ProfileViewerPage';
 import { scorePulled, type CheckedProfile, type ProfilePack } from '../../engine';
-import { SETS } from '../../content/sets';
+import { SETS, getSet } from '../../content/sets';
+import { toPulled } from '../../game/cardCode';
 import type { ProfileProgress } from '../../game/profiles';
 
 const { verifyProfileLive } = vi.hoisted(() => ({ verifyProfileLive: vi.fn() }));
@@ -175,5 +176,116 @@ describe('ProfileViewerPage', () => {
     act(() => reports[0]({ checked, packs: [], highlights: null, done: false, error: { rule: 'claims', message: 'Level is wrong' } }));
     expect(status().textContent).toContain('Not a real profile: Level is wrong');
     expect(retry()).toBeUndefined();
+  });
+
+  describe('moving from one shared profile to another', () => {
+    // Two profiles whose best pulls come from different sets, so a leftover pack can't pass for the new one.
+    const setA = getSet('right-now', 1)!;
+    const setB = getSet('genesis', 1)!;
+    const bestIn = (set: typeof setA, nonce: number, cardIndex: number): ProfilePack => {
+      const cards = toPulled(Array.from({ length: set.packSize }, () => ({ id: set.cards[cardIndex].id, holo: false })), set)!;
+      return { nonce, set, cards, score: scorePulled(cards) };
+    };
+    const packA = bestIn(setA, 3, 0);
+    const packB = bestIn(setB, 9, 1);
+    const checkedB = { ...checked, fingerprint: 'beefbeef', profile: { ...checked.profile, name: 'Other' } } as unknown as CheckedProfile;
+
+    const render = (proof: string) => act(() => root.render(<ProfileViewerPage proof={proof} onClose={() => {}} />));
+    const dialogs = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')];
+    const nested = () => dialogs().filter((d) => !d.classList.contains('profile-viewer'));
+    const bestRows = () => [...document.querySelectorAll<HTMLButtonElement>('.profile-block .pull-row')];
+    const openBest = () => act(() => bestRows()[0].click());
+    /** What each link's check reports the moment it starts; a cached profile is complete at once. */
+    const starts: Record<string, ProfileProgress> = {};
+    const aborted = (call: number) => (verifyProfileLive.mock.calls[call][2] as AbortSignal).aborted;
+
+    beforeEach(() => {
+      starts.A = { checked, packs: [packA], highlights: [packA], done: false };
+      verifyProfileLive.mockImplementation((text: string, onProgress: (p: ProfileProgress) => void) => {
+        reports.push(onProgress);
+        onProgress(starts[text]);
+        return checked;
+      });
+    });
+
+    it('closes profile A’s open pack while profile B is still being checked', () => {
+      starts.B = { checked: checkedB, packs: [], highlights: null, done: false };
+      render('A');
+      openBest();
+      expect(nested()).toHaveLength(1);
+      expect(nested()[0].textContent).toContain(`${setA.name} · ticket #3`);
+
+      render('B');
+      expect(nested()).toHaveLength(0);
+      expect(dialogs()).toHaveLength(1);
+      expect(document.body.textContent).toContain('Other');
+      expect(document.body.textContent).not.toContain(`ticket #3`);
+      // A's check was stopped, and a late report from it changes nothing.
+      expect(aborted(0)).toBe(true);
+      expect(aborted(1)).toBe(false);
+      act(() => reports[0]({ checked, packs: [packA], highlights: [packA], done: true }));
+      expect(document.body.textContent).toContain('Other');
+      expect(bestRows()).toHaveLength(0);
+    });
+
+    it('closes it when B is already cached, and B’s own best pull opens its own set and cards', () => {
+      starts.B = { checked: checkedB, packs: [packB], highlights: [packB], done: true };
+      render('A');
+      openBest();
+      render('B');
+      expect(nested()).toHaveLength(0);
+      expect(status().textContent).toContain('This profile checks out');
+      expect(bestRows()).toHaveLength(1);
+
+      openBest();
+      expect(nested()).toHaveLength(1);
+      expect(nested()[0].textContent).toContain(`${setB.name} · ticket #9`);
+      expect(nested()[0].textContent).not.toContain(setA.name);
+      expect(nested()[0].querySelectorAll('img').length).toBeGreaterThan(0);
+      expect([...nested()[0].querySelectorAll('img')].every((img) => img.getAttribute('src')?.includes(setB.id))).toBe(true);
+    });
+
+    it('closes it when B fails, whether the link is bad or its claims are false', () => {
+      starts.B = { checked: checkedB, packs: [], highlights: null, done: false, error: { rule: 'claims', message: 'Level is wrong' } };
+      render('A');
+      openBest();
+      render('B');
+      expect(nested()).toHaveLength(0);
+      expect(status().textContent).toContain('Not a real profile: Level is wrong');
+
+      render('A');
+      openBest();
+      expect(nested()).toHaveLength(1);
+      verifyProfileLive.mockImplementationOnce(() => {
+        throw new Error('That link is cut off');
+      });
+      render('C');
+      // The one sheet left is the not-valid notice, with no pack from A over it.
+      expect(dialogs()).toHaveLength(1);
+      expect(document.body.textContent).toContain('That link is cut off');
+      expect(document.body.textContent).not.toContain('ticket #3');
+    });
+
+    it('keeps the pack open as the same profile streams more progress', () => {
+      render('A');
+      openBest();
+      act(() => reports[0]({ checked, packs: [packA, pack(1)], highlights: [packA], done: false }));
+      expect(status().textContent).toContain('2/2');
+      expect(nested()).toHaveLength(1);
+      act(() => reports[0]({ checked, packs: [packA, pack(1)], highlights: [packA], done: true }));
+      expect(nested()).toHaveLength(1);
+      expect(verifyProfileLive).toHaveBeenCalledTimes(1);
+    });
+
+    it('still closes the pack on Escape, then the profile on the next', () => {
+      const onClose = vi.fn();
+      act(() => root.render(<ProfileViewerPage proof="A" onClose={onClose} />));
+      openBest();
+      act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+      expect(nested()).toHaveLength(0);
+      expect(onClose).not.toHaveBeenCalled();
+      act(() => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
   });
 });
