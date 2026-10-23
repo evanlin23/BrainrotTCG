@@ -70,13 +70,14 @@ const HERE_SAVE: Storage = {
 /** What may never show up in a request, a URL, a console line or a header. */
 const SENSITIVE = [OLD_SECRET, HERE_SECRET, '7e57'.repeat(15), 'secretKey', PLAYER];
 
-const freePort = () => new Promise<number>((resolve, reject) => {
+/** Holds a free port while the app builds for it; `release` frees it just before the app takes it. */
+const reservePort = () => new Promise<{ port: number; release: () => Promise<void> }>((resolve, reject) => {
   const server = listen();
   server.once('error', reject);
-  server.listen(0, '127.0.0.1', () => {
-    const { port } = server.address() as AddressInfo;
-    server.close(() => resolve(port));
-  });
+  server.listen(0, '127.0.0.1', () => resolve({
+    port: (server.address() as AddressInfo).port,
+    release: () => new Promise<void>((done) => server.close(() => done())),
+  }));
 });
 const serve = (server: Server) => new Promise<number>((resolve, reject) => {
   server.once('error', reject);
@@ -111,7 +112,7 @@ test.beforeAll(async () => {
   OLD_URL = `${OLD_ORIGIN}${OLD_BASE}`;
   THIRD_ORIGIN = `http://127.0.0.1:${await serve(thirdServer)}`;
   THIRD_URL = `${THIRD_ORIGIN}/fixture/`;
-  const port = await freePort();
+  const { port, release } = await reservePort();
   NEW_ORIGIN = `http://localhost:${port}`;
   NEW_URL = `${NEW_ORIGIN}/`;
 
@@ -127,6 +128,7 @@ test.beforeAll(async () => {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+    await release();
   }
   app = await preview({ root: ROOT, base: '/', logLevel: 'error', build: { outDir }, preview: { host: '127.0.0.1', port, strictPort: true } });
 });
@@ -345,6 +347,8 @@ test.describe('messages from anyone else hand nothing over', () => {
     const receiverOpened = page.waitForEvent('popup');
     await page.evaluate((url) => { window.open(url, 'brainrot-receive', 'popup'); }, `${NEW_URL}#/receive`);
     const receiver = await receiverOpened;
+    // The receiver gives up after 15s with nothing (receiveSave, src/game/move.ts) and the game starts
+    // there; its checks below run within about a second of it opening, so well inside that.
     await expect(receiver.locator('#root')).toHaveText(RECEIVING);
     await listenFor(receiver, 'stranger');
     await page.evaluate((save) => {
@@ -362,11 +366,16 @@ test.describe('messages from anyone else hand nothing over', () => {
     await expect(sender.locator('#status')).toHaveText(`Sent to ${new URL(NEW_URL).host}. You can close this window.`);
     expect((await roundTrip(sender, page, 'after-sender')).origin).toBe(OLD_ORIGIN);
     expect((await allHeard(page)).map((m) => m.type ?? m.probe)).toEqual(['after-receiver', 'after-sender']);
-    // Whatever another site does, the old address keeps its save.
-    expect(await storageAt(page.context(), OLD_ORIGIN)).toMatchObject(OLD_STORAGE);
+    // Whatever another site does, the old address keeps its save. It does mark itself moved although
+    // nothing arrived: https://github.com/evanlin23/BrainrotTCG/issues/1035.
+    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual({ ...OLD_STORAGE, [MOVED]: expect.any(String) });
   });
 
-  /** The old address's tab, with the receiver open but Bring not tapped, so its page isn't answering yet. */
+  /**
+   * The old address's tab, with the receiver open but Bring not tapped, so its page isn't answering yet.
+   * The receiver gives up after 15s with nothing (receiveSave, src/game/move.ts); the tests using it
+   * reach Bring within about a second of it opening, so well inside that.
+   */
   const openReceiverFromOldAddress = async (page: Page) => {
     await standInAtNewAddress(page);
     await page.goto(OLD_URL);
@@ -421,6 +430,55 @@ test.describe('messages from anyone else hand nothing over', () => {
     expect(await storageAt(page.context(), NEW_ORIGIN)).toEqual({});
     await bringIntoOpenReceiver(page, receiver);
   });
+
+  test("Settings takes a save only from the old address's window it opened", async ({ page }) => {
+    // No save here yet (the guard's fixture guest), so the first save Settings accepts is imported at
+    // once: had it taken a stranger's, that would be in storage and its window would have closed.
+    await setUp(page, { old: OLD_STORAGE });
+    const stranger = { [PLAYER]: player('7e57beef'.repeat(8), 'Stranger fixture', 9), [VERSION]: '3' };
+    // The window's first page at the old address answers nothing, and holds another old-address window.
+    let quiet = true;
+    await page.context().route((url) => url.origin === OLD_ORIGIN, (route) => {
+      if (!route.request().isNavigationRequest()) return route.fallback();
+      if (new URL(route.request().url()).pathname === `${OLD_BASE}other`) return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Another old-address window</title>' });
+      if (!quiet) return route.fallback();
+      quiet = false;
+      return route.fulfill({ contentType: 'text/html', body: `<!doctype html><title>Old address, quiet</title><iframe name="other" src="${OLD_URL}other"></iframe>` });
+    });
+    const { bring } = await settingsRow(page);
+    const before = await storageAt(page.context(), NEW_ORIGIN);
+    await standInAtNewAddress(page);
+    const popupOpened = page.waitForEvent('popup');
+    await bring.click();
+    const popup = await popupOpened;
+    await expect(popup).toHaveTitle('Old address, quiet');
+    await popup.waitForLoadState('load');
+    // Settings gives up after 20s (fetchOldSave, src/game/move.ts); from here to the real save
+    // takes about a second, and the page's own steps don't depend on a timer.
+    await listenFor(page, 'from-old-other');
+    await listenFor(page, 'from-third');
+
+    // The old origin, from a window that is not the one Settings opened.
+    await popup.frame({ name: 'other' })!.evaluate((save) => {
+      (window.parent.opener as Window).postMessage({ type: 'brainrot-save', probe: 'from-old-other', save }, '*');
+    }, stranger);
+    expect(await heard(page, 'from-old-other')).toEqual({ origin: OLD_ORIGIN, type: 'brainrot-save', probe: 'from-old-other', fromOpener: false });
+    // The window Settings opened, gone on to another site.
+    await popup.goto(THIRD_URL);
+    await popup.evaluate((save) => {
+      (window.opener as Window).postMessage({ type: 'brainrot-save', probe: 'from-third', save }, '*');
+    }, stranger);
+    expect(await heard(page, 'from-third')).toEqual({ origin: THIRD_ORIGIN, type: 'brainrot-save', probe: 'from-third', fromOpener: false });
+    expect(popup.isClosed()).toBe(false);
+    expect(await storageAt(page.context(), NEW_ORIGIN)).toEqual(before);
+
+    // Back at the old address, the same window sends the real save, and only that one comes in.
+    const closed = closing(popup);
+    await popup.evaluate((url) => { location.assign(url); }, `${OLD_URL}#/send`);
+    await Promise.all([closed, expect(page).toHaveTitle('Arrived')]);
+    expect(await storageAt(page.context(), NEW_ORIGIN)).toEqual({ ...before, ...HANDED_OVER, [STAMP]: expect.any(String) });
+    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual({ ...OLD_STORAGE, [MOVED]: expect.any(String) });
+  });
 });
 
 test.describe('a pop-up that was blocked or closed, then tapped again (simulated browser pop-up behaviour)', () => {
@@ -474,6 +532,8 @@ test.describe('a pop-up that was blocked or closed, then tapped again (simulated
     const first = await firstOpened;
     await expect(first).toHaveTitle('Still loading');
     await first.close();
+    // The old page says the transfer didn't finish 15s after a tap (scripts/redirect-site.ts); this
+    // is checked within about a second of the tap, so well inside that.
     await expect(page.locator('#status')).toHaveText(RECEIVING);
     expect(await storageAt(page.context(), NEW_ORIGIN)).toEqual({});
     // The second is left open; tapping again closes it and opens a fresh one.
