@@ -39,9 +39,10 @@ from a 390 px wide screen.
    summary, has the same top bar with one X ("Back to packs"), and Escape and the browser's Back do
    what it does. Tapping empty space never leaves a pack.
    The sealed pack falls in from above only the first time the packs screen is on screen after the page
-   loads (a load straight into #/cards waits until Open is chosen). Every return (Back, Escape, the X, Next pack) uses a short entrance instead: it fades in while
-   rising about 24px over 180 ms, with no rotation, so the stage never passes over the header or the gear
-   and takes a tap as soon as it is at rest. Reduced motion makes the return instant (#720).
+   loads (a load straight into #/cards waits until the packs screen is shown). Every return (Back, Escape,
+   the X, Next pack) uses a short entrance instead: it fades in while rising about 24px over 180 ms, with
+   no rotation, so the stage never passes over the header or the gear and takes a tap as soon as it is at
+   rest. Reduced motion makes the return instant (#720).
 4. **Places are pages, moments are sheets.** Cards, Rankings, Profile and Settings are pages with an
    address (`#/cards` and so on), a title and the browser's Back; the packs screen stays mounted under
    them so a pack in progress survives. Sheets are only for things over the current place: sharing,

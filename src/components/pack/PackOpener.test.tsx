@@ -621,11 +621,17 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
   };
   const escape = () => act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })); });
 
+  const media: MockInstance[] = [];
   beforeEach(() => {
     vi.stubGlobal('requestIdleCallback', () => 0);
     vi.stubGlobal('cancelIdleCallback', () => {});
-    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
-    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    media.push(
+      vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {}),
+      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {}),
+    );
+  });
+  afterEach(() => {
+    for (const spy of media.splice(0)) spy.mockRestore();
   });
 
   it('falls in from above on the first arrival, then only rises in on every return', async () => {
