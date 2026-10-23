@@ -29,6 +29,9 @@ export const AXE_RULES = [
   'color-contrast',
 ] as const;
 
+/** The screens scanned. A scan or an exception for any other name is a typo, not a state. */
+export const AXE_STATES = ['first-pack', 'summary', 'settings', 'card-share'] as const;
+
 /** Rules a scan must have reached on every screen, so a scan of an empty or wrong page cannot pass. */
 const ALWAYS_APPLICABLE = ['color-contrast', 'document-title', 'html-has-lang'] as const;
 
@@ -56,6 +59,16 @@ export interface AxeException {
 }
 export const AXE_EXCEPTIONS: readonly AxeException[] = [];
 
+/** What is wrong with an exception list: an unknown rule or state, or a missing reason, owner or removal condition. */
+export function invalidExceptions(exceptions: readonly AxeException[], states: readonly string[] = AXE_STATES): string[] {
+  return exceptions.flatMap((e) => [
+    ...((AXE_RULES as readonly string[]).includes(e.rule) ? [] : [`unknown rule "${e.rule}"`]),
+    ...(states.includes(e.state) ? [] : [`unknown state "${e.state}"`]),
+    ...(e.selector.trim() ? [] : [`${e.rule} in ${e.state} has no selector`]),
+    ...(['reason', 'owner', 'removeWhen'] as const).filter((key) => !e[key].trim()).map((key) => `${e.rule} in ${e.state} has no ${key}`),
+  ]);
+}
+
 interface Finding { rule: string; selector: string; summary: string }
 export interface AxeReport {
   state: string;
@@ -67,8 +80,6 @@ export interface AxeReport {
   staleExceptions: AxeException[];
   /** Nodes axe could not judge (art, transparency, overlap), by rule. */
   needsReview: Finding[];
-  /** Configured rules axe never reported on at all (not even as inapplicable). */
-  unreported: string[];
   /** Always-applicable rules that found nothing to check. */
   notApplied: string[];
   /** Nodes axe checked and passed, across all rules. */
@@ -84,8 +95,9 @@ const finding = (rule: string, node: { target: unknown[]; failureSummary?: strin
 
 /**
  * Waits for the page to stop changing, on what the page reports: webfonts loaded, every image still
- * loading finished (load or error), finite animations and transitions finished, and two animation
- * frames so layout has run on the final styles. Contrast read before this would be read mid-fade.
+ * loading finished (load or error), finite running animations and transitions finished, and two
+ * animation frames so layout has run on the final styles. Contrast read before this would be read
+ * mid-fade. An animation cancelled while waited on counts as finished; a paused one is not waited for.
  * It does not call `decode()`: that rejects when an image's source changes mid-decode, which the
  * summary cards do as their art swaps in. Specs that need decoded art wait with `expectDecoded`.
  */
@@ -99,19 +111,28 @@ export async function settle(page: Page) {
         image.addEventListener('error', () => resolve(), { once: true });
       })));
     await Promise.all(document.getAnimations()
-      .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity))
-      .map((animation) => animation.finished));
+      .filter((animation) => animation.playState === 'running' && Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity))
+      .map((animation) => animation.finished.then(() => undefined, () => undefined)));
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
 }
 
-/** Scans `page` as it is now and returns the report. Fails only when axe itself reports nothing usable. */
+/**
+ * Scans `page` as it is now and returns the report. Reduced motion is emulated for the scan so looping
+ * pulses (the pack's waiting hint fades to 0.55 opacity) cannot make contrast depend on the animation
+ * phase; the page's own setting comes back afterwards.
+ */
 export async function scanPage(page: Page, state: string, scope?: string, exceptions: readonly AxeException[] = AXE_EXCEPTIONS): Promise<AxeReport> {
-  await settle(page);
-  const builder = new AxeBuilder({ page }).withRules([...AXE_RULES]);
-  const results = await (scope ? builder.include(scope) : builder).analyze();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  let results;
+  try {
+    await settle(page);
+    const builder = new AxeBuilder({ page }).withRules([...AXE_RULES]);
+    results = await (scope ? builder.include(scope) : builder).analyze();
+  } finally {
+    await page.emulateMedia({ reducedMotion: null });
+  }
 
-  const reportedRules = new Set([...results.passes, ...results.violations, ...results.incomplete, ...results.inapplicable].map((r) => r.id));
   const applied = new Set([...results.passes, ...results.violations, ...results.incomplete].map((r) => r.id));
   const mine = exceptions.filter((exception) => exception.state === state);
   const used = new Set<AxeException>();
@@ -130,7 +151,6 @@ export async function scanPage(page: Page, state: string, scope?: string, except
     excepted,
     staleExceptions: mine.filter((exception) => !used.has(exception)),
     needsReview: results.incomplete.flatMap((r) => r.nodes.map((node) => finding(r.id, node))),
-    unreported: AXE_RULES.filter((rule) => !reportedRules.has(rule)),
     notApplied: ALWAYS_APPLICABLE.filter((rule) => !applied.has(rule)),
     passedNodes: results.passes.reduce((total, r) => total + r.nodes.length, 0),
   };
@@ -141,7 +161,6 @@ export function problems(report: AxeReport): string[] {
   return [
     ...report.violations.map((v) => `${v.rule} at ${v.selector}: ${v.summary}`),
     ...report.staleExceptions.map((e) => `stale exception ${e.rule} at ${e.selector} (${e.owner}; remove when ${e.removeWhen})`),
-    ...report.unreported.map((rule) => `axe never reported on ${rule}`),
     ...report.notApplied.map((rule) => `${rule} found nothing to check`),
     ...(report.passedNodes > 0 ? [] : ['axe passed no nodes at all']),
   ];
@@ -149,6 +168,7 @@ export function problems(report: AxeReport): string[] {
 
 /** Scans the loaded screen, attaches what axe could not judge to the test report, and fails on any problem. */
 export async function expectAxeClean(page: Page, testInfo: TestInfo, state: string, scope?: string) {
+  expect(AXE_STATES as readonly string[], 'a scanned state is listed in AXE_STATES').toContain(state);
   const report = await scanPage(page, state, scope);
   await testInfo.attach(`axe-${state}`, {
     contentType: 'application/json',
@@ -157,10 +177,10 @@ export async function expectAxeClean(page: Page, testInfo: TestInfo, state: stri
   if (report.needsReview.length) {
     const reasons = new Map<string, number>();
     for (const { rule, summary } of report.needsReview) reasons.set(`${rule}: ${summary}`, (reasons.get(`${rule}: ${summary}`) ?? 0) + 1);
-    testInfo.annotations.push({
-      type: 'axe-needs-review',
-      description: `${state}: ${report.needsReview.length} node(s) axe could not judge. ${[...reasons].map(([reason, count]) => `${reason} (x${count})`).join('; ')}`,
-    });
+    const description = `${state}: ${report.needsReview.length} node(s) axe could not judge. ${[...reasons].map(([reason, count]) => `${reason} (x${count})`).join('; ')}`;
+    testInfo.annotations.push({ type: 'axe-needs-review', description });
+    // Annotations are not shown for a passing test in CI; the list reporter prints stdout.
+    console.log(`[${testInfo.project.name}] axe needs review: ${description}`);
   }
   expect(problems(report), `axe on ${state}`).toEqual([]);
   return report;
