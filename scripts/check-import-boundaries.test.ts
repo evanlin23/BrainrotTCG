@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 import { afterEach, describe, expect, it } from 'vitest';
-import { checkImportBoundaries, EXCEPTIONS, formatViolations, layerOf, type BoundaryException } from './check-import-boundaries.ts';
+import { checkImportBoundaries, EXCEPTIONS, FILE_ORDER, formatViolations, layerOf, type BoundaryException } from './check-import-boundaries.ts';
 
 const REAL_ROOT = fileURLToPath(new URL('../', import.meta.url));
 
@@ -24,8 +24,8 @@ const tree = (files: Record<string, string>) => {
   return root;
 };
 
-const messages = (files: Record<string, string>, exceptions: readonly BoundaryException[] = []) =>
-  checkImportBoundaries(tree(files), exceptions).violations.map((v) => `${v.file}:${v.line} ${v.message}`);
+const messages = (files: Record<string, string>, exceptions: readonly BoundaryException[] = [], order: readonly (readonly string[])[] = []) =>
+  checkImportBoundaries(tree(files), exceptions, order).violations.map((v) => `${v.file}:${v.line} ${v.message}`);
 
 const CARD = { 'src/components/cards/Card.tsx': 'export interface CardWithMeta { id: string }\n' };
 
@@ -272,6 +272,54 @@ describe('exceptions', () => {
     expect(messages(files, [{ ...exception, reason: ' ' }]).join('\n')).toContain('needs reason');
     expect(messages(files, [{ ...exception, removeWhen: '' }]).join('\n')).toContain('needs removeWhen');
     expect(messages(files, [{ ...exception, issue: 'later' }]).join('\n')).toContain('owner issue');
+  });
+});
+
+describe('file order within a layer', () => {
+  const CHAIN = ['src/game/myTickets', 'src/game/packCache', 'src/game/reopenJob', 'src/game/profiles'];
+  /** The four files of the chain, each importing what `imports` lists for it (by file name). */
+  const chain = (imports: Partial<Record<string, string[]>> = {}) =>
+    Object.fromEntries(CHAIN.map((file) => [`${file}.ts`, (imports[file] ?? []).map((to) => `import { x } from './${to}';\n`).join('') + 'export const x = 1;\n']));
+
+  it('keeps the profile modules in the repo in their order', () => {
+    expect(FILE_ORDER).toContainEqual(CHAIN);
+  });
+
+  it('lets a file import those before it in its chain', () => {
+    const out = messages(chain({ 'src/game/packCache': ['myTickets'], 'src/game/reopenJob': ['myTickets', 'packCache'], 'src/game/profiles': ['myTickets', 'packCache', 'reopenJob'] }), [], [CHAIN]);
+    expect(out).toEqual([]);
+  });
+
+  it.each([
+    ['src/game/myTickets', 'packCache', 'nothing'],
+    ['src/game/myTickets', 'profiles', 'nothing'],
+    ['src/game/packCache', 'reopenJob', 'only src/game/myTickets'],
+    ['src/game/reopenJob', 'profiles', 'only src/game/myTickets, src/game/packCache'],
+  ])('fails %s importing ./%s, which comes after it', (file, to, allowed) => {
+    const out = messages(chain({ [file]: [to] }), [], [CHAIN]);
+    expect(out).toEqual([`${file}.ts:1 imports './${to}': src/game/${to} comes after this file in FILE_ORDER, so this file may import ${allowed} from that chain`]);
+  });
+
+  it('catches a later file reached by a type import, a re-export or import()', () => {
+    for (const source of ["import type { x } from './profiles';", "export { x } from './reopenJob';", "export const load = () => import('./packCache');"]) {
+      const files = { ...chain(), 'src/game/myTickets.ts': `${source}\n` };
+      expect(messages(files, [], [CHAIN])).toHaveLength(1);
+    }
+  });
+
+  it('leaves files outside the chain alone, in either direction', () => {
+    const files = { ...chain({ 'src/game/myTickets': ['player'] }), 'src/game/player.ts': "import { x } from './profiles';\nexport const y = 1;\n" };
+    expect(messages(files, [], [CHAIN])).toEqual([]);
+  });
+
+  it('fails a chain that names a file that is not there, so a rename cannot switch it off', () => {
+    const { 'src/game/packCache.ts': _gone, ...files } = chain();
+    expect(messages(files, [], [CHAIN])).toEqual(['src/game/packCache:0 is in FILE_ORDER but is no source file: update FILE_ORDER in scripts/check-import-boundaries.ts']);
+  });
+
+  it('lets an exception cover a backward import', () => {
+    const exception: BoundaryException = { from: 'src/game/myTickets.ts', to: 'src/game/packCache', reason: 'test', issue: '#699', removeWhen: 'never' };
+    expect(messages(chain({ 'src/game/myTickets': ['packCache'] }), [exception], [CHAIN])).toEqual([]);
   });
 });
 

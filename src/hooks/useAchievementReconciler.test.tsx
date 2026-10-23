@@ -6,7 +6,7 @@ import { POKER_HANDS } from '../engine';
 import { STORAGE_KEYS } from '../constants';
 import type { Achievement } from '../data/achievements';
 import type { HistoryEntry } from '../game/history';
-import type { ReopenStatus } from '../game/profiles';
+import type { ReopenStatus } from '../game/reopenJob';
 import type { PullRef } from '../game/pulls';
 import type { CollectionItem, Stats } from '../types';
 import type { AchievementReconciler } from './useAchievementReconciler';
@@ -23,9 +23,11 @@ vi.mock('../game/history', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../game/history')>()),
   getHistory: () => game.history,
 }));
-vi.mock('../game/profiles', () => ({
+vi.mock('../game/packCache', () => ({
   historyAchievementsReady: () => game.ready,
   historyPacksState: () => game.packs,
+}));
+vi.mock('../game/reopenJob', () => ({
   onReopenProgress: (listener: (status: ReopenStatus) => void) => {
     game.listeners.add(listener);
     return () => { game.listeners.delete(listener); };
