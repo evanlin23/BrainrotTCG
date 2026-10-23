@@ -90,9 +90,15 @@ interface PackOpenerProps {
   arrived?: boolean;
   /** The sealed pack's stage was shown for the first time. */
   onArrive?: () => void;
+  /**
+   * The packs screen is on screen. It stays mounted, hidden, under a page, so a load straight into one
+   * (#/cards) mounts the stage unseen: it waits at its starting place until the screen is shown, and its
+   * entrance plays then.
+   */
+  shown?: boolean;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true }: PackOpenerProps) => {
   // Where the pack is, from the tear to the packs screen (packLifecycle.ts). What the stage doesn't say is
   // the reveal's own state below: which card is up, what is locked, what is being celebrated.
   const [stage, send] = usePackLifecycle();
@@ -726,7 +732,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               // leaves its leaving mark (which stops taps, PackOpener.css) on it. Coming back clears it.
               if (definition === STAGE_AT_REST) stageRef.current?.removeAttribute('data-motion-pop-id');
             }}
-            animate={STAGE_AT_REST}
+            animate={shown ? STAGE_AT_REST : false}
             // Quick, on its own timing: the drop-in spring's long tail left the screen blank before the reveal.
             exit={{ scale: 1.25, opacity: 0, transition: { duration: 0.25, ease: 'easeIn' } }}
             className="pack-display"

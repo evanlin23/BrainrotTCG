@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { MotionGlobalConfig } from 'framer-motion';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
@@ -601,7 +602,7 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
   const dealt = { setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0 } as unknown as Awaited<ReturnType<typeof openPack>>;
   // These read the stage's style in the same turn as the render that made it, before any animation frame
   // can move it, so they use real timers and never wait on the clock for a value.
-  const show = (extra: { arrived?: boolean; onArrive?: () => void } = {}) => act(() => root.render(
+  const show = (extra: { arrived?: boolean; onArrive?: () => void; shown?: boolean } = {}) => act(() => root.render(
     <PackOpener onOpen={() => {}} onShare={() => {}} set={set} settings={DEFAULT_SETTINGS} mountedSave={MOUNTED_SAVE} {...extra} />,
   ));
   const stage = () => document.querySelector<HTMLElement>('.pack-display')!;
@@ -654,6 +655,18 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
     expect(onArrive).not.toHaveBeenCalled();
   });
 
+  it('keeps the first fall for when the packs screen is on screen, not while it is hidden under a page', async () => {
+    const onArrive = vi.fn();
+    show({ onArrive, shown: false });
+    expect(stage().style.transform).toContain('-100vh');
+    await act(async () => {});
+    expect(onArrive).not.toHaveBeenCalled();
+    expect(stage().style.transform).toContain('-100vh');
+
+    show({ onArrive, shown: true });
+    await vi.waitFor(() => expect(onArrive).toHaveBeenCalledOnce());
+  });
+
   it('shows the pack at once on a return when the device asks for less motion, and still falls on the first load', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
     show();
@@ -666,14 +679,31 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
     expect(stage().style.transform).toBe('none');
   });
 
-  it('takes taps on a pack that comes back while the torn one is still flying off', async () => {
-    // jsdom has no layout, and without a size framer-motion never marks a leaving element.
-    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200);
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300);
-    show();
-    await tear();
-    escape();
-    // Same element as the one that left: it must not keep the mark that makes the leaving pack ignore taps.
-    await vi.waitFor(() => expect(stage().getAttribute('data-motion-pop-id')).toBeNull());
+  describe('with the torn pack still flying off', () => {
+    const sizes: MockInstance[] = [];
+    beforeEach(() => {
+      // jsdom has no layout, and without a size framer-motion never marks a leaving element.
+      sizes.push(
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200),
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300),
+      );
+      // Framer's clock stops, so the 250ms exit cannot finish before the player returns.
+      MotionGlobalConfig.useManualTiming = true;
+    });
+    afterEach(() => {
+      MotionGlobalConfig.useManualTiming = false;
+      for (const spy of sizes.splice(0)) spy.mockRestore();
+    });
+
+    it('takes taps on a pack that comes back while the torn one is still flying off', async () => {
+      show();
+      await tear();
+      const leaving = stage();
+      expect(leaving.getAttribute('data-motion-pop-id')).not.toBeNull();
+      escape();
+      // The same element as the one that left, so it must not keep the mark that makes a leaving pack ignore taps.
+      expect(stage()).toBe(leaving);
+      expect(stage().getAttribute('data-motion-pop-id')).toBeNull();
+    });
   });
 });
