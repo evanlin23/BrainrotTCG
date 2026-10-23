@@ -106,8 +106,15 @@ async function startJourney(page: Page, baseURL: string, { returning = false } =
       images.add(new WeakRef(image));
       return image;
     }, { prototype: NativeImage.prototype }) as unknown as typeof Image;
-    Object.defineProperty(window, '__journeyIdle', {
-      value: () => jobs === 0 && [...images].every((image) => image.deref()?.complete ?? true),
+    // What is still busy, named, so a wait that runs out says which job or picture it was waiting on.
+    Object.defineProperty(window, '__journeyBusy', {
+      value: () => [
+        ...(jobs > 0 ? [`${jobs} ticket job(s)`] : []),
+        ...[...images].flatMap((image) => {
+          const live = image.deref();
+          return live && !live.complete ? [`image ${new URL(live.src).pathname}`] : [];
+        }),
+      ],
     });
   });
   const origin = `${new URL(baseURL).origin}/`;
@@ -128,7 +135,8 @@ async function startJourney(page: Page, baseURL: string, { returning = false } =
     if (page.url() !== 'about:blank') {
       await fontsSettled();
       await packArtLoaded(page);
-      await page.waitForFunction(() => (window as unknown as { __journeyIdle: () => boolean }).__journeyIdle(), undefined, { timeout: VIEWER_TIMEOUT });
+      const busy = () => page.evaluate(() => (window as unknown as { __journeyBusy: () => string[] }).__journeyBusy());
+      await expect.poll(busy, { timeout: VIEWER_TIMEOUT }).toEqual([]);
       await expect.poll(() => [...inFlight].map((request) => request.url())).toEqual([]);
       if (route !== undefined) await page.goto('about:blank');
     }

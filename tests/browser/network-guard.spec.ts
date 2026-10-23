@@ -55,6 +55,10 @@ ${pagesBeaconTag('0123456789abcdef0123456789abcdef')}</body></html>`);
       req.socket.destroy();
       return;
     }
+    if (url.pathname === '/stall') {
+      // Never answers and keeps the connection open: a request the server just sits on.
+      return;
+    }
     if (url.pathname === '/write' && req.method === 'POST') {
       primaryWriteHits++;
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -121,6 +125,7 @@ test.beforeEach(() => {
 });
 
 test.afterAll(async () => {
+  primaryServer.closeAllConnections();
   await new Promise((resolve) => primaryServer.close(resolve));
   await new Promise((resolve) => externalServer.close(resolve));
 });
@@ -154,6 +159,19 @@ test('a monitored request whose fetch fails is recorded with its method, URL and
 
   expect(result).toBe('TypeError');
   expect(errors.failed).toEqual([`[fetch failed: socket hang up (ECONNRESET)] GET ${primaryOrigin}/hang-up`]);
+  expect(errors.blocked).toEqual([]);
+});
+
+// A request the server never answered kept the guard's fetch waiting for Playwright's default 30 s,
+// past the 20 s wait a journey had on it (a next-pack picture or the ticket worker's script), so that
+// wait failed first and the fetch ended with the closing page, recorded nowhere (deploy of bc12640).
+test('a monitored request the server never answers is aborted and recorded within the fetch timeout', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false, fetchTimeout: 500 });
+  await page.goto(primaryUrl);
+  const result = await page.evaluate(() => fetch('/stall').then(() => 'loaded', (error: Error) => error.name));
+
+  expect(result).toBe('TypeError');
+  expect(errors.failed).toEqual([`[fetch failed: Timeout 500ms exceeded.] GET ${primaryOrigin}/stall`]);
   expect(errors.blocked).toEqual([]);
 });
 
