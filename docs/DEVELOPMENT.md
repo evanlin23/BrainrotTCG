@@ -837,6 +837,10 @@ change only comments, docs and unit tests).
 | Rankings: first row's thumbs | 8542 to 8856 ms | 8601 to 8925 ms |
 | Rankings: every on-screen thumb | 13142 to 13339 ms | 12900 to 12952 ms |
 
+The 5257 ms verify was the first run of its set and didn't come back: six more finished-pull runs gave
+3852 to 4296 ms on `66bdc34` and 3822 to 4514 ms on main (`c5708d2`), each set slowest on its first run.
+The shared pull covers the Open screen, so no next-pack art competes with verifying it.
+
 Most of the pull saving is bandwidth the next pack's art no longer takes. Rankings is bound by
 bytes: each 30 px thumb downloads the full-size art (about 144 KB), and 12 of them (1.73 MB) are
 in by the time the screen's thumbs show, with or without the lazy rows. A smaller plain-card
