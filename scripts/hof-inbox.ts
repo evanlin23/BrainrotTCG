@@ -62,6 +62,14 @@ export const logSafeError = (error: unknown, max = 200): string => {
 export const relayReadLine = (r: { relay: string; count: number; error?: string }): string =>
   `${r.relay}: ${r.count} events${r.error ? ` (${logSafeError(r.error)})` : ''}`;
 
+/**
+ * Whether no relay could be read: each one failed (an error) without sending a single event. A
+ * relay that sent events before failing, or answered with none, was read. An empty list is not an
+ * outage. The inbox fails the run on it, so an outage shows long before the read window expires.
+ */
+export const everyRelayFailed = (perRelay: readonly { relay: string; count: number; error?: string }[]): boolean =>
+  perRelay.length > 0 && perRelay.every((r) => r.error !== undefined && r.count === 0);
+
 /** The probe's line for one relay; a relay's OK message and reason for closing are its own text. */
 export const probeLine = (relay: string, sent: PublishResult, read: { count: number; error?: string }): string =>
   `${relay}: write ${sent.ok ? 'ok' : `failed (${logSafeError(sent.message)})`}, read ${read.count > 0 ? 'ok' : `failed (${logSafeError(read.error ?? 'not found')})`}`;

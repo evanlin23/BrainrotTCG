@@ -4,6 +4,7 @@
  */
 import cardBackImage from '../assets/images/card_back.webp';
 import { whenIdle } from './idle';
+import { afterPackArt } from './packArt';
 import { isLinkHash, pageForHash } from './route';
 
 const hidden = () => document.visibilityState === 'hidden';
@@ -26,10 +27,13 @@ const savingData = () => (navigator as Navigator & { connection?: { saveData?: b
 /** The page showing can open a pack: Open, not another page or a shared pull or profile. */
 const canOpenPack = () => pageForHash(location.hash) === null && !isLinkHash(location.hash);
 
-/** Fetch the card back the first reveal shows, unless the visitor saves data or is elsewhere. */
+/**
+ * Fetch the card back the first reveal shows, unless the visitor saves data or is elsewhere. It waits
+ * for the sealed pack's art, which the first screen needs more.
+ */
 export const warmUpFirstPack = (): void => {
-  whenShownAndIdle(() => {
+  afterPackArt(() => whenShownAndIdle(() => {
     if (savingData() || !canOpenPack()) return;
     new Image().src = cardBackImage;
-  });
+  }));
 };

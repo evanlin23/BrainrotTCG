@@ -6,6 +6,7 @@ import { getSet } from '../../content/sets';
 import { getSetCards, scoreCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
 import { revealOrder } from '../../game/reveal';
+import { STAGE_CLICK_GUARD_MS } from '../../hooks/useStageClickGuard';
 import PackSummaryUI from './PackSummaryUI';
 
 // The share sheet itself is tested on its own (CardShareSheet.test.tsx): here, what it was opened with.
@@ -36,9 +37,12 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const text = () => container.textContent ?? '';
+/** The summary's first moments ignore clicks on its cards and Share (#627): wait for it to settle. */
+const settled = () => vi.waitFor(() => expect(container.querySelector('.summary-cards')!.hasAttribute('data-settling')).toBe(false));
 
 describe('special and new cards', () => {
   it('marks them on their tiles instead of in a line of text', () => {
@@ -47,6 +51,42 @@ describe('special and new cards', () => {
     expect([...container.querySelectorAll('.summary-cards .mod-label')].map((el) => el.textContent)).toEqual(['Gold · Misprint']);
     expect(container.querySelectorAll('.summary-cards .new-sticker')).toHaveLength(1);
     expect(text()).not.toContain('special card');
+  });
+});
+
+describe('the first moments (#627)', () => {
+  it('ignores clicks on the cards, Card guide and Share, never on Next pack, until the summary has settled', () => {
+    // The up-close viewer measures itself and reads motion preferences.
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    vi.useFakeTimers();
+    const onShare = vi.fn();
+    const onClose = vi.fn();
+    act(() => root.unmount());
+    root = createRoot(container);
+    act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={onClose} onShare={onShare} />));
+    const tile = () => container.querySelector<HTMLButtonElement>('.summary-card')!;
+    const share = [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('Share'))!;
+    const next = [...container.querySelectorAll<HTMLButtonElement>('.summary-actions button')].find((b) => b.textContent?.includes('Next pack'))!;
+    const guide = [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Card guide'))!;
+    const clickAll = () => act(() => { tile().click(); share.click(); guide.click(); });
+
+    clickAll();
+    act(() => vi.advanceTimersByTime(STAGE_CLICK_GUARD_MS - 1));
+    clickAll();
+    expect(document.querySelector('[role="dialog"]'), 'a click in the window opened the viewer or the Card guide').toBeNull();
+    expect(onShare).not.toHaveBeenCalled();
+    expect(container.querySelector('.summary-caption')?.textContent, 'the hint went away as if a card had been viewed').toBe('Select a card to view');
+
+    act(() => next.click());
+    expect(onClose, 'Next pack is the one deliberate move and is never held').toHaveBeenCalledTimes(1);
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(container.querySelector('.summary-cards')!.hasAttribute('data-settling')).toBe(false);
+    act(() => share.click());
+    expect(onShare).toHaveBeenCalledTimes(1);
+    act(() => tile().click());
+    expect(document.querySelector('[role="dialog"]'), 'a deliberate click after the window opens the viewer').not.toBeNull();
   });
 });
 
@@ -81,7 +121,7 @@ describe('result first', () => {
     }
   });
 
-  it('hints that a card opens up close until one is opened', () => {
+  it('hints that a card opens up close until one is opened', async () => {
     // The up-close viewer measures itself and reads motion preferences.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -89,6 +129,7 @@ describe('result first', () => {
     expect(caption()).toBe('Select a card to view');
     const first = container.querySelector<HTMLButtonElement>('.summary-card')!;
     expect(first.getAttribute('aria-label')).toMatch(/^View .+ up close, /);
+    await settled();
     act(() => first.click());
     expect(caption()).toBeUndefined();
   });
@@ -111,13 +152,14 @@ describe('card order', () => {
 });
 
 describe('card guide', () => {
-  it('shows the odds of the set version the pack came from, not the latest one (#486)', () => {
+  it('shows the odds of the set version the pack came from, not the latest one (#486)', async () => {
     // Web Ancients v1 is from before card modifiers; its latest version has them.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     const first = getSet('web-ancients', 1)!;
     const firstCards = getSetCards(first.id).slice(0, 5).map((card, i) => ({ ...card, uniqueId: i + 1, isRevealed: true, isHolo: false }) as CardWithMeta);
     act(() => root.render(<PackSummaryUI openedCards={firstCards} set={first} onClose={() => {}} />));
     const guide = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Card guide')!;
+    await settled();
     act(() => guide.click());
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain(`${first.name} has no finishes or misprints`);
   });
@@ -149,6 +191,7 @@ describe('sharing a card', () => {
 
   it('opens a tapped card up close, whose Share makes that version\'s image, linked to this pack', async () => {
     const gold = tile(pulled[3].name);
+    await settled();
     gold.focus();
     act(() => gold.click());
     const share = shareCard()!;

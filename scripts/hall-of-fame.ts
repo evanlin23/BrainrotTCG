@@ -79,7 +79,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, probeLine, processInbox, relayReadLine, type InboxStats } from './hof-inbox.ts';
+import { buildSkipLine, everyRelayFailed, probeLine, processInbox, relayReadLine, type InboxStats } from './hof-inbox.ts';
 import { INBOX_SUMMARY_PATH, type InboxStage, type InboxSummary } from './ops-health.ts';
 import { isMainModule } from './main-module.ts';
 
@@ -564,6 +564,9 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
   for (const r of perRelay) console.log(relayReadLine(r));
   run.relays = { total: perRelay.length, failed: perRelay.filter((r) => r.error).length };
   run.read = events.length;
+  // Nothing was read, so a run that carried on would look fine while unread events age out of the
+  // window. Fail it instead; the seen cache is left as it was. The summary shows stage relays.
+  if (everyRelayFailed(perRelay)) throw new Error(`every relay failed (${perRelay.length} of ${perRelay.length}); nothing was read`);
   run.stage = 'issues';
 
   // Pulls already in the Hall of Fame: only verified issues count (`verified`, or `daily`), so an

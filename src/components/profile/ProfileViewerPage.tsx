@@ -21,7 +21,7 @@ type State = { status: 'invalid'; reason: string } | ({ status: 'checking' } & P
  * has been checked: "Verified" appears only when every pack is in, an interrupted check shows just
  * the re-opened packs as partial totals, and a failed claim gets no success explanation.
  */
-const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
+const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
   const [state, setState] = useState<State | null>(null);
   const [copied, setCopied] = useState(false);
   /** Bumped by "Try again": packs already re-opened are cached, so a retry picks up where it stopped. */
@@ -207,5 +207,13 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
     </Sheet>
   );
 };
+
+/**
+ * Everything the viewer holds (the check so far, an open best pull, the copied note, the retry count)
+ * belongs to one profile, so a different link starts it afresh: profile A's pack can't stay open over
+ * profile B, and A's check, stopped by the remount, can't leave its numbers behind. Progress for the
+ * same link keeps the selection.
+ */
+const ProfileViewerPage = (props: ProfileViewerPageProps) => <ProfileViewer key={props.proof} {...props} />;
 
 export default ProfileViewerPage;
