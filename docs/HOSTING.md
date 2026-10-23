@@ -118,7 +118,8 @@ With staging on, a deploy of `main` runs:
 2. **stage** checks the seal, publishes those files as a Cloudflare Pages *preview* (Wrangler's
    `--branch`, the branch named by `CLOUDFLARE_STAGING_BRANCH`) and waits until
    `https://<branch>.<project>.pages.dev/` serves this run's `deployment-id.json`. Then it fetches
-   every sealed file from staging and fails if any one differs from its sealed hash.
+   every sealed file from staging and fails if any one differs from its sealed hash (pages may
+   carry Web Analytics' one tag, taken out first: [Web analytics](#web-analytics)).
 3. **staging-checks** first checks staging still serves this run's `deployment-id.json` (a later
    run on the same commit may have replaced it, and a re-run would then test other files), then runs
    browser checks (`playwright.staging.config.ts`: the built-site check, the pack-opener and

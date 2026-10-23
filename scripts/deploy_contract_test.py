@@ -1179,11 +1179,15 @@ class Served(unittest.TestCase):
             'async for defer': tag.replace(b'defer', b'async'),
             'double quotes': tag.replace(b"src='https://static.cloudflareinsights.com/beacon.min.js'",
                                          b'src="https://static.cloudflareinsights.com/beacon.min.js"'),
+            'mismatched quotes': tag.replace(b"src='", b'src="'),
             'more in the JSON': tag.replace(b'"}', b'", "spa": true}'),
             'an upper-case token': self.tag(self.TOKEN.upper()),
             'a short token': self.tag(self.TOKEN[1:]),
             'a script inside': tag.replace(b'></script>', b'>alert(1)</script>'),
             'no comments': tag.replace(b'<!-- Cloudflare Pages Analytics -->', b''),
+            'opening comment only': tag[:-len(b'<!-- Cloudflare Pages Analytics -->')],
+            'closing comment only': tag[len(b'<!-- Cloudflare Pages Analytics -->'):],
+            'no defer': tag.replace(b' defer', b''),
             'other comments': tag.replace(b'Cloudflare Pages Analytics', b'Cloudflare Pages Analytics!'),
             'a space after it': tag + b' ',
         }
@@ -1206,10 +1210,18 @@ class Served(unittest.TestCase):
         self.rejected('adds Web Analytics tags with different tokens to its pages$')
 
     def test_tag_in_a_file_that_is_not_a_page(self):
-        for url in (self.base + 'hall-of-fame.json', self.base + 'assets/app%20js.js'):
-            with self.subTest(url):
+        # Each file holds '</body>' itself, so only the check that it is a page keeps a tag there.
+        for name in ('hall-of-fame.json', 'assets/app js.js'):
+            with self.subTest(name):
                 self.setUp()
-                self.site[url] += self.tag() + b'</body>'
+                (self.dist / name).write_text('["</body>"]')
+                (self.release / 'manifest.json').unlink()  # seal again with the new content
+                (self.dist / 'deployment-id.json').unlink()
+                self.digest = dc.seal(self.release, ENV)
+                url = self.base + dc.served_path(name)
+                self.site[url] = (self.dist / name).read_bytes()
+                self.served_quietly()
+                self.tagged(url)
                 self.rejected(f'1 of the 6 sealed files as sealed(.|\\n)*/{re.escape(url[len(self.base):])}: different content')
 
     def test_tag_and_another_change(self):

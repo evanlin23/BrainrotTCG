@@ -97,8 +97,8 @@ const CSP_REPORT_PATH = '/__network-guard/csp-report';
 /**
  * Stands in for Cloudflare Web Analytics' beacon, which Cloudflare Pages adds to production's pages
  * (scripts/cloudflare-analytics.ts), so checks against the real site are never counted as visits. It
- * does nothing; its reporting endpoint gets an empty answer too, and every other address at
- * Cloudflare's analytics hosts stays blocked like any other origin.
+ * does nothing. Its reporting endpoint and every other address at Cloudflare's analytics hosts are
+ * refused and recorded like any other origin, so a request to them fails the test at teardown.
  */
 export const BEACON_STUB = '/* network guard: inert stand-in for Cloudflare Web Analytics */\n';
 
