@@ -235,8 +235,9 @@ export const checkEntry = async (target: Target, get: Get, evidence: Evidence): 
   const html = got.body.toString('utf8');
   const assets = pageAssets(html);
   const local = (href: string) => within(target.url, href);
-  // Cloudflare Web Analytics' beacon is the one script from elsewhere a build may add
-  // (scripts/cloudflare-analytics.ts). It is named, never fetched: the smoke isn't a visit.
+  // Cloudflare Web Analytics' beacon, which Pages adds to production's pages, is the one script
+  // from elsewhere allowed (scripts/cloudflare-analytics.ts). It is named, never fetched: the smoke
+  // isn't a visit.
   const own = assets.scripts.filter((href) => href !== BEACON_URL);
   const outside = [...own, ...assets.styles].filter((href) => !local(href));
   if (outside.length) return fail(name, `loads code from outside ${target.url}: ${outside.slice(0, 3).join(', ')}`);

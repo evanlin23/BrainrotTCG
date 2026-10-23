@@ -4,7 +4,7 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
-import { BEACON_URL } from '../../scripts/cloudflare-analytics';
+import { BEACON_URL, RUM_URL } from '../../scripts/cloudflare-analytics';
 import type { Finish, Rarity } from '../../src/engine/types';
 
 // On-disk boundary shapes: importing UI Stats pulls TSX/Vite assets into the Node test project.
@@ -81,9 +81,10 @@ function originOf(urlString: string): string {
 const productRelayOrigins = new Set(HOF_RELAYS.map(originOf));
 const CSP_REPORT_PATH = '/__network-guard/csp-report';
 /**
- * Stands in for Cloudflare Web Analytics' beacon, which a production build adds to the app's page
+ * Stands in for Cloudflare Web Analytics' beacon, which Cloudflare Pages adds to production's pages
  * (scripts/cloudflare-analytics.ts), so checks against the real site are never counted as visits. It
- * does nothing, so nothing is sent; Cloudflare's endpoints stay blocked like any other origin.
+ * does nothing; its reporting endpoint gets an empty answer too, and every other address at
+ * Cloudflare's analytics hosts stays blocked like any other origin.
  */
 export const BEACON_STUB = '/* network guard: inert stand-in for Cloudflare Web Analytics */\n';
 
@@ -110,7 +111,8 @@ function sanitizeAttempt(method: string, urlString: string, note?: string): stri
  * - Only intended local read requests/paths are permitted; writes are refused with 403.
  * - Redirects are inspected with maxRedirects: 0; any redirect escape outside allowed origin/path is refused with 403.
  * - CSP is applied to enforce boundaries inside workers.
- * - Cloudflare Web Analytics' beacon script, exactly that URL, gets an inert stand-in (BEACON_STUB).
+ * - Cloudflare Web Analytics' beacon script (a GET of exactly that URL) gets an inert stand-in
+ *   (BEACON_STUB), and a POST to exactly its reporting endpoint gets an empty 204.
  * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence.
  * - routeHttp: false preserves the HTTP cache for warm performance measurements (baseline.spec.ts).
  */
@@ -258,7 +260,9 @@ export async function monitor(
       return [];
     }
   });
-  const connectOrigins = ["'self'", ...allowedOrigins, ...wsOrigins, ...prefixOrigins].join(' ');
+  // Web Analytics' reporting origin is allowed past the CSP only to reach the route below, which
+  // answers exactly RUM_URL and refuses the rest.
+  const connectOrigins = ["'self'", ...allowedOrigins, ...wsOrigins, ...prefixOrigins, new URL(RUM_URL).origin].join(' ');
   const imgOrigins = ["'self'", 'data:', 'blob:', ...allowedOrigins].join(' ');
   const csp = [
     "default-src 'self' data: blob:",
@@ -366,6 +370,7 @@ export async function monitor(
       if (method === 'GET' && reqUrl.href === BEACON_URL) {
         return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: BEACON_STUB });
       }
+      if (method === 'POST' && reqUrl.href === RUM_URL) return route.fulfill({ status: 204 });
 
       const refusal = refuse(method, reqUrl);
       if (refusal) {

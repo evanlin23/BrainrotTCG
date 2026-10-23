@@ -13,7 +13,7 @@
  * - every share and set page scripts/preview-pages.ts writes for the set registry is there and
  *   forwards to BASE_PATH (a set's page to #/set/<set id> there);
  * - the cache contract (docs/HOSTING.md): everything in assets/ has a content hash in its name, pages
- *   load their code and styles from there (index.html may also load Cloudflare Web Analytics' beacon), every other file sits at the top or in p/ or s/, and a
+ *   load their code and styles from there, every other file sits at the top or in p/ or s/, and a
  *   _headers file, if there is one, marks only assets/ immutable;
  * - the build has at most MAX_SITE_FILES files (Cloudflare Pages takes 20,000 per deploy);
  * - the code and styles index.html loads before the app can first render come to at most
@@ -33,7 +33,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { checkAssets, type AssetCheck, type AssetValidationError } from './check-card-assets.ts';
-import { BEACON_URL } from './cloudflare-analytics.ts';
 import { isMainModule } from './main-module.ts';
 import { generatePreviews, optionsFromEnv, type PreviewOptions } from './preview-pages.ts';
 import { setLinkHash } from '../src/game/route.ts';
@@ -262,9 +261,6 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
     // under p/ and s/.
     for (const [, tag] of html.matchAll(/(<script\b[^>]*\bsrc="[^"]*"[^>]*>|<link\b[^>]*\brel="(?:stylesheet|modulepreload)"[^>]*>)/g)) {
       const link = unescape(/\b(?:src|href)="([^"]*)"/.exec(tag)?.[1] ?? '');
-      // Cloudflare Web Analytics' beacon, which a production build adds to the app's page only
-      // (scripts/cloudflare-analytics.ts). Pages that forward straight to the app never count a visit.
-      if (file === 'index.html' && link === BEACON_URL && /^<script\b/.test(tag)) continue;
       if (!link.startsWith(`${base}assets/`)) fail(file, `Loads ${link}, outside ${base}assets/, so it isn't hashed`);
     }
     const forward = forwardTarget(html);

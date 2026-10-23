@@ -112,6 +112,23 @@ def verify(release, env, digest):
 
 UNSERVED = {'_headers', '_redirects'}  # Pages reads these as settings and doesn't serve them
 
+# Cloudflare Pages' automatic Web Analytics setup (docs/HOSTING.md#web-analytics) adds this tag, byte
+# for byte as Pages serves it, just before each page's </body>. Our build never writes it.
+BEACON_TAG = re.compile(
+    rb"<!-- Cloudflare Pages Analytics --><script defer src='https://static\.cloudflareinsights\.com/beacon\.min\.js' "
+    rb"data-cf-beacon='\{\"token\": \"([0-9a-f]{32})\"\}'></script><!-- Cloudflare Pages Analytics --></body>")
+
+
+def without_beacon(name, body):
+    """body with the one Web Analytics tag Pages adds to a page taken out, and that tag's token, or
+    (body, None) when it has none. Only that exact tag, once, right before </body>, in an .html file: a
+    second tag, a tag elsewhere or changed, or one in any other file stays in, so the file then differs
+    from its sealed copy. Not an HTML normaliser."""
+    tag = BEACON_TAG.search(body) if name.endswith('.html') else None
+    if not tag:
+        return body, None
+    return body[:tag.start()] + b'</body>' + body[tag.end():], tag.group(1).decode()
+
 
 def served_path(name):
     """Where Cloudflare Pages serves dist/<name>, relative to the site's root."""
@@ -145,13 +162,18 @@ def served(release, env, digest, url, get=fetch, tries=3, pause=5.0):
     base = address(url, 'The address to check')
     files = sealed['files']
 
+    tokens = {}  # page -> the Web Analytics token Pages added to it
+
     def problem(name):
         why = ''
         for attempt in range(tries):
             if attempt:
                 time.sleep(pause)  # a new deployment can take a moment to reach every edge
             try:
-                if hashlib.sha256(get(base + served_path(name))).hexdigest() == files[name]:
+                body, token = without_beacon(name, get(base + served_path(name)))
+                if hashlib.sha256(body).hexdigest() == files[name]:
+                    if token:
+                        tokens[name] = token
                     return None
                 why = 'different content'
             except HTTPError as error:
@@ -164,10 +186,14 @@ def served(release, env, digest, url, get=fetch, tries=3, pause=5.0):
     with ThreadPoolExecutor(max_workers=32) as pool:
         problems = [p for p in pool.map(problem, names) if p]
     require(not problems, '\n  '.join(
-        [f"{base} doesn't serve {len(problems)} of the {len(names)} sealed files as sealed. If only pages differ, something "
-         "at Cloudflare edits them: set Web Analytics to JS snippet installation, not automatic setup (docs/HOSTING.md#web-analytics), "
-         'and turn off any other setting that rewrites HTML:']
+        [f"{base} doesn't serve {len(problems)} of the {len(names)} sealed files as sealed, with Web Analytics' one tag "
+         'taken out of each page. If only pages differ, turn off any other Cloudflare setting that edits pages, and '
+         "keep Web Analytics on automatic setup (docs/HOSTING.md#web-analytics):"]
         + problems[:20] + ([f'and {len(problems) - 20} more'] if len(problems) > 20 else [])))
+    require(len(set(tokens.values())) <= 1, f'{base} adds Web Analytics tags with different tokens to its pages')
+    pages = sum(name.endswith('.html') for name in names)
+    beacon = f'tag seen on {len(tokens)} of {pages} pages and taken out before comparing' if tokens else 'no tag seen'
+    print(f'Cloudflare Web Analytics: {beacon}.', file=sys.stderr)
     marker_ = sealed['marker']
     return '\n'.join([
         f'### Release served at {base}', '',
@@ -177,7 +203,8 @@ def served(release, env, digest, url, get=fetch, tries=3, pause=5.0):
         f"| Built for | {marker_['url']} (base path /) |",
         f'| Manifest sha256 | `{digest}` |',
         f'| Files | {len(names)}, each served with its sealed hash |',
-        f"| hall-of-fame.json sha256 | `{files.get('hall-of-fame.json', 'none')}` |", ''])
+        f"| hall-of-fame.json sha256 | `{files.get('hall-of-fame.json', 'none')}` |",
+        f'| Cloudflare Web Analytics | {beacon} |', ''])
 
 
 # --- Workflow files ------------------------------------------------------------------------------
@@ -523,9 +550,6 @@ SITE_URL_OUTPUT = ('while [ "${url%/}" != "$url" ]; do url=${url%/}; done\n'
                    '{ echo "host=cloudflare"; echo "url=$url/"; echo "base=/"; echo "pages=$pages"; '
                    'echo "staging_branch=$STAGING_BRANCH"; echo "staging_url=$staging_url"; } >> "$GITHUB_OUTPUT"\n')
 SITE_OUTPUTS = ('host', 'url', 'base', 'pages', 'staging_branch', 'staging_url')
-# Cloudflare Web Analytics (scripts/cloudflare-analytics.ts): the production build's env, and nowhere else.
-ANALYTICS = 'CLOUDFLARE_ANALYTICS_TOKEN'
-ANALYTICS_VALUE = "${{ needs.site.outputs.host == 'cloudflare' && vars.CLOUDFLARE_ANALYTICS_TOKEN || '' }}"
 
 
 def check_deploy(workflow):
@@ -569,12 +593,6 @@ def check_deploy(workflow):
             and smoke_status(path[1], path[3], jobs[path[1]]['steps'][path[3]], jobs)
         if re.search(r'\b(?:always|cancelled|failure)\(\)', text) and not status:
             problems.append(f'deploy.yml: {"/".join(map(str, path))} runs after a failure or cancel')
-        if ANALYTICS in text:
-            in_build = len(path) == 6 and path[:3] == ('jobs', 'build', 'steps') and path[4:] == ('env', ANALYTICS) \
-                and jobs['build']['steps'][path[3]].get('run') == 'npm run build'
-            problem = f'deploy.yml: {"/".join(map(str, path))} names {ANALYTICS} outside the env of the build\'s npm run build'
-            if not in_build and problem not in problems:
-                problems.append(problem)
         if re.search(r'\bsecrets\b', text):
             # Only as a value in the env of the site lookup or a Wrangler deploy: jobs/J/steps/N/env/KEY.
             in_env = len(path) == 6 and path[0] == 'jobs' and path[2] == 'steps' and path[4] == 'env'
@@ -597,8 +615,6 @@ def check_deploy(workflow):
     for run in ('npm run check', 'npm run build'):
         if not any(step.get('run') == run and 'if' not in step for step in build):
             problems.append(f'deploy.yml: build must always run {run}')
-    if sum((step.get('env') or {}).get(ANALYTICS) == ANALYTICS_VALUE for step in build if step.get('run') == 'npm run build') != 1:
-        problems.append(f'deploy.yml: build must pass {ANALYTICS} to npm run build once, for Cloudflare only ({ANALYTICS_VALUE})')
     if sum(match(step, HISTORY) for step in build) != 1:
         problems.append('deploy.yml: build must always run npm run check:history once, against main before the push')
     seal = [s for s in build if s.get('id') == 'seal']
@@ -663,8 +679,6 @@ def check_workflows(directory=ROOT / '.github/workflows'):
                         problems.append(f'{path.name}: {label} must upload only on failure() and keep it 7 days')
         if path.name == 'deploy.yml':
             problems += check_deploy(workflow)
-        elif ANALYTICS in path.read_text(encoding='utf-8'):
-            problems.append(f"{path.name}: names {ANALYTICS}, which only deploy.yml's production build may have")
     return problems
 
 

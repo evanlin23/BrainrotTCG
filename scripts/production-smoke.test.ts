@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
-import { analyticsSnippet } from './cloudflare-analytics.ts';
+import { pagesBeaconTag } from './cloudflare-analytics.ts';
 import { redirectPage } from './redirect-site.ts';
 import {
   OLD_LINK, POLLS, POLL_MS, SET_ID, httpGet, main, mainStatus, pageAssets, pickPrevious, pickTip, rankingProblem, smoke, status,
@@ -29,7 +29,7 @@ const ENTRY = `<!doctype html><html><head>
 <link rel="stylesheet" crossorigin href="/assets/index-Zz99Yy88.css">
 <link rel="icon" href="/favicon.svg">
 </head><body><div id="root"></div></body></html>`;
-const BEACON = analyticsSnippet('0123456789abcdef0123456789abcdef');
+const BEACON = pagesBeaconTag('0123456789abcdef0123456789abcdef');
 const RANKING = JSON.stringify([{ proof: vectors.valid[0].proof, name: 'x', issue: 1 }]);
 const SET_PAGE = `<!doctype html><meta property="og:image" content="${URL_}s/${SET_ID}/preview.jpg">
 <meta property="og:image:width" content="8"><meta property="og:image:height" content="4">`;
@@ -103,7 +103,7 @@ describe('a healthy production', () => {
   });
 
   it("takes Cloudflare Web Analytics' beacon as the one script from elsewhere, and never fetches it", async () => {
-    const { get, asked } = site({ [URL_]: html(ENTRY.replace('</body>', `${BEACON}\n</body>`)) });
+    const { get, asked } = site({ [URL_]: html(ENTRY.replace('</body>', `${BEACON}</body>`)) });
     const report = await smoke(TARGET, get, { pause: noPause });
     expect(report.checks.every((c) => c.ok)).toBe(true);
     expect(report.evidence.assets).toBe(3);

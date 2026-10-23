@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
-import { analyticsSnippet, BEACON_URL } from '../../scripts/cloudflare-analytics';
+import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
 import { BEACON_STUB, monitor } from './support';
 
 let primaryServer: Server;
@@ -31,11 +31,11 @@ test.beforeAll(async () => {
       return;
     }
     if (url.pathname === '/analytics.html') {
-      // The app's page as a production build with Web Analytics writes it (scripts/cloudflare-analytics.ts).
+      // A page as Cloudflare Pages serves it with Web Analytics on (scripts/cloudflare-analytics.ts).
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Analytics Fixture</title></head>
-<body><div id="root">Network Guard Active</div>${analyticsSnippet('0123456789abcdef0123456789abcdef')}
-</body></html>`);
+<body><div id="root">Network Guard Active</div>
+${pagesBeaconTag('0123456789abcdef0123456789abcdef')}</body></html>`);
       return;
     }
     if (url.pathname === '/asset.json' && req.method === 'GET') {
@@ -433,20 +433,33 @@ for (const continueAllowed of [false, true]) {
       expect(errors.blocked).toEqual([]);
     });
 
+    test('a report to its endpoint gets an empty answer and is never sent', async ({ page }) => {
+      const errors = await monitor(page, primaryUrl, 0, { continueAllowed });
+      await page.goto(primaryUrl);
+      const status = await page.evaluate(async (rum) => (await fetch(rum, { method: 'POST', body: '{}' })).status, RUM_URL);
+      expect(status).toBe(204);
+      expect(errors).toEqual([]);
+      expect(errors.blocked).toEqual([]);
+    });
+
     test("anything else at Cloudflare's analytics hosts is refused and recorded", async ({ page }) => {
       const errors = await monitor(page, primaryUrl, 0, { continueAllowed, failOnUnexpected: false });
       await page.goto(primaryUrl);
-      await page.evaluate(async (beacon) => {
+      await page.evaluate(async ([beacon, rum]) => {
         const attempts = [
           fetch(`${beacon}?token=x`),
           fetch(beacon.replace('beacon.min.js', 'other.js')),
-          fetch('https://cloudflareinsights.com/cdn-cgi/rum', { method: 'POST', body: '{}' }),
+          fetch(beacon, { method: 'POST', body: '{}' }),
+          fetch(rum),
+          fetch(`${rum}/x`, { method: 'POST', body: '{}' }),
         ];
         await Promise.all(attempts.map((attempt) => attempt.catch(() => undefined)));
-      }, BEACON_URL);
-      for (const url of ['https://static.cloudflareinsights.com/beacon.min.js', 'https://static.cloudflareinsights.com/other.js',
-        'https://cloudflareinsights.com/cdn-cgi/rum']) {
-        await expect.poll(() => errors.blocked.some((b) => b.endsWith(url))).toBe(true);
+      }, [BEACON_URL, RUM_URL]);
+      // The guard's CSP stops fetches to the beacon's host in the page, before the route sees them.
+      const seen = (method: string, url: string) => (!continueAllowed && url.startsWith('https://static.') ? `CSP ${url}` : `${method} ${url}`);
+      for (const attempt of [seen('GET', BEACON_URL), seen('GET', BEACON_URL.replace('beacon.min.js', 'other.js')),
+        seen('POST', BEACON_URL), seen('GET', RUM_URL), seen('POST', `${RUM_URL}/x`)]) {
+        await expect.poll(() => errors.blocked.some((blocked) => blocked.endsWith(`] ${attempt}`))).toBe(true);
       }
     });
   });

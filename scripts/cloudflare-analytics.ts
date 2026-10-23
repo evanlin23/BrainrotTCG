@@ -1,55 +1,22 @@
 /**
- * Cloudflare Web Analytics, added by our build so production serves exactly the bytes the deploy
- * sealed (docs/HOSTING.md#web-analytics). Cloudflare's automatic setup injected the beacon on the
- * way out instead, so no served page matched its sealed copy.
- *
- * The deploy passes the repository variable CLOUDFLARE_ANALYTICS_TOKEN to its production build only
- * (scripts/deploy_contract.py checks no other step or workflow names it). Unset or empty, the plugin
- * has no hooks, so the build is byte for byte what it was without analytics. Set, index.html (the
- * only page players stay on: p/ and s/ pages and the old address's pages forward straight to it)
- * gets Cloudflare's snippet once, before </body>. The value lands inside HTML, so anything but a
- * site token fails the build.
+ * Cloudflare Web Analytics, as Cloudflare Pages' automatic setup adds it to production
+ * (docs/HOSTING.md#web-analytics). Our build adds nothing; Pages injects one beacon tag before each
+ * page's </body> on the way out. scripts/deploy_contract.py strips exactly that tag before comparing
+ * served pages with the sealed ones, the production smoke accepts the beacon script, and browser
+ * checks against the real site answer the beacon and its reporting endpoint with inert stand-ins
+ * (tests/browser/support.ts), so they aren't counted as visits.
  */
-import type { Plugin } from 'vite';
 
-/** Cloudflare's beacon, as its snippet loads it (developers.cloudflare.com/web-analytics/faq/). */
+/** The beacon script Pages' tag loads (developers.cloudflare.com/web-analytics/faq/). */
 export const BEACON_URL = 'https://static.cloudflareinsights.com/beacon.min.js';
 
+/** Where the beacon reports page views (developers.cloudflare.com/web-analytics/faq/). */
+export const RUM_URL = 'https://cloudflareinsights.com/cdn-cgi/rum';
+
 /**
- * A Web Analytics site token: 32 lowercase hex digits, as the site_token and snippet examples in
- * Cloudflare's API reference show them (developers.cloudflare.com/api/resources/rum/). Its docs give
- * no other format, so this is as wide as the check goes.
+ * The tag Pages injects just before </body>, byte for byte as production serves it, with a fake
+ * token. Tests only; deploy_contract.py's BEACON_TAG matches the same shape.
  */
-const TOKEN = /^[0-9a-f]{32}$/;
-
-/** The token, or null when the variable is unset or empty. Throws on anything else. */
-export const analyticsToken = (value: string | undefined): string | null => {
-  if (value === undefined || value === '') return null;
-  if (!TOKEN.test(value)) {
-    throw new Error('CLOUDFLARE_ANALYTICS_TOKEN must be the 32 lowercase hex digits of a Cloudflare Web Analytics site token '
-      + "(the \"token\" in the snippet's data-cf-beacon), with nothing around it");
-  }
-  return value;
-};
-
-/** Cloudflare's JS snippet (developers.cloudflare.com/web-analytics/get-started/). */
-export const analyticsSnippet = (token: string): string =>
-  `<script defer src="${BEACON_URL}" data-cf-beacon='{"token": "${token}"}'></script>`;
-
-/** The page with the snippet just before its one </body>. */
-export const withAnalytics = (html: string, token: string): string => {
-  const end = html.indexOf('</body>');
-  if (end < 0 || html.indexOf('</body>', end + 1) >= 0) throw new Error('cloudflare-analytics: index.html must have exactly one </body>');
-  if (html.includes(BEACON_URL)) throw new Error('cloudflare-analytics: index.html already loads the beacon');
-  return `${html.slice(0, end)}${analyticsSnippet(token)}\n${html.slice(end)}`;
-};
-
-export const cloudflareAnalytics = (value = process.env.CLOUDFLARE_ANALYTICS_TOKEN): Plugin => {
-  const token = analyticsToken(value);
-  if (token === null) return { name: 'cloudflare-analytics' };
-  return {
-    name: 'cloudflare-analytics',
-    apply: 'build',
-    transformIndexHtml: { order: 'post', handler: (html) => withAnalytics(html, token) },
-  };
-};
+export const pagesBeaconTag = (token: string): string =>
+  `<!-- Cloudflare Pages Analytics --><script defer src='${BEACON_URL}' data-cf-beacon='{"token": "${token}"}'></script>`
+  + '<!-- Cloudflare Pages Analytics -->';

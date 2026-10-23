@@ -3,7 +3,9 @@
 Standard library only. The PyYAML comparison runs where PyYAML is installed and is skipped
 otherwise.
 """
+import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -292,40 +294,6 @@ class Workflows(unittest.TestCase):
                 self.assertBroken('deploy.yml', '      - run: npm ci\n',
                                   '      - run: npm ci\n        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
                                   'uses a secret outside', job)
-
-    ANALYTICS = "          CLOUDFLARE_ANALYTICS_TOKEN: ${{ needs.site.outputs.host == 'cloudflare' && vars.CLOUDFLARE_ANALYTICS_TOKEN || '' }}\n"
-
-    def test_analytics_token_outside_the_production_build(self):
-        for job in ('build', 'smoke'):
-            with self.subTest(job):
-                self.setUp()
-                self.assertBroken('deploy.yml', '      - run: npm ci\n', f'      - run: npm ci\n        env:\n{self.ANALYTICS}',
-                                  "/env/CLOUDFLARE_ANALYTICS_TOKEN names CLOUDFLARE_ANALYTICS_TOKEN outside the env of the build's npm run build",
-                                  job)
-        with self.subTest('in the build step, not its env'):
-            self.setUp()
-            self.assertBroken('deploy.yml', '      - run: npm run build\n', '      - run: CLOUDFLARE_ANALYTICS_TOKEN=x npm run build\n',
-                              'names CLOUDFLARE_ANALYTICS_TOKEN outside the env of the build', 'build')
-
-    def test_analytics_token_value(self):
-        for value in ('${{ vars.CLOUDFLARE_ANALYTICS_TOKEN }}', '${{ secrets.CLOUDFLARE_ANALYTICS_TOKEN }}', "''",
-                      "${{ needs.site.outputs.host == 'cloudflare' && vars.CLOUDFLARE_PROJECT || '' }}"):
-            with self.subTest(value):
-                self.setUp()
-                self.assertBroken('deploy.yml', self.ANALYTICS, f'          CLOUDFLARE_ANALYTICS_TOKEN: {value}\n',
-                                  'build must pass CLOUDFLARE_ANALYTICS_TOKEN to npm run build once, for Cloudflare only')
-        with self.subTest('missing'):
-            self.setUp()
-            self.assertBroken('deploy.yml', self.ANALYTICS, '', 'build must pass CLOUDFLARE_ANALYTICS_TOKEN to npm run build once')
-
-    def test_analytics_token_in_another_workflow(self):
-        for file in ('ci.yml', 'browser-tests.yml', 'performance-baseline.yml'):
-            with self.subTest(file):
-                self.setUp()
-                path = self.tmp / 'workflows' / file
-                path.write_text(path.read_text(encoding='utf-8') + '# CLOUDFLARE_ANALYTICS_TOKEN\n', encoding='utf-8')
-                self.assertIn(f"{file}: names CLOUDFLARE_ANALYTICS_TOKEN, which only deploy.yml's production build may have",
-                              dc.check_workflows(self.tmp / 'workflows'))
 
     def test_smoke_before_deploy(self):
         self.assertBroken('deploy.yml', '    needs: [site, deploy]\n', '    needs: [site, publish]\n',
@@ -819,10 +787,10 @@ class Served(unittest.TestCase):
         (self.dist / 'assets').mkdir(parents=True)
         (self.dist / 's/genesis').mkdir(parents=True)
         (self.dist / 'p').mkdir()
-        (self.dist / 'index.html').write_text('<!doctype html>app')
+        (self.dist / 'index.html').write_text('<!doctype html><body>app</body>\n')
         (self.dist / 'assets/app js.js').write_text('console.log(1)')
-        (self.dist / 's/genesis/index.html').write_text('set page')
-        (self.dist / 'p/abc.html').write_text('pull page')
+        (self.dist / 's/genesis/index.html').write_text('<body>set page</body>')
+        (self.dist / 'p/abc.html').write_text('<body>pull page\n  </body>\n</html>\n')
         (self.dist / 'hall-of-fame.json').write_text('[]')
         (self.dist / '_headers').write_text('/assets/*\n  Cache-Control: immutable\n')
         self.digest = dc.seal(self.release, ENV)
@@ -840,7 +808,13 @@ class Served(unittest.TestCase):
         return self.site[url]
 
     def served(self, url=None, **kwargs):
-        return dc.served(self.release, ENV, self.digest, url or self.base, get=self.get, pause=0, **kwargs)
+        """dc.served on self.site; what it printed about Web Analytics goes to self.printed."""
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                return dc.served(self.release, ENV, self.digest, url or self.base, get=self.get, pause=0, **kwargs)
+        finally:
+            self.printed = err.getvalue()
 
     def test_paths(self):
         self.assertEqual([dc.served_path(n) for n in ('index.html', 's/genesis/index.html', 'p/abc.html', 'assets/a b.js', 'og-image.jpg')],
@@ -877,7 +851,8 @@ class Served(unittest.TestCase):
                 calls.append(u)
                 raise dc.HTTPError(u, 503, 'busy', {}, None)
             return self.get(u)
-        dc.served(self.release, ENV, self.digest, self.base, get=flaky, pause=0)
+        with contextlib.redirect_stderr(io.StringIO()):
+            dc.served(self.release, ENV, self.digest, self.base, get=flaky, pause=0)
         calls.clear()
         with self.assertRaisesRegex(dc.Rejected, '/p/abc: HTTP 503'):
             dc.served(self.release, ENV, self.digest, self.base, get=flaky, pause=0, tries=2)
@@ -942,6 +917,121 @@ class Served(unittest.TestCase):
                                 env={**os.environ, **ENV, 'MANIFEST_SHA256': '0' * 64}, capture_output=True, text=True)
         self.assertEqual(failed.returncode, 1)
         self.assertIn("manifest.json isn't the one build sealed", failed.stderr)
+
+    # Cloudflare Pages' automatic Web Analytics on: exactly its one tag per page is taken out before
+    # comparing, and nothing else is forgiven.
+
+    TOKEN = '0123456789abcdef0123456789abcdef'  # a fake; the real token is never in the repository
+
+    @staticmethod
+    def tag(token=TOKEN):
+        return (f"<!-- Cloudflare Pages Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' "
+                f'data-cf-beacon=\'{{"token": "{token}"}}\'></script><!-- Cloudflare Pages Analytics -->').encode()
+
+    def tagged(self, url, tag=None, at=b'</body>'):
+        """The page at url as Pages serves it with a tag added just before `at`."""
+        self.site[url] = self.site[url].replace(at, (tag or self.tag()) + at, 1)
+
+    def pages(self):
+        return [url for url in self.site if not url.endswith(('.js', '.json'))]
+
+    def served_quietly(self, **kwargs):
+        """served, and the line it printed about the beacon, which never names the token."""
+        try:
+            return self.served(**kwargs), self.printed
+        finally:
+            self.assertNotIn(self.TOKEN, self.printed)
+
+    def rejected(self, pattern=r'1 of the 6 sealed files as sealed(.|\n)*/p/abc: different content'):
+        with self.assertRaisesRegex(dc.Rejected, pattern) as caught:
+            self.served_quietly(tries=1)
+        self.assertNotIn(self.TOKEN, str(caught.exception))
+
+    def test_takes_out_exactly_the_tag(self):
+        page = b'<body>pull page\n  </body>\n</html>\n'
+        self.assertEqual(dc.without_beacon('p/abc.html', page.replace(b'</body>', self.tag() + b'</body>')), (page, self.TOKEN))
+        self.assertEqual(dc.without_beacon('p/abc.html', page), (page, None))
+        tagged_json = page.replace(b'</body>', self.tag() + b'</body>')
+        self.assertEqual(dc.without_beacon('hall-of-fame.json', tagged_json), (tagged_json, None))
+
+    def test_no_tag(self):
+        summary, line = self.served_quietly()
+        self.assertEqual(line, 'Cloudflare Web Analytics: no tag seen.\n')
+        self.assertIn('| Cloudflare Web Analytics | no tag seen |', summary)
+
+    def test_one_tag_on_each_page(self):
+        for url in self.pages():
+            self.tagged(url)
+        summary, line = self.served_quietly()
+        self.assertEqual(line, 'Cloudflare Web Analytics: tag seen on 3 of 3 pages and taken out before comparing.\n')
+        self.assertIn('| Cloudflare Web Analytics | tag seen on 3 of 3 pages and taken out before comparing |', summary)
+        self.assertIn('| Files | 6, each served with its sealed hash |', summary)
+
+    def test_one_tag_on_some_pages(self):
+        self.tagged(self.base + 'p/abc')
+        self.assertIn('tag seen on 1 of 3 pages', self.served_quietly()[1])
+
+    def test_two_tags(self):
+        for twice in (self.tag() + self.tag(), self.tag() + b'\n' + self.tag()):
+            with self.subTest(twice=twice):
+                self.setUp()
+                self.tagged(self.base + 'p/abc', twice)
+                self.rejected()
+        self.setUp()
+        self.tagged(self.base + 'p/abc')
+        self.tagged(self.base + 'p/abc', at=b'pull page')  # a second tag elsewhere on the page
+        self.rejected()
+
+    def test_lookalike_tags(self):
+        tag = self.tag()
+        lookalikes = {
+            'another host': tag.replace(b'static.cloudflareinsights.com', b'static.cloudflareinsights.com.evil.example'),
+            'another script': tag.replace(b'beacon.min.js', b'beacon.min.js?v=2'),
+            'an extra attribute': tag.replace(b'<script defer', b'<script defer type="module"'),
+            'async for defer': tag.replace(b'defer', b'async'),
+            'double quotes': tag.replace(b"src='https://static.cloudflareinsights.com/beacon.min.js'",
+                                         b'src="https://static.cloudflareinsights.com/beacon.min.js"'),
+            'more in the JSON': tag.replace(b'"}', b'", "spa": true}'),
+            'an upper-case token': self.tag(self.TOKEN.upper()),
+            'a short token': self.tag(self.TOKEN[1:]),
+            'a script inside': tag.replace(b'></script>', b'>alert(1)</script>'),
+            'no comments': tag.replace(b'<!-- Cloudflare Pages Analytics -->', b''),
+            'other comments': tag.replace(b'Cloudflare Pages Analytics', b'Cloudflare Pages Analytics!'),
+            'a space after it': tag + b' ',
+        }
+        for name, lookalike in lookalikes.items():
+            with self.subTest(name):
+                self.setUp()
+                self.tagged(self.base + 'p/abc', lookalike)
+                self.rejected()
+        for name, at in (('in the middle of the page', b'pull page'), ('after </body>', b'</html>'),
+                         ('a line before </body>', b'\n  </body>')):
+            with self.subTest(name):
+                self.setUp()
+                self.tagged(self.base + 'p/abc', at=at)
+                self.rejected()
+
+    def test_tokens_must_match(self):
+        self.tagged(self.base)
+        self.tagged(self.base + 's/genesis/')
+        self.tagged(self.base + 'p/abc', self.tag('fedcba9876543210fedcba9876543210'))
+        self.rejected('adds Web Analytics tags with different tokens to its pages$')
+
+    def test_tag_in_a_file_that_is_not_a_page(self):
+        for url in (self.base + 'hall-of-fame.json', self.base + 'assets/app%20js.js'):
+            with self.subTest(url):
+                self.setUp()
+                self.site[url] += self.tag() + b'</body>'
+                self.rejected(f'1 of the 6 sealed files as sealed(.|\\n)*/{re.escape(url[len(self.base):])}: different content')
+
+    def test_tag_and_another_change(self):
+        self.tagged(self.base + 'p/abc')
+        self.site[self.base + 'p/abc'] = self.site[self.base + 'p/abc'].replace(b'pull page', b'pull page!')
+        self.rejected()
+        self.setUp()
+        self.tagged(self.base + 'p/abc')
+        self.site[self.base + 'p/abc'] = self.site[self.base + 'p/abc'].replace(b'</html>\n', b'</html>')
+        self.rejected()
 
 
 class Guard(unittest.TestCase):
