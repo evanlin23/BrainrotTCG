@@ -33,7 +33,12 @@ beforeEach(() => {
   seen = [];
   addEventListener = vi.fn((_type: string, listener: () => void) => listeners.add(listener));
   removeEventListener = vi.fn((_type: string, listener: () => void) => listeners.delete(listener));
-  matchMedia = vi.fn((query: string) => ({ matches: query === QUERY && coarse, addEventListener, removeEventListener }));
+  // One object per query, as in a browser: whichever call the hook makes, it reaches the same list.
+  const lists = new Map<string, { readonly matches: boolean; addEventListener: typeof addEventListener; removeEventListener: typeof removeEventListener }>();
+  matchMedia = vi.fn((query: string) => {
+    if (!lists.has(query)) lists.set(query, { get matches() { return query === QUERY && coarse; }, addEventListener, removeEventListener });
+    return lists.get(query)!;
+  });
   vi.stubGlobal('matchMedia', matchMedia);
   root = createRoot(document.createElement('div'));
 });

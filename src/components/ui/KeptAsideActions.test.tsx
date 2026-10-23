@@ -226,11 +226,8 @@ describe('KeptAsideActions', () => {
     const NOTE = 'Download started — keep the recovery file safe.';
     const status = () => container.querySelector<HTMLElement>('[role="status"]');
     const stubAnchor = () => vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    // As App renders the banner: inside the save warning, which is a role="alert".
-    const at = (variant: 'banner' | 'settings') => {
-      const actions = <KeptAsideActions variant={variant} canAct={canAct} onGone={onGone} onChanged={onChanged} onLeave={onLeave} />;
-      return variant === 'banner' ? <p role="alert">{actions}</p> : actions;
-    };
+    // Whether the banner's own alert wraps the note is the real page's to show: kept-aside-download-note.spec.
+    const at = (variant: 'banner' | 'settings') => <KeptAsideActions variant={variant} canAct={canAct} onGone={onGone} onChanged={onChanged} onLeave={onLeave} />;
 
     it.each(['settings', 'banner'] as const)('in the %s variant: its own status region is there before Download and says it started afterwards', async (variant) => {
       await act(() => root.render(at(variant)));
@@ -243,9 +240,6 @@ describe('KeptAsideActions', () => {
       expect(status()).toBe(region);
       expect(region.textContent?.trim()).toBe(NOTE);
       expect(region.getAttribute('aria-live')).toBeNull();
-      // Settings has nothing assertive around the note. In the banner it sits inside the warning's own alert,
-      // which is assertive and atomic: a screen reader may read the warning again with it.
-      expect(region.closest('[aria-live="assertive"], [role="alert"]')?.getAttribute('role') ?? null).toBe(variant === 'banner' ? 'alert' : null);
     });
 
     it('announces a repeat Download again: the note is a fresh element each time', async () => {

@@ -138,9 +138,12 @@ const Highlight = <S, V>({ title, titleRef, state, what, onRetry, waiting, card,
       <p className={quiet ? 'sr-only' : 'pulls-note profile-highlight-note'}>
         <span role="status">{waiting ? `Checking ${what} against its ticket…` : stateText(state, what)}</span>
         {state.status === 'failed' && state.reason !== 'mismatch' && (
-          <button type="button" className="btn btn--secondary btn--sm" onClick={onRetry}>
-            Try again
-          </button>
+          <>
+            {' '}
+            <button type="button" className="btn btn--secondary btn--sm" onClick={onRetry}>
+              Try again
+            </button>
+          </>
         )}
       </p>
       {waiting ? <PendingRow card={card} text="Checking…" /> : children}
