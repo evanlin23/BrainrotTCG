@@ -286,9 +286,55 @@ class Workflows(unittest.TestCase):
                                   'uses a secret outside', job)
 
     def test_secret_in_build(self):
-        self.assertBroken('deploy.yml', '      - run: npm ci\n',
-                          '      - run: npm ci\n        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
-                          'uses a secret outside')
+        for job in ('build', 'smoke'):
+            with self.subTest(job):
+                self.setUp()
+                self.assertBroken('deploy.yml', '      - run: npm ci\n',
+                                  '      - run: npm ci\n        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
+                                  'uses a secret outside', job)
+
+    def test_smoke_before_deploy(self):
+        self.assertBroken('deploy.yml', '    needs: [site, deploy]\n', '    needs: [site, publish]\n',
+                          'job smoke must need exactly', 'smoke')
+
+    def test_smoke_writes(self):
+        for old, new in (('      contents: read\n', '      contents: write\n'), ('      actions: read\n', '      actions: write\n'),
+                         ('      actions: read\n', '      actions: read\n      pages: write\n'),
+                         ('      actions: read\n', '      actions: read\n      id-token: write\n')):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, 'job smoke permissions', 'smoke')
+
+    def test_smoke_unbounded(self):
+        for new in ('', '    timeout-minutes: 360\n'):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', '    timeout-minutes: 15\n', new, 'job smoke timeout-minutes must be 15', 'smoke')
+
+    def test_timeout_elsewhere(self):
+        self.assertBroken('deploy.yml', '    needs: [build, publish]\n', '    needs: [build, publish]\n    timeout-minutes: 15\n',
+                          'job deploy timeout-minutes must be unset', 'deploy')
+
+    def test_smoke_weakened(self):
+        changes = {
+            'skipped': lambda steps: steps.pop(3),
+            'ignored': lambda steps: steps[3].update(run=steps[3]['run'].replace('.ts', '.ts || true')),
+            'browser skipped': lambda steps: steps.pop(5),
+            'other config': lambda steps: steps[5].update(run='npx playwright test -c playwright.staging.config.ts'),
+            'conditional': lambda steps: steps[5].update({'if': "needs.site.outputs.host == 'cloudflare'"}),
+            'browser runs always': lambda steps: steps[5].update({'if': 'always()'}),
+            'continues on error': lambda steps: steps[5].update({'continue-on-error': True}),
+            'other address': lambda steps: steps[3]['env'].update(SITE_URL='${{ needs.site.outputs.staging_url }}'),
+            'no status': lambda steps: steps.pop(),
+            'status only on success': lambda steps: steps[-1].pop('if'),
+            'status reads one outcome twice': lambda steps: steps[-1]['env'].update(BROWSER_OUTCOME='${{ steps.http.outcome }}'),
+            'status of another check': lambda steps: steps[5].update(id='checks'),
+            'status before the checks': lambda steps: steps.insert(3, steps.pop()),
+        }
+        for label, change in changes.items():
+            with self.subTest(label):
+                problems = self.deploy_problems(lambda jobs: change(jobs['smoke']['steps']))
+                self.assertTrue(any('smoke must' in p for p in problems), problems)
 
     def test_wrangler_runs_more(self):
         self.assertBrokenIn(('stage', 'publish'), '--commit-dirty=true\n', '--commit-dirty=true && npm test\n')
@@ -351,6 +397,24 @@ class Workflows(unittest.TestCase):
     def test_vector_gate_narrowed(self):
         self.assertBroken('deploy.yml', 'spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json',
                           'spec/verify_pull.py --vectors spec/vectors.json', 'independent-verifier must end')
+
+    def test_history_gate_removed_or_weakened(self):
+        gate = 'npm run check:history -- --base "$base"\n'
+        for old, new in ((gate, 'true\n'), (gate, gate.rstrip('\n') + ' || true\n'),
+                         ('BEFORE: ${{ github.event.before }}', 'BEFORE: ""'),
+                         ('      - name: Keep old vectors and set locks\n', ('      - name: Keep old vectors and set locks\n'
+                                                                             "        if: needs.site.outputs.host == 'cloudflare'\n"))):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, 'build must always run npm run check:history')
+
+    def test_ci_runs_the_history_gate_on_pull_requests(self):
+        steps = dc.load(WORKFLOWS / 'ci.yml')['jobs']['check']['steps']
+        gate = next(s for s in steps if s.get('name') == 'Keep old vectors and set locks')
+        self.assertEqual(gate, {'name': 'Keep old vectors and set locks', 'if': "github.event_name == 'pull_request'",
+                                'run': 'npm run check:history -- --base HEAD^1'})
+        checkout = next(s for s in steps if str(s.get('uses', '')).startswith('actions/checkout@'))
+        self.assertEqual(checkout.get('with'), {'fetch-depth': 2})
 
     def test_runs_on_other_branches(self):
         self.assertBroken('deploy.yml', 'branches: [main]', 'branches: [main, release]', 'only on pushes to main')

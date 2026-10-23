@@ -8,7 +8,7 @@ import { monitor, expectDecoded, expectStill, fingerFor } from './support';
 // short landscape window a width floor kept it taller than the stage. On a desktop window the pack is big instead, and
 // its bottom runs past the stage: that is intended (#536 made it small by fitting the whole pack in).
 // The stage scrolls to the rest of it, with no fade or crop, and the page itself never scrolls; at
-// rest the top, the tear line and the buttons are on screen. Phone, tablet and desktop results here are
+// rest the top, the tear line and the pack are on screen. Phone, tablet and desktop results here are
 // emulation: a Chromium window of that size, not a device.
 
 /** The pack art starts this share of the pack's width below the top of its box (the crimp's margin). */
@@ -117,14 +117,15 @@ function expectNear(actual: number, expected: number, what: string) {
   expect(Math.abs(actual - expected), `${what}: ${actual} against ${expected}`).toBeLessThanOrEqual(1.5);
 }
 
-/** The swipe hint, if it's showing, ends above the Open pack button (the space .pack-actions keeps for it). */
-async function expectHintClearOfButton(page: Page, what: string) {
+/** The swipe hint, if it's showing, is whole on the stage: the pack is the control, so nothing sits under it. */
+async function expectHintOnStage(page: Page, what: string) {
   const hint = page.locator('.swipe-hint');
   const shown = Number(await hint.evaluate((element) => getComputedStyle(element).opacity)) > 0;
   if (!shown) return;
   const pill = (await hint.boundingBox())!;
-  const button = (await page.getByRole('button', { name: 'Open pack', exact: true }).boundingBox())!;
-  expect(pill.y + pill.height, `${what}: the bottom of the hint against the top of the button`).toBeLessThanOrEqual(button.y + 1);
+  const stage = (await page.locator('.pack-display').boundingBox())!;
+  expect(pill.y, `${what}: the top of the hint against the top of the stage`).toBeGreaterThanOrEqual(stage.y - 1);
+  expect(pill.y + pill.height, `${what}: the bottom of the hint against the bottom of the stage`).toBeLessThanOrEqual(stage.y + stage.height + 1);
 }
 
 for (const size of SIZES) {
@@ -208,7 +209,7 @@ for (const size of SIZES) {
           expectNear(rest.points[3].y, art.bottom - 3, 'bottom right marker, y');
           expectNear(rest.points[4].y, box.y + box.height / 2 + box.width * 0.05, 'middle left marker, y');
         }
-        // The tear line and the button are on screen, and the hint doesn't run down onto the button.
+        // The tear line is on screen and the hint is whole on the stage.
         // The set tag stays on its pack: shown, it is inside the pack's box; on a pack too small for
         // 12 px text (under 8rem) it steps aside and is visually hidden, still read aloud.
         const ribbon = await page.locator('.pack-set-ribbon').boundingBox();
@@ -223,17 +224,15 @@ for (const size of SIZES) {
         }
         await expect(page.locator('.pack-set-name')).toHaveText(/\S/);
         await expect(page.locator('.tear-guide')).toBeInViewport();
-        await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeInViewport({ ratio: 1 });
-        await expectHintClearOfButton(page, 'at rest');
+        await expect(page.getByRole('button', { name: /^Open pack/ })).toBeInViewport();
+        await expectHintOnStage(page, 'at rest');
 
         if (desktop) {
-          // At rest the tear line, the hint and the whole button are on the stage, as they were before
-          // it scrolled: nothing below them is needed to open the pack.
+          // At rest the tear line and the hint are on the stage, as they were before it scrolled: nothing
+          // below them is needed to open the pack.
           const stageBottom = stage.y + stage.height;
           const tear = (await page.locator('.tear-guide').boundingBox())!;
-          const button = (await page.getByRole('button', { name: 'Open pack', exact: true }).boundingBox())!;
           expect(tear.y + tear.height, 'bottom of the tear line against the bottom of the stage').toBeLessThanOrEqual(stageBottom);
-          expect(button.y + button.height, 'bottom of the Open pack button against the bottom of the stage').toBeLessThanOrEqual(stageBottom + 0.5);
           const hint = page.locator('.swipe-hint');
           if (Number(await hint.evaluate((element) => getComputedStyle(element).opacity)) > 0) {
             const pill = (await hint.boundingBox())!;
@@ -255,6 +254,7 @@ for (const size of SIZES) {
           expect(state.overflowX, 'the stage does not scroll sideways').not.toMatch(/^(auto|scroll)$/);
           expect(state.mask, 'no fade on the stage').toBe('none');
           expect(state.scrollTop, 'the stage rests at the top').toBe(0);
+          // scrollHeight and clientHeight each round to whole pixels, so equal content can differ by one.
           expect(state.scrollHeight, 'the stage has more pack below than it shows').toBeGreaterThan(state.clientHeight + 1);
           expect(state.scrollWidth, 'nothing to scroll to sideways').toBeLessThanOrEqual(state.clientWidth + 1);
 
@@ -267,9 +267,9 @@ for (const size of SIZES) {
           expect(await page.evaluate(() => window.scrollY), 'the page does not scroll with the wheel').toBe(0);
           expect((await page.locator('.app-logo').boundingBox())!.y, 'the app header stays put').toBe(headerTop);
 
-          // Keys scroll it too, from the Open pack button's focus.
+          // Keys scroll it too, from the pack's focus.
           await stageEl.evaluate((element) => { element.scrollTop = 0; });
-          await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+          await page.getByRole('button', { name: /^Open pack/ }).focus();
           await page.keyboard.press('PageDown');
           await expect.poll(() => stageEl.evaluate((element) => element.scrollTop), { message: 'PageDown scrolling the stage' }).toBeGreaterThan(0);
 
@@ -279,7 +279,10 @@ for (const size of SIZES) {
           await expectStill(packShell, 'the stage to settle at the bottom');
           const scrolled = (await packShell.boundingBox())!;
           const scrolledStage = (await stageEl.boundingBox())!;
-          expect(scrolled.y + scrolled.height, 'bottom of the pack against the bottom of the stage, scrolled down').toBeLessThanOrEqual(scrolledStage.y + scrolledStage.height + 0.5);
+          // The pack is the stage's last content now (no button below it), and its height is fractional
+          // (1346.2px at 1280x800) while scrollTop is whole (592): its bottom rests up to a pixel past
+          // the stage's, 0.58px at 1280x800, which the old button's own box used to absorb.
+          expect(scrolled.y + scrolled.height, 'bottom of the pack against the bottom of the stage, scrolled down').toBeLessThanOrEqual(scrolledStage.y + scrolledStage.height + 1);
           expect(scrolled.y + scrolled.height, 'bottom of the pack in the window, scrolled down').toBeLessThanOrEqual(size.height + 0.5);
           expect(scrolled.y + scrolled.height, 'the bottom of the pack is on screen, not above the stage').toBeGreaterThan(scrolledStage.y);
           expect(scrolled.y, 'the top of the pack has scrolled up past the stage').toBeLessThan(scrolledStage.y);
@@ -362,16 +365,17 @@ for (const tablet of TABLETS) {
           };
         });
         expect(state.overflowY, 'the stage does not scroll vertically').not.toMatch(/^(auto|scroll)$/);
+        // scrollHeight and clientHeight each round to whole pixels, so equal content can differ by one.
         expect(state.scrollHeight, 'the stage has nothing below it to scroll to').toBeLessThanOrEqual(state.clientHeight + 1);
         expect(state.scrollWidth, 'nothing to scroll to sideways').toBeLessThanOrEqual(state.clientWidth + 1);
         expect(state.pageOverflow, 'the page has nothing to scroll to').toBeLessThanOrEqual(1);
         // The cut gesture still owns the touch over the pack.
         expect(state.touchAction, 'the pack keeps touch-action: none for the cut').toBe('none');
 
-        // The tear line and the button are on screen, and the hint doesn't run down onto the button.
+        // The pack is its own control, on screen with the tear line (its printed art is inside the stage, above), and the hint is whole on the stage.
         await expect(page.locator('.tear-guide')).toBeInViewport({ ratio: 1 });
-        await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeInViewport({ ratio: 1 });
-        await expectHintClearOfButton(page, 'at rest');
+        await expect(page.getByRole('button', { name: /^Open pack/ })).toBeInViewport();
+        await expectHintOnStage(page, 'at rest');
         expect(errors).toEqual([]);
       });
     }
@@ -458,25 +462,25 @@ test.describe('1280x800, scrolled', () => {
 });
 
 // The hint changes its words once a swipe misses the tear line, and on a narrow pack it wraps to two
-// lines under the dotted line. Those lines end above the Open pack button, as the plain wording does.
+// lines under the dotted line. Those lines stay on the stage, as the plain wording does.
 test.describe('360x640', () => {
   test.use({ viewport: { width: 360, height: 640 }, reducedMotion: 'no-preference' });
 
-  test('the hint after a missed swipe still ends above the Open pack button', async ({ page, baseURL, hasTouch }, testInfo) => {
+  test('the hint after a missed swipe still stays on the stage', async ({ page, baseURL, hasTouch }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
     const errors = await monitor(page, baseURL!, 0, { returning: true });
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
     const packShell = page.locator('.pack-shell');
     await expectDecoded(packShell.locator('img'), 2);
-    await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole('button', { name: /^Open pack/ })).toBeInViewport();
     // The fall-in has landed: the press below is aimed at where the pack rests.
     await expectStill(packShell, 'the pack to land');
-    await expectHintClearOfButton(page, 'before the miss');
+    await expectHintOnStage(page, 'before the miss');
 
     const box = (await packShell.boundingBox())!;
     // Well below the start band (the top third of the pack, or 80px under the tear line), on the art
-    // and left of the Open pack button, which a press never cuts through: a miss, so the pack nudges.
+    // and clear of the tear line: a miss, so the pack nudges.
     const x = box.x + box.width * 0.12;
     const y = box.y + box.height * 0.6;
     const onPack = await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('.pack-shell'), [x, y]);
@@ -487,10 +491,13 @@ test.describe('360x640', () => {
     await expect(page.locator('.swipe-hint-text')).toContainText('dotted line');
     const pill = (await page.locator('.swipe-hint').boundingBox())!;
     expect(pill.height, 'the nudge wording wraps to two lines at most').toBeLessThanOrEqual(44.5);
-    await expectHintClearOfButton(page, 'after the miss');
+    await expectHintOnStage(page, 'after the miss');
+    // Let go after a drag, not in place: a press and release in one spot is a tap, which opens the pack.
+    await finger.move(x, y + 30);
     await finger.release();
+    await expect(packShell).not.toHaveClass(/\bis-cut\b/);
 
-    // A swipe let go short answers in its own words (#803): the same two lines, clear of the button.
+    // A swipe let go short answers in its own words (#803): the same two lines, on the stage.
     const start = (await packShell.boundingBox())!;
     const startY = start.y + start.height * 0.19;
     await finger.press(start.x + start.width * 0.4, startY);
@@ -502,7 +509,7 @@ test.describe('360x640', () => {
     await expectStill(packShell, 'the spring-back to settle');
     const shortPill = (await page.locator('.swipe-hint').boundingBox())!;
     expect(shortPill.height, 'the short-swipe wording wraps to two lines at most').toBeLessThanOrEqual(44.5);
-    await expectHintClearOfButton(page, 'after the short swipe');
+    await expectHintOnStage(page, 'after the short swipe');
     expect(errors).toEqual([]);
   });
 });

@@ -114,14 +114,60 @@ describe('Escape in a pack', () => {
   });
 });
 
+/** The sealed pack: the one control whose focus lets Space or Enter open it (PackCuttingUI). */
+const sealedPack = () => {
+  const pack = add(document.createElement('div'));
+  pack.setAttribute('data-pack-open', 'true');
+  pack.tabIndex = 0;
+  return pack;
+};
+const pressOn = (target: HTMLElement, code: string, init: KeyboardEventInit = {}) => {
+  const key = code === 'Space' ? ' ' : code === 'Escape' ? 'Escape' : 'Enter';
+  const event = new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true, ...init });
+  act(() => { target.dispatchEvent(event); });
+  act(() => { target.dispatchEvent(new KeyboardEvent('keyup', { key, code, bubbles: true })); });
+  return event;
+};
+
+describe('opening a sealed pack', () => {
+  it('opens it with Space or Enter only while focus is on the pack', () => {
+    const onOpenPack = vi.fn();
+    render({ isOpening: false, onOpenPack });
+    const pack = sealedPack();
+    for (const code of ['Space', 'Enter', 'NumpadEnter']) {
+      expect(pressOn(pack, code).defaultPrevented, code).toBe(true);
+    }
+    expect(onOpenPack).toHaveBeenCalledTimes(3);
+  });
+
+  it('leaves the keys to the page anywhere else, so typing or pressing keys never tears a pack', () => {
+    const onOpenPack = vi.fn();
+    render({ isOpening: false, onOpenPack });
+    sealedPack();
+    const elsewhere = add(document.createElement('div'));
+    elsewhere.tabIndex = 0;
+    for (const target of [document.body, elsewhere, add(document.createElement('main'))]) {
+      for (const code of ['Space', 'Enter', 'NumpadEnter']) {
+        expect(pressOn(target, code).defaultPrevented, `${code} on ${target.tagName}`).toBe(false);
+      }
+    }
+    expect(onOpenPack).not.toHaveBeenCalled();
+  });
+
+  it('does not open from the pack when it is disabled', () => {
+    const onOpenPack = vi.fn();
+    render({ isOpening: false, disabled: true, onOpenPack });
+    pressOn(sealedPack(), 'Space');
+    expect(onOpenPack).not.toHaveBeenCalled();
+  });
+});
+
 describe('modifier keys', () => {
-  const press = (code: string, init: KeyboardEventInit = {}) => {
-    const key = code === 'Space' ? ' ' : code === 'Escape' ? 'Escape' : 'Enter';
-    const event = new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true, ...init });
-    act(() => { document.body.dispatchEvent(event); });
-    act(() => { document.body.dispatchEvent(new KeyboardEvent('keyup', { key, code, bubbles: true })); });
-    return event;
-  };
+  const press = (code: string, init: KeyboardEventInit = {}) => pressOn(pack, code, init);
+  let pack: HTMLElement;
+  beforeEach(() => {
+    pack = sealedPack();
+  });
   const modifiers: KeyboardEventInit[] = [{ ctrlKey: true }, { metaKey: true }, { altKey: true }];
 
   it('never opens, flips, closes or leaves a pack with Ctrl, Cmd or Alt held', () => {

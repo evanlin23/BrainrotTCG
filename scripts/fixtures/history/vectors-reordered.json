@@ -1,0 +1,68 @@
+{
+  "spec": "spec/PULL_SPEC.md",
+  "version": 1,
+  "testKey": {
+    "seed": "00",
+    "publicKey": "11"
+  },
+  "packs": [
+    {
+      "set": "alpha@1",
+      "seed": "02",
+      "cards": [
+        {
+          "cardId": "c",
+          "rarity": "EPIC",
+          "isHolo": false
+        },
+        {
+          "cardId": "a",
+          "rarity": "COMMON",
+          "isHolo": false
+        }
+      ]
+    },
+    {
+      "set": "alpha@1",
+      "seed": "01",
+      "cards": [
+        {
+          "cardId": "a",
+          "rarity": "COMMON",
+          "isHolo": false
+        },
+        {
+          "cardId": "b",
+          "rarity": "RARE",
+          "isHolo": false
+        }
+      ]
+    },
+    {
+      "set": "beta@1",
+      "seed": "03",
+      "cards": [
+        {
+          "cardId": "d",
+          "rarity": "COMMON",
+          "isHolo": false
+        },
+        {
+          "cardId": "e",
+          "rarity": "LEGENDARY",
+          "isHolo": false
+        }
+      ]
+    }
+  ],
+  "invalid": [
+    {
+      "note": "bad signature",
+      "proof": "aa"
+    },
+    {
+      "note": "wrong set",
+      "proof": "bb"
+    }
+  ]
+}

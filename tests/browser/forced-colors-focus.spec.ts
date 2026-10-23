@@ -49,7 +49,7 @@ const openPackScreen = async (page: Page, baseURL: string) => {
   const errors = await monitor(page, baseURL, 0, { returning: true });
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Open pack/ })).toBeVisible();
   expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
   return errors;
 };
@@ -57,7 +57,7 @@ const openPackScreen = async (page: Page, baseURL: string) => {
 test('shows a visible focus outline on every Tab stop of the pack screen in forced colours', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
   const errors = await openPackScreen(page, baseURL!);
-  const stops = await tabTo(page, page.getByRole('button', { name: 'Open pack', exact: true }));
+  const stops = await tabTo(page, page.getByRole('button', { name: /^Open pack/ }));
   // The walk reached the pack through the header, nav and set picker, not one lucky stop.
   expect(stops.length).toBeGreaterThanOrEqual(3);
   expect(errors).toEqual([]);
@@ -100,7 +100,7 @@ test('shows a visible focus outline inside a sheet and on the reveal card in for
     expect(focused?.name).toMatch(/reveal-card/);
     expect(focused, 'an arrow key is navigation').toMatchObject({ input: 'keyboard', offset: '2px' });
   };
-  await tabTo(page, page.getByRole('button', { name: 'Open pack', exact: true }));
+  await tabTo(page, page.getByRole('button', { name: /^Open pack/ }));
   await page.keyboard.press('Space');
   const card = page.locator('.reveal-card:focus');
   await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });

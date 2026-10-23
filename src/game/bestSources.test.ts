@@ -20,6 +20,7 @@ import * as history from './history';
 import { recordPack as recordProgress } from './packProgress';
 import * as packStore from './packStore';
 import { getPlayer } from './player';
+import { getTicket } from './ticketMiner';
 import { toCardsWithMeta, type OpenedPack } from './pulls';
 
 // Counts every way of walking the pack history or the pack store: the highlights must use none of them.
@@ -32,6 +33,11 @@ vi.mock('./history', async (importOriginal) => {
     findPackWithCard: vi.fn(real.findPackWithCard),
     findPackByCards: vi.fn(real.findPackByCards),
   };
+});
+// The default ticket path (the shared miner's optional lane), stubbed so a test can see what it is handed.
+vi.mock('./ticketMiner', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./ticketMiner')>();
+  return { ...real, getTicket: vi.fn(real.getTicket) };
 });
 vi.mock('./packStore', async (importOriginal) => {
   const real = await importOriginal<typeof import('./packStore')>();
@@ -213,6 +219,39 @@ describe('states', () => {
     expect(await checkBestCard(wrongSlot, { ticketFn: fakeTicket })).toMatchObject({ status: 'failed', reason: 'mismatch' });
   });
 
+  it('verifies a best pack whose kept cards are stored in another order', async () => {
+    const stats = await play(0);
+    const shuffled = [...stats.highestPackCards!].reverse();
+    const ids = (cards: readonly { key: string; isHolo: boolean }[]) => cards.map((c) => `${c.key}|${c.isHolo}`).join();
+    expect(ids(shuffled)).not.toBe(ids(stats.highestPackCards!));
+    const state = resolveBestPack({ ...stats, highestPackCards: shuffled });
+    if (state.status !== 'checking') throw new Error('unreachable');
+    expect(await checkBestPack(state.source, { ticketFn: fakeTicket })).toMatchObject({ status: 'available' });
+  });
+
+  it('labels no best card when no winner can be ranked (an imported list with no cached cards)', async () => {
+    await play(0, 1);
+    const store = JSON.parse(data.get(STORAGE_KEYS.BEST_CARDS)!);
+    const key = getPlayer().publicKeyHex;
+    store[key].b = store[key].b.map(({ c: _drop, ...entry }: { c?: string }) => entry);
+    data.set(STORAGE_KEYS.BEST_CARDS, JSON.stringify(store));
+    expect(getBestCards(key, 2).cards[0].card).toBeNull();
+    expect(resolveBestCard()).toEqual({ status: 'unavailable', reason: 'unranked' });
+    const { fn, calls } = counted();
+    expect((await settle(emptyStats(), fn)).result.card).toEqual({ status: 'unavailable', reason: 'unranked' });
+    expect(calls).toEqual([]);
+  });
+
+  it('hands the signal to the default ticket path', async () => {
+    const stats = await play(0);
+    const state = resolveBestPack(stats);
+    if (state.status !== 'checking') throw new Error('unreachable');
+    const controller = new AbortController();
+    vi.mocked(getTicket).mockImplementationOnce((set, key, nonce) => fakeTicket(set, key, nonce));
+    expect((await checkBestPack(state.source, { signal: controller.signal })).status).toBe('available');
+    expect(getTicket).toHaveBeenCalledWith(expect.anything(), expect.anything(), 0, 'optional', controller.signal);
+  });
+
   it('fills an unscored winner from the engine', async () => {
     await play(0);
     const state = resolveBestCard();
@@ -299,7 +338,7 @@ describe('storage', () => {
     const copies = JSON.stringify([old, legacy]);
     expect(resolveBestPack(old)).toEqual({ status: 'unavailable', reason: 'legacy' });
     expect(resolveBestPack(legacy)).toEqual({ status: 'unavailable', reason: 'legacy' });
-    expect(resolveBestPack({ packsOpened: 0, holoCards: {} })).toEqual({ status: 'unavailable', reason: 'none' });
+    expect(resolveBestPack(emptyStats())).toEqual({ status: 'unavailable', reason: 'none' });
     expect(JSON.stringify([old, legacy])).toBe(copies);
   });
 

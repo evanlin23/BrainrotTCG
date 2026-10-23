@@ -48,7 +48,7 @@ const otherTabWrites = (entries: Record<string, string>) => {
 };
 const storageEvent = (key: string | null) => app!.interact(() => window.dispatchEvent(new StorageEvent('storage', { key })));
 const packShell = () => document.querySelector<HTMLElement>('.pack-shell');
-const openButton = () => document.querySelector<HTMLButtonElement>('.pack-open-button');
+const openButton = () => document.querySelector<HTMLElement>('[data-pack-open]');
 const refusal = () => document.querySelector('.pack-refusal');
 const button = (within: ParentNode, label: string) => [...within.querySelectorAll<HTMLElement>('button')]
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label);
@@ -56,20 +56,20 @@ const button = (within: ParentNode, label: string) => [...within.querySelectorAl
 const restoreNote = () => [...document.querySelectorAll('.settings [role="status"]')]
   .find((el) => el.previousElementSibling?.textContent === 'Restore');
 
-/** The Open pack button under the pack, as a tap, a click or the keyboard opens it. */
+/** The pack itself, as a tap, a click or the keyboard opens it. */
 async function pressOpen() {
-  await app!.until('the Open pack button is ready', () => expect(openButton()).not.toBeNull());
+  await app!.until('the pack is ready', () => expect(openButton()).not.toBeNull());
   await app!.interact(() => {
     openButton()!.focus();
     openButton()!.click();
   });
 }
 
-/** The pack stayed sealed and says why, with a reload in place of the Open pack button (#312). */
+/** The pack stayed sealed and says why, with a reload to try again (#312). */
 const expectKeptSealed = () => {
   expect(refusal()?.textContent).toContain('Your save changed in another tab, so this pack stayed sealed.');
   expect(button(refusal()!, 'Reload and try again')).toBeDefined();
-  expect(openButton()).toBeNull();
+  expect(openButton()?.getAttribute('aria-label')).toBe('Open pack, ' + openButton()!.querySelector('.pack-set-name')!.textContent);
 };
 
 /** A drag along the tear line from edge to edge, as a finger or mouse cuts the pack open. */
