@@ -76,7 +76,11 @@ src/game/          Browser glue around the engine.
   ticketMiner.ts     serial opening-ticket queue, worker/main-thread fallback, next-pack prefetch
   ticketPool.ts      separate verification/reconstruction pool, up to 8 workers (32 MiB each)
   history.ts         compact localStorage ticket metadata/cards; quota can discard old records
-  profiles.ts        signed profile construction and background own-pack reconstruction
+  myTickets.ts       your tickets as this device knows them: one list per change, shared read-only
+  packCache.ts       reading your saved packs into memory a page at a time, and whether they're in
+  reopenJob.ts       background own-pack reconstruction, resumed on the next visit
+  profiles.ts        signed profile construction, profile info, stats and progress; each of these
+                     four imports only those above it (FILE_ORDER in check-import-boundaries.ts)
   profileVerification.ts   verifying a shared profile link (verifyProfileLive)
   packStore.ts       reconstructed own-pack card codes in memory and IndexedDB
   reopenCache.ts     localStorage cache for packs derived while viewing public profiles
@@ -90,7 +94,8 @@ src/game/          Browser glue around the engine.
   nostrInbox.ts      Hall of Fame submissions over public Nostr relays (loaded only when used)
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
-  collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
+  collectionRecovery.ts  keeps unreadable collection entries and stats aside instead of overwriting them
+  statsRecovery.ts   rebuilds unreadable stats from what the save still proves, never from zero
   progressWriter.ts  stores committed progress field by field, behind both save guards, and owes
                      packs to the pending shelf until stored (App uses it via hooks/useProgressWriter.ts)
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
@@ -172,7 +177,8 @@ by hand  ─► GitHub issue form (pull link; needs an account; not linked from 
                                    │
                     .github/workflows/deploy.yml
                     scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + two days' daily top 50)
-                                                   + hall-of-fame-withdrawn.json (pulls of `rejected` issues)
+                                                    public/rankings.json + rankings/daily-YYYY-MM.json
+                                                    public/hall-of-fame-withdrawn.json (pulls of `rejected` issues)
                                    │
                     Rankings page shows it as published; pull links verify individually
 ```
@@ -259,15 +265,16 @@ that shows it drops it separately:
 - The published list: the deploy the label starts rebuilds `hall-of-fame.json` without it, and the
   old address's copy with it (`copyHallOfFame` in `scripts/redirect-site.ts`).
 - Pending: the same build writes `hall-of-fame-withdrawn.json`, the pull ids of `rejected` issues,
-  open or closed, and `loadPending` never shows one of those as pending. The ids come from the bot's
+  open or closed, from the same listing that takes their entries out of the rankings, and
+  `loadPending` never shows one of those as pending. The ids come from the bot's
   `hof-verified` marker comments, which the issue's author can't edit, so editing the body after a
   rejection can't bring a pull back. An issue the bot never verified has no marker and was never
   listed; its body is the only record. A pull refused only for its name isn't listed: the page skips
   blocked names itself, and the same pull renamed may come back. If the file doesn't load within
   the relays' 5 seconds, the page shows nothing pending rather than risk a removed pull, and Rankings
-  says recent pulls couldn't be checked. A build that can't read the issues or their comments carries
-  the deployed file forward (read from the old address), and otherwise publishes none, never an
-  empty one.
+  says recent pulls couldn't be checked. A build that can't list the issues keeps the deployed list and
+  rankings, and one that can't read the issues or their comments carries the deployed file forward
+  (read from the old address), and otherwise publishes none, never an empty one.
 - Open tabs: `loadHallOfFame` reuses a loaded list for at most five minutes, so a tab left open
   drops the entry the next time it shows the list after that. If that refetch fails, it keeps the
   list it had and tries again on the next read. Both files are fetched with `cache: 'no-cache'`, and
@@ -283,7 +290,7 @@ A real GitHub user named `nostr` collides with the relay marker (`scripts/hall-o
 through as is); that is fixed in a later slice.
 
 **Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score. The published file also
-keeps the best 50 pulls filed on the build's UTC day and the day before (`dailyPulls`, by
+keeps the best 50 pulls received on the build's UTC day and the day before (`dailyPulls`, by
 `submittedAt`), which Rankings' Today tab and its "yesterday's best" read. So it holds at most
 `HALL_OF_FAME_MAX_ENTRIES` (200) entries, however many sets or submissions there are: the page loads
 it whole on every visit. Per-set world firsts were dropped (the page no longer shows them, and they
@@ -327,8 +334,20 @@ misses, changed inputs and API failures affect work and freshness.
 
 Issue text is untrusted: it's only parsed by the script, never put into a shell command, and only
 echoed back through a sanitiser. The submitter's GitHub username comes from GitHub.
-Tie order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
-the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
+Tie order and a pull's UTC day use its first receipt (`submittedAt`): when GitHub received the issue
+body that carried that exact pull, which the bot records in the marker of its first verified comment
+(`<!-- hof-verified ID received TIME -->`). An opened issue's receipt is its creation; an edit's is
+the edit, so a placeholder issue edited later can't claim an earlier spot; the inbox's is its own
+issue's creation. A late run, even one after UTC midnight, keeps the pull on the day it was received
+while that day's top is still published. A pull received yesterday joins that day's top only if it
+places within the top 3 the page shows as yesterday's best (`HALL_OF_FAME_YESTERDAY_SHOWN`), and its
+comment names the place; otherwise it's turned down unlisted, so it can be submitted again for
+today. A pull received earlier can only join the top 100. Among the issues a deploy lists with the
+same pull, the earliest receipt keeps the credit; intake turns down a pull that's already published,
+so a copy received later but published first keeps it. Entries also carry `verifiedAt`,
+the marker comment's time. Markers from before receipts were recorded (or with a receipt that isn't a
+time no later than their comment) carry none: those entries use `verifiedAt` as `submittedAt` and say
+so with `receipt: "verification"`. Each pull
 counts once in the top 100, however many times it's submitted or re-signed (the daily
 tops follow the eight-day rule above). A maintainer can drop an entry by adding
 the `rejected` label to its issue. What a submission makes public, and for whom, is in
@@ -336,8 +355,8 @@ the `rejected` label to its issue. What a submission makes public, and for whom,
 
 ### Ranking boards (`src/engine/rankings.ts`)
 
-This is an engine contract only (#223, #338). Nothing publishes or shows these boards yet, and the
-Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with these fields:
+The deploy publishes Best packs boards (#223, "Published rankings" below), but nothing shows them
+yet: the Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with these fields:
 
 - the schema version, scope and capacity;
 - the `SCORING_ERA` its scores came from;
@@ -356,7 +375,7 @@ order; the shared-pull page keeps engine order.
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
-| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | planned: Rankings page |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 (10 published) | `rankings.json`; planned: Rankings page |
 | Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | planned: Rankings page |
 | Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
@@ -400,7 +419,58 @@ destinations. Best versions of this card opens from a card's details.
   the highest such bar (the lower of the two) intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
   (`below-intake-minimum`). So the card board lists only cards worth at least 20,000 and stays
   partial until intake has filed enough of them to fill it.
-- **Daily boards** come later.
+- **Daily boards.** Best packs has one per UTC day ("Published rankings" below); card boards don't
+  yet.
+
+#### Published rankings (`src/engine/rankingsArchive.ts`)
+
+The Hall of Fame build writes two more files next to `hall-of-fame.json`:
+
+- `rankings.json`: Best packs boards of all time and of the build's UTC day and the day before, 10
+  places each, without proofs (an entry's issue links to it). Each is certified as far as
+  `hall-of-fame.json`'s own cut (its top 100, or that day's top 50). It also lists the months that
+  have a daily archive.
+- `rankings/daily-YYYY-MM.json`: each past UTC day's top 10, in one canonical text.
+
+A day is rebuilt while it is open (today or yesterday), because the build still lists every issue
+that could rank on it. After that, each build copies the day from the deployed archive, byte for byte,
+less entries since removed: a `rejected` issue (every one, listed or not) or a display name no longer
+allowed. A removed entry's place isn't refilled, since the runners-up were never kept, and an entry
+restored later doesn't come back to a closed day. A day with no deploy while it was open is never
+archived.
+
+Carrying days forward means reading the deployed site (GitHub Pages, which keeps serving these files
+after a move). The build reads it before anything else, with a `?run=` query the CDN hasn't cached (as
+the smoke check does), and the deploy fails rather than drop a day:
+
+- Every deploy writes `hall-of-fame.json`, so a 404 for it fails: it may be a new site, but also a
+  site whose files can't be read there, such as GitHub Pages turned off or the repository renamed,
+  where starting again would lose every closed day for good. Those need the deployed files kept. A
+  new site opts in with the repository variable `HOF_START_NEW_HISTORY` set to that UTC day
+  (docs/HOSTING.md). Then the build lists everything again from the issues, and the log says
+  `No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks`.
+- Only a 404 for `rankings.json` means a site from before these files. The history starts with the
+  open days, and the log says `No rankings.json deployed: starting the rankings history`.
+- Any other answer fails, and so does a list that isn't a JSON list, or an archive that is listed but
+  not deployed or that fails its strict check (`parseRankingsFile`, `parseDailyArchive`). That covers
+  an error status, a network error, or a page in place of the file, such as a fallback.
+
+The two signals move together, since every path writes both files or neither:
+
+- The deploy's build step writes both into `public/`, and `npm run build` copies them into `dist/`.
+- If GitHub is down, it keeps the deployed `hall-of-fame.json` and rankings as they are. With no
+  `hall-of-fame.json` deployed there is nothing to keep, and the deploy fails rather than publish the
+  committed empty list.
+- After a move, the old address's pages (`scripts/redirect-site.ts`) copy both.
+- Only a local build without a token writes no rankings.
+
+The edge is rollback. Deploying code from before these files publishes a site without
+`rankings.json`, and the next build starts the history again: the closed days archived until then
+are lost. Keep the deployed `rankings.json` and archives before deploying such code if the history
+matters. A Cloudflare rollback serves its older archives only until the next deploy: it doesn't
+revert the GitHub Pages redirect's copy, which the build reads, so that build carries the current
+archives forward, not the rolled-back ones. GitHub Pages has no rollback in this workflow
+(docs/HOSTING.md).
 
 ## Sharing and link previews
 
@@ -458,20 +528,30 @@ replaced, unreadable entries are archived byte for byte, with the identity snaps
 in `brainrot-collection-recovery-v1`: each distinct payload once, the first and then the newest 10,
 within 1M characters (older ones in between are let go and counted). The archive never blocks the
 save: a payload storage has no room for is kept for that visit only, and the note asks the player to
-download it. Nothing discards kept-aside data silently; the player can download or discard it from the
-save warning or Settings. A player record (`player.ts`) that can't be read as is is archived the same
-way before anything replaces it (#1052). If its secret key reads, the key stays and only the broken
-fields are repaired, with the ticket count past every ticket the history, stored packs and owed packs
-show that key used. If no key reads, the bytes stay where they are, the tab plays on a stand-in key
-that is never stored, and claims refuse (`PlayerUnreadableError`, so packs stay sealed) until the
-player restores a backup or starts a new player in Settings. Starting one (`startNewPlayer`) copies
-the whole save to `brainrot-before-new-player-v1` (a later start takes the next free slot, `:2` and
-on, so no copy is written over), changes the save stamp, removes the old player's progress and the
-owed packs that name no key, then writes the new record. A failed step is undone and no key is
-stored; if undoing fails too, the answer says so (`NEW_PLAYER_PARTIAL_NOTE`), the copy stays and the
-page reloads. Export writes the damaged bytes as `player`, in a file named
+download it. Stored stats this build can't read go in the same archive, marked with their key, when
+they load; the stats in use are rebuilt from their readable fields, this key's history and the
+collection (`statsRecovery.ts`), taking the history's best pack when it beats a readable one kept,
+and App stores them at once, unless their copy is held only for that visit (then the stats stay
+unsaved and the save warning shows) or the player record has no key that can be read (they were
+rebuilt from a stand-in key's empty history, and no pack opens until it is replaced). Nothing
+discards kept-aside data silently; the player can
+download or discard it from the save warning or Settings, and after a discard the next write
+replaces the bytes it came from. A player record (`player.ts`) that can't be read as is is archived
+the same way before anything replaces it (#1052). If its secret key reads, the key stays and only
+the broken fields are repaired, with the ticket count past every ticket the history, stored packs
+and owed packs show that key used. If no key reads, the bytes stay where they are, the tab plays on
+a stand-in key that is never stored, and claims refuse (`PlayerUnreadableError`, so packs stay
+sealed) until the player restores a backup or starts a new player in Settings. Starting one
+(`startNewPlayer`) copies the whole save to `brainrot-before-new-player-v1` (a later start takes the
+next free slot, `:2` and on, so no copy is written over), changes the save stamp, removes the old
+player's progress and the owed packs that name no key, then writes the new record. A failed step is
+undone and no key is stored; if undoing fails too, the answer says so (`NEW_PLAYER_PARTIAL_NOTE`),
+the copy stays and the page reloads. Export writes the damaged bytes as `player`, in a file named
 `brainrot-tcg-damaged-player-*` whose note promises no working key, and importing it says it is such
-a copy (`holdsDamagedPlayer`) rather than pairing the save with a new key. Export includes that archive. Import
+a copy (`holdsDamagedPlayer`) rather than pairing the save with a new key. Export includes that
+archive, with the payloads held for that visit only that were kept for the stored player (matched by
+secret key, or by the record's exact bytes when no key reads), and rebuilds unreadable stats as a
+load does, so the file imports again. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
 import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; a failed
@@ -557,8 +637,9 @@ that no other keys were used, or when packs were opened.
 
 `src/game/profileVerification.ts` checks decoding/signature first, then derives highlights before the
 remaining tickets and validates XP/highlights. It imports no player, history, pack store or
-own-profile code (`profiles.ts`, which re-exports it for older imports), so checking someone else's
-profile never reads or waits on your own save; it shares only the engine rules, `reopenCache.ts`,
+own-profile code (`myTickets.ts`, `packCache.ts`, `reopenJob.ts`, and `profiles.ts`, which
+re-exports it for older imports), so checking someone else's profile never reads or waits on your
+own save; it shares only the engine rules, `reopenCache.ts`,
 `ticketPool.ts` and optional-work admission (`admission.ts`), never a scheduler of its own. A displayed claim is not verified merely because the signature
 passes. Work uses `ticketPool.ts`, separate from foreground `ticketMiner.ts`, with a hardware-based
 pool size up to eight workers. Separation avoids sharing the opening queue but does not remove CPU,
@@ -581,7 +662,7 @@ Own-pack reconstruction runs independently of the profile screen, batches up to 
 clears only once every batch is on disk: an IndexedDB open that fails or is blocked, or a failed write,
 keeps it and backs off (#1023); a browser without IndexedDB has only memory, so its writes count as saved.
 The IndexedDB card-code cache is no longer loaded before rendering: after mount, `watchMyPacks`
-(`profiles.ts`, via `usePackCache`) reads the current player's packs in pages of 64, one page in
+(`packCache.ts`, via `usePackCache`) reads the current player's packs in pages of 64, one page in
 flight, and aborts on unmount or when another tab changes the save; a read whose player changed is
 dropped. Then it reads the rest of the history's saved packs (other players on this device), which
 only history achievements wait on: your level and stats never depend on another player's packs.

@@ -14,6 +14,8 @@ const storage = vi.hoisted(() => ({
   // How many more shelf writes fit before it is full.
   shelfRoom: Infinity,
   collection: 'saved' as CollectionSaveResult,
+  // What persistStats does when storage takes the stats ('recovered': it kept unreadable stored stats aside first).
+  stats: 'saved' as CollectionSaveResult,
   recovery: 'none' as CollectionRecoveryState,
   history: true,
 }));
@@ -31,6 +33,12 @@ vi.mock('./collectionRecovery', () => ({
   collectionRecoveryState: () => storage.recovery,
   collectionRecoveryNote: () => (storage.recovery === 'none' ? undefined : `kept ${storage.recovery}`),
   collectionRecoveryDismissed: () => false,
+}));
+vi.mock('./statsRecovery', () => ({
+  persistStats: () => {
+    storage.log.push('set brainrot-stats-v1');
+    return storage.refuse.has('brainrot-stats-v1') ? 'blocked' : storage.stats;
+  },
 }));
 vi.mock('./history', () => ({
   recordMissing: (packs: OpenedPack[], key: string) => {
@@ -67,7 +75,7 @@ const withPack = (from: HeldProgress): HeldProgress =>
 let host: ProgressWriterHost & { calls: string[]; player: boolean; current: boolean; stamps: string[]; stampable: boolean; drop: number[] };
 const writer = () => createProgressWriter(host);
 beforeEach(() => {
-  Object.assign(storage, { log: [], shelf: new Set(), refuse: new Set(), shelfFull: false, shelfRoom: Infinity, collection: 'saved', recovery: 'none', history: true });
+  Object.assign(storage, { log: [], shelf: new Set(), refuse: new Set(), shelfFull: false, shelfRoom: Infinity, collection: 'saved', stats: 'saved', recovery: 'none', history: true });
   const calls: string[] = [];
   const stamps: string[] = [];
   host = {
@@ -275,6 +283,30 @@ describe('createProgressWriter', () => {
     storage.collection = 'saved';
     w.commit(withPack(withPack(withPack(loaded))));
     expect(host.calls).toEqual(['keptAside kept stored false', 'noted', 'failed', 'keptAside kept unsaved false', 'noted', 'noted']);
+  });
+
+  it('shows the kept-aside note when the stats write kept unreadable stored stats aside, once', () => {
+    const w = writer();
+    w.commit(loaded);
+    storage.stats = 'recovered';
+    storage.recovery = 'stored';
+    w.commit({ ...loaded, stats: stats(1) });
+    storage.stats = 'saved';
+    w.commit({ ...loaded, stats: stats(2) });
+    expect(storage.log).toEqual([`set ${STORAGE_KEYS.STATS}`, `set ${STORAGE_KEYS.STATS}`]);
+    expect(host.calls).toEqual(['keptAside kept stored false', 'noted', 'noted']);
+  });
+
+  it('keeps unreadable stored stats aside before the stats counting shelved packs replace them', () => {
+    const w = writer();
+    w.commit(loaded);
+    w.packAdded(pack(1));
+    storage.collection = 'blocked';
+    storage.stats = 'recovered';
+    storage.recovery = 'stored';
+    w.commit(withPack(loaded));
+    expect(storage.log).toEqual(['collection', 'shelve 1*', `set ${STORAGE_KEYS.STATS}`, 'history 1 as me']);
+    expect(host.calls).toEqual(['failed', 'keptAside kept stored false', 'noted']);
   });
 
   it('raises and replaces no kept-aside note while storage refuses to read the archive', () => {

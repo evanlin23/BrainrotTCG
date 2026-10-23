@@ -443,7 +443,8 @@ class Workflows(unittest.TestCase):
                 self.assertBroken('deploy.yml', old, new, 'build must always run npm run check:history')
 
     def test_ci_runs_the_history_gate_on_pull_requests(self):
-        steps = dc.load(WORKFLOWS / 'ci.yml')['jobs']['check']['steps']
+        # In the content-checks stage, which the required `check` gate needs (scripts/ci-stages.test.ts).
+        steps = dc.load(WORKFLOWS / 'ci.yml')['jobs']['content-checks']['steps']
         gate = next(s for s in steps if s.get('name') == 'Keep old vectors and set locks')
         self.assertEqual(gate, {'name': 'Keep old vectors and set locks', 'if': "github.event_name == 'pull_request'",
                                 'run': 'npm run check:history -- --base HEAD^1'})

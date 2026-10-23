@@ -9,10 +9,10 @@
  *   npx tsx scripts/redirect-site.ts <new-url> <out-dir>     (deploy, when the site lives elsewhere)
  *
  * Writes index.html and 404.html (GitHub Pages serves 404.html for every other path) and copies
- * the Hall of Fame files the scripts read from the old address (`copyHallOfFame`).
+ * hall-of-fame.json, the pulls of rejected issues and the rankings, which the Hall of Fame scripts read
+ * from the old address.
  */
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ROUTE_HASH } from '../src/game/route.ts';
 import { isMainModule } from './main-module.ts';
@@ -135,14 +135,15 @@ button{display:block;width:100%;margin:.75rem 0 0;padding:.85rem 1rem;border-rad
 `;
 
 /**
- * The Hall of Fame files the scripts read from the old address: the list the inbox and checks read,
- * and the pulls of rejected issues, which a build carries forward when GitHub is down. One the build
- * didn't write isn't copied, so the old address never serves a stale one.
+ * Copies what the Hall of Fame scripts read from the old address out of a build: hall-of-fame.json,
+ * hall-of-fame-withdrawn.json (a build carries it forward from here when GitHub is down),
+ * rankings.json and the rankings folder, those the build has. One the build didn't write isn't
+ * copied, so the old address never serves a stale one.
  */
-const HALL_OF_FAME_FILES = ['hall-of-fame.json', 'hall-of-fame-withdrawn.json'];
-
 export const copyHallOfFame = (dist: string, outDir: string) => {
-  for (const file of HALL_OF_FAME_FILES) if (existsSync(join(dist, file))) copyFileSync(join(dist, file), join(outDir, file));
+  for (const file of ['hall-of-fame.json', 'hall-of-fame-withdrawn.json', 'rankings.json', 'rankings']) {
+    if (existsSync(`${dist}/${file}`)) cpSync(`${dist}/${file}`, `${outDir}/${file}`, { recursive: true });
+  }
 };
 
 if (isMainModule(import.meta.url)) {

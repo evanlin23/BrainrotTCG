@@ -122,17 +122,19 @@ describe('the gate', () => {
     expect(gateChanges('README.md\nsrc/other.ts\nsrc/testing.ts\n\n')).toEqual([]);
   });
 
-  it('runs in the required CI check job on every pull request, from the merge commit against its base', () => {
+  it('runs in the unit-tests stage of the required CI check on every pull request, from the merge commit against its base', () => {
     const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-    const check = ci.slice(ci.indexOf('\n  check:\n'), ci.indexOf('\n  independent-verifier:\n'));
+    // The required `check` gate needs this stage (scripts/ci-stages.test.ts).
+    const check = ci.slice(ci.indexOf('\n  unit-tests:\n'), ci.indexOf('\n  content-checks:\n'));
     expect(check).toMatch(/- uses: actions\/checkout@[0-9a-f]{40} # v[\d.]+\n {8}with:\n(?: {10}#.*\n)* {10}fetch-depth: 2\n/);
     expect(check).toContain([
       '      - name: Replay escaped defects when the gate changes',
       "        if: github.event_name == 'pull_request'",
     ].join('\n'));
     expect(check).toMatch(/\n {8}shell: bash\n {8}run: git diff --name-only HEAD\^1 HEAD \| npx tsx scripts\/defect-replay\.ts --if-gate-changed\n/);
-    // After the suite, inside the check job: a failed replay turns that required check red.
-    expect(check.indexOf('npm run check')).toBeLessThan(check.indexOf('--if-gate-changed'));
+    // After the suite, inside a gated stage: a failed replay turns the required check red.
+    expect(check.indexOf('- run: npm test\n')).toBeGreaterThan(0);
+    expect(check.indexOf('- run: npm test\n')).toBeLessThan(check.indexOf('--if-gate-changed'));
   });
 });
 

@@ -7,7 +7,10 @@ import { getStoredPack, putStoredPacks, resetPackStore } from './packStore';
 import { getHistory, recordPack } from './history';
 import type { OpenedPack } from './pulls';
 import { getPlayer } from './player';
-import { hydrateMyPacks, myProfileInfo, myProfileProof, myProgress, myStats, myTickets, onReopenProgress, profileUrl, reopenMyPacks, resetTicketList, resumeReopening, syncMyBestCards } from './profiles';
+import { myProfileInfo, myProfileProof, myProgress, myStats, profileUrl, syncMyBestCards } from './profiles';
+import { myTickets, resetTicketList } from './myTickets';
+import { hydrateMyPacks } from './packCache';
+import { onReopenProgress, reopenMyPacks, resumeReopening } from './reopenJob';
 
 // No Worker or IndexedDB here: tickets are mined on this thread and the pack store stays in memory.
 const data = new Map<string, string>();

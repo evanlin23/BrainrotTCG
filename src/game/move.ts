@@ -99,7 +99,7 @@ const promotePending = () => {
 
 /**
  * Never progress: what marks a save, this device's preferences, caches it can rebuild, the re-open
- * bookkeeping (profiles.ts) a reload writes on its own: the done mark, a re-open waiting to resume, its backoff,
+ * bookkeeping (reopenJob.ts) a reload writes on its own: the done mark, a re-open waiting to resume, its backoff,
  * and the best cards (bestCards.ts), derived from the packs a save's tickets rebuild.
  */
 const NO_PROGRESS_KEYS = new Set<string>([SAVE_STAMP_KEY, DATA_VERSION_KEY, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SELECTED_SET,

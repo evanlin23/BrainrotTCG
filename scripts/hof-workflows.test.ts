@@ -630,3 +630,21 @@ fi
     });
   });
 });
+
+describe('browser-tests.yml cross-browser-smoke (#658)', () => {
+  const job = jobs(read('browser-tests.yml'))['cross-browser-smoke'].join('\n');
+  const playwright = (JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')) as {
+    packages: Record<string, { version: string }>;
+  }).packages['node_modules/@playwright/test'].version;
+
+  it('runs in the Playwright image whose tag is the installed @playwright/test, pinned by digest', () => {
+    expect(/^ {6}image: (\S+)$/m.exec(job)?.[1]).toMatch(
+      new RegExp(`^mcr\\.microsoft\\.com/playwright:v${playwright.replaceAll('.', '\\.')}-[a-z]+@sha256:[0-9a-f]{64}$`),
+    );
+  });
+
+  it('runs as the runner user and installs no browsers or system packages', () => {
+    expect(job).toMatch(/^ {6}options: --user 1001$/m);
+    expect(job).not.toMatch(/playwright install|apt-get/);
+  });
+});

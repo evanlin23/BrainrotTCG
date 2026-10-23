@@ -28,7 +28,7 @@ export interface RankKey {
   /** Packs: the Brainrot Score. Cards: the card's own points, before the combo multiplier. */
   score: number;
   /**
-   * When the pull was first verified: an ISO 8601 UTC time (receiptTime). selectBoard and rebuildBoard
+   * When the pull was first received: an ISO 8601 UTC time (receiptTime). selectBoard and rebuildBoard
    * rewrite it as receiptTime does before comparing; compareRanked compares it as a plain string, so
    * it takes receiptTime's form only.
    */

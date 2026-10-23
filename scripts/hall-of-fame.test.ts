@@ -11,9 +11,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
+import {
+  DAILY_ARCHIVE_VERSION,
+  dailyPulls,
+  decodeProof,
+  encodeProof,
+  HALL_OF_FAME_DAILY_TOP,
+  HALL_OF_FAME_TOP,
+  HALL_OF_FAME_YESTERDAY_SHOWN,
+  hallOfFameList,
+  pullId,
+  rankingsFile,
+  serializeDailyArchive,
+  signProof,
+  topPulls,
+  utf8,
+  verifyProof,
+  type ArchivedPull,
+  type RankableEntry,
+} from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
-import { build, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
+import { archivePath, build, deployedRankings, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, RANKINGS_INDEX, verifyIssue } from './hall-of-fame.ts';
 import { parseInboxSummary } from './ops-health.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
@@ -29,7 +47,10 @@ const blockedName = (() => {
 })();
 const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB' : 'AAAA');
 const idOf = (proof: string) => pullId(decodeProof(proof));
+/** The bot's marker as it was before it recorded receipts. */
 const marker = (proof: string) => `<!-- hof-verified ${idOf(proof)} -->`;
+/** The bot's marker with the pull's receipt; without one, the part every receipt follows. */
+const markerAt = (proof: string, receivedAt = '') => `<!-- hof-verified ${idOf(proof)} received ${receivedAt}${receivedAt && ' -->'}`;
 const link = (proof: string) => `https://evanlin23.github.io/BrainrotTCG/#/pull/${proof}`;
 /** Freezes the clock (only `Date`) at `time`; the shared afterEach restores it. */
 const clockAt = (time: string) => {
@@ -75,6 +96,8 @@ interface Fixture {
   published?: unknown[];
   /** The deployed hall-of-fame-withdrawn.json, or undefined for a 404. */
   withdrawn?: unknown;
+  /** The deployed rankings files (and hall-of-fame.json, in place of `published`) by path: a text, or the status the site answers with (else a 404). */
+  site?: Record<string, string | number>;
   /** Requests GitHub answers with a 500. */
   fail?: (request: Request) => boolean;
 }
@@ -103,8 +126,11 @@ const fakeGitHub = (fixture: Fixture) => {
     vi.fn(async (input: string | URL, init: RequestInit = {}) => {
       const url = String(input);
       const method = init.method ?? 'GET';
-      if (/^https:\/\/[^/]+\.github\.io\/[^/]+\/hall-of-fame\.json$/.test(url)) {
-        return fixture.published ? json(fixture.published) : json({ message: 'Not Found' }, 404);
+      const deployed = /^https:\/\/[^/]+\.github\.io\/[^/]+\/(hall-of-fame\.json|rankings\.json|rankings\/daily-\d{4}-\d{2}\.json)\?run=\d+-\d+$/.exec(url)?.[1];
+      if (deployed === 'hall-of-fame.json' && fixture.site?.[deployed] === undefined) return fixture.published ? json(fixture.published) : json({ message: 'Not Found' }, 404);
+      if (deployed) {
+        const file = fixture.site?.[deployed];
+        return typeof file === 'string' ? new Response(file) : new Response('Not Found', { status: file ?? 404 });
       }
       if (/^https:\/\/[^/]+\.github\.io\/[^/]+\/hall-of-fame-withdrawn\.json$/.test(url)) {
         return fixture.withdrawn !== undefined ? json(fixture.withdrawn) : json({ message: 'Not Found' }, 404);
@@ -184,7 +210,7 @@ let dir: string;
 const output = () => path.join(dir, 'hall-of-fame.json');
 const withdrawnFile = () => path.join(dir, 'hall-of-fame-withdrawn.json');
 const withdrawn = () => JSON.parse(readFileSync(withdrawnFile(), 'utf8')) as string[];
-const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string }[];
+const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
 beforeEach(() => {
   home = process.cwd();
   dir = mkdtempSync(path.join(os.tmpdir(), 'hall-of-fame-'));
@@ -211,7 +237,7 @@ afterEach(() => {
 describe('build (deploy workflow)', () => {
   it('keeps the existing list without a token, or starts an empty one', async () => {
     vi.stubEnv('GITHUB_TOKEN', undefined);
-    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)] });
+    const gh = fakeGitHub({ published: [], issues: [issue(1, fourOfAKind)] });
     await build(output());
     expect(readFileSync(output(), 'utf8')).toBe('[]\n');
     expect(withdrawn()).toEqual([]);
@@ -223,17 +249,27 @@ describe('build (deploy workflow)', () => {
     expect(gh.requests).toEqual([]);
   });
 
-  it('keeps the existing list when GitHub is down', async () => {
-    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], fail: () => true });
-    writeFileSync(output(), '[{"kept":true}]\n');
+  it('keeps the deployed list when GitHub is down', async () => {
+    const gh = fakeGitHub({ published: [{ deployed: true }], issues: [issue(1, fourOfAKind)], fail: () => true });
+    writeFileSync(output(), '[]\n');
     await build(output());
-    expect(readFileSync(output(), 'utf8')).toBe('[{"kept":true}]\n');
+    expect(readFileSync(output(), 'utf8')).toBe('[{"deployed":true}]');
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it('fails the deploy, writing nothing, when GitHub is down and no list is deployed, even for a new site', async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    vi.stubEnv('HOF_START_NEW_HISTORY', '2026-10-16');
+    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], fail: () => true });
+    await expect(build(output())).rejects.toThrow('Could not list Hall of Fame issues, and the deployed site has no hall-of-fame.json to keep');
+    expect(existsSync(output())).toBe(false);
     expect(gh.writes()).toEqual([]);
   });
 
   it('lists pulls the bot verified, credited from its first marker comment, and never writes to GitHub', async () => {
     const early = '2026-09-01T00:00:00Z';
     const gh = fakeGitHub({
+      published: [],
       issues: [
         issue(1, fourOfAKind),
         issue(2, pair), // real, but doesn't qualify
@@ -258,15 +294,41 @@ describe('build (deploy workflow)', () => {
     expect(gh.writes()).toEqual([]);
   });
 
+  it('credits a pull to its earliest receipt among the issues it lists, even when another was verified first', async () => {
+    // Both verified before a deploy listed either (verify-issue turns down a pull already published).
+    const gh = fakeGitHub({
+      published: [],
+      issues: [issue(1, fourOfAKind), issue(2, fourOfAKind, { login: 'bob' })],
+      comments: {
+        1: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:30:00Z'), '2026-10-01T23:31:00Z')],
+        // Verified later by a delayed run, but received first.
+        2: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:00:00Z'), '2026-10-01T23:40:00Z')],
+      },
+    });
+    await build(output());
+    expect(entries().map((e) => [e.issue, e.githubUser, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[2, 'bob', '2026-10-01T23:00:00Z', '2026-10-01T23:40:00Z', undefined]]);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it.each([
+    { marked: 'no receipt (from before receipts were recorded)', body: marker(fourOfAKind) },
+    { marked: 'a receipt after its comment', body: markerAt(fourOfAKind, '2026-10-02T00:00:01.000Z') },
+    { marked: "a receipt that isn't a time", body: `<!-- hof-verified ${idOf(fourOfAKind)} received soon -->` },
+  ])('stamps a pull whose marker has $marked with its verification, and says so', async ({ body }) => {
+    fakeGitHub({ published: [], issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, body, '2026-10-02T00:00:00Z')] } });
+    await build(output());
+    expect(entries().map((e) => [e.issue, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[1, '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z', 'verification']]);
+  });
+
   it("leaves out a verified pull whose display name isn't allowed", async () => {
-    const gh = fakeGitHub({ issues: [issue(1, blockedName)], comments: { 1: [comment(BOT, marker(blockedName), '2026-10-02T00:00:00Z')] } });
+    const gh = fakeGitHub({ published: [], issues: [issue(1, blockedName)], comments: { 1: [comment(BOT, marker(blockedName), '2026-10-02T00:00:00Z')] } });
     await build(output());
     expect(entries()).toEqual([]);
     expect(gh.writes()).toEqual([]);
   });
 
   it('reuses the result for an issue unchanged since the last deploy, and checks an edited one again', async () => {
-    const fixture: Fixture = { issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } };
+    const fixture: Fixture = { published: [], issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } };
     const gh = fakeGitHub(fixture);
     await build(output());
     expect(entries().map((e) => e.issue)).toEqual([1]);
@@ -286,6 +348,7 @@ describe('build (deploy workflow)', () => {
   it('lists `daily` issues changed since the day before, and counts each only on the day it was verified', async () => {
     const daily = { labels: ['hall-of-fame', 'daily'] };
     const gh = fakeGitHub({
+      published: [],
       issues: [
         issue(2, fourOfAKind, { ...daily, updated: '2026-10-16T09:00:00Z' }), // verified today
         issue(3, fourOfAKind, { ...daily, updated: '2026-10-16T08:00:00Z' }), // verified on the 10th, commented on today
@@ -302,7 +365,11 @@ describe('build (deploy workflow)', () => {
     await build(output());
     expect(entries().map((e) => [e.issue, e.submittedAt])).toEqual([[2, '2026-10-16T09:00:00Z']]);
     const listings = gh.requests.filter((r) => r.path === '/issues').map((r) => r.query);
-    expect(listings).toEqual(['state=all&labels=hall-of-fame,verified&per_page=100&page=1', 'state=all&labels=hall-of-fame,daily&since=2026-10-15T00:00:00Z&per_page=100&page=1', 'state=all&labels=hall-of-fame,rejected&per_page=100&page=1']);
+    expect(listings).toEqual([
+      'state=all&labels=hall-of-fame,verified&per_page=100&page=1',
+      'state=all&labels=hall-of-fame,daily&since=2026-10-15T00:00:00Z&per_page=100&page=1',
+      'state=all&labels=hall-of-fame,rejected&per_page=100&page=1',
+    ]);
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/4/comments');
 
     // Still on the board the next day (the day before is kept), and gone the day after.
@@ -318,6 +385,7 @@ describe('build (deploy workflow)', () => {
   it('publishes the pulls of rejected issues, open or closed, so the page leaves them out of pending', async () => {
     const rejected = { labels: ['hall-of-fame', 'rejected'] };
     const gh = fakeGitHub({
+      published: [],
       issues: [
         issue(1, fourOfAKind),
         issue(2, pair, rejected), // removed by hand
@@ -339,6 +407,7 @@ describe('build (deploy workflow)', () => {
   it("withdraws the pull the bot verified, not the one the author's edited body holds now", async () => {
     const rejected = { labels: ['hall-of-fame', 'rejected'] };
     fakeGitHub({
+      published: [],
       issues: [
         issue(2, pair, rejected), // verified as fourOfAKind, then edited to another pull after the rejection
         issue(3, null, rejected), // verified as fourOfAKind, then edited to hold no link
@@ -357,6 +426,7 @@ describe('build (deploy workflow)', () => {
   it('carries the deployed withdrawn list forward when a rejected issue\'s comments can\'t be read', async () => {
     writeFileSync(withdrawnFile(), '[]\n');
     fakeGitHub({
+      published: [],
       issues: [issue(2, pair, { labels: ['hall-of-fame', 'rejected'] })],
       withdrawn: [idOf(fourOfAKind)],
       fail: (r) => r.path === '/issues/2/comments',
@@ -366,7 +436,7 @@ describe('build (deploy workflow)', () => {
   });
 
   it("doesn't withdraw a pull refused for its display name, which may come back renamed", async () => {
-    fakeGitHub({ issues: [issue(4, blockedName, { labels: ['hall-of-fame', 'rejected'] })] });
+    fakeGitHub({ published: [], issues: [issue(4, blockedName, { labels: ['hall-of-fame', 'rejected'] })] });
     await build(output());
     expect(withdrawn()).toEqual([]);
   });
@@ -374,35 +444,39 @@ describe('build (deploy workflow)', () => {
   it('carries the deployed withdrawn list forward when GitHub is down, never an empty one', async () => {
     // The committed file is empty: publishing it would bring every withdrawn pull back as pending.
     writeFileSync(withdrawnFile(), '[]\n');
-    fakeGitHub({ issues: [issue(2, pair, { labels: ['hall-of-fame', 'rejected'] })], withdrawn: [idOf(pair)], fail: () => true });
+    fakeGitHub({ published: [], issues: [issue(2, pair, { labels: ['hall-of-fame', 'rejected'] })], withdrawn: [idOf(pair)], fail: () => true });
     await build(output());
     expect(withdrawn()).toEqual([idOf(pair)]);
   });
 
-  it('carries the deployed withdrawn list forward when only the rejected issues can\'t be listed', async () => {
+  it('keeps the deployed list and withdrawn list together when only the rejected issues can\'t be listed', async () => {
+    // One listing of the rejected issues serves the rankings and the withdrawn list, with one failure policy.
     writeFileSync(withdrawnFile(), '[]\n');
-    fakeGitHub({
+    const published = [{ issue: 9, deployed: true }];
+    const gh = fakeGitHub({
+      published,
       issues: [issue(1, fourOfAKind), issue(2, pair, { labels: ['hall-of-fame', 'rejected'] })],
       comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] },
       withdrawn: [idOf(pair)],
       fail: (r) => r.path === '/issues' && (r.query ?? '').includes('rejected'),
     });
     await build(output());
-    expect(entries().map((e) => e.issue)).toEqual([1]);
+    expect(readFileSync(output(), 'utf8')).toBe(JSON.stringify(published));
     expect(withdrawn()).toEqual([idOf(pair)]);
+    expect(gh.requests.filter((r) => r.path === '/issues' && (r.query ?? '').includes('rejected'))).toHaveLength(1);
   });
 
   it('publishes no withdrawn list when neither GitHub nor the deployed one can be read', async () => {
     for (const deployed of [undefined, { not: 'a list' }, [1, 2]]) {
       writeFileSync(withdrawnFile(), '[]\n');
-      fakeGitHub({ issues: [], withdrawn: deployed, fail: () => true });
+      fakeGitHub({ published: [], issues: [], withdrawn: deployed, fail: () => true });
       await build(output());
       expect(existsSync(withdrawnFile())).toBe(false);
     }
   });
 
   it('fails rather than publish part of the list when there are more issues than it may read', async () => {
-    fakeGitHub({ issues: Array.from({ length: ISSUE_PAGES * 100 }, (_, i) => issue(i + 1, null)) });
+    fakeGitHub({ published: [], issues: Array.from({ length: ISSUE_PAGES * 100 }, (_, i) => issue(i + 1, null)) });
     writeFileSync(output(), '[{"kept":true}]\n');
     await expect(build(output())).rejects.toThrow(`More than ${ISSUE_PAGES * 100} issues match`);
     expect(readFileSync(output(), 'utf8')).toBe('[{"kept":true}]\n');
@@ -434,10 +508,195 @@ describe('published list', () => {
   });
 });
 
+describe('rankings (#223)', () => {
+  /** An archived pull: issue `n` received on `day`, scored `score`. */
+  const archived = (n: number, day: string, score: number, name = `player ${n}`): ArchivedPull => ({
+    id: `other-set@1/${n}`,
+    issue: n,
+    setId: 'other-set',
+    hand: 'Full House',
+    score,
+    name,
+    submittedAt: `${day}T0${n % 10}:00:00Z`,
+  });
+  const month = (m: string, days: Record<string, ArchivedPull[]>) => serializeDailyArchive({ schemaVersion: DAILY_ARCHIVE_VERSION, month: m, days });
+  const september = month('2026-09', { '2026-09-30': [archived(40, '2026-09-30', 50_000)] });
+  // The 3rd has closed: 51 has been rejected since, and 52's display name isn't allowed. The 16th is open.
+  const october = month('2026-10', {
+    '2026-10-03': [archived(50, '2026-10-03', 30_000), archived(51, '2026-10-03', 20_000), archived(52, '2026-10-03', 10_000, 'xXfuckXx')],
+    '2026-10-16': [archived(60, '2026-10-16', 40_000)],
+  });
+  const index = (archive: string[]) => JSON.stringify(rankingsFile([], { generatedAt: '2026-10-16T11:00:00.000Z', days: ['2026-10-16', '2026-10-15'], archive }), null, 1) + '\n';
+  const deployed = { [RANKINGS_INDEX]: index(['2026-09', '2026-10']), [archivePath('2026-09')]: september, [archivePath('2026-10')]: october };
+
+  describe('reading the deployed site', () => {
+    /** The deployed site at GitHub Pages: a file's text, the status it answers, or an error the request throws (else a 404). */
+    const site = (files: Record<string, string | number | Error>) => {
+      const requested: string[] = [];
+      const get = vi.fn(async (input: string | URL) => {
+        const file = String(input)
+          .replace(/^https:\/\/[^/]+\.github\.io\/[^/]+\//, '')
+          .replace(/\?run=4242-1$/, '');
+        requested.push(file);
+        const answer = files[file];
+        if (answer instanceof Error) throw answer;
+        return typeof answer === 'string' ? new Response(answer) : new Response('Not Found', { status: answer ?? 404 });
+      });
+      return { get: get as unknown as typeof fetch, requested };
+    };
+
+    beforeEach(() => {
+      vi.stubEnv('GITHUB_RUN_ID', '4242');
+      vi.stubEnv('GITHUB_RUN_ATTEMPT', '1');
+    });
+
+    it('starts the history, and says so, when the site has a list but no rankings.json', async () => {
+      const { get, requested } = site({ 'hall-of-fame.json': '[]\n' });
+      expect(await deployedRankings(get)).toEqual({ list: '[]\n', index: null, archives: new Map() });
+      expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX]);
+      expect(console.log).toHaveBeenCalledWith('No rankings.json deployed: starting the rankings history');
+    });
+
+    it('fails on a site with no hall-of-fame.json, naming the opt-in for a new site', async () => {
+      const { get, requested } = site({});
+      await expect(deployedRankings(get)).rejects.toThrow(
+        "The deployed site has no hall-of-fame.json. For a new site, set the repository variable HOF_START_NEW_HISTORY to today's UTC date and deploy again",
+      );
+      expect(requested).toEqual(['hall-of-fame.json']);
+    });
+
+    it('reads a site with neither file as a new one when told to start a new history', async () => {
+      const { get, requested } = site({});
+      expect(await deployedRankings(get, { startNewHistory: true })).toEqual({ list: null, index: null, archives: new Map() });
+      expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX]);
+      expect(console.log).toHaveBeenCalledWith("No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks");
+    });
+
+    it("asks GitHub Pages past its CDN's cache, with the run in the query", async () => {
+      const urls: string[] = [];
+      const get = vi.fn(async (input: string | URL) => {
+        urls.push(String(input));
+        return new Response('Not Found', { status: 404 });
+      }) as unknown as typeof fetch;
+      await deployedRankings(get, { startNewHistory: true });
+      expect(urls).toEqual([
+        'https://evanlin23.github.io/BrainrotTCG/hall-of-fame.json?run=4242-1',
+        'https://evanlin23.github.io/BrainrotTCG/rankings.json?run=4242-1',
+      ]);
+    });
+
+    it('reads rankings.json and every archive it lists', async () => {
+      const { get, requested } = site({ 'hall-of-fame.json': '[]\n', ...deployed });
+      const read = await deployedRankings(get);
+      expect(read.index).toBe(deployed[RANKINGS_INDEX]);
+      expect([...read.archives].map(([m, a]) => [m, a.text, Object.keys(a.archive.days)])).toEqual([
+        ['2026-09', september, ['2026-09-30']],
+        ['2026-10', october, ['2026-10-03', '2026-10-16']],
+      ]);
+      expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX, archivePath('2026-09'), archivePath('2026-10')]);
+      expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('starting the rankings history'));
+    });
+
+    it.each([
+      ['hall-of-fame.json answering 500', { 'hall-of-fame.json': 500 }, 'The deployed hall-of-fame.json answered 500'],
+      ['hall-of-fame.json as a page', { 'hall-of-fame.json': '<!doctype html><title>Brainrot TCG</title>' }, "isn't a JSON list"],
+      ["hall-of-fame.json that isn't a list", { 'hall-of-fame.json': '{}' }, "isn't a JSON list"],
+      ['hall-of-fame.json out of reach', { 'hall-of-fame.json': new TypeError('fetch failed') }, 'fetch failed'],
+      ['rankings.json answering 503', { 'hall-of-fame.json': '[]', [RANKINGS_INDEX]: 503 }, 'The deployed rankings.json answered 503'],
+      ['rankings.json out of reach', { 'hall-of-fame.json': '[]', [RANKINGS_INDEX]: new TypeError('fetch failed') }, 'fetch failed'],
+      ['rankings.json as a page (a fallback)', { 'hall-of-fame.json': '[]', [RANKINGS_INDEX]: '<!doctype html><title>Brainrot TCG</title>' }, "The deployed rankings.json isn't JSON"],
+      ['rankings.json of another shape', { 'hall-of-fame.json': '[]', [RANKINGS_INDEX]: '{"archive":[]}' }, "The deployed rankings.json doesn't have exactly"],
+      ['a listed archive missing', { 'hall-of-fame.json': '[]', ...deployed, [archivePath('2026-09')]: 404 }, 'The deployed rankings.json lists rankings/daily-2026-09.json, which isn\'t deployed'],
+      ['a listed archive answering 500', { 'hall-of-fame.json': '[]', ...deployed, [archivePath('2026-09')]: 500 }, 'The deployed rankings/daily-2026-09.json answered 500'],
+      ['a listed archive that fails its check', { 'hall-of-fame.json': '[]', ...deployed, [archivePath('2026-10')]: october.trimEnd() }, "The daily archive for 2026-10 isn't written in its one form"],
+    ])('fails on %s', async (_, files, error) => {
+      await expect(deployedRankings(site(files).get)).rejects.toThrow(error);
+    });
+  });
+
+  describe('build', () => {
+    const rankingsDir = () => path.join(dir, 'rankings');
+    const read = (file: string) => readFileSync(path.join(dir, file), 'utf8');
+    /** Issue 1, the 4 of a Kind received today, and 51, rejected since it was archived. */
+    const github = (fixture: Partial<Fixture> = {}) =>
+      fakeGitHub({
+        issues: [issue(1, fourOfAKind), issue(51, null, { labels: ['hall-of-fame', 'rejected'] })],
+        comments: { 1: [comment(BOT, markerAt(fourOfAKind, '2026-10-16T10:00:00Z'), '2026-10-16T10:01:00Z')] },
+        published: [],
+        ...fixture,
+      });
+
+    it('starts the rankings with no rankings.json deployed', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      github();
+      await build(output());
+      const file = JSON.parse(read(RANKINGS_INDEX));
+      expect(file.archive).toEqual(['2026-10']);
+      expect(file.days.map((d: { day: string; board: { entries: ArchivedPull[] } }) => [d.day, d.board.entries.map((e) => e.issue)])).toEqual([
+        ['2026-10-16', [1]],
+        ['2026-10-15', []],
+      ]);
+      expect(read(archivePath('2026-10'))).toBe(month('2026-10', { '2026-10-16': file.days[0].board.entries }));
+      expect(readdirSync(rankingsDir())).toEqual(['daily-2026-10.json']);
+      expect(console.log).toHaveBeenCalledWith('No rankings.json deployed: starting the rankings history');
+    });
+
+    it('carries closed days forward byte for byte, less removed entries, and ranks the open days again', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      github({ site: deployed });
+      await build(output());
+      const file = JSON.parse(read(RANKINGS_INDEX));
+      expect(file.archive).toEqual(['2026-09', '2026-10']);
+      expect(read(archivePath('2026-09'))).toBe(september);
+      // The 3rd keeps its bytes less 51 and 52, with no refill; the 16th is ranked from the list (60 isn't on it).
+      expect(read(archivePath('2026-10'))).toBe(month('2026-10', { '2026-10-03': [archived(50, '2026-10-03', 30_000)], '2026-10-16': file.days[0].board.entries }));
+      expect(file.days[0].board.entries.map((e: ArchivedPull) => e.issue)).toEqual([1]);
+    });
+
+    it('keeps the deployed list and rankings unchanged when GitHub is down', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      const published = [{ issue: 1, deployed: true }];
+      github({ site: deployed, published, fail: (r) => r.path === '/issues' });
+      writeFileSync(output(), '[]\n');
+      await build(output());
+      expect(read(RANKINGS_INDEX)).toBe(deployed[RANKINGS_INDEX]);
+      expect(read(archivePath('2026-09'))).toBe(september);
+      expect(read(archivePath('2026-10'))).toBe(october);
+      expect(readFileSync(output(), 'utf8')).toBe(JSON.stringify(published));
+    });
+
+    it('builds a new site, with nothing deployed, from the issues when HOF_START_NEW_HISTORY names the day', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      vi.stubEnv('HOF_START_NEW_HISTORY', '2026-10-16');
+      github({ published: undefined });
+      await build(output());
+      expect(JSON.parse(readFileSync(output(), 'utf8')).map((e: { issue: number }) => e.issue)).toEqual([1]);
+      expect(JSON.parse(read(RANKINGS_INDEX)).archive).toEqual(['2026-10']);
+      expect(console.log).toHaveBeenCalledWith("No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks");
+    });
+
+    it.each([
+      ['the site has no hall-of-fame.json', { published: undefined }, 'set the repository variable HOF_START_NEW_HISTORY'],
+      ['the site has no hall-of-fame.json and HOF_START_NEW_HISTORY names another day', { published: undefined, startNewHistory: '2026-10-15' }, 'set the repository variable HOF_START_NEW_HISTORY'],
+      ['hall-of-fame.json answers 500', { site: { 'hall-of-fame.json': 500 } }, 'The deployed hall-of-fame.json answered 500'],
+      ['rankings.json is deployed but an archive it lists is not', { site: { [RANKINGS_INDEX]: deployed[RANKINGS_INDEX], [archivePath('2026-10')]: october } }, "which isn't deployed"],
+      ['rankings.json answers with a page', { site: { [RANKINGS_INDEX]: '<!doctype html><title>Brainrot TCG</title>' } }, "The deployed rankings.json isn't JSON"],
+    ])('fails the deploy, writing nothing, when %s', async (_, { startNewHistory, ...fixture }: Partial<Fixture> & { startNewHistory?: string }, error) => {
+      clockAt('2026-10-16T12:00:00Z');
+      if (startNewHistory) vi.stubEnv('HOF_START_NEW_HISTORY', startNewHistory);
+      const gh = github(fixture);
+      await expect(build(output())).rejects.toThrow(error);
+      expect(readdirSync(dir)).toEqual([]);
+      expect(gh.requests).toEqual([]);
+    });
+  });
+});
+
 describe('verify-issue (issue workflow)', () => {
-  const run = async (body: string, labels = ['hall-of-fame']) => {
+  /** An `action` event on issue 7 with `body`, stamped (opened, or last updated) at `at` (the clock now). */
+  const run = async (body: string, labels = ['hall-of-fame'], action = 'opened', at = new Date().toISOString()) => {
     rmSync('github-output', { force: true });
-    writeFileSync('event.json', JSON.stringify({ issue: { ...issue(7, null, { labels }), body } }));
+    writeFileSync('event.json', JSON.stringify({ action, issue: { ...issue(7, null, { labels }), body, ...(action === 'opened' ? { created_at: at } : {}), updated_at: at } }));
     await verifyIssue();
     return { comment: readFileSync('hof-comment.md', 'utf8'), outputs: outputs() };
   };
@@ -447,7 +706,7 @@ describe('verify-issue (issue workflow)', () => {
     const result = await run(`My pull: ${link(fourOfAKind)}`);
     expect(result.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
     expect(result.comment).toContain('**Verified!**');
-    expect(result.comment).toContain(marker(fourOfAKind));
+    expect(result.comment).toContain(markerAt(fourOfAKind));
     expect(gh.writes()).toEqual([]);
   });
 
@@ -456,7 +715,7 @@ describe('verify-issue (issue workflow)', () => {
     const board = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1) });
     const joined = await run(link(fourOfAKind));
     expect(joined.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
-    expect(joined.comment).toContain(marker(fourOfAKind));
+    expect(joined.comment).toContain(markerAt(fourOfAKind, '2026-10-16T12:00:00.000Z'));
     // A full day yesterday leaves today open.
     fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-15', HALL_OF_FAME_DAILY_TOP) });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
@@ -493,11 +752,81 @@ describe('verify-issue (issue workflow)', () => {
     // Nor does a GitHub error: the pull goes ahead.
     const down = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published, fail: (r) => r.path === '/issues' });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
-    // A pull that joins the all-time list isn't checked.
+    // A pull that joins the all-time list isn't checked (only the duplicate lookup lists issues).
     const allTime = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published: [] });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
-    expect(allTime.requests.some((r) => r.path === '/issues')).toBe(false);
+    expect(allTime.requests.filter((r) => r.path === '/issues').map((r) => r.query)).toEqual([expect.stringMatching(/^state=all&labels=hall-of-fame&since=/)]);
     expect([again, own, renamed, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
+  });
+
+  it("records an edit as the receipt of the pull it adds, not the issue's creation", async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    fakeGitHub({ issues: [], published: [] });
+    // Issue 7 was opened on 2026-10-01 as a placeholder.
+    const edited = await run(link(fourOfAKind), ['hall-of-fame'], 'edited', '2026-10-16T11:58:00Z');
+    expect(edited.outputs.verified).toBe('true');
+    expect(edited.comment).toContain(markerAt(fourOfAKind, '2026-10-16T11:58:00Z'));
+  });
+
+  it("puts a pull a late run verifies after midnight on the day it was received, only as high as yesterday's best shows", async () => {
+    // The 16th's top has `n` pulls above the 4 of a Kind; today's is full.
+    const published = (n: number) => [
+      ...dailyOnlyBoard('2026-10-16', n),
+      ...dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP)
+        .slice(HALL_OF_FAME_TOP + 1)
+        .map((e) => ({ ...e, id: `next-${e.id}` })),
+    ];
+    clockAt('2026-10-17T00:00:30Z');
+    const third = fakeGitHub({ issues: [], published: published(HALL_OF_FAME_YESTERDAY_SHOWN - 1) });
+    const late = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+    expect(late.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
+    expect(late.comment).toContain(`It will appear in the Hall of Fame, at #${HALL_OF_FAME_YESTERDAY_SHOWN} of 2026-10-16's top (UTC), among yesterday's best, after the next deploy`);
+    expect(late.comment).toContain(markerAt(fourOfAKind, '2026-10-16T23:59:40Z'));
+
+    // One place lower (or 10th) it wouldn't show, so it's turned down, unlisted.
+    for (const n of [HALL_OF_FAME_YESTERDAY_SHOWN, 9]) {
+      fakeGitHub({ issues: [], published: published(n) });
+      const lower = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+      expect(lower.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+      expect(lower.comment).toContain("received on 2026-10-16 (UTC), and that day's board closed before it was verified");
+      expect(lower.comment).toContain(`top ${HALL_OF_FAME_YESTERDAY_SHOWN} or the top ${HALL_OF_FAME_TOP}. It can be submitted again for today's board.`);
+      expect(lower.comment).not.toContain('hof-verified');
+    }
+
+    // It joins the all-time list when there's room, and the comment says where.
+    const open = fakeGitHub({ issues: [], published: [] });
+    const allTime = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+    expect(allTime.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
+    expect(allTime.comment).toContain(`It will appear in the Hall of Fame, at #1 of the top ${HALL_OF_FAME_TOP}, after the next deploy`);
+
+    // A day later the 16th's top is gone, so only the all-time list could take it.
+    clockAt('2026-10-18T00:10:00Z');
+    const gone = fakeGitHub({ issues: [], published: published(HALL_OF_FAME_DAILY_TOP - 1) });
+    const later = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:55:00Z');
+    expect(later.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+    expect(later.comment).toContain('received on an earlier UTC day whose top is no longer kept');
+    expect(later.comment).toContain(`Brainrot Score above 100,000 to make the top ${HALL_OF_FAME_TOP}`);
+    expect(later.comment).not.toContain('hof-verified');
+    expect([third, open, gone].flatMap((gh) => gh.writes())).toEqual([]);
+  });
+
+  it("accepts a pull turned down after its day closed when it's submitted again for today", async () => {
+    // Received 20 seconds before midnight, verified 30 seconds after: 10th on a day that has closed.
+    clockAt('2026-10-17T00:00:30Z');
+    const published = dailyOnlyBoard('2026-10-16', 9);
+    fakeGitHub({ issues: [], published });
+    const refused = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+    expect(refused.outputs.verified).toBe('false');
+
+    // Edited back in a few minutes later (today's receipt), with the refusal left on the issue.
+    clockAt('2026-10-17T00:05:00Z');
+    const turnedDown = issue(7, fourOfAKind, { labels: ['hall-of-fame', 'not-verified'], updated: '2026-10-17T00:05:00Z' });
+    const gh = fakeGitHub({ issues: [turnedDown], published, comments: { 7: [comment(BOT, refused.comment, '2026-10-17T00:00:31Z')] } });
+    const again = await run(link(fourOfAKind), ['hall-of-fame', 'not-verified'], 'edited', '2026-10-17T00:05:00Z');
+    expect(again.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
+    expect(again.comment).toContain(markerAt(fourOfAKind, '2026-10-17T00:05:00Z'));
+    expect(again.comment).not.toContain('already in the Hall of Fame');
+    expect(gh.writes()).toEqual([]);
   });
 
   it("turns down a real pull whose display name isn't allowed, and asks for the rejected label", async () => {
@@ -519,6 +848,8 @@ describe('verify-issue (issue workflow)', () => {
   });
 
   it('recovers from interrupted labeling: restores missing labels without duplicate comments and redeploys (#650)', async () => {
+    // Opened a minute before the bot's comment below.
+    clockAt('2026-10-02T09:59:00Z');
     // 1. Initial run: fresh submission with fourOfAKind
     const fakeIssue = issue(7, fourOfAKind, { labels: ['hall-of-fame'] });
     const gh = fakeGitHub({ issues: [fakeIssue], comments: {}, published: [] });
@@ -527,7 +858,7 @@ describe('verify-issue (issue workflow)', () => {
     let result = await run(link(fourOfAKind), ['hall-of-fame']);
     expect(result.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
     expect(result.comment).toContain('**Verified!**');
-    expect(result.comment).toContain(marker(fourOfAKind));
+    expect(result.comment).toContain(markerAt(fourOfAKind, '2026-10-02T09:59:00.000Z'));
 
     // Simulate workflow shell execution:
     // Comment succeeds: bot adds comment to GitHub
@@ -564,8 +895,11 @@ describe('verify-issue (issue workflow)', () => {
     expect(entries()[0]).toMatchObject({
       id: idOf(fourOfAKind),
       proof: fourOfAKind,
-      submittedAt: '2026-10-02T10:00:00Z', // original comment timestamp preserved!
+      // The first receipt its marker recorded, and the first verification: both preserved.
+      submittedAt: '2026-10-02T09:59:00.000Z',
+      verifiedAt: '2026-10-02T10:00:00Z',
     });
+    expect(entries()[0]).not.toHaveProperty('receipt');
 
     // Step 4: Subsequent retry on the completed issue changes nothing
     const completedResult = await run(link(fourOfAKind), ['hall-of-fame', 'verified']);
@@ -757,6 +1091,21 @@ describe('verify-issue (issue workflow)', () => {
       expect((await runAs('opened', 7)).outputs).toEqual(DUPLICATE(5));
     });
 
+    it("closes one received yesterday as a duplicate before yesterday's closed board judges it", async () => {
+      const yesterday = '2026-10-15T23:59:50Z';
+      // Published: the closed-day rule alone would turn it down as already listed.
+      const published = await listing();
+      fakeGitHub({ issues: [old(3)], comments: { 3: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] }, published: published(3) });
+      const listed = await runAs('opened', 7, { created: yesterday });
+      expect(listed.outputs).toEqual(DUPLICATE(3));
+      expect(listed.comment).toContain('\n\nDuplicate of #3\n');
+      // Not deployed yet: the closed-day rule alone would place it on the top pulls.
+      fakeGitHub({ issues: [recent(5)], comments: { 5: [comment(BOT, marker(fourOfAKind), '2026-10-15T23:00:00Z')] }, published: [] });
+      const unlisted = await runAs('opened', 7, { created: yesterday });
+      expect(unlisted.outputs).toEqual(DUPLICATE(5));
+      expect(unlisted.comment).not.toContain('hof-verified');
+    });
+
     it("leaves open an issue received before the other issue's verification: of two at the same moment, neither closes", async () => {
       // #10 and #11 opened at the same second, each run finishing after the other had verified.
       const both = '2026-10-16T11:59:00Z';
@@ -860,7 +1209,8 @@ describe('inbox (scheduled workflow)', () => {
     const [opened, marked, labelled, closed] = gh.requests.filter((r) => r.method !== 'GET');
     expect(opened.body).toMatchObject({ labels: ['hall-of-fame'], title: '[Hall of Fame] 4 of a Kind by Combo Miner' });
     expect(opened.body!.body).toContain(`#/pull/${fourOfAKind}`);
-    expect(marked.body!.body).toContain(marker(fourOfAKind));
+    // The receipt is the issue the fake GitHub stamped with the clock.
+    expect(marked.body!.body).toContain(markerAt(fourOfAKind, '2026-10-16T12:00:00.000Z'));
     expect(labelled.body).toEqual({ labels: ['verified'] });
     expect(closed.body).toEqual({ state: 'closed', state_reason: 'completed' });
     expect(outputs()).toEqual({ added: '1' });
@@ -1361,28 +1711,50 @@ describe('retention and intake contracts (offline)', () => {
   });
 
   describe("an issue a stopped run left unlabelled on the 16th, finished on the 17th", () => {
-    // The 16th's top has one place left and the 17th's is full: the entry is stamped the 16th, so it joins there.
-    const stamped = '2026-10-16T23:00:00Z';
-    const unfinishedRun = () => {
+    // The entry is stamped the 16th, a closed day by the 17th, so it joins the 16th's top only as high as
+    // the page shows it (HALL_OF_FAME_YESTERDAY_SHOWN); the 17th's top is full.
+    const stamped = '2026-10-16T23:59:50Z';
+    const unfinishedRun = (ahead: number, created = stamped) => {
       clockAt('2026-10-17T12:00:00Z');
       const seventeenth = dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP).filter((e) => e.id.startsWith('today-')).map((e) => ({ ...e, id: `17-${e.id}` }));
-      const left = { ...issue(5, fourOfAKind, { labels: ['hall-of-fame'], login: BOT, updated: stamped }), created_at: stamped };
-      return fakeGitHub({ issues: [left], published: [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1), ...seventeenth] });
+      const left = { ...issue(5, fourOfAKind, { labels: ['hall-of-fame'], login: BOT, updated: created }), created_at: created };
+      return fakeGitHub({ issues: [left], published: [...dailyOnlyBoard(created.slice(0, 10), ahead), ...seventeenth] });
     };
     const FINISHED = ['POST /issues/5/comments', 'POST /issues/5/labels', 'PATCH /issues/5'];
+    const relaysHoldIt = () => vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
 
-    it("is judged and labelled by the 16th's top", async () => {
-      const gh = unfinishedRun();
-      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
+    it("is judged and labelled by the 16th's top, and the comment names its place", async () => {
+      const gh = unfinishedRun(HALL_OF_FAME_YESTERDAY_SHOWN - 1);
+      relaysHoldIt();
       await inbox();
       expect(gh.writes()).toEqual(FINISHED);
       expect(gh.requests.find((r) => r.path === '/issues/5/labels')!.body).toEqual({ labels: ['daily'] });
+      expect(gh.requests.find((r) => r.method === 'POST' && r.path === '/issues/5/comments')!.body!.body).toContain(
+        `It will appear in the Hall of Fame, at #${HALL_OF_FAME_YESTERDAY_SHOWN} of 2026-10-16's top (UTC), among yesterday's best, after the next deploy`,
+      );
       expect(outputs()).toEqual({ added: '1' });
+    });
+
+    it("isn't filed below the places the page shows for the 16th", async () => {
+      // It would be the 16th's 50th: listed, but on no board anyone sees.
+      const gh = unfinishedRun(HALL_OF_FAME_DAILY_TOP - 1);
+      relaysHoldIt();
+      await inbox();
+      expect(gh.writes()).toEqual([]);
+      expect(outputs()).toEqual({ added: '0' });
+    });
+
+    it("isn't judged by an earlier day's top, which is no longer published", async () => {
+      const gh = unfinishedRun(0, '2026-10-15T23:59:50Z');
+      relaysHoldIt();
+      await inbox();
+      expect(gh.writes()).toEqual([]);
+      expect(outputs()).toEqual({ added: '0' });
     });
 
     it("isn't turned away by today's floor", async () => {
       // Today's floor is the 17th's 50th (20,000); the claim of 15,000 is at or below it.
-      const gh = unfinishedRun();
+      const gh = unfinishedRun(HALL_OF_FAME_YESTERDAY_SHOWN - 1);
       const event = hinted(fourOfAKind, 15_000, SENT);
       vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
       await inbox();
@@ -1392,7 +1764,7 @@ describe('retention and intake contracts (offline)', () => {
     });
   });
 
-  it('keeps only the published list and the run caches, and never writes to public/', async () => {
+  it('keeps only the published list, the rankings and the run caches, and never writes to public/', async () => {
     const tracked = path.join(home, 'public', 'hall-of-fame.json');
     const before = existsSync(tracked) ? readFileSync(tracked, 'utf8') : null;
     const gh = fakeGitHub({
@@ -1406,12 +1778,12 @@ describe('retention and intake contracts (offline)', () => {
     expect(list.map((e) => e.issue)).toEqual([1]);
     // Next to it, the pulls of rejected issues, which the page leaves out of pending.
     expect(JSON.parse(readFileSync('hall-of-fame-withdrawn.json', 'utf8'))).toEqual([idOf(fourOfAKind)]);
-    expect(readdirSync(dir).sort()).toEqual(['hall-of-fame-withdrawn.json', 'hall-of-fame.json', 'hof-build-cache.json']);
+    expect(readdirSync(dir).sort()).toEqual(['hall-of-fame-withdrawn.json', 'hall-of-fame.json', 'hof-build-cache.json', 'rankings.json']);
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
     // The run's counts-only summary (#715) is the one other file it leaves.
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame-withdrawn.json', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json', 'hof-inbox-summary.json']);
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame-withdrawn.json', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json', 'hof-inbox-summary.json', 'rankings.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });

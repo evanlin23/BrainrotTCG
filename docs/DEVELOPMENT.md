@@ -96,13 +96,20 @@ Examples from merged fixes:
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
 
-CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
-deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
-to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
-deploying main. CI uploads files only from failed runs, kept for 7 days. A nightly workflow, not
-part of PR CI, runs the unit suite in shuffled order twice (see Shuffled and repeat runs).
-A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
-make a failing check pass.
+CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python
+verifier, the browser smoke, actionlint and the deploy contract test (`python3
+scripts/deploy_contract_test.py`) on every pull request and on pushes to branches other than main.
+In `ci.yml`, `npm run check` runs as four parallel stage jobs, each with its own result and time:
+`lint-and-types` (lint, import boundaries, both typechecks), `unit-tests` (`npm test` with coverage,
+then the escaped-defect replay), `content-checks` (set locks, card assets, old vectors and locks)
+and `build-and-site` (both builds and site checks). The required `check` job is their gate: it runs
+even after a failure or cancellation and passes only when all four succeeded.
+`scripts/ci-stages.test.ts` fails if a stage drops or changes a part of `npm run check`, or a job is
+left out of the gate. Locally, `npm run check` stays the one command. The deploy workflow runs the
+verifier and `npm run check` again before deploying main. CI uploads files only from failed runs,
+kept for 7 days. A nightly workflow, not part of PR CI, runs the unit suite in shuffled order twice
+(see Shuffled and repeat runs). A skipped or unrun check isn't a pass; list it in the PR. Never
+regenerate vectors or set locks to make a failing check pass.
 
 Rough wall times: `npm run check` about 2 min, a cold `npm run build` about 2 min, and one browser spec
 file about 3 min including its build. Give these commands a 5-minute timeout or run them in the background.
@@ -140,6 +147,12 @@ UI. The check reads every `src/` and `scripts/` file with TypeScript's import sc
 `import type`, `export ... from` (a barrel is checked as the file it is), `import()` and tsconfig
 `paths` aliases count. Test files (`*.test.*`, `src/test/`, `tests/`) may cross layers, but
 production code can't import them. A new directory under `src/` fails until it is added to the map.
+
+Within a layer, `FILE_ORDER` in the same file lists chains of files that build on each other in one
+direction: a file may import the files before it in its chain, never one after it. The one chain is
+the own-profile code in `src/game` (#699): `myTickets.ts` (the ticket list), then `packCache.ts`
+(reading saved packs), `reopenJob.ts` (re-opening) and `profiles.ts` (proofs and stats). Every path
+in a chain must name a source file, so renaming one fails the check until the chain is updated.
 
 UI packages (`react`, `react-dom`, `framer-motion`, `lucide-react`, `canvas-confetti`) are allowed only
 in `hooks`, `components`, `app` and `scripts` (scripts never import UI code anyway); `engine` allows a
@@ -244,6 +257,31 @@ stronger, and is done by hand against the preview and described in the PR.
 Browser tests have no retries, so a test that fails once fails CI: fix its cause rather than re-running.
 Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
 close-up sets `data-tilt="live"` once it follows the mouse.
+
+### Cross-browser smoke (Firefox and WebKit)
+
+`npm run test:browser:compat` runs the journeys tagged `@cross-browser` on desktop Firefox and WebKit with
+iPhone 13 touch emulation (`playwright.compat.config.ts`); the rest of `tests/browser` stays on Chromium. The tags
+sit on three existing tests, so these run in the Chromium suite and its burn-in too:
+
+- `pack-opener.smoke.spec.ts`: one real pack (Worker and WASM ticket, cards and images, summary) and its exact
+  stats, collection and history after a reload (localStorage and IndexedDB).
+- `card-share.spec.ts`: a card's share sheet from My pulls, with the clipboard stubbed.
+- `share-fallbacks.spec.ts`: a pack's share sheet, its stubbed copies, and the copied link opened in a fresh tab.
+
+Add `{ tag: '@cross-browser' }` to a test to include it, and keep the set small: it is a smoke, not a second
+suite. Every test uses the same network guard as the Chromium suite (no outside HTTP or WebSockets, a disposable
+identity, nothing published, exported or shared natively). The reporter prints each project's engine, version and
+passed, failed, skipped and flaky counts, and adds them to the CI job summary. Install the browsers once with
+`npx playwright install --with-deps firefox webkit`. CI runs the `cross-browser-smoke` job in Playwright's official image
+(`mcr.microsoft.com/playwright`, tag equal to the `@playwright/test` version and pinned by digest), which already holds both
+browsers and their libraries, so it installs nothing; when you bump Playwright, bump the tag and digest with it
+(`scripts/hof-workflows.test.ts` fails until the tag matches).
+
+The job isn't part of `browser-tests` and isn't required; making it required is a separate decision once its
+runs are stable. A failure that shows a real app bug in one engine is reported as one, not worked around in
+the test. This is Playwright's Linux WebKit with touch emulation: it is not iOS Safari, a physical phone or
+the native share sheet, and says nothing about them.
 
 ### Automated axe checks
 
@@ -425,12 +463,12 @@ non-zero for both. The quality review shows the file as its `defect-replay` sign
 
 CI runs it on every pull request that changes the gate itself: `vite.config.ts`, `src/test/`, this
 script and its test, or a file a case owns or reverts (`GATE_PATHS` in the script). The step is in
-the required `check` job and diffs the merge commit against its base, so a `fail` or `blocked`
-replay turns that check red and blocks the merge until it is fixed or the case is updated to the
-moved code. Other pull requests skip it with one line. Each quality review runs it as a slice item
-(above). `scripts/defect-replay.test.ts` fails in the normal checks when a reversion no longer
-applies, and pins the CI step. The case stays a gate: it is never made report-only because it
-catches its defect.
+the `unit-tests` stage, which the required `check` gate needs, and diffs the merge commit against
+its base, so a `fail` or `blocked` replay turns that check red and blocks the merge until it is
+fixed or the case is updated to the moved code. Other pull requests skip it with one line. Each
+quality review runs it as a slice item (above). `scripts/defect-replay.test.ts` fails in the normal
+checks when a reversion no longer applies, and pins the CI step. The case stays a gate: it is never
+made report-only because it catches its defect.
 
 Findings and limits:
 - #741, the browser monitor missing a redirect between two local origins, isn't replayed because
