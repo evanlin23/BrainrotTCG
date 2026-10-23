@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
+import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, HALL_OF_FAME_YESTERDAY_SHOWN, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
 import { build, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 import { parseInboxSummary } from './ops-health.ts';
@@ -249,18 +249,18 @@ describe('build (deploy workflow)', () => {
     expect(gh.writes()).toEqual([]);
   });
 
-  it('credits a pull to its earliest receipt, even when another issue verified it first', async () => {
+  it('credits a pull to its earliest receipt among the issues it lists, even when another was verified first', async () => {
+    // Both verified before a deploy listed either (verify-issue turns down a pull already published).
     const gh = fakeGitHub({
       issues: [issue(1, fourOfAKind), issue(2, fourOfAKind, { login: 'bob' })],
       comments: {
-        // Verified first, by a marker from before receipts were recorded.
-        1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')],
-        // Verified a day later by a delayed run, but received before issue 1 was verified.
-        2: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:00:00.000Z'), '2026-10-03T00:00:00Z')],
+        1: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:30:00Z'), '2026-10-01T23:31:00Z')],
+        // Verified later by a delayed run, but received first.
+        2: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:00:00Z'), '2026-10-01T23:40:00Z')],
       },
     });
     await build(output());
-    expect(entries().map((e) => [e.issue, e.githubUser, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[2, 'bob', '2026-10-01T23:00:00.000Z', '2026-10-03T00:00:00Z', undefined]]);
+    expect(entries().map((e) => [e.issue, e.githubUser, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[2, 'bob', '2026-10-01T23:00:00Z', '2026-10-01T23:40:00Z', undefined]]);
     expect(gh.writes()).toEqual([]);
   });
 
@@ -440,31 +440,65 @@ describe('verify-issue (issue workflow)', () => {
     expect(edited.comment).toContain(markerAt(fourOfAKind, '2026-10-16T11:58:00Z'));
   });
 
-  it("puts a pull a late run verifies after midnight on the day it was received, while that day's top is kept", async () => {
-    // Yesterday's top has room; today's is full.
-    const published = [
-      ...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1),
+  it("puts a pull a late run verifies after midnight on the day it was received, only as high as yesterday's best shows", async () => {
+    // The 16th's top has `n` pulls above the 4 of a Kind; today's is full.
+    const published = (n: number) => [
+      ...dailyOnlyBoard('2026-10-16', n),
       ...dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP)
         .slice(HALL_OF_FAME_TOP + 1)
         .map((e) => ({ ...e, id: `next-${e.id}` })),
     ];
-    const gh = fakeGitHub({ issues: [], published });
-    clockAt('2026-10-17T00:10:00Z');
-    const late = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:55:00Z');
+    clockAt('2026-10-17T00:00:30Z');
+    const third = fakeGitHub({ issues: [], published: published(HALL_OF_FAME_YESTERDAY_SHOWN - 1) });
+    const late = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
     expect(late.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
-    expect(late.comment).toContain(markerAt(fourOfAKind, '2026-10-16T23:55:00Z'));
+    expect(late.comment).toContain(`It will appear in the Hall of Fame, at #${HALL_OF_FAME_YESTERDAY_SHOWN} of 2026-10-16's top (UTC), among yesterday's best, after the next deploy`);
+    expect(late.comment).toContain(markerAt(fourOfAKind, '2026-10-16T23:59:40Z'));
+
+    // One place lower (or 10th) it wouldn't show, so it's turned down, unlisted.
+    for (const n of [HALL_OF_FAME_YESTERDAY_SHOWN, 9]) {
+      fakeGitHub({ issues: [], published: published(n) });
+      const lower = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+      expect(lower.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+      expect(lower.comment).toContain("received on 2026-10-16 (UTC), and that day's board closed before it was verified");
+      expect(lower.comment).toContain(`top ${HALL_OF_FAME_YESTERDAY_SHOWN} or the top ${HALL_OF_FAME_TOP}. It can be submitted again for today's board.`);
+      expect(lower.comment).not.toContain('hof-verified');
+    }
+
+    // It joins the all-time list when there's room, and the comment says where.
+    const open = fakeGitHub({ issues: [], published: [] });
+    const allTime = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+    expect(allTime.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
+    expect(allTime.comment).toContain(`It will appear in the Hall of Fame, at #1 of the top ${HALL_OF_FAME_TOP}, after the next deploy`);
 
     // A day later the 16th's top is gone, so only the all-time list could take it.
     clockAt('2026-10-18T00:10:00Z');
+    const gone = fakeGitHub({ issues: [], published: published(HALL_OF_FAME_DAILY_TOP - 1) });
     const later = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:55:00Z');
     expect(later.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
     expect(later.comment).toContain('received on an earlier UTC day whose top is no longer kept');
     expect(later.comment).toContain(`Brainrot Score above 100,000 to make the top ${HALL_OF_FAME_TOP}`);
     expect(later.comment).not.toContain('hof-verified');
-    // It still joins the all-time list when there's room.
-    const open = fakeGitHub({ issues: [], published: [] });
-    expect((await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:55:00Z')).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
-    expect([...gh.writes(), ...open.writes()]).toEqual([]);
+    expect([third, open, gone].flatMap((gh) => gh.writes())).toEqual([]);
+  });
+
+  it("accepts a pull turned down after its day closed when it's submitted again for today", async () => {
+    // Received 20 seconds before midnight, verified 30 seconds after: 10th on a day that has closed.
+    clockAt('2026-10-17T00:00:30Z');
+    const published = dailyOnlyBoard('2026-10-16', 9);
+    fakeGitHub({ issues: [], published });
+    const refused = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+    expect(refused.outputs.verified).toBe('false');
+
+    // Edited back in a few minutes later (today's receipt), with the refusal left on the issue.
+    clockAt('2026-10-17T00:05:00Z');
+    const turnedDown = issue(7, fourOfAKind, { labels: ['hall-of-fame', 'not-verified'], updated: '2026-10-17T00:05:00Z' });
+    const gh = fakeGitHub({ issues: [turnedDown], published, comments: { 7: [comment(BOT, refused.comment, '2026-10-17T00:00:31Z')] } });
+    const again = await run(link(fourOfAKind), ['hall-of-fame', 'not-verified'], 'edited', '2026-10-17T00:05:00Z');
+    expect(again.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
+    expect(again.comment).toContain(markerAt(fourOfAKind, '2026-10-17T00:05:00Z'));
+    expect(again.comment).not.toContain('already in the Hall of Fame');
+    expect(gh.writes()).toEqual([]);
   });
 
   it("turns down a real pull whose display name isn't allowed, and asks for the rejected label", async () => {

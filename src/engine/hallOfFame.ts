@@ -20,6 +20,11 @@ export const qualifiesForHallOfFame = (score: PackScore): boolean =>
 export const HALL_OF_FAME_TOP = 100;
 /** The best pulls of one UTC day ("Today" in Rankings), on top of the all-time list. */
 export const HALL_OF_FAME_DAILY_TOP = 50;
+/**
+ * How many of yesterday's best the Hall of Fame page shows (while nothing has been filed today). A
+ * pull received yesterday but verified today joins that day's top only this high (scripts/hall-of-fame.ts).
+ */
+export const HALL_OF_FAME_YESTERDAY_SHOWN = 3;
 /** The most the published list can hold: the all-time top plus two days' daily tops. */
 export const HALL_OF_FAME_MAX_ENTRIES = HALL_OF_FAME_TOP + 2 * HALL_OF_FAME_DAILY_TOP;
 
@@ -89,7 +94,7 @@ export const hallOfFameList = <T extends RankableEntry>(entries: readonly T[], d
 };
 
 /**
- * Why a pull verified now would join the list, or null if it wouldn't. It has to qualify and not be
+ * Why a pull would join the list as it stands, or null if it wouldn't. It has to qualify and not be
  * listed already. 'all-time': it beats the lowest of the top pulls (or there's room). 'daily': it
  * misses that but makes the top of `day` (UTC, YYYY-MM-DD): there's room, or it beats the lowest (a
  * tie goes to the earlier one). Without a day, only the all-time list counts.
@@ -107,12 +112,12 @@ export const hallOfFameJoin = (
   return today.length < HALL_OF_FAME_DAILY_TOP || pull.score.score > today[today.length - 1].score ? 'daily' : null;
 };
 
-/** Whether a pull verified now would join the list, on the all-time list or `day`'s top (see `hallOfFameJoin`). */
+/** Whether a pull would join the list as it stands, on the all-time list or `day`'s top (see `hallOfFameJoin`). */
 export const wouldJoinHallOfFame = (pull: { id: string; setId: string; score: PackScore }, list: readonly RankableEntry[], day?: string): boolean =>
   hallOfFameJoin(pull, list, day) !== null;
 
 /**
- * Where a pull verified at `now` (ISO time) would place on `now`'s daily top (1 is the best), or null
+ * Where a pull received at `now` (ISO time) would place on `now`'s daily top (1 is the best), or null
  * if it wouldn't make it or is listed already. A tie goes to the earlier entry, so it ranks below
  * pulls with the same score.
  */
@@ -123,7 +128,7 @@ export const dailyRank = (pull: { id: string; setId: string; score: PackScore },
   return at < 0 ? null : at + 1;
 };
 
-/** Where a pull verified at `now` would place on the all-time list, or null (see `dailyRank`). */
+/** Where a pull received at `now` would place on the all-time list, or null (see `dailyRank`). */
 export const allTimeRank = (pull: { id: string; setId: string; score: PackScore }, list: readonly RankableEntry[], now: string): number | null => {
   if (list.some((e) => e.id === pull.id)) return null;
   const entry: RankableEntry = { id: pull.id, setId: pull.setId, hand: pull.score.hand.name, multiplier: pull.score.hand.multiplier, score: pull.score.score, submittedAt: now };
@@ -132,7 +137,7 @@ export const allTimeRank = (pull: { id: string; setId: string; score: PackScore 
 };
 
 /**
- * The score a pull must beat to join the list on `day` (see `hallOfFameJoin`), or null while either
+ * The score a pull received on `day` must beat to join the list (see `hallOfFameJoin`), or null while either
  * board has room and any qualifying pull joins. Intake uses it to turn low pulls away before paying
  * for their Argon2id derivation. It only rises as pulls join, except when moderation takes an entry
  * down. Without a day, only the all-time list counts.

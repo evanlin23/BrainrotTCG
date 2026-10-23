@@ -299,8 +299,12 @@ body that carried that exact pull, which the bot records in the marker of its fi
 (`<!-- hof-verified ID received TIME -->`). An opened issue's receipt is its creation; an edit's is
 the edit, so a placeholder issue edited later can't claim an earlier spot; the inbox's is its own
 issue's creation. A late run, even one after UTC midnight, keeps the pull on the day it was received
-while that day's top is still published (today's or yesterday's); a pull received earlier can only
-join the top 100. The earliest receipt across issues keeps the credit. Entries also carry `verifiedAt`,
+while that day's top is still published. A pull received yesterday joins that day's top only if it
+places within the top 3 the page shows as yesterday's best (`HALL_OF_FAME_YESTERDAY_SHOWN`), and its
+comment names the place; otherwise it's turned down unlisted, so it can be submitted again for
+today. A pull received earlier can only join the top 100. Among the issues a deploy lists with the
+same pull, the earliest receipt keeps the credit; intake turns down a pull that's already published,
+so a copy received later but published first keeps it. Entries also carry `verifiedAt`,
 the marker comment's time. Markers from before receipts were recorded (or with a receipt that isn't a
 time no later than their comment) carry none: those entries use `verifiedAt` as `submittedAt` and say
 so with `receipt: "verification"`. Each pull

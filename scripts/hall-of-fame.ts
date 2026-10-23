@@ -55,8 +55,12 @@
  * for that exact pull records (`receiptOf`). An edit's receipt is the edit, not
  * the issue's creation, so a placeholder issue opened early and edited later
  * can't claim an earlier spot, and a run that starts late (or after midnight)
- * doesn't move the pull later. Markers from before receipts were recorded carry
- * none; those entries keep their verification time and say so (`receipt`).
+ * doesn't move the pull later; one received yesterday but verified today joins
+ * that day's top only as high as the page shows it (`closedDayJoin`). Markers
+ * from before receipts were recorded carry none; those entries keep their
+ * verification time and say so (`receipt`). Of the issues `build` lists with
+ * the same pull, the earliest receipt keeps the credit. verify-issue turns down
+ * a pull already published, so a copy received later but listed first keeps it.
  *
  * Security: issue bodies are untrusted input. They are only ever parsed here,
  * never interpolated into a shell command, and echoed only through safe().
@@ -70,7 +74,10 @@ import {
   HALL_OF_FAME_DAILY_TOP,
   HALL_OF_FAME_MIN_SCORE,
   HALL_OF_FAME_TOP,
+  HALL_OF_FAME_YESTERDAY_SHOWN,
   hallOfFameFloor,
+  allTimeRank,
+  dailyRank,
   hallOfFameJoin,
   hallOfFameList,
   isNameAllowed,
@@ -266,9 +273,9 @@ const latestBotComment = async (issue: number, token: string): Promise<Comment |
 
 const FOOTER = '\n\n---\n_Verified automatically by re-deriving the pack from its proof (`scripts/hall-of-fame.ts`)._';
 
-/** The bot's comment on a verified pull; its marker is what `build` looks for. */
-const verifiedComment = (entry: HallOfFameEntry, pull: VerifiedPull, receivedAt: string) =>
-  `✅ **Verified!** ${safe(entry.name)} \\#${entry.fingerprint} pulled a **${entry.hand}** in ${safe(entry.setName)} with a Brainrot Score of **${entry.score.toLocaleString('en-US')}**.\n\nIt will appear in the Hall of Fame after the next deploy (started automatically).${FOOTER}\n${markerFor(pullId(pull.proof), receivedAt)}`;
+/** The bot's comment on a verified pull, saying `where` it is listed if given; its marker is what `build` looks for. */
+const verifiedComment = (entry: HallOfFameEntry, pull: VerifiedPull, receivedAt: string, where?: string) =>
+  `✅ **Verified!** ${safe(entry.name)} \\#${entry.fingerprint} pulled a **${entry.hand}** in ${safe(entry.setName)} with a Brainrot Score of **${entry.score.toLocaleString('en-US')}**.\n\nIt will appear in the Hall of Fame${where ? `, ${where},` : ''} after the next deploy (started automatically).${FOOTER}\n${markerFor(pullId(pull.proof), receivedAt)}`;
 
 /** Where GitHub Pages serves the site; it always carries hall-of-fame.json, even once the site moves. */
 const pagesUrl = () => {
@@ -312,6 +319,25 @@ const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day: st
   return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP} and the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}.`;
 };
 
+/**
+ * Where a pull received yesterday, a day whose board closed before it was verified, is listed, or why
+ * it isn't. The page shows only yesterday's top HALL_OF_FAME_YESTERDAY_SHOWN, so the pull joins that
+ * day's top only that high; otherwise only the top pulls can take it. A refused pull isn't listed, so
+ * it can be submitted again for today's board.
+ */
+const closedDayJoin = (pull: VerifiedPull, list: readonly RankableEntry[], receivedAt: string): { where: string } | { reason: string } => {
+  const candidate = candidateOf(pull);
+  const day = utcDay(receivedAt);
+  if (list.some((e) => e.id === candidate.id)) return { reason: 'This pull is already in the Hall of Fame.' };
+  const joins = hallOfFameJoin(candidate, list, day);
+  if (joins === 'all-time') return { where: `at #${allTimeRank(candidate, list, receivedAt)} of the top ${HALL_OF_FAME_TOP}` };
+  const place = joins && dailyRank(candidate, list, receivedAt);
+  if (place && place <= HALL_OF_FAME_YESTERDAY_SHOWN) return { where: `at #${place} of ${day}'s top (UTC), among yesterday's best` };
+  return {
+    reason: `The pull is real, but it was received on ${day} (UTC), and that day's board closed before it was verified, so it needed to make that day's top ${HALL_OF_FAME_YESTERDAY_SHOWN} or the top ${HALL_OF_FAME_TOP}. It can be submitted again for today's board.`,
+  };
+};
+
 export const verifyIssue = async () => {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { action?: string; issue: Issue };
   // When GitHub received the body this event carries (its first receipt, if the pull is new here):
@@ -331,17 +357,22 @@ export const verifyIssue = async () => {
   }
   const already = verification !== null;
   // A new verification only goes in if it would join the list (the top pulls or the top of the day
-  // it was received, while that day's top is still published: today's or yesterday's, so a run that
-  // starts after midnight doesn't move it a day), and one that only makes a day's top only if it
-  // isn't already on an earlier day's. The same pull verified again keeps the label it has.
+  // it was received, while that day's top is still published: today's, or yesterday's top few the
+  // page shows, see `closedDayJoin`, so a run that starts after midnight doesn't move it a day), and
+  // one that only makes a day's top only if it isn't already on an earlier day's. The same pull
+  // verified again keeps the label it has.
   let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
+  let where: string | undefined;
   const currentLabels = labelNames(event.issue);
   if (result.ok && !already) {
     const list = await publishedList();
     const day = today();
     const receivedDay = utcDay(receivedAt);
-    const joinDay = receivedDay === day || receivedDay === previousUtcDay(day) ? receivedDay : undefined;
-    const reason = list && joinRefusal(result.pull, list, joinDay);
+    const closed = receivedDay === previousUtcDay(day);
+    const joinDay = receivedDay === day || closed ? receivedDay : undefined;
+    const placed = list && closed ? closedDayJoin(result.pull, list, receivedAt) : null;
+    if (placed && 'where' in placed) where = placed.where;
+    const reason = placed ? ('reason' in placed ? placed.reason : null) : list && joinRefusal(result.pull, list, joinDay);
     if (reason) result = { ok: false, reason };
     else if (joinLabel(result.pull, list, joinDay) === 'verified') label = 'verified';
     else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
@@ -389,7 +420,7 @@ export const verifyIssue = async () => {
   // `changed` runs the label step; an empty comment file makes it skip the comment.
   const changed = !already || repair;
 
-  const body = result.ok ? verifiedComment(result.entry, result.pull, receivedAt) : `❌ **Not added.** ${result.reason}${FOOTER}`;
+  const body = result.ok ? verifiedComment(result.entry, result.pull, receivedAt, where) : `❌ **Not added.** ${result.reason}${FOOTER}`;
   writeFileSync('hof-comment.md', already ? '' : body);
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
@@ -484,8 +515,8 @@ type BuildCache = Record<string, { updatedAt: string; entry: HallOfFameEntry | n
 /**
  * What `build` publishes: the top pulls and the daily top of the build's UTC day and the day before
  * (Rankings' "Today", and yesterday's best just after midnight), at most HALL_OF_FAME_MAX_ENTRIES.
- * The first verification of a pull keeps the credit. Daily entries only add to the list, so intake
- * (wouldJoinHallOfFame) and older clients read the same top pulls as before.
+ * The earliest receipt among the issues listed keeps a pull's credit. Daily entries only add to the
+ * list, so intake (wouldJoinHallOfFame) and older clients read the same top pulls as before.
  */
 export const listToPublish = <T extends RankableEntry>(verified: readonly T[], now = new Date()): T[] => {
   const today = utcDay(now.toISOString());
@@ -543,7 +574,7 @@ export const build = async (output = OUTPUT) => {
     verified.push(entry);
   }
   writeFileSync(BUILD_CACHE, JSON.stringify(next));
-  // A `daily` pull only counts on the day it was verified (an older one listed because it changed
+  // A `daily` pull only counts on the day it was received (an older one listed because it changed
   // since yesterday stays out).
   const days = [day, previousUtcDay(day)];
   const dailyOnly = new Set(issues.filter(isDailyOnly).map((i) => i.number));
