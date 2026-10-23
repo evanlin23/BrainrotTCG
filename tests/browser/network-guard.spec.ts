@@ -2,7 +2,8 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
-import { monitor } from './support';
+import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
+import { BEACON_STUB, monitor } from './support';
 
 let primaryServer: Server;
 let externalServer: Server;
@@ -27,6 +28,14 @@ test.beforeAll(async () => {
   <head><meta charset="utf-8"><title>Network Guard Fixture</title></head>
   <body><div id="root">Network Guard Active</div></body>
 </html>`);
+      return;
+    }
+    if (url.pathname === '/analytics.html') {
+      // A page as Cloudflare Pages serves it with Web Analytics on (scripts/cloudflare-analytics.ts).
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Analytics Fixture</title></head>
+<body><div id="root">Network Guard Active</div>
+${pagesBeaconTag('0123456789abcdef0123456789abcdef')}</body></html>`);
       return;
     }
     if (url.pathname === '/asset.json' && req.method === 'GET') {
@@ -435,6 +444,43 @@ test.describe('teardown fails on unexpected attempts', () => {
     await openSocket(page, wsTarget());
   });
 });
+
+for (const continueAllowed of [false, true]) {
+  test.describe(`Cloudflare Web Analytics${continueAllowed ? ' with continueAllowed' : ''}`, () => {
+    test('the beacon script gets the inert stand-in, and the page is otherwise clean', async ({ page }) => {
+      const errors = await monitor(page, primaryUrl, 0, { continueAllowed });
+      const beacon = page.waitForResponse(BEACON_URL);
+      await page.goto(`${primaryUrl}analytics.html`);
+      const response = await beacon;
+      expect(response.status()).toBe(200);
+      expect(await response.text()).toBe(BEACON_STUB);
+      expect(errors).toEqual([]);
+      expect(errors.blocked).toEqual([]);
+    });
+
+    test("anything else at Cloudflare's analytics hosts, its report endpoint included, is refused and recorded", async ({ page }) => {
+      const errors = await monitor(page, primaryUrl, 0, { continueAllowed, failOnUnexpected: false });
+      await page.goto(primaryUrl);
+      await page.evaluate(async ([beacon, rum]) => {
+        const attempts = [
+          fetch(`${beacon}?token=x`),
+          fetch(beacon.replace('beacon.min.js', 'other.js')),
+          fetch(beacon, { method: 'POST', body: '{}' }),
+          fetch(rum, { method: 'POST', body: '{}' }),
+          fetch(rum),
+          fetch(`${rum}/x`, { method: 'POST', body: '{}' }),
+        ];
+        await Promise.all(attempts.map((attempt) => attempt.catch(() => undefined)));
+      }, [BEACON_URL, RUM_URL]);
+      // Without continueAllowed, the guard's CSP stops fetches to both hosts in the page, before the route sees them.
+      const seen = (method: string, url: string) => (continueAllowed ? `${method} ${url}` : `CSP ${url}`);
+      for (const attempt of [seen('GET', BEACON_URL), seen('GET', BEACON_URL.replace('beacon.min.js', 'other.js')),
+        seen('POST', BEACON_URL), seen('POST', RUM_URL), seen('GET', RUM_URL), seen('POST', `${RUM_URL}/x`)]) {
+        await expect.poll(() => errors.blocked.some((blocked) => blocked.endsWith(`] ${attempt}`))).toBe(true);
+      }
+    });
+  });
+}
 
 test.describe('continueAllowed keeps the original same-origin routing', () => {
   test('local reads are continued natively; writes and external requests are still refused', async ({ page }) => {
