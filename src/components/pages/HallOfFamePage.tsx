@@ -4,7 +4,7 @@ import CardImage from '../cards/CardImage';
 import Sheet from '../ui/Sheet';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
-import { QUALIFY_RULE, RANKINGS_HELP } from '../ui/rankingsRule';
+import { QUALIFY_HAND, QUALIFY_RULE, QUALIFY_SCORE, RANKINGS_HELP } from '../ui/rankingsRule';
 import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
@@ -223,7 +223,7 @@ const HallOfFamePage = () => {
 
   const guidance = (
     <>
-      Pull {QUALIFY_RULE}, share it, and submit it from the share sheet.
+      Pull {QUALIFY_HAND} (or {QUALIFY_SCORE}), share it, and submit it from the share sheet.
     </>
   );
 

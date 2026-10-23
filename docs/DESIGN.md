@@ -118,7 +118,8 @@ results line (`PackSummaryUI.tsx`) that goes.
 5. **Result.** One composition, a graded slab: the five cards in reveal order (best last) under one
    label, **[score] Brainrot Score** then **[combo] x[multiplier]**, plus a Rankings line: Submit
    when the pull qualifies, or, when it doesn't, one short muted sentence that says why there is no
-   Submit (#1004). At most three short lines; no 1-in-X, XP or fingerprint (that is on the
+   Submit (#1004). Score and combo are one line each; the reason sentence is the only
+   text that can wrap, to three lines at 360 and 390. No 1-in-X, XP or fingerprint (that is on the
    share). Next pack is the one primary action, Share secondary. Tiles keep their own New stickers:
    they name different cards.
 6. **Next pack and share.** Next pack returns to a sealed pack under the same cue rules (no replayed
@@ -451,8 +452,9 @@ examples), and Score = card points added up × combo multiplier. There is no per
 ### One-screen summary rule (#339)
 
 After the last card everything that matters fits one phone screen (checked at 390x844 and 360x740,
-no horizontal scroll): the headline (at most three lines: score, combo with its odds, the Hall of
-Fame line), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
+no horizontal scroll): the headline (score and combo with its odds on one line each, then the
+Rankings line: a Submit, or one muted sentence saying why there is none, which can wrap to three
+lines at 360 and 390), the card hint (**Select a card to view**, worded for any input) and the **Card guide** link, the five cards in one
 compact row (each a button that opens the card up close, with a ⤢ corner, in reveal order, best last; a card is
 shared from its up-close view, never from a Share under each tile; new and special cards carry the tile's own New sticker and modifier label, never a line of text), then the
 actions: **Next pack** primary (it returns to the packs screen, where the next sealed pack waits; opening it is a swipe or Open pack away), **Share** secondary, stuck to the bottom of the summary's

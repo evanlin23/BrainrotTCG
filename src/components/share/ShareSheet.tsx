@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Crown, ShieldCheck } from 'lucide-react';
+import { Crown, Info, ShieldCheck } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import type { PackScore } from '../../engine';
 import { decodeProof, pullId, qualifiesForHallOfFame, utcDay, wouldJoinHallOfFame } from '../../engine';
@@ -94,7 +94,7 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
           joins && <HallOfFameSubmit proof={proof} id={id} score={target.score.score} />
         ) : (
           <p className="share-note">
-            <Crown aria-hidden="true" /> {NOT_QUALIFYING}
+            <Info aria-hidden="true" /> {NOT_QUALIFYING}
           </p>
         )
       }

@@ -1,7 +1,9 @@
 import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
 
-/** Who qualifies for Rankings, worded once so the Rankings page, the share sheet and the results screen agree. */
-export const QUALIFY_RULE = `a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+`;
+/** The two ways into Rankings, worded once so the Rankings page, the Profile, the share sheet and the results screen agree. */
+export const QUALIFY_HAND = 'a Full House or better';
+export const QUALIFY_SCORE = `a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+`;
+export const QUALIFY_RULE = `${QUALIFY_HAND}, or ${QUALIFY_SCORE}`;
 
 /** The Rankings page section that explains Submit, named where Submit is missing (#1004). */
 export const RANKINGS_HELP = 'How Rankings work';
