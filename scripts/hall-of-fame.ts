@@ -629,7 +629,7 @@ export const inbox = async (ticketFn?: TicketFn) => {
   if (!list) console.log("Couldn't read the published list; filing every qualifying pull");
   const stampDay = (pull: VerifiedPull) => utcDay(unfinished.get(pullId(pull.proof))?.created_at ?? new Date().toISOString());
 
-  const { added, deferred } = await processInbox(events, {
+  const { added, deferred, unconfirmedFrom } = await processInbox(events, {
     seen,
     filed,
     unconfirmed,
@@ -675,8 +675,9 @@ export const inbox = async (ticketFn?: TicketFn) => {
 
   for (const event of events) seenAt.set(event.id, event.created_at);
   writeFileSync(SEEN_PATH, seenCacheText(seen, seenAt, since, nowS, INBOX_SEEN_CAP));
-  // Read through: what was read now and handled, below the first event left for the next run.
-  const handledTo = deferredFrom(events, deferred) - 1;
+  // Read through: what was read now and handled, below the first event left for the next run and the
+  // first passed over for a pull only the kept index has filed (a later full listing may file it).
+  const handledTo = Math.min(deferredFrom(events, deferred), unconfirmedFrom ?? Infinity) - 1;
   const readAfter = head.perRelay.map((r) => [r.relay, clipRanges(addRanges(readBefore.get(r.relay) ?? [], clipRanges(readNow.get(r.relay)!, since, handledTo)), since, nowS)]);
   writeFileSync(READ_PATH, JSON.stringify(Object.fromEntries(readAfter)));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `added=${added}\n`);

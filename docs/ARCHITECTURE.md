@@ -268,7 +268,8 @@ falls on the build's day or the day before, so old daily issues cost nothing. Th
 of `verified` issues in an Actions cache and lists them all again only when that index is a day old
 or missing; the eight-day listing brings it up to date in between. An issue deleted, or with its
 `hall-of-fame` label removed, can still hold its pull back until a full listing. An event the kept
-index alone turns down isn't marked handled, so it is read again on later runs: usually the next
+index alone turns down isn't marked handled, and the relay ranges from its time up aren't recorded
+as read through, so it is read again on later runs: usually the next
 full listing, within a day, files it, and one that run doesn't reach (relay page cap or run budget)
 waits for the one after, while the event is still in the seven-day relay window. So that a daily-only
 pull counts on one day's top only, intake and the inbox turn it down while another `daily` issue
