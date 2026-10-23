@@ -83,6 +83,12 @@ Examples from merged fixes:
 - #695 (PR #919), `missing_scenario`: `reopenCache.ts` `flush` ran `removeItem` inside its `catch`,
   so a fully denied storage threw from a timer. The regression is in `reopenCache.test.ts` (both
   `setItem` and `removeItem` fail).
+- #1129 (PR #1132), `missing_scenario`: from 1200 to 1399px wide the desktop logo came to 58.5px, so
+  the header was 85.5px tall and the pack stage started on a half pixel. The stage's fade then
+  rounded the swipe chip's edges either way from run to run, and the first-pack baseline failed
+  intermittently by 1px. Nothing checked where layout lands, only the pixels. The prevention is a
+  whole-pixel logo size (`round()` in `index.css`) and `tests/browser/stage-pixel.spec.ts`, which
+  fails wherever a desktop window puts the stage off a whole pixel.
 
 ## Checks
 
