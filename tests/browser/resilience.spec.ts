@@ -208,7 +208,7 @@ test.describe('damaged backup files', () => {
       ['an unknown data version', tampered({ dataVersion: 99 }), false, 'This save uses an unsupported data version.'],
       ['a negative pack count', tampered({ stats: JSON.stringify({ ...field('stats'), packsOpened: -1 }) }), true, 'The stats in this save is invalid. Nothing was imported.'],
       ['a negative ticket in the history', tampered({ history: JSON.stringify((field('history') as Record<string, unknown>[]).map((record) => ({ ...record, n: -1 }))) }), false, 'The history in this save is invalid. Nothing was imported.'],
-      ['a negative ticket counter', tampered({ player: JSON.stringify({ ...field('player'), nextNonce: -1 }) }), false, 'The player identity in this save is invalid. Nothing was imported.'],
+      ['a negative ticket counter', tampered({ player: JSON.stringify({ ...field('player'), nextNonce: -1 }) }), false, "That file's player record can't be read, so it has no player key that works and can't be restored. Nothing was imported."],
     ];
     for (const [name, content, asks, refusal] of files) {
       await test.step(name, async () => {
