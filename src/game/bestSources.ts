@@ -15,7 +15,7 @@
 import { getSet } from '../content/sets';
 import { scoreCards } from '../data/cards';
 import { cardPoints, derivePack, type PackScore, type PulledCard, type SetDefinition, type TicketFn } from '../engine';
-import type { CardWithMeta } from '../components/cards/Card';
+import type { CardWithMeta } from '../types/card';
 import type { Stats } from '../types';
 import { getBestCards } from './bestCards';
 import { encodeCard } from './cardCode';

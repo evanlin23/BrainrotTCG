@@ -237,6 +237,26 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }
   expect(errors).toEqual([]);
 });
 
+// A pull under the Rankings bar says why it has no Submit (#1004): the fixture's first pack is a No Matches. The
+// line is the Rankings page's own rule text, fits the width and stays on screen with the rest of the summary.
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 740 }]) test(`a pull that does not qualify says why it has no Submit, in view, at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const { errors } = await openSummary(page, baseURL!, { viewport });
+  const line = page.locator('.summary-hof');
+  await expect(line).toContainText("Doesn't qualify for Rankings, which take a Full House or better, or a Brainrot Score of");
+  await expect(line).toContainText('See How Rankings work.');
+  await expect(line.getByRole('button')).toHaveCount(0);
+  await expect(line).toBeInViewport({ ratio: 1 });
+  const { fits, lines } = await line.evaluate((el) => ({
+    fits: el.scrollWidth <= el.clientWidth,
+    lines: Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)),
+  }));
+  expect(fits).toBe(true);
+  expect(lines).toBeLessThanOrEqual(3);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+  expect(errors).toEqual([]);
+});
+
 // On a 320px phone at 100% and 200% text, the pack's own Share still fits its row and nothing
 // scrolls sideways (#312, #472). Each card shares from its up-close view, not from the summary.
 for (const [textZoom, viewport] of [[100, { width: 320, height: 640 }], [200, { width: 320, height: 568 }]] as const) test(`the pack's actions fit a 320px phone at ${textZoom}% text (#472)`, async ({ page, baseURL }) => {
@@ -353,7 +373,7 @@ for (const viewport of [{ width: 360, height: 740 }, { width: 390, height: 844 }
   const { errors } = await openSummary(page, baseURL!, { viewport, history: 10 });
   const line = page.locator('.summary-hof');
   await expect(line).toContainText("Makes today's Rankings");
-  await expect(line.getByRole('button', { name: 'Submit to the Hall of Fame' })).toBeVisible();
+  await expect(line.getByRole('button', { name: 'Submit to Rankings' })).toBeVisible();
   const boxes = await page.evaluate(() => Array.from(document.querySelectorAll('.summary-hof, .summary-actions .btn'), (element) => {
     const { top, bottom, left, right } = element.getBoundingClientRect();
     const actions = document.querySelector('.summary-actions')!.getBoundingClientRect();
@@ -395,7 +415,7 @@ test('the Hall of Fame line never moves the cards below it', async ({ page, base
   await expect(line).toHaveAttribute('aria-hidden', 'true');
   tops.loading = await cardsTop();
   release();
-  const submit = line.getByRole('button', { name: 'Submit to the Hall of Fame' });
+  const submit = line.getByRole('button', { name: 'Submit to Rankings' });
   await expect(submit).toBeVisible();
   tops.offered = await cardsTop();
   await expectSummaryTakesClicks(page);

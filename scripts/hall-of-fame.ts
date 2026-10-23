@@ -19,10 +19,12 @@
  *     qualifies as a bot-authored Hall of Fame issue with the same verified
  *     marker, so `build` treats it like any other entry. Writes `added` to
  *     $GITHUB_OUTPUT. Event ids it has seen are kept in hof-inbox-seen.json
- *     (cached between runs) so junk isn't re-checked every time, and the time
- *     ranges each relay was read through in hof-inbox-read.json (cached too), so
- *     events past the page cap are read by a later run. Every run, even one that
- *     fails, writes its counts to hof-inbox-summary.json for scripts/ops-health.ts.
+ *     (cached between runs) so junk isn't re-checked every time, the pulls of
+ *     verified issues in hof-inbox-filed.json (FILED_PATH), so every verified
+ *     issue is listed once a day rather than on every run, and the time ranges
+ *     each relay was read through in hof-inbox-read.json (cached too), so events
+ *     past the page cap are read by a later run. Every run, even one that fails,
+ *     writes its counts to hof-inbox-summary.json for scripts/ops-health.ts.
  *
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
  *     Lists verified Hall of Fame issues (and `daily` ones from the day before
@@ -80,7 +82,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { addRanges, buildSkipLine, clipRanges, deferredFrom, everyRelayFailed, newestGap, oldestGap, olderReadLine, parseReadRanges, parseSeenCache, probeLine, processInbox, rangeRead, relayReadLine, seenCacheText, type InboxStats, type Ranges } from './hof-inbox.ts';
+import { addRanges, buildSkipLine, clipRanges, deferredFrom, everyRelayFailed, newestGap, oldestGap, olderReadLine, parseFiledIndex, parseReadRanges, parseSeenCache, probeLine, processInbox, rangeRead, relayReadLine, seenCacheText, type FiledIndex, type InboxStats, type Ranges } from './hof-inbox.ts';
 import { INBOX_SUMMARY_PATH, type InboxStage, type InboxSummary } from './ops-health.ts';
 import { isMainModule } from './main-module.ts';
 
@@ -377,11 +379,17 @@ const recentIssuesSince = () => new Date(Date.now() - (INBOX_WINDOW_S + 24 * 60 
  * a new name.
  */
 const listedPullId = (issue: Issue): string | null => {
+  const pull = listedPull(issue);
+  return pull && isNameAllowed(pull.name) ? pull.id : null;
+};
+
+/** The pull id and display name an issue's proof holds, or null if it holds no valid proof. */
+const listedPull = (issue: Issue): { id: string; name: string } | null => {
   const proof = extractProof(issue.body ?? '');
   if (!proof) return null;
   try {
     const decoded = decodeProof(proof);
-    return isNameAllowed(decoded.name) ? pullId(decoded) : null;
+    return { id: pullId(decoded), name: decoded.name };
   } catch {
     return null;
   }
@@ -517,6 +525,28 @@ export const INBOX_PAGES = 50;
  * of 100 from each of five relays), and well above a week of #225's expected traffic.
  */
 export const INBOX_SEEN_CAP = 100_000;
+/** The filed index (FiledIndex in scripts/hof-inbox.ts), kept between runs. */
+export const FILED_PATH = 'hof-inbox-filed.json';
+/** How long a filed index is used before every `verified` issue is listed again. */
+export const FILED_INDEX_MAX_AGE_S = 24 * 60 * 60;
+
+/**
+ * Every `verified` issue: from the filed index while it is fresh enough, or else listed in full (and
+ * the index written). Issues changed since the index was listed are in intake's listing of recent
+ * issues (`recentIssuesSince` goes back further than FILED_INDEX_MAX_AGE_S), which updates it.
+ */
+const verifiedIndex = async (token: string): Promise<FiledIndex & { kept: boolean }> => {
+  const now = Date.now();
+  const kept = existsSync(FILED_PATH) ? parseFiledIndex(readFileSync(FILED_PATH, 'utf8'), now, FILED_INDEX_MAX_AGE_S * 1000) : null;
+  if (kept) return { ...kept, kept: true };
+  const index: FiledIndex = { listedAt: now, issues: {} };
+  for (const issue of await listIssues('labels=hall-of-fame,verified', token)) {
+    const pull = listedPull(issue);
+    if (pull) index.issues[issue.number] = [pull.id, pull.name];
+  }
+  writeFileSync(FILED_PATH, JSON.stringify(index));
+  return { ...index, kept: false };
+};
 
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
 const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
@@ -576,7 +606,10 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
 
   const since = nowS - INBOX_WINDOW_S;
   const filter = { kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE };
-  const head = await fetchEvents(filter, undefined, 60000, undefined, INBOX_PAGES);
+  // Signatures are left to processInbox, which checks only the events it hasn't handled yet: up to
+  // twice INBOX_PAGES * INBOX_PAGE_SIZE (10,000: the newest pages and one older range) Schnorr checks
+  // per hostile relay a run, about 36 s, outside the 60 s read timers and well inside the job's 10 minutes.
+  const head = await fetchEvents(filter, undefined, 60000, undefined, INBOX_PAGES, undefined, undefined, true);
   for (const r of head.perRelay) console.log(relayReadLine(r));
   run.relays = { total: head.perRelay.length, failed: head.perRelay.filter((r) => r.error).length };
   // Nothing was read, so a run that carried on would look fine while unread events age out of the
@@ -596,29 +629,46 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
       const gap = r.error === undefined ? gapFor(addRanges(readBefore.get(r.relay) ?? [], readNow.get(r.relay)!), since, nowS) : undefined;
       if (!gap) return [];
       const [lo, hi] = gap;
-      const read = await fetchEvents({ ...filter, since: lo, until: hi }, [r.relay], 60000, undefined, INBOX_PAGES);
+      const read = await fetchEvents({ ...filter, since: lo, until: hi }, [r.relay], 60000, undefined, INBOX_PAGES, undefined, undefined, true);
       console.log(olderReadLine(read.perRelay[0], hi));
       readNow.set(r.relay, addRanges(readNow.get(r.relay)!, rangeRead(read.perRelay[0], lo, hi)));
       return read.events;
     }),
   );
-  const events = [...new Map([...head.events, ...older.flat()].map((e) => [e.id, e])).values()];
+  // One of each copy. Reads don't check signatures, so two reads can bring one event with different
+  // signatures: both are kept, and processInbox handles the first that verifies (a tampered copy from
+  // one relay can't hide the real one another read found). That is no more checks than the reads' own.
+  const events = [...new Map([...head.events, ...older.flat()].map((e) => [`${e.id} ${e.sig}`, e])).values()];
   run.read = events.length;
   run.stage = 'issues';
 
   // Pulls already in the Hall of Fame: only verified issues count (`verified`, or `daily`), so an
   // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't
-  // keep a pull out. Every `verified` issue is read; for the rest, the ones changed within the relay
-  // window and a day: a `daily` pull or an unfinished issue from the events read now is among them.
-  // An issue whose display name isn't allowed counts as neither (see `listedPullId`).
+  // keep a pull out. Every `verified` issue counts (from the filed index, see `verifiedIndex`); for
+  // the rest, the ones changed within the relay window and a day: a `daily` pull or an unfinished
+  // issue from the events read now is among them. An issue whose display name isn't allowed counts
+  // as neither (see `listedPullId`).
   const filed = new Set<string>();
   // Issues this job opened but didn't finish (it stopped before labelling them): finished next.
   const unfinished = new Map<string, Issue>();
-  const listed = byNumber([...(await listIssues('labels=hall-of-fame,verified', token)), ...(await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token))]);
-  for (const issue of listed) {
+  const { issues: verified, kept } = await verifiedIndex(token);
+  const recent = await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token);
+  // A recent issue as it is now replaces what the index says of it.
+  for (const issue of recent) delete verified[issue.number];
+  // Pulls filed as far as a kept index knows: the issue may have been deleted since (see `unconfirmed`).
+  const unconfirmed = new Set<string>();
+  for (const [id, name] of Object.values(verified)) {
+    if (!isNameAllowed(name)) continue;
+    filed.add(id);
+    if (kept) unconfirmed.add(id);
+  }
+  for (const issue of byNumber(recent)) {
     const id = listedPullId(issue);
     if (!id) continue; // no valid proof, or a name that's out of the list; nothing to dedupe against
-    if (labelNames(issue).includes('verified') || labelNames(issue).includes('daily')) filed.add(id);
+    if (labelNames(issue).includes('verified') || labelNames(issue).includes('daily')) {
+      filed.add(id);
+      unconfirmed.delete(id);
+    }
     else if (issue.user?.login === BOT && !unfinished.has(id)) unfinished.set(id, issue);
   }
 
@@ -632,10 +682,11 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
   const stampDay = (pull: VerifiedPull) => utcDay(unfinished.get(pullId(pull.proof))?.created_at ?? new Date().toISOString());
 
   run.stage = 'process';
-  const { added, deferred } = await processInbox(events, {
+  const { added, deferred, unconfirmedFrom } = await processInbox(events, {
     stats: run.stats,
     seen,
     filed,
+    unconfirmed,
     accepts: (pull) => (list ? joinRefusal(pull, list, stampDay(pull)) === null : qualifiesForHallOfFame(pull.score)),
     floor: (id) => (list && !unfinished.has(id) ? hallOfFameFloor(list, today()) : null),
     budget: INBOX_BUDGET,
@@ -679,8 +730,9 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
 
   for (const event of events) seenAt.set(event.id, event.created_at);
   writeFileSync(SEEN_PATH, seenCacheText(seen, seenAt, since, nowS, INBOX_SEEN_CAP));
-  // Read through: what was read now and handled, below the first event left for the next run.
-  const handledTo = deferredFrom(events, deferred) - 1;
+  // Read through: what was read now and handled, below the first event left for the next run and the
+  // first passed over for a pull only the kept index has filed (a later full listing may file it).
+  const handledTo = Math.min(deferredFrom(events, deferred), unconfirmedFrom ?? Infinity) - 1;
   const readAfter = head.perRelay.map((r) => [r.relay, clipRanges(addRanges(readBefore.get(r.relay) ?? [], clipRanges(readNow.get(r.relay)!, since, handledTo)), since, nowS)]);
   writeFileSync(READ_PATH, JSON.stringify(Object.fromEntries(readAfter)));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `added=${added}\n`);

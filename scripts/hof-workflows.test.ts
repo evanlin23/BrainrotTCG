@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { READ_PATH, SEEN_PATH } from './hall-of-fame.ts';
+import { FILED_PATH, READ_PATH, SEEN_PATH } from './hall-of-fame.ts';
 import { CONDITIONS, INBOX_PROBE_TITLE, type ConditionKey } from './ops-health';
 
 const read = (name: string) => readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
@@ -163,10 +163,10 @@ describe('Hall of Fame workflows (offline contracts)', () => {
     expect(verify).not.toContain('--remove-label rejected');
   });
 
-  it("caches the inbox's seen ids and read ranges in their own caches, restored before it runs and saved even if it fails (#999)", () => {
+  it("caches the inbox's seen ids, filed index and read ranges in their own caches, restored before it runs and saved even if it fails (#1000, #999)", () => {
     const inboxSteps = steps(jobs(read('hall-of-fame-inbox.yml')).inbox);
     const at = inboxSteps.findIndex((s) => s.includes('scripts/hall-of-fame.ts inbox'));
-    for (const [file, name] of [[SEEN_PATH, 'hof-inbox-seen'], [READ_PATH, 'hof-inbox-read']]) {
+    for (const [file, name] of [[SEEN_PATH, 'hof-inbox-seen'], [FILED_PATH, 'hof-inbox-filed'], [READ_PATH, 'hof-inbox-read']]) {
       const cache = (kind: string) => inboxSteps.findIndex((s) => s.includes(`actions/cache/${kind}@`) && s.includes(`path: ${file}\n`));
       expect(cache('restore'), file).toBeGreaterThanOrEqual(0);
       expect(cache('restore'), file).toBeLessThan(at);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COLLECTIBLE_CARDS, scoreCards } from '../data/cards';
-import type { CardWithMeta } from '../components/cards/Card';
+import type { CardWithMeta } from '../types/card';
 import { recordPack, type PackProgress } from './packProgress';
 
 const [a, b, c, d] = COLLECTIBLE_CARDS;

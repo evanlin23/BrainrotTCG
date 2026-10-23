@@ -66,7 +66,7 @@ src/content/       Set data, art and registry; existing schemas use the existing
   sets/<set>/set.json  cards (id, name, rarity, caption, flavor, art brief), odds, holo odds
   sets/<set>/art/      source art (real images, full cards, or SVG placeholders)
   sets/<set>/cards/    built card images (npm run cards); committed
-  sets/<set>/finish-thumbs/  small ready-made metallic finishes for the collection; committed
+  sets/<set>/finish-thumbs/  small ready-made metallic finishes for the collection and the other small card views; committed
   sets/<set>/pack.webp the set's booster pack wrapper, built from its colours and rarest cards
   sets/index.ts        the registry: every version of every set (old versions and archived sets stay for old proofs)
   sets.lock.json       hash of each released set@version (npm run check:sets)
@@ -76,7 +76,8 @@ src/game/          Browser glue around the engine.
   ticketMiner.ts     serial opening-ticket queue, worker/main-thread fallback, next-pack prefetch
   ticketPool.ts      separate verification/reconstruction pool, up to 8 workers (32 MiB each)
   history.ts         compact localStorage ticket metadata/cards; quota can discard old records
-  profiles.ts        signed profile construction, verification and background own-pack reconstruction
+  profiles.ts        signed profile construction and background own-pack reconstruction
+  profileVerification.ts   verifying a shared profile link (verifyProfileLive)
   packStore.ts       reconstructed own-pack card codes in memory and IndexedDB
   reopenCache.ts     localStorage cache for packs derived while viewing public profiles
   pulls.ts           openPack(), proofFor(), pullUrl(), checkPull()
@@ -95,9 +96,9 @@ src/game/          Browser glue around the engine.
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
   route.ts           the page addresses (#/cards, #/rankings, #/profile, #/settings) and their titles
 
-src/components/    React UI (pack opening, collection, set picker, share sheet, pull viewer, pages); the UI map is docs/DESIGN.md
+src/components/    React UI (pack opening and its confetti, collection, set picker, share sheet, pull viewer, pages); the UI map is docs/DESIGN.md
 src/hooks/         React hooks: pack cutting and reveal gestures, audio, keyboard, route, pack cache, progress writer
-src/utils/         Small browser helpers: guarded localStorage reads (storage.ts), save migrations, settings, motion and haptics, achievement and confetti rules
+src/utils/         Small browser helpers: guarded localStorage reads (storage.ts), save migrations, settings, motion and haptics, achievement rules
 src/workers/       ticket.worker.ts: mines Argon2id tickets off the main thread (ticketMiner.ts and ticketPool.ts drive it)
 src/constants/     STORAGE_KEYS (every localStorage key), the repo name and audio constants
 src/data/          UI-facing card data (set definitions plus built image URLs) and the achievement list
@@ -179,8 +180,8 @@ by hand  ─► GitHub issue form (pull link; needs an account; not linked from 
 (NIP-78 application data, kind 30078), signs it with a
 throwaway key made for that one submission, and sends it to five open relays. The throwaway key is
 only a transport: who pulled it comes from the proof's own signature. The inbox job reads the last
-week of events, checks each event's signature, verifies the pull with the same engine as everything
-else, and files the ones that qualify as issues in the same verified state the GitHub path ends in.
+week of events, checks the signature of each event it hasn't handled yet, verifies the pull with the
+same engine as everything else, and files the ones that qualify as issues in the same verified state the GitHub path ends in.
 Each run re-derives at most 300 pulls and files at most 20. It remembers handled event IDs in an
 Actions cache until their events leave the read window (at most 100,000, oldest first out), so a
 handled event isn't derived again, and skips already verified pulls. Each run saves that cache under
@@ -191,10 +192,19 @@ used first, npm caches included. Fetching requests up to 50 pages of
 again from one older range that relay hasn't been read through (the newest in even UTC hours, the
 oldest in odd ones); the ranges read and handled, including the pages a failed read finished, are
 kept per relay in a second Actions cache, so a backlog past the page cap is read over later runs.
+A second holding more events than a page can't be paged into (`until` is the only cursor), so a page
+whose events all sit at its `until` (a full one, or a short one of repeats from a relay that caps
+`limit` below ours) counts that second as read and pages on from the second before; a full one is
+logged. A crowd at one time can't hide older submissions, even from a relay that serves it in a new
+order each time. Frames too big to parse still fill a page and move
+it on by the time they claim, so padding can't pass for the end of a relay's history.
 These are client request limits, not guarantees that relays return or retain every event or obey the limits.
 A run in which every relay fails without sending an event fails the job, so an outage shows before
 events age out of the window; a run that reads at least one relay succeeds.
-Only valid event signatures are retained, and the exact proof text in the link is accepted. A filing
+An event is filed only if its signature is valid. Reading keeps one copy per event ID whose content
+matches the ID; when relays send one event with different signatures, a copy that verifies replaces
+it. Where the newest pages and an older range bring different copies, both are kept and the one that
+verifies is filed. The exact proof text in the link is accepted. A filing
 that stops after opening an issue can reuse that issue on retry. Deferred submissions are eligible
 on a later run only while still available in the fetched window; cache eviction and service errors
 can cause repeat work or missed submissions.
@@ -232,6 +242,13 @@ read as "Someone"), beside the key fingerprint in Rankings, shared pull links an
 - Appeal: the player opens an issue. The owner takes `rejected` off a wrongly removed entry, or fixes
   the word list for a wrongly blocked name so the pull can be submitted again.
 
+Each Rankings row also says where the entry was submitted from, on its muted set line (`provenanceText`
+in `src/game/hallOfFameList.ts`): "via relay" when `githubUser` is `nostr`, "via GitHub" for an
+issue author's login, and nothing for a missing, `unknown` or malformed value. It never shows or links
+the login, since `githubUser` is just the issue author as recorded and not a verified identity.
+A real GitHub user named `nostr` collides with the relay marker (`scripts/hall-of-fame.ts` passes the login
+through as is); that is fixed in a later slice.
+
 **Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score. The published file also
 keeps the best 50 pulls filed on the build's UTC day and the day before (`dailyPulls`, by
 `submittedAt`), which Rankings' Today tab and its "yesterday's best" read. So it holds at most
@@ -257,7 +274,14 @@ The deploy writes the ranked list. Workflows attempt to close verified issues, a
 both open and closed states. It lists every `verified` issue, but `daily` issues only when updated
 since 00:00 UTC the day before (`since=`), and keeps a daily-only entry only when its `submittedAt`
 falls on the build's day or the day before, so old daily issues cost nothing. The inbox lists
-`verified` issues plus any `hall-of-fame` issue updated in the last eight days. So that a daily-only
+`verified` issues plus any `hall-of-fame` issue updated in the last eight days. It keeps the pulls
+of `verified` issues in an Actions cache and lists them all again only when that index is a day old
+or missing; the eight-day listing brings it up to date in between. An issue deleted, or with its
+`hall-of-fame` label removed, can still hold its pull back until a full listing. An event the kept
+index alone turns down isn't marked handled, and the relay ranges from its time up aren't recorded
+as read through, so it is read again on later runs: usually the next
+full listing, within a day, files it, and one that run doesn't reach (relay page cap or run budget)
+waits for the one after, while the event is still in the seven-day relay window. So that a daily-only
 pull counts on one day's top only, intake and the inbox turn it down while another `daily` issue
 updated in the last eight days carries it; proofs carry no signed time, so one filed again after that
 can count again. The page's pending check counts a daily-only relay pull only when its event was sent
@@ -446,9 +470,11 @@ have free static-hosting options, with provider build, storage, traffic and serv
 domains or additional services can cost money. See `docs/HOSTING.md` for configuration and old-address
 redirects. Save transfer (`move.ts`, `scripts/redirect-site.ts`) uses origin-checked
 window-to-window postMessage, not URL contents. The old address never deletes its save: it sets
-`brainrot-moved-v1` (a timestamp) once the new address reports `saved` or `same`, or once it sends
-its save to Save & backup (`#/send`), and from then on old links go straight through without offering
-the move. At the new address, the handed-over player and fields must pass the same checks as an
+`brainrot-moved-v1` (a timestamp) once the new address reports `saved` or `same` to Bring, and from
+then on old links go straight through without offering the move. Sending its save to Save & backup
+(`#/send`) never sets it: that window is closed before the new address imports, so it can't learn
+whether the save arrived.
+At the new address, the handed-over player and fields must pass the same checks as an
 imported file, except for collection entries that storage keeps on purpose (first-format entries
 migrations rebuild, and entries hydration hides for recovery) and best-pack cards in a save older
 than v3 (checked as migrations and the profile read them), and a missing `brainrot-data-version`
@@ -484,8 +510,11 @@ from #0, the set version assigned to each, XP and up to five best tickets. The v
 range and checks the claims. It cannot prove that the range includes all lifetime mining activity,
 that no other keys were used, or when packs were opened.
 
-`src/game/profiles.ts` checks decoding/signature first, then derives highlights before the remaining
-tickets and validates XP/highlights. A displayed claim is not verified merely because the signature
+`src/game/profileVerification.ts` checks decoding/signature first, then derives highlights before the
+remaining tickets and validates XP/highlights. It imports no player, history, pack store or
+own-profile code (`profiles.ts`, which re-exports it for older imports), so checking someone else's
+profile never reads or waits on your own save; it shares only the engine rules, `reopenCache.ts`,
+`ticketPool.ts` and optional-work admission (`admission.ts`), never a scheduler of its own. A displayed claim is not verified merely because the signature
 passes. Work uses `ticketPool.ts`, separate from foreground `ticketMiner.ts`, with a hardware-based
 pool size up to eight workers. Separation avoids sharing the opening queue but does not remove CPU,
 memory or main-thread-fallback contention. Latency varies with the device and number of uncached
@@ -677,8 +706,10 @@ stored compactly in the pack history (`src/game/cardCode.ts`: `sigma*G!` is a ho
 card views and the PNG exporter use `src/game/finishImage.ts`, caching full-size results per card/finish
 in a 16-entry LRU. Each view holds its render while mounted; an evicted render's blob URL is revoked
 only after its last holder lets go, so no mounted `<img>` loses its source.
-Collection tiles load pre-rendered 344px WebP finishes directly, with native lazy loading and no
-canvas recolouring or PNG encoding on first load. They use the same recolouring function before
+Every small card view (collection tiles, the pull dialog and pack summary slots, Rankings and pull-row
+thumbnails) loads pre-rendered 344px WebP finishes directly, with no canvas recolouring or PNG
+encoding on first load, so a finished card waits on one small request like a plain one (#762). Only
+the full-size viewer, the reveal and exports render finishes from full art. They use the same recolouring function before
 resizing. `npm run cards` rebuilds these thumbnails and the small lossless mask
 (`src/assets/images/card-frame-mask.webp`); `npm run cards:finish-thumbs` refreshes just the thumbnails.
 Input hashes include the source image, mask, recolouring code and output settings, so changed cards

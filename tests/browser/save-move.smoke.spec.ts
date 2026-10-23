@@ -6,7 +6,8 @@ import { redirectPage } from '../../scripts/redirect-site.ts';
 
 /**
  * Bringing a save over from the old address (scripts/redirect-site.ts) into the new one
- * (receiveSave in src/game/move.ts), in real windows on two origins. The new address is this app,
+ * (receiveSave in src/game/move.ts), or fetching it from Save & backup (fetchOldSave), in real
+ * windows on two origins. The new address is this app,
  * served by Vite with VITE_OLD_ORIGIN set (the preview build has none); the old address is the
  * redirect page, served by routing a made-up origin. Nothing leaves the machine.
  */
@@ -155,4 +156,60 @@ test.describe('bringing a save from the old address', () => {
     expect(await oldStorage()).toEqual([PLAYER, true]);
     await context.close();
   });
+
+  // Save & backup fetches the save from the old address (#/send), and the import here fails. The old
+  // address sent it, but nothing arrived, so its next link must still offer to bring it (#1035).
+  for (const failure of ['full', 'invalid'] as const) {
+    test(`a fetch from Save & backup that ends ${failure} leaves the old address offering its save`, async ({ browser }, testInfo) => {
+      test.skip(testInfo.project.name !== 'desktop-chromium', 'Two windows on two origins; the desktop project runs it.');
+      const sent = failure === 'full' ? PLAYER : JSON.stringify({ secretKey: 'not a key', name: 'Combo Miner', nextNonce: 3, createdAt: 1 });
+      const context = await browser.newContext();
+      // The new address's storage refuses only the old save's player key, so its own player still starts.
+      if (failure === 'full') {
+        await context.addInitScript(({ origin, refused }) => {
+          if (location.origin !== origin) return;
+          const write = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key: string, value: string) {
+            if (key === 'brainrot-player-v1' && value === refused) throw new DOMException('Injected quota failure', 'QuotaExceededError');
+            write.call(this, key, value);
+          };
+        }, { origin: new URL(NEW_URL).origin, refused: PLAYER });
+      }
+      await context.route(`${OLD_ORIGIN}/**`, (route) => route.fulfill({
+        contentType: 'text/html',
+        body: new URL(route.request().url()).pathname.endsWith('/seed') ? '<!doctype html><title>seed</title>' : redirectPage(NEW_URL),
+      }));
+      const seed = await context.newPage();
+      await seed.goto(`${OLD_URL}seed`);
+      await seed.evaluate((player) => {
+        localStorage.setItem('brainrot-player-v1', player);
+        localStorage.setItem('brainrot-data-version', '3');
+      }, sent);
+
+      const page = await context.newPage();
+      await page.goto(`${NEW_URL}#/settings`);
+      const main = page.getByRole('main', { name: 'Settings', exact: true });
+      await expect(main).toBeVisible({ timeout: 30000 });
+      const row = main.locator('.settings-row').filter({ has: page.locator('.settings-label', { hasText: /^From the old address$/ }) });
+      const popupOpened = page.waitForEvent('popup');
+      await row.getByRole('button', { name: 'Bring it', exact: true }).click();
+      const popup = await popupOpened;
+      // The page closes the window before it shows the note, but Playwright hears of the close on its
+      // own channel, so it may come after the note: wait for the event rather than read isClosed().
+      const closed = popup.isClosed() ? Promise.resolve() : new Promise<void>((resolve) => popup.once('close', () => resolve()));
+      expect(popup.url()).toBe(`${OLD_URL}#/send`);
+      // The note comes after the old address's window answered and was closed.
+      await expect(row.locator('.settings-desc')).toHaveText(failure === 'full' ? FULL_NOTE : "Couldn't bring that save over, so nothing changed.", { timeout: 20000 });
+      await closed;
+
+      expect(await seed.evaluate(() => [localStorage.getItem('brainrot-player-v1'), localStorage.getItem('brainrot-moved-v1')])).toEqual([sent, null]);
+      // An old link still offers the save rather than going straight through.
+      const oldLink = await context.newPage();
+      await oldLink.route(`${NEW_URL}**`, (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>arrived</title>' }));
+      await oldLink.goto(`${OLD_URL}#/cards`);
+      await expect(oldLink.getByRole('button', { name: 'Bring my save and go' })).toBeVisible();
+      expect(oldLink.url()).toBe(`${OLD_URL}#/cards`);
+      await context.close();
+    });
+  }
 });

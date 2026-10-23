@@ -2,23 +2,13 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import '../../styles/Card.css';
 import cardBackImage from '../../assets/images/card_back.webp';
-import type { Card as CardType } from '../../data/cards';
-import type { Finish } from '../../engine';
+import type { CardWithMeta } from '../../types/card';
 import { FINISH_INFO, modifierClasses, modifierLabel } from '../../game/modifiers';
 import CardImage from './CardImage';
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { cardFaceLabel } from './cardLabel';
 
-export interface CardWithMeta extends CardType {
-    uniqueId: number;
-    isRevealed: boolean;
-    isHolo: boolean;
-    /** Sets with modifiers: the card's finish and whether it's a misprint (game/modifiers.ts). */
-    finish?: Finish | null;
-    misprint?: boolean;
-    /** The player didn't own this card before the pack it came in. */
-    isNew?: boolean;
-}
+export type { CardWithMeta };
 
 interface CardProps {
     card: CardWithMeta;

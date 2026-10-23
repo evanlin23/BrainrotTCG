@@ -283,6 +283,7 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge, expecting =
                     <CardImage
                       src={shownCard.verified.card.image}
                       finish={cardVersion.finish}
+                      thumbnail
                       alt=""
                       loading="lazy"
                       className={`${cardVersion.isHolo ? 'holo' : ''} ${modifierClasses(cardVersion)}`}

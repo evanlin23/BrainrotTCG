@@ -15,6 +15,7 @@ import {
   type SetDefinition,
   type VerifiedPull,
 } from '../engine';
+import { cardFinishThumbUrl } from '../content/art';
 import { ALL_SET_VERSIONS, getSet } from '../content/sets';
 import { claimNonce, getPlayer, peekNonce, sameSave, saveMark, StaleSaveError, type SaveMark } from './player';
 import { recordPack, recordTicket } from './history';
@@ -25,7 +26,7 @@ import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADL
 import { revealOrder } from './reveal';
 import { getTicket, prefetchTicket } from './ticketMiner';
 import { afterPackArt } from './packArt';
-import type { CardWithMeta } from '../components/cards/Card';
+import type { CardWithMeta } from '../types/card';
 
 /** Enough to re-derive and re-sign a pull later (e.g. to share a past best pack). */
 export interface PullRef {
@@ -86,10 +87,14 @@ export const prefetchNextPack = (set: SetDefinition) => {
   void getTicket(setKey(set), getPlayer().publicKey, peekNonce())
     .then((ticket) => {
       // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
-      // once the sealed pack's own art is in.
-      const images = generatePack(set, packSeedFromTicket(ticket)).map((card) => getCard(`${card.setId}/${card.cardId}`)?.image);
+      // once the sealed pack's own art is in, with the ready-made thumbnail a finished card's summary
+      // tile shows (#620).
+      const urls = generatePack(set, packSeedFromTicket(ticket)).flatMap((card) => {
+        const image = getCard(`${card.setId}/${card.cardId}`)?.image;
+        return image ? [image, cardFinishThumbUrl(image, card.finish)] : [];
+      });
       afterPackArt(() => {
-        for (const image of images) if (image) new Image().src = image;
+        for (const url of urls) if (url) new Image().src = url;
       });
     })
     .catch(() => undefined);
