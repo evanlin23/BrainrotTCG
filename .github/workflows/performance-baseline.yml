@@ -13,9 +13,10 @@ jobs:
     # Playwright's official image, the one browser-tests.yml runs in (see the note at its top), so
     # no run installs packages from an outside mirror. Its Chromium is the image's, so numbers from
     # before this change were taken on another build and aren't comparable.
+    # `--ipc=host` because Chromium in Docker needs more than its default 64 MB of shared memory.
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
-      options: --user 1001
+      options: --user 1001 --ipc=host
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

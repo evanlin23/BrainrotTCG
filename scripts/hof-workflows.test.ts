@@ -435,7 +435,7 @@ describe('performance-baseline.yml runs in the pinned Playwright image (#658)', 
   it('uses the image browser-tests.yml uses, pinned by digest, as the runner user', () => {
     expect(image(job)).toMatch(/^mcr\.microsoft\.com\/playwright:v\d+\.\d+\.\d+-[a-z]+@sha256:[0-9a-f]{64}$/);
     expect(image(job)).toBe(image(read('browser-tests.yml')));
-    expect(job).toMatch(/^ {6}options: --user 1001/m);
+    expect(job).toMatch(/^ {6}options: --user 1001 --ipc=host$/m);
   });
 
   it('installs no browsers or system packages', () => {
