@@ -13,13 +13,12 @@ import type { ShareTarget } from './components/share/ShareSheet';
 import Sheet from './components/ui/Sheet';
 import CardGuideButton from './components/ui/CardGuideButton';
 import { scoreCards } from './data/cards';
-import { getAchievementById } from './data/achievements';
-import { CardWithMeta } from './components/cards/Card';
+import type { Achievement } from './data/achievements';
 import { DEFAULT_SET_ID, SETS } from './content/sets';
 import type { SetDefinition } from './engine';
 import { canOpenSharedSet } from './game/sharedPullSet';
 import { isCardOwned } from './game/versions';
-import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
+import { takePendingPacks, type OpenedPack } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
 import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE, STALE_SAVE_WARNING } from './game/saveFile';
 import { getStoredData } from './utils/storage';
@@ -27,9 +26,8 @@ import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
 import { readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression';
-import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
+import { historyAchievementsReady, myStats, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
-import { getHistory } from './game/history';
 import { sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
@@ -38,17 +36,12 @@ import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
 import { useSetLink } from './hooks/useSetLink';
 import { useProgressWriter } from './hooks/useProgressWriter';
+import { useAchievementReconciler } from './hooks/useAchievementReconciler';
 import type { ProgressWriterHost } from './game/progressWriter';
 import { hydrateCollection } from './utils/migrations';
 import { STORAGE_KEYS } from './constants';
 import { LOGO_MARK_PATH, LOGO_MARK_VIEWBOX } from './styles/logoMark';
-import {
-  checkPackMilestones,
-  checkCollectionAchievements,
-  checkModifierAchievements,
-  checkHistoryAchievements,
-} from './utils/achievementChecks';
-import type { CollectionItem, Stats, HallOfFameData, Settings, AchievementData } from './types';
+import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 
 // Keep loaders stable. A page or sheet is requested when its route or state opens it, or a moment
 // earlier when the player points at, focuses or presses what opens it: never at startup (unless the
@@ -71,7 +64,6 @@ const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be 
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
-  const [achievements, setAchievements] = useState<Record<string, AchievementData | number>>(() => getStoredData(STORAGE_KEYS.ACHIEVEMENTS, {}));
   const [stats, setStats] = useState<Stats>(() => getStoredData(STORAGE_KEYS.STATS, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
   const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(STORAGE_KEYS.HALL_OF_FAME, {}));
 
@@ -96,7 +88,6 @@ function App() {
   const recoveryChanged = useCallback(() => {
     if (collectionRecoveryState() !== 'unavailable') setRecoveryNote(collectionRecoveryNote());
   }, []);
-  const achievementsRef = useRef(achievements);
   // The save this tab loaded. Another tab can import a save (even the same player's), switch player
   // or clear storage while this one stays open: from then on everything held here is the old save's,
   // so nothing here unlocks achievements from the new player's history or stores progress over the
@@ -124,6 +115,19 @@ function App() {
     setStaleSave(true);
     return false;
   }, [samePlayer]);
+  const packCache = usePackCacheVersion();
+  // Every pack in the history is readable (saved packs read in, yours and then other players'), or
+  // only other players' failed to: until then, achievements found in the history couldn't name the
+  // right pack and date.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const historyReady = useMemo(() => historyAchievementsReady(), [stats.packsOpened, packCache]);
+  const [notificationQueue, setNotificationQueue] = useState<ToastItem[]>([]);
+  const announceAchievement = useCallback((achievement: Achievement) => {
+    setNotificationQueue((prev) => (prev.some((a) => a.id === achievement.id) ? prev : [...prev, achievement]));
+  }, []);
+  const { achievements, snapshot: achievementsNow, unlock: unlockAchievement } = useAchievementReconciler({
+    stats, collection, historyReady, samePlayer, announce: announceAchievement,
+  });
   // Stores progress once React commits it, refusing once the save changed under this tab, and owes
   // packs to the pending shelf until a stored collection holds them (see game/progressWriter.ts).
   // The writer reads its host once, so it is memoized (useProgressWriter warns in development if it changes).
@@ -162,7 +166,6 @@ function App() {
   const logoRef = useRef<HTMLHeadingElement>(null);
   const reloadRef = useRef<HTMLButtonElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const [notificationQueue, setNotificationQueue] = useState<ToastItem[]>([]);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
   const [packBusy, setPackBusy] = useState(false);
   /** A pack is open, from the tear to leaving it: the chrome steps aside (see index.css). Not busy: it disables nothing. */
@@ -204,7 +207,6 @@ function App() {
     setStaleSave(true);
     putBack();
   }), [progressCurrent, putBack]);
-  const packCache = usePackCacheVersion();
   // Level rewards in use (game/progression.ts), checked against the level this save has reached.
   // Re-read after every pack (myStats reads the pack history, which each pack adds to), and when
   // saved packs are read. Null until they are (or when they couldn't be): meanwhile only the rewards
@@ -218,11 +220,6 @@ function App() {
   if (ownLevel !== undefined && ownLevel !== mountedLevel) setMountedLevel(ownLevel);
   const level = ownLevel === undefined ? mountedLevel : ownLevel;
   const rewardLevel = level ?? 1;
-  // Every pack in the history is readable (saved packs read in, yours and then other players'), or
-  // only other players' failed to: until then, achievements found in the history couldn't name the
-  // right pack and date.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const historyReady = useMemo(() => historyAchievementsReady(), [stats.packsOpened, packCache]);
   // A level-up says so, with what it unlocked (otherwise it only shows if you open the profile).
   // Reading saved packs isn't a level-up: no toast until a known level rises.
   const shownLevel = useRef(level);
@@ -246,86 +243,6 @@ function App() {
     document.documentElement.dataset.cardBack = usable(CARD_BACKS, settings.cardBack, rewardLevel);
     document.documentElement.dataset.packFoil = usable(PACK_FOILS, settings.packFoil, rewardLevel);
   }, [settings.cardBack, settings.packFoil, rewardLevel]);
-
-  // Apply retroactive achievements (without notifications to avoid spam on load)
-  const applyRetroactive = useCallback((ids: readonly string[]) => {
-    if (ids.length === 0) return;
-    const timestamp = Date.now();
-    const next = { ...achievementsRef.current };
-    ids.forEach(id => {
-      if (!next[id]) next[id] = timestamp;
-    });
-    achievementsRef.current = next;
-    setAchievements(next);
-  }, []);
-
-  // Check retroactive achievements on mount
-  useEffect(() => {
-    // Use shared achievement checking functions
-    const packAchievements = checkPackMilestones(stats.packsOpened || 0, achievements);
-    const collectionAchievements = checkCollectionAchievements(collection, stats, achievements);
-    applyRetroactive([...packAchievements, ...collectionAchievements]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run on mount
-
-  // Finishes and misprints pulled before their achievements existed: from the pack history, and
-  // from the collection's tallies for packs the history has no cards for. As soon as the history can
-  // be (holos only show in the cards), and once more if other players' packs are read in later.
-  const modifiersChecked = useRef(false);
-  useEffect(() => {
-    if (!historyReady || modifiersChecked.current || !samePlayer()) return;
-    modifiersChecked.current = historyPacksState() === 'ready';
-    const pulled = getHistory().flatMap((e) => (e.cards ?? []).map((c) => ({ isHolo: c.holo, finish: c.finish, misprint: c.misprint })));
-    const tallied = Object.values(collection).filter(isCardOwned).flatMap((item) => [
-      ...Object.entries(item?.finishes ?? {}).filter(([, n]) => (n ?? 0) > 0).map(([finish]) => ({ isHolo: false, finish })),
-      ...((item?.misprints ?? 0) > 0 ? [{ isHolo: false, misprint: true }] : []),
-    ]);
-    applyRetroactive(checkModifierAchievements([...pulled, ...tallied], achievementsRef.current));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyReady, applyRetroactive]);
-
-  // Packs in the history that never got their pack achievements (merged in from a save, or opened
-  // before the achievement existed). Unlocked quietly, dated and linked to the pack that earned them.
-  const unlockFromHistory = useCallback(() => {
-    if (!samePlayer()) return;
-    const found = checkHistoryAchievements(getHistory(), achievementsRef.current);
-    if (found.length === 0) return;
-    const next = { ...achievementsRef.current };
-    for (const { id, entry, cards } of found) {
-      next[id] = {
-        unlockedAt: entry.openedAt,
-        ...(cards ? { pack: cards } : {}),
-        ref: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex: entry.key },
-      };
-    }
-    // Keep later live commands on the same snapshot; persistence follows the guarded effect.
-    achievementsRef.current = next;
-    setAchievements(next);
-  }, [samePlayer]);
-
-  // Only once the history is readable (other players' packs that failed to read count by hand): a
-  // pack whose saved cards weren't read yet would be skipped, or credited to a later pack, and never
-  // looked at again. Runs as soon as it is.
-  useEffect(() => {
-    if (historyReady) unlockFromHistory();
-    // Re-opened packs bring back the cards of packs the history only had a hand and score for.
-    return onReopenProgress((status) => {
-      if (!status.running && historyAchievementsReady()) unlockFromHistory();
-    });
-  }, [historyReady, unlockFromHistory]);
-
-  const unlockAchievement = useCallback((achievementId: string, pack?: CardWithMeta[], ref?: PullRef) => {
-    const achievement = getAchievementById(achievementId);
-    if (!achievement) return;
-
-    // Commands can unlock several achievements before React renders; deduplicate immediately.
-    if (achievementsRef.current[achievementId]) return;
-    const achievementData: AchievementData = { unlockedAt: Date.now(), pack, ...(ref ? { ref } : {}) };
-    const next = { ...achievementsRef.current, [achievementId]: achievementData };
-    achievementsRef.current = next;
-    setAchievements(next);
-    setNotificationQueue(prev => prev.some(a => a.id === achievementId) ? prev : [...prev, achievement]);
-  }, []);
 
   // Closing a reveal early still records the pack: say where its cards went, ahead of any unlocks.
   // Not when it couldn't be saved: the save warning says so instead (see visibleNotifications).
@@ -399,14 +316,14 @@ function App() {
     packAdded(pack);
     if (pack.unrecorded) setSaveFailed(true);
     // Compute progress in the event handler; React state updaters stay free of side effects.
-    const { progress, unlocks } = recordPack(from, pack, achievementsRef.current);
+    const { progress, unlocks } = recordPack(from, pack, achievementsNow());
     if (progress.stats !== from.stats) setStats(progress.stats);
     setCollection(progress.collection);
     setHallOfFame(progress.hallOfFame);
     const pullRef = { setId: pack.setId, setVersion: pack.setVersion, nonce: pack.nonce, publicKeyHex: pack.publicKeyHex };
     unlocks.forEach(id => unlockAchievement(id, pack.cards, pullRef));
     return progress;
-  }, [stats, hallOfFame, collection, unlockAchievement, packAdded]);
+  }, [stats, hallOfFame, collection, unlockAchievement, achievementsNow, packAdded]);
 
   // Packs whose reveal never finished (a reload, a closed tab): their tickets are spent, so they still count.
   // Once per mount: an older build's pack stays in its entry until stored, so a second take would add it again.
