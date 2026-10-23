@@ -10,9 +10,11 @@ import type { MotionSetting, Settings } from '../../types';
 import type { SetDefinition } from '../../engine';
 import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
-import KeptAsideActions from '../ui/KeptAsideActions';
+import KeptAsideActions, { KEPT_ASIDE_DOWNLOAD_LABEL } from '../ui/KeptAsideActions';
+import UnreadablePlayerRow from './UnreadablePlayerRow';
 import '../../styles/Settings.css';
-import { downloadSaveFile, EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { DAMAGED_EXPORT_KEY_NOTE, downloadSaveFile, EXPORT_KEY_NOTE, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { PLAYER_PAUSED_NOTE } from '../../game/collectionRecovery';
 import { sameSave, saveMark, type SaveMark } from '../../game/player';
 
 interface SettingsPageProps {
@@ -29,6 +31,10 @@ interface SettingsPageProps {
     recoveryAllowed?: () => boolean;
     /** What's kept aside changed (discarded here, or more kept aside meanwhile); the app refreshes what it shows. */
     onRecoveryChanged?: () => void;
+    /** This browser's player record can't be read (#1052): Save & backup shows its row first, with Restore, Download and Start a new player. */
+    playerUnreadable?: boolean;
+    /** Starts a new player in place of that record. Returns an error to show, or null (the page then reloads). */
+    onStartNewPlayer?: () => string | null;
     /** The pack being opened: Help's card guide shows its odds. */
     guideSet?: SetDefinition;
     /** The tabs and pack picker already show on their own (a saved pack or a collected card): "Show every page" would change nothing, so it is left out. */
@@ -36,9 +42,10 @@ interface SettingsPageProps {
 }
 
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, playerUnreadable = false, onStartNewPlayer, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
-    const [exportNote, setExportNote] = useState(EXPORT_KEY_NOTE);
+    // Null until Export is used: then what the file holds is said for the record as it is now.
+    const [exportNote, setExportNote] = useState<string | null>(null);
     // Counts successful exports; it keys the note's text so a repeat Export is announced again.
     const [exportCount, setExportCount] = useState(0);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -52,10 +59,12 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const focusRestoreKeep = useRef(false);
     const activeImportTokenRef = useRef(0);
     const activeReaderRef = useRef<FileReader | null>(null);
+    const showUnreadableRow = playerUnreadable && !!onStartNewPlayer;
+    // The unreadable-player row already says packs are paused, and has its own Download for the whole save.
+    const shownRecoveryNote = showUnreadableRow ? recoveryNote?.replace(` ${PLAYER_PAUSED_NOTE}`, '') : recoveryNote;
     const handleExportSave = () => {
         try {
-            downloadSaveFile();
-            setExportNote(EXPORT_DONE_NOTE);
+            setExportNote(downloadSaveFile());
             setExportCount((n) => n + 1);
         } catch {
             setExportNote("Couldn't read browser storage to export your save.");
@@ -364,11 +373,14 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             <section id="save-backup" className="settings-group" aria-labelledby="settings-save">
                 <h2 id="settings-save" ref={saveHeadingRef} className="section-title" tabIndex={-1}>Save &amp; backup</h2>
                 <div className="settings-panel">
-                    {recoveryNote && recoveryAllowed && (
+                    {showUnreadableRow && (
+                        <UnreadablePlayerRow onRestore={handleImportClick} onStartNewPlayer={onStartNewPlayer} />
+                    )}
+                    {shownRecoveryNote && recoveryAllowed && (
                         <div className="settings-row settings-row--wrap">
                             <span className="settings-text">
                                 <span className="settings-label">Kept-aside data</span>
-                                <span className="settings-desc">{recoveryNote}</span>
+                                <span className="settings-desc">{shownRecoveryNote}</span>
                             </span>
                             <KeptAsideActions variant="settings" canAct={recoveryAllowed} onGone={() => {
                                 onRecoveryChanged?.();
@@ -376,13 +388,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                 saveHeadingRef.current?.focus();
                             }} onChanged={() => onRecoveryChanged?.()} onLeave={() => {
                                 (reloadRef.current ?? saveHeadingRef.current)?.focus();
-                            }} />
+                            }} downloadLabel={showUnreadableRow ? KEPT_ASIDE_DOWNLOAD_LABEL : undefined} />
                         </div>
                     )}
                     <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
-                            <span className="settings-desc" role="status"><span key={exportCount}>{exportNote}</span></span>
+                            <span className="settings-desc" role="status"><span key={exportCount}>{exportNote ?? (playerUnreadable ? DAMAGED_EXPORT_KEY_NOTE : EXPORT_KEY_NOTE)}</span></span>
                         </span>
                         <button type="button" className="btn btn--secondary btn--sm" onClick={handleExportSave}>
                             <Download aria-hidden="true" /> Export

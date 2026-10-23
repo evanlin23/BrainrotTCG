@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectSummaryTakesClicks } from './support';
+import { expectPackDropped, monitor, expectSummaryTakesClicks } from './support';
 
 /**
  * Two accessibility preferences the page cannot see in its own colours:
@@ -68,6 +68,7 @@ test.describe('forced colours', () => {
     const errors = await monitor(page, baseURL, historyRecords, { returning: true });
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
+    await expectPackDropped(page);
     expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
     return errors;
   };
