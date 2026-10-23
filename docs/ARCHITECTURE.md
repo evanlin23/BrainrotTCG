@@ -183,6 +183,8 @@ Each run re-derives at most 300 pulls and files at most 20. It remembers handled
 Actions cache (latest 20,000) and skips already verified pulls. Fetching requests up to 50 pages of
 100 events per relay within a 60-second connection deadline, over a seven-day window. These are
 client request limits, not guarantees that relays return or retain every event or obey the limits.
+A run in which every relay fails without sending an event fails the job, so an outage shows before
+events age out of the window; a run that reads at least one relay succeeds.
 Only valid event signatures are retained, and the exact proof text in the link is accepted. A filing
 that stops after opening an issue can reuse that issue on retry. Deferred submissions are eligible
 on a later run only while still available in the fetched window; cache eviction and service errors
