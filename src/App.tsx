@@ -170,6 +170,9 @@ function App() {
   const [packBusy, setPackBusy] = useState(false);
   /** A pack is open, from the tear to leaving it: the chrome steps aside (see index.css). Not busy: it disables nothing. */
   const [packFocus, setPackFocus] = useState(false);
+  // The sealed pack falls in the first time it shows in a page load; after that it only rises in, even on a new set's opener.
+  const [packArrived, setPackArrived] = useState(false);
+  const arriveAtPack = useCallback(() => setPackArrived(true), []);
   /** A big pull is on show: notices wait until it ends, so none lands in the player's screenshot. */
   const [packShowcase, setPackShowcase] = useState(false);
 
@@ -483,6 +486,8 @@ function App() {
           isOwned={isOwned}
           onLeaveEarly={noticeKeptPack}
           openCue={!showNav}
+          arrived={packArrived}
+          onArrive={arriveAtPack}
         />
         {/* A quiet way into the card guide once a first pack is saved (a new player sees only the pack); it steps aside with the chrome once a pack is torn. */}
         {showNav && !packFocus && !packBusy && (

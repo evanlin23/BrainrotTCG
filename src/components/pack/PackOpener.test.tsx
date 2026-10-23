@@ -594,3 +594,86 @@ describe('one record per pack, whatever order the player and the ticket arrive i
     expect(onOpen).toHaveBeenCalledOnce();
   });
 });
+
+describe('how the sealed pack comes into the packs screen (#720)', () => {
+  const set = SETS[0];
+  const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+  const dealt = { setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0 } as unknown as Awaited<ReturnType<typeof openPack>>;
+  // These read the stage's style in the same turn as the render that made it, before any animation frame
+  // can move it, so they use real timers and never wait on the clock for a value.
+  const show = (extra: { arrived?: boolean; onArrive?: () => void } = {}) => act(() => root.render(
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={set} settings={DEFAULT_SETTINGS} mountedSave={MOUNTED_SAVE} {...extra} />,
+  ));
+  const stage = () => document.querySelector<HTMLElement>('.pack-display')!;
+  const tear = async () => {
+    vi.mocked(openPack).mockResolvedValue(dealt);
+    act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
+    await vi.waitFor(() => expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull());
+  };
+  /**
+   * Tears the pack and waits for the torn one to finish flying off: a stage that comes back while its exit
+   * is still running is the same element, not a new entrance.
+   */
+  const tearIntoReveal = async () => {
+    await tear();
+    await vi.waitFor(() => expect(document.querySelector('.pack-display')).toBeNull());
+  };
+  const escape = () => act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })); });
+
+  beforeEach(() => {
+    vi.stubGlobal('requestIdleCallback', () => 0);
+    vi.stubGlobal('cancelIdleCallback', () => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+  });
+
+  it('falls in from above on the first arrival, then only rises in on every return', async () => {
+    const onArrive = vi.fn();
+    show({ onArrive });
+    expect(stage().style.transform).toContain('-100vh');
+    expect(stage().style.transform).toContain('rotate(-10deg)');
+    expect(stage().style.opacity).toBe('0');
+    await vi.waitFor(() => expect(onArrive).toHaveBeenCalledOnce());
+
+    await tearIntoReveal();
+    escape();
+    // Back on the packs screen: a short rise from just below its place, never from above or turned.
+    expect(stage().style.transform).toBe('translateY(24px)');
+    expect(stage().style.opacity).toBe('0');
+
+    await tearIntoReveal();
+    escape();
+    expect(stage().style.transform).toBe('translateY(24px)');
+    expect(onArrive).toHaveBeenCalledOnce();
+  });
+
+  it('rises in from the first stage of an opener the page has already seen the pack arrive in', () => {
+    const onArrive = vi.fn();
+    show({ arrived: true, onArrive });
+    expect(stage().style.transform).toBe('translateY(24px)');
+    expect(onArrive).not.toHaveBeenCalled();
+  });
+
+  it('shows the pack at once on a return when the device asks for less motion, and still falls on the first load', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
+    show();
+    // The first arrival is left to the motion setting (framer drops the movement under "user"), as it was.
+    expect(stage().style.transform).toContain('-100vh');
+
+    await tearIntoReveal();
+    escape();
+    expect(stage().style.opacity).toBe('1');
+    expect(stage().style.transform).toBe('none');
+  });
+
+  it('takes taps on a pack that comes back while the torn one is still flying off', async () => {
+    // jsdom has no layout, and without a size framer-motion never marks a leaving element.
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300);
+    show();
+    await tear();
+    escape();
+    // Same element as the one that left: it must not keep the mark that makes the leaving pack ignore taps.
+    await vi.waitFor(() => expect(stage().getAttribute('data-motion-pop-id')).toBeNull());
+  });
+});
