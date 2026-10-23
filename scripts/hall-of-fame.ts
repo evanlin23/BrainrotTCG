@@ -19,7 +19,9 @@
  *     qualifies as a bot-authored Hall of Fame issue with the same verified
  *     marker, so `build` treats it like any other entry. Writes `added` to
  *     $GITHUB_OUTPUT. Event ids it has seen are kept in hof-inbox-seen.json
- *     (cached between runs) so junk isn't re-checked every time.
+ *     (cached between runs) so junk isn't re-checked every time. Every run, even
+ *     one that fails, writes its counts to hof-inbox-summary.json for
+ *     scripts/ops-health.ts.
  *
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
  *     Lists verified Hall of Fame issues (and `daily` ones from the day before
@@ -77,7 +79,8 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, probeLine, processInbox, relayReadLine } from './hof-inbox.ts';
+import { buildSkipLine, probeLine, processInbox, relayReadLine, type InboxStats } from './hof-inbox.ts';
+import { INBOX_SUMMARY_PATH, type InboxStage, type InboxSummary } from './ops-health.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -506,7 +509,47 @@ export const INBOX_SEEN_CAP = 20000;
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
 const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
 
+/**
+ * Reads, files and writes `added`, then always writes hof-inbox-summary.json: the run's counts and
+ * the stage it reached, nothing from the events or the errors (scripts/ops-health.ts reads it).
+ */
 export const inbox = async (ticketFn?: TicketFn) => {
+  const run: InboxRun = { stage: 'relays', relays: { total: 0, failed: 0 }, read: 0, added: 0, deferred: 0, stats: { checked: 0, stop: null, oldestDeferredAt: null } };
+  let outcome: 'ok' | 'error' = 'error';
+  try {
+    await readInbox(run, ticketFn);
+    run.stage = 'done';
+    outcome = 'ok';
+  } finally {
+    writeInboxSummary(run, outcome);
+  }
+};
+
+interface InboxRun { stage: InboxStage; relays: { total: number; failed: number }; read: number; added: number; deferred: number; stats: InboxStats }
+
+const writeInboxSummary = (run: InboxRun, outcome: 'ok' | 'error') => {
+  const now = Math.floor(Date.now() / 1000);
+  const { oldestDeferredAt, checked, stop } = run.stats;
+  const summary: InboxSummary = {
+    v: 1,
+    rev: process.env.GITHUB_SHA ?? '0'.repeat(40),
+    run: Number(process.env.GITHUB_RUN_ID ?? 1),
+    at: new Date(now * 1000).toISOString(),
+    stage: run.stage,
+    outcome,
+    relays: run.relays,
+    read: run.read,
+    checked,
+    added: run.added,
+    deferred: run.deferred,
+    stop,
+    // The sender's own timestamp: kept inside the relay window, never negative.
+    oldestDeferredAgeS: oldestDeferredAt === null ? null : Math.min(INBOX_WINDOW_S, Math.max(0, now - oldestDeferredAt)),
+  };
+  writeFileSync(INBOX_SUMMARY_PATH, `${JSON.stringify(summary)}\n`);
+};
+
+const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('inbox needs GITHUB_TOKEN to file issues');
   const seen = new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
@@ -514,6 +557,9 @@ export const inbox = async (ticketFn?: TicketFn) => {
   const since = Math.floor(Date.now() / 1000) - INBOX_WINDOW_S;
   const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES);
   for (const r of perRelay) console.log(relayReadLine(r));
+  run.relays = { total: perRelay.length, failed: perRelay.filter((r) => r.error).length };
+  run.read = events.length;
+  run.stage = 'issues';
 
   // Pulls already in the Hall of Fame: only verified issues count (`verified`, or `daily`), so an
   // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't
@@ -535,11 +581,14 @@ export const inbox = async (ticketFn?: TicketFn) => {
   // pull is judged by the UTC day its entry is stamped with: its unfinished issue's, or else today's
   // (a new issue is stamped as it opens), so after midnight a run judges by the new day's top. The
   // floor is today's, so it doesn't apply to an unfinished issue, which may be judged by an earlier day.
+  run.stage = 'list';
   const list = await publishedList();
   if (!list) console.log("Couldn't read the published list; filing every qualifying pull");
   const stampDay = (pull: VerifiedPull) => utcDay(unfinished.get(pullId(pull.proof))?.created_at ?? new Date().toISOString());
 
+  run.stage = 'process';
   const { added, deferred } = await processInbox(events, {
+    stats: run.stats,
     seen,
     filed,
     accepts: (pull) => (list ? joinRefusal(pull, list, stampDay(pull)) === null : qualifiesForHallOfFame(pull.score)),
@@ -581,6 +630,7 @@ export const inbox = async (ticketFn?: TicketFn) => {
     },
   });
   if (deferred) console.log(`${deferred} events left for the next run`);
+  Object.assign(run, { added, deferred });
 
   // Keep the cache bounded; the newest ids matter (older events fall out of the window anyway).
   writeFileSync(SEEN_PATH, JSON.stringify([...seen].slice(-INBOX_SEEN_CAP)));

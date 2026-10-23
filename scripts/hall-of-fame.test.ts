@@ -14,6 +14,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
 import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
+import { parseInboxSummary } from './ops-health.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
 
@@ -721,6 +722,36 @@ describe('inbox (scheduled workflow)', () => {
     await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
     expect(gh.requests).toEqual([]);
   });
+
+  describe('run summary for ops-health (#715)', () => {
+    const summary = () => JSON.parse(readFileSync('hof-inbox-summary.json', 'utf8')) as Record<string, unknown>;
+    beforeEach(() => {
+      vi.stubEnv('GITHUB_SHA', 'a'.repeat(40));
+      vi.stubEnv('GITHUB_RUN_ID', '4242');
+    });
+
+    it('writes counts only, which ops-health reads back unchanged', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = relaysHold(pair, fourOfAKind);
+      vi.mocked(fetchEvents).mockResolvedValue({ events, perRelay: [{ relay: 'wss://a', count: 2 }, { relay: 'wss://b', count: 0, error: 'timeout' }] });
+      await inbox();
+      const written = summary();
+      expect(written).toEqual({
+        v: 1, rev: 'a'.repeat(40), run: 4242, at: '2026-10-16T12:00:00.000Z', stage: 'done', outcome: 'ok',
+        relays: { total: 2, failed: 1 }, read: 2, checked: 2, added: 1, deferred: 0, stop: null, oldestDeferredAgeS: null,
+      });
+      expect(parseInboxSummary(written)).toEqual(written);
+      const text = readFileSync('hof-inbox-summary.json', 'utf8');
+      for (const leak of [fourOfAKind, events[0].id, 'wss://', 'timeout', 'Combo Miner']) expect(text).not.toContain(leak);
+    });
+
+    it('still writes one, with the stage it stopped in, when the run fails', async () => {
+      vi.stubEnv('GITHUB_TOKEN', undefined);
+      await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
+      expect(summary()).toMatchObject({ stage: 'relays', outcome: 'error', read: 0, added: 0, deferred: 0 });
+      expect(parseInboxSummary(summary())).not.toBeNull();
+    });
+  });
 });
 
 describe('retention and intake contracts (offline)', () => {
@@ -824,7 +855,8 @@ describe('retention and intake contracts (offline)', () => {
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-seen.json']);
+    // The run's counts-only summary (#715) is the one other file it leaves.
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-seen.json', 'hof-inbox-summary.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });

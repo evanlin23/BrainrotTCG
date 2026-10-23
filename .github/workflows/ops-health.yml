@@ -1,0 +1,114 @@
+name: Ops health
+
+# Operational health from signals that already exist (#715): the deploy's and the Hall of Fame
+# inbox's run results, and the counts-only summary each inbox run uploads. No server, no new
+# service and only the run's own token. scripts/ops-health.ts decides each condition (ok,
+# unhealthy or unknown) and the report job keeps one issue per condition: opened (or reopened)
+# when it turns unhealthy, closed when it clears, and left alone while it stays the same or is
+# unknown. Conditions, limits and runbook: docs/DEVELOPMENT.md (Operational health).
+#
+# GitHub's schedule has never fired for this repository (see hall-of-fame-inbox.yml), so this also
+# runs whenever a deploy of main finishes; a report that hasn't run is not a healthy one. Run it by
+# hand from the Actions tab.
+on:
+  schedule:
+    # Off the hour, which GitHub delays or drops under load.
+    - cron: '23 */6 * * *'
+  workflow_run:
+    workflows: ['Deploy to GitHub Pages']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# Each job gets only what it uses.
+permissions: {}
+
+concurrency:
+  group: ops-health
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    # main's own script only: a run dispatched from another branch does nothing.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      conditions: ${{ steps.collect.outputs.conditions }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - id: collect
+        name: Read the runs and summaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: npx tsx scripts/ops-health.ts >> "$GITHUB_STEP_SUMMARY"
+      # Names, run ids, outcomes, times, short revisions and counts only.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: ops-health
+          path: ops-health.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # It never checks out or runs the repository's code.
+  report:
+    needs: collect
+    if: ${{ needs.collect.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open, reopen or close one issue per condition
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # No checkout here, so gh is told the repository.
+          GH_REPO: ${{ github.repository }}
+          CONDITIONS: ${{ needs.collect.outputs.conditions }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUNBOOK: ${{ github.server_url }}/${{ github.repository }}/blob/main/docs/DEVELOPMENT.md#operational-health
+        # pipefail: a failed issue lookup fails the step instead of opening a duplicate issue.
+        shell: bash
+        run: |
+          gh label create ops-health --color b60205 --description 'Operational health condition (ops-health.yml)' --force
+          # Only an issue this workflow or the owner opened counts: the repository takes public issues.
+          gh issue list --state all --label ops-health --limit 100 --json number,title,state,author \
+            | jq '[.[] | select(.author.login | test("^((app/)?github-actions(\\[bot\\])?|evanlin23)$"))]' > issues.json
+          jq -c '.[]' <<< "$CONDITIONS" | while IFS= read -r condition; do
+            key=$(jq -r .key <<< "$condition")
+            state=$(jq -r .state <<< "$condition")
+            title=$(jq -r .title <<< "$condition")
+            reason=$(jq -r .reason <<< "$condition")
+            open=$(jq -r --arg t "$title" '[.[] | select(.title == $t and .state == "OPEN")] | sort_by(.number) | .[0].number // empty' issues.json)
+            closed=$(jq -r --arg t "$title" '[.[] | select(.title == $t and .state == "CLOSED")] | sort_by(.number) | .[-1].number // empty' issues.json)
+            if [ "$state" = unhealthy ] && [ -z "$open" ]; then
+              {
+                echo "$reason"
+                echo
+                echo "- Condition: \`$key\`"
+                echo "- Seen by: $RUN_URL"
+                echo "- Runbook: $RUNBOOK"
+                echo
+                echo "This is the one issue for this condition. The health report reopens it when the condition comes back and closes it when it clears; it doesn't comment on every run."
+              } > body.md
+              if [ -n "$closed" ]; then
+                gh issue reopen "$closed" --comment "$(cat body.md)"
+              else
+                gh issue create --title "$title" --label ops-health --body-file body.md
+              fi
+            elif [ "$state" = ok ] && [ -n "$open" ]; then
+              gh issue close "$open" --reason completed --comment "Cleared: $reason ($RUN_URL)"
+            fi
+          done

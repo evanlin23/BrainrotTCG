@@ -425,6 +425,62 @@ there. Fix the test, never loosen or skip it, and close the issue once a run pas
 `scripts/hof-workflows.test.ts` checks the workflow's permissions and runs its seed and report steps,
 in the shell each declares, against a fake `gh`.
 
+## Operational health
+
+`.github/workflows/ops-health.yml` reports on main's deploys and the Hall of Fame inbox from signals
+that already exist (#715). It runs every 6 hours (best effort, like every GitHub schedule here),
+whenever a deploy of main finishes, and by hand from the Actions tab. `scripts/ops-health.ts` reads
+the runs; the run summary shows the table and `ops-health.json` (artifact, 14 days) holds the same
+report.
+
+Signals it reads, all through the run's own `GITHUB_TOKEN` (`actions: read`):
+
+- the newest 20 runs on main of `deploy.yml`, `hall-of-fame-inbox.yml`, and, report only,
+  `hall-of-fame.yml`, `test-order.yml` and `performance-baseline.yml`;
+- main's newest commit and its time;
+- `hof-inbox-summary.json`, which each inbox run uploads (artifact, 3 days) even when it fails:
+  revision, run id, time, the stage it reached, outcome, relay count and failures, events read,
+  pulls checked, issues added, events deferred, why it stopped (`budget`, `filing-cap` or
+  `write-failed`) and the oldest deferred event's age. Counts and fixed words only. The newest 6
+  successful runs' summaries are read, and only one whose run id and revision match its run counts.
+
+Not available, so not claimed: Cloudflare (the inbox cron Worker and any analytics) and GitHub
+Pages traffic or uptime. Neither has a log or dashboard this repository can read, and adding one
+needs the owner's accounts. A Worker that stops dispatching shows up only as `inbox-stale`.
+`ci.yml` and `browser-tests.yml` skip main, so main's health is its deploys.
+
+| Condition | Unhealthy when | Runbook |
+| --- | --- | --- |
+| `deploy-failing` | the newest finished deploy failed, was cancelled or skipped | open the run, fix main, let the next merge or a manual deploy run |
+| `deploy-behind` | main's newest commit is over 3 hours old with no successful deploy | look for a queued, cancelled or failed deploy of that commit; dispatch `deploy.yml` once fixed |
+| `inbox-failing` | the newest finished inbox run failed, was cancelled or skipped | its summary's `stage` says where it stopped; the run log has the error |
+| `inbox-stale` | no successful inbox run in 2 hours, or none among the newest 20 | check the Worker dispatch (the owner's Cloudflare account) and the workflow's enabled state |
+| `inbox-deferring` | the newest 3 successful runs all left events for later | the summaries' `stop` names the cap; a backlog that keeps growing needs a bigger budget or filing cap |
+
+Each condition is ok, unhealthy or unknown. Unknown means it couldn't tell: the runs couldn't be
+listed, a newer run is still going, a commit is inside its deploy grace, or a summary expired or
+never uploaded. A run that was skipped, cancelled or never happened is not a success, and an
+unobserved summary is not an empty queue: the inbox reads at most 50 pages of 100 events over a
+7-day relay window, checks at most 300 pulls and files at most 20 per run, so a zero from a run
+that stopped early is not a zero backlog.
+
+The report job keeps one issue per condition, labelled `ops-health` and found by its exact title.
+It counts only issues that `github-actions` or evanlin23 opened, because the repository takes public
+issues. When a condition turns unhealthy it opens the issue, or reopens the newest closed one with a
+comment; when the condition is ok it closes the open one with a comment. It does nothing while the
+state is unchanged or unknown, so it never comments on every run. If the issue lookup fails the job
+fails and writes nothing. A failed `ops-health` run is itself the signal that the report is broken.
+The Claude `/work` queue owns these issues; anything that needs the owner's accounts (Cloudflare,
+repository settings) goes to evanlin23 under `needs owner`. The quality review cadence reads them
+with the other existing signals.
+
+Cost: a public repository's Actions minutes are free; each run makes at most a few dozen API calls and
+downloads at most six small artifacts. It needs no secret beyond `GITHUB_TOKEN`, and the report job
+never checks out code. It never exports player keys, proofs, saves, event ids, relay addresses, URLs
+from the inbox, error text or other free text. `scripts/ops-health.test.ts` covers healthy, failed,
+stale, missing and partly observed states and the sanitizing, and `scripts/hof-workflows.test.ts`
+runs the report step against a fake `gh`.
+
 ## Performance baseline
 
 `npm run test:performance` is **report-only**: timings have no pass/fail budget, and neither

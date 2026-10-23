@@ -30,6 +30,18 @@ export interface InboxContext {
   /** Files one verified, accepted pull. */
   file: (proof: string, pull: VerifiedPull, event: NostrEvent) => Promise<void>;
   log?: (line: string) => void;
+  /** Filled in for the run's summary (scripts/ops-health.ts): counts and the reason it stopped early. */
+  stats?: InboxStats;
+}
+
+/** What a run did, for its counts-only summary. */
+export interface InboxStats {
+  /** Pulls re-derived. */
+  checked: number;
+  /** Why events were left for the next run: budget spent, filing cap reached, or a GitHub write failed. */
+  stop: 'budget' | 'filing-cap' | 'write-failed' | null;
+  /** The sender's timestamp (Unix seconds) of the oldest event left for later. */
+  oldestDeferredAt: number | null;
 }
 
 /**
@@ -62,6 +74,10 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
   let added = 0;
   let budget = ctx.budget;
   const ordered = [...events].sort((a, b) => a.created_at - b.created_at);
+  const defer = (i: number, stop: InboxStats['stop']) => {
+    if (ctx.stats) Object.assign(ctx.stats, { stop, oldestDeferredAt: ordered[i].created_at });
+    return { added, deferred: ordered.length - i };
+  };
   for (const [i, event] of ordered.entries()) {
     if (ctx.seen.has(event.id)) continue;
     const proof = verifyEvent(event) ? proofFromEvent(event) : null;
@@ -92,8 +108,10 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       continue;
     }
     // The rest wait for the next run.
-    if (added >= ctx.maxFiled || budget-- <= 0) return { added, deferred: ordered.length - i };
+    if (added >= ctx.maxFiled) return defer(i, 'filing-cap');
+    if (budget-- <= 0) return defer(i, 'budget');
     ctx.seen.add(event.id);
+    if (ctx.stats) ctx.stats.checked++;
     let pull: VerifiedPull;
     try {
       pull = await verifyProof(proof, ctx.lookup, ctx.ticketFn);
@@ -111,7 +129,7 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       // GitHub hiccup: leave this event unhandled so the next run tries again, and stop for now.
       ctx.seen.delete(event.id);
       ctx.log?.(`${event.id}: couldn't file it (${logSafeError(error)}); will retry`);
-      return { added, deferred: ordered.length - i };
+      return defer(i, 'write-failed');
     }
     ctx.filed.add(id);
     added++;

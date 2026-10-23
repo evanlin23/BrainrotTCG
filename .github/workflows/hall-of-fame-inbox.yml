@@ -82,6 +82,15 @@ jobs:
         run: npx tsx scripts/hall-of-fame.ts inbox
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      # The run's counts and the stage it reached, for ops-health.yml: no events, proofs, names,
+      # relay addresses or error text. Written even when the inbox step fails.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: hof-inbox-summary
+          path: hof-inbox-summary.json
+          retention-days: 3
+          if-no-files-found: ignore
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: always()
         with:
