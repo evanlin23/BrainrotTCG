@@ -207,8 +207,8 @@ nothing to GitHub, a relay or Pages. What is real and what is not:
 - Limits, also in the report's `labels.limits`: the published list is assumed to be a 404, so the
   floor and `joinRefusal` paths do not run; event and proof keys come from 16-key pools. A scenario
   asking for a `measured` Argon2 time without a sample reports `meta.argon.source` as
-  `measured-missing` and uses the default. Per run, `beyondPaging` counts events past the paging cap
-  and `unreadable` counts in-window events no relay could serve (every relay down).
+  `measured-missing` and uses the default. Per run, `beyondPaging` counts in-window events the run
+  didn't read (past the paging cap; since #999, only ones an earlier run already read through), and `unreadable` counts in-window events no relay could serve (every relay down).
 
 ```
 npx tsx scripts/hof-capacity.ts --list

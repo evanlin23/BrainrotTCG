@@ -371,10 +371,13 @@ PERMISSIONS = {
     'staging-checks': {'contents': 'read'},
     'publish': {'contents': 'read'},
     'deploy': {'pages': 'write', 'id-token': 'write'},
+    'smoke': {'contents': 'read', 'actions': 'read'},  # actions: read to name the last passing deploy
 }
 NEEDS = {'site': {'independent-verifier'}, 'build': {'site'}, 'stage': {'site', 'build'},
          'staging-checks': {'site', 'build', 'stage'}, 'publish': {'site', 'build', 'stage', 'staging-checks'},
-         'deploy': {'build', 'publish'}}
+         'deploy': {'build', 'publish'}, 'smoke': {'site', 'deploy'}}
+# The production smoke checks are bounded: no other job sets a timeout.
+TIMEOUTS = {'smoke': 15}
 SECRET_STEPS = {('site', 'site'), ('stage', 'Deploy to Cloudflare Pages staging'), ('publish', 'Deploy to Cloudflare Pages')}
 # The jobs that hold the Cloudflare secrets run in this environment, so its secrets and branch rule
 # (docs/HOSTING.md) cover them. No other job names an environment but deploy (github-pages).
@@ -403,6 +406,11 @@ def match(step, spec):
         if not (want(have) if callable(want) else have == want):
             return False
     return True
+
+
+def smoke_status(name, index, step, jobs):
+    """Whether step is smoke's last step and exactly the status step, the one step that runs always."""
+    return name == 'smoke' and index == len(jobs['smoke'].get('steps') or []) - 1 and match(step, SMOKE_STATUS)
 
 
 def cloudflare(spec):
@@ -482,6 +490,25 @@ STAGING_CHECKS = [
     staging({'env': {'STAGING_URL': '${{ needs.site.outputs.staging_url }}'}, 'run': 'npx playwright test -c playwright.staging.config.ts'}),
 ]
 DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
+# Read-only checks of production once publish and deploy are done (scripts/production-smoke.ts): no
+# secrets, and every check's failure fails the run. Only the last step is conditional, and only to run
+# always: it reads both checks' outcomes and says whether the release is known-good, or what to go
+# back to.
+SMOKE_ENV = {'SITE_URL': '${{ needs.site.outputs.url }}', 'HOST': '${{ needs.site.outputs.host }}',
+             'OLD_URL': 'https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/'}
+SMOKE_STATUS = {'if': 'always()', 'env': {**SMOKE_ENV, 'GH_TOKEN': '${{ github.token }}',
+                                          'HTTP_OUTCOME': '${{ steps.http.outcome }}', 'BROWSER_OUTCOME': '${{ steps.browser.outcome }}'},
+                'run': 'npx tsx scripts/production-smoke.ts --status >> "$GITHUB_STEP_SUMMARY"'}
+SMOKE = [
+    {'uses': 'actions/checkout', 'with': {'persist-credentials': False}},
+    {'uses': 'actions/setup-node', 'with': {'node-version': 22, 'cache': 'npm'}},
+    {'run': 'npm ci'},
+    {'id': 'http', 'env': SMOKE_ENV, 'run': 'npx tsx scripts/production-smoke.ts >> "$GITHUB_STEP_SUMMARY"'},
+    {'run': 'npx playwright install --with-deps chromium'},
+    {'id': 'browser', 'env': {'PRODUCTION_URL': '${{ needs.site.outputs.url }}'},
+     'run': 'npx playwright test -c playwright.production.config.ts'},
+    SMOKE_STATUS,
+]
 # Only one deploy of main runs at a time, and a newer push to main cancels the older run: with GUARD
 # and TIP, this is what stops an older build publishing over a newer one. One group per ref, so a run
 # from another branch (which GUARD fails) can't cancel a run of main.
@@ -511,9 +538,11 @@ def check_deploy(workflow):
     if set(jobs) != set(PERMISSIONS):
         return problems + [f'deploy.yml: jobs must be exactly {sorted(PERMISSIONS)}']
     for name, job in jobs.items():
-        extra = set(job) - {'needs', 'runs-on', 'permissions', 'outputs', 'steps', 'environment'}
+        extra = set(job) - {'needs', 'runs-on', 'permissions', 'outputs', 'steps', 'environment', 'timeout-minutes'}
         if extra:
             problems.append(f'deploy.yml: job {name} has {sorted(extra)}')
+        if job.get('timeout-minutes') != TIMEOUTS.get(name):
+            problems.append(f"deploy.yml: job {name} timeout-minutes must be {TIMEOUTS.get(name, 'unset')}")
         if job.get('environment') != ENVIRONMENTS.get(name):
             problems.append(f'deploy.yml: job {name} must run in environment {ENVIRONMENTS.get(name)}')
         if job.get('permissions') != PERMISSIONS[name]:
@@ -525,13 +554,16 @@ def check_deploy(workflow):
             label = step_label(name, index, step)
             if set(step) - {'name', 'id', 'if', 'uses', 'with', 'env', 'run'}:
                 problems.append(f'deploy.yml: {label} has {sorted(set(step) - {"name", "id", "if", "uses", "with", "env", "run"})}')
-            if 'if' in step and step['if'] != CLOUDFLARE and not (step['if'] == STAGING and name in STAGING_JOBS | {'publish'}):
+            if 'if' in step and step['if'] != CLOUDFLARE and not (step['if'] == STAGING and name in STAGING_JOBS | {'publish'}) \
+                    and not smoke_status(name, index, step, jobs):
                 problems.append(f'deploy.yml: {label} may only be conditional on the Cloudflare host, '
                                 'or on staging in stage, staging-checks and publish')
             if action(step) == 'actions/checkout' and (step.get('with') or {}).get('persist-credentials') is not False:
                 problems.append(f'deploy.yml: {label} must not keep the token (persist-credentials: false)')
     for path, text in walk(workflow):
-        if re.search(r'\b(?:always|cancelled|failure)\(\)', text):
+        status = len(path) == 5 and path[0] == 'jobs' and path[2] == 'steps' and path[4] == 'if' \
+            and smoke_status(path[1], path[3], jobs[path[1]]['steps'][path[3]], jobs)
+        if re.search(r'\b(?:always|cancelled|failure)\(\)', text) and not status:
             problems.append(f'deploy.yml: {"/".join(map(str, path))} runs after a failure or cancel')
         if re.search(r'\bsecrets\b', text):
             # Only as a value in the env of the site lookup or a Wrangler deploy: jobs/J/steps/N/env/KEY.
@@ -587,6 +619,11 @@ def check_deploy(workflow):
                         'playwright.staging.config.ts against staging with the sealed files as ./dist')
     if len(deploy) != len(DEPLOY) or not all(match(step, spec) for step, spec in zip(deploy, DEPLOY)):
         problems.append('deploy.yml: deploy must only require the tip of main, then deploy Pages')
+    smoke = jobs['smoke'].get('steps') or []
+    if len(smoke) != len(SMOKE) or not all(match(step, spec) for step, spec in zip(smoke, SMOKE)):
+        problems.append('deploy.yml: smoke must check out without the token, install, run scripts/production-smoke.ts '
+                        'against the site address, then run playwright.production.config.ts there, then always record '
+                        'the release status from both outcomes (production-smoke.ts --status)')
     return problems
 
 

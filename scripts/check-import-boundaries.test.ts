@@ -30,23 +30,12 @@ const messages = (files: Record<string, string>, exceptions: readonly BoundaryEx
 const CARD = { 'src/components/cards/Card.tsx': 'export interface CardWithMeta { id: string }\n' };
 
 describe('the repository', () => {
-  it('has no import-boundary violations, and every exception is still needed', () => {
+  it('has no import-boundary violations, and needs no exceptions to say so', () => {
     const { violations, files } = checkImportBoundaries(REAL_ROOT);
     expect(formatViolations(violations)).toBe('');
     expect(files).toBeGreaterThan(100);
-  });
-
-  it('needs no exceptions: the repository passes with an empty list', () => {
     expect(EXCEPTIONS).toEqual([]);
     expect(formatViolations(checkImportBoundaries(REAL_ROOT, []).violations)).toBe('');
-  });
-
-  it('gives every exception a reason, a removal condition and an owner issue', () => {
-    for (const exception of EXCEPTIONS) {
-      expect(exception.reason.trim()).not.toBe('');
-      expect(exception.removeWhen.trim()).not.toBe('');
-      expect(exception.issue).toMatch(/^#\d+$/);
-    }
   });
 
   it('puts every directory under src in a layer', () => {
