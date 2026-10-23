@@ -130,3 +130,15 @@ it('counts a pack waiting on the shelf once when the stats it was owed to are re
   expect(storedStats()).toEqual(settled);
   expect(storedStats().packsOpened).toBe((await historyNonces()).length);
 });
+
+it('leaves unreadable stats stored as they are while the player record has no key that can be read (#1053, #1052)', async () => {
+  const damagedPlayer = '{"secretKey":"not a key","name":"Old Player","nextNonce":4';
+  app = await mountedApp({ ...SEED, 'brainrot-player-v1': damagedPlayer, [STORAGE_KEYS.STATS]: 'garbage' });
+  await app.mount();
+  // Rebuilt from a stand-in key's empty history, they would count no packs: nothing is stored over the bytes.
+  expect(localStorage.getItem(STORAGE_KEYS.STATS)).toBe('garbage');
+  expect(localStorage.getItem('brainrot-player-v1')).toBe(damagedPlayer);
+  expect(warnings()).toEqual([expect.stringMatching(/^Unreadable player and stats data was kept aside in this browser\./)]);
+  await app.reload();
+  expect(localStorage.getItem(STORAGE_KEYS.STATS)).toBe('garbage');
+});

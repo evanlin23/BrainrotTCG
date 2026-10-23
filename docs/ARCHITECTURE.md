@@ -430,7 +430,9 @@ download it. Stored stats this build can't read go in the same archive, marked w
 they load; the stats in use are rebuilt from their readable fields, this key's history and the
 collection (`statsRecovery.ts`), taking the history's best pack when it beats a readable one kept,
 and App stores them at once, unless their copy is held only for that visit (then the stats stay
-unsaved and the save warning shows). Nothing discards kept-aside data silently; the player can
+unsaved and the save warning shows) or the player record has no key that can be read (they were
+rebuilt from a stand-in key's empty history, and no pack opens until it is replaced). Nothing
+discards kept-aside data silently; the player can
 download or discard it from the save warning or Settings, and after a discard the next write
 replaces the bytes it came from. A player record (`player.ts`) that can't be read as is is archived
 the same way before anything replaces it (#1052). If its secret key reads, the key stays and only
@@ -446,7 +448,8 @@ the copy stays and the page reloads. Export writes the damaged bytes as `player`
 `brainrot-tcg-damaged-player-*` whose note promises no working key, and importing it says it is such
 a copy (`holdsDamagedPlayer`) rather than pairing the save with a new key. Export includes that
 archive, with the payloads held for that visit only that were kept for the stored player (matched by
-secret key), and rebuilds unreadable stats as a load does, so the file imports again. Import
+secret key, or by the record's exact bytes when no key reads), and rebuilds unreadable stats as a
+load does, so the file imports again. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
 import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; a failed

@@ -6,6 +6,8 @@
  * packs this key's history records, and the holo cards and best pack found there and in the collection.
  * App stores the rebuilt stats as soon as it has loaded (once the copy is stored, not only held for the
  * visit), so a discard sticks and a backup holds stats it can import; until then an export rebuilds them.
+ * Not while the player record has no key that can be read: rebuilt from a stand-in key's empty history,
+ * they would count no packs, and none opens until a backup or a new player replaces the record.
  */
 import { STORAGE_KEYS } from '../constants';
 import { scoreCards } from '../data/cards';
@@ -28,7 +30,7 @@ export interface LoadedStats {
    * these is in the history already, so it counts as `counted` (it only adds its cards).
    */
   counted: ReadonlySet<number>;
-  /** The stored stats were unreadable and these were rebuilt: App stores them right after load. */
+  /** The stored stats were unreadable and these were rebuilt: App stores them right after load (unless the player record is unreadable). */
   rebuilt: boolean;
 }
 
