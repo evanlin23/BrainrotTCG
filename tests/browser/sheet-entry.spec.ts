@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { monitor, untilIdle } from './support';
 
 // Cards and Rankings are pages: while a slow chunk loads, a skeleton holds the page's place (rows for
 // Rankings) and no sheet opens or animates in, so nothing flashes. Pointing at a tab fetches its chunk.
@@ -52,8 +52,8 @@ for (const { tab, chunk, skeleton, content } of SCREENS) {
     await expect(main.locator('.page-skeleton')).toHaveCount(0, { timeout: 15000 });
     await expect(main.locator(content).first()).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    // Long enough for a sheet entrance to start, if one were going to.
-    await page.waitForTimeout(500);
+    // An entrance starts with the render that shows the sheet, so it has started once the page is idle.
+    await untilIdle(page);
     expect(await entrances(page)).toEqual({ panel: 0, backdrop: 0, placeholder: false });
     expect(errors).toEqual([]);
   });
@@ -71,9 +71,10 @@ test('pointing at Cards fetches it, so it opens with no skeleton', async ({ page
   const tab = page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Cards', exact: true });
   const fetched = page.waitForResponse(/\/assets\/CollectionBrowser-[^/]+\.js$/);
   await tab.hover();
-  await fetched;
-  // Let the module evaluate, so the loader holds it before the click.
-  await page.waitForTimeout(200);
+  // Importing the same module again settles once the first import has evaluated, so the loader holds it
+  // before the click.
+  const chunkUrl = (await fetched).url();
+  await page.evaluate((href) => import(/* @vite-ignore */ href).then(() => undefined), chunkUrl);
   await tab.click();
   const main = page.getByRole('main', { name: 'Cards', exact: true });
   await expect(main.locator('.collection')).toBeVisible();

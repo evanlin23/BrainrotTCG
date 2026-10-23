@@ -445,6 +445,17 @@ export async function expectDecoded(images: Locator, count: number) {
   }
 }
 
+/**
+ * Resolves once the page has painted a frame and then gone idle. Input events hand React their state
+ * synchronously, so whatever a gesture or an event was going to show has been rendered by then: use it
+ * to check that nothing followed, in place of a pause.
+ */
+export function untilIdle(page: Page) {
+  return page.evaluate(() => new Promise<void>((done) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestIdleCallback(() => done())));
+  }));
+}
+
 /** The summary ignores clicks on its cards and Share for its first moments (#627); a deliberate click waits for that to end. */
 export async function expectSummaryTakesClicks(page: Page) {
   await expect(page.locator('.summary-cards')).toBeVisible();

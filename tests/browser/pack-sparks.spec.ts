@@ -72,7 +72,7 @@ async function cutAndRead(page: Page, packShell: Locator, touch: boolean) {
 
   const finger = await fingerFor(page, touch);
   await finger.press(from, y);
-  await page.waitForTimeout(50);
+  await expect(packShell).toHaveClass(/\bis-pressed\b/);
   await finger.move(to, y);
   await expect(packShell).toHaveClass(/\bis-cutting\b/);
   const reading = await page.waitForFunction((burst) => {
@@ -134,7 +134,7 @@ test.describe('with reduced motion', () => {
     const y = box.y + box.height * TEAR_LINE;
     const finger = await fingerFor(page, hasTouch);
     await finger.press(box.x + box.width * 0.4, y);
-    await page.waitForTimeout(50);
+    await expect(packShell).toHaveClass(/\bis-pressed\b/);
     await finger.move(box.x + box.width * 0.5, y);
     await expect(packShell.locator('.cut-line')).toHaveCount(1);
     await expect(packShell.locator('.drag-spark')).toHaveCount(0);
