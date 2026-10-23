@@ -49,6 +49,19 @@ describe('Hall of Fame inbox', () => {
     expect((await processInbox(events, ctx)).added).toBe(0);
   });
 
+  it("passes over a pull only a kept index calls filed, but doesn't mark its event seen", async () => {
+    const id = idOf(fourOfAKind);
+    const { ctx, filedProofs } = context({ filed: new Set([id]), unconfirmed: new Set([id]) });
+    const event = hallOfFameEvent(fourOfAKind, id, 1000);
+    expect((await processInbox([event], ctx)).added).toBe(0);
+    expect(ctx.seen.has(event.id)).toBe(false);
+    // Once a full listing no longer has it, the same event is filed.
+    ctx.filed.clear();
+    ctx.unconfirmed!.clear();
+    expect((await processInbox([event], ctx)).added).toBe(1);
+    expect(filedProofs).toEqual([fourOfAKind]);
+  });
+
   it('ignores pulls that do not qualify, do not verify, or are already in the Hall of Fame', async () => {
     const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB' : 'AAAA');
     const { ctx, filedProofs } = context({ filed: new Set([idOf(byNote('mined 3 of a Kind'))]) });

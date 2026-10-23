@@ -11,6 +11,12 @@ export interface InboxContext {
   seen: Set<string>;
   /** Pull ids already in the Hall of Fame (any state); updated as entries are filed. */
   filed: Set<string>;
+  /**
+   * Of `filed`, the ones known only from a filed index kept from an earlier run, not from this run's
+   * listing. An event for one is passed over but not marked seen, so if its issue has gone since the
+   * index was listed, the next full listing lets it be filed.
+   */
+  unconfirmed?: Set<string>;
   /** How many pulls may be re-derived this run (about 0.1 s each). */
   budget: number;
   /** How many entries may be filed this run, so a burst of real pulls can't flood the issue tracker. */
@@ -113,7 +119,7 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       id = null;
     }
     if (!proof || !decoded || !id || ctx.filed.has(id)) {
-      ctx.seen.add(event.id);
+      if (!id || !ctx.unconfirmed?.has(id)) ctx.seen.add(event.id);
       continue;
     }
     // A blocked display name is never filed (see isNameAllowed), so its proof isn't worth checking.

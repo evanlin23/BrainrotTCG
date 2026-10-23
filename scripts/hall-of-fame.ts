@@ -520,17 +520,17 @@ export const FILED_INDEX_MAX_AGE_S = 24 * 60 * 60;
  * the index written). Issues changed since the index was listed are in intake's listing of recent
  * issues (`recentIssuesSince` goes back further than FILED_INDEX_MAX_AGE_S), which updates it.
  */
-const verifiedIndex = async (token: string): Promise<FiledIndex> => {
+const verifiedIndex = async (token: string): Promise<FiledIndex & { kept: boolean }> => {
   const now = Date.now();
   const kept = existsSync(FILED_PATH) ? parseFiledIndex(readFileSync(FILED_PATH, 'utf8'), now, FILED_INDEX_MAX_AGE_S * 1000) : null;
-  if (kept) return kept;
+  if (kept) return { ...kept, kept: true };
   const index: FiledIndex = { listedAt: now, issues: {} };
   for (const issue of await listIssues('labels=hall-of-fame,verified', token)) {
     const pull = listedPull(issue);
     if (pull) index.issues[issue.number] = [pull.id, pull.name];
   }
   writeFileSync(FILED_PATH, JSON.stringify(index));
-  return index;
+  return { ...index, kept: false };
 };
 
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
@@ -542,7 +542,9 @@ export const inbox = async (ticketFn?: TicketFn) => {
   const seen = new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
 
   const since = Math.floor(Date.now() / 1000) - INBOX_WINDOW_S;
-  // Signatures are left to processInbox, which checks only the events it hasn't handled yet.
+  // Signatures are left to processInbox, which checks only the events it hasn't handled yet: up to
+  // INBOX_PAGES * INBOX_PAGE_SIZE (5,000) Schnorr checks per hostile relay a run, about 18 s, outside
+  // the 60 s read timer and well inside the job's 10 minutes.
   const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES, undefined, undefined, true);
   for (const r of perRelay) console.log(relayReadLine(r));
 
@@ -555,15 +557,24 @@ export const inbox = async (ticketFn?: TicketFn) => {
   const filed = new Set<string>();
   // Issues this job opened but didn't finish (it stopped before labelling them): finished next.
   const unfinished = new Map<string, Issue>();
-  const { issues: verified } = await verifiedIndex(token);
+  const { issues: verified, kept } = await verifiedIndex(token);
   const recent = await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token);
   // A recent issue as it is now replaces what the index says of it.
   for (const issue of recent) delete verified[issue.number];
-  for (const [id, name] of Object.values(verified)) if (isNameAllowed(name)) filed.add(id);
+  // Pulls filed as far as a kept index knows: the issue may have been deleted since (see `unconfirmed`).
+  const unconfirmed = new Set<string>();
+  for (const [id, name] of Object.values(verified)) {
+    if (!isNameAllowed(name)) continue;
+    filed.add(id);
+    if (kept) unconfirmed.add(id);
+  }
   for (const issue of byNumber(recent)) {
     const id = listedPullId(issue);
     if (!id) continue; // no valid proof, or a name that's out of the list; nothing to dedupe against
-    if (labelNames(issue).includes('verified') || labelNames(issue).includes('daily')) filed.add(id);
+    if (labelNames(issue).includes('verified') || labelNames(issue).includes('daily')) {
+      filed.add(id);
+      unconfirmed.delete(id);
+    }
     else if (issue.user?.login === BOT && !unfinished.has(id)) unfinished.set(id, issue);
   }
 
@@ -578,6 +589,7 @@ export const inbox = async (ticketFn?: TicketFn) => {
   const { added, deferred } = await processInbox(events, {
     seen,
     filed,
+    unconfirmed,
     accepts: (pull) => (list ? joinRefusal(pull, list, stampDay(pull)) === null : qualifiesForHallOfFame(pull.score)),
     floor: (id) => (list && !unfinished.has(id) ? hallOfFameFloor(list, today()) : null),
     budget: INBOX_BUDGET,

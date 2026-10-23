@@ -769,6 +769,26 @@ describe('the filed index (#1000)', () => {
     expect(gh.writes()).toEqual(FILED);
   });
 
+  it('files a pull whose issue was deleted after the index was listed, once the next full listing has it gone', async () => {
+    const issues = [issue(1, fourOfAKind)];
+    const gh = fakeGitHub({ issues, published: [] });
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [], perRelay: [] });
+    await inbox();
+    issues.length = 0; // deleted: it isn't in any listing, and the index still has it
+    const event = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000);
+    vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
+    gh.requests.length = 0;
+    await inbox();
+    expect(gh.writes()).toEqual([]);
+    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).not.toContain(event.id);
+
+    vi.setSystemTime(new Date('2026-10-17T12:30:00Z'));
+    gh.requests.length = 0;
+    await inbox();
+    expect(listings(gh)[0]).toBe(VERIFIED);
+    expect(gh.writes()).toEqual(FILED);
+  });
+
   it('counts a pull verified after the index was listed', async () => {
     const issues: Issue[] = [];
     const gh = fakeGitHub({ issues, published: [] });
