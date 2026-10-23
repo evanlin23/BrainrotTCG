@@ -184,6 +184,26 @@ describe('pack store connection ownership', () => {
     expect(openDatabase).not.toHaveBeenCalled();
   });
 
+  it('keeps packs in memory only, as saved, where IndexedDB is turned off', async () => {
+    vi.stubGlobal('indexedDB', null);
+    expect(await putStoredPacks([sample])).toBe(true);
+    expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBe(sample.cards);
+  });
+
+  it('keeps packs in memory only, as saved, where reading IndexedDB throws', async () => {
+    vi.unstubAllGlobals();
+    Object.defineProperty(globalThis, 'indexedDB', {
+      configurable: true,
+      get: () => { throw new DOMException('An opaque origin has no IndexedDB', 'SecurityError'); },
+    });
+    try {
+      expect(await putStoredPacks([sample])).toBe(true);
+      expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBe(sample.cards);
+    } finally {
+      delete (globalThis as { indexedDB?: unknown }).indexedDB;
+    }
+  });
+
   it('reports a write as saved only once its transaction completes', async () => {
     const writing = putStoredPacks([sample]);
     const value = succeed(requests[0]);

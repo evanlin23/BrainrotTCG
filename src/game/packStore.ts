@@ -61,6 +61,16 @@ const open = (): Promise<IDBDatabase | null> => {
   return db = pending;
 };
 
+/** Whether there is IndexedDB at all: some private windows and old browsers have none, it's null where
+ * it's turned off, and reading it throws in an opaque-origin frame. Without it, memory is all there is. */
+const hasIndexedDB = (): boolean => {
+  try {
+    return Boolean(globalThis.indexedDB);
+  } catch {
+    return false;
+  }
+};
+
 /** A stored pack's cards in the app's card code ("id,id*G,..."), if this device re-opened it. */
 export const getStoredPack = (setKey: string, publicKeyHex: string, nonce: number): string | undefined =>
   memory.get(packRefKey(setKey, publicKeyHex, nonce));
@@ -81,7 +91,7 @@ export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<bool
   if (packs.length === 0) return true;
   for (const p of packs) memory.set(packRefKey(p.setKey, p.publicKeyHex, p.nonce), p.cards);
   memoryVersion++;
-  if (typeof indexedDB === 'undefined') return true;
+  if (!hasIndexedDB()) return true;
   const database = await open();
   if (!database) return false;
   return new Promise<boolean>((resolve) => {
