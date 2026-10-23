@@ -24,6 +24,9 @@ vi.mock('../../game/profiles', async (importOriginal) => ({
   myProfileInfo,
   myProfileProof,
   myStats,
+}));
+vi.mock('../../game/packCache', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/packCache')>()),
   myPackCacheState,
   hydrateMyPacks,
 }));

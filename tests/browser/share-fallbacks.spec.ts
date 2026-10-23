@@ -126,7 +126,7 @@ async function openPackShare(page: Page, baseURL: string) {
   return { errors, sheet };
 }
 
-test('without navigator.share it offers copying only, and the copied link opens a verified pull', async ({ page, context, baseURL }) => {
+test('without navigator.share it offers copying only, and the copied link opens a verified pull', { tag: '@cross-browser' }, async ({ page, context, baseURL }) => {
   test.setTimeout(90000);
   await stubNative(page, { share: null });
   const { errors, sheet } = await openPackShare(page, baseURL!);

@@ -8,6 +8,7 @@ export * from './identity';
 export * from './proof';
 export * from './hallOfFame';
 export * from './rankings';
+export * from './rankingsArchive';
 export * from './odds';
 export * from './profile';
 export * from './nameFilter';

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { expectDecoded, monitor } from './support';
 
 /*
  * Staging (docs/HOSTING.md#staging), run by playwright.staging.config.ts: against the deployed
@@ -22,6 +22,8 @@ test('a staging copy says so, asks not to be indexed, and takes no save from the
   await expect(page.locator('.app-logo')).toBeVisible();
   await expect(page.locator('.staging-banner')).toContainText('Staging: a test copy of the next release.');
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+  // Going to Settings leaves the packs screen; its pack art finishes arriving first, as it must on a real CDN.
+  await expectDecoded(page.locator('.pack-shell img'), 2);
   await settings(page);
   await expect(page.getByText('From the old address', { exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);

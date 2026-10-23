@@ -94,6 +94,31 @@ describe('a record with no key that can be read', () => {
     expect(store.get(PLAYER_KEY)).toBe(DAMAGED);
   });
 
+  it('keeps unreadable stats aside beside it while storage is full, and backs both up with the damaged bytes (#1053)', async () => {
+    store.set(STORAGE_KEYS.STATS, 'garbage');
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key === STORAGE_KEYS.COLLECTION_RECOVERY) throw new DOMException('full', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    const { loadStats } = await import('./statsRecovery');
+    const loaded = loadStats({});
+    expect(loaded.rebuilt).toBe(true);
+    // Rebuilt from the stand-in key's empty history: no pack of it is credited as the best.
+    expect(loaded.stats.packsOpened).toBe(0);
+    expect(loaded.stats.highestPackRef).toBeUndefined();
+    expect(recovery.collectionRecoveryNote()).toBe('Unreadable player and stats data was kept aside, but this browser had no room to store it, so it lasts only until this tab closes or reloads. Download it now to keep it. '
+      + `${recovery.PLAYER_PAUSED_NOTE} ${recovery.STATS_REBUILT_NOTE} It may include your secret player key. Keep the file private and never attach it to a public bug report.`);
+    // With no key, the export matches kept entries by the record's exact bytes.
+    const file = JSON.parse(saveFile.exportSaveFile()) as { player: string; collectionRecovery: string };
+    expect(file.player).toBe(DAMAGED);
+    const archive = JSON.parse(file.collectionRecovery) as { raw: string; player: string | null; key?: string; later?: { raw: string; player: string | null; key?: string }[] };
+    expect([archive, ...(archive.later ?? [])].map(({ raw, player: of, key }) => ({ raw, player: of, key }))).toEqual([
+      { raw: 'garbage', player: DAMAGED, key: STORAGE_KEYS.STATS },
+      { raw: DAMAGED, player: DAMAGED, key: PLAYER_KEY },
+    ]);
+    expect(store.get(STORAGE_KEYS.STATS)).toBe('garbage');
+  });
+
   it('downloads the damaged bytes under a file name and note of their own, promising no key', () => {
     const click = vi.fn();
     const anchor = { href: '', download: '', click };
