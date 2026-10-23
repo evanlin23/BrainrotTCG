@@ -158,12 +158,14 @@
   }
 }
 
-/* Wide screens: the nav and Settings share the header's row with the wordmark, so the toast is held to
-   24rem, narrower than the wordmark (about 9.7em of RubikGlitch, and the logo is its 3.25rem cap from 900px
-   up, so over 31rem). Focus mode (a header-less pack screen) keeps it at the right. */
+/* Wide screens: the nav and Settings share the header's row with the wordmark, and the nav starts only about
+   37px past the wordmark's right edge, so the toast is held to the wordmark's width: 9.6em of the logo's
+   size here (index.css; the wordmark, mark included, measures about 9.7em), and at most 24rem. At 900px that
+   is 346px against the wordmark's 348px; from about 950px the 24rem cap is the narrower. Focus mode (a
+   header-less pack screen) keeps it at the right. */
 @media (min-width: 900px) {
   .app:not(.is-focus) .toast-region {
-    width: 24rem;
+    width: min(24rem, calc(9.6 * clamp(1.75rem, 10vw - 3.375rem, 3.25rem)));
     margin-right: 0;
   }
 
