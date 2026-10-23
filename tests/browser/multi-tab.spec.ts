@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { fromHex, publicKeyFromSecret, pullId } from '../../src/engine';
-import { expectDecoded, expectRecordedPack, monitor, snapshot, untilIdle } from './support';
+import { expectDecoded, expectRecordedPack, holdTickets, monitor, releaseTickets, snapshot, untilIdle } from './support';
 
 // Two tabs of one player (#73). The tab that opens a pack stores it; the other tab hears about it,
 // says its save changed, keeps its pack sealed and writes nothing, until a reload brings it current.
@@ -182,19 +182,11 @@ test.describe('two tabs at once, emulated Chromium (not real devices)', () => {
     // B's miner is held from its first load, so B's open is still waiting on its ticket when the
     // switch lands: the order the test above leaves to how fast each tab runs.
     const errorsB = await monitor(b, baseURL!);
-    let releaseMiner!: () => void;
-    const minerHeld = new Promise<void>((held) => {
-      void b.route('**/ticket.worker-*.js', async (route) => {
-        held();
-        await new Promise<void>((release) => { releaseMiner = release; });
-        await route.fallback();
-      });
-    });
+    await holdTickets(b);
     await b.goto('./');
     await expect(b.locator('.pack-shell')).toBeVisible();
 
     await openPack(b).click();
-    await minerHeld;
     // Shown only once the tear has spent its ticket and the open waits on the miner.
     await expect(b.locator('.pack-hint.is-waiting')).toBeVisible({ timeout: 15000 });
     await a.evaluate((keys) => {
@@ -205,7 +197,10 @@ test.describe('two tabs at once, emulated Chromium (not real devices)', () => {
       localStorage.setItem('brainrot-save-stamp-v1', `switch-${Date.now()}`);
     }, STORAGE_KEYS);
     await expect(b.getByText(STALE, { exact: false })).toBeVisible({ timeout: 30000 });
-    releaseMiner();
+    // The notice shows on the first key B hears change, and A writes the stamp last: B has the whole
+    // switch once it reads the new stamp.
+    await expect.poll(() => b.evaluate(() => localStorage.getItem('brainrot-save-stamp-v1'))).toMatch(/^switch-/);
+    await releaseTickets(b);
 
     await expect(sealed(b)).toHaveText(/^Your save changed in another tab, so this pack stayed sealed\./, { timeout: 30000 });
     const saved = await snapshot(a);
