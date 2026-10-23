@@ -227,7 +227,11 @@ const fitFont = (
   }
 };
 
-/** User-perceived characters, so a cut never lands inside a surrogate pair or a joined sequence. */
+/**
+ * User-perceived characters, so a cut never lands inside a surrogate pair or a joined sequence.
+ * Without Intl.Segmenter it falls back to code points: a surrogate pair still stays whole, but a
+ * flag or a base with combining marks can be cut apart.
+ */
 type Segmenter = new (locale?: string, options?: { granularity: 'grapheme' }) => { segment: (text: string) => Iterable<{ segment: string }> };
 
 const graphemes = (text: string): string[] => {
@@ -351,10 +355,10 @@ const drawHeader = (ctx: CanvasRenderingContext2D, setName: string, code: string
   ctx.fillText(setName, x, 238);
 };
 
-/** A graded-card label: what it is, who, the cert, and (when there's a link) the QR that re-checks it. */
 /** Clear space between the label's text and its QR code. */
 const LABEL_QR_GAP = 24;
 
+/** A graded-card label: what it is, who, the cert, and (when there's a link) the QR that re-checks it. */
 const drawLabel = async (
   ctx: CanvasRenderingContext2D,
   label: { kind: string; verified: boolean; name: string; cert: string; hint: string; url?: string },

@@ -4,7 +4,7 @@ import vectors from '../spec/vectors.json';
 import { pagesBeaconTag } from './cloudflare-analytics.ts';
 import { redirectPage } from './redirect-site.ts';
 import {
-  OLD_LINK, POLLS, POLL_MS, SET_ID, httpGet, main, mainStatus, pageAssets, pickPrevious, pickTip, rankingProblem, smoke, status,
+  OLD_LINK, POLLS, POLL_MS, SET_ID, httpGet, main, mainStatus, newerRun, pageAssets, pickPrevious, pickTip, rankingProblem, smoke, status,
   targetFromEnv, type Get, type Got, type MainTip, type Target,
 } from './production-smoke.ts';
 
@@ -358,7 +358,15 @@ describe('release status', () => {
       expect(out).not.toMatch(/FAILING|known-good target|roll back/);
       expect(previous).not.toHaveBeenCalled();
       expect(get).not.toHaveBeenCalled();
+      expect(tip).not.toHaveBeenCalled();
     });
+
+  it('looks for a newer run only for a Cloudflare target', async () => {
+    const { get, asked } = site({ [`${URL_}deployment-id.json`]: marker('43') });
+    expect(await newerRun({ ...TARGET, host: 'github' }, get)).toBeNull();
+    expect(asked).toEqual([]);
+    expect(await newerRun(TARGET, get)).toBe('43');
+  });
 
   it('gives no verdict on a failure while production serves a newer run, even of this same commit', async () => {
     for (const sha of [SHA, 'b'.repeat(40)]) {
@@ -368,6 +376,8 @@ describe('release status', () => {
       expect(out).toContain('Production serves run 43, a newer deploy');
       expect(out).not.toMatch(/FAILING|known-good target|roll back/);
       expect(asked.map((url) => url.replace(/\?.*$/, ''))).toEqual([`${URL_}deployment-id.json`]);
+      // Not the query the marker polls used (this run's tag), which a cache may have answered.
+      expect(asked[0]).toContain(`smoke=${TARGET.tag}-later`);
     }
     expect(previous).not.toHaveBeenCalled();
   });

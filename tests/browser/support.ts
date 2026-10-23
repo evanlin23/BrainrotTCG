@@ -369,8 +369,9 @@ export async function monitor(
           });
           await otherCdp.send('Network.enable');
         };
-        // A page that closes before its session opens has nothing left to watch; the context-wide
-        // response listener above still covers its hops.
+        // A page that closes before its session opens has nothing left to watch. A popup's first
+        // navigation hop can also start before its Network.enable resolves; the context-wide
+        // response listener above is what still covers that hop.
         watchOther().catch(() => {});
       });
     }

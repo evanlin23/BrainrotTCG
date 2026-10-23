@@ -156,7 +156,7 @@ describe('Settings: exporting a backup file', () => {
     expect(backupNote().textContent).toMatch(/^Backup downloaded — keep it private\./);
     expect(backupNote().textContent).toContain('secret player key');
     // Exporting again keeps the confirmation (the file is made each time) and re-announces it: the
-    // status region gets a new text node, which is what a screen reader reads out.
+    // status region gets a new keyed span (the count is its key), which is what a screen reader reads out.
     const firstAnnouncement = backupNote().firstElementChild!;
     await click('Export');
     expect(clickSpy).toHaveBeenCalledTimes(2);

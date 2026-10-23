@@ -9,8 +9,9 @@ import { monitor, expectDecoded, holdArt, unexpectedArtErrors } from './support'
  * which on a dark slot reads as a card back (the pull viewer, the pack summary and the binder all print
  * one). Art is held with route interception and released on demand, so no step depends on timing.
  *
- * The app gives a finish render 15s to load its art. A frozen page clock keeps that deadline from
- * running out on a slow runner, so a held slot stays pending however long the run takes.
+ * The app gives a finish render 15s to load its art. The shared-pull tests freeze the page clock so that
+ * deadline can't run out on a slow runner while the art is held. The pack summary and Profile tests don't
+ * freeze it: they hold the art only until their first checks are done, well inside that deadline.
  */
 const vectors = JSON.parse(readFileSync(new URL('../../spec/vectors-python.json', import.meta.url), 'utf8')) as {
   valid: { note: string; proof: string; hand: string; score: number; cards: { finish: string | null }[] }[];
@@ -194,7 +195,7 @@ test.describe('with motion reduced, so a placeholder holds one still wash', () =
     await expect.poll(() => art.requests()).toBeGreaterThan(0);
     const count = await thumbs.count();
     expect(count).toBeGreaterThan(0);
-    await expect.poll(() => thumbs.evaluateAll((images) => images.every((img) => ['loading', 'rendering'].includes((img as HTMLImageElement).dataset.state ?? '')))).toBe(true);
+    await expect.poll(() => thumbs.evaluateAll((images) => images.every((img) => (img as HTMLImageElement).dataset.state === 'loading'))).toBe(true);
 
     // A holo thumb wears its foil ring while it waits, which is not the plain wash; measure a plain one.
     const plain = main.locator('.pulls-history .pull-row').first().locator('.pull-row-thumbs img.card-image:not(.holo)').first();

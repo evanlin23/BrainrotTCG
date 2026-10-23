@@ -231,6 +231,7 @@ describe('useHallOfFameSubmit', () => {
 
       expect(mockPublish).toHaveBeenCalledTimes(1);
       await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+      expect(states()).toEqual(['sent', 'sent']);
     });
 
     it('keeps one control failed while the other pull is sent', async () => {

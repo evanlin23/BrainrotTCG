@@ -21,10 +21,10 @@
  * so a link to a set unfurls as that set. Like the pull pages, it forwards to the app, opening the
  * packs screen on that set (#/set/<set id>).
  *
- * SITE_URL (the site's absolute address, for the image) and BASE_PATH (its path) default to the
- * GitHub Pages address, like vite.config.ts. After a move, the deploy also writes the pages (without
- * images, OUT_DIR=<dir> PAGES_ONLY=1) for the old address, where they forward through its redirect
- * page, so old shared links keep their preview.
+ * SITE_URL (the site's absolute address, for the image) defaults to production's, CANONICAL_SITE_URL,
+ * and BASE_PATH (its path) to the GitHub Pages path /BrainrotTCG/, like vite.config.ts. After a move,
+ * the deploy also writes the pages (without images, OUT_DIR=<dir> PAGES_ONLY=1) for the old address,
+ * where they forward through its redirect page, so old shared links keep their preview.
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';

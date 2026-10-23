@@ -1,6 +1,6 @@
 # Repository size
 
-Why a clone is heavy, how to get a lighter one, and what is still undecided (#806). Numbers below
+Why a clone is heavy, how to get a lighter one, and what was decided about it (#806). Numbers below
 were measured on 2026-10-22 at `964bee6` (main) from a cloud container, all in MiB (1 MiB = 1048576
 bytes). They show proportions; times vary with the network. Re-run the commands to refresh them.
 
@@ -35,8 +35,8 @@ are already in use: the burn-in plan job in `browser-tests.yml` fetches full his
 `filter: blob:none` (the blobless recipe below), and two `deploy.yml` jobs check out only the scripts
 they need with `sparse-checkout`. Nothing in the workflows was changed for this.
 
-Art only grows. Leaving out genesis (23.0 MiB of art), a set adds about 5-7 MiB of art PNG (2.7-6.9 MiB,
-mean 5.6) and 4.0-4.5 MiB of served WebP (mean 4.2), about 10 MiB a set, and history about as much.
+Art only grows. Leaving out genesis (23.0 MiB of art), a set adds 2.7-6.9 MiB of art PNG (mean 5.6)
+and 4.0-4.5 MiB of served WebP (mean 4.2), about 10 MiB a set, and history about as much.
 
 ## Lighter checkouts (reversible)
 
@@ -88,9 +88,15 @@ git ls-files -z | xargs -0 stat -c '%s %n'                                      
 Divide KiB by 1024 for MiB. Count with `git rev-list --count --all`, `git for-each-ref refs/heads | wc -l`
 and `git rev-list --count main`.
 
+## Decision (2026-10-23)
+
+The owner decided: no LFS, no history rewrite and no CDN move. The blobless, sparse clone recipe above is
+the answer to clone size, and #806 is closed.
+
 ## Not done, and why
 
-These all need the owner, because each moves or rewrites something permanent. None is started.
+These were the options, each of which moves or rewrites something permanent. None was started, and per the
+decision above none will be.
 
 - **Rewriting history** to drop old images (the `src/assets` blobs above): rewrites published
   history and every clone. Not allowed here.
