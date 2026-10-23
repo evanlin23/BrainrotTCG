@@ -105,13 +105,16 @@ export const matchesFilter = (e: NostrEvent, f: Filter): boolean => {
   return true;
 };
 
-export const verifyEvent = (e: unknown): e is NostrEvent => {
+/** Whether `e.sig` is its pubkey's signature of `e.id` (not whether the id matches the content). */
+const signatureVerifies = (e: NostrEvent): boolean => {
   try {
-    return isEventShape(e) && eventId(e) === e.id && schnorr.verify(fromHex(e.sig), fromHex(e.id), fromHex(e.pubkey));
+    return schnorr.verify(fromHex(e.sig), fromHex(e.id), fromHex(e.pubkey));
   } catch {
     return false;
   }
 };
+
+export const verifyEvent = (e: unknown): e is NostrEvent => isEventShape(e) && eventId(e) === e.id && signatureVerifies(e);
 
 /**
  * A Hall of Fame submission for one pull, signed with a fresh throwaway key. `score` is the pull's
@@ -295,7 +298,11 @@ export interface FetchEventsBounds {
 
 /**
  * Ask every relay for matching events and merge them by id. Only events whose signature checks out
- * are kept, so one relay serving a tampered copy can't hide the real one from the others. Relays
+ * are kept, so one relay serving a tampered copy can't hide the real one from the others. With
+ * `lazySignatures`, an event is kept once its id matches its content (a cheap hash), and signatures
+ * are checked only when relays send one event with different signatures, to keep a copy that
+ * verifies; the caller then checks each event (verifyEvent) before trusting it, and pays only for
+ * the ones it uses (a Schnorr check costs far more than the hash). Relays
  * send the newest `limit` events per request; with `maxPages` > 1 it keeps asking for older ones
  * (`until` the oldest so far), so a burst of new events can't push older ones out of reach. A relay
  * that didn't read to the end reports `more`: the `until` to go on from (everything newer than it was
@@ -317,6 +324,7 @@ export const fetchEvents = async (
   maxPages = 1,
   signal?: AbortSignal,
   bounds: FetchEventsBounds = {},
+  lazySignatures = false,
 ) => {
   const pageLimit = filter.limit ?? filter.ids?.length ?? DEFAULT_PAGE_LIMIT;
   const maxRelayEvents = bounds.maxRelayEvents ?? Math.max(1, pageLimit * maxPages);
@@ -331,6 +339,9 @@ export const fetchEvents = async (
   const relayByteShare = Math.ceil(maxRetainedBytes / relayCount);
 
   const byId = new Map<string, NostrEvent>();
+  // With lazySignatures, ids whose kept copy is known to verify: other copies are ignored. Each relay
+  // sends a copy of an event at most once, so a conflict costs at most one check per relay.
+  const signed = new Set<string>();
   const perRelay = await Promise.all(
     relays.map(
       (relay) =>
@@ -419,12 +430,23 @@ export const fetchEvents = async (
               oldest = Math.min(oldest, e.created_at);
               pageNew++;
               // Seen, so paging goes on past it, but not worth hashing: too big for a Hall of Fame
-              // event, off the filter, or already kept from another relay.
-              if (!isRetainable(e) || !matchesFilter(e, filter) || byId.has(e.id)) return;
+              // event, or off the filter.
+              if (!isRetainable(e) || !matchesFilter(e, filter)) return;
+              const kept = byId.get(e.id);
+              if (kept) {
+                // Already kept from another relay. A copy with the same id has the same content, so
+                // only its signature can differ: one that verifies takes the kept copy's place.
+                if (!lazySignatures || signed.has(e.id) || e.sig === kept.sig) return;
+                if (eventId(e) === e.id && signatureVerifies(e)) {
+                  byId.set(e.id, e);
+                  signed.add(e.id);
+                }
+                return;
+              }
               const size = eventByteSize(e);
               if (keptEvents >= relayEventShare) return finish('retained event budget exceeded');
               if (keptBytes + size > relayByteShare) return finish('retained byte budget exceeded');
-              if (verifyEvent(e)) {
+              if (lazySignatures ? eventId(e) === e.id : verifyEvent(e)) {
                 byId.set(e.id, e);
                 keptEvents++;
                 keptBytes += size;

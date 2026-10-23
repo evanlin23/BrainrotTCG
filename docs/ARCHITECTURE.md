@@ -179,8 +179,8 @@ by hand  ─► GitHub issue form (pull link; needs an account; not linked from 
 (NIP-78 application data, kind 30078), signs it with a
 throwaway key made for that one submission, and sends it to five open relays. The throwaway key is
 only a transport: who pulled it comes from the proof's own signature. The inbox job reads the last
-week of events, checks each event's signature, verifies the pull with the same engine as everything
-else, and files the ones that qualify as issues in the same verified state the GitHub path ends in.
+week of events, checks the signature of each event it hasn't handled yet, verifies the pull with the
+same engine as everything else, and files the ones that qualify as issues in the same verified state the GitHub path ends in.
 Each run re-derives at most 300 pulls and files at most 20. It remembers handled event IDs in an
 Actions cache until their events leave the read window (at most 100,000, oldest first out), so a
 handled event isn't derived again, and skips already verified pulls. Each run saves that cache under
@@ -194,7 +194,10 @@ kept per relay in a second Actions cache, so a backlog past the page cap is read
 These are client request limits, not guarantees that relays return or retain every event or obey the limits.
 A run in which every relay fails without sending an event fails the job, so an outage shows before
 events age out of the window; a run that reads at least one relay succeeds.
-Only valid event signatures are retained, and the exact proof text in the link is accepted. A filing
+An event is filed only if its signature is valid. Reading keeps one copy per event ID whose content
+matches the ID; when relays send one event with different signatures, a copy that verifies replaces
+it. Where the newest pages and an older range bring different copies, both are kept and the one that
+verifies is filed. The exact proof text in the link is accepted. A filing
 that stops after opening an issue can reuse that issue on retry. Deferred submissions are eligible
 on a later run only while still available in the fetched window; cache eviction and service errors
 can cause repeat work or missed submissions.
@@ -257,7 +260,14 @@ The deploy writes the ranked list. Workflows attempt to close verified issues, a
 both open and closed states. It lists every `verified` issue, but `daily` issues only when updated
 since 00:00 UTC the day before (`since=`), and keeps a daily-only entry only when its `submittedAt`
 falls on the build's day or the day before, so old daily issues cost nothing. The inbox lists
-`verified` issues plus any `hall-of-fame` issue updated in the last eight days. So that a daily-only
+`verified` issues plus any `hall-of-fame` issue updated in the last eight days. It keeps the pulls
+of `verified` issues in an Actions cache and lists them all again only when that index is a day old
+or missing; the eight-day listing brings it up to date in between. An issue deleted, or with its
+`hall-of-fame` label removed, can still hold its pull back until a full listing. An event the kept
+index alone turns down isn't marked handled, and the relay ranges from its time up aren't recorded
+as read through, so it is read again on later runs: usually the next
+full listing, within a day, files it, and one that run doesn't reach (relay page cap or run budget)
+waits for the one after, while the event is still in the seven-day relay window. So that a daily-only
 pull counts on one day's top only, intake and the inbox turn it down while another `daily` issue
 updated in the last eight days carries it; proofs carry no signed time, so one filed again after that
 can count again. The page's pending check counts a daily-only relay pull only when its event was sent
