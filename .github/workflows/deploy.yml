@@ -487,8 +487,9 @@ jobs:
     # once publish and deploy are done (scripts/production-smoke.ts, docs/HOSTING.md). GETs only:
     # the browser checks refuse every write and every request to another origin. A failure turns
     # this run red; the last step always runs, and calls the release known-good only when both
-    # checks passed, or else names the release to go back to. It gives no verdict when a check was
-    # cancelled or main has moved past this commit. Nothing is uploaded or kept.
+    # checks passed, or else, when one failed, names the release to go back to. It gives no verdict
+    # when a check didn't finish (cancelled or skipped), main has moved past this commit, or
+    # production serves a newer run. Nothing is uploaded or kept.
     needs: [site, deploy]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -519,7 +520,8 @@ jobs:
           PRODUCTION_URL: ${{ needs.site.outputs.url }}
         run: npx playwright test -c playwright.production.config.ts
       # Runs whatever the checks did: names the rollback target when either failed, and gives no
-      # verdict when one was cancelled or this commit is no longer main's tip (git ls-remote).
+      # verdict when one didn't finish, this commit is no longer main's tip (git ls-remote), or the
+      # marker names a newer run.
       - name: Record the release status
         if: always()
         env:

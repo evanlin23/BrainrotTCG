@@ -17,17 +17,18 @@
  * Then, if those passed:
  * - (Cloudflare) the old GitHub address serves exactly the forwarding page this commit draws, both at
  *   its root and for an old link (its 404.html), its own hall-of-fame.json matches production's, and
- *   its copy of the set page keeps production's link preview. What it must serve is exact, so it is
- *   asked again like the marker while GitHub Pages catches up.
+ *   its copy of the set page keeps production's link preview. deploy-pages has returned by then, so it
+ *   is asked once, like the rest.
  *
  *   SITE_URL=https://brainrottcg.pages.dev/ HOST=cloudflare OLD_URL=https://evanlin23.github.io/BrainrotTCG/ \
  *     GITHUB_REPOSITORY=evanlin23/BrainrotTCG GITHUB_SHA=<sha> GITHUB_RUN_ID=<run> npx tsx scripts/production-smoke.ts
  *
  * Prints the HTTP checks' results as Markdown (for $GITHUB_STEP_SUMMARY), an ::error:: line per failed
  * check, and exits 1 if any failed. With --status, once the browser checks have run too, it prints
- * whether the release is known-good (HTTP_OUTCOME and BROWSER_OUTCOME both success) and otherwise
- * names the newest deploy run on main that passed on an earlier commit, as a candidate to roll back to
- * only after the checks in docs/HOSTING.md#recover-on-the-same-origin.
+ * whether the release is known-good (HTTP_OUTCOME and BROWSER_OUTCOME both success) or, when one of
+ * them is failure, names the newest deploy run on main that passed on an earlier commit, as a
+ * candidate to roll back to only after the checks in docs/HOSTING.md#recover-on-the-same-origin. It
+ * gives no verdict when a check didn't finish, main has moved on, or production serves a newer run.
  */
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -40,7 +41,7 @@ import { redirectPage } from './redirect-site.ts';
 
 /** How long one GET may take, body included. */
 export const TIMEOUT_MS = 15_000;
-/** How many times, POLL_MS apart, the marker (and the old address) is asked before giving up. */
+/** How many times, POLL_MS apart, the marker is asked before giving up. */
 export const POLLS = 10;
 export const POLL_MS = 6_000;
 /** At most this many scripts and stylesheets are fetched from the entry page. */
@@ -155,6 +156,24 @@ export const readMarker = async (target: Target, get: Get): Promise<{ check: Che
       + `(run ${target.runId}): ${why}`),
     wait: older,
   };
+};
+
+/** The run production's marker names when it is newer than this one (a later deploy, perhaps of this
+ * same commit), or null, also when the marker can't be read: then a failed check is this run's own. */
+export const newerRun = async (target: Target, get: Get): Promise<string | null> => {
+  if (target.host !== 'cloudflare') return null;
+  const got = await fetched(get, tagged(target, `${target.url}deployment-id.json`));
+  if (typeof got === 'string' || notOk(got)) return null;
+  let marker: unknown;
+  try {
+    marker = JSON.parse(got.body.toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (!marker || typeof marker !== 'object') return null;
+  const { repository, url, run_id: run } = marker as Record<string, unknown>;
+  if (repository !== target.repository || url !== target.url || typeof run !== 'string' || !/^[1-9]\d*$/.test(run)) return null;
+  return BigInt(run) > BigInt(target.runId) ? run : null;
 };
 
 /** The marker, asked POLL_MS apart while it names an older run or doesn't answer, at most polls times. */
@@ -407,6 +426,11 @@ export const noVerdict = (target: Target, http: string, browser: string, tip?: s
     return { label: 'cancelled, no verdict', reason: 'The checks were cancelled or never reported (a newer push to main '
       + 'cancels this run), so this release is neither known-good nor failing, and has no rollback target.' };
   }
+  if (!(http === 'success' && browser === 'success') && http !== 'failure' && browser !== 'failure') {
+    return { label: 'unfinished, no verdict', reason: `The checks didn't finish (HTTP ${http}, browser ${browser}): a step `
+      + 'before them failed or the run stopped, so neither check failed and this release is neither known-good nor failing, '
+      + 'and has no rollback target. Re-run this job.' };
+  }
   if (tip === undefined) return null;
   if (typeof tip === 'object') {
     return { label: 'no verdict', reason: `The tip of main could not be read (${tip.problem}), so which release these checks `
@@ -418,6 +442,12 @@ export const noVerdict = (target: Target, http: string, browser: string, tip?: s
   }
   return null;
 };
+
+/** No verdict when production serves a newer run than this one (run is newerRun's answer). */
+export const supersededBy = (run: string | null): { label: string; reason: string } | null =>
+  run === null ? null : { label: 'superseded, no verdict', reason: `Production serves run ${run}, a newer deploy (perhaps `
+    + 'of this same commit), so these checks may have read that release, not this run\'s. That run\'s own smoke job gives '
+    + 'its status.' };
 
 /** The release's status once the HTTP and browser checks are done (each a step outcome). */
 export const status = (target: Target, http: string, browser: string, previous: Release | string | null,
@@ -521,15 +551,17 @@ export const main = async (env: NodeJS.ProcessEnv, get: Get = httpGet,
 /** --status: the release's status from the HTTP_OUTCOME and BROWSER_OUTCOME of the smoke job's steps.
  * It runs whatever they did, and exits 0: a failed step has already turned the run red. */
 export const mainStatus = async (env: NodeJS.ProcessEnv, previous: PreviousRelease = previousRelease,
-  mainTip: MainTip = () => tipOfMain(env)): Promise<{ code: number; out: string; errors: string[] }> => {
+  mainTip: MainTip = () => tipOfMain(env), get: Get = httpGet): Promise<{ code: number; out: string; errors: string[] }> => {
   const target = targetFromEnv(env);
   if (typeof target === 'string') return { code: 2, out: '', errors: [`::error::${target}`] };
   const http = env.HTTP_OUTCOME ?? '';
   const browser = env.BROWSER_OUTCOME ?? '';
   // Which release the checks read is only known while this run's commit is still main's tip: a re-run
-  // of an older run, or a newer push mid-run, says nothing about this commit.
-  const none = noVerdict(target, http, browser) ?? noVerdict(target, http, browser, await mainTip());
+  // of an older run, or a newer push mid-run, says nothing about this commit. Nor does a failure while
+  // production serves a newer run, such as a later deploy of the same commit (one GET of the marker).
   const good = http === 'success' && browser === 'success';
+  const none = noVerdict(target, http, browser) ?? noVerdict(target, http, browser, await mainTip())
+    ?? (good ? null : supersededBy(await newerRun(target, get)));
   return { code: 0, out: status(target, http, browser, none || good ? null : await previous(target.sha), none), errors: [] };
 };
 

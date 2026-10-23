@@ -288,8 +288,8 @@ describe('waiting for this release', () => {
 });
 
 describe('release status', () => {
-  const statusOf = (http: string, browser: string, tip: Awaited<ReturnType<MainTip>> = SHA) =>
-    mainStatus({ ...ENV, HTTP_OUTCOME: http, BROWSER_OUTCOME: browser }, previous, async () => tip);
+  const statusOf = (http: string, browser: string, tip: Awaited<ReturnType<MainTip>> = SHA, get: Get = site().get) =>
+    mainStatus({ ...ENV, HTTP_OUTCOME: http, BROWSER_OUTCOME: browser }, previous, async () => tip, get);
 
   it('is known-good only once the HTTP and browser checks both passed', async () => {
     const { code, out } = await statusOf('success', 'success');
@@ -334,6 +334,49 @@ describe('release status', () => {
       expect(previous).not.toHaveBeenCalled();
       expect(tip).not.toHaveBeenCalled();
     });
+
+  it.each([['success', 'skipped'], ['skipped', 'skipped'], ['skipped', 'success']])(
+    'gives no verdict and no rollback target when a check was skipped and none failed (HTTP %s, browser %s)', async (http, browser) => {
+      const tip = vi.fn(async () => SHA);
+      const get = vi.fn(site().get);
+      const { code, out } = await mainStatus({ ...ENV, HTTP_OUTCOME: http, BROWSER_OUTCOME: browser }, previous, tip, get);
+      expect(code).toBe(0);
+      expect(out).toContain('### Release status: unfinished, no verdict');
+      expect(out).toContain(`The checks didn't finish (HTTP ${http}, browser ${browser})`);
+      expect(out).not.toMatch(/FAILING|known-good target|roll back/);
+      expect(previous).not.toHaveBeenCalled();
+      expect(get).not.toHaveBeenCalled();
+    });
+
+  it('gives no verdict on a failure while production serves a newer run, even of this same commit', async () => {
+    for (const sha of [SHA, 'b'.repeat(40)]) {
+      const { get, asked } = site({ [`${URL_}deployment-id.json`]: marker('43', sha) });
+      const { out } = await statusOf('failure', 'skipped', SHA, get);
+      expect(out).toContain('### Release status: superseded, no verdict');
+      expect(out).toContain('Production serves run 43, a newer deploy');
+      expect(out).not.toMatch(/FAILING|known-good target|roll back/);
+      expect(asked.map((url) => url.replace(/\?.*$/, ''))).toEqual([`${URL_}deployment-id.json`]);
+    }
+    expect(previous).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['names this run', marker('42')],
+    ['names an older run', marker('41', 'b'.repeat(40))],
+    ['names a newer run of another address', got('application/json', JSON.stringify({ repository: 'evanlin23/BrainrotTCG', run_id: '43', sha: SHA, url: OLD }))],
+    ['is not JSON', html('<!doctype html>the app')],
+    ['does not answer', new Error('timeout')],
+  ])('stays FAILING, with a rollback target, when the marker %s', async (_case, answer) => {
+    const { out } = await statusOf('success', 'failure', SHA, site({ [`${URL_}deployment-id.json`]: answer }).get);
+    expect(out).toContain('### Release status: FAILING');
+    expect(out).toContain('[bbbbbbbbbbbb]');
+  });
+
+  it('reads no marker for a release that passed', async () => {
+    const get = vi.fn(site().get);
+    expect((await statusOf('success', 'success', SHA, get)).out).toContain('### Release status: known-good');
+    expect(get).not.toHaveBeenCalled();
+  });
 
   it("never calls an older commit known-good, or offers a rollback for it, once main has moved past it", async () => {
     for (const [http, browser] of [['success', 'success'], ['failure', 'skipped']]) {

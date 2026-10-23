@@ -334,12 +334,14 @@ browser context: public proof fixtures, card and share pages, malformed links an
 screen, with every write and every request to another origin refused, so nothing reaches a relay,
 the Hall of Fame or analytics. A failure turns the deploy run red. A last step always runs
 (`production-smoke.ts --status`): it calls the release known-good only when both the HTTP and the
-browser checks passed, and otherwise names the newest deploy run on `main` that passed on an
-earlier commit as the rollback target, or says to fix forward when there is none. It gives no
-verdict, and names no rollback target, when a check was cancelled (a newer push to `main` cancels
-the run) or when `main` has moved past this run's commit (read with `git ls-remote`, as the deploy's
-tip-of-main steps do), since production may then serve a newer release; re-running an old run's
-`smoke` job can't mark an older commit known-good. A named rollback run may
+browser checks passed, and when one of them failed names the newest deploy run on `main` that
+passed on an earlier commit as the rollback target, or says to fix forward when there is none. It
+gives no verdict, and names no rollback target, when a check didn't finish (cancelled, since a newer
+push to `main` cancels the run, or skipped after an earlier step failed), when `main` has moved past
+this run's commit (read with `git ls-remote`, as the deploy's tip-of-main steps do), or when a check
+failed while production's `deployment-id.json` names a newer run (a later deploy, perhaps of the
+same commit), since production may then serve a newer release; re-running an old run's `smoke` job
+can't mark an older commit known-good. A named rollback run may
 predate these checks or have been a GitHub Pages run, so check its `smoke` job before trusting it
 (see [Recover on the same origin](#recover-on-the-same-origin); otherwise fix forward on `main`).
 Nothing is uploaded: traces stay on the discarded runner. Use the steps below after a dashboard rollback or
