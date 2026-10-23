@@ -150,8 +150,8 @@ An exception (`EXCEPTIONS` in the same file) names one file's import of one targ
 package such as `react`, and needs a reason, an owner issue and a removal condition. `typeOnly: true`
 limits it to a type import (`import type`, or `import { type X }` for every name): a run-time import of
 the same target still fails. It fails the check once the import is gone, so remove the entry in the PR
-that fixes the import. There is no wildcard or per-directory exception. Current exceptions: six
-`CardWithMeta` type imports (#700).
+that fixes the import. There is no wildcard or per-directory exception. There are no current
+exceptions (the list is empty).
 
 `src/engine` also has ESLint rules for browser globals (`window`, `document`, storage, `fetch`,
 `XMLHttpRequest`, `Worker` and so on), including `globalThis.<name>` and `self.<name>`. An alias such as

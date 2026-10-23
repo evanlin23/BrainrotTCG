@@ -95,9 +95,9 @@ src/game/          Browser glue around the engine.
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
   route.ts           the page addresses (#/cards, #/rankings, #/profile, #/settings) and their titles
 
-src/components/    React UI (pack opening, collection, set picker, share sheet, pull viewer, pages); the UI map is docs/DESIGN.md
+src/components/    React UI (pack opening and its confetti, collection, set picker, share sheet, pull viewer, pages); the UI map is docs/DESIGN.md
 src/hooks/         React hooks: pack cutting and reveal gestures, audio, keyboard, route, pack cache, progress writer
-src/utils/         Small browser helpers: guarded localStorage reads (storage.ts), save migrations, settings, motion and haptics, achievement and confetti rules
+src/utils/         Small browser helpers: guarded localStorage reads (storage.ts), save migrations, settings, motion and haptics, achievement rules
 src/workers/       ticket.worker.ts: mines Argon2id tickets off the main thread (ticketMiner.ts and ticketPool.ts drive it)
 src/constants/     STORAGE_KEYS (every localStorage key), the repo name and audio constants
 src/data/          UI-facing card data (set definitions plus built image URLs) and the achievement list

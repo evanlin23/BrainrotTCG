@@ -36,22 +36,12 @@ describe('the repository', () => {
     expect(files).toBeGreaterThan(100);
   });
 
-  it('would fail on each excepted import (the #700 CardWithMeta imports, a React type in game, confetti in utils) without its exception', () => {
-    const { violations } = checkImportBoundaries(REAL_ROOT, []);
-    expect(violations.map((v) => v.file).sort()).toEqual(EXCEPTIONS.map((e) => e.from).sort());
-    for (const violation of violations) {
-      const exception = EXCEPTIONS.find((e) => e.from === violation.file)!;
-      expect(violation.message, violation.file).toContain(exception.to.startsWith('src/') ? `${exception.to}.tsx` : `UI package ${exception.to}`);
-    }
-  });
-
-  it('marks every exception for a type import typeOnly', () => {
-    const typeOnly = EXCEPTIONS.filter((e) => e.typeOnly).map((e) => e.from).sort();
-    expect(typeOnly).toEqual(EXCEPTIONS.map((e) => e.from).sort());
+  it('needs no exceptions: the repository passes with an empty list', () => {
+    expect(EXCEPTIONS).toEqual([]);
+    expect(formatViolations(checkImportBoundaries(REAL_ROOT, []).violations)).toBe('');
   });
 
   it('gives every exception a reason, a removal condition and an owner issue', () => {
-    expect(EXCEPTIONS.length).toBeGreaterThan(0);
     for (const exception of EXCEPTIONS) {
       expect(exception.reason.trim()).not.toBe('');
       expect(exception.removeWhen.trim()).not.toBe('');

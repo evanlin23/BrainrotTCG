@@ -25,7 +25,7 @@ import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADL
 import { revealOrder } from './reveal';
 import { getTicket, prefetchTicket } from './ticketMiner';
 import { afterPackArt } from './packArt';
-import type { CardWithMeta } from '../components/cards/Card';
+import type { CardWithMeta } from '../types/card';
 
 /** Enough to re-derive and re-sign a pull later (e.g. to share a past best pack). */
 export interface PullRef {
