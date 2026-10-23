@@ -4,6 +4,7 @@ import { cardFinishThumbUrl } from '../content/art';
 import { getSet } from '../content/sets';
 import { getCard } from '../data/cards';
 import { generatePack, packSeedFromTicket } from '../engine';
+import { packArtSettled } from './packArt';
 import { prefetchNextPack } from './pulls';
 
 const SET = getSet('right-now', 2)!;
@@ -26,8 +27,10 @@ describe('prefetchNextPack', () => {
     vi.stubGlobal('Image', class { src = ''; constructor() { images.push(this); } });
     mined.ticket = Promise.resolve(ticket);
     prefetchNextPack(SET);
-    // Its handler ran before this await resumes.
+    // Its handler ran before this await resumes; the pictures then wait for the sealed pack's art (#776).
     await mined.ticket;
+    packArtSettled();
+    await Promise.resolve();
     const expected = generatePack(SET, packSeedFromTicket(ticket)).flatMap((card) => {
       const image = getCard(`${card.setId}/${card.cardId}`)!.image;
       return card.finish ? [image, cardFinishThumbUrl(image, card.finish)!] : [image];

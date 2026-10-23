@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { READ_PATH, SEEN_PATH } from './hall-of-fame.ts';
 
 const read = (name: string) => readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
 
@@ -159,6 +160,21 @@ describe('Hall of Fame workflows (offline contracts)', () => {
     expect(verify).toContain('REJECTED: ${{ steps.check.outputs.rejected }}');
     expect(verify).toContain('if [ "$REJECTED" = "true" ]; then gh issue edit "$ISSUE" --add-label rejected; fi');
     expect(verify).not.toContain('--remove-label rejected');
+  });
+
+  it("caches the inbox's seen ids and read ranges in their own caches, restored before it runs and saved even if it fails (#999)", () => {
+    const inboxSteps = steps(jobs(read('hall-of-fame-inbox.yml')).inbox);
+    const at = inboxSteps.findIndex((s) => s.includes('scripts/hall-of-fame.ts inbox'));
+    for (const [file, name] of [[SEEN_PATH, 'hof-inbox-seen'], [READ_PATH, 'hof-inbox-read']]) {
+      const cache = (kind: string) => inboxSteps.findIndex((s) => s.includes(`actions/cache/${kind}@`) && s.includes(`path: ${file}\n`));
+      expect(cache('restore'), file).toBeGreaterThanOrEqual(0);
+      expect(cache('restore'), file).toBeLessThan(at);
+      expect(inboxSteps[cache('restore')]).toContain(`key: ${name}-\${{ github.run_id }}`);
+      expect(inboxSteps[cache('restore')]).toMatch(new RegExp(`^ +restore-keys: ${name}-$`, 'm'));
+      expect(cache('save'), file).toBeGreaterThan(at);
+      expect(inboxSteps[cache('save')]).toContain('if: always()');
+      expect(inboxSteps[cache('save')]).toContain(`key: ${name}-\${{ github.run_id }}`);
+    }
   });
 
   it('redeploys only when verify-issue asks to, not on every label repair (#650)', () => {

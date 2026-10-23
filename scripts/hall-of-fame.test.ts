@@ -12,7 +12,7 @@ import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
-import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
+import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
 import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
@@ -164,6 +164,10 @@ const unexpected = (request: string) => {
   throw new Error(`unexpected request: ${request}`);
 };
 
+/** When the relay events in these tests were sent: inside the inbox's read window at the tests' clock. */
+const SENT = Date.parse('2026-10-16T11:00:00Z');
+/** The event ids in the inbox's seen cache. */
+const seenIds = () => (JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8')) as [string, number][]).map(([id]) => id);
 /** What the run appended to $GITHUB_OUTPUT (the last value of each key). */
 const outputs = (): Record<string, string> =>
   existsSync('github-output') ? Object.fromEntries(readFileSync('github-output', 'utf8').trim().split('\n').map((line) => line.split('=') as [string, string])) : {};
@@ -607,7 +611,7 @@ describe('verify-issue (issue workflow)', () => {
 
 describe('inbox (scheduled workflow)', () => {
   const relaysHold = (...proofs: string[]) => {
-    const events = proofs.map((proof, i) => hallOfFameEvent(proof, idOf(proof), 1_000_000 + i * 1000));
+    const events = proofs.map((proof, i) => hallOfFameEvent(proof, idOf(proof), SENT + i * 1000));
     vi.mocked(fetchEvents).mockResolvedValue({ events, perRelay: [] });
     return events;
   };
@@ -627,13 +631,31 @@ describe('inbox (scheduled workflow)', () => {
     expect(labelled.body).toEqual({ labels: ['verified'] });
     expect(closed.body).toEqual({ state: 'closed', state_reason: 'completed' });
     expect(outputs()).toEqual({ added: '1' });
-    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(expect.arrayContaining(events.map((e) => e.id)));
+    expect(seenIds()).toEqual(expect.arrayContaining(events.map((e) => e.id)));
 
     // The next run has seen both events and files nothing.
     gh.requests.length = 0;
     await inbox();
     expect(gh.writes()).toEqual([]);
     expect(outputs()).toEqual({ added: '0' });
+  });
+
+  it('reads a seen cache of bare ids from before ids carried a time, and keeps ids until they leave the window', async () => {
+    const gh = fakeGitHub({ issues: [], published: [] });
+    const [handled, fresh] = relaysHold(pair, fourOfAKind);
+    writeFileSync('hof-inbox-seen.json', JSON.stringify([handled.id, fresh.id, 'gone']));
+    await inbox();
+    expect(gh.writes()).toEqual([]); // both were handled already
+    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual([['gone', Date.parse('2026-10-16T12:00:00Z') / 1000], [fresh.id, fresh.created_at], [handled.id, handled.created_at]]);
+
+    // A week on, the events have left the window and are dropped; the bare id, dated when it was read, goes a run later.
+    clockAt('2026-10-23T11:59:59Z');
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
+    await inbox();
+    expect(seenIds()).toEqual(['gone']);
+    clockAt('2026-10-23T12:00:01Z');
+    await inbox();
+    expect(seenIds()).toEqual([]);
   });
 
   it("files nothing for a pull whose display name isn't allowed", async () => {
@@ -708,11 +730,149 @@ describe('inbox (scheduled workflow)', () => {
     expect(outputs()).toEqual({ added: '1' });
   });
 
+  describe('past the page cap (#999)', () => {
+    /** One relay serving `events`, at most `cap` a read, newest first, saying where it stopped as fetchEvents does at its page cap. */
+    const cappedRelay = (events: NostrEvent[], cap: number) =>
+      vi.mocked(fetchEvents).mockImplementation(async (filter, relays = ['wss://a']) => {
+        const fits = events.filter((e) => matchesFilter(e, filter)).sort((a, b) => b.created_at - a.created_at);
+        const read = fits.slice(0, cap);
+        return { events: read, perRelay: relays.map((relay) => ({ relay, count: read.length, ...(fits.length > cap ? { more: read.at(-1)!.created_at } : {}) })) };
+      });
+    const SENT = Date.parse('2026-10-16T11:00:00Z');
+    const since = Date.parse('2026-10-09T12:00:00Z') / 1000;
+    const junk = (n: number) => Array.from({ length: n }, (_, i) => hallOfFameEvent('not a proof', `junk${i}`, SENT + i * 1000));
+    const at = (e: NostrEvent) => e.created_at;
+    const filters = () => vi.mocked(fetchEvents).mock.calls.map(([f]) => ({ since: f.since, until: f.until }));
+    const logged = () => vi.mocked(console.log).mock.calls.map((c) => String(c[0]));
+
+    it('reads the events past the cap over the next runs, then only the newest pages again', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = junk(7);
+      cappedRelay(events, 3);
+      await inbox();
+      // The newest three, then the next three from where the cap stopped.
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[4]) }]);
+      expect(logged()).toContain('wss://a: 3 events, stopped at the page cap');
+      expect(logged()).toContain(`wss://a: 3 older events up to ${new Date(at(events[4]) * 1000).toISOString()}, stopped at the page cap`);
+      expect(seenIds().sort()).toEqual(events.slice(2).map((e) => e.id).sort());
+
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[2]) }]);
+      expect(seenIds().sort()).toEqual(events.map((e) => e.id).sort());
+
+      // All read through: only the newest pages from now on.
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }]);
+    });
+
+    it('keeps the pages a read of older events finished before it timed out, and goes on below them', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = junk(9);
+      const capped = cappedRelay(events, 3).getMockImplementation()!;
+      // Older reads finish one page, then time out, as fetchEvents reports it.
+      vi.mocked(fetchEvents).mockImplementation(async (filter, ...rest) => {
+        const read = await capped(filter, ...rest);
+        return filter.until === undefined ? read : { ...read, perRelay: read.perRelay.map((r) => ({ ...r, error: 'timed out' })) };
+      });
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[6]) }]);
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      // Below the page it finished, not that page again.
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[4]) }]);
+    });
+
+    it("keeps what a relay was read through when its read fails, and asks it for nothing older", async () => {
+      fakeGitHub({ issues: [], published: [] });
+      cappedRelay(junk(7), 3);
+      await inbox();
+      const before = JSON.parse(readFileSync('hof-inbox-read.json', 'utf8')) as Record<string, unknown>;
+      expect(before['wss://a']).not.toEqual([]);
+      vi.mocked(fetchEvents).mockClear();
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'timed out' }, { relay: 'wss://b', count: 0 }] });
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }]);
+      expect(JSON.parse(readFileSync('hof-inbox-read.json', 'utf8'))).toEqual({ 'wss://a': before['wss://a'], 'wss://b': [[since, since + 7 * 86_400]] });
+    });
+
+    describe('with a gap above a stretch read through and one below it', () => {
+      const events = junk(9);
+      beforeEach(() => {
+        fakeGitHub({ issues: [], published: [] });
+        cappedRelay(events, 3);
+        writeFileSync('hof-inbox-read.json', JSON.stringify({ 'wss://a': [[at(events[1]), at(events[3])], [at(events[6]), since + 7 * 86_400]] }));
+      });
+
+      it('in even hours reads the newest', async () => {
+        await inbox();
+        // The head read stops at the cap, at the newest three.
+        expect(filters()).toEqual([{ since, until: undefined }, { since: at(events[3]) + 1, until: at(events[6]) - 1 }]);
+      });
+
+      it('in odd hours reads the oldest, so an older one is not left behind', async () => {
+        clockAt('2026-10-16T13:00:00Z');
+        await inbox();
+        // The window moved up an hour.
+        expect(filters()).toEqual([{ since: since + 3600, until: undefined }, { since: since + 3600, until: at(events[1]) - 1 }]);
+      });
+    });
+
+    it('files a qualifying pull from past the cap, and reads it again after a run that had to leave it', async () => {
+      const fixture: Fixture = { issues: [], published: [], fail: (r) => r.method === 'POST' && r.path === '/issues' };
+      const gh = fakeGitHub(fixture);
+      const pull = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT - 60_000);
+      const later = junk(4);
+      cappedRelay([pull, ...later], 3);
+      await inbox();
+      expect(gh.writes()).toEqual(['POST /issues']);
+      expect(logged().some((l) => l.startsWith(`${pull.id}: couldn't file it`))).toBe(true);
+      expect(seenIds()).not.toContain(pull.id);
+
+      fixture.fail = undefined;
+      gh.requests.length = 0;
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      // Read through below it; the rest of what the first run read is read again.
+      expect(filters()).toEqual([{ since, until: undefined }, { since: at(pull), until: at(later[1]) }]);
+      expect(gh.writes()).toEqual(FILED);
+      expect(outputs()).toEqual({ added: '1' });
+    });
+  });
+
   it("doesn't take over an unlabelled issue someone else opened", async () => {
     const gh = fakeGitHub({ issues: [issue(1, fourOfAKind, { labels: ['hall-of-fame'], login: 'mallory', updated: '2026-10-15T00:00:00Z' })], published: [] });
     relaysHold(fourOfAKind);
     await inbox();
     expect(gh.writes()).toEqual(FILED);
+  });
+
+  it('fails the run when every relay failed, leaving the seen cache as it was', async () => {
+    const gh = fakeGitHub({ issues: [], published: [] });
+    writeFileSync('hof-inbox-seen.json', JSON.stringify(['earlier']));
+    const down = (relay: string) => ({ relay, count: 0, error: 'connection failed' });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [down('wss://a'), down('wss://b'), { relay: 'wss://c', count: 0, error: 'timed out' }] });
+    await expect(inbox()).rejects.toThrow('every relay failed (3 of 3); nothing was read');
+    expect(gh.requests).toEqual([]);
+    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(['earlier']);
+    expect(outputs()).toEqual({});
+  });
+
+  it('keeps going when only some relays failed, or one failed after sending events', async () => {
+    const gh = fakeGitHub({ issues: [], published: [] });
+    const [event] = relaysHold(fourOfAKind);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [{ relay: 'wss://a', count: 0, error: 'connection failed' }, { relay: 'wss://b', count: 1 }] });
+    await inbox();
+    expect(gh.writes()).toEqual(FILED);
+    expect(outputs()).toEqual({ added: '1' });
+
+    // A relay that sent events before timing out was read, even if every relay ended in an error.
+    rmSync('hof-inbox-seen.json');
+    const late = fakeGitHub({ issues: [], published: [] });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [{ relay: 'wss://a', count: 0, error: 'connection failed' }, { relay: 'wss://b', count: 1, error: 'timed out' }] });
+    await inbox();
+    expect(late.writes()).toEqual(FILED);
   });
 
   it('needs a token', async () => {
@@ -733,7 +893,7 @@ describe('retention and intake contracts (offline)', () => {
     const old = dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP).map((e) => (e.id === 'first' ? { ...e, id: undefined, proof: fourOfAKind } : e));
     const published = [...old, { setId: 'x', score: 1, submittedAt: '2026-01-01T00:00:00.000Z', proof: 'not a proof' }];
     const gh = fakeGitHub({ issues: [], published });
-    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
     await inbox();
     // Its id comes from the proof, so the pull counts as listed and isn't filed again.
     expect(gh.writes()).toEqual([]);
@@ -747,15 +907,15 @@ describe('retention and intake contracts (offline)', () => {
   it('turns away a pull whose claimed score is at or below the floor without checking it', async () => {
     // Both boards full: the floor is the day's 50th (20,000), below the all-time 100th.
     const gh = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP) });
-    const low = hinted(fourOfAKind, 20_000, 1_000_000);
-    const lying = hinted(fourOfAKind, 1e9, 1_001_000);
+    const low = hinted(fourOfAKind, 20_000, SENT);
+    const lying = hinted(fourOfAKind, 1e9, SENT + 1000);
     vi.mocked(fetchEvents).mockResolvedValue({ events: [low, lying], perRelay: [] });
     await inbox();
     expect(logged()).toContain(`${low.id}: claims 20000, at or below the floor of 20000; not checked`);
     // A higher claim is only a reason to check: the real score (15,000) still doesn't join.
     expect(logged().some((l) => l.startsWith(`${lying.id}:`) && l.includes('not checked'))).toBe(false);
     expect(gh.writes()).toEqual([]);
-    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(expect.arrayContaining([low.id, lying.id]));
+    expect(seenIds()).toEqual(expect.arrayContaining([low.id, lying.id]));
   });
 
   it('judges each pull by the day its entry is stamped with, so a run that crosses UTC midnight moves to the new day', async () => {
@@ -765,8 +925,8 @@ describe('retention and intake contracts (offline)', () => {
     const published = [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP), ...tomorrow.map((e) => ({ ...e, id: `tomorrow-${e.id}` }))];
     const gh = fakeGitHub({ issues: [], published });
     // Filing it fills the 17th's top, which raises the floor to its 15,000 for the events after it.
-    const after = hinted(pair, 15_000, 1_002_000);
-    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(pair, idOf(pair), 1_000_000), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_001_000), after], perRelay: [] });
+    const after = hinted(pair, 15_000, SENT + 2000);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(pair, idOf(pair), SENT), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT + 1000), after], perRelay: [] });
     // The first line logged (turning the pair away) comes after the run read the list: midnight passes there.
     vi.mocked(console.log).mockImplementation(() => vi.setSystemTime(new Date('2026-10-17T00:00:05Z')));
     await inbox();
@@ -789,7 +949,7 @@ describe('retention and intake contracts (offline)', () => {
 
     it("is judged and labelled by the 16th's top", async () => {
       const gh = unfinishedRun();
-      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
       await inbox();
       expect(gh.writes()).toEqual(FINISHED);
       expect(gh.requests.find((r) => r.path === '/issues/5/labels')!.body).toEqual({ labels: ['daily'] });
@@ -799,7 +959,7 @@ describe('retention and intake contracts (offline)', () => {
     it("isn't turned away by today's floor", async () => {
       // Today's floor is the 17th's 50th (20,000); the claim of 15,000 is at or below it.
       const gh = unfinishedRun();
-      const event = hinted(fourOfAKind, 15_000, 1_000_000);
+      const event = hinted(fourOfAKind, 15_000, SENT);
       vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
       await inbox();
       expect(logged().some((l) => l.startsWith(`${event.id}:`) && l.includes('not checked'))).toBe(false);
@@ -824,7 +984,7 @@ describe('retention and intake contracts (offline)', () => {
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-seen.json']);
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-read.json', 'hof-inbox-seen.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });

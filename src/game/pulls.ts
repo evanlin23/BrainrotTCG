@@ -25,6 +25,7 @@ import { STORAGE_KEYS } from '../constants';
 import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADLINE_TOKENS, previewOf, previewPath, type ModifiedCard } from './previewLinks';
 import { revealOrder } from './reveal';
 import { getTicket, prefetchTicket } from './ticketMiner';
+import { afterPackArt } from './packArt';
 import type { CardWithMeta } from '../components/cards/Card';
 
 /** Enough to re-derive and re-sign a pull later (e.g. to share a past best pack). */
@@ -86,11 +87,15 @@ export const prefetchNextPack = (set: SetDefinition) => {
   void getTicket(setKey(set), getPlayer().publicKey, peekNonce())
     .then((ticket) => {
       // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
-      // with the ready-made thumbnail a finished card's summary tile shows (#620).
-      for (const card of generatePack(set, packSeedFromTicket(ticket))) {
+      // once the sealed pack's own art is in, with the ready-made thumbnail a finished card's summary
+      // tile shows (#620).
+      const urls = generatePack(set, packSeedFromTicket(ticket)).flatMap((card) => {
         const image = getCard(`${card.setId}/${card.cardId}`)?.image;
-        for (const url of [image, image && cardFinishThumbUrl(image, card.finish)]) if (url) new Image().src = url;
-      }
+        return image ? [image, cardFinishThumbUrl(image, card.finish)] : [];
+      });
+      afterPackArt(() => {
+        for (const url of urls) if (url) new Image().src = url;
+      });
     })
     .catch(() => undefined);
 };

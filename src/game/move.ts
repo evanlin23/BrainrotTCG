@@ -103,7 +103,7 @@ const promotePending = () => {
  * and the best cards (bestCards.ts), derived from the packs a save's tickets rebuild.
  */
 const NO_PROGRESS_KEYS = new Set<string>([SAVE_STAMP_KEY, DATA_VERSION_KEY, STORAGE_KEYS.SETTINGS, STORAGE_KEYS.SELECTED_SET,
-  STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'brainrot-reopened-v1', 'brainrot-reopen-pending-v1', 'brainrot-reopen-backoff-v1',
+  STORAGE_KEYS.OPEN_CUE_PLAYS, STORAGE_KEYS.COLLECTION_RECOVERY_SEEN, 'brainrot-reopened-v1', 'brainrot-reopen-pending-v1', 'brainrot-reopen-backoff-v1',
   STORAGE_KEYS.BEST_CARDS]);
 
 /** No number above 0, no text, no `true` and no list entry, at any depth: a fresh guest's stats, say. */

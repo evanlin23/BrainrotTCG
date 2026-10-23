@@ -27,6 +27,9 @@ interface Asked {
   changed: boolean;
 }
 
+/** Says only that the download started: the browser can still block it or ask where to save. */
+const DOWNLOAD_STARTED_NOTE = 'Download started — keep the recovery file safe.';
+
 /**
  * Download or discard the unreadable collection data kept aside (game/collectionRecovery). Discard asks
  * first, in place, like Restore's Keep mine / Replace: the safe answer takes focus and reads the question.
@@ -36,6 +39,8 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
   const [asked, setAsked] = useState<Asked | null>(null);
   const [refused, setRefused] = useState(false);
   const [downloadFailed, setDownloadFailed] = useState(false);
+  // Counts downloads since the note was last cleared (0: no note); it keys the note's text so a repeat Download is announced again.
+  const [started, setStarted] = useState(0);
   const keepRef = useRef<HTMLButtonElement>(null);
   const discardRef = useRef<HTMLButtonElement>(null);
   const backToDiscard = useRef(false);
@@ -72,6 +77,7 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
   const ask = () => {
     if (canAct()) {
       setDownloadFailed(false);
+      setStarted(0);
       setAsked({ print: collectionRecoveryPrint(), changed: false });
     }
   };
@@ -99,16 +105,28 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
     const result = downloadCollectionRecovery();
     if (result === 'downloaded') {
       setDownloadFailed(false);
+      setStarted((n) => n + 1);
     } else if (result === 'none') {
       setDownloadFailed(false);
+      setStarted(0);
       onGone();
     } else if (result === 'unavailable') {
       setDownloadFailed(true);
+      setStarted(0);
     }
   };
 
   return (
-    <span ref={rootRef} className={variant === 'settings' ? `settings-actions${asked ? ' settings-actions--ask' : ''}` : undefined}>
+    <span ref={rootRef} className={variant === 'settings' ? `settings-actions${asked ? ' settings-actions--ask' : ''}${started > 0 && !asked ? ' settings-actions--started' : ''}` : undefined}>
+      {/* Always mounted, so a screen reader is already watching it when the note appears. */}
+      <span role="status" className={variant === 'banner' ? undefined : 'kept-aside-note'}>
+        {started > 0 && (
+          <span key={started}>
+            {variant === 'banner' && ' '}
+            {DOWNLOAD_STARTED_NOTE}
+          </span>
+        )}
+      </span>
       {asked ? (
         <>
           <span id={noteId} className={note}>

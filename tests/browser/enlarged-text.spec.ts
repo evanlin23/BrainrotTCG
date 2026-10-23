@@ -107,7 +107,7 @@ for (const width of [320, 390]) {
       }
       // It still goes to the pack screen.
       await action.click();
-      await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /^Open pack/ })).toBeVisible();
       expect(errors).toEqual([]);
     });
   }
