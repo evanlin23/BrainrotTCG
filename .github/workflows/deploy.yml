@@ -24,7 +24,8 @@ concurrency:
 #   it built for Cloudflare;
 # - with staging on (docs/HOSTING.md#staging), stage deploys the sealed files to the staging branch's
 #   own address and checks it serves exactly them, and staging-checks runs the browser checks there
-#   with no secrets; otherwise every step of both is skipped;
+#   with no secret but the Access service token, in the steps that fetch staging; otherwise every
+#   step of both is skipped;
 # - publish deploys the same sealed files with Wrangler from its own lockfile, then waits until the
 #   new address serves exactly them;
 # - deploy holds the GitHub Pages write scopes and runs no repository dependencies;

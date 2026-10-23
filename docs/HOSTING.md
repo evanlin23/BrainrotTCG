@@ -173,22 +173,28 @@ Access in front of the previews keeps people out of staging, so the checks sign 
 [service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/). Set it up
 before the variable in step 3 above:
 
-1. In **Zero Trust → Access → Service credentials → Service Tokens**, create a token (for example
-   `brainrottcg-staging-checks`) and copy its Client ID and Client Secret; the secret is shown once.
+1. In **Zero Trust → Access controls → Service credentials → Service Tokens**, create a token
+   (for example `brainrottcg-staging-checks`) and copy its Client ID and Client Secret; the secret is shown once.
 2. In the Access app that covers the previews (*brainrottcg - Cloudflare Pages*), add a policy with
    action **Service Auth** that includes that token. A plain *Allow* policy doesn't accept service
    tokens. Keep the app and its other policies as they are.
-3. Add the repository **secrets** `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (**Settings →
+3. In **Zero Trust → Access controls → Access settings → Manage service tokens**, check that
+   **Strict service token authentication** is on (it is always on for organizations created from
+   October 2026). Without it, Access answers a valid token with a `CF_Authorization` session cookie,
+   which a failed `page.request` call in the checks could print in its log; with it, Access sets no
+   cookie and answers a missing or rejected token with a 401 or 403.
+4. Add the repository **secrets** `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (**Settings →
    Secrets and variables → Actions → Secrets**).
-4. Only then set `CLOUDFLARE_STAGING_BRANCH` (step 3 above).
+5. Only then set the `CLOUDFLARE_STAGING_BRANCH` variable.
 
 The checks send the token's `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers on every
 request to the staging origin (the page, its Web Worker, and the `stage` and `staging-checks`
-fetches), and never to production, GitHub or any other host: they follow no redirect with the
-headers on, and the deploy workflow's contract (`deploy_contract.py check-workflows`) allows the two
-secrets only in the four steps that fetch staging. They don't rely on the `CF_Authorization` cookie:
-an Access app in strict mode returns none and ignores one sent back. Browser traces are off while the
-token is set, since they record request headers.
+fetches), and never to production, GitHub or any other host: they follow redirects with the
+headers only within the staging origin, and the deploy workflow's contract
+(`deploy_contract.py check-workflows`) allows the two secrets only in the four steps that fetch
+staging. They don't rely on the `CF_Authorization` cookie:
+with strict service token authentication on, Access returns none and ignores one sent back. Browser
+traces are off while the token is set, since they record request headers.
 
 With the token missing, expired or not in a Service Auth policy, Access answers with a redirect to
 its login page, a 401 or a 403, and `stage` or `staging-checks` stops with an error that names the

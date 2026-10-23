@@ -1028,6 +1028,26 @@ class Served(unittest.TestCase):
                 with self.assertRaisesRegex(dc.Rejected, 'must be a plain https://'):
                     dc.served(self.release, ENV, self.digest, url, get=self.get, pause=0)
 
+    def test_access_token(self):
+        """With the Access token set, every fetch sends it; a redirect to the Access login fails closed,
+        though it is raised in a pool thread."""
+        from unittest import mock
+        token = {'CF_ACCESS_CLIENT_ID': 'id.access', 'CF_ACCESS_CLIENT_SECRET': 'not-for-logs'}
+        sent = []
+
+        def fetch(url, headers=None):
+            sent.append(headers)
+            return self.get(url)
+        with mock.patch.object(dc, 'fetch', fetch):
+            dc.served(self.release, {**ENV, **token}, self.digest, self.base, pause=0)
+        self.assertEqual(sent, [{'CF-Access-Client-Id': 'id.access', 'CF-Access-Client-Secret': 'not-for-logs'}] * 6)
+
+        def login(url, headers=None):
+            raise dc.HTTPError('https://brainrottcg-pages.cloudflareaccess.com/cdn-cgi/access/login/x', 302, 'Found', {}, None)
+        with mock.patch.object(dc, 'fetch', login), \
+                self.assertRaisesRegex(dc.AccessRefused, r'rejected the service token .*\(HTTP 302 to the Access login at '):
+            dc.served(self.release, {**ENV, **token}, self.digest, self.base, pause=0)
+
     def test_fetch(self):
         """fetch against a real server: bodies uncompressed, errors raised, no redirect to another origin."""
         import http.server
