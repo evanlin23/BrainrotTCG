@@ -907,7 +907,8 @@ How these rules hold up:
    check makes the delete fail rather than lose work:
    `git push --force-with-lease=refs/heads/<branch>:<tip> origin :refs/heads/<branch>`.
 4. Record the deletion manifest (branch, former tip, PR, merged head) and the before and after
-   totals on #710.
+   totals on #710. The first inventory is docs/branch-inventory/2026-10-23.md; later ones go on
+   #710 rather than into the repository.
 Never issue a broad or age-based delete. Never delete tags, releases, set or proof files, deploy
 artifacts, issues or anyone's local work. Other cleanup gets its own issue.
 
