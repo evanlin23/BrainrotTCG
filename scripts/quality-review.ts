@@ -170,7 +170,7 @@ export const JOURNEYS: readonly Journey[] = [
   { id: 'opening', label: 'Home, open a pack, results', agentTask: 'opening', paths: ['src/components/pack/', 'src/game/pack', 'src/game/pulls', 'src/game/reveal', 'src/App'] },
   { id: 'collection-detail', label: 'Collection and card detail', agentTask: null, paths: ['src/components/collection/', 'src/components/cards/', 'src/game/cardStats', 'src/game/bestCards'] },
   { id: 'sharing', label: 'Sharing and receiving', agentTask: 'sharing', paths: ['src/components/share/', 'src/game/move', 'src/game/cardCode', 'src/game/qrCode', 'src/game/bragImage', 'src/game/finishImage'] },
-  { id: 'profile', label: 'Own and shared Profile', agentTask: null, paths: ['src/components/profile/', 'src/game/profiles', 'src/game/player'] },
+  { id: 'profile', label: 'Own and shared Profile', agentTask: null, paths: ['src/components/profile/', 'src/game/profile', 'src/game/player'] },
   { id: 'rankings', label: 'Rankings (Hall of Fame)', agentTask: null, paths: ['src/components/pages/HallOfFame', 'src/game/hallOfFame', 'src/game/nostrInbox', 'scripts/hall-of-fame'] },
   { id: 'settings-help', label: 'Settings and help', agentTask: null, paths: ['src/components/pages/SettingsPage', 'src/game/diagnostics'] },
   { id: 'recovery', label: 'Interrupted pack and save recovery', agentTask: 'recovery', paths: ['src/game/collectionRecovery', 'src/game/progress', 'src/game/history', 'src/game/reopenCache', 'src/game/reload'] },

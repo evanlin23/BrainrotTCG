@@ -76,7 +76,8 @@ src/game/          Browser glue around the engine.
   ticketMiner.ts     serial opening-ticket queue, worker/main-thread fallback, next-pack prefetch
   ticketPool.ts      separate verification/reconstruction pool, up to 8 workers (32 MiB each)
   history.ts         compact localStorage ticket metadata/cards; quota can discard old records
-  profiles.ts        signed profile construction, verification and background own-pack reconstruction
+  profiles.ts        signed profile construction and background own-pack reconstruction
+  profileVerification.ts   verifying a shared profile link (verifyProfileLive)
   packStore.ts       reconstructed own-pack card codes in memory and IndexedDB
   reopenCache.ts     localStorage cache for packs derived while viewing public profiles
   pulls.ts           openPack(), proofFor(), pullUrl(), checkPull()
@@ -484,8 +485,11 @@ from #0, the set version assigned to each, XP and up to five best tickets. The v
 range and checks the claims. It cannot prove that the range includes all lifetime mining activity,
 that no other keys were used, or when packs were opened.
 
-`src/game/profiles.ts` checks decoding/signature first, then derives highlights before the remaining
-tickets and validates XP/highlights. A displayed claim is not verified merely because the signature
+`src/game/profileVerification.ts` checks decoding/signature first, then derives highlights before the
+remaining tickets and validates XP/highlights. It imports no player, history, pack store or
+own-profile code (`profiles.ts`, which re-exports it for older imports), so checking someone else's
+profile never reads or waits on your own save; it shares only the engine rules, `reopenCache.ts`,
+`ticketPool.ts` and optional-work admission (`admission.ts`), never a scheduler of its own. A displayed claim is not verified merely because the signature
 passes. Work uses `ticketPool.ts`, separate from foreground `ticketMiner.ts`, with a hardware-based
 pool size up to eight workers. Separation avoids sharing the opening queue but does not remove CPU,
 memory or main-thread-fallback contention. Latency varies with the device and number of uncached
