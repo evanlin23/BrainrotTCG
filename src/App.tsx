@@ -24,10 +24,12 @@ import { downloadSaveFile, exportSaveFile, importSaveFile, NEW_PLAYER_PARTIAL_NO
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
+import { loadStats } from './game/statsRecovery';
 import { setMotionSetting } from './utils/motion';
 import { readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression';
-import { historyAchievementsReady, myStats, watchMyPacks } from './game/profiles';
+import { myStats } from './game/profiles';
+import { historyAchievementsReady, watchMyPacks } from './game/packCache';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { playerUnreadable, sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
@@ -35,7 +37,7 @@ import { reloadPage } from './game/reload';
 import { isStaging, STAGING_NOTE } from './game/staging';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
-import { useSetLink } from './hooks/useSetLink';
+import { linkedSetAtLoad, useSetLink } from './hooks/useSetLink';
 import { useProgressWriter } from './hooks/useProgressWriter';
 import { useAchievementReconciler } from './hooks/useAchievementReconciler';
 import type { ProgressWriterHost } from './game/progressWriter';
@@ -65,7 +67,10 @@ const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be 
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
-  const [stats, setStats] = useState<Stats>(() => getStoredData(STORAGE_KEYS.STATS, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
+  // Unreadable stats are kept aside and rebuilt (game/statsRecovery.ts), and the tickets they count from
+  // the history never count again when their packs come off the pending shelf.
+  const [loadedStats] = useState(() => loadStats(collection));
+  const [stats, setStats] = useState<Stats>(loadedStats.stats);
   const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(STORAGE_KEYS.HALL_OF_FAME, {}));
 
   const [settings, setSettings] = useState<Settings>(() => readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)));
@@ -182,7 +187,7 @@ function App() {
   const [packShowcase, setPackShowcase] = useState(false);
 
   const playableSets = SETS.filter((s) => !s.archivedAt && (!s.draft || settings.showDraftSets));
-  const [selectedSetId, setSelectedSetId] = useState<string>(readSelectedSet);
+  const [selectedSetId, setSelectedSetId] = useState<string>(() => linkedSetAtLoad(playableSets) ?? readSelectedSet());
   const selectedSet = playableSets.find((s) => s.id === selectedSetId) ?? playableSets.find((s) => s.id === DEFAULT_SET_ID) ?? playableSets[0];
   const selectSet = useCallback((setId: string) => {
     setSelectedSetId(setId);
@@ -359,7 +364,14 @@ function App() {
   useEffect(() => {
     if (pendingTaken.current) return;
     pendingTaken.current = true;
-    const taken = takePendingPacks();
+    const taken = takePendingPacks().map((pack) => (loadedStats.counted.has(pack.nonce) ? { ...pack, counted: true } : pack));
+    // Rebuilt stats replace the unreadable ones at once (their copy is kept aside first), so a discard
+    // sticks and an export finds them readable; the writer stores them after the packs taken here. Once
+    // per mount, like the packs: a new copy of the same stats is what has the writer store them. Not
+    // while the player record is unreadable: they were rebuilt from a stand-in key's empty history, and
+    // no pack can open until a backup or a new player replaces the record (and the page reloads).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (loadedStats.rebuilt && !recordUnreadable) setStats((current) => ({ ...current }));
     packsTaken(taken);
     taken.reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
     // Not for a tab already known to be stale: it stores nothing, and the notice would flash before the warning.

@@ -64,7 +64,7 @@ test.describe('Profile outer-page wheel scrolling (#798)', () => {
     const startTop = await top();
     expect(await profile.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
     // The shell has nothing of its own to scroll: all the overflow belongs to the Profile page.
-    expect((await appScroll()).overflow).toBeLessThanOrEqual(1);
+    expect((await appScroll()).overflow).toBe(0);
 
     await page.mouse.move(0, 0);
     await page.mouse.wheel(0, 900);

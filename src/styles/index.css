@@ -175,6 +175,9 @@ a.app-logo--link:focus-visible {
   .app-logo {
     flex-shrink: 0;
     font-size: clamp(1.75rem, 10vw - 3.375rem, 3.25rem);
+    /* Whole pixels, so the header and the pack stage under it start on a whole pixel. On a half pixel
+       (58.5px at 1280px wide) the stage's fade painted it rounded either way from run to run (#1129). */
+    font-size: round(clamp(1.75rem, 10vw - 3.375rem, 3.25rem), 1px);
   }
 
   .app-main,

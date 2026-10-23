@@ -8,7 +8,8 @@ import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY, saveMark } from './player';
 import { recordPack } from './history';
 import type { OpenedPack } from './pulls';
-import { myProfileInfo, myStats, myTickets, resetTicketList } from './profiles';
+import { myProfileInfo, myStats } from './profiles';
+import { myTickets, resetTicketList } from './myTickets';
 
 const player = (secretKey = 'aa'.repeat(32), nextNonce = 7) => JSON.stringify({ secretKey, name: 'Combo Miner', nextNonce, createdAt: 1 });
 const fixture = () => ({
@@ -348,6 +349,19 @@ describe('private collection recovery archive portability', () => {
   it('imports an archive that counts payloads let go and wraps one it could not read', () => {
     const archive = JSON.stringify({ raw: '{broken archive', player: null, kind: 'unparseable-archive', later: [{ raw: '{"x":1}', player: null }], dropped: 2 });
     expect(importSaveFile(JSON.stringify({ ...fixture(), collectionRecovery: archive }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
+  });
+
+  it('carries kept-aside player records and stats through an export and an import (#1052, #1053)', () => {
+    const archive = JSON.stringify({
+      raw: '{"secretKey":"not a key"', player: '{"secretKey":"not a key"', key: 'brainrot-player-v1',
+      later: [{ raw: 'garbage', player: store.get('brainrot-player-v1'), key: STORAGE_KEYS.STATS }],
+    });
+    store.set(STORAGE_KEYS.COLLECTION_RECOVERY, archive);
+    const file = exportSaveFile();
+    expect((JSON.parse(file) as { collectionRecovery: string }).collectionRecovery).toBe(archive);
+    store.clear();
+    expect(importSaveFile(file)).toBeNull();
     expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
   });
 

@@ -25,7 +25,7 @@ interface PackCardViewerProps {
     /**
      * A title above already names the combo (a shared pull's "Pair"): the combo headline is left out so the
      * combo and its multiplier read once, the multiplier in the score panel's arithmetic. A pack with no
-     * combo is never titled: it keeps its own "No Matches" line.
+     * combo (multiplier 1) keeps its own "No Matches" line even when titled.
      */
     titled?: boolean;
 }
@@ -66,7 +66,7 @@ const PackCardViewer = ({
         <div className={`pack-card-viewer ${className}`}>
             {showValue && (
                 <>
-                    {!titled && <PackHeadline cards={cards} showTotal={false} />}
+                    {!(titled && pokerHand.multiplier > 1) && <PackHeadline cards={cards} showTotal={false} />}
                     <BrainrotScorePanel
                         points={points}
                         multiplier={pokerHand.multiplier}
@@ -92,7 +92,7 @@ const PackCardViewer = ({
                             onClick={() => handleCardClick(card)}
                             aria-label={`${card.name}${modifierLabel(card) ? ` (${modifierLabel(card)})` : ''}`}
                         >
-                            <CardImage src={card.image} finish={card.finish} thumbnail alt="" />
+                            <CardImage src={card.image} finish={card.finish} thumbnail alt="" fetchPriority="high" />
                             {modifierLabel(card, false) && <span className="mod-label">{modifierLabel(card, false)}</span>}
                         </button>
                     );

@@ -52,6 +52,8 @@ describe('ticket worker', () => {
   });
 
   it('mines different tickets for different nonces, keys and sets', async () => {
+    // The password stands in for the hash, so the four requests cost no Argon2; the test above proves the real bytes.
+    vi.mocked(argon2id).mockImplementation((async (options: { password: Uint8Array }) => options.password) as unknown as typeof argon2id);
     const other = PUBLIC_KEY_HEX.replace(/^01/, 'ff');
     await send(request({ id: 1, nonce: 0 }));
     await send(request({ id: 2, nonce: 1 }));
@@ -146,6 +148,16 @@ describe('ticket worker', () => {
       vi.mocked(argon2id).mockRejectedValue('out of memory');
       await send(request({ id: 9 }));
       expect(replies()).toStrictEqual([{ id: 9, error: 'out of memory' }]);
+    });
+
+    it('answers with the error when posting the ticket itself throws', async () => {
+      scope.postMessage.mockImplementationOnce(() => {
+        throw new Error('DataCloneError');
+      });
+      await send(request({ id: 12 }));
+      // The throwing call is recorded too, so the reply that got through is the second.
+      expect(replies()).toHaveLength(2);
+      expect(replies()[1]).toStrictEqual({ id: 12, error: 'Error: DataCloneError' });
     });
 
     it('keeps answering after a failure', async () => {

@@ -481,7 +481,8 @@ class Workflows(unittest.TestCase):
                 self.assertBroken('deploy.yml', old, new, 'build must always run npm run check:history')
 
     def test_ci_runs_the_history_gate_on_pull_requests(self):
-        steps = dc.load(WORKFLOWS / 'ci.yml')['jobs']['check']['steps']
+        # In the content-checks stage, which the required `check` gate needs (scripts/ci-stages.test.ts).
+        steps = dc.load(WORKFLOWS / 'ci.yml')['jobs']['content-checks']['steps']
         gate = next(s for s in steps if s.get('name') == 'Keep old vectors and set locks')
         self.assertEqual(gate, {'name': 'Keep old vectors and set locks', 'if': "github.event_name == 'pull_request'",
                                 'run': 'npm run check:history -- --base HEAD^1'})
@@ -509,8 +510,8 @@ class Workflows(unittest.TestCase):
       - uses: actions/checkout@v4
 """, 'not pinned to a commit')
 
-    # browser-tests.yml uploads from the shards and from the burn-in: break each upload in turn.
-    BROWSER_UPLOADS = ['playwright-test-results-shard-${{ matrix.shard }}', 'playwright-test-results-burn-in-${{ matrix.shard }}']
+    # browser-tests.yml uploads from the shards, the visual baselines and the burn-in: break each upload in turn.
+    BROWSER_UPLOADS = ['playwright-test-results-shard-${{ matrix.shard }}', 'visual-baselines-diff', 'playwright-test-results-burn-in-${{ matrix.shard }}']
 
     def test_ci_upload_on_success(self):
         for name in self.BROWSER_UPLOADS:
@@ -522,19 +523,24 @@ class Workflows(unittest.TestCase):
     def test_ci_upload_kept_longer(self):
         for name in self.BROWSER_UPLOADS:
             with self.subTest(name):
-                self.assertBroken('browser-tests.yml', f'name: {name}\n          path: test-results/\n          retention-days: 7\n',
-                                  f'name: {name}\n          path: test-results/\n          retention-days: 30\n',
+                path = 'test-results/visual/**/*.png' if name == 'visual-baselines-diff' else 'test-results/'
+                self.assertBroken('browser-tests.yml', f'name: {name}\n          path: {path}\n          retention-days: 7\n',
+                                  f'name: {name}\n          path: {path}\n          retention-days: 30\n',
                                   'must upload only on failure() and keep it 7 days')
 
     def test_browser_check_waits_for_the_burn_in(self):
-        # The required `browser-tests` check passes only after the burn-in. The burn-in may be
-        # skipped only when its plan ran and found no spec, and it has no event filter, because a
-        # push run and a pull request run of the same commit can each satisfy branch protection.
+        # The required `browser-tests` check passes only after the visual baselines and the burn-in.
+        # The burn-in may be skipped only when its plan ran and found no spec, and it has no event
+        # filter, because a push run and a pull request run of the same commit can each satisfy
+        # branch protection.
         jobs = dc.load(WORKFLOWS / 'browser-tests.yml')['jobs']
         gate = jobs['browser-tests']
-        self.assertEqual(set(gate['needs']), {'browser-shard', 'browser-burn-in-plan', 'browser-burn-in'})
+        self.assertEqual(set(gate['needs']), {'browser-shard', 'visual-baselines', 'browser-burn-in-plan', 'browser-burn-in'})
         self.assertEqual(gate['if'], 'always()')
         script = gate['steps'][0]['run']
+        self.assertIn('test "$VISUAL" = success', script)
+        self.assertEqual(gate['steps'][0]['env']['VISUAL'], '${{ needs.visual-baselines.result }}')
+        self.assertNotIn('if', jobs['visual-baselines'])
         self.assertIn('test "$PLAN" = success', script)
         self.assertIn('test "$BURN_IN" = success || { test "$BURN_IN" = skipped && test -z "$SPECS"; }', script)
         self.assertNotIn('if', jobs['browser-burn-in-plan'])

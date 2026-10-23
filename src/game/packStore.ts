@@ -5,7 +5,7 @@
  *
  * Read synchronously from memory (profiles are built synchronously). Nothing is read up front: the
  * player's packs that need it are brought into memory a bounded page at a time (`hydratePackStore`,
- * driven by game/profiles.ts), so startup never loads every stored pack. Writes go to memory at once
+ * driven by game/packCache.ts), so startup never loads every stored pack. Writes go to memory at once
  * and to IndexedDB in the background.
  */
 const DB_NAME = 'brainrot-packs';
@@ -200,7 +200,7 @@ export const hydratePackStore = async (
   signal?.throwIfAborted();
   const keys = packs.map(pack => packRefKey(pack.setKey, pack.publicKeyHex, pack.nonce));
   const wanted = packs.filter((_pack, i) => !memory.has(keys[i]));
-  if (wanted.length === 0 || typeof indexedDB === 'undefined') return true;
+  if (wanted.length === 0 || !hasIndexedDB()) return true;
   for (let start = 0; start < wanted.length; start += PACK_READ_PAGE) {
     if (!keep()) return false;
     const page = wanted.slice(start, start + PACK_READ_PAGE);

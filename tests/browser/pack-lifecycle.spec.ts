@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { expectDecoded, expectRecordedPack, fingerFor, monitor, snapshot } from './support';
+import { expectDecoded, expectRecordedPack, fingerFor, monitor, snapshot, untilIdle } from './support';
 
 // The page goes to the background and comes back, or the window resizes, in the middle of opening a
 // pack (#186). Nothing goes blank, nothing opens by itself, and a pack that was being opened still
@@ -71,8 +71,8 @@ test('a sealed pack stays sealed through a trip to the background and a resize',
   await background(page);
   await resize(page);
   await background(page);
-  // Long enough for an automatic open to start, if one were going to (#374 removed it).
-  await page.waitForTimeout(800);
+  // An automatic open would have started by the time the page is idle (#374 removed it).
+  await untilIdle(page);
   await expectSealed(page, packShell);
   // The pack measures itself again after the resize, so a swipe still opens it.
   await packShell.scrollIntoViewIfNeeded();
@@ -95,7 +95,7 @@ test('a swipe cut off by the background leaves the pack sealed, and the next swi
   // The finger finishes its stroke and lifts after the app came back: the stroke was ended, so no cut.
   for (let step = 4; step <= 6; step++) await finger.move(box.x + box.width * (0.35 + 0.05 * step), y);
   await finger.release();
-  await page.waitForTimeout(800);
+  await untilIdle(page);
   await expectSealed(page, packShell);
   await swipeOpen(page, packShell, hasTouch);
   expect(errors).toEqual([]);
@@ -111,7 +111,7 @@ test('an opening pack keeps its card through the background and a resize, then s
   await background(page);
   await resize(page);
   await background(page);
-  await page.waitForTimeout(500);
+  await untilIdle(page);
   // Not blank, and not moved on by itself: the same card is up and on screen.
   await expect(count).toHaveText('Card 1 of 5');
   await expect(page.locator('.reveal-card')).toBeInViewport();

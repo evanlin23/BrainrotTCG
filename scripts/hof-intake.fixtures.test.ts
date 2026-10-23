@@ -36,7 +36,10 @@ const twoPair = valid('mined Two Pair');
 const threeOfAKind = valid('mined 3 of a Kind');
 const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB' : 'AAAA');
 const idOf = (proof: string) => pullId(decodeProof(proof));
+/** The bot's marker as it was before it recorded receipts. */
 const marker = (proof: string) => `<!-- hof-verified ${idOf(proof)} -->`;
+/** Whether a comment carries the bot's marker for `proof`, with a receipt or without. */
+const marks = (body: string | null | undefined, proof: string) => !!body && (body.includes(marker(proof)) || body.includes(`<!-- hof-verified ${idOf(proof)} received `));
 const link = (proof: string) => `https://evanlin23.github.io/BrainrotTCG/#/pull/${proof}`;
 
 /** A submission as the site sends it (a fresh key each time), `secondsAgo` before NOW. */
@@ -118,7 +121,7 @@ describe('inbox: duplicate submissions', () => {
     expect(names(filed)).toEqual(['hall-of-fame', 'verified']);
     expect(filed.state).toBe('closed');
     expect(filed.body).toContain(`#/pull/${fourOfAKind}\n`);
-    expect(gh.comments[100].filter((c) => c.body?.includes(marker(fourOfAKind)))).toHaveLength(1);
+    expect(gh.comments[100].filter((c) => marks(c.body, fourOfAKind))).toHaveLength(1);
     expect(logs).toContain('2 events read, 1 added');
 
     // Run again, then again after losing the cache of seen events: GitHub says it's filed.
@@ -305,14 +308,15 @@ describe('inbox: interrupted runs', () => {
     const [filed] = gh.botIssues();
     expect(names(filed)).toEqual(['hall-of-fame', 'verified']);
     if (step !== 'closing the issue') expect(filed.state).toBe('closed');
-    const markers = gh.comments[filed.number].filter((c) => c.user?.login === BOT && c.body?.includes(marker(fourOfAKind)));
+    const markers = gh.comments[filed.number].filter((c) => c.user?.login === BOT && marks(c.body, fourOfAKind));
     expect(markers).toHaveLength(1);
     expect(outputs().reduce((n, line) => n + Number(line.split('=')[1]), 0)).toBe(1);
 
-    // The deploy publishes it once, credited to Nostr and stamped with its one verification.
+    // The deploy publishes it once, credited to Nostr, received when the issue was filed and verified
+    // by its one marker (a comment a later run posted, if the first stopped before it).
     await build(path.join(dir, 'hall-of-fame.json'));
-    const entries = JSON.parse(readFileSync(path.join(dir, 'hall-of-fame.json'), 'utf8')) as { issue: number; githubUser: string; submittedAt: string }[];
-    expect(entries.map((e) => [e.issue, e.githubUser, e.submittedAt])).toEqual([[filed.number, 'nostr', markers[0].created_at]]);
+    const entries = JSON.parse(readFileSync(path.join(dir, 'hall-of-fame.json'), 'utf8')) as { issue: number; githubUser: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
+    expect(entries.map((e) => [e.issue, e.githubUser, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[filed.number, 'nostr', filed.created_at, markers[0].created_at, undefined]]);
   });
 });
 
@@ -326,9 +330,10 @@ describe('build: the published snapshot', () => {
       { 1: [verifiedBy(fourOfAKind, 90000)], 2: [verifiedBy(fourOfAKind, 80000)] },
     ));
     await build(output());
-    // #1 was verified first, but it's rejected, so #2 has the pull; #1 isn't even read.
+    // #1 was verified first, but it's rejected, so #2 has the pull; #1's comments are read once,
+    // only for the withdrawn list's markers.
     expect(entries().map((e) => [e.issue, e.githubUser])).toEqual([[2, 'bob']]);
-    expect(gh.requests.some((r) => r.path.startsWith('/issues/1/'))).toBe(false);
+    expect(gh.requests.filter((r) => r.path.startsWith('/issues/1/')).map((r) => r.path)).toEqual(['/issues/1/comments']);
 
     gh.issues[1].labels.push({ name: 'rejected' });
     gh.issues[1].updated_at = at(10);

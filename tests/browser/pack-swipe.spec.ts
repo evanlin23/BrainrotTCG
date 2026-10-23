@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectRecordedPack, fingerFor, type Finger } from './support';
+import { monitor, expectDecoded, expectRecordedPack, fingerFor, type Finger, untilIdle } from './support';
 
 // A short swipe along the tear line opens the pack when it's released (#312), one under 12% of
 // the pack doesn't, and a tap on the pack opens it (#267, #628). A press can start anywhere in
@@ -67,8 +67,8 @@ test('a swipe under 12% of the pack is let go without opening it, and a real swi
   const finger = await fingerFor(page, hasTouch);
   // 10% draws the cut while the finger moves (it is plainly across) but is short of the release ratio.
   await swipeTearLine(page, packShell, finger, 0.45, 0.55);
-  // Long enough for a release that would open the pack to have started the tear.
-  await page.waitForTimeout(400);
+  // A release that opens the pack tears it as the finger lifts, so the page being idle is the answer.
+  await untilIdle(page);
   await expect(packShell).not.toHaveClass(/\bis-cut\b/);
   await expect(packShell).not.toHaveClass(/\bis-cutting\b/);
   await expect(page.locator('.card-reveal-area')).toHaveCount(0);
@@ -116,15 +116,20 @@ async function watchForCut(packShell: Locator) {
     new MutationObserver(() => {
       seen.cutting ||= shell.classList.contains('is-cutting');
       seen.line ||= !!shell.querySelector('.cut-line-svg, .cut-line');
-      seen.spark ||= !!shell.querySelector('.drag-spark');
     }).observe(shell, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
+    // Sparks are drawn on the spark layer's canvas (sparkField.ts): any draw onto it is a spark.
+    const draw = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+      if (this.canvas.classList.contains('spark-layer')) seen.spark = true;
+      return (draw as (...rest: unknown[]) => void).apply(this, args);
+    } as typeof CanvasRenderingContext2D.prototype.drawImage;
   });
 }
 
 /** Checks a gesture drew nothing and left the pack sealed. */
 async function expectNoCut(page: Page, packShell: Locator) {
-  // Long enough for a release that would open the pack to have started the tear.
-  await page.waitForTimeout(400);
+  // A release that opens the pack tears it as the finger lifts, so the page being idle is the answer.
+  await untilIdle(page);
   expect(await page.evaluate(() => (window as SeamWindow).seamSeen)).toEqual({ cutting: false, line: false, spark: false });
   await expect(packShell).not.toHaveClass(/\bis-cut\b/);
   await expect(page.locator('.card-reveal-area')).toHaveCount(0);

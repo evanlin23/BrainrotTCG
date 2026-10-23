@@ -139,13 +139,7 @@ const NAMED = new Set(`aliceblue antiquewhite aqua aquamarine azure beige bisque
 const named = (value: string) => [...value.matchAll(/(?<![\w-])([a-z]+)(?![\w-])/gi)].some(([word]) => NAMED.has(word.toLowerCase()));
 
 /** Colour literals the scan allows outside tokens.css, each with the reason it can't be a token. */
-const COLOUR_ALLOWLIST = [
-  {
-    sheet: 'styles/PackOpener.css',
-    literal: /hsl\(var\(--hue\) [^)]*\)/g,
-    reason: 'Each tear spark sets its own --hue inline, so its colour is computed per spark.',
-  },
-];
+const COLOUR_ALLOWLIST: { sheet: string; literal: RegExp; reason: string }[] = [];
 
 it('takes every colour from tokens.css, apart from a short allowlist with reasons', () => {
   const values = declarations(/./).filter(({ path }) => path !== 'styles/tokens.css');

@@ -8,13 +8,14 @@ const startup = vi.hoisted(() => ({
   migratePullLog: vi.fn(),
   resumeReopening: vi.fn(),
   warmUpFirstPack: vi.fn(),
+  warmUpArgon2: vi.fn(),
 }));
 
 vi.mock('./game/move', () => ({ receiveSave: startup.receiveSave }));
 vi.mock('./utils/migrations', () => ({ runMigrations: startup.runMigrations }));
 vi.mock('./game/history', () => ({ migratePullLog: startup.migratePullLog }));
-vi.mock('./game/profiles', () => ({ resumeReopening: startup.resumeReopening }));
-vi.mock('./game/warmUp', () => ({ warmUpFirstPack: startup.warmUpFirstPack }));
+vi.mock('./game/reopenJob', () => ({ resumeReopening: startup.resumeReopening }));
+vi.mock('./game/warmUp', () => ({ warmUpFirstPack: startup.warmUpFirstPack, warmUpArgon2: startup.warmUpArgon2 }));
 vi.mock('./App', () => ({ default: () => <p data-testid="app">The game</p> }));
 
 const HANDOVER_FAILED = expect.stringContaining('Bringing the save over failed');
@@ -57,6 +58,7 @@ describe('starting the game when the save hand-over fails', () => {
     expect(startup.migratePullLog).toHaveBeenCalledTimes(1);
     expect(startup.resumeReopening).toHaveBeenCalledTimes(1);
     expect(startup.warmUpFirstPack).toHaveBeenCalledTimes(1);
+    expect(startup.warmUpArgon2).toHaveBeenCalledTimes(1);
   });
 
   it('starts the game without a word when there was no hand-over to make', async () => {
@@ -97,6 +99,7 @@ describe('startup migration failure containment (#660, #659)', () => {
     // Does not advance to game setup
     expect(startup.resumeReopening).not.toHaveBeenCalled();
     expect(startup.warmUpFirstPack).not.toHaveBeenCalled();
+    expect(startup.warmUpArgon2).not.toHaveBeenCalled();
     expect(errors).toHaveBeenCalledWith(
       'App startup failed before mount',
       expect.any(TypeError),
@@ -117,6 +120,7 @@ describe('startup migration failure containment (#660, #659)', () => {
     expect(document.getElementById('root')!.children).toHaveLength(1);
     expect(startup.resumeReopening).not.toHaveBeenCalled();
     expect(startup.warmUpFirstPack).not.toHaveBeenCalled();
+    expect(startup.warmUpArgon2).not.toHaveBeenCalled();
   });
 
   it('renders crash fallback when migratePullLog throws', async () => {
@@ -131,5 +135,6 @@ describe('startup migration failure containment (#660, #659)', () => {
     expect(app()).toBeNull();
     expect(startup.resumeReopening).not.toHaveBeenCalled();
     expect(startup.warmUpFirstPack).not.toHaveBeenCalled();
+    expect(startup.warmUpArgon2).not.toHaveBeenCalled();
   });
 });

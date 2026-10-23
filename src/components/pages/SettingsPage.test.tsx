@@ -156,7 +156,7 @@ describe('Settings: exporting a backup file', () => {
     expect(backupNote().textContent).toMatch(/^Backup downloaded — keep it private\./);
     expect(backupNote().textContent).toContain('secret player key');
     // Exporting again keeps the confirmation (the file is made each time) and re-announces it: the
-    // status region gets a new text node, which is what a screen reader reads out.
+    // status region gets a new keyed span (the count is its key), which is what a screen reader reads out.
     const firstAnnouncement = backupNote().firstElementChild!;
     await click('Export');
     expect(clickSpy).toHaveBeenCalledTimes(2);
@@ -286,6 +286,19 @@ describe('Settings: importing a backup file', () => {
     const saves = "this browser's save (Combo Miner, 3 packs) with the file's (Combo Miner, 5 packs)";
     expect(restoreNote().textContent).toBe(`Replace ${saves}? Yours is kept as a backup.`);
     expect(button('Replace')).toBeDefined();
+  });
+
+  it('still names what reads in a save whose player or stats record is damaged', async () => {
+    localStorage.setItem('brainrot-player-v1', '{not json');
+    localStorage.setItem('brainrot-stats-v1', JSON.stringify({ packsOpened: 1 }));
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} />));
+
+    await pick({ player: player('bb'), stats: '{not json' });
+    expect(restoreNote().textContent).toBe("Replace this browser's save (1 pack) with the file's (Combo Miner)? Yours is kept as a backup.");
+    await click('Keep mine');
+
+    await pick({ player: '{not json', stats: JSON.stringify({ packsOpened: 'many' }) });
+    expect(restoreNote().textContent).toBe("Replace this browser's save (1 pack) with the file's (unknown)? Yours is kept as a backup.");
   });
 
   it("names only the saves being swapped when there's no room for a copy, not ones picked earlier", async () => {

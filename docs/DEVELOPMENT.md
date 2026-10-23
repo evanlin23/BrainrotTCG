@@ -11,10 +11,10 @@ Use Node 22, as CI does. `npm ci` installs from the lockfile; only change `packa
 dependency change. A fresh checkout or worktree has no `node_modules` and needs `npm ci` before any
 check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
-A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (about 55 MiB
-of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without it, `npm run cards` can't run and `npm run check` can't
-test for placeholder art, so CI is authoritative; run `git sparse-checkout disable` before editing or
-adding a set.
+A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (52-54 MiB
+of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without
+it, `npm run cards` can't run and `npm run check` can't test for placeholder art, so CI is authoritative;
+run `git sparse-checkout disable` before editing or adding a set.
 
 ## Workflow
 
@@ -54,7 +54,7 @@ Closing a reproduced defect takes a short note on the issue, backed by the PR's 
 1. **Root cause**, one sentence naming the code or contract that failed. Separate a pre-existing
    defect from a regression this change introduced. Cite source, test or PR evidence; don't name the
    introducing commit without tracing it.
-2. **Escape class**, why existing controls missed it:
+2. **Escape class**, why existing controls missed it. Cite the test or PR that missed it:
    - *missing_scenario*: an edge, cancellation, storage denial or limit was never exercised.
    - *incorrect_expected_contract*: a test asserted the wrong behaviour or merged two failure kinds.
    - *over_mocked_collaborator*: a mock hid the real boundary (the Review evidence row covers what
@@ -77,11 +77,18 @@ Examples from merged fixes:
 
 - #647 (PR #912), `wrong_test_level`: the Settings import (FileReader) boundary dereferenced parsed
   JSON before checking it was an object. Before 1209cf0 only `null` threw (`incoming.player`);
-  arrays and primitives reached the "Replace ... Yours is kept as a backup?" prompt. The regression
+  arrays and primitives reached the "Replace <saves>? Yours is kept as a backup." prompt (asked only
+  when this browser already has progress). The regression
   is in `SettingsPage.test.tsx` (non-object files give a message and no replacement prompt).
 - #695 (PR #919), `missing_scenario`: `reopenCache.ts` `flush` ran `removeItem` inside its `catch`,
   so a fully denied storage threw from a timer. The regression is in `reopenCache.test.ts` (both
   `setItem` and `removeItem` fail).
+- #1129 (PR #1132), `missing_scenario`: from 1200 to 1399px wide the desktop logo came to 58.5px, so
+  the header was 85.5px tall and the pack stage started on a half pixel. The stage's fade then
+  rounded the swipe chip's edges either way from run to run, and the first-pack baseline failed
+  intermittently by 1px. Nothing checked where layout lands, only the pixels. The prevention is a
+  whole-pixel logo size (`round()` in `index.css`) and `tests/browser/stage-pixel.spec.ts`, which
+  fails wherever a desktop window puts the stage off a whole pixel.
 
 ## Checks
 
@@ -92,17 +99,25 @@ Examples from merged fixes:
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build or link previews | also `npm run build && npm run check:site`, and the same with `BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
+| Changed what a baselined screen shows | `npm run test:visual` in the pinned image (see Visual baselines) |
 | Changed the logo mark (`src/styles/logoMark.ts`) | `npm run icons` rewrites the logo SVGs, favicon and touch icon; `scripts/logo-icons.test.ts` fails if they drift |
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
 
-CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
-deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
-to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
-deploying main. CI uploads files only from failed runs, kept for 7 days. A nightly workflow, not
-part of PR CI, runs the unit suite in shuffled order twice (see Shuffled and repeat runs).
-A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
-make a failing check pass.
+CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python
+verifier, the browser smoke, actionlint and the deploy contract test (`python3
+scripts/deploy_contract_test.py`) on every pull request and on pushes to branches other than main.
+In `ci.yml`, `npm run check` runs as four parallel stage jobs, each with its own result and time:
+`lint-and-types` (lint, import boundaries, both typechecks), `unit-tests` (`npm test` with coverage,
+then the escaped-defect replay), `content-checks` (set locks, card assets, old vectors and locks)
+and `build-and-site` (both builds and site checks). The required `check` job is their gate: it runs
+even after a failure or cancellation and passes only when all four succeeded.
+`scripts/ci-stages.test.ts` fails if a stage drops or changes a part of `npm run check`, or a job is
+left out of the gate. Locally, `npm run check` stays the one command. The deploy workflow runs the
+verifier and `npm run check` again before deploying main. CI uploads files only from failed runs,
+kept for 7 days. A nightly workflow, not part of PR CI, runs the unit suite in shuffled order twice
+(see Shuffled and repeat runs). A skipped or unrun check isn't a pass; list it in the PR. Never
+regenerate vectors or set locks to make a failing check pass.
 
 Rough wall times: `npm run check` about 2 min, a cold `npm run build` about 2 min, and one browser spec
 file about 3 min including its build. Give these commands a 5-minute timeout or run them in the background.
@@ -140,6 +155,12 @@ UI. The check reads every `src/` and `scripts/` file with TypeScript's import sc
 `import type`, `export ... from` (a barrel is checked as the file it is), `import()` and tsconfig
 `paths` aliases count. Test files (`*.test.*`, `src/test/`, `tests/`) may cross layers, but
 production code can't import them. A new directory under `src/` fails until it is added to the map.
+
+Within a layer, `FILE_ORDER` in the same file lists chains of files that build on each other in one
+direction: a file may import the files before it in its chain, never one after it. The one chain is
+the own-profile code in `src/game` (#699): `myTickets.ts` (the ticket list), then `packCache.ts`
+(reading saved packs), `reopenJob.ts` (re-opening) and `profiles.ts` (proofs and stats). Every path
+in a chain must name a source file, so renaming one fails the check until the chain is updated.
 
 UI packages (`react`, `react-dom`, `framer-motion`, `lucide-react`, `canvas-confetti`) are allowed only
 in `hooks`, `components`, `app` and `scripts` (scripts never import UI code anyway); `engine` allows a
@@ -245,6 +266,32 @@ Browser tests have no retries, so a test that fails once fails CI: fix its cause
 Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
 close-up sets `data-tilt="live"` once it follows the mouse.
 
+### Cross-browser smoke (Firefox and WebKit)
+
+`npm run test:browser:compat` runs the journeys tagged `@cross-browser` on desktop Firefox and WebKit with
+iPhone 13 touch emulation (`playwright.compat.config.ts`); the rest of `tests/browser` stays on Chromium. The tags
+sit on three existing tests, so these run in the Chromium suite and its burn-in too:
+
+- `pack-opener.smoke.spec.ts`: one real pack (Worker and WASM ticket, cards and images, summary) and its exact
+  stats, collection and history after a reload (localStorage and IndexedDB).
+- `card-share.spec.ts`: a card's share sheet from My pulls, with the clipboard stubbed.
+- `share-fallbacks.spec.ts`: a pack's share sheet, its stubbed copies, and the copied link opened in a fresh tab.
+
+Add `{ tag: '@cross-browser' }` to a test to include it, and keep the set small: it is a smoke, not a second
+suite. Every test uses the same network guard as the Chromium suite (no outside HTTP or WebSockets, a disposable
+identity, nothing published, exported or shared natively). The reporter prints each project's engine, version and
+passed, failed, skipped and flaky counts, and adds them to the CI job summary. Install the browsers once with
+`npx playwright install --with-deps firefox webkit`. CI runs this job, the `browser-tests` shards, the `browser-burn-in` shards and `visual-baselines` in Playwright's official image
+(`mcr.microsoft.com/playwright`, tag equal to the `@playwright/test` version and pinned by digest), which already holds the
+browsers and their libraries, so none of them installs anything; when you bump Playwright, bump the tag and digest in all of
+them (`scripts/hof-workflows.test.ts` fails until they match). The Chromium there is the image's, not your machine's, so a
+layout that differs only in CI is worth a look at the font and the browser build before the test.
+
+The job isn't part of `browser-tests` and isn't required; making it required is a separate decision once its
+runs are stable. A failure that shows a real app bug in one engine is reported as one, not worked around in
+the test. This is Playwright's Linux WebKit with touch emulation: it is not iOS Safari, a physical phone or
+the native share sheet, and says nothing about them.
+
 ### Automated axe checks
 
 `tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
@@ -282,6 +329,52 @@ projects:
 Changes to `playwright.config.ts` or app code burn in nothing; the regular shards still run every spec
 once. Before pushing a new or changed spec, run the same locally with
 `npx playwright test <spec> --repeat-each=10`.
+
+### Visual baselines
+
+`tests/visual/screens.spec.ts` compares four screens with reviewed images in `tests/visual/baselines/`:
+a new player's first pack, its summary, the share sheet for that pull and that set's part of the Cards page, each
+at a phone width (Pixel 5 emulation) and at 1280×800, at scale 1 (#745). It reuses the browser smoke's
+build, fixture player and helpers, and the browser specs still own behaviour (focus, hit-testing,
+keyboard, reflow); an image only says the screen looks as someone last approved it.
+
+Pixels depend on the browser build and the font rasteriser, so the images are drawn and compared only
+in the pinned Playwright image, the one the `visual-baselines` job in `browser-tests.yml` uses (its
+tag matches the locked `@playwright/test`; `scripts/visual-baselines.test.ts` keeps this command, the
+job and the lockfile in step). Run it from the checkout with Docker; the second `-v` gives the
+container its own `node_modules`, so a macOS or Windows install isn't used:
+
+```sh
+IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
+docker run --rm --ipc=host -v "$PWD":/work -v /work/node_modules -w /work "$IMAGE" sh -c 'npm ci && npm run test:visual'
+```
+
+Files it writes come out owned by root on a Linux host. The job runs as the runner's uid on Node 22
+instead of the image's Node; the browser and fonts, which draw the pixels, are the image's either
+way. Running `npm run test:visual` outside the
+image draws different pixels and fails; that is not a design change.
+
+- **Fixed inputs.** The fixture player and its first ticket, the set it opens (Summer of Slop, not
+  the newest, so a release leaves the images alone; docs/ADDING_A_SET.md), the browser, viewport and
+  scale, the preview's port and base path (the share sheet's QR code encodes the address, so
+  `PREVIEW_PORT`, `BASE_PATH` and `SITE_URL` are ignored here), locale and time zone, `Date` (timers
+  stay real, see the spec), reduced motion, and CSS animations and the caret at capture. Every wait is for a state (a role, decoded art, loaded fonts, the toasts gone), and
+  Playwright takes shots until two agree before comparing.
+- **No tolerance.** `threshold: 0` and `maxDiffPixels: 0`: the image draws the same pixels on every
+  run (checked with `--repeat-each=10` in the image), so any difference is a change to look at. Don't add a
+  tolerance or a mask to get green; if a screen stops being stable, fix what moves.
+- **On a mismatch** the job fails and uploads `visual-baselines-diff` (7 days): the expected, actual
+  and diff PNG of each screen that changed, at most 24 images of a few hundred KB. There are no
+  traces or videos, which would hold the fixture's saved data. A run takes about a minute after the
+  build; the job is capped at 20 minutes and the committed images at 3 MB.
+- **Updating.** When a change means to alter a screen, run the command above with
+  `npm run test:visual -- --update-snapshots=changed`, which rewrites only the images that differ,
+  and commit them with the change. CI never writes or accepts a baseline (it runs with
+  `--update-snapshots=none`), and a new screen fails there until its image is committed.
+- **Review.** A baseline change is a design change. Someone other than its author (the PR's reviewer,
+  or the owner for tone and art) opens each changed image on the PR's head commit, compares it with
+  the old one and docs/DESIGN.md, and approves that head. A later push that touches an image needs a
+  new look. Don't approve an image that shows a known defect, such as overlapping controls.
 
 ## Local agent usability audit
 
@@ -383,9 +476,10 @@ blocked, and is left out of the status. History is read from `origin/main` only.
 
 Reports come from their own tools (`test-results/...`) or a compact `{status, date, detail}` JSON in
 `test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
-saves or secrets). The coordinator writes `ci-review`, `test-runtime`, `dependency-advisories` and
-`branch-hygiene` itself during a due review, from what it already read (PR checks, last CI timings,
-advisory and branch lists), before `record`; `scripts/defect-replay.ts` writes `defect-replay`
+saves or secrets). The coordinator writes `ci-review`, `test-runtime` and `dependency-advisories`
+itself during a due review, from what it already read (PR checks, last CI timings, advisory lists),
+before `record`; `scripts/branch-inventory.ts --confirm=<batch> --evidence` writes `branch-hygiene` (Branch hygiene,
+below); `scripts/defect-replay.ts` writes `defect-replay`
 (below; a pass counts only for a replayed commit on `origin/main`, as for performance); a person writes `physical-device`, `screen-reader`,
 `native-share` and `compatibility` when they have a result. The cadence never opens a recurring
 "audit" issue. `record` prints the new ledger line (default cadence, budget and next-due day are omitted and revisions are always 7 characters, to keep it short; it refuses a line over 215 characters and names the optional fields to reset). Only a pass moves the passed date. A fail is a finished review: it
@@ -423,14 +517,14 @@ The run passes only when all three cases are validated and all four meta-cases a
 defect or a wrong meta-case is a `fail`, an inconclusive case is `blocked`, and the exit code is
 non-zero for both. The quality review shows the file as its `defect-replay` signal.
 
-CI runs it on every pull request that changes the gate itself: `vite.config.ts`, `src/test/`, this
+CI runs it on every pull request that changes the gate itself: `vite.config.ts`, `src/test/`, `package.json`, `package-lock.json`, `scripts/test-budget.ts`, this
 script and its test, or a file a case owns or reverts (`GATE_PATHS` in the script). The step is in
-the required `check` job and diffs the merge commit against its base, so a `fail` or `blocked`
-replay turns that check red and blocks the merge until it is fixed or the case is updated to the
-moved code. Other pull requests skip it with one line. Each quality review runs it as a slice item
-(above). `scripts/defect-replay.test.ts` fails in the normal checks when a reversion no longer
-applies, and pins the CI step. The case stays a gate: it is never made report-only because it
-catches its defect.
+the `unit-tests` stage, which the required `check` gate needs, and diffs the merge commit against
+its base, so a `fail` or `blocked` replay turns that check red and blocks the merge until it is
+fixed or the case is updated to the moved code. Other pull requests skip it with one line. Each
+quality review runs it as a slice item (above). `scripts/defect-replay.test.ts` fails in the normal
+checks when a reversion no longer applies, and pins the CI step. The case stays a gate: it is never
+made report-only because it catches its defect.
 
 Findings and limits:
 - #741, the browser monitor missing a redirect between two local origins, isn't replayed because
@@ -711,11 +805,52 @@ Xeon host with Chromium 141 headless at `819311f` (emulation, not a device), as 
 | Long tasks while checking: count, total | 5, 734 ms | 9, 1001 ms |
 | Peak busy tickets, workers created | 1, 3 | 1, 3 |
 
+The One ahead column is a record of a trial variant: that code isn't in the tree, so the harness
+reproduces only the kept column.
+
 Going one ahead saves about 3% on the last row (the ranges overlap) and costs about 4% on the
 first row. It also adds main-thread long tasks, because the next pull's checks run while the
 worker mines. On a phone the worker slows down as much as the main thread does, which shrinks that
 saving further: unthrottled, tickets took about 220 ms with 60 ms idle in all. Leaving the page
 aborts the check, so a pack opening never waits behind more than the one ticket already mining.
+
+### Card art placeholders (opt-in)
+
+`npm run test:performance:art-pending` (`tests/performance/art-pending.spec.ts`, report-only, in no
+check or CI job) times how long card art stays a placeholder (#762) on a cold load at 360x640 with
+touch, 120 ms per response, 1.6 Mbps down and the main thread slowed 4x. It opens two shared pulls
+from `spec/vectors-python.json` (one with finishes, one plain) and a 20-row Rankings board, and
+records when the pull shows as verified, when each slot is drawn (loaded, `data-state="ready"`),
+when the first Rankings row and every row on screen have their thumbnails, and the card art's
+requests and bytes. It prints one JSON line per run (`PERF_REPETITIONS`, default 3). Set
+`CHROMIUM_PATH` when Playwright's own browser build isn't installed. Same emulation limits as above
+(#8): the CPU slowdown doesn't reach the worker that re-derives a shared pull.
+
+Before and after #762's changes, n=3 each, ranges, on a 4-vCPU 2.1 GHz Xeon host with Chromium 141
+headless (emulation, not a device). The changes: the faces a screen shows first are fetched at high
+priority, Rankings rows below the first screen load lazily, and the next pack's art isn't fetched if a
+page, a shared pull, a profile or a share sheet covers the Open screen when its ticket is asked for.
+The After column was measured with the timing spec as it stands, on `86ede13`'s code (later commits
+change only comments, docs and unit tests).
+
+| | Before (`8674c13`) | After (`86ede13`) |
+| --- | --- | --- |
+| Finished pull: verified | 3950 to 3983 ms | 3946 to 5257 ms |
+| Finished pull: last slot drawn after verified | 4849 to 4883 ms | 2400 ms (all three) |
+| Finished pull: art requests, bytes | 6 to 7, 494 to 657 KB | 5, 442 KB |
+| Plain pull: last slot drawn after verified | 3683 to 3884 ms | 1533 to 1650 ms |
+| Plain pull: art requests, bytes | 3, 317 KB | 2, 264 KB |
+| Rankings: first row's thumbs | 8542 to 8856 ms | 8601 to 8925 ms |
+| Rankings: every on-screen thumb | 13142 to 13339 ms | 12900 to 12952 ms |
+
+The 5257 ms verify was the first run of its set and didn't come back: six more finished-pull runs gave
+3852 to 4296 ms on `66bdc34` and 3822 to 4514 ms on main (`c5708d2`), each set slowest on its first run.
+The shared pull covers the Open screen, so no next-pack art competes with verifying it.
+
+Most of the pull saving is bandwidth the next pack's art no longer takes. Rankings is bound by
+bytes: each 30 px thumb downloads the full-size art (about 144 KB), and 12 of them (1.73 MB) are
+in by the time the screen's thumbs show, with or without the lazy rows. A smaller plain-card
+thumbnail is what would move it.
 
 ### Proposed budgets (not enforced)
 
@@ -836,3 +971,107 @@ Actions minor and patch updates as one `github-actions` PR. `hash-wasm` and `@no
 of `prod` and arrive as separate PRs, because they can change pack and proof derivation. Majors and
 `tools/wrangler` updates stay one PR per package. By policy (not enforced by the config), each
 update PR gets a review and green CI before it merges.
+
+## Branch hygiene
+
+Merged work leaves its branch behind, and the repository had 413 branches on 2026-10-23 (#710).
+Retiring them is conservative and runs in the trusted `/work` lifecycle only.
+
+**Who deletes.** Only the Claude coordinator, working under CLAUDE.md and the work ledger, deletes
+branches. Implementers, reviewers, Codex, other agents and bots may run the inventory and
+recommend; they never delete. Don't turn on GitHub's "automatically delete head branches" setting,
+and don't add a scheduled or unattended deletion workflow.
+
+This is a policy, not an enforced permission. Anyone with write access can delete an unprotected
+branch, and the coordinator works through evanlin23's account, as other tools may. Naming a login
+or a workflow "Claude" restricts nothing. The smallest enforceable step is for the owner:
+- Add a repository ruleset that targets all branches with "Restrict deletions", with a bypass for
+  the coordinator's identity only.
+- Give other agents their own identities, with no bypass.
+
+Until that exists, this section and CLAUDE.md are the restriction.
+
+**When.** The weekly quality review's `branch-hygiene` signal (Quality review cadence above). A due
+review spends part of its budget on one batch of at most 25 deletions. Holds and sleep apply as for
+any other work, and there is no separate wake-up.
+
+**Inventory (read-only).** Keep the clone, `pulls.json`, `keep.txt` and the outputs in a scratch
+directory `<scratch>` outside the checkout, and run the script from the checkout:
+
+```sh
+git clone --bare --filter=blob:none https://github.com/evanlin23/BrainrotTCG.git <scratch>/inv.git
+# Refresh: a bare clone has no fetch refspec, so a plain fetch would leave every branch tip stale.
+git --git-dir=<scratch>/inv.git fetch --prune origin '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head'
+# Every page of GET /repos/evanlin23/BrainrotTCG/pulls?state=all&per_page=100, saved as one JSON
+# list of pages, plus the protected branch names from GET .../branches?protected=true.
+npx tsx scripts/branch-inventory.ts --git-dir=<scratch>/inv.git --pulls=<scratch>/pulls.json \
+  --keep=<scratch>/keep.txt --protected=main > <scratch>/inventory.md
+```
+
+`keep.txt` names branches to keep whatever their PR says: the branches of active sessions and of
+the ledger's `current` and `order` lines, every branch a ledger hold mentions, and branches that
+docs or open issues refer to. The script sorts each branch into one category; the first that
+applies wins:
+
+| Category | Kept or retired |
+| --- | --- |
+| protected | kept: the default branch or a protected one |
+| open-pr | kept: the head or the base of an open or draft PR, stacked bases included |
+| kept | kept: on the keep list |
+| dependency | kept: Dependabot manages its own branches |
+| recent | kept: tip committed in the last day, or a `claude/batch-*` branch in the last two days |
+| candidate | retired: the tip is a merged PR's head, or an ancestor of it, and the clone's `refs/pull/<n>/head` is that head |
+| unverified | kept: a merged PR's head holds the tip, but the clone has no `refs/pull/<n>/head` at it; refresh and re-run |
+| merged-newer | kept: a merged PR, but the branch has commits after the merged head |
+| closed-unmerged | kept: a closed PR that never merged may hold unique work |
+| no-pr | kept: no PR from this repository, so its intent is unknown |
+
+How these rules hold up:
+- A squash or rebase merge leaves the tip outside `main`'s history, so ancestry with `main`
+  proves nothing. The script compares the tip with the PR's merged head instead.
+- A merged PR doesn't make later commits on its branch disposable.
+- Age alone is not evidence of abandonment. The `recent` rule reads commit dates, so a just-pushed
+  old commit can look old; the confirmation step below catches any tip that moves.
+- Closed-unmerged, no-PR and merged-newer branches stay listed with their disposition. Ask the owner
+  only when intent can't be recovered from the PR or issue.
+
+**Delete (coordinator only).** Each candidate line reads `branch|tip|merged-PR#|merged-head`.
+1. Re-read the ledger issue's holds. If they can't be loaded, delete nothing.
+2. Put at most 25 candidate lines in `<scratch>/batch.txt`. Refresh the clone with the same command
+   as above,
+   `git --git-dir=<scratch>/inv.git fetch --prune origin '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head'`,
+   and fetch the PR list again, then re-run the inventory command with
+   `--confirm=<scratch>/batch.txt --evidence` added, writing to `<scratch>/confirmed.txt`. It prints only the lines whose branch, tip, PR
+   and merged head are all unchanged, and writes the `branch-hygiene` evidence file under
+   `test-results/quality-evidence/` in the working directory, so run it from the checkout. A
+   skipped line is reclassified by the next inventory, not deleted. An empty, malformed or
+   oversized batch exits 2 and writes nothing.
+3. Delete the confirmed lines, each with a lease on its recorded tip, so a push since the
+   check makes the delete fail rather than lose work:
+   `git push --force-with-lease=refs/heads/<branch>:<tip> origin :refs/heads/<branch>`.
+4. Record the deletion manifest (branch, former tip, PR, merged head) and the before and after
+   totals on #710. Inventories are posted on #710, not committed to the repository.
+Never issue a broad or age-based delete. Never delete tags, releases, set or proof files, deploy
+artifacts, issues or anyone's local work. Other cleanup gets its own issue.
+
+**Restore.** GitHub keeps `refs/pull/<n>/head` for every PR, so a retired candidate's tip stays
+fetchable. Use the PR page's "Restore branch" button, or:
+
+```sh
+git fetch origin refs/pull/<n>/head
+git push origin <tip>:refs/heads/<branch>
+```
+
+A bare SHA is not a backup. A commit that no ref reaches can be garbage-collected, and is gone if
+the repository is deleted or replaced. That is why only branches whose tip a merged PR head reaches
+are candidates. `scripts/branch-inventory.test.ts` shows the restore on a disposable local
+repository and holds the dry runs:
+- open, draft and stacked PRs;
+- a held branch;
+- a squash merge;
+- a merged head with no `refs/pull/<n>/head` in the clone;
+- a merged branch with newer commits;
+- a closed-unmerged branch;
+- a fork that reuses a name;
+- a tip that changed before confirmation, end to end through a refresh with the command above;
+- a confirm batch that is empty, malformed or over 25 lines.

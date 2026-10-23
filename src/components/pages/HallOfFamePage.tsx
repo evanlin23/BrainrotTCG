@@ -1,7 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Crown, History, ShieldCheck } from 'lucide-react';
+import { CalendarDays, Crown, History, ShieldCheck } from 'lucide-react';
 import CardImage from '../cards/CardImage';
 import Sheet from '../ui/Sheet';
+import PastDaysSheet from './PastDaysSheet';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
 import { QUALIFY_HAND, QUALIFY_RULE, QUALIFY_SCORE, RANKINGS_HELP } from '../ui/rankingsRule';
@@ -9,7 +10,8 @@ import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
 import { loadHallOfFame, loadPending, provenanceText, type HallOfFameEntry } from '../../game/hallOfFameList';
-import { dailyPulls, HALL_OF_FAME_TOP, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
+import { loadPublishedRankings, type PublishedRankings } from '../../game/publishedRankings';
+import { dailyPulls, HALL_OF_FAME_TOP, HALL_OF_FAME_YESTERDAY_SHOWN, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
 
 // Hackathon legends ("Where it started"): screenshots from before pulls were verifiable.
 import adiImage from '../../assets/images/hall_of_fame/adi-four-of-a-kind.webp';
@@ -32,8 +34,8 @@ const HACKATHON_LEGENDS: LegendEntry[] = [
 
 /** How many leaderboard rows show at first, and how many more each "Show more" adds. */
 const PAGE_SIZE = 20;
-/** How many of yesterday's best show when nothing has been filed today. */
-const YESTERDAY_SHOWN = 3;
+/** Rows a phone shows before scrolling. */
+const ON_FIRST_SCREEN = 5;
 /**
  * How long the page waits on the live relays before it stops saying it is checking. Re-deriving recent
  * submissions queues behind pack-opening tickets and can take far longer; the check itself carries on,
@@ -65,6 +67,13 @@ const useUtcToday = () => {
 const localResetTime = (day: string) =>
   new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
+/**
+ * When the published lists were built, from rankings.json's own time and in UTC (the days they rank
+ * are UTC days). It says when, not how long ago: that would lean on this device's clock.
+ */
+const publishedTime = (iso: string) =>
+  `${new Date(iso).toLocaleString(undefined, { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })} UTC`;
+
 /** Today ranks the current UTC day's pulls; All-time ranks the best ever. */
 type RankingsTab = 'today' | 'all';
 
@@ -73,6 +82,9 @@ const HallOfFamePage = () => {
   const [entries, setEntries] = useState<HallOfFameEntry[] | null>(null);
   const [tab, setTab] = useState<RankingsTab>('today');
   const [legendsOpen, setLegendsOpen] = useState(false);
+  const [pastOpen, setPastOpen] = useState(false);
+  // rankings.json: undefined while loading, null when missing or malformed (no archive, no time shown).
+  const [rankings, setRankings] = useState<PublishedRankings | null | undefined>(undefined);
   const tabsId = useId();
   const day = useUtcToday();
 
@@ -81,6 +93,9 @@ const HallOfFamePage = () => {
   // True once a check of the live relays found every one unreachable: the published rankings still
   // show, but anything sent since the last deploy can't be seen, so an empty board mustn't claim it's empty.
   const [relaysDown, setRelaysDown] = useState(false);
+  // True once the relays answered but the list of rejected pulls didn't load: nothing sent since the
+  // last deploy shows (a removed pull mustn't come back), so the page says so instead of hiding it.
+  const [unchecked, setUnchecked] = useState(false);
   // True from the moment the published rankings arrive until the live relays have answered (or failed
   // to), or CHECK_DEADLINE_MS has passed. The published pulls show meanwhile, but an empty board can't
   // say it's empty, or the status that the rankings loaded, before it knows which: the status says it
@@ -103,6 +118,7 @@ const HallOfFamePage = () => {
       setEntries(list);
       setPending([]);
       setRelaysDown(false);
+      setUnchecked(false);
       setChecking(true);
       setLoadState('loaded');
       // Then anything sent since the last deploy, re-derived here before it shows (see loadPending).
@@ -111,20 +127,30 @@ const HallOfFamePage = () => {
       // Past the deadline the page stops waiting, but the check isn't abandoned: entries it still finds
       // are added, and if it ends with no relay reached, the live-feed message appears then.
       deadline = setTimeout(() => setChecking(false), CHECK_DEADLINE_MS);
-      const settle = (reached: boolean) => {
+      const settle = (result: boolean | 'unchecked' | undefined) => {
         if (controller.signal.aborted) return;
         clearTimeout(deadline);
         loadingRef.current = false;
-        if (!reached) setRelaysDown(true);
+        if (result === false) setRelaysDown(true);
+        if (result === 'unchecked') setUnchecked(true);
         setChecking(false);
       };
       loadPending(list, (entry) => {
         if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
-      }, controller.signal).then((reached) => settle(reached !== false), () => settle(false));
+      }, controller.signal).then(settle, () => settle(false));
     });
     return () => {
       controller.abort();
       clearTimeout(deadline);
+    };
+  }, [attempt]);
+  useEffect(() => {
+    let live = true;
+    loadPublishedRankings().then((loaded) => {
+      if (live) setRankings(loaded);
+    });
+    return () => {
+      live = false;
     };
   }, [attempt]);
   const retry = () => {
@@ -157,7 +183,7 @@ const HallOfFamePage = () => {
   const ranked = useMemo(() => topPulls(all ?? []), [all]);
   // Today: pulls filed on the current UTC day (the same day for everyone), plus any just submitted.
   const today = useMemo(() => dailyPulls(all ?? [], day), [all, day]);
-  const yesterday = useMemo(() => dailyPulls(all ?? [], previousUtcDay(day)).slice(0, YESTERDAY_SHOWN), [all, day]);
+  const yesterday = useMemo(() => dailyPulls(all ?? [], previousUtcDay(day)).slice(0, HALL_OF_FAME_YESTERDAY_SHOWN), [all, day]);
   // The leaderboard shows a page at a time so the page stays short on a phone. Only what's drawn
   // changes: the order is the same whatever is shown.
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -183,6 +209,8 @@ const HallOfFamePage = () => {
   const renderEntry = (entry: HallOfFameEntry, rank: number) => {
     const who = visitorName(entry.name);
     const via = provenanceText(entry.githubUser);
+    // The top rows are what a phone shows first: their art goes ahead, and rows further down wait to be scrolled near (#762).
+    const order = rank < ON_FIRST_SCREEN ? { fetchPriority: 'high' } as const : { loading: 'lazy' } as const;
     return (
       <li key={entry.id}>
         <a className="hof-entry" href={`#/pull/${entry.proof}`} aria-label={`Number ${rank + 1}: ${entry.hand} by ${who} in ${entry.setName}, score ${entry.score}${via ? `, ${via}` : ''}`}>
@@ -190,7 +218,7 @@ const HallOfFamePage = () => {
           <span className="hof-cards" aria-hidden="true">
             {entry.cards.map((c, i) => {
               const card = getCard(`${entry.setId}/${c.cardId}`);
-              return card ? <CardImage key={i} src={card.image} finish={c.finish} thumbnail alt="" className={`${card.rarity.toLowerCase()} ${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} /> : null;
+              return card ? <CardImage key={i} src={card.image} finish={c.finish} thumbnail alt="" {...order} className={`${card.rarity.toLowerCase()} ${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} /> : null;
             })}
           </span>
           <span className="hof-main">
@@ -230,7 +258,9 @@ const HallOfFamePage = () => {
   );
 
   // Loaded and not reporting a problem: the published list shows, and the status steps back to one line.
-  const quiet = loadState === 'loaded' && !relaysDown;
+  // Recent pulls may be missing: no relay could be read, or what they hold couldn't be checked.
+  const missing = relaysDown || unchecked;
+  const quiet = loadState === 'loaded' && !missing;
 
   return (
     <div className="hall-of-fame">
@@ -258,10 +288,12 @@ const HallOfFamePage = () => {
                 ? 'Checking for new packs…'
                 : relaysDown
                   ? "Couldn't reach the live feed, so pulls sent recently may be missing. Try again."
-                  : 'Rankings loaded.'}
+                  : unchecked
+                    ? "Couldn't check pulls sent recently, so they may be missing. Try again."
+                    : 'Rankings loaded.'}
         </p>
         {/* Retry appears only once a load has actually failed: beside "Loading…" it read as a hang. */}
-        {(loadState === 'failed' || (loadState === 'loaded' && relaysDown)) && (
+        {(loadState === 'failed' || (loadState === 'loaded' && missing)) && (
           <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} aria-label="Retry loading rankings">
             Retry
           </button>
@@ -308,7 +340,7 @@ const HallOfFamePage = () => {
                 <div className="hof-empty">
                   <Crown aria-hidden="true" />
                   <p>
-                    {relaysDown ? (
+                    {missing ? (
                       <strong>No filed pulls today that we can see.</strong>
                     ) : (
                       <>
@@ -346,7 +378,7 @@ const HallOfFamePage = () => {
               <div className="hof-empty">
                 <Crown aria-hidden="true" />
                 <p>
-                  {relaysDown ? (
+                  {missing ? (
                     <strong>Nothing filed here that we can see.</strong>
                   ) : (
                     <>
@@ -376,12 +408,22 @@ const HallOfFamePage = () => {
         )}
       </div>
 
-      {/* Where it started: the hackathon's screenshots, kept apart from the verified rankings. */}
+      {rankings && (
+        <p className="hof-updated">
+          Lists last updated <time dateTime={rankings.generatedAt}>{publishedTime(rankings.generatedAt)}</time>
+        </p>
+      )}
+      {/* Past days from the monthly archives, and where it started: the hackathon's screenshots, kept
+          apart from the verified rankings. */}
       <div className="hof-origins">
+        <button type="button" className="btn btn--ghost btn--sm" aria-haspopup="dialog" onClick={() => setPastOpen(true)}>
+          <CalendarDays aria-hidden="true" /> Past days
+        </button>
         <button type="button" className="btn btn--ghost btn--sm" aria-haspopup="dialog" onClick={() => setLegendsOpen(true)}>
           <History aria-hidden="true" /> Where it started
         </button>
       </div>
+      {pastOpen && <PastDaysSheet rankings={rankings} onClose={() => setPastOpen(false)} />}
       {legendsOpen && (
         <Sheet title="Where it started" subtitle="Screenshots from the hackathon, before pulls could be verified, so they aren't ranked." onClose={() => setLegendsOpen(false)} className="hof-legends-sheet">
           <ul className="hof-legends">

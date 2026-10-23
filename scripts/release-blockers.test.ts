@@ -380,6 +380,13 @@ describe('release-blockers CLI', () => {
     }
   };
 
+  // vite.config.ts test.env: without it a detached auto-maintenance child of `git commit` can still be
+  // writing in .git when afterAll deletes the repository (ENOTEMPTY).
+  it('runs git in its scratch repository with auto maintenance off', () => {
+    expect(sh('config', '--get', 'maintenance.auto')).toBe('false');
+    expect(sh('config', '--get', 'gc.auto')).toBe('0');
+  });
+
   it('lets the corrective release pass once its approval is on the base', () => {
     const r = run('--candidate', 'HEAD', '--corrective-target', '2', '--base', commits.approved);
     expect(r.stderr).toEqual([]);

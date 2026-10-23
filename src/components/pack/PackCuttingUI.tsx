@@ -3,7 +3,6 @@ import { MoveHorizontal, Pointer } from 'lucide-react';
 import { useEffect, useRef, useState, type AnimationEvent, type MouseEvent, type PointerEvent, type Ref, type RefObject } from 'react';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
-import { SPARK_LIFETIME_MS, type Spark } from '../../hooks/useSparks';
 import type { SetDefinition } from '../../engine';
 import { packArtSettled } from '../../game/packArt';
 import { seamBands } from './seamTrail';
@@ -31,7 +30,8 @@ interface PackCuttingUIProps {
   /** A swipe was let go too short to open: the pack springs back and the hint says to go farther or tap the pack (#803). */
   fellShort?: boolean;
   cutPoints: CutPoint[];
-  sparks: readonly Spark[];
+  /** The canvas the swipe's sparks are drawn on (useSparks). */
+  sparkCanvasRef?: Ref<HTMLCanvasElement>;
   /** The new player's cue: a finger and a partial tear play along the seam ('play'), or sit still under reduced motion ('still'). */
   cue?: 'play' | 'still' | null;
   /** The cue's play ran to its end. */
@@ -58,7 +58,7 @@ const PackCuttingUI = ({
   nudging = false,
   fellShort = false,
   cutPoints,
-  sparks,
+  sparkCanvasRef,
   cue = null,
   onCueEnd,
   onTouch,
@@ -71,6 +71,9 @@ const PackCuttingUI = ({
   // A drag that ends over the pack ends in a click too, which is not a tap: only a press that never
   // strayed past TAP_SLOP_PX, at any point before its release, opens it.
   const press = useRef<{ id: number; x: number; y: number; farthest: number } | null>(null);
+  // A pack that leaves before its art loads or fails (the player moved on from Open) still lets the deferred
+  // downloads start, so they aren't held for the rest of the visit.
+  useEffect(() => packArtSettled, []);
   // A finger is down on the pack, wherever it landed: the idle cue waits for it to lift (a press below the
   // tear line sets neither `pressing` nor `isCutting`, and its nudge timer can run out under a slow hold).
   const [held, setHeld] = useState(false);
@@ -201,22 +204,7 @@ const PackCuttingUI = ({
               </g>
             </svg>
           )}
-          <div className="spark-layer" aria-hidden="true" style={{ '--spark-life': `${SPARK_LIFETIME_MS}ms` } as React.CSSProperties}>
-            {sparks.map((spark) => (
-              <span
-                key={spark.id}
-                className="drag-spark"
-                style={{
-                  '--x': `${spark.x}px`,
-                  '--y': `${spark.y}px`,
-                  '--dx': `${spark.dx}px`,
-                  '--dy': `${spark.dy}px`,
-                  '--size': `${spark.size}px`,
-                  '--hue': spark.hue,
-                } as React.CSSProperties}
-              />
-            ))}
-          </div>
+          <canvas ref={sparkCanvasRef} className="spark-layer" aria-hidden="true" />
         </div>
         {/* Seen, not read: the pack's live region (PackOpener) says it once. The pack's own name already says Opening…, so this says why it is taking a while. */}
         {waiting && !refusal && !leaving && (

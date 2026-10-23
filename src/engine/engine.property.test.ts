@@ -174,7 +174,7 @@ describe('pack properties', () => {
       const odds = Object.fromEntries(RARITIES_RAREST_FIRST.map((r, i) => [r, set.odds[RARITIES_RAREST_FIRST[RARITIES_RAREST_FIRST.length - 1 - i]]]));
       return generatePack({ ...set, odds: odds as Record<Rarity, number> }, seed);
     };
-    await expect(packShapeProperty(reversed)).rejects.toThrow(/seed 763001, case \d+ of 400/);
+    await expect(packShapeProperty(reversed)).rejects.toThrow(/seed 763001, case \d+ of 400 \(replay with only: \d+\)\. Case: [\s\S]+\n/);
   });
 });
 
@@ -188,7 +188,7 @@ describe('scoring properties', () => {
       const multiplier = swap[hand.name] ?? hand.multiplier;
       return { points, hand: { name: hand.name, multiplier }, score: points * multiplier };
     };
-    await expect(scoringProperty(swapped)).rejects.toThrow(/seed 763002, case \d+ of 600/);
+    await expect(scoringProperty(swapped)).rejects.toThrow(/seed 763002, case \d+ of 600 \(replay with only: \d+\)\. Case: [\s\S]+\n/);
   });
 });
 
@@ -290,8 +290,19 @@ describe('ticket properties', () => {
     const tickets = await Promise.all(inputs.map(({ set, publicKey, nonce: n }) => computeTicket(setKey(set), publicKey, n)));
     expect(tickets.every((t) => t.length === 32)).toBe(true);
     expect(new Set(inputs.map((i) => ticketPreimage(setKey(i.set), i.publicKey, i.nonce))).size, 'the sample has no repeated input').toBe(inputs.length);
-    expect(new Set(tickets.map(toHex)).size, 'no two sampled inputs share a ticket').toBe(inputs.length);
-    expect(new Set(tickets.map((t) => toHex(packSeedFromTicket(t)))).size).toBe(inputs.length);
+    // On a collision, say which two cases of the seeded sample produced it.
+    const firstRepeat = (values: string[]) => {
+      const seen = new Map<string, number>();
+      for (const [index, value] of values.entries()) {
+        if (seen.has(value)) return `seed 763005, cases ${seen.get(value)} and ${index}`;
+        seen.set(value, index);
+      }
+      return 'none';
+    };
+    const ticketHexes = tickets.map(toHex);
+    const packSeedHexes = tickets.map((t) => toHex(packSeedFromTicket(t)));
+    expect(firstRepeat(ticketHexes), 'two sampled inputs share a ticket').toBe('none');
+    expect(firstRepeat(packSeedHexes), 'two sampled tickets share a pack seed').toBe('none');
 
     for (const index of [0, 1, inputs.length - 1]) {
       const { set, publicKey, nonce: n } = inputs[index];

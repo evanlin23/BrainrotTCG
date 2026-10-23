@@ -146,6 +146,7 @@ for (const viewport of VIEWPORTS) {
       await backUp.getByRole('button', { name: 'Export', exact: true }).click();
       await download;
       await expect(backUp.locator('.settings-desc')).toHaveText('Backup downloaded — keep it private. It includes your secret player key.');
+      await expect(backUp.locator('.settings-desc')).toBeVisible();
       await expectReadable(backUp, `${where}, exported`, ['Export']);
       expect(errors).toEqual([]);
     });

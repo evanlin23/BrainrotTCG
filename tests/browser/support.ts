@@ -369,8 +369,9 @@ export async function monitor(
           });
           await otherCdp.send('Network.enable');
         };
-        // A page that closes before its session opens has nothing left to watch; the context-wide
-        // response listener above still covers its hops.
+        // A page that closes before its session opens has nothing left to watch. A popup's first
+        // navigation hop can also start before its Network.enable resolves; the context-wide
+        // response listener above is what still covers that hop.
         watchOther().catch(() => {});
       });
     }
@@ -397,6 +398,11 @@ export async function monitor(
       const request = route.request();
       const reqUrl = new URL(request.url());
       const method = request.method().toUpperCase();
+
+      // Playwright's WebKit routes a blob: load too (Chromium and Firefox keep it in the browser). A blob URL
+      // names its creator's origin but its path is a bare id, so the path rule below would refuse the share
+      // image the page just drew. It is memory in this page, never a request, so nothing leaves the browser.
+      if (reqUrl.protocol === 'blob:') return route.continue();
 
       if (method === 'POST' && reqUrl.origin === origin && reqUrl.pathname === CSP_REPORT_PATH) {
         // The guard's own CSP violation report: record where the blocked request was headed, nothing else.
@@ -518,6 +524,17 @@ export async function expectDecoded(images: Locator, count: number) {
     )).toBe(true);
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }
+}
+
+/**
+ * Resolves once the page has painted a frame and then gone idle. Input events hand React their state
+ * synchronously, so whatever a gesture or an event was going to show has been rendered by then: use it
+ * to check that nothing followed, in place of a pause.
+ */
+export function untilIdle(page: Page) {
+  return page.evaluate(() => new Promise<void>((done) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestIdleCallback(() => done())));
+  }));
 }
 
 /** Scales the root font like a player's text-size setting, and waits for fonts to settle. */

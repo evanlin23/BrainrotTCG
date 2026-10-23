@@ -40,6 +40,9 @@ hof-inbox-filed.json
 hof-inbox-read.json
 ops-health.json
 hof-comment.md
+# Written by the Hall of Fame build for the deploy
+public/rankings.json
+public/rankings/
 /pages/
 /.cache/
 

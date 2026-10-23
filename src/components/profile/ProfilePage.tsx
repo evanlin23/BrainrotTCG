@@ -22,7 +22,8 @@ import { QUALIFY_RULE } from '../ui/rankingsRule';
 import type { BestPackStats } from '../../game/bestSources';
 import { STORAGE_KEYS } from '../../constants';
 import { getPlayer } from '../../game/player';
-import { myProfileInfo, myProfileProof, myStats, onReopenProgress, profileUrl, reopenMyPacks, reopenStatus } from '../../game/profiles';
+import { myProfileInfo, myProfileProof, myStats, profileUrl } from '../../game/profiles';
+import { onReopenProgress, reopenMyPacks, reopenStatus } from '../../game/reopenJob';
 import { copyText } from '../../game/shareActions';
 import type { PullRef } from '../../game/pulls';
 import type { AchievementData, Settings } from '../../types';
@@ -93,11 +94,11 @@ const ProfilePage = ({
   section,
 }: ProfilePageProps) => {
   const [player, setPlayer] = useState(getPlayer);
-  // Saved packs are read in pages (game/profiles.ts): recount, and show their cards, as they arrive.
+  // Saved packs are read in pages (game/packCache.ts): recount, and show their cards, as they arrive.
   const packCache = usePackCacheVersion();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const history = useMemo(() => getHistory(), [packCache]);
-  // Re-opening runs in the background (game/profiles.ts); recount when a run ends.
+  // Re-opening runs in the background (game/reopenJob.ts); recount when a run ends.
   const [reopen, setReopen] = useState(reopenStatus);
   const [reopenRuns, setReopenRuns] = useState(0);
   useEffect(
