@@ -152,7 +152,7 @@ limits it to a type import (`import type`, or `import { type X }` for every name
 the same target still fails. It fails the check once the import is gone, so remove the entry in the PR
 that fixes the import. There is no wildcard or per-directory exception. Current exceptions: five
 `CardWithMeta` type imports (#700), `game/modifiers.ts` importing a React type and
-`utils/confettiEffects.ts` using `canvas-confetti` (#711).
+`utils/confettiEffects.ts` using `canvas-confetti` (#1042).
 
 `src/engine` also has ESLint rules for browser globals (`window`, `document`, storage, `fetch`,
 `XMLHttpRequest`, `Worker` and so on), including `globalThis.<name>` and `self.<name>`. An alias such as

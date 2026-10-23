@@ -86,14 +86,14 @@ export const EXCEPTIONS: readonly BoundaryException[] = [
     to: 'react',
     typeOnly: true,
     reason: 'modifierStyle() is typed as React.CSSProperties so components can pass it to `style`; the import is erased at build time.',
-    issue: '#711',
+    issue: '#1042',
     removeWhen: 'the style type is a plain Record<string, string | number> (or a neutral type module) and modifiers.ts imports nothing from react.',
   },
   {
     from: 'src/utils/confettiEffects.ts',
     to: 'canvas-confetti',
     reason: 'The confetti burst is a browser canvas effect that lives in utils and is called from UI code.',
-    issue: '#711',
+    issue: '#1042',
     removeWhen: 'confettiEffects moves to src/components (or a hook) and src/utils imports no UI package.',
   },
 ];
