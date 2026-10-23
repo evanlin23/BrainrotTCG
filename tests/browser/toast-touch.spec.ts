@@ -179,7 +179,8 @@ for (const viewport of PHONES) {
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
 
-    const covered = await page.evaluate((selectors) => {
+    // The pack's stage gives the toast its room as it arrives, so the controls are measured once that has settled.
+    await expect.poll(() => page.evaluate((selectors) => {
       const rect = document.querySelector('.toast')!.getBoundingClientRect();
       const problems: string[] = [];
       for (const selector of selectors) {
@@ -192,8 +193,7 @@ for (const viewport of PHONES) {
         }
       }
       return problems;
-    }, HOME_CONTROLS);
-    expect(covered).toEqual([]);
+    }, HOME_CONTROLS), { message: 'no control is under the toast' }).toEqual([]);
 
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
     await onProfile(page);
