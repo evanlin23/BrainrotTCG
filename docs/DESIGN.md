@@ -152,10 +152,18 @@ results rules below (#339).
   fingerprint is only on the "Cert" strip (the sheet has no subtitle). A pull with no combo keeps its "No
   Matches ×1" headline under the title "A pull". Other pack viewers are untitled and unchanged.
 - #802: the shared-pull sheet has no subtitle; "X pulled this pack in Set." is the one attribution
-  and an unnamed or blocked player reads "Someone" on the shared-pull sheet (the Hall of Fame and
-  profile pages still say Anonymous/Player). The check reads "This pull checks out — re-verified
-  in your browser just now" for every viewer (the page can't tell owner from guest without
-  creating an identity); the "Cert" strip sits beside it and "How do we know?" is one tap down.
+  and an unnamed or blocked player reads "Someone" (one name and one helper for every shared page,
+  see #1003). The check reads "This pull checks out — re-verified in your browser just now" for
+  every viewer (the page can't tell owner from guest without creating an identity); the "Cert"
+  strip sits beside it and "How do we know?" is one tap down.
+- #1003: pages a cold visitor lands on speak to someone who didn't make the pack. An unnamed
+  (blank or blocked) player is "Someone" on the shared-pull sheet, the shared profile and every
+  Hall of Fame row (`visitorName()` in `nameFilter.ts`). The ranked list gets no "#2"-style suffix:
+  each row already carries the key fingerprint ("Someone #abcd"), which tells two unnamed players
+  apart and is what a named row shows too. The profile's check line reads "This profile checks out:
+  every pack re-opened in your browser", and its in-progress and interrupted lines say "in your
+  browser" too: it says what was checked and where, never whose device made the packs, so one
+  line is true for the owner and a guest alike without a branch on who is looking.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
   44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
   the tap path.
