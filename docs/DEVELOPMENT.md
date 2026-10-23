@@ -250,12 +250,17 @@ close-up sets `data-tilt="live"` once it follows the mouse.
 
 `tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
 browser spec. `axe-critical-states.spec.ts` calls it for four loaded states: the first pack, the pack
-summary, Settings and a card's share sheet over its viewer, in both projects. A scan runs a fixed list of
+summary, Settings and a card's share sheet over its viewer, in both projects. `axe-routes.spec.ts` adds
+mid-reveal, Cards, Rankings, Profile and a shared pull, and checks that each page, Settings included, is a
+named main landmark with one level-1 heading and has no focusable control stranded off the page (a control
+in a horizontal scroller is not stranded). Those checks wait for the page's own content first, so the loading
+placeholder is never judged; Cards runs on a saved whole-set collection. A coverage test fails when a page in
+`PAGE_TITLES` has no scan, or a state in `AXE_STATE_SPECS` is not scanned by the spec that owns it. A scan runs a fixed list of
 rules (names, roles and relationships, the document, and `color-contrast`) after fonts, images and finite
 running animations have settled, with reduced motion emulated for the scan so looping pulses cannot make
 contrast depend on their phase; it is not a tag or the whole rule set, and no rule is disabled. Add a state by
-calling `expectAxeClean(page, testInfo, '<state>')` once its screen is loaded, after listing the state in
-`AXE_STATES`; do not add another scanner.
+awaiting `expectAxeClean(page, testInfo, '<state>')` directly in a test body once its screen is loaded, after
+naming the state and its owner spec in `AXE_STATE_SPECS`; do not add another scanner.
 
 - A scan fails on any violation, on a scan that passed no nodes, and on a page where contrast or the
   document checks found nothing to check, so an empty or wrong page cannot pass.
