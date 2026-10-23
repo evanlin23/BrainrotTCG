@@ -112,24 +112,11 @@ const CardImage = ({
   }, [id, needsRender]);
 
   const imageRef = useRef<HTMLImageElement>(null);
-  /** The status this image shows now, for a decode that finishes after the image has moved on. */
-  const current = useRef(id);
-  useLayoutEffect(() => {
-    current.current = id;
-  });
-  /**
-   * Ready once the pixels are decoded, so the placeholder never gives way to an empty frame on a slow
-   * device (#762). A decode that fails, is missing or hangs past a second still leaves the loaded image.
-   */
-  const settle = (img: HTMLImageElement) =>
-    void Promise.race([img.decode?.(), new Promise((done) => setTimeout(done, 1000))]).catch(() => undefined).then(() => {
-      if (current.current === id && img.getAttribute('src') === shown) update({ loaded: shown });
-    });
   // A fresh status for a URL the img already shows (a card without a finish switching between its
   // thumbnail and full-size view keeps the same src) gets no new load event: take the load it had.
   useLayoutEffect(() => {
     const img = imageRef.current;
-    if (state === 'loading' && img?.complete && img.naturalWidth > 0 && img.getAttribute('src') === shown) settle(img);
+    if (state === 'loading' && img?.complete && img.naturalWidth > 0 && img.getAttribute('src') === shown) update({ loaded: shown });
     // `update` only closes over `id`, which changes `state`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, shown]);
@@ -169,8 +156,7 @@ const CardImage = ({
       src={failed || !shown ? BLANK : shown}
       data-state={state}
       onLoad={(event) => {
-        const img = event.currentTarget;
-        if (!failed && shown && img.getAttribute('src') === shown) settle(img);
+        if (!failed && shown && event.currentTarget.getAttribute('src') === shown) update({ loaded: shown });
         onLoad?.(event);
       }}
       onError={(event) => {

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
-import { openPack } from '../../game/pulls';
+import { openPack, prefetchNextPack } from '../../game/pulls';
 import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
@@ -109,6 +109,16 @@ describe('optional work around a pack', () => {
     await render(false);
     await admitOptional(work);
     expect(work).toHaveBeenCalledOnce();
+  });
+});
+
+describe("the next pack's art", () => {
+  it('waits while a page or a sheet covers the pack, and is fetched once nothing does (#762)', async () => {
+    vi.mocked(prefetchNextPack).mockClear();
+    await render(true);
+    expect(vi.mocked(prefetchNextPack).mock.calls).toEqual([[SETS[0], true]]);
+    await render(false);
+    expect(vi.mocked(prefetchNextPack).mock.calls).toEqual([[SETS[0], true], [SETS[0], false]]);
   });
 });
 

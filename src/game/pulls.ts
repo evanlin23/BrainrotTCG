@@ -26,7 +26,6 @@ import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADL
 import { revealOrder } from './reveal';
 import { getTicket, prefetchTicket } from './ticketMiner';
 import { afterPackArt } from './packArt';
-import { whenOnOpenScreen } from './warmUp';
 import type { CardWithMeta } from '../types/card';
 
 /** Enough to re-derive and re-sign a pull later (e.g. to share a past best pack). */
@@ -83,22 +82,27 @@ export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefi
     return { ...card, rarity, uniqueId: Math.random(), isRevealed: false, isHolo: p.isHolo, ...(p.finish !== undefined ? { finish: p.finish, misprint: !!p.misprint } : {}) };
   });
 
-/** Mine the next pack's ticket in the background. */
-export const prefetchNextPack = (set: SetDefinition) => {
+/**
+ * Mine the next pack's ticket in the background. While a page, a shared pull, a profile or a share
+ * sheet `covers` the Open screen, its pictures wait: that screen is drawing its own card art, which a
+ * download for a later pack would slow on a thin connection (#762). Call again once it's uncovered.
+ */
+export const prefetchNextPack = (set: SetDefinition, covered?: boolean) => {
   // No pack opens while the player record can't be read, so mine nothing for this tab's stand-in key.
   if (playerUnreadable()) return;
   void getTicket(setKey(set), getPlayer().publicKey, peekNonce())
     .then((ticket) => {
       // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
       // once the sealed pack's own art is in, with the ready-made thumbnail a finished card's summary
-      // tile shows (#620). A shared pull or another page showing its own cards goes first (#762).
+      // tile shows (#620).
+      if (covered) return;
       const urls = generatePack(set, packSeedFromTicket(ticket)).flatMap((card) => {
         const image = getCard(`${card.setId}/${card.cardId}`)?.image;
         return image ? [image, cardFinishThumbUrl(image, card.finish)] : [];
       });
-      afterPackArt(() => whenOnOpenScreen(() => {
+      afterPackArt(() => {
         for (const url of urls) if (url) new Image().src = url;
-      }));
+      });
     })
     .catch(() => undefined);
 };

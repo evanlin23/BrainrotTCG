@@ -196,10 +196,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
   }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
 
-  // Mine the next pack's ticket while this one is on screen.
+  // Mine the next pack's ticket while this one is on screen, and fetch its art once nothing covers it.
   useEffect(() => {
-    if (!isOpening) prefetchNextPack(set);
-  }, [isOpening, set]);
+    if (!isOpening) prefetchNextPack(set, disabled);
+  }, [isOpening, set, disabled]);
 
   // From the tear on, the ticket is spent: the app mustn't swap sets (or open a sheet over it) until
   // the pack is recorded. The ticket can still be mining here on a slow phone.

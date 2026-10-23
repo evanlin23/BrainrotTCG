@@ -27,22 +27,6 @@ const savingData = () => (navigator as Navigator & { connection?: { saveData?: b
 /** The page showing can open a pack: Open, not another page or a shared pull or profile. */
 const canOpenPack = () => pageForHash(location.hash) === null && !isLinkHash(location.hash);
 
-const waitingForOpen: (() => void)[] = [];
-
-/**
- * Run `task` once the Open screen shows (at once if it does). A shared pull, a profile or another page
- * is drawing its own card art, which a download for a later pack would slow on a thin connection (#762).
- */
-export const whenOnOpenScreen = (task: () => void): void => {
-  if (canOpenPack()) task();
-  else waitingForOpen.push(task);
-};
-
-/** The route changed (useRoute, for its own moves and the browser's): run what waited for the Open screen. */
-export const routeShown = (): void => {
-  if (canOpenPack()) for (const task of waitingForOpen.splice(0)) task();
-};
-
 /**
  * Fetch the card back the first reveal shows, unless the visitor saves data or is elsewhere. It waits
  * for the sealed pack's art, which the first screen needs more.
