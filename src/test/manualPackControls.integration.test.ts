@@ -302,18 +302,20 @@ it('holds the last pack\'s notices while a big pull is on show, and shows them a
   await app.until('the first pack is kept', () => expect(toasts()).toContain('Pack kept'));
   await app.until('a fresh pack is ready', () => expect(sealed()).not.toBeNull());
   await reveal();
-  const before = toasts();
-  expect(before, 'a notice is up when the big pull lands').not.toBe('');
+  // The pack in hand holds the notices (the tear and reveal are not covered by one).
+  expect(toasts(), 'no notice over the opening pack').toBe('');
   await app.interact(() => button('Skip opening animation').click());
   await app.until('the big pull is on show', () => expect($('.showcase-ribbon')).not.toBeNull());
-  // Gone the frame the ribbon shows, and nothing new shows over the showcase.
+  // Nothing shows over the showcase.
   expect(toasts()).toBe('');
   await app.settle(1500);
   expect($('.showcase-ribbon')).not.toBeNull();
   expect(toasts()).toBe('');
-  // When it ends, the held notice comes back first, in full.
+  // When the pack is done, the held notice comes back, in full.
   await app.until('the showcase ends', () => expect($('.showcase-ribbon')).toBeNull());
-  await app.until('the held notice shows', () => expect(toasts()).toBe(before));
+  expect(toasts()).toBe('');
+  await escape();
+  await app.until('the held notice shows', () => expect(toasts()).toContain('Pack kept'));
 }, 30_000);
 
 it('keeps notices held between two big pulls that Skip shows back to back (#460)', async () => {
