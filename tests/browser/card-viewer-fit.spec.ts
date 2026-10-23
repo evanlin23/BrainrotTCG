@@ -56,6 +56,9 @@ test('the card viewer never squashes the card', async ({ page, baseURL }) => {
     // Big enough to see, and its top on screen (the text under it may scroll).
     expect.soft(card.height, `${name}: the card is a usable size`).toBeGreaterThan(150);
     expect.soft(card.top, `${name}: the card starts on screen`).toBeGreaterThanOrEqual(0);
+    // One identity line (modifier and rarity together), not a heading and a badge saying the same thing (#900).
+    await expect.soft(page.locator('.card-viewer-info .rarity-pill'), `${name}: one identity line`).toHaveCount(1);
+    await expect.soft(page.locator('.card-viewer-info'), `${name}: no "Plain" headline`).not.toContainText(/^Plain\b/);
   }
   expect(errors).toEqual([]);
 });
