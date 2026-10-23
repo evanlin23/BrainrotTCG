@@ -36,10 +36,18 @@ describe('the repository', () => {
     expect(files).toBeGreaterThan(100);
   });
 
-  it('would fail on the CardWithMeta imports (#700) without their exceptions', () => {
+  it('would fail on each excepted import (the #700 CardWithMeta imports, a React type in game, confetti in utils) without its exception', () => {
     const { violations } = checkImportBoundaries(REAL_ROOT, []);
     expect(violations.map((v) => v.file).sort()).toEqual(EXCEPTIONS.map((e) => e.from).sort());
-    for (const violation of violations) expect(violation.message).toContain('src/components/cards/Card.tsx');
+    for (const violation of violations) {
+      const exception = EXCEPTIONS.find((e) => e.from === violation.file)!;
+      expect(violation.message, violation.file).toContain(exception.to.startsWith('src/') ? `${exception.to}.tsx` : `UI package ${exception.to}`);
+    }
+  });
+
+  it('marks every exception for a type import typeOnly', () => {
+    const typeOnly = EXCEPTIONS.filter((e) => e.typeOnly).map((e) => e.from).sort();
+    expect(typeOnly).toEqual(EXCEPTIONS.filter((e) => e.from !== 'src/utils/confettiEffects.ts').map((e) => e.from).sort());
   });
 
   it('gives every exception a reason, a removal condition and an owner issue', () => {
@@ -139,6 +147,19 @@ describe('forbidden imports', () => {
     expect(out[0]).toContain('data must not import UI package react');
   });
 
+  it('fails a new game, types or utils file that imports a UI package', () => {
+    const out = messages({
+      'src/game/new.ts': "import { useState } from 'react';\nexport const x = useState;\n",
+      'src/types/new.ts': "import { motion } from 'framer-motion';\nexport const m = motion;\n",
+      'src/utils/new.ts': "import type { ReactNode } from 'react';\nimport confetti from 'canvas-confetti';\nexport const c = confetti;\n",
+    });
+    expect(out).toHaveLength(4);
+    expect(out[0]).toContain('src/game/new.ts:1');
+    expect(out[0]).toContain('game must not import UI package react');
+    expect(out[1]).toContain('types must not import UI package framer-motion');
+    expect(out.join('\n')).toContain('utils must not import UI package canvas-confetti');
+  });
+
   it('fails scripts that import UI, and production code that imports test code', () => {
     const out = messages({
       'src/components/Card.tsx': '',
@@ -170,7 +191,7 @@ describe('allowed imports', () => {
       'src/engine/bytes.ts': 'export const b = 1;\n',
       'src/content/sets/index.ts': "import type { SetDefinition } from '../../engine';\n",
       'src/engine/index.ts': '',
-      'src/game/a.ts': "import type { SetDefinition } from '../engine';\nimport { b } from '../utils/b';\nimport type { CSSProperties } from 'react';\n",
+      'src/game/a.ts': "import type { SetDefinition } from '../engine';\nimport { b } from '../utils/b';\n",
       'src/utils/b.ts': 'export const b = 1;\n',
       'src/hooks/useRoute.ts': "import { a } from '../game/a';\nimport { useState } from 'react';\n",
       'src/components/Card.tsx': "import { a } from '../game/a';\nimport { useRoute } from '../hooks/useRoute';\nimport { p } from '../engine';\nimport '../styles/card.css';\nimport art from '../assets/art.webp';\n",
@@ -221,6 +242,53 @@ describe('exceptions', () => {
     expect(out[0]).toContain('the type moves to a neutral module');
   });
 
+  describe('for a package', () => {
+    const react: BoundaryException = { from: 'src/game/style.ts', to: 'react', typeOnly: true, reason: 'a style type', issue: '#711', removeWhen: 'the type is local' };
+    const run = (source: string, list: readonly BoundaryException[] = [react]) => messages({ 'src/game/style.ts': source }, list);
+
+    it('allows the listed file to import the listed package, and no other file or package', () => {
+      expect(run("import type React from 'react';\nexport type S = React.CSSProperties;\n")).toEqual([]);
+      expect(messages({ 'src/game/style.ts': "import type React from 'react';\n", 'src/game/other.ts': "import type React from 'react';\n" }, [react])).toHaveLength(1);
+      expect(run("import type { motion } from 'framer-motion';\nimport type React from 'react';\n").join('\n')).toContain('must not import UI package framer-motion');
+      expect(run('export const x = 1;\n').join('\n')).toContain('matches no import any more');
+    });
+
+    it('fails a run-time import under a type-only exception, but not a type-only one', () => {
+      for (const source of [
+        "import { useState } from 'react';\n",
+        "import React from 'react';\n",
+        "import * as React from 'react';\n",
+        "import './setup';\nimport {} from 'react';\n",
+        "import { type A, useState } from 'react';\n",
+        "export { useState } from 'react';\n",
+        "export const load = () => import('react');\n",
+      ]) {
+        const out = run(source, [react]).filter((message) => !message.includes('./setup'));
+        expect(out, source).toHaveLength(1);
+        expect(out[0], source).toContain('covers a type import only, and this one is used at run time');
+      }
+      for (const source of [
+        "import type { A } from 'react';\n",
+        "import type React from 'react';\n",
+        "import { type A, type B } from 'react';\n",
+        "export type { A } from 'react';\n",
+        "export { type A } from 'react';\n",
+      ]) expect(run(source), source).toEqual([]);
+    });
+
+    it('lets an exception without typeOnly cover a run-time import', () => {
+      expect(run("import { useState } from 'react';\n", [{ ...react, typeOnly: undefined }])).toEqual([]);
+    });
+
+    it('fails a run-time import under a type-only file exception', () => {
+      const card: BoundaryException = { from: 'src/game/pulls.ts', to: 'src/components/cards/Card', typeOnly: true, reason: 'type lives in the component', issue: '#700', removeWhen: 'it moves' };
+      const out = messages({ ...CARD, 'src/game/pulls.ts': "import { CardWithMeta } from '../components/cards/Card';\nexport const x = CardWithMeta;\n" }, [card]);
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain('src/game/pulls.ts:1');
+      expect(out[0]).toContain('covers a type import only');
+    });
+  });
+
   it('rejects an exception with no reason, removal condition or owner issue', () => {
     expect(messages(files, [{ ...exception, reason: ' ' }]).join('\n')).toContain('needs reason');
     expect(messages(files, [{ ...exception, removeWhen: '' }]).join('\n')).toContain('needs removeWhen');
@@ -232,7 +300,7 @@ describe('src/engine globals (ESLint)', () => {
   const lint = async (filePath: string, source: string) => {
     const eslint = new ESLint({ cwd: REAL_ROOT });
     const [result] = await eslint.lintText(source, { filePath: path.join(REAL_ROOT, filePath) });
-    return result.messages.filter((m) => m.ruleId === 'no-restricted-globals').map((m) => m.message);
+    return result.messages.filter((m) => m.ruleId === 'no-restricted-globals' || m.ruleId === 'no-restricted-properties').map((m) => m.message);
   };
 
   it('rejects DOM and storage globals in engine code', async () => {
@@ -241,9 +309,25 @@ describe('src/engine globals (ESLint)', () => {
     expect(await lint('src/engine/probe.ts', 'export const a = () => document.title;\n')).toHaveLength(1);
   });
 
+  it('rejects network and worker globals in engine code', async () => {
+    expect(await lint('src/engine/probe.ts', 'export const a = () => fetch("/x");\n')).toHaveLength(1);
+    expect(await lint('src/engine/probe.ts', 'export const a = () => new XMLHttpRequest();\n')).toHaveLength(1);
+    expect(await lint('src/engine/probe.ts', 'export const a = () => new Worker("w.js");\n')).toHaveLength(1);
+  });
+
+  it('rejects the same globals reached through globalThis or self, but not an alias', async () => {
+    expect(await lint('src/engine/probe.ts', 'export const a = () => globalThis.localStorage;\n')).toHaveLength(1);
+    expect(await lint('src/engine/probe.ts', 'export const a = () => self.document;\n')).toHaveLength(1);
+    expect(await lint('src/engine/probe.ts', 'export const a = () => globalThis.fetch("/x");\n')).toHaveLength(1);
+    // The documented gap: an alias hides the global from a syntax rule.
+    expect(await lint('src/engine/probe.ts', 'const g = globalThis;\nexport const a = () => g.localStorage;\n')).toEqual([]);
+    expect(await lint('src/engine/probe.ts', 'export const a = () => globalThis.crypto;\n')).toEqual([]);
+  });
+
   it('allows the same globals outside engine code, and in engine tests', async () => {
     expect(await lint('src/game/probe.ts', 'export const a = () => window.localStorage.getItem("k");\n')).toEqual([]);
     expect(await lint('src/engine/probe.test.ts', 'export const a = () => document.title;\n')).toEqual([]);
+    expect(await lint('src/game/probe.ts', 'export const a = () => [globalThis.localStorage, fetch("/x")];\n')).toEqual([]);
   });
 
   it('allows what the engine needs in a worker and Node', async () => {

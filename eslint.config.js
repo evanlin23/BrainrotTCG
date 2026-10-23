@@ -5,6 +5,14 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
+// Browser-only globals src/engine must not reach (it also runs in a Web Worker and Node); see the engine block below.
+const ENGINE_FORBIDDEN_GLOBALS = [
+  'window', 'document', 'localStorage', 'sessionStorage', 'indexedDB', 'navigator', 'location', 'history',
+  'screen', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame', 'alert', 'confirm', 'prompt',
+  'Image', 'HTMLElement', 'Element', 'Document', 'fetch', 'XMLHttpRequest', 'Worker',
+]
+const ENGINE_GLOBALS_MESSAGE = 'src/engine is DOM-free (CLAUDE.md layers). Take it as a parameter or move this to src/game.'
+
 export default defineConfig([
   // Agent worktrees nest full checkouts under .claude/worktrees; linting them breaks tsconfig resolution.
   globalIgnores(['dist', 'coverage', 'test-results', '.claude/worktrees']),
@@ -43,11 +51,15 @@ export default defineConfig([
     rules: {
       'no-restricted-globals': [
         'error',
-        ...[
-          'window', 'document', 'localStorage', 'sessionStorage', 'indexedDB', 'navigator', 'location', 'history',
-          'screen', 'matchMedia', 'requestAnimationFrame', 'cancelAnimationFrame', 'alert', 'confirm', 'prompt',
-          'Image', 'HTMLElement', 'Element', 'Document',
-        ].map((name) => ({ name, message: 'src/engine is DOM-free (CLAUDE.md layers). Take it as a parameter or move this to src/game.' })),
+        ...ENGINE_FORBIDDEN_GLOBALS.map((name) => ({ name, message: ENGINE_GLOBALS_MESSAGE })),
+      ],
+      // `globalThis.localStorage` and `self.document` name the same globals; only these two roots are caught,
+      // so an alias (`const g = globalThis; g.localStorage`) or a bracket lookup still gets past.
+      'no-restricted-properties': [
+        'error',
+        ...['globalThis', 'self'].flatMap((object) =>
+          ENGINE_FORBIDDEN_GLOBALS.map((property) => ({ object, property, message: ENGINE_GLOBALS_MESSAGE })),
+        ),
       ],
     },
   },

@@ -47,7 +47,7 @@ export const ALLOWED_PACKAGES: Readonly<Partial<Record<Layer, readonly string[]>
 };
 /** UI and DOM packages that layers with no UI role must not import. */
 export const UI_PACKAGES: readonly string[] = ['react', 'react-dom', 'framer-motion', 'lucide-react', 'canvas-confetti'];
-export const NO_UI_PACKAGES: readonly Layer[] = ['content', 'constants', 'styles', 'data', 'workers'];
+export const NO_UI_PACKAGES: readonly Layer[] = ['content', 'constants', 'styles', 'data', 'workers', 'game', 'types', 'utils'];
 
 /**
  * A narrowly necessary exception: one file's import of one target. It needs a reason, an owner issue
@@ -57,8 +57,10 @@ export const NO_UI_PACKAGES: readonly Layer[] = ['content', 'constants', 'styles
 export interface BoundaryException {
   /** Importing file, repo-relative. */
   from: string;
-  /** Imported file, repo-relative, without its extension. */
+  /** Imported file, repo-relative, without its extension, or a package name such as `react`. */
   to: string;
+  /** The reason covers only a type import: a runtime import of the same target still fails. */
+  typeOnly?: boolean;
   reason: string;
   /** The issue that removes it, as `#n`. */
   issue: string;
@@ -67,6 +69,7 @@ export interface BoundaryException {
 
 const CARD_WITH_META = {
   to: 'src/components/cards/Card',
+  typeOnly: true,
   reason: 'CardWithMeta (card data plus reveal-only UI state) is defined in the Card component, so this type-only import points the wrong way.',
   issue: '#700',
   removeWhen: 'CardWithMeta and its card-instance types live in a neutral module that this file imports instead of the component.',
@@ -78,6 +81,21 @@ export const EXCEPTIONS: readonly BoundaryException[] = [
   { from: 'src/game/pulls.ts', ...CARD_WITH_META },
   { from: 'src/types/index.ts', ...CARD_WITH_META },
   { from: 'src/utils/achievementChecks.ts', ...CARD_WITH_META },
+  {
+    from: 'src/game/modifiers.ts',
+    to: 'react',
+    typeOnly: true,
+    reason: 'modifierStyle() is typed as React.CSSProperties so components can pass it to `style`; the import is erased at build time.',
+    issue: '#711',
+    removeWhen: 'the style type is a plain Record<string, string | number> (or a neutral type module) and modifiers.ts imports nothing from react.',
+  },
+  {
+    from: 'src/utils/confettiEffects.ts',
+    to: 'canvas-confetti',
+    reason: 'The confetti burst is a browser canvas effect that lives in utils and is called from UI code.',
+    issue: '#711',
+    removeWhen: 'confettiEffects moves to src/components (or a hook) and src/utils imports no UI package.',
+  },
 ];
 
 const SOURCE_EXTENSIONS = /\.(?:[cm]?[jt]sx?)$/;
@@ -144,6 +162,36 @@ const compilerOptionsFor = (root: string): ts.CompilerOptions => {
   return { ...base, ...parsed.options, noEmit: true };
 };
 
+/**
+ * The module specifiers a file imports at run time: anything but `import type`, `import { type X }`
+ * (every name a type), `export type` and `export { type X } from`. `import()` and `require()` count.
+ */
+const runtimeSpecifiers = (file: string, text: string): Set<string> => {
+  const found = new Set<string>();
+  const visit = (node: ts.Node) => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const clause = node.importClause;
+      const bindings = clause?.namedBindings;
+      const onlyTypes =
+        !!clause &&
+        (clause.isTypeOnly ||
+          (!clause.name && !!bindings && ts.isNamedImports(bindings) && bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly)));
+      if (!onlyTypes) found.add(node.moduleSpecifier.text);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      const clause = node.exportClause;
+      const onlyTypes = node.isTypeOnly || (!!clause && ts.isNamedExports(clause) && clause.elements.length > 0 && clause.elements.every((element) => element.isTypeOnly));
+      if (!onlyTypes) found.add(node.moduleSpecifier.text);
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && ts.isStringLiteral(node.moduleReference.expression)) {
+      if (!node.isTypeOnly) found.add(node.moduleReference.expression.text);
+    } else if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteralLike(node.arguments[0])) {
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === 'require')) found.add(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS));
+  return found;
+};
+
 type Resolved = { kind: 'file'; path: string } | { kind: 'package'; name: string };
 
 const packageName = (specifier: string) => (specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]);
@@ -187,19 +235,29 @@ export const checkImportBoundaries = (root: string, exceptions: readonly Boundar
     checked++;
     const text = readFileSync(path.join(root, file), 'utf8');
     const info = ts.preProcessFile(text, true, true);
+    let runtime: Set<string> | undefined;
     const allowed = ALLOWED_LAYERS[from] ?? [];
     for (const imported of info.importedFiles) {
       const line = text.slice(0, imported.pos).split('\n').length;
       const specifier = imported.fileName;
       const target = resolve(specifier, file);
       const fail = (message: string) => violations.push({ file, line, message: `imports '${specifier}': ${message}` });
+      /** The exception for this file's import of `to`, if it covers it; a type-only one fails a run-time import. */
+      const excepted = (to: string) => {
+        const exception = exceptions.find((candidate) => candidate.from === file && candidate.to === to);
+        if (!exception) return false;
+        used.add(exception);
+        runtime ??= runtimeSpecifiers(file, text);
+        if (exception.typeOnly && runtime.has(specifier)) fail(`the exception for ${to} (${exception.issue}) covers a type import only, and this one is used at run time`);
+        return true;
+      };
 
       if (target.kind === 'package') {
         const name = packageName(target.name);
         const packages = ALLOWED_PACKAGES[from];
         if (packages && !packages.some((allowedName) => packageMatches(target.name, allowedName))) {
           fail(`${from} may import only ${packages.join(', ')} from outside the repo (${name} isn't one)`);
-        } else if (NO_UI_PACKAGES.includes(from) && UI_PACKAGES.some((ui) => packageMatches(target.name, ui))) {
+        } else if (NO_UI_PACKAGES.includes(from) && UI_PACKAGES.some((ui) => packageMatches(target.name, ui)) && !excepted(name)) {
           fail(`${from} must not import UI package ${name}`);
         }
         continue;
@@ -216,11 +274,7 @@ export const checkImportBoundaries = (root: string, exceptions: readonly Boundar
         continue;
       }
       if (allowed.includes(to)) continue;
-      const exception = exceptions.find((candidate) => candidate.from === file && candidate.to === withoutExtension(target.path));
-      if (exception) {
-        used.add(exception);
-        continue;
-      }
+      if (excepted(withoutExtension(target.path))) continue;
       fail(`${from} must not import ${to} (${target.path}); ${from} may import ${allowed.length ? allowed.join(', ') : 'nothing from another layer'}`);
     }
   }

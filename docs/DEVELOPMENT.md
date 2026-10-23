@@ -141,15 +141,26 @@ UI. The check reads every `src/` and `scripts/` file with TypeScript's import sc
 `paths` aliases count. Test files (`*.test.*`, `src/test/`, `tests/`) may cross layers, but
 production code can't import them. A new directory under `src/` fails until it is added to the map.
 
-An exception (`EXCEPTIONS` in the same file) names one file's import of one target and needs a reason,
-an owner issue and a removal condition. It fails the check once the import is gone, so remove the
-entry in the PR that fixes the import. There is no wildcard or per-directory exception.
+UI packages (`react`, `react-dom`, `framer-motion`, `lucide-react`, `canvas-confetti`) are allowed only
+in `hooks`, `components`, `app` and `scripts` (scripts never import UI code anyway); `engine` allows a
+fixed list of packages, and `content`, `constants`, `styles`, `data`, `workers`, `game`, `types` and `utils`
+allow none.
 
-Not covered: browser globals and DOM types used without an import (only `src/engine` has an ESLint
-`no-restricted-globals` rule), `import.meta.glob`, UI packages in `game`, `utils` and `types`
-(`game/modifiers.ts` imports a React type, `utils/confettiEffects.ts` uses `canvas-confetti`), and
-import cycles between layers that allow each other (`game` and `utils`, `game` and `types`). It
-doesn't measure file size or complexity.
+An exception (`EXCEPTIONS` in the same file) names one file's import of one target, a repo file or a
+package such as `react`, and needs a reason, an owner issue and a removal condition. `typeOnly: true`
+limits it to a type import (`import type`, or `import { type X }` for every name): a run-time import of
+the same target still fails. It fails the check once the import is gone, so remove the entry in the PR
+that fixes the import. There is no wildcard or per-directory exception. Current exceptions: five
+`CardWithMeta` type imports (#700), `game/modifiers.ts` importing a React type and
+`utils/confettiEffects.ts` using `canvas-confetti` (#711).
+
+`src/engine` also has ESLint rules for browser globals (`window`, `document`, storage, `fetch`,
+`XMLHttpRequest`, `Worker` and so on), including `globalThis.<name>` and `self.<name>`. An alias such as
+`const g = globalThis; g.localStorage` or a bracket lookup still gets past them.
+
+Not covered: browser globals and DOM types used without an import outside `src/engine`,
+`import.meta.glob`, and import cycles between layers that allow each other (`game` and `utils`, `game`
+and `types`). It doesn't measure file size or complexity.
 
 The card asset check (`npm run check:card-assets`) decodes every registered card WebP and checks
 generated geometry. It covers openable pack wrappers/thumbnails, retained pack art when present,
