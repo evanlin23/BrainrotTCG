@@ -515,16 +515,35 @@ describe('one record per pack, whatever order the player and the ticket arrive i
     during();
   });
   it('records a pack the player leaves in the gap between its ticket landing and the reveal rendering', async () => {
+    const made: HTMLAudioElement[] = [];
+    const RealAudio = window.Audio;
+    vi.stubGlobal('Audio', class extends RealAudio {
+      constructor(src?: string) {
+        super(src);
+        made.push(this);
+      }
+    });
     const land = holdTicketUntil();
     await show();
     await tear();
-    await landThen(land, () => press('Escape', 'Escape'));
+    let madeInGap = 0;
+    let readyInGap = false;
+    await landThen(land, () => {
+      // The sounds were fetched when the pack was dealt, before anything rendered: this is the gap.
+      madeInGap = made.length;
+      readyInGap = made.every((audio) => audio.getAttribute('src'));
+      press('Escape', 'Escape');
+    });
 
     expect(onOpen).toHaveBeenCalledOnce();
     expect(onOpen.mock.calls[0][0].cards.every((card: { isRevealed: boolean }) => card.isRevealed)).toBe(true);
     // Nothing was turned over yet: it is kept, with the notice saying where its cards went.
     expect(onLeaveEarly).toHaveBeenCalledOnce();
     expect(document.querySelector('.card-reveal-area')).toBeNull();
+    // The sounds loaded for the reveal that never showed are released, not left fetching.
+    expect(madeInGap).toBeGreaterThan(0);
+    expect(readyInGap).toBe(true);
+    expect(made.every((audio) => audio.getAttribute('src') === '')).toBe(true);
   });
 
   it('records a pack whose opener unmounts in the gap between its ticket landing and the reveal rendering', async () => {
