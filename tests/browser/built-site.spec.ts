@@ -77,7 +77,7 @@ test('a first visit, with nothing cached, shows its pack and the cards it opens,
   const seen = requests(page, baseURL!);
   await page.goto('./');
   await expectDecoded(page.locator('.pack-shell img'), 2);
-  await page.getByRole('button', { name: 'Open pack', exact: true }).click();
+  await page.getByRole('button', { name: /^Open pack/ }).click();
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
   await expectDecoded(page.locator('.summary-cards img'), 5);

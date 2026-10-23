@@ -378,7 +378,10 @@ export async function monitor(
       let response;
       let url = request.url();
       try {
-        const headers = token ? { headers: { ...request.headers(), ...token } } : {};
+        // One connection per request: a kept-alive socket the preview server closes while the machine is
+        // busy fails the next request with ECONNRESET, which aborted a chunk or the favicon and failed the test.
+        // The catch below still aborts without saying why, and page.request shares the pool: see #1046.
+        const headers = { headers: { ...request.headers(), connection: 'close', ...token } };
         response = await route.fetch({ maxRedirects: 0, ...headers });
         // The browser sends the hop after a fulfilled redirect itself, past this handler, so on
         // staging it would go without the token: follow staging's redirects to its own origin here.
@@ -604,7 +607,13 @@ export interface Finger {
   release(): Promise<void>;
 }
 
-export async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
+/**
+ * With `settled`, a touch's events carry their own timestamps (16 ms apart) and a release comes after
+ * a dragged finger has rested 400 ms at its last point. Sent back to back with no time between them, a drag
+ * ends as a fling, and the browser swallows the next tap (it only stops the fling), so the tap that
+ * follows a drag gets no click.
+ */
+export async function fingerFor(page: Page, touch: boolean, { settled = false } = {}): Promise<Finger> {
   if (!touch) {
     return {
       press: async (x, y) => { await page.mouse.move(x, y); await page.mouse.down(); },
@@ -613,11 +622,19 @@ export async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
     };
   }
   const cdp = await page.context().newCDPSession(page);
-  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) =>
-    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points }).then(() => {});
+  let clock = Date.now() / 1000;
+  let last = { x: 0, y: 0 };
+  let moved = false;
+  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[], after = 0.016) => {
+    clock += after;
+    return cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points, ...(settled ? { timestamp: clock } : {}) }).then(() => {});
+  };
   return {
-    press: (x, y) => send('touchStart', [{ x, y }]),
-    move: (x, y) => send('touchMove', [{ x, y }]),
-    release: () => send('touchEnd', []),
+    press: (x, y) => { last = { x, y }; moved = false; return send('touchStart', [last]); },
+    move: (x, y) => { last = { x, y }; moved = true; return send('touchMove', [last]); },
+    release: async () => {
+      if (settled && moved) await send('touchMove', [last], 0.4);
+      await send('touchEnd', []);
+    },
   };
 }

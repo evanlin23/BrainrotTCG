@@ -47,7 +47,7 @@ describe('the repository', () => {
 
   it('marks every exception for a type import typeOnly', () => {
     const typeOnly = EXCEPTIONS.filter((e) => e.typeOnly).map((e) => e.from).sort();
-    expect(typeOnly).toEqual(EXCEPTIONS.filter((e) => e.from !== 'src/utils/confettiEffects.ts').map((e) => e.from).sort());
+    expect(typeOnly).toEqual(EXCEPTIONS.map((e) => e.from).sort());
   });
 
   it('gives every exception a reason, a removal condition and an owner issue', () => {

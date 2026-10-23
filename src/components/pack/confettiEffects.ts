@@ -1,6 +1,6 @@
 import confetti from 'canvas-confetti';
-import type { RarityKey } from '../data/cards';
-import { prefersReducedMotion } from './motion';
+import type { RarityKey } from '../../data/cards';
+import { prefersReducedMotion } from '../../utils/motion';
 
 interface ConfettiConfig {
   particleCount: number;

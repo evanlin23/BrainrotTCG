@@ -86,7 +86,7 @@ for (const scenario of OPTIONAL_SCENARIOS) for (let repetition = 1; repetition <
     await cdp.send('Network.emulateNetworkConditions', PROFILE.network);
     try {
       const shell = page.locator('.pack-shell');
-      const openButton = page.getByRole('button', { name: 'Open pack', exact: true });
+      const openButton = page.getByRole('button', { name: /^Open pack/ });
       await page.goto('./');
       await expectDecoded(shell.locator('img'), 2);
       await openButton.click({ trial: true });

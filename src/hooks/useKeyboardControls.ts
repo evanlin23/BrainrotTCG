@@ -5,7 +5,7 @@ interface UseKeyboardControlsOptions {
   showSummary: boolean;
   disabled: boolean;
   onCloseSummary: () => void;
-  /** Open the pack on screen (the keyboard's version of the swipe). */
+  /** Open the pack on screen (the keyboard's version of the swipe), when focus is on it. */
   onOpenPack: () => void;
   handleInteractionRef: MutableRefObject<() => void>;
   /** A pack is on screen, at any stage from the tear to the summary: Escape leaves it. */
@@ -17,6 +17,9 @@ interface UseKeyboardControlsOptions {
 /** Fields that take typing keep their keys. Any contenteditable value but "false" makes one ("" is "true"). */
 const TEXT_FIELD = 'input, select, textarea, [contenteditable]:not([contenteditable="false"])';
 
+/** The sealed pack, the one control that opens it (PackCuttingUI): its keys work only with focus on it. */
+const PACK_CONTROL = '[data-pack-open]';
+
 /** A held Space waits this long before it repeats, so a press held a moment still does one thing. */
 const HOLD_DELAY_MS = 400;
 /** Then it moves on a card this often. */
@@ -26,8 +29,8 @@ const HOLD_REPEAT_MS = 150;
 const sheetOpen = () => document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
 
 /**
- * Space or Enter does the next thing: open the pack, flip, next card, next pack. Holding Space runs
- * through the cards. Escape leaves a pack at any stage. With Ctrl, Cmd or Alt held, none of these
+ * Space or Enter does the next thing: open the pack (only with focus on it, so typing or pressing keys
+ * elsewhere never tears one), flip, next card, next pack. Holding Space runs through the cards. Escape leaves a pack at any stage. With Ctrl, Cmd or Alt held, none of these
  * keys do anything. The listeners are added once and read the latest state from a ref, so a
  * re-render can't cancel a held Space.
  */
@@ -82,6 +85,8 @@ export const useKeyboardControls = (options: UseKeyboardControlsOptions) => {
       if (isKey && target?.closest(`button:not([data-pack-keys]), a, ${TEXT_FIELD}`)) return;
 
       if (!isKey) return;
+      // A sealed pack opens only from the pack itself; anywhere else the key is the page's own.
+      if (!showSummary && !isOpening && !target?.closest(PACK_CONTROL)) return;
       e.preventDefault();
       if (e.repeat) return;
 

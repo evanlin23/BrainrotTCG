@@ -94,6 +94,29 @@
   overflow-wrap: anywhere;
 }
 
+/* The kept-aside "Download started" note: a status region that stays in the row, empty and out of the way until a download. */
+.kept-aside-note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.kept-aside-note:empty {
+  flex: 0 0 0;
+  margin-inline-end: calc(var(--space-2) * -1);
+}
+
+/* After a download the note gets a full-width line above the buttons, which stay on the right. */
+.settings-actions--started {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settings-actions--started .kept-aside-note {
+  flex: 1 0 100%;
+}
+
 /* At enlarged text a label can be wider than the row: it wraps inside its button instead of spilling out. */
 .settings-actions--ask .btn {
   max-width: 100%;

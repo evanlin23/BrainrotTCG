@@ -62,7 +62,7 @@ for (const scenario of SCENARIOS) for (let repetition = 1; repetition <= REPETIT
     // Priming only fills caches, so it runs unthrottled to keep the warm run short.
     if (!warm) await throttle();
     const shell = page.locator('.pack-shell');
-    const openButton = page.getByRole('button', { name: 'Open pack', exact: true });
+    const openButton = page.getByRole('button', { name: /^Open pack/ });
     let encodedBytes = 0;
     let completedRequests = 0;
     const requests = new Set<string>();

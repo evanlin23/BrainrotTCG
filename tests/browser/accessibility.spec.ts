@@ -49,7 +49,7 @@ test('a keyboard reaches every page and the card guide, with focus shown and eve
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   await page.goto('./');
-  await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /^Open pack/ })).toBeEnabled();
   expect(await unnamedControls(page)).toEqual([]);
 
   for (const name of PAGES) {
