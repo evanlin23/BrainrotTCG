@@ -12,6 +12,9 @@ name: Hall of Fame inbox
 #
 # Relay content is untrusted: it is only parsed by scripts/hall-of-fame.ts,
 # never interpolated into shell commands.
+# A probe skips the inbox job; its own title keeps ops-health.yml from counting it as an inbox run.
+run-name: ${{ inputs.probe && 'Hall of Fame relay probe' || 'Hall of Fame inbox' }}
+
 on:
   schedule:
     # Off the quarter hours, which GitHub delays or drops under load.
@@ -83,9 +86,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
       # The run's counts and the stage it reached, for ops-health.yml: no events, proofs, names,
-      # relay addresses or error text. Written even when the inbox step fails.
+      # relay addresses or error text. Written even when the inbox step fails; an upload error
+      # doesn't fail the job, so it can't hold back the redeploy.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
+        continue-on-error: true
         with:
           name: hof-inbox-summary
           path: hof-inbox-summary.json

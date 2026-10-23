@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CONDITIONS, type ConditionKey } from './ops-health';
+import { CONDITIONS, INBOX_PROBE_TITLE, type ConditionKey } from './ops-health';
 
 const read = (name: string) => readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
 
@@ -435,11 +435,16 @@ describe('ops-health.yml, the operational health report (#715)', () => {
     for (const use of uses.filter((u) => /actions\/(checkout|setup-node|upload-artifact)@/.test(u))) expect(pinned).toContain(use);
   });
 
-  it('has each inbox run upload its counts-only summary, even when the inbox step failed', () => {
+  it('titles a relay probe as ops-health expects, so it is never counted as an inbox run', () => {
+    expect(read('hall-of-fame-inbox.yml')).toMatch(new RegExp(`^run-name: \\$\\{\\{ inputs\\.probe && '${INBOX_PROBE_TITLE}' \\|\\| 'Hall of Fame inbox' \\}\\}$`, 'm'));
+  });
+
+  it("has each inbox run upload its counts-only summary, even when the inbox step failed, and never fail on it", () => {
     const inbox = steps(jobs(read('hall-of-fame-inbox.yml')).inbox);
     const at = inbox.findIndex((s) => s.includes('name: hof-inbox-summary'));
     expect(at).toBeGreaterThan(inbox.findIndex((s) => s.includes('scripts/hall-of-fame.ts inbox')));
     expect(inbox[at]).toContain('if: ${{ !cancelled() }}');
+    expect(inbox[at]).toMatch(/^ {8}continue-on-error: true$/m);
     expect(inbox[at]).toMatch(/^ {10}path: hof-inbox-summary\.json$/m);
     expect(inbox[at]).toMatch(/^ {10}retention-days: 3$/m);
   });

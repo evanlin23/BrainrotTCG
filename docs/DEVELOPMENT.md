@@ -436,7 +436,8 @@ report.
 Signals it reads, all through the run's own `GITHUB_TOKEN` (`actions: read`):
 
 - the newest 20 runs on main of `deploy.yml`, `hall-of-fame-inbox.yml`, and, report only,
-  `hall-of-fame.yml`, `test-order.yml` and `performance-baseline.yml`;
+  `hall-of-fame.yml`, `test-order.yml` and `performance-baseline.yml`. A relay probe dispatch of
+  the inbox skips its inbox job, so it is titled `Hall of Fame relay probe` and left out;
 - main's newest commit and its time;
 - `hof-inbox-summary.json`, which each inbox run uploads (artifact, 3 days) even when it fails:
   revision, run id, time, the stage it reached, outcome, relay count and failures, events read,
@@ -447,13 +448,15 @@ Signals it reads, all through the run's own `GITHUB_TOKEN` (`actions: read`):
 Not available, so not claimed: Cloudflare (the inbox cron Worker and any analytics) and GitHub
 Pages traffic or uptime. Neither has a log or dashboard this repository can read, and adding one
 needs the owner's accounts. A Worker that stops dispatching shows up only as `inbox-stale`.
+Pending: production smoke against the deployed site (#707, open, not built). Until it lands, a
+successful deploy says the release passed its own checks, not that players can load it.
 `ci.yml` and `browser-tests.yml` skip main, so main's health is its deploys.
 
 | Condition | Unhealthy when | Runbook |
 | --- | --- | --- |
 | `deploy-failing` | the newest finished deploy failed, was cancelled or skipped | open the run, fix main, let the next merge or a manual deploy run |
 | `deploy-behind` | main's newest commit is over 3 hours old with no successful deploy | look for a queued, cancelled or failed deploy of that commit; dispatch `deploy.yml` once fixed |
-| `inbox-failing` | the newest finished inbox run failed, was cancelled or skipped | its summary's `stage` says where it stopped; the run log has the error |
+| `inbox-failing` | the newest 2 finished inbox runs each failed, were cancelled or skipped (one alone is unknown: a run with every relay down is a blip) | its summary's `stage` says where it stopped; the run log has the error |
 | `inbox-stale` | no successful inbox run in 2 hours, or none among the newest 20 | check the Worker dispatch (the owner's Cloudflare account) and the workflow's enabled state |
 | `inbox-deferring` | the newest 3 successful runs all left events for later | the summaries' `stop` names the cap; a backlog that keeps growing needs a bigger budget or filing cap |
 

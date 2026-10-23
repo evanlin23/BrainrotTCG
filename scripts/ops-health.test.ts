@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  buildReport, collect, DEFERRAL_RUNS, DEPLOY, DEPLOY_GRACE_S, formatReport, INBOX, INBOX_STALE_S, INBOX_SUMMARY_ARTIFACT, INBOX_SUMMARY_PATH,
+  buildReport, collect, DEFERRAL_RUNS, DEPLOY, DEPLOY_GRACE_S, formatReport, INBOX, INBOX_FAILING_RUNS, INBOX_PROBE_TITLE, INBOX_STALE_S, INBOX_SUMMARY_ARTIFACT, INBOX_SUMMARY_PATH,
   main, OUTPUT_PATH, parseInboxSummary, parseRuns, RUN_LIMIT, SUMMARY_LIMIT, type Gh, type InboxSummary, type Inputs, type Run, type State,
 } from './ops-health.ts';
 
@@ -56,12 +56,25 @@ describe('ops health conditions (#715)', () => {
       expect(states(inputs)['deploy-behind']).toBe('ok');
     });
 
-    it('a latest failed or cancelled inbox run is unhealthy even when an earlier one succeeded recently', () => {
+    it(`takes the newest ${INBOX_FAILING_RUNS} inbox runs failing, even when an earlier one succeeded recently`, () => {
+      expect(INBOX_FAILING_RUNS).toBe(2);
       for (const conclusion of ['failure', 'cancelled']) {
         const inputs = healthy();
-        inputs.runs[INBOX] = runs(ghRun(conclusion, 5), ...inputs.runs[INBOX]!.map(() => ghRun('success', 20)));
+        inputs.runs[INBOX] = runs(ghRun(conclusion, 5), ghRun('failure', 20), ghRun('success', 35));
         expect(states(inputs)).toMatchObject({ 'inbox-failing': 'unhealthy', 'inbox-stale': 'ok' });
+        expect(buildReport(inputs).conditions.find((c) => c.key === 'inbox-failing')!.reason).toMatch(/^the newest 2 completed runs didn't succeed: run \d+ \(ccccccc\) \w+ 5 min ago; run \d+ \(ccccccc\) failure 20 min ago$/);
       }
+    });
+
+    it('calls one failed inbox run between successes unknown, so a blip neither opens nor closes the issue', () => {
+      const inputs = healthy();
+      inputs.runs[INBOX] = runs(ghRun('failure', 5), ghRun('success', 20));
+      expect(states(inputs)).toMatchObject({ 'inbox-failing': 'unknown', 'inbox-stale': 'ok' });
+      inputs.runs[INBOX] = runs(ghRun('failure', 5));
+      expect(states(inputs)['inbox-failing']).toBe('unknown');
+      // The deploy still counts a single failure.
+      inputs.runs[DEPLOY] = runs(ghRun('failure', 5), ghRun('success', 30));
+      expect(states(inputs)['deploy-failing']).toBe('unhealthy');
     });
 
     it('is unknown, not unhealthy, while a newer run is still going (a newer push cancels a deploy)', () => {
@@ -157,6 +170,12 @@ describe('sanitizing what GitHub and the summaries hold', () => {
     expect(JSON.stringify(listed)).not.toMatch(/player-key|example\.com|boom|script/);
   });
 
+  it('drops runs with the skipped title before checking them, and keeps no title', () => {
+    const listed = parseRuns([{ ...ghRun('success', 1), displayTitle: INBOX_PROBE_TITLE, databaseId: -1 }, { ...ghRun('failure', 5), displayTitle: 'Hall of Fame inbox' }], INBOX_PROBE_TITLE)!;
+    expect(listed.map((r) => r.conclusion)).toEqual(['failure']);
+    expect(JSON.stringify(listed)).not.toContain('Hall of Fame');
+  });
+
   it.each([
     ['not an array', { databaseId: 1 }],
     ['a bad id', [{ ...ghRun('success', 1), databaseId: -1 }]],
@@ -243,6 +262,16 @@ describe('collecting through a fake gh', () => {
     for (const call of calls.filter((c) => c[1] === 'list')) expect(call).toEqual(expect.arrayContaining(['--branch', 'main', '--limit', String(RUN_LIMIT)]));
     const downloads = calls.filter((c) => c[1] === 'download').map((c) => Number(c[2]));
     expect(downloads).toEqual(parsed.filter((r) => r.conclusion === 'success').slice(0, SUMMARY_LIMIT).map((r) => r.id));
+  });
+
+  it('never counts a relay probe as an inbox run, and lists every workflow with its title', () => {
+    const probe = (minutes: number) => ghRun('success', minutes, HEAD, { displayTitle: INBOX_PROBE_TITLE });
+    const inbox = [probe(2), ghRun('failure', 5, HEAD, { displayTitle: 'Hall of Fame inbox' }), ghRun('failure', 20), probe(25), ghRun('success', INBOX_STALE_S / 60 + 30)];
+    const { gh, calls } = fakeGh({ [DEPLOY]: [ghRun('success', 30)], [INBOX]: inbox });
+    const inputs = collect(gh, NOW);
+    expect(states(inputs)).toMatchObject({ 'inbox-failing': 'unhealthy', 'inbox-stale': 'unhealthy' });
+    expect(inputs.intake!.runs).toHaveLength(1);
+    for (const call of calls.filter((c) => c[1] === 'list')) expect(call.at(-1)).toMatch(/,displayTitle$/);
   });
 
   it("counts a missing, malformed or another run's summary as unobserved", () => {

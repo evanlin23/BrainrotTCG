@@ -26,6 +26,12 @@ import { isMainModule } from './main-module.ts';
 export const RUN_LIMIT = 20;
 /** Inbox summaries downloaded per report: one `gh run download` call each. */
 export const SUMMARY_LIMIT = 6;
+/**
+ * Newest finished inbox runs that must all have failed before it counts: one run with every relay
+ * down is a blip, not an outage, and would only open an issue the next run closes. Sustained failure
+ * also shows as inbox-stale.
+ */
+export const INBOX_FAILING_RUNS = 2;
 /** Newest successful inbox runs that must all have deferred work before deferral counts as sustained. */
 export const DEFERRAL_RUNS = 3;
 /** How long main's newest commit may wait for a successful deploy (a deploy takes about 15 minutes). */
@@ -38,6 +44,8 @@ export const INBOX_STALE_S = 2 * 3600;
 
 export const DEPLOY = 'deploy.yml';
 export const INBOX = 'hall-of-fame-inbox.yml';
+/** The `run-name` hall-of-fame-inbox.yml gives a relay probe, which skips the inbox job: not an inbox run. */
+export const INBOX_PROBE_TITLE = 'Hall of Fame relay probe';
 /** Shown with their latest result, never turned into issues: they report themselves or only run by hand. */
 export const REPORT_ONLY = ['hall-of-fame.yml', 'test-order.yml', 'performance-baseline.yml'] as const;
 export const INBOX_SUMMARY_PATH = 'hof-inbox-summary.json';
@@ -114,12 +122,16 @@ type Conclusion = (typeof CONCLUSIONS)[number] | 'other';
 
 export interface Run { id: number; status: RunStatus; conclusion: Conclusion | null; createdAt: string; updatedAt: string; sha: string }
 
-/** `gh run list --json databaseId,status,conclusion,createdAt,updatedAt,headSha`, newest first; null if it isn't that. */
-export const parseRuns = (value: unknown): Run[] | null => {
+/**
+ * `gh run list --json databaseId,status,conclusion,createdAt,updatedAt,headSha,displayTitle`, newest
+ * first, without runs titled `skip`; null if it isn't that. The title is only compared, never kept.
+ */
+export const parseRuns = (value: unknown, skip?: string): Run[] | null => {
   if (!Array.isArray(value)) return null;
   const runs: Run[] = [];
   for (const item of value) {
     if (!isObject(item)) return null;
+    if (skip !== undefined && item.displayTitle === skip) continue;
     const id = runId(item.databaseId);
     const createdAt = time(item.createdAt);
     const updatedAt = time(item.updatedAt);
@@ -138,7 +150,7 @@ export type State = 'ok' | 'unhealthy' | 'unknown';
 export const CONDITIONS = {
   'deploy-failing': 'Ops health: the latest deploy of main did not succeed',
   'deploy-behind': "Ops health: main's newest commit is not deployed",
-  'inbox-failing': 'Ops health: the latest Hall of Fame inbox run did not succeed',
+  'inbox-failing': 'Ops health: the latest Hall of Fame inbox runs did not succeed',
   'inbox-stale': 'Ops health: the Hall of Fame inbox has not succeeded recently',
   'inbox-deferring': 'Ops health: the Hall of Fame inbox keeps deferring work',
 } as const;
@@ -151,14 +163,22 @@ const age = (now: Date, at: string) => Math.max(0, Math.floor((now.getTime() - D
 const runText = (run: Run, now: Date) => `run ${run.id} (${short(run.sha)}) ${run.conclusion ?? run.status} ${ageText(age(now, run.updatedAt))} ago`;
 const condition = (key: ConditionKey, state: State, reason: string): Condition => ({ key, title: CONDITIONS[key], state, reason });
 
-/** The newest completed run decides, unless a newer one is still going (then it's unknown until that one ends). */
-export const latestResult = (key: ConditionKey, runs: Run[] | null, now: Date): Condition => {
+/**
+ * The newest completed run decides, unless a newer one is still going (then it's unknown until that
+ * one ends). It's unhealthy once the newest `streak` completed runs all didn't succeed; fewer is unknown.
+ */
+export const latestResult = (key: ConditionKey, runs: Run[] | null, now: Date, streak = 1): Condition => {
   if (!runs) return condition(key, 'unknown', "couldn't list the workflow's runs");
-  const latest = runs.find((r) => r.status === 'completed');
+  const completed = runs.filter((r) => r.status === 'completed');
+  const latest = completed[0];
   if (!latest) return condition(key, 'unknown', `no completed run among the newest ${runs.length}`);
   if (latest.conclusion === 'success') return condition(key, 'ok', `latest is ${runText(latest, now)}`);
   if (runs.some((r) => r.status !== 'completed' && r.createdAt > latest.createdAt)) return condition(key, 'unknown', `latest completed is ${runText(latest, now)}; a newer run is still going`);
-  return condition(key, 'unhealthy', `latest completed is ${runText(latest, now)}`);
+  const failed = completed.slice(0, streak);
+  if (failed.length < streak || failed.some((r) => r.conclusion === 'success')) {
+    return condition(key, 'unknown', `latest completed is ${runText(latest, now)}; it takes ${streak} in a row that didn't succeed`);
+  }
+  return condition(key, 'unhealthy', streak === 1 ? `latest completed is ${runText(latest, now)}` : `the newest ${streak} completed runs didn't succeed: ${failed.map((r) => runText(r, now)).join('; ')}`);
 };
 
 export interface Head { sha: string; date: string }
@@ -250,7 +270,7 @@ export const buildReport = ({ now, head, runs, intake }: Inputs): Report => {
     v: 1,
     at: now.toISOString(),
     head: head && { rev: short(head.sha), at: head.date },
-    conditions: [latestResult('deploy-failing', deploy, now), deployBehind(deploy, head, now), latestResult('inbox-failing', inbox, now), inboxStale(inbox, now), inboxDeferring(intake)],
+    conditions: [latestResult('deploy-failing', deploy, now), deployBehind(deploy, head, now), latestResult('inbox-failing', inbox, now, INBOX_FAILING_RUNS), inboxStale(inbox, now), inboxDeferring(intake)],
     workflows: [DEPLOY, INBOX, ...REPORT_ONLY].map((file) => row(file, runs[file] ?? null)),
     intake: {
       observed: summaries.length,
@@ -303,7 +323,10 @@ const tryJson = (gh: Gh, args: string[]): unknown => {
 };
 
 export const listRuns = (gh: Gh, file: string): Run[] | null =>
-  parseRuns(tryJson(gh, ['run', 'list', '--workflow', file, '--branch', 'main', '--limit', String(RUN_LIMIT), '--json', 'databaseId,status,conclusion,createdAt,updatedAt,headSha']));
+  parseRuns(
+    tryJson(gh, ['run', 'list', '--workflow', file, '--branch', 'main', '--limit', String(RUN_LIMIT), '--json', 'databaseId,status,conclusion,createdAt,updatedAt,headSha,displayTitle']),
+    file === INBOX ? INBOX_PROBE_TITLE : undefined,
+  );
 
 export const readHead = (gh: Gh): Head | null => {
   const head = tryJson(gh, ['api', 'repos/{owner}/{repo}/commits/main', '--jq', '{sha: .sha, date: .commit.committer.date}']);

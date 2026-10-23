@@ -2,7 +2,7 @@
 // API, the deployed list and the Nostr relays are all faked, and files go to a temporary folder.
 // Nothing here reaches the network or writes public/hall-of-fame.json.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -750,6 +750,17 @@ describe('inbox (scheduled workflow)', () => {
       await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
       expect(summary()).toMatchObject({ stage: 'relays', outcome: 'error', read: 0, added: 0, deferred: 0 });
       expect(parseInboxSummary(summary())).not.toBeNull();
+    });
+
+    it("logs a summary it can't write without replacing the run's own result", async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mkdirSync('hof-inbox-summary.json');
+      fakeGitHub({ issues: [], published: [] });
+      relaysHold(fourOfAKind);
+      await expect(inbox()).resolves.toBeUndefined();
+      vi.stubEnv('GITHUB_TOKEN', undefined);
+      await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
+      expect(error.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringMatching(/^Couldn't write hof-inbox-summary\.json: EISDIR/), expect.stringMatching(/^Couldn't write hof-inbox-summary\.json: EISDIR/)]);
     });
   });
 });

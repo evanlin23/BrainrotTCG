@@ -521,7 +521,12 @@ export const inbox = async (ticketFn?: TicketFn) => {
     run.stage = 'done';
     outcome = 'ok';
   } finally {
-    writeInboxSummary(run, outcome);
+    // A summary that can't be written is logged, never thrown over the run's own result.
+    try {
+      writeInboxSummary(run, outcome);
+    } catch (error) {
+      console.error(`Couldn't write ${INBOX_SUMMARY_PATH}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 };
 
