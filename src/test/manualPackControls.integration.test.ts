@@ -67,6 +67,8 @@ const summary = async () => {
   await app!.interact(() => button('Skip opening animation').click());
   await app!.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 };
+/** The summary ignores clicks on its cards and Share for its first moments (#627). */
+const settledSummary = () => app!.until('summary takes clicks', () => expect($('.summary-cards')!.hasAttribute('data-settling')).toBe(false));
 
 it('ignores the old auto-open key on the sealed pack and during a reveal', async () => {
   app = await mountedApp(preferences());
@@ -226,6 +228,7 @@ it('shares from the summary, which leads with the result and puts its actions af
   expect(stats()?.packsOpened).toBe(1);
   expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
 
+  await settledSummary();
   await app.interact(() => button('Share').click());
   await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
   expect([...document.querySelectorAll('[role="dialog"]')].some((dialog) => dialog.textContent?.includes('Share your pull'))).toBe(true);
@@ -505,6 +508,7 @@ describe('browser Back in a pack', () => {
     await reveal();
     const length = history.length;
     await summary();
+    await settledSummary();
     await app.interact(() => button('Share').click());
     await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
     await back();
