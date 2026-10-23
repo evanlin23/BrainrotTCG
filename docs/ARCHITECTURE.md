@@ -187,8 +187,11 @@ handled event isn't derived again, and skips already verified pulls. Each run sa
 its own key, so the 15-minute schedule leaves about 670 entries a week; full ones (about 8 MB each)
 would take several GB of the repository's 10 GB Actions cache, where GitHub evicts the least recently
 used first, npm caches included. Fetching requests up to 50 pages of
-100 events per relay within a 60-second connection deadline, over a seven-day window. These are
-client request limits, not guarantees that relays return or retain every event or obey the limits.
+100 events per relay within a 60-second connection deadline, over a seven-day window, then as many
+again from one older range that relay hasn't been read through (the newest in even UTC hours, the
+oldest in odd ones); the ranges read and handled, including the pages a failed read finished, are
+kept per relay in a second Actions cache, so a backlog past the page cap is read over later runs.
+These are client request limits, not guarantees that relays return or retain every event or obey the limits.
 A run in which every relay fails without sending an event fails the job, so an outage shows before
 events age out of the window; a run that reads at least one relay succeeds.
 Only valid event signatures are retained, and the exact proof text in the link is accepted. A filing

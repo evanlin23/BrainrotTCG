@@ -12,7 +12,7 @@ import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
-import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
+import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
 import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
@@ -730,6 +730,117 @@ describe('inbox (scheduled workflow)', () => {
     expect(outputs()).toEqual({ added: '1' });
   });
 
+  describe('past the page cap (#999)', () => {
+    /** One relay serving `events`, at most `cap` a read, newest first, saying where it stopped as fetchEvents does at its page cap. */
+    const cappedRelay = (events: NostrEvent[], cap: number) =>
+      vi.mocked(fetchEvents).mockImplementation(async (filter, relays = ['wss://a']) => {
+        const fits = events.filter((e) => matchesFilter(e, filter)).sort((a, b) => b.created_at - a.created_at);
+        const read = fits.slice(0, cap);
+        return { events: read, perRelay: relays.map((relay) => ({ relay, count: read.length, ...(fits.length > cap ? { more: read.at(-1)!.created_at } : {}) })) };
+      });
+    const SENT = Date.parse('2026-10-16T11:00:00Z');
+    const since = Date.parse('2026-10-09T12:00:00Z') / 1000;
+    const junk = (n: number) => Array.from({ length: n }, (_, i) => hallOfFameEvent('not a proof', `junk${i}`, SENT + i * 1000));
+    const at = (e: NostrEvent) => e.created_at;
+    const filters = () => vi.mocked(fetchEvents).mock.calls.map(([f]) => ({ since: f.since, until: f.until }));
+    const logged = () => vi.mocked(console.log).mock.calls.map((c) => String(c[0]));
+
+    it('reads the events past the cap over the next runs, then only the newest pages again', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = junk(7);
+      cappedRelay(events, 3);
+      await inbox();
+      // The newest three, then the next three from where the cap stopped.
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[4]) }]);
+      expect(logged()).toContain('wss://a: 3 events, stopped at the page cap');
+      expect(logged()).toContain(`wss://a: 3 older events up to ${new Date(at(events[4]) * 1000).toISOString()}, stopped at the page cap`);
+      expect(seenIds().sort()).toEqual(events.slice(2).map((e) => e.id).sort());
+
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[2]) }]);
+      expect(seenIds().sort()).toEqual(events.map((e) => e.id).sort());
+
+      // All read through: only the newest pages from now on.
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }]);
+    });
+
+    it('keeps the pages a read of older events finished before it timed out, and goes on below them', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = junk(9);
+      const capped = cappedRelay(events, 3).getMockImplementation()!;
+      // Older reads finish one page, then time out, as fetchEvents reports it.
+      vi.mocked(fetchEvents).mockImplementation(async (filter, ...rest) => {
+        const read = await capped(filter, ...rest);
+        return filter.until === undefined ? read : { ...read, perRelay: read.perRelay.map((r) => ({ ...r, error: 'timed out' })) };
+      });
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[6]) }]);
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      // Below the page it finished, not that page again.
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[4]) }]);
+    });
+
+    it("keeps what a relay was read through when its read fails, and asks it for nothing older", async () => {
+      fakeGitHub({ issues: [], published: [] });
+      cappedRelay(junk(7), 3);
+      await inbox();
+      const before = JSON.parse(readFileSync('hof-inbox-read.json', 'utf8')) as Record<string, unknown>;
+      expect(before['wss://a']).not.toEqual([]);
+      vi.mocked(fetchEvents).mockClear();
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'timed out' }, { relay: 'wss://b', count: 0 }] });
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }]);
+      expect(JSON.parse(readFileSync('hof-inbox-read.json', 'utf8'))).toEqual({ 'wss://a': before['wss://a'], 'wss://b': [[since, since + 7 * 86_400]] });
+    });
+
+    describe('with a gap above a stretch read through and one below it', () => {
+      const events = junk(9);
+      beforeEach(() => {
+        fakeGitHub({ issues: [], published: [] });
+        cappedRelay(events, 3);
+        writeFileSync('hof-inbox-read.json', JSON.stringify({ 'wss://a': [[at(events[1]), at(events[3])], [at(events[6]), since + 7 * 86_400]] }));
+      });
+
+      it('in even hours reads the newest', async () => {
+        await inbox();
+        // The head read stops at the cap, at the newest three.
+        expect(filters()).toEqual([{ since, until: undefined }, { since: at(events[3]) + 1, until: at(events[6]) - 1 }]);
+      });
+
+      it('in odd hours reads the oldest, so an older one is not left behind', async () => {
+        clockAt('2026-10-16T13:00:00Z');
+        await inbox();
+        // The window moved up an hour.
+        expect(filters()).toEqual([{ since: since + 3600, until: undefined }, { since: since + 3600, until: at(events[1]) - 1 }]);
+      });
+    });
+
+    it('files a qualifying pull from past the cap, and reads it again after a run that had to leave it', async () => {
+      const fixture: Fixture = { issues: [], published: [], fail: (r) => r.method === 'POST' && r.path === '/issues' };
+      const gh = fakeGitHub(fixture);
+      const pull = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT - 60_000);
+      const later = junk(4);
+      cappedRelay([pull, ...later], 3);
+      await inbox();
+      expect(gh.writes()).toEqual(['POST /issues']);
+      expect(logged().some((l) => l.startsWith(`${pull.id}: couldn't file it`))).toBe(true);
+      expect(seenIds()).not.toContain(pull.id);
+
+      fixture.fail = undefined;
+      gh.requests.length = 0;
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      // Read through below it; the rest of what the first run read is read again.
+      expect(filters()).toEqual([{ since, until: undefined }, { since: at(pull), until: at(later[1]) }]);
+      expect(gh.writes()).toEqual(FILED);
+      expect(outputs()).toEqual({ added: '1' });
+    });
+  });
+
   it("doesn't take over an unlabelled issue someone else opened", async () => {
     const gh = fakeGitHub({ issues: [issue(1, fourOfAKind, { labels: ['hall-of-fame'], login: 'mallory', updated: '2026-10-15T00:00:00Z' })], published: [] });
     relaysHold(fourOfAKind);
@@ -873,7 +984,7 @@ describe('retention and intake contracts (offline)', () => {
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-seen.json']);
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-read.json', 'hof-inbox-seen.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });
