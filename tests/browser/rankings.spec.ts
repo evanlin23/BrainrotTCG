@@ -129,8 +129,8 @@ const populated = {
 // `stacked` is the layout the row must be in (four columns, or rank/score over cards over text). Asserting it
 // makes every case fail on a wrong threshold: no restack at all fails the stacked ones, and one threshold
 // of 18rem + 98px at every width (the strip is 62px, not 102px, at 420px and under) fails the 390, 375 and
-// 360px phones, and a threshold above 18rem + 98px fails the 428 and 430px phones, which have room for the
-// compact row.
+// 360px phones, and a threshold well above it, such as the old 110px, fails the 428 and 430px phones, which
+// have room for the compact row.
 // Row width = viewport - 2 x gutter (16px up to 400px, 4vw above, doubled with 200% text).
 for (const { width, height, text, label, score = 546_000, stacked } of [
   { width: 320, height: 640, text: 200, label: '320x640 at 200% text', stacked: true },

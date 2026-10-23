@@ -197,10 +197,11 @@ test('a committed pack survives a reload and a relaunched profile, with its exac
       // Playwright applies the project's device settings (and its trace and screenshot policy) to a
       // persistent context too; assert it, so a "mobile" run can never silently be a desktop copy.
       // Measured on the loaded site: a blank page reports the 980px default layout width on mobile.
-      const { viewport, hasTouch, userAgent } = testInfo.project.use;
+      const { viewport, hasTouch, userAgent, deviceScaleFactor } = testInfo.project.use;
       expect(page.viewportSize()).toEqual(viewport);
-      const seen = await page.evaluate(() => ({ width: innerWidth, touch: navigator.maxTouchPoints > 0, userAgent: navigator.userAgent }));
+      const seen = await page.evaluate(() => ({ width: innerWidth, touch: navigator.maxTouchPoints > 0, userAgent: navigator.userAgent, pixelRatio: devicePixelRatio }));
       expect(seen).toMatchObject({ width: viewport!.width, touch: !!hasTouch });
+      if (deviceScaleFactor) expect(seen.pixelRatio).toBe(deviceScaleFactor);
       if (userAgent) expect(seen.userAgent).toBe(userAgent);
       return { context, page, errors };
     };

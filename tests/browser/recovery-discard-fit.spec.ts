@@ -47,6 +47,8 @@ for (const phone of PHONES) {
       await expect(discard).toBeVisible();
       await expect(warning).toBeVisible();
 
+      // Hover tints the outlined button, so park the pointer away from both answers before reading their fills.
+      await page.mouse.move(0, 0);
       const l = await page.evaluate(() => {
         const box = (el: Element) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
         const buttons = Array.from(document.querySelectorAll<HTMLElement>('.settings-actions--ask button'));
