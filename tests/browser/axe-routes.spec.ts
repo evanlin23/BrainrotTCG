@@ -196,7 +196,7 @@ test.describe('routes', () => {
     const errors = await monitor(page, baseURL!);
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
-    const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+    const pack = page.getByRole('button', { name: /^Open pack/ });
     await pack.focus();
     await page.keyboard.press('Space');
     await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
