@@ -9,7 +9,7 @@ import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
 import { loadHallOfFame, loadPending, provenanceText, type HallOfFameEntry } from '../../game/hallOfFameList';
-import { dailyPulls, HALL_OF_FAME_TOP, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
+import { dailyPulls, HALL_OF_FAME_TOP, HALL_OF_FAME_YESTERDAY_SHOWN, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
 
 // Hackathon legends ("Where it started"): screenshots from before pulls were verifiable.
 import adiImage from '../../assets/images/hall_of_fame/adi-four-of-a-kind.webp';
@@ -32,8 +32,6 @@ const HACKATHON_LEGENDS: LegendEntry[] = [
 
 /** How many leaderboard rows show at first, and how many more each "Show more" adds. */
 const PAGE_SIZE = 20;
-/** How many of yesterday's best show when nothing has been filed today. */
-const YESTERDAY_SHOWN = 3;
 /**
  * How long the page waits on the live relays before it stops saying it is checking. Re-deriving recent
  * submissions queues behind pack-opening tickets and can take far longer; the check itself carries on,
@@ -157,7 +155,7 @@ const HallOfFamePage = () => {
   const ranked = useMemo(() => topPulls(all ?? []), [all]);
   // Today: pulls filed on the current UTC day (the same day for everyone), plus any just submitted.
   const today = useMemo(() => dailyPulls(all ?? [], day), [all, day]);
-  const yesterday = useMemo(() => dailyPulls(all ?? [], previousUtcDay(day)).slice(0, YESTERDAY_SHOWN), [all, day]);
+  const yesterday = useMemo(() => dailyPulls(all ?? [], previousUtcDay(day)).slice(0, HALL_OF_FAME_YESTERDAY_SHOWN), [all, day]);
   // The leaderboard shows a page at a time so the page stays short on a phone. Only what's drawn
   // changes: the order is the same whatever is shown.
   const [shown, setShown] = useState(PAGE_SIZE);

@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
+import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, HALL_OF_FAME_YESTERDAY_SHOWN, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
 import { build, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 import { parseInboxSummary } from './ops-health.ts';
@@ -29,7 +29,10 @@ const blockedName = (() => {
 })();
 const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB' : 'AAAA');
 const idOf = (proof: string) => pullId(decodeProof(proof));
+/** The bot's marker as it was before it recorded receipts. */
 const marker = (proof: string) => `<!-- hof-verified ${idOf(proof)} -->`;
+/** The bot's marker with the pull's receipt; without one, the part every receipt follows. */
+const markerAt = (proof: string, receivedAt = '') => `<!-- hof-verified ${idOf(proof)} received ${receivedAt}${receivedAt && ' -->'}`;
 const link = (proof: string) => `https://evanlin23.github.io/BrainrotTCG/#/pull/${proof}`;
 /** Freezes the clock (only `Date`) at `time`; the shared afterEach restores it. */
 const clockAt = (time: string) => {
@@ -177,7 +180,7 @@ const outputs = (): Record<string, string> =>
 let home: string;
 let dir: string;
 const output = () => path.join(dir, 'hall-of-fame.json');
-const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string }[];
+const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
 beforeEach(() => {
   home = process.cwd();
   dir = mkdtempSync(path.join(os.tmpdir(), 'hall-of-fame-'));
@@ -245,6 +248,31 @@ describe('build (deploy workflow)', () => {
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/3/comments');
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/4/comments');
     expect(gh.writes()).toEqual([]);
+  });
+
+  it('credits a pull to its earliest receipt among the issues it lists, even when another was verified first', async () => {
+    // Both verified before a deploy listed either (verify-issue turns down a pull already published).
+    const gh = fakeGitHub({
+      issues: [issue(1, fourOfAKind), issue(2, fourOfAKind, { login: 'bob' })],
+      comments: {
+        1: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:30:00Z'), '2026-10-01T23:31:00Z')],
+        // Verified later by a delayed run, but received first.
+        2: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:00:00Z'), '2026-10-01T23:40:00Z')],
+      },
+    });
+    await build(output());
+    expect(entries().map((e) => [e.issue, e.githubUser, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[2, 'bob', '2026-10-01T23:00:00Z', '2026-10-01T23:40:00Z', undefined]]);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it.each([
+    { marked: 'no receipt (from before receipts were recorded)', body: marker(fourOfAKind) },
+    { marked: 'a receipt after its comment', body: markerAt(fourOfAKind, '2026-10-02T00:00:01.000Z') },
+    { marked: "a receipt that isn't a time", body: `<!-- hof-verified ${idOf(fourOfAKind)} received soon -->` },
+  ])('stamps a pull whose marker has $marked with its verification, and says so', async ({ body }) => {
+    fakeGitHub({ issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, body, '2026-10-02T00:00:00Z')] } });
+    await build(output());
+    expect(entries().map((e) => [e.issue, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[1, '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z', 'verification']]);
   });
 
   it("leaves out a verified pull whose display name isn't allowed", async () => {
@@ -338,9 +366,10 @@ describe('published list', () => {
 });
 
 describe('verify-issue (issue workflow)', () => {
-  const run = async (body: string, labels = ['hall-of-fame']) => {
+  /** An `action` event on issue 7 with `body`, stamped (opened, or last updated) at `at` (the clock now). */
+  const run = async (body: string, labels = ['hall-of-fame'], action = 'opened', at = new Date().toISOString()) => {
     rmSync('github-output', { force: true });
-    writeFileSync('event.json', JSON.stringify({ issue: { ...issue(7, null, { labels }), body } }));
+    writeFileSync('event.json', JSON.stringify({ action, issue: { ...issue(7, null, { labels }), body, ...(action === 'opened' ? { created_at: at } : {}), updated_at: at } }));
     await verifyIssue();
     return { comment: readFileSync('hof-comment.md', 'utf8'), outputs: outputs() };
   };
@@ -350,7 +379,7 @@ describe('verify-issue (issue workflow)', () => {
     const result = await run(`My pull: ${link(fourOfAKind)}`);
     expect(result.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
     expect(result.comment).toContain('**Verified!**');
-    expect(result.comment).toContain(marker(fourOfAKind));
+    expect(result.comment).toContain(markerAt(fourOfAKind));
     expect(gh.writes()).toEqual([]);
   });
 
@@ -359,7 +388,7 @@ describe('verify-issue (issue workflow)', () => {
     const board = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1) });
     const joined = await run(link(fourOfAKind));
     expect(joined.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
-    expect(joined.comment).toContain(marker(fourOfAKind));
+    expect(joined.comment).toContain(markerAt(fourOfAKind, '2026-10-16T12:00:00.000Z'));
     // A full day yesterday leaves today open.
     fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-15', HALL_OF_FAME_DAILY_TOP) });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
@@ -396,11 +425,81 @@ describe('verify-issue (issue workflow)', () => {
     // Nor does a GitHub error: the pull goes ahead.
     const down = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published, fail: (r) => r.path === '/issues' });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
-    // A pull that joins the all-time list isn't checked.
+    // A pull that joins the all-time list isn't checked (only the duplicate lookup lists issues).
     const allTime = fakeGitHub({ issues: [daily(5, '2026-10-14T09:00:00Z')], published: [] });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
-    expect(allTime.requests.some((r) => r.path === '/issues')).toBe(false);
+    expect(allTime.requests.filter((r) => r.path === '/issues').map((r) => r.query)).toEqual([expect.stringMatching(/^state=all&labels=hall-of-fame&since=/)]);
     expect([again, own, renamed, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
+  });
+
+  it("records an edit as the receipt of the pull it adds, not the issue's creation", async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    fakeGitHub({ issues: [], published: [] });
+    // Issue 7 was opened on 2026-10-01 as a placeholder.
+    const edited = await run(link(fourOfAKind), ['hall-of-fame'], 'edited', '2026-10-16T11:58:00Z');
+    expect(edited.outputs.verified).toBe('true');
+    expect(edited.comment).toContain(markerAt(fourOfAKind, '2026-10-16T11:58:00Z'));
+  });
+
+  it("puts a pull a late run verifies after midnight on the day it was received, only as high as yesterday's best shows", async () => {
+    // The 16th's top has `n` pulls above the 4 of a Kind; today's is full.
+    const published = (n: number) => [
+      ...dailyOnlyBoard('2026-10-16', n),
+      ...dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP)
+        .slice(HALL_OF_FAME_TOP + 1)
+        .map((e) => ({ ...e, id: `next-${e.id}` })),
+    ];
+    clockAt('2026-10-17T00:00:30Z');
+    const third = fakeGitHub({ issues: [], published: published(HALL_OF_FAME_YESTERDAY_SHOWN - 1) });
+    const late = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+    expect(late.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
+    expect(late.comment).toContain(`It will appear in the Hall of Fame, at #${HALL_OF_FAME_YESTERDAY_SHOWN} of 2026-10-16's top (UTC), among yesterday's best, after the next deploy`);
+    expect(late.comment).toContain(markerAt(fourOfAKind, '2026-10-16T23:59:40Z'));
+
+    // One place lower (or 10th) it wouldn't show, so it's turned down, unlisted.
+    for (const n of [HALL_OF_FAME_YESTERDAY_SHOWN, 9]) {
+      fakeGitHub({ issues: [], published: published(n) });
+      const lower = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+      expect(lower.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+      expect(lower.comment).toContain("received on 2026-10-16 (UTC), and that day's board closed before it was verified");
+      expect(lower.comment).toContain(`top ${HALL_OF_FAME_YESTERDAY_SHOWN} or the top ${HALL_OF_FAME_TOP}. It can be submitted again for today's board.`);
+      expect(lower.comment).not.toContain('hof-verified');
+    }
+
+    // It joins the all-time list when there's room, and the comment says where.
+    const open = fakeGitHub({ issues: [], published: [] });
+    const allTime = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+    expect(allTime.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
+    expect(allTime.comment).toContain(`It will appear in the Hall of Fame, at #1 of the top ${HALL_OF_FAME_TOP}, after the next deploy`);
+
+    // A day later the 16th's top is gone, so only the all-time list could take it.
+    clockAt('2026-10-18T00:10:00Z');
+    const gone = fakeGitHub({ issues: [], published: published(HALL_OF_FAME_DAILY_TOP - 1) });
+    const later = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:55:00Z');
+    expect(later.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+    expect(later.comment).toContain('received on an earlier UTC day whose top is no longer kept');
+    expect(later.comment).toContain(`Brainrot Score above 100,000 to make the top ${HALL_OF_FAME_TOP}`);
+    expect(later.comment).not.toContain('hof-verified');
+    expect([third, open, gone].flatMap((gh) => gh.writes())).toEqual([]);
+  });
+
+  it("accepts a pull turned down after its day closed when it's submitted again for today", async () => {
+    // Received 20 seconds before midnight, verified 30 seconds after: 10th on a day that has closed.
+    clockAt('2026-10-17T00:00:30Z');
+    const published = dailyOnlyBoard('2026-10-16', 9);
+    fakeGitHub({ issues: [], published });
+    const refused = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:59:40Z');
+    expect(refused.outputs.verified).toBe('false');
+
+    // Edited back in a few minutes later (today's receipt), with the refusal left on the issue.
+    clockAt('2026-10-17T00:05:00Z');
+    const turnedDown = issue(7, fourOfAKind, { labels: ['hall-of-fame', 'not-verified'], updated: '2026-10-17T00:05:00Z' });
+    const gh = fakeGitHub({ issues: [turnedDown], published, comments: { 7: [comment(BOT, refused.comment, '2026-10-17T00:00:31Z')] } });
+    const again = await run(link(fourOfAKind), ['hall-of-fame', 'not-verified'], 'edited', '2026-10-17T00:05:00Z');
+    expect(again.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
+    expect(again.comment).toContain(markerAt(fourOfAKind, '2026-10-17T00:05:00Z'));
+    expect(again.comment).not.toContain('already in the Hall of Fame');
+    expect(gh.writes()).toEqual([]);
   });
 
   it("turns down a real pull whose display name isn't allowed, and asks for the rejected label", async () => {
@@ -422,6 +521,8 @@ describe('verify-issue (issue workflow)', () => {
   });
 
   it('recovers from interrupted labeling: restores missing labels without duplicate comments and redeploys (#650)', async () => {
+    // Opened a minute before the bot's comment below.
+    clockAt('2026-10-02T09:59:00Z');
     // 1. Initial run: fresh submission with fourOfAKind
     const fakeIssue = issue(7, fourOfAKind, { labels: ['hall-of-fame'] });
     const gh = fakeGitHub({ issues: [fakeIssue], comments: {}, published: [] });
@@ -430,7 +531,7 @@ describe('verify-issue (issue workflow)', () => {
     let result = await run(link(fourOfAKind), ['hall-of-fame']);
     expect(result.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
     expect(result.comment).toContain('**Verified!**');
-    expect(result.comment).toContain(marker(fourOfAKind));
+    expect(result.comment).toContain(markerAt(fourOfAKind, '2026-10-02T09:59:00.000Z'));
 
     // Simulate workflow shell execution:
     // Comment succeeds: bot adds comment to GitHub
@@ -467,8 +568,11 @@ describe('verify-issue (issue workflow)', () => {
     expect(entries()[0]).toMatchObject({
       id: idOf(fourOfAKind),
       proof: fourOfAKind,
-      submittedAt: '2026-10-02T10:00:00Z', // original comment timestamp preserved!
+      // The first receipt its marker recorded, and the first verification: both preserved.
+      submittedAt: '2026-10-02T09:59:00.000Z',
+      verifiedAt: '2026-10-02T10:00:00Z',
     });
+    expect(entries()[0]).not.toHaveProperty('receipt');
 
     // Step 4: Subsequent retry on the completed issue changes nothing
     const completedResult = await run(link(fourOfAKind), ['hall-of-fame', 'verified']);
@@ -660,6 +764,21 @@ describe('verify-issue (issue workflow)', () => {
       expect((await runAs('opened', 7)).outputs).toEqual(DUPLICATE(5));
     });
 
+    it("closes one received yesterday as a duplicate before yesterday's closed board judges it", async () => {
+      const yesterday = '2026-10-15T23:59:50Z';
+      // Published: the closed-day rule alone would turn it down as already listed.
+      const published = await listing();
+      fakeGitHub({ issues: [old(3)], comments: { 3: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] }, published: published(3) });
+      const listed = await runAs('opened', 7, { created: yesterday });
+      expect(listed.outputs).toEqual(DUPLICATE(3));
+      expect(listed.comment).toContain('\n\nDuplicate of #3\n');
+      // Not deployed yet: the closed-day rule alone would place it on the top pulls.
+      fakeGitHub({ issues: [recent(5)], comments: { 5: [comment(BOT, marker(fourOfAKind), '2026-10-15T23:00:00Z')] }, published: [] });
+      const unlisted = await runAs('opened', 7, { created: yesterday });
+      expect(unlisted.outputs).toEqual(DUPLICATE(5));
+      expect(unlisted.comment).not.toContain('hof-verified');
+    });
+
     it("leaves open an issue received before the other issue's verification: of two at the same moment, neither closes", async () => {
       // #10 and #11 opened at the same second, each run finishing after the other had verified.
       const both = '2026-10-16T11:59:00Z';
@@ -763,7 +882,8 @@ describe('inbox (scheduled workflow)', () => {
     const [opened, marked, labelled, closed] = gh.requests.filter((r) => r.method !== 'GET');
     expect(opened.body).toMatchObject({ labels: ['hall-of-fame'], title: '[Hall of Fame] 4 of a Kind by Combo Miner' });
     expect(opened.body!.body).toContain(`#/pull/${fourOfAKind}`);
-    expect(marked.body!.body).toContain(marker(fourOfAKind));
+    // The receipt is the issue the fake GitHub stamped with the clock.
+    expect(marked.body!.body).toContain(markerAt(fourOfAKind, '2026-10-16T12:00:00.000Z'));
     expect(labelled.body).toEqual({ labels: ['verified'] });
     expect(closed.body).toEqual({ state: 'closed', state_reason: 'completed' });
     expect(outputs()).toEqual({ added: '1' });
@@ -1264,28 +1384,50 @@ describe('retention and intake contracts (offline)', () => {
   });
 
   describe("an issue a stopped run left unlabelled on the 16th, finished on the 17th", () => {
-    // The 16th's top has one place left and the 17th's is full: the entry is stamped the 16th, so it joins there.
-    const stamped = '2026-10-16T23:00:00Z';
-    const unfinishedRun = () => {
+    // The entry is stamped the 16th, a closed day by the 17th, so it joins the 16th's top only as high as
+    // the page shows it (HALL_OF_FAME_YESTERDAY_SHOWN); the 17th's top is full.
+    const stamped = '2026-10-16T23:59:50Z';
+    const unfinishedRun = (ahead: number, created = stamped) => {
       clockAt('2026-10-17T12:00:00Z');
       const seventeenth = dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP).filter((e) => e.id.startsWith('today-')).map((e) => ({ ...e, id: `17-${e.id}` }));
-      const left = { ...issue(5, fourOfAKind, { labels: ['hall-of-fame'], login: BOT, updated: stamped }), created_at: stamped };
-      return fakeGitHub({ issues: [left], published: [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1), ...seventeenth] });
+      const left = { ...issue(5, fourOfAKind, { labels: ['hall-of-fame'], login: BOT, updated: created }), created_at: created };
+      return fakeGitHub({ issues: [left], published: [...dailyOnlyBoard(created.slice(0, 10), ahead), ...seventeenth] });
     };
     const FINISHED = ['POST /issues/5/comments', 'POST /issues/5/labels', 'PATCH /issues/5'];
+    const relaysHoldIt = () => vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
 
-    it("is judged and labelled by the 16th's top", async () => {
-      const gh = unfinishedRun();
-      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
+    it("is judged and labelled by the 16th's top, and the comment names its place", async () => {
+      const gh = unfinishedRun(HALL_OF_FAME_YESTERDAY_SHOWN - 1);
+      relaysHoldIt();
       await inbox();
       expect(gh.writes()).toEqual(FINISHED);
       expect(gh.requests.find((r) => r.path === '/issues/5/labels')!.body).toEqual({ labels: ['daily'] });
+      expect(gh.requests.find((r) => r.method === 'POST' && r.path === '/issues/5/comments')!.body!.body).toContain(
+        `It will appear in the Hall of Fame, at #${HALL_OF_FAME_YESTERDAY_SHOWN} of 2026-10-16's top (UTC), among yesterday's best, after the next deploy`,
+      );
       expect(outputs()).toEqual({ added: '1' });
+    });
+
+    it("isn't filed below the places the page shows for the 16th", async () => {
+      // It would be the 16th's 50th: listed, but on no board anyone sees.
+      const gh = unfinishedRun(HALL_OF_FAME_DAILY_TOP - 1);
+      relaysHoldIt();
+      await inbox();
+      expect(gh.writes()).toEqual([]);
+      expect(outputs()).toEqual({ added: '0' });
+    });
+
+    it("isn't judged by an earlier day's top, which is no longer published", async () => {
+      const gh = unfinishedRun(0, '2026-10-15T23:59:50Z');
+      relaysHoldIt();
+      await inbox();
+      expect(gh.writes()).toEqual([]);
+      expect(outputs()).toEqual({ added: '0' });
     });
 
     it("isn't turned away by today's floor", async () => {
       // Today's floor is the 17th's 50th (20,000); the claim of 15,000 is at or below it.
-      const gh = unfinishedRun();
+      const gh = unfinishedRun(HALL_OF_FAME_YESTERDAY_SHOWN - 1);
       const event = hinted(fourOfAKind, 15_000, SENT);
       vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
       await inbox();
