@@ -288,6 +288,19 @@ describe('Settings: importing a backup file', () => {
     expect(button('Replace')).toBeDefined();
   });
 
+  it('still names what reads in a save whose player or stats record is damaged', async () => {
+    localStorage.setItem('brainrot-player-v1', '{not json');
+    localStorage.setItem('brainrot-stats-v1', JSON.stringify({ packsOpened: 1 }));
+    act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} />));
+
+    await pick({ player: player('bb'), stats: '{not json' });
+    expect(restoreNote().textContent).toBe("Replace this browser's save (1 pack) with the file's (Combo Miner)? Yours is kept as a backup.");
+    await click('Keep mine');
+
+    await pick({ player: '{not json', stats: JSON.stringify({ packsOpened: 'many' }) });
+    expect(restoreNote().textContent).toBe("Replace this browser's save (1 pack) with the file's (unknown)? Yours is kept as a backup.");
+  });
+
   it("names only the saves being swapped when there's no room for a copy, not ones picked earlier", async () => {
     const stats = JSON.stringify({ packsOpened: 3 });
     localStorage.setItem('brainrot-player-v1', player('aa'));
