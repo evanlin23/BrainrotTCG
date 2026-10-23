@@ -4,9 +4,9 @@ import { expectDecoded, expectStill, fingerFor, monitor } from './support';
 /**
  * Motor access (#803). A swipe let go short of opening answers: the pack springs back, the hint says
  * to go farther or tap the pack, and the click the swipe ends in opens nothing; a tap and Space on the
- * pack still open it. The
- * small controls the issue measured keep at least 44 CSS px of hit area at 390px wide and at 200% zoom
- * (a 195px-wide viewport) and with the text doubled, and nothing runs off the side.
+ * pack still open it. The small controls the issue measured keep at least 44 CSS px of hit area at
+ * 390px wide and at 200% zoom (a 195px-wide viewport) and with the text doubled, and nothing runs off
+ * the side.
  */
 
 const TARGET = 44;
