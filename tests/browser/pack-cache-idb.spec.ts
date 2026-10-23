@@ -201,7 +201,7 @@ test('a committed pack survives a reload and a relaunched profile, with its exac
       expect(page.viewportSize()).toEqual(viewport);
       const seen = await page.evaluate(() => ({ width: innerWidth, touch: navigator.maxTouchPoints > 0, userAgent: navigator.userAgent, pixelRatio: devicePixelRatio }));
       expect(seen).toMatchObject({ width: viewport!.width, touch: !!hasTouch });
-      if (deviceScaleFactor) expect(seen.pixelRatio).toBe(deviceScaleFactor);
+      expect(seen.pixelRatio).toBe(deviceScaleFactor ?? 1);
       if (userAgent) expect(seen.userAgent).toBe(userAgent);
       return { context, page, errors };
     };

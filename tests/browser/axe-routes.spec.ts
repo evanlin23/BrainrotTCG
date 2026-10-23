@@ -140,7 +140,7 @@ function scannedStates(source: string): string[] {
     const hookSkips = (statement: ts.Statement) => ts.isExpressionStatement(statement) && ts.isCallExpression(statement.expression)
       && /^test\.beforeEach$/.test(statement.expression.expression.getText(file))
       && statement.expression.arguments.some((arg) => (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) && ts.isBlock(arg.body) && arg.body.statements.some(skipStatement));
-    const skippedInside = (from: ts.Node | undefined): boolean => !!from && ((ts.isBlock(from) && from.statements.some((statement) => skipStatement(statement) || hookSkips(statement))) || skippedInside(from.parent));
+    const skippedInside = (from: ts.Node | undefined): boolean => !!from && (((ts.isBlock(from) || ts.isSourceFile(from)) && from.statements.some((statement) => skipStatement(statement) || hookSkips(statement))) || skippedInside(from.parent));
     // A scan after `if (x) return;` only runs when x is false.
     const returnsEarly = body.statements.slice(0, body.statements.indexOf(node)).some((statement) => ts.isIfStatement(statement) && ts.isReturnStatement(ts.isBlock(statement.thenStatement) ? statement.thenStatement.statements[0] ?? statement : statement.thenStatement));
     if (!skippedBy(test) && !skippedInside(body) && !returnsEarly) states.push(state.text);
@@ -169,6 +169,8 @@ test('the coverage check counts only a real scan', () => {
   expect(scannedStates(`test.describe('d', () => { test.beforeEach(() => { test.skip(true, 'later'); }); test('t', async ({ page }, testInfo) => { ${scan} }); });`), 'a beforeEach that skips').toEqual([]);
   expect(scannedStates(inTest(`if (process.env.CI) return; ${scan}`)), 'after an early return').toEqual([]);
   expect(scannedStates(inTest(`if (process.env.CI) { return; } ${scan}`)), 'after an early return in a block').toEqual([]);
+  expect(scannedStates(`test.skip(({ isMobile }) => isMobile, 'later'); test('t', async ({ page }, testInfo) => { ${scan} });`), 'a file that skips on a condition').toEqual([]);
+  expect(scannedStates(`test.beforeEach(() => { test.skip(true, 'later'); }); test('t', async ({ page }, testInfo) => { ${scan} });`), 'a file-level beforeEach that skips').toEqual([]);
   expect(scannedStates(`test.describe('d', () => { test.beforeEach(() => { void 0; }); test('t', async ({ page }, testInfo) => { ${scan} }); });`), 'a beforeEach that does not skip').toEqual(['cards']);
 });
 

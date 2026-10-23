@@ -199,7 +199,7 @@ export const seenCacheText = (seen: Iterable<string>, createdAt: ReadonlyMap<str
 /**
  * Whether no relay could be read: each one failed (an error) without sending a single event. A
  * relay that sent events before failing, or answered with none, was read; so was one that sent only
- * junk EVENT frames before erroring, since every frame counts, malformed or not. An empty list is not an
+ * junk EVENT frames before erroring, since every EVENT frame for its subscription counts, even with a malformed event. An empty list is not an
  * outage. The inbox fails the run on it, so an outage shows long before the read window expires.
  */
 export const everyRelayFailed = (perRelay: readonly { relay: string; count: number; error?: string }[]): boolean =>
