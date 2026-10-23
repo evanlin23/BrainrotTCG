@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded, fingerFor, snapshot } from './support';
+import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot } from './support';
 
 /**
  * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
@@ -29,7 +29,7 @@ async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewpo
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   if (textZoom !== 100) await page.addStyleTag({ content: `html { font-size: ${textZoom}% !important; }` });
-  const packShell = page.getByRole('button', { name: 'Open pack', exact: true });
+  const packShell = page.getByRole('button', { name: /^Open pack/ });
   await packShell.focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
@@ -37,6 +37,7 @@ async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewpo
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
   await expectDecoded(page.locator('.summary-cards img'), 5);
   await expect(page.locator('.summary-title')).toBeFocused();
+  await expectSummaryTakesClicks(page);
   await settled(page);
   return { errors, packShell };
 }
@@ -397,6 +398,7 @@ test('the Hall of Fame line never moves the cards below it', async ({ page, base
   const submit = line.getByRole('button', { name: 'Submit to the Hall of Fame' });
   await expect(submit).toBeVisible();
   tops.offered = await cardsTop();
+  await expectSummaryTakesClicks(page);
   await submit.click();
   await expect(line).toContainText("Couldn't submit");
   tops.failed = await cardsTop();
@@ -410,5 +412,33 @@ test('the Hall of Fame line never moves the cards below it', async ({ page, base
   tops.sent = await cardsTop();
 
   expect(tops, JSON.stringify(tops)).toEqual(Object.fromEntries(Object.keys(tops).map((state) => [state, tops.loading])));
+  expect(errors).toEqual([]);
+});
+
+// The pack leaves for a quarter second over the reveal that fades in under it. A tap in that time is
+// aimed at the reveal's Skip, and the pack must not be what answers it.
+test('the pack leaving never takes a tap meant for the reveal', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!);
+  await page.setViewportSize(isPhone() ? PHONE : DESKTOP);
+  await page.goto('./');
+  await expect(page.locator('.app-logo')).toBeVisible();
+  await page.getByRole('button', { name: /^Open pack/ }).focus();
+  const covered = page.evaluate(() => new Promise<{ frames: number; hittable: number }>((resolve) => {
+    let frames = 0;
+    let hittable = 0;
+    const watch = () => {
+      const pack = document.querySelector('.pack-display');
+      if (!document.querySelector('button.reveal-skip')) return requestAnimationFrame(watch);
+      if (!pack) return resolve({ frames, hittable });
+      frames += 1;
+      if (getComputedStyle(pack).pointerEvents !== 'none') hittable += 1;
+      return requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+  }));
+  await page.keyboard.press('Space');
+  const { frames, hittable } = await covered;
+  expect(frames).toBeGreaterThan(0);
+  expect(hittable).toBe(0);
   expect(errors).toEqual([]);
 });

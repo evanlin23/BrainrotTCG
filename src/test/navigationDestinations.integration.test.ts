@@ -30,10 +30,10 @@ const settings = () => JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS)!) 
 const hofStatus = () => document.querySelector('.hall-of-fame [role="status"]');
 
 async function openPack(current: NonNullable<typeof app>) {
-  await current.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await current.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await current.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();

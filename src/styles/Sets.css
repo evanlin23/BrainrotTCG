@@ -347,17 +347,10 @@
 
 .pack-set-name {
   font-weight: 900;
-  /* The same 12 px floor as the era below; only a pack under 240 px wide ever reaches it. */
+  /* Never under the 12 px text floor; only a pack under 240 px wide ever reaches it. */
   font-size: max(0.75rem, 5cqw);
   line-height: 1.1;
   text-transform: uppercase;
-}
-
-.pack-set-era {
-  /* Never under the 12 px text floor, however small the pack gets. */
-  font-size: max(0.75rem, 2.9cqw);
-  line-height: 1.1;
-  font-weight: 700;
 }
 
 /*
@@ -372,8 +365,7 @@
     max-width: 96cqw;
   }
 
-  .pack-set-name,
-  .pack-set-era {
+  .pack-set-name {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;

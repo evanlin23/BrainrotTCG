@@ -1,8 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, fingerFor, type Finger } from './support';
+import { monitor, expectDecoded, expectRecordedPack, fingerFor, type Finger } from './support';
 
 // A short swipe along the tear line opens the pack when it's released (#312), one under 12% of
-// the pack doesn't, and the Open pack button opens it for a tap (#267). A press can start anywhere in
+// the pack doesn't, and a tap on the pack opens it (#267, #628). A press can start anywhere in
 // the top third of the pack, and a stroke can drift up or down (#626): usePackCutter.test.tsx drives
 // those at every size, this file the real browser. The phone project swipes with
 // touch events in Pixel 5 emulation, which is not a real phone.
@@ -78,11 +78,11 @@ test('a swipe under 12% of the pack is let go without opening it, and a real swi
   expect(errors).toEqual([]);
 });
 
-test('tapping the Open pack button opens the pack without a swipe', async ({ page, baseURL, hasTouch }) => {
+test('tapping the pack opens it without a swipe', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   await sealedPack(page);
-  const openButton = page.getByRole('button', { name: 'Open pack', exact: true });
+  const openButton = page.getByRole('button', { name: /^Open pack/ });
   // A real tap on the phone project (touch events), a click with the mouse on desktop.
   if (hasTouch) await openButton.tap();
   else await openButton.click();
@@ -90,7 +90,7 @@ test('tapping the Open pack button opens the pack without a swipe', async ({ pag
   expect(errors).toEqual([]);
 });
 
-test('a tap on the tear line pulses the swipe hint, then a swipe still opens (#485)', async ({ page, baseURL, hasTouch }) => {
+test('a tap on the tear line opens the pack, like a tap anywhere else on it (#628)', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   const packShell = await sealedPack(page);
@@ -98,10 +98,10 @@ test('a tap on the tear line pulses the swipe hint, then a swipe still opens (#4
   const finger = await fingerFor(page, hasTouch);
   await finger.press(box.x + box.width / 2, box.y + box.height * 0.19);
   await finger.release();
-  await expect(packShell).toHaveClass(/\bis-tapped\b/);
-  await expect(packShell).not.toHaveClass(/\bis-cut\b/);
-  await swipeTearLine(page, packShell, finger, 0.375, 0.625);
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
+  await page.locator('button.reveal-skip').click();
+  await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
+  await expectRecordedPack(page);
   expect(errors).toEqual([]);
 });
 

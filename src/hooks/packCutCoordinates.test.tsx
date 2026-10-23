@@ -155,8 +155,7 @@ describe('PackCuttingUI spark layer (#265)', () => {
     expect(html).toContain('--x:192px');
     expect(html).toContain('--y:108.87px');
     // Both layers are children of the pack, before the pack and wrapper close
-    // (the controls under the pack follow the wrapper).
-    const beforeActions = html.slice(0, html.indexOf('<div class="pack-actions">'));
-    expect(beforeActions.endsWith('</span></div></div></div>')).toBe(true);
+    // (a refusal, when there is one, follows the wrapper).
+    expect(html.endsWith('</span></div></div></div>')).toBe(true);
   });
 });
