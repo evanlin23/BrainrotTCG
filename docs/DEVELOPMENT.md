@@ -599,6 +599,65 @@ there. Fix the test, never loosen or skip it, and close the issue once a run pas
 `scripts/hof-workflows.test.ts` checks the workflow's permissions and runs its seed and report steps,
 in the shell each declares, against a fake `gh`.
 
+## Operational health
+
+`.github/workflows/ops-health.yml` reports on main's deploys and the Hall of Fame inbox from signals
+that already exist (#715). It runs every 6 hours (best effort, like every GitHub schedule here),
+whenever a deploy of main finishes, and by hand from the Actions tab. `scripts/ops-health.ts` reads
+the runs; the run summary shows the table and `ops-health.json` (artifact, 14 days) holds the same
+report.
+
+Signals it reads, all through the run's own `GITHUB_TOKEN` (`actions: read`):
+
+- the newest 20 runs on main of `deploy.yml`, `hall-of-fame-inbox.yml`, and, report only,
+  `hall-of-fame.yml`, `test-order.yml` and `performance-baseline.yml`. A relay probe dispatch of
+  the inbox skips its inbox job, so it is titled `Hall of Fame relay probe` and left out;
+- main's newest commit and its time;
+- `hof-inbox-summary.json`, which each inbox run uploads (artifact, 3 days) even when it fails:
+  revision, run id, time, the stage it reached, outcome, relay count and failures, events read,
+  pulls checked, issues added, events deferred, why it stopped (`budget`, `filing-cap` or
+  `write-failed`) and the oldest deferred event's age. Counts and fixed words only. The newest 6
+  successful runs' summaries are read, and only one whose run id and revision match its run counts.
+
+Not available, so not claimed: Cloudflare (the inbox cron Worker and any analytics) and GitHub
+Pages traffic or uptime. Neither has a log or dashboard this repository can read, and adding one
+needs the owner's accounts. A Worker that stops dispatching shows up only as `inbox-stale`.
+Pending: production smoke against the deployed site (#707, open, not built). Until it lands, a
+successful deploy says the release passed its own checks, not that players can load it.
+`ci.yml` and `browser-tests.yml` skip main, so main's health is its deploys.
+
+| Condition | Unhealthy when | Runbook |
+| --- | --- | --- |
+| `deploy-failing` | the newest finished deploy failed, was cancelled or skipped | open the run, fix main, let the next merge or a manual deploy run |
+| `deploy-behind` | main's newest commit is over 3 hours old with no successful deploy | look for a queued, cancelled or failed deploy of that commit; dispatch `deploy.yml` once fixed |
+| `inbox-failing` | the newest 2 finished inbox runs each failed, were cancelled or skipped (one alone is unknown: a run with every relay down is a blip) | its summary's `stage` says where it stopped; the run log has the error |
+| `inbox-stale` | no successful inbox run in 2 hours, or none among the newest 20 | check the Worker dispatch (the owner's Cloudflare account) and the workflow's enabled state |
+| `inbox-deferring` | the newest 3 successful runs all left events for later | the summaries' `stop` names the cap; a backlog that keeps growing needs a bigger budget or filing cap |
+
+Each condition is ok, unhealthy or unknown. Unknown means it couldn't tell: the runs couldn't be
+listed, a newer run is still going, a commit is inside its deploy grace, or a summary expired or
+never uploaded. A run that was skipped, cancelled or never happened is not a success, and an
+unobserved summary is not an empty queue: the inbox reads at most 50 pages of 100 events over a
+7-day relay window, checks at most 300 pulls and files at most 20 per run, so a zero from a run
+that stopped early is not a zero backlog.
+
+The report job keeps one issue per condition, labelled `ops-health` and found by its exact title.
+It counts only issues that `github-actions` or evanlin23 opened, because the repository takes public
+issues. When a condition turns unhealthy it opens the issue, or reopens the newest closed one with a
+comment; when the condition is ok it closes the open one with a comment. It does nothing while the
+state is unchanged or unknown, so it never comments on every run. If the issue lookup fails the job
+fails and writes nothing. A failed `ops-health` run is itself the signal that the report is broken.
+The Claude `/work` queue owns these issues; anything that needs the owner's accounts (Cloudflare,
+repository settings) goes to evanlin23 under `needs owner`. The quality review cadence reads them
+with the other existing signals.
+
+Cost: a public repository's Actions minutes are free; each run makes at most a few dozen API calls and
+downloads at most six small artifacts. It needs no secret beyond `GITHUB_TOKEN`, and the report job
+never checks out code. It never exports player keys, proofs, saves, event ids, relay addresses, URLs
+from the inbox, error text or other free text. `scripts/ops-health.test.ts` covers healthy, failed,
+stale, missing and partly observed states and the sanitizing, and `scripts/hof-workflows.test.ts`
+runs the report step against a fake `gh`.
+
 ## Performance baseline
 
 `npm run test:performance` is **report-only**: timings have no pass/fail budget, and neither
@@ -735,6 +794,57 @@ blank Chromium page at 390×844, device scale 3, mobile emulation and no network
 (`src/engine`, the ticket worker in `src/workers`, `spec`) is identical between `8e81f18` and this
 branch. **Chromium emulation, not a real device**; a low-end phone and a GPU or ASIC miner haven't
 been measured.
+
+## Capacity (opt-in)
+
+`npm run test:performance:capacity` (`tests/performance/capacity.spec.ts`, #709) is **report-only and in
+no check, PR shard or default CI job**, like the other opt-in performance runs above. It drives the real app
+with a growing synthetic save and a bounded repeated-opening session, in both browser projects
+(`--project=desktop-chromium`, `--project=mobile-chromium` for one), and builds and serves the app as
+the browser specs do. Saves are built by `syntheticSave` (`tests/performance/capacity.ts`) from a
+fixed seed and go in through Settings > Import, so the app's own validation, backup and reload run. **That
+history is synthetic shape data, never a verified history or proof evidence, and it runs in emulated
+Chromium on the host with no throttling, not on a phone.** Every report says so.
+
+Scenarios: `growing saves` (imports each size, opens real packs, checks every record, count and
+counter), `long session` (reloads, pages, dialogs, hide/show), `reconstruction` (records without cached
+cards are re-opened through the worker pool, each stored once), and `failure and interruption` (a
+refused storage write, a reload while a ticket mines, a reload mid-reveal, an import the browser can't
+finish and its rollback), each with exact assertions.
+
+Sizes are set by environment, digits only, each with a hard cap: `CAPACITY_HISTORY` (comma list, default
+`0,500,3000`, at most 20000 each), `CAPACITY_PACKS` (real packs per size, default 2, at most 10),
+`CAPACITY_SESSION_HISTORY` (default 500), `CAPACITY_SESSION_PACKS` (default 6, at most 20) and
+`CAPACITY_UNCACHED` (default 4, at most 12). `npx vitest run tests/performance/capacity-report.test.ts`
+checks the report schema, the configuration, the pool-size rule and the failure names.
+
+**What fails and what is reported.** Functional violations fail the run: a lost, doubled or misnumbered
+pack, a pack left on the pending shelf, a console or request error (aborted card art included), more
+workers busy than the pool allows or created than its recycling explains, storage that grows by more
+than a record's fixed shape allows, an import that isn't rolled back exactly. **Timing is never
+asserted**: page start to a pressable Open pack, press to decoded result, long tasks, the main-thread
+heap, storage bytes, workers created, recycled (replaced after `TICKETS_PER_WORKER` tickets) and peak busy
+are recorded in the report, and a hang is caught by each test's own timeout. The pool cap is the app's own
+`poolSize` run against the emulated device's navigator; beyond the ticket miner's worker and a pool of that
+size per page, only `ceil(tickets / TICKETS_PER_WORKER)` replacement spawns are allowed, and no worker may
+answer more than `TICKETS_PER_WORKER` tickets. The Argon2 figure is peak busy × `TICKET_PARAMS.memorySize`,
+an estimate, not a measurement. A report is written to `test-results/capacity/<project>-<scenario>.json` only
+after every assertion passed, with the revision, browser, seed and sample counts, and `writeReport` refuses
+one that fails validation.
+
+`CAPACITY_INJECT_FAILURE=<name>` corrupts one stored thing behind the app's back after the last pack, so the
+matching check must fail the run and no report is written: `history` (drops the newest record), `stats`
+(packs opened back to 0), `collection` (one card count off by one), `nonce` (next number one too low) or
+`shelf` (a pack left on the pending shelf). Any other value throws. Each was run once against the growing-save and
+long-session scenarios; none is injected into the failure scenarios, whose own checks are exact comparisons
+with the state before.
+
+Measured on 2026-10-23 in the sandbox's Chromium over the built site, one run of each project, as
+orientation only (nothing here is a ceiling): a 500-record save reaches a clickable pack in about 1.5-1.7 s;
+the history key grows 149-173 characters a record; a real pack takes about 1.1-1.4 s from click to result;
+re-opening 4 records without cached cards creates 4 workers (3 terminated, 3 busy at once) and stores each
+once. The nine scenarios take about 1.3 minutes on desktop-chromium and on mobile-chromium each, at the default
+sizes (`CAPACITY_HISTORY` 0, 500, 3000).
 
 ## Dependency audit
 

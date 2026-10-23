@@ -12,6 +12,8 @@
  *     incomplete, repairs them (`changed`). `redeploy` is set for a new verification, and for a
  *     repair only when the bot's latest comment is that pull's verified one (the run stopped
  *     before labelling) and the next build would list a pull the published list doesn't have.
+ *     An opened or edited issue whose pull an earlier issue already holds (see `duplicateOf`) is
+ *     refused with `duplicate` set to that issue's number, and the workflow closes it as a duplicate.
  *
  *   npx tsx scripts/hall-of-fame.ts inbox           (Actions, on a schedule)
  *     Reads submissions sent without a GitHub account through public Nostr relays
@@ -23,7 +25,8 @@
  *     verified issues in hof-inbox-filed.json (FILED_PATH), so every verified
  *     issue is listed once a day rather than on every run, and the time ranges
  *     each relay was read through in hof-inbox-read.json (cached too), so events
- *     past the page cap are read by a later run.
+ *     past the page cap are read by a later run. Every run, even one that fails,
+ *     writes its counts to hof-inbox-summary.json for scripts/ops-health.ts.
  *
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
  *     Lists verified Hall of Fame issues (and `daily` ones from the day before
@@ -81,7 +84,8 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { addRanges, buildSkipLine, clipRanges, deferredFrom, everyRelayFailed, newestGap, oldestGap, olderReadLine, parseFiledIndex, parseReadRanges, parseSeenCache, probeLine, processInbox, rangeRead, relayReadLine, seenCacheText, type FiledIndex, type Ranges } from './hof-inbox.ts';
+import { addRanges, buildSkipLine, clipRanges, deferredFrom, everyRelayFailed, newestGap, oldestGap, olderReadLine, parseFiledIndex, parseReadRanges, parseSeenCache, probeLine, processInbox, rangeRead, relayReadLine, seenCacheText, type FiledIndex, type InboxStats, type Ranges } from './hof-inbox.ts';
+import { INBOX_SUMMARY_PATH, type InboxStage, type InboxSummary } from './ops-health.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -118,6 +122,8 @@ interface Issue {
   user: { login: string } | null;
   labels: ({ name?: string } | string)[];
   pull_request?: unknown;
+  /** `reopened` once a maintainer has reopened it, and it stays so through later edits. */
+  state_reason?: string | null;
 }
 
 const labelNames = (issue: Issue) => issue.labels.map((l) => (typeof l === 'string' ? l : l.name ?? ''));
@@ -153,8 +159,11 @@ const toEntry = (pull: VerifiedPull, proof: string, issue: Issue, verifiedAt: st
   submittedAt: verifiedAt,
 });
 
-/** `rejected` marks a refusal that also gets the `rejected` label (a display name that isn't allowed). */
-type Checked = { ok: true; entry: HallOfFameEntry; pull: VerifiedPull } | { ok: false; reason: string; rejected?: true };
+/**
+ * `rejected` marks a refusal that also gets the `rejected` label (a display name that isn't allowed);
+ * `duplicateOf`, one closed as a duplicate of that issue (see `duplicateOf`).
+ */
+type Checked = { ok: true; entry: HallOfFameEntry; pull: VerifiedPull } | { ok: false; reason: string; rejected?: true; duplicateOf?: number };
 
 const checkIssue = async (issue: Issue): Promise<Checked> => {
   const proof = extractProof(issue.body ?? '');
@@ -264,7 +273,7 @@ const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day: st
 };
 
 export const verifyIssue = async () => {
-  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { issue: Issue };
+  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { action?: string; issue: Issue };
   let result = await checkIssue(event.issue);
   const token = process.env.GITHUB_TOKEN;
   // An edit that keeps the same verified pull needs no new comment.
@@ -286,7 +295,13 @@ export const verifyIssue = async () => {
     const list = await publishedList();
     const day = today();
     const reason = list && joinRefusal(result.pull, list, day);
-    if (reason) result = { ok: false, reason };
+    // Only an issue opened or edited is closed. Reopening one (only a maintainer can, once the bot has
+    // closed it) keeps it open, through later edits too.
+    const reopened = event.issue.state_reason === 'reopened';
+    const received = reopened ? null : event.action === 'opened' ? event.issue.created_at : event.action === 'edited' ? event.issue.updated_at : null;
+    const original = received && token ? await duplicateOf(result.entry.id, event.issue.number, received, list, token) : null;
+    if (original) result = { ok: false, reason: duplicateReason(original), duplicateOf: original };
+    else if (reason) result = { ok: false, reason };
     else if (joinLabel(result.pull, list, day) === 'verified') label = 'verified';
     else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
     else label = 'daily';
@@ -336,7 +351,7 @@ export const verifyIssue = async () => {
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `verified=${result.ok}\nchanged=${changed}\nredeploy=${redeploy}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`,
+      `verified=${result.ok}\nchanged=${changed}\nredeploy=${redeploy}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n${!result.ok && result.duplicateOf ? `duplicate=${result.duplicateOf}\n` : ''}`,
     );
   }
   console.log(!already ? body : changed ? `Already verified this pull on this issue; repairing missing labels${redeploy ? ' and redeploying' : ''}.` : 'Already verified this pull on this issue; nothing to do.');
@@ -407,6 +422,39 @@ const filedDailyElsewhere = async (id: string, number: number, token: string): P
     return false;
   }
 };
+
+/**
+ * The issue this one (`number`, whose body GitHub received at `received`) duplicates for pull `id`,
+ * or null. That is a lower-numbered issue the bot verified this pull on before `received`: labelled
+ * `verified` or `daily` and not `rejected`, its body still holding the pull, and its marker comment
+ * earlier. So it already holds the pull's credit (the first verification keeps it, see
+ * `listToPublish`), and of two issues it can only ever be the later one that is closed. Candidates
+ * are the published list's entry for the pull and the issues changed since `recentIssuesSince` (one
+ * verified but not deployed yet). If GitHub can't be read, it says null: nothing is closed unchecked.
+ */
+const duplicateOf = async (id: string, number: number, received: string, list: readonly (RankableEntry & { issue?: number })[] | null, token: string): Promise<number | null> => {
+  try {
+    const recent = await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token);
+    const listed = list?.find((e) => e.id === id)?.issue;
+    const candidates = new Set(recent.filter((i) => listedPullId(i) === id).map((i) => i.number));
+    if (Number.isSafeInteger(listed)) candidates.add(listed!);
+    for (const n of [...candidates].filter((n) => n < number).sort((a, b) => a - b)) {
+      const other = recent.find((i) => i.number === n) ?? (await github<Issue>(`/repos/${REPO}/issues/${n}`, token));
+      const labels = labelNames(other);
+      if (other.pull_request || listedPullId(other) !== id || labels.includes('rejected') || !(labels.includes('verified') || labels.includes('daily'))) continue;
+      const verifiedAt = await firstVerifiedAt(n, id, token);
+      if (verifiedAt && Date.parse(verifiedAt) < Date.parse(received)) return n;
+    }
+    return null;
+  } catch (error) {
+    console.warn(`Could not look for an earlier issue with this pull; not closing this one as a duplicate. ${error}`);
+    return null;
+  }
+};
+
+/** Why a duplicate is closed, and how to contest it. `original` is a number from GitHub, not issue text. */
+const duplicateReason = (original: number) =>
+  `#${original} already holds this pull and its place in the Hall of Fame, so this issue is closed as a duplicate. If that's wrong, comment here asking a maintainer to reopen it, or tell the maintainers through a [new issue](https://github.com/${REPO}/issues/new/choose).\n\nDuplicate of #${original}`;
 
 /**
  * Issues the bot has verified (it adds the labels; submitters can't add labels themselves): every
@@ -549,7 +597,52 @@ const verifiedIndex = async (token: string): Promise<FiledIndex & { kept: boolea
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
 const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
 
+/**
+ * Reads, files and writes `added`, then always writes hof-inbox-summary.json: the run's counts and
+ * the stage it reached, nothing from the events or the errors (scripts/ops-health.ts reads it).
+ */
 export const inbox = async (ticketFn?: TicketFn) => {
+  const run: InboxRun = { stage: 'relays', relays: { total: 0, failed: 0 }, read: 0, added: 0, deferred: 0, stats: { checked: 0, stop: null, oldestDeferredAt: null } };
+  let outcome: 'ok' | 'error' = 'error';
+  try {
+    await readInbox(run, ticketFn);
+    run.stage = 'done';
+    outcome = 'ok';
+  } finally {
+    // A summary that can't be written is logged, never thrown over the run's own result.
+    try {
+      writeInboxSummary(run, outcome);
+    } catch (error) {
+      console.error(`Couldn't write ${INBOX_SUMMARY_PATH}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+};
+
+interface InboxRun { stage: InboxStage; relays: { total: number; failed: number }; read: number; added: number; deferred: number; stats: InboxStats }
+
+const writeInboxSummary = (run: InboxRun, outcome: 'ok' | 'error') => {
+  const now = Math.floor(Date.now() / 1000);
+  const { oldestDeferredAt, checked, stop } = run.stats;
+  const summary: InboxSummary = {
+    v: 1,
+    rev: process.env.GITHUB_SHA ?? '0'.repeat(40),
+    run: Number(process.env.GITHUB_RUN_ID ?? 1),
+    at: new Date(now * 1000).toISOString(),
+    stage: run.stage,
+    outcome,
+    relays: run.relays,
+    read: run.read,
+    checked,
+    added: run.added,
+    deferred: run.deferred,
+    stop,
+    // The sender's own timestamp: kept inside the relay window, never negative.
+    oldestDeferredAgeS: oldestDeferredAt === null ? null : Math.min(INBOX_WINDOW_S, Math.max(0, now - oldestDeferredAt)),
+  };
+  writeFileSync(INBOX_SUMMARY_PATH, `${JSON.stringify(summary)}\n`);
+};
+
+const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('inbox needs GITHUB_TOKEN to file issues');
   const nowS = Math.floor(Date.now() / 1000);
@@ -564,8 +657,10 @@ export const inbox = async (ticketFn?: TicketFn) => {
   // per hostile relay a run, about 36 s, outside the 60 s read timers and well inside the job's 10 minutes.
   const head = await fetchEvents(filter, undefined, 60000, undefined, INBOX_PAGES, undefined, undefined, true);
   for (const r of head.perRelay) console.log(relayReadLine(r));
+  run.relays = { total: head.perRelay.length, failed: head.perRelay.filter((r) => r.error).length };
   // Nothing was read, so a run that carried on would look fine while unread events age out of the
-  // window. Fail it instead; the seen cache and what was read through are left as they were.
+  // window. Fail it instead; the seen cache and what was read through are left as they were. The
+  // summary shows stage relays.
   if (everyRelayFailed(head.perRelay)) throw new Error(`every relay failed (${head.perRelay.length} of ${head.perRelay.length}); nothing was read`);
   // Then, from each relay that answered, an older range not yet read through: the page cap stopped
   // this run or an earlier one above it. The newest pages are always read again above, so nothing
@@ -590,6 +685,8 @@ export const inbox = async (ticketFn?: TicketFn) => {
   // signatures: both are kept, and processInbox handles the first that verifies (a tampered copy from
   // one relay can't hide the real one another read found). That is no more checks than the reads' own.
   const events = [...new Map([...head.events, ...older.flat()].map((e) => [`${e.id} ${e.sig}`, e])).values()];
+  run.read = events.length;
+  run.stage = 'issues';
 
   // Pulls already in the Hall of Fame: only verified issues count (`verified`, or `daily`), so an
   // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't
@@ -625,11 +722,14 @@ export const inbox = async (ticketFn?: TicketFn) => {
   // pull is judged by the UTC day its entry is stamped with: its unfinished issue's, or else today's
   // (a new issue is stamped as it opens), so after midnight a run judges by the new day's top. The
   // floor is today's, so it doesn't apply to an unfinished issue, which may be judged by an earlier day.
+  run.stage = 'list';
   const list = await publishedList();
   if (!list) console.log("Couldn't read the published list; filing every qualifying pull");
   const stampDay = (pull: VerifiedPull) => utcDay(unfinished.get(pullId(pull.proof))?.created_at ?? new Date().toISOString());
 
+  run.stage = 'process';
   const { added, deferred, unconfirmedFrom } = await processInbox(events, {
+    stats: run.stats,
     seen,
     filed,
     unconfirmed,
@@ -672,6 +772,7 @@ export const inbox = async (ticketFn?: TicketFn) => {
     },
   });
   if (deferred) console.log(`${deferred} events left for the next run`);
+  Object.assign(run, { added, deferred });
 
   for (const event of events) seenAt.set(event.id, event.created_at);
   writeFileSync(SEEN_PATH, seenCacheText(seen, seenAt, since, nowS, INBOX_SEEN_CAP));

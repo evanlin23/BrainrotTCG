@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { Settings2 } from 'lucide-react';
 import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
@@ -24,6 +24,7 @@ import { downloadSaveFile, exportSaveFile, importSaveFile, NEW_PLAYER_PARTIAL_NO
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
+import { setMotionSetting } from './utils/motion';
 import { readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression';
 import { historyAchievementsReady, myStats, watchMyPacks } from './game/profiles';
@@ -174,6 +175,9 @@ function App() {
   const [packBusy, setPackBusy] = useState(false);
   /** A pack is open, from the tear to leaving it: the chrome steps aside (see index.css). Not busy: it disables nothing. */
   const [packFocus, setPackFocus] = useState(false);
+  // The sealed pack falls in the first time it is on screen in a page load (not while hidden under a page); after that it only rises in, even on a new set's opener.
+  const [packArrived, setPackArrived] = useState(false);
+  const arriveAtPack = useCallback(() => setPackArrived(true), []);
   /** A big pull is on show: notices wait until it ends, so none lands in the player's screenshot. */
   const [packShowcase, setPackShowcase] = useState(false);
 
@@ -242,6 +246,9 @@ function App() {
       },
     ]);
   }, [level]);
+
+  // Before paint, so a changed Motion setting never shows a frame of the old one.
+  useLayoutEffect(() => setMotionSetting(settings.motion ?? 'auto'), [settings.motion]);
 
   useEffect(() => {
     document.documentElement.dataset.cardBack = usable(CARD_BACKS, settings.cardBack, rewardLevel);
@@ -505,6 +512,9 @@ function App() {
           isOwned={isOwned}
           onLeaveEarly={noticeKeptPack}
           openCue={!showNav}
+          arrived={packArrived}
+          onArrive={arriveAtPack}
+          shown={!onPage}
         />
         {/* A quiet way into the card guide once a first pack is saved (a new player sees only the pack); it steps aside with the chrome once a pack is torn. */}
         {showNav && !packFocus && !packBusy && (

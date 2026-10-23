@@ -36,6 +36,7 @@ import { promisify } from 'node:util';
 import sharp from 'sharp';
 import { decodeProof } from '../src/engine/proof.ts';
 import { HASHED_ASSET, metaTags } from './check-site.ts';
+import { BEACON_URL } from './cloudflare-analytics.ts';
 import { isMainModule } from './main-module.ts';
 import { redirectPage } from './redirect-site.ts';
 
@@ -234,9 +235,13 @@ export const checkEntry = async (target: Target, get: Get, evidence: Evidence): 
   const html = got.body.toString('utf8');
   const assets = pageAssets(html);
   const local = (href: string) => within(target.url, href);
-  const outside = [...assets.scripts, ...assets.styles].filter((href) => !local(href));
+  // Cloudflare Web Analytics' beacon, which Pages adds to production's pages, is the one script
+  // from elsewhere allowed (scripts/cloudflare-analytics.ts). It is named, never fetched: the smoke
+  // isn't a visit.
+  const own = assets.scripts.filter((href) => href !== BEACON_URL);
+  const outside = [...own, ...assets.styles].filter((href) => !local(href));
   if (outside.length) return fail(name, `loads code from outside ${target.url}: ${outside.slice(0, 3).join(', ')}`);
-  const scripts = [...new Set(assets.scripts.map((href) => local(href)!))];
+  const scripts = [...new Set(own.map((href) => local(href)!))];
   const styles = [...new Set(assets.styles.map((href) => local(href)!))];
   const entry = scripts.find((url) => /^assets\/(?:[^/]+\/)*index-[^/]+\.js$/.test(url.slice(target.url.length)) && HASHED_ASSET.test(url.slice(target.url.length)));
   if (!entry) return fail(name, 'the page names no hashed assets/index-*.js entry script');

@@ -1,6 +1,6 @@
 // Offline contracts for the workflows that touch the Hall of Fame, the ones a fork pull request can
-// start, and the nightly test-order run. Read as text (there's no YAML parser here), so this only covers the shape these files
-// already have: two-space indents, block-style `permissions`, one job per `  name:` line. Two steps'
+// start, the nightly test-order run and the ops-health report. Read as text (there's no YAML parser here), so this only covers the shape these files
+// already have: two-space indents, block-style `permissions`, one job per `  name:` line. A few steps'
 // shells also run here, against a fake `gh`.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FILED_PATH, READ_PATH, SEEN_PATH } from './hall-of-fame.ts';
+import { CONDITIONS, INBOX_PROBE_TITLE, type ConditionKey } from './ops-health';
 
 const read = (name: string) => readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
 
@@ -155,6 +156,10 @@ describe('Hall of Fame workflows (offline contracts)', () => {
     });
   }
 
+  it('closes only what verify-issue calls a duplicate (#21)', () => {
+    expect(jobs(read('hall-of-fame.yml')).verify.join('\n')).toContain('DUPLICATE: ${{ steps.check.outputs.duplicate }}');
+  });
+
   it('labels a pull refused for its display name `rejected`, and never takes that label off', () => {
     const verify = jobs(read('hall-of-fame.yml')).verify.join('\n');
     expect(verify).toContain('REJECTED: ${{ steps.check.outputs.rejected }}');
@@ -204,14 +209,14 @@ fi
     });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-    /** Runs the step as Actions does for its `shell:`; returns its `gh issue` calls. */
-    const runStep = (comment: string) => {
+    /** Runs the step as Actions does for its `shell:`; returns its `gh issue` and `gh api` calls. */
+    const runStep = (comment: string, outputs: Record<string, string> = {}) => {
       writeFileSync(path.join(dir, 'hof-comment.md'), comment);
       const log = path.join(dir, 'gh.log');
-      const env = { PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, ISSUE: '7', VERIFIED: 'true', LABEL: 'verified', REJECTED: 'false' };
+      const env = { PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, GITHUB_REPOSITORY: 'owner/repo', ISSUE: '7', VERIFIED: 'true', LABEL: 'verified', REJECTED: 'false', DUPLICATE: '', ...outputs };
       const ran = spawnSync('bash', [...bashArgs(step), 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
       expect(ran.status, ran.stderr).toBe(0);
-      return readFileSync(log, 'utf8').trim().split('\n').filter((l) => l.startsWith('issue '));
+      return readFileSync(log, 'utf8').trim().split('\n').filter((l) => l.startsWith('issue ') || l.startsWith('api '));
     };
     const LABELLED = ['issue edit 7 --add-label hall-of-fame,verified', 'issue edit 7 --remove-label not-verified', 'issue edit 7 --remove-label daily', 'issue close 7 --reason completed'];
 
@@ -225,6 +230,19 @@ fi
 
     it('comments, then labels, a new verification', () => {
       expect(runStep('**Verified!**')).toEqual(['issue comment 7 --body-file hof-comment.md', ...LABELLED]);
+    });
+
+    const REFUSED = ['issue comment 7 --body-file hof-comment.md', 'issue edit 7 --add-label hall-of-fame,not-verified', 'issue edit 7 --remove-label verified', 'issue edit 7 --remove-label daily'];
+
+    it('leaves a refused pull open, so the submitter can fix the link', () => {
+      expect(runStep('**Not added.**', { VERIFIED: 'false' })).toEqual(REFUSED);
+    });
+
+    it('closes a duplicate as a duplicate, after commenting and labelling, and touches no other issue (#21)', () => {
+      expect(runStep('**Not added.** Duplicate of #3', { VERIFIED: 'false', DUPLICATE: '3' })).toEqual([
+        ...REFUSED,
+        'api --method PATCH repos/owner/repo/issues/7 -f state=closed -f state_reason=duplicate',
+      ]);
     });
   });
 
@@ -406,6 +424,161 @@ fi
       const { report } = runStep([], '');
       expect(report).toContain('Seed: none (failed before the tests ran)');
       expect(report).not.toContain('Replay:');
+    });
+  });
+});
+
+describe('ops-health.yml, the operational health report (#715)', () => {
+  const text = read('ops-health.yml');
+  const all = jobs(text);
+
+  it('runs on a schedule, after a deploy of main or by hand, never for a pull request, and holds no secrets', () => {
+    const on = triggers(text);
+    expect(on).toMatch(/^ {2}schedule:\n(?: {4}#.*\n)* {4}- cron: '\d+ [\d*/]+ \* \* \*'/m);
+    expect(on).toMatch(/^ {2}workflow_run:\n {4}workflows:\n {6}- Deploy to GitHub Pages\n {4}types: \[completed\]\n {4}branches: \[main\]$/m);
+    expect(read('deploy.yml')).toMatch(/^name: Deploy to GitHub Pages$/m);
+    expect(on).toMatch(/^ {2}workflow_dispatch:/m);
+    expect(on).not.toMatch(/pull_request/);
+    expect(text).not.toMatch(/secrets\./);
+    for (const run of runCommands(text)) expect(run).not.toContain('${{');
+    expect(text).toMatch(/^concurrency:\n {2}group: ops-health\n {2}cancel-in-progress: false$/m);
+  });
+
+  it('grants nothing by default; collecting only reads runs and code, and only the report writes issues', () => {
+    expect(topPermissions(text)).toBe('{}');
+    expect(Object.keys(all).sort()).toEqual(['collect', 'report']);
+    expect(jobPermissions(all.collect)).toEqual({ actions: 'read', contents: 'read' });
+    expect(jobPermissions(all.report)).toEqual({ issues: 'write' });
+    expect(all.report.join('\n')).not.toMatch(/actions\/checkout|npm |npx /);
+    expect(all.collect.join('\n')).toContain('persist-credentials: false');
+  });
+
+  it("runs main's own script, and reports only from a collection that finished", () => {
+    expect(all.collect.find((l) => l.trim().startsWith('if:'))?.trim()).toBe("if: ${{ github.ref == 'refs/heads/main' }}");
+    expect(all.report.find((l) => l.trim().startsWith('if:'))?.trim()).toBe("if: ${{ needs.collect.result == 'success' }}");
+    for (const job of Object.values(all)) expect(job.join('\n')).toMatch(/^ {4}timeout-minutes: \d+$/m);
+  });
+
+  it('pins every action to the same commit ci.yml or deploy.yml uses', () => {
+    const pinned = new Set(
+      [read('ci.yml'), read('deploy.yml')].flatMap((t) => [...t.matchAll(/uses: (\S+@[0-9a-f]{40}) # \S+/g)].map((m) => m[0])),
+    );
+    const uses = [read('ops-health.yml'), read('hall-of-fame-inbox.yml')].flatMap((t) => [...t.matchAll(/uses: \S+.*/g)].map((m) => m[0]));
+    expect(uses.length).toBeGreaterThan(0);
+    for (const use of uses.filter((u) => /actions\/(checkout|setup-node|upload-artifact)@/.test(u))) expect(pinned).toContain(use);
+  });
+
+  it('titles a relay probe as ops-health expects, so it is never counted as an inbox run', () => {
+    expect(read('hall-of-fame-inbox.yml')).toMatch(new RegExp(`^run-name: \\$\\{\\{ inputs\\.probe && '${INBOX_PROBE_TITLE}' \\|\\| 'Hall of Fame inbox' \\}\\}$`, 'm'));
+  });
+
+  it("has each inbox run upload its counts-only summary, even when the inbox step failed, and never fail on it", () => {
+    const inbox = steps(jobs(read('hall-of-fame-inbox.yml')).inbox);
+    const at = inbox.findIndex((s) => s.includes('name: hof-inbox-summary'));
+    expect(at).toBeGreaterThan(inbox.findIndex((s) => s.includes('scripts/hall-of-fame.ts inbox')));
+    expect(inbox[at]).toContain('if: ${{ !cancelled() }}');
+    expect(inbox[at]).toMatch(/^ {8}continue-on-error: true$/m);
+    expect(inbox[at]).toMatch(/^ {10}path: hof-inbox-summary\.json$/m);
+    expect(inbox[at]).toMatch(/^ {10}retention-days: 3$/m);
+  });
+
+  describe('the report step, run in the shell it declares with a fake gh', () => {
+    const { step, script } = stepScript(all.report, 'gh issue create');
+    // Logs every call on one line; `issue list` prints $FAKE_ISSUES, as `gh issue list --json
+    // number,title,state,author` does, or fails as an API error would when $FAKE_LIST_FAILS is set.
+    const FAKE_GH = `#!/bin/sh
+printf '%s' "$*" | tr '\\n' '|' >> "$GH_LOG"; echo >> "$GH_LOG"
+if [ "$1 $2" = "issue list" ]; then
+  [ -z "$FAKE_LIST_FAILS" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+  printf '%s' "$FAKE_ISSUES"
+fi
+`;
+    const RUN_URL = 'https://github.com/o/r/actions/runs/7';
+    type Issue = { number: number; key: ConditionKey; state: 'OPEN' | 'CLOSED'; login: string };
+    let dir: string;
+    beforeEach(() => {
+      dir = mkdtempSync(path.join(os.tmpdir(), 'ops-health-step-'));
+      mkdirSync(path.join(dir, 'bin'));
+      writeFileSync(path.join(dir, 'bin', 'gh'), FAKE_GH, { mode: 0o755 });
+      writeFileSync(path.join(dir, 'step.sh'), script);
+    });
+    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+    /** Runs the step as Actions does; returns its exit status and every `gh` call but the label and the lookup. */
+    const execStep = (states: Partial<Record<ConditionKey, string>>, issues: Issue[], extra: Record<string, string> = {}) => {
+      const log = path.join(dir, 'gh.log');
+      const conditions = Object.entries(states).map(([key, state]) => ({
+        key, title: CONDITIONS[key as ConditionKey], state, reason: `${key} is ${state}`,
+      }));
+      const env = {
+        PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, RUN_URL,
+        RUNBOOK: 'https://github.com/o/r/blob/main/docs/DEVELOPMENT.md#operational-health',
+        CONDITIONS: JSON.stringify(conditions),
+        FAKE_ISSUES: JSON.stringify(issues.map(({ number, key, state, login }) => ({ number, title: CONDITIONS[key], state, author: { login } }))),
+        ...extra,
+      };
+      const ran = spawnSync('bash', [...bashArgs(step), 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
+      const calls = readFileSync(log, 'utf8').trim().split('\n').filter((l) => !/^(label create|issue list) /.test(l));
+      return { ran, calls };
+    };
+    const runStep = (states: Partial<Record<ConditionKey, string>>, issues: Issue[] = []) => {
+      const { ran, calls } = execStep(states, issues);
+      expect(ran.status, ran.stderr).toBe(0);
+      return calls;
+    };
+    const create = (key: ConditionKey) => `issue create --title ${CONDITIONS[key]} --label ops-health --body-file body.md`;
+
+    it('runs under pipefail (`shell: bash`), not the default `bash -e`', () => {
+      expect(step).toMatch(/^ {8}shell: bash$/m);
+    });
+
+    it('fails, opening and closing nothing, when the issue lookup fails', () => {
+      const { ran, calls } = execStep({ 'deploy-failing': 'unhealthy', 'inbox-stale': 'ok' }, [], { FAKE_LIST_FAILS: '1' });
+      expect(ran.status).not.toBe(0);
+      expect(calls).toEqual([]);
+    });
+
+    it('opens one issue for each condition that turned unhealthy, with the run and runbook', () => {
+      const calls = runStep({ 'deploy-failing': 'unhealthy', 'deploy-behind': 'ok', 'inbox-stale': 'unhealthy' });
+      expect(calls).toEqual([create('deploy-failing'), create('inbox-stale')]);
+      const body = readFileSync(path.join(dir, 'body.md'), 'utf8');
+      expect(body).toContain('inbox-stale is unhealthy');
+      expect(body).toContain(`Seen by: ${RUN_URL}`);
+      expect(body).toContain('Runbook: https://github.com/o/r/blob/main/docs/DEVELOPMENT.md#operational-health');
+    });
+
+    it('does nothing while a condition stays unhealthy and its issue is open', () => {
+      expect(runStep({ 'deploy-failing': 'unhealthy' }, [{ number: 4, key: 'deploy-failing', state: 'OPEN', login: 'app/github-actions' }])).toEqual([]);
+    });
+
+    it('reopens its newest closed issue when a condition comes back', () => {
+      const calls = runStep({ 'inbox-failing': 'unhealthy' }, [
+        { number: 3, key: 'inbox-failing', state: 'CLOSED', login: 'github-actions[bot]' },
+        { number: 9, key: 'inbox-failing', state: 'CLOSED', login: 'github-actions' },
+      ]);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatch(/^issue reopen 9 --comment inbox-failing is unhealthy\|/);
+    });
+
+    it('closes the open issue once its condition is ok, and only that one', () => {
+      const calls = runStep({ 'inbox-deferring': 'ok', 'deploy-behind': 'ok' }, [
+        { number: 8, key: 'inbox-deferring', state: 'OPEN', login: 'evanlin23' },
+        { number: 2, key: 'deploy-behind', state: 'CLOSED', login: 'github-actions[bot]' },
+      ]);
+      expect(calls).toEqual([`issue close 8 --reason completed --comment Cleared: inbox-deferring is ok (${RUN_URL})`]);
+    });
+
+    it('neither opens nor closes anything for a condition it could not judge', () => {
+      expect(runStep({ 'deploy-failing': 'unknown' }, [])).toEqual([]);
+      expect(runStep({ 'deploy-failing': 'unknown' }, [{ number: 4, key: 'deploy-failing', state: 'OPEN', login: 'github-actions[bot]' }])).toEqual([]);
+    });
+
+    it('ignores a labelled issue with the same title that someone else opened', () => {
+      const calls = runStep({ 'deploy-failing': 'unhealthy', 'inbox-stale': 'ok' }, [
+        { number: 5, key: 'deploy-failing', state: 'OPEN', login: 'someone' },
+        { number: 6, key: 'inbox-stale', state: 'OPEN', login: 'github-actions-fan' },
+      ]);
+      expect(calls).toEqual([create('deploy-failing')]);
     });
   });
 });

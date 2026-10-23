@@ -4,6 +4,7 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
+import { BEACON_URL } from '../../scripts/cloudflare-analytics';
 import type { Finish, Rarity } from '../../src/engine/types';
 import { accessHeaders, stagingAccess, type StagingAccess } from './stagingAccess';
 
@@ -22,6 +23,10 @@ interface Stats {
   highestPackRef?: { setId: string; setVersion: number; nonce: number; publicKeyHex?: string };
   highestPackHandName?: string; highestPackFlexValue?: number;
 }
+
+/** The fixture player `monitor` seeds: its secret key (01 x32) and the key prefix its history records carry. */
+export const PLAYER_SECRET = '01'.repeat(32);
+export const PLAYER_KEY_PREFIX = '8a88e3dd7409f195';
 
 export interface MonitorOptions {
   routeHttp?: boolean;
@@ -93,6 +98,13 @@ function originOf(urlString: string): string {
 /** The relays the product itself dials; browser fixtures close them unconnected without recording. */
 const productRelayOrigins = new Set(HOF_RELAYS.map(originOf));
 const CSP_REPORT_PATH = '/__network-guard/csp-report';
+/**
+ * Stands in for Cloudflare Web Analytics' beacon, which Cloudflare Pages adds to production's pages
+ * (scripts/cloudflare-analytics.ts), so checks against the real site are never counted as visits. It
+ * does nothing. Its reporting endpoint and every other address at Cloudflare's analytics hosts are
+ * refused and recorded like any other origin, so a request to them fails the test at teardown.
+ */
+export const BEACON_STUB = '/* network guard: inert stand-in for Cloudflare Web Analytics */\n';
 
 function sanitizeUrl(urlString: string): string {
   try {
@@ -129,6 +141,8 @@ export function fetchFailureReason(error: unknown, secrets: readonly string[]): 
  * - Only intended local read requests/paths are permitted; writes are refused with 403.
  * - Redirects are inspected with maxRedirects: 0; any redirect escape outside allowed origin/path is refused with 403.
  * - CSP is applied to enforce boundaries inside workers.
+ * - Cloudflare Web Analytics' beacon script (a GET of exactly that URL) gets an inert stand-in
+ *   (BEACON_STUB). Its reporting endpoint is refused like any other origin; the stand-in never calls it.
  * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence, and on monitored
  *   requests whose fetch failed, named the same way (one failing because the page or context closed
  *   is teardown itself, and isn't recorded).
@@ -293,7 +307,7 @@ export async function monitor(
   const imgOrigins = ["'self'", 'data:', 'blob:', ...allowedOrigins].join(' ');
   const csp = [
     "default-src 'self' data: blob:",
-    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' ${BEACON_URL}`,
     "style-src 'self' 'unsafe-inline'",
     `connect-src ${connectOrigins}`,
     "font-src 'self' data:",
@@ -401,6 +415,10 @@ export async function monitor(
         return route.fulfill({ status: 204 });
       }
 
+      if (method === 'GET' && reqUrl.href === BEACON_URL) {
+        return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: BEACON_STUB });
+      }
+
       const refusal = refuse(method, reqUrl);
       if (refusal) {
         return route.fulfill({ status: refusal.status, contentType: 'text/plain', body: refusal.body });
@@ -450,12 +468,12 @@ export async function monitor(
     });
   }
 
-  await page.addInitScript(({ historyRecords, returning, keys, origin }) => {
+  await page.addInitScript(({ historyRecords, returning, keys, origin, player }) => {
     if (window.location.origin !== origin) return;
     // Fresh smoke seeds identity/audio only; optional performance history below is synthetic.
     if (!localStorage.getItem('brainrot-player-v1')) {
       localStorage.setItem('brainrot-player-v1', JSON.stringify({
-        secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: historyRecords, createdAt: 1,
+        secretKey: player.secret, name: 'Browser smoke fixture', nextNonce: historyRecords, createdAt: 1,
       }));
       localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
       if (returning) {
@@ -465,12 +483,12 @@ export async function monitor(
         // Performance shape only: repeated nonce0 cached cards at synthetic nonces. This is
         // intentionally NOT a verified history/profile, and never enters a proof verifier.
         localStorage.setItem(keys.HISTORY, JSON.stringify(Array.from({ length: historyRecords }, (_, n) => ({
-          s: 'right-now', v: 2, n, k: '8a88e3dd7409f195', c: 'bukangi,niu-laiG,bukangi,la-peace,verity', h: 'Pair', x: 1020, t: 1,
+          s: 'right-now', v: 2, n, k: player.keyPrefix, c: 'bukangi,niu-laiG,bukangi,la-peace,verity', h: 'Pair', x: 1020, t: 1,
         }))));
         localStorage.setItem('brainrot-data-version', '3');
       }
     }
-  }, { historyRecords, returning, keys: STORAGE_KEYS, origin });
+  }, { historyRecords, returning, keys: STORAGE_KEYS, origin, player: { secret: PLAYER_SECRET, keyPrefix: PLAYER_KEY_PREFIX } });
   return errors;
 }
 
@@ -505,6 +523,12 @@ export async function expectDecoded(images: Locator, count: number) {
     )).toBe(true);
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }
+}
+
+/** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
+export async function scaleText(page: Page, percent: number) {
+  await page.addStyleTag({ content: `html { font-size: ${percent}% !important; }` });
+  await page.evaluate(() => document.fonts.ready);
 }
 
 /** The summary ignores clicks on its cards and Share for its first moments (#627); a deliberate click waits for that to end. */

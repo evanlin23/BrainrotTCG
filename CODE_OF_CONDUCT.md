@@ -11,7 +11,8 @@ assume the people on the other side are other players.
 
 ## Reporting a problem or requesting removal
 
-Open an issue at <https://github.com/evanlin23/BrainrotTCG/issues>. GitHub Issues is the only
+Open an issue at <https://github.com/evanlin23/BrainrotTCG/issues/new/choose> and pick "Conduct
+report or removal request". GitHub Issues is the only
 public contact: there is no email address. Use it for a conduct report, a name you want reviewed, an
 entry you want removed from the Hall of Fame, or a takedown request for art or other content
 ([docs/POLICIES.md](docs/POLICIES.md), "Content and IP"). Say which entry or item, and don't paste
