@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { monitor } from './support';
+import { expectPackDropped, monitor } from './support';
 
 // Every screen loaded on demand, not just the shared pull (deferred-chunk.spec.ts), survives a slow or
 // failed chunk (#340): the four pages hold a skeleton, then offer Reload and Retry; the share sheets and
@@ -225,9 +225,14 @@ test.describe('sheets', () => {
       if (opener) await expect(opener).toBeFocused();
       const arrived = page.waitForResponse(chunkOf(chunkName));
       release();
-      // Long enough for the chunk to arrive and evaluate: closing retired it.
-      await arrived;
-      await page.waitForTimeout(500);
+      // Closing retired the load, so the chunk's arrival is the last thing that could open the sheet. Import
+      // the same module again: that settles once the first import has evaluated, then wait for an idle
+      // main thread so the render it could have caused has run.
+      const chunkUrl = (await arrived).url();
+      await page.evaluate(async (href) => {
+        await import(/* @vite-ignore */ href);
+        await new Promise<void>((done) => requestIdleCallback(() => done()));
+      }, chunkUrl);
       await expect(page.getByRole('dialog')).toHaveCount(dialogsUnder);
       expect(errors).toEqual([]);
     });
@@ -235,7 +240,7 @@ test.describe('sheets', () => {
 });
 
 declare global {
-  interface Window { longTasks: number[] }
+  interface Window { longTasks: number[]; longTaskObserver: PerformanceObserver }
 }
 
 test('long tasks while opening each page, cold and then with its chunk loaded (emulation)', async ({ page, baseURL }) => {
@@ -245,16 +250,19 @@ test('long tasks while opening each page, cold and then with its chunk loaded (e
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   await page.addInitScript(() => {
     window.longTasks = [];
-    new PerformanceObserver((list) => {
+    window.longTaskObserver = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) window.longTasks.push(entry.duration);
-    }).observe({ type: 'longtask', buffered: true });
+    });
+    window.longTaskObserver.observe({ type: 'longtask', buffered: true });
   });
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  await page.waitForTimeout(500);
+  await expectPackDropped(page);
+  // Takes what the observer has queued but not yet delivered, so the total is read at once, not after a pause.
   const total = () => page.evaluate(() => {
+    for (const entry of window.longTaskObserver.takeRecords()) window.longTasks.push(entry.duration);
     const sum = window.longTasks.reduce((a, b) => a + b, 0);
     window.longTasks = [];
     return Math.round(sum);
@@ -267,7 +275,8 @@ test('long tasks while opening each page, cold and then with its chunk loaded (e
       await (name === 'Settings' ? page.locator('.app-utilities').getByRole('button', { name, exact: true }) : tabs.getByRole('button', { name, exact: true })).click();
       const main = page.getByRole('main', { name, exact: true });
       await expect(content(main).first()).toBeVisible({ timeout: 30000 });
-      await page.waitForTimeout(300);
+      // The page has stopped working on the open once the main thread goes idle.
+      await page.evaluate(() => new Promise<void>((done) => requestIdleCallback(() => done())));
       report(`${name} ${when} open long tasks, 4x CPU (emulation)`, await total());
       await main.getByRole('button', { name: `Close ${name}`, exact: true }).click();
       await expect(main).toHaveCount(0);
