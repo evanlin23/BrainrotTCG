@@ -28,12 +28,27 @@ const savingData = () => (navigator as Navigator & { connection?: { saveData?: b
 const canOpenPack = () => pageForHash(location.hash) === null && !isLinkHash(location.hash);
 
 /**
- * Fetch the card back the first reveal shows, unless the visitor saves data or is elsewhere. It waits
+ * Fetch the card back the first reveal shows, unless the visitor saves data or is elsewhere, and run
+ * `alsoWarm` (other code the first reveal needs, which the caller loads) at the same time. It waits
  * for the sealed pack's art, which the first screen needs more.
  */
-export const warmUpFirstPack = (): void => {
+export const warmUpFirstPack = (alsoWarm: () => void = () => {}): void => {
   afterPackArt(() => whenShownAndIdle(() => {
     if (savingData() || !canOpenPack()) return;
     new Image().src = cardBackImage;
+    alsoWarm();
   }));
+};
+
+/**
+ * Fetch the Argon2 chunk once the page is idle, on every page and whatever the visitor's data setting:
+ * it is what the main-thread mining fallback uses (a ticket worker that can't load, the Best cards
+ * rebuild, verifying a pull), and a player who has gone offline can't fetch it then. On a page that can
+ * open a pack it waits for the sealed pack's art like the card back does. A failed fetch is ignored: the
+ * mining that needs it tries again.
+ */
+export const warmUpArgon2 = (): void => {
+  const warm = () => whenIdle(() => { import('../engine/argon2').catch(() => {}); });
+  if (canOpenPack()) afterPackArt(warm);
+  else warm();
 };

@@ -40,4 +40,11 @@ describe("the sealed pack's art", () => {
     act(() => { wrapper().dispatchEvent(new Event(event)); });
     expect(packArt.packArtSettled).toHaveBeenCalledOnce();
   });
+
+  it('lets them start when the pack leaves before its art has loaded or failed (#776)', () => {
+    expect(packArt.packArtSettled).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    expect(packArt.packArtSettled).toHaveBeenCalledOnce();
+    root = createRoot(container);
+  });
 });

@@ -7,8 +7,7 @@ import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../..
 import { holdLive } from '../../game/admission';
 import { reloadPage } from '../../game/reload';
 import { whenIdle } from '../../game/idle';
-import { triggerRarityConfetti, triggerHoloSparkles } from './confettiEffects';
-import { buzz } from '../../utils/motion';
+import { buzz, prefersReducedMotion } from '../../utils/motion';
 import { useOpenCue } from '../../hooks/useOpenCue';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
@@ -26,6 +25,7 @@ import { revealAnnouncement } from '../cards/cardLabel';
 import { REFUSAL_COPY } from './refusal';
 import { usePackLifecycle } from './usePackLifecycle';
 import { stageEntrance } from './stageEntrance';
+import { loadConfetti } from './loadConfetti';
 import { packImageUrl } from '../../content/art';
 import { PlayerUnreadableError, StaleSaveError, type SaveMark } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
@@ -139,6 +139,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const revealLockedUntilRef = useRef(0);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const effectTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  /** The card whose confetti is still on its way (a slow import), so a late arrival can tell it's out of date. */
+  const burstForRef = useRef<CardWithMeta['uniqueId'] | null>(null);
   const skippingRef = useRef(false);
   /** What a ticket that lands after the player left needs, as of the latest render. */
   const preloadedRef = useRef<PreloadedAssets | null>(null);
@@ -195,6 +197,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     if (!isOpening || !preloadedAssets || !effectsOn) return;
     return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
   }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
+
+  // Fetched as the reveal opens, well before its first flip, so the first burst isn't held up. Not
+  // under reduced motion, which never bursts.
+  const particlesOn = settings.particlesEnabled && !reducedMotion;
+  useEffect(() => {
+    if (isOpening && particlesOn) loadConfetti().catch(() => {});
+  }, [isOpening, particlesOn]);
 
   // Mine the next pack's ticket while this one is on screen.
   useEffect(() => {
@@ -339,6 +348,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const clearEffectTimers = useCallback(() => {
     effectTimersRef.current.forEach(clearTimeout);
     effectTimersRef.current.clear();
+    burstForRef.current = null;
   }, []);
 
   const finishPack = useCallback(() => {
@@ -559,14 +569,23 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     // A short buzz on phones: a tick for any card, a double for big pulls. None under reduced motion.
     buzz(isBigPull(currentCard) ? [18, 60, 30] : 8);
 
-    if (settings.particlesEnabled) {
+    if (settings.particlesEnabled && !prefersReducedMotion()) {
       // A finish or misprint gets at least an Epic's confetti.
       const modified = !!currentCard.finish || !!currentCard.misprint;
       const plainish = currentCard.rarity === 'COMMON' || currentCard.rarity === 'UNCOMMON' || currentCard.rarity === 'RARE';
-      triggerRarityConfetti(modified && plainish ? 'EPIC' : currentCard.rarity);
-      if (currentCard.isHolo) {
-        triggerHoloSparkles();
-      }
+      const rarity = modified && plainish ? 'EPIC' : currentCard.rarity;
+      const holo = currentCard.isHolo;
+      const flipped = currentCard.uniqueId;
+      burstForRef.current = flipped;
+      loadConfetti().then(
+        ({ triggerRarityConfetti, triggerHoloSparkles }) => {
+          // Late (the first load was slow): a later flip or the end of the pack has moved on.
+          if (burstForRef.current !== flipped) return;
+          triggerRarityConfetti(rarity);
+          if (holo) triggerHoloSparkles();
+        },
+        () => {},
+      );
     }
   }, [openedCards, currentIndex, preloadedAssets, playAndCleanup, playRandom, settings, effectsVolume, pauseBigPulls]);
 
