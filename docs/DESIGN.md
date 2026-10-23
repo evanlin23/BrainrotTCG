@@ -377,7 +377,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   phone (899 px wide or less) it lies over the header, bottom-aligned, from the left gutter to the Settings
   button (the header puts Settings at the right edge), so it covers no set step, pack, guide link or tab; the
   kicker is one line, a level-up's line is clamped to one line, and the full text is still the button's name.
-  On a wide screen it sits in the free band at the right, clear of the nav. It is at least 44 px tall at every
+  On a wide screen it lies over the wordmark too, left-aligned and at most 24rem wide (the wordmark is about 9.7em of Rubik Glitch, over 31rem at the logo's cap), clear of the nav. It is at least 44 px tall at every
   size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
   hold the toasts until they clear, and a toast the player had 1.5 s to see is let go then, not shown again in
   full. In pack focus mode it still overlays, under the pack's X, or beside the X at the right on a short

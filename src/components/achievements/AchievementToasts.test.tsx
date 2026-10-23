@@ -40,6 +40,7 @@ afterEach(() => {
   container.remove();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('notices during a big pull\'s showcase', () => {
@@ -196,7 +197,6 @@ describe('how long a toast stays up (#718)', () => {
     act(() => document.querySelector<HTMLElement>('.toast')!.focus());
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
     expect(dismissed).toEqual([['level-2']]);
-    vi.restoreAllMocks();
   });
 
   it('does not stay held after a sheet hides a toast the pointer was on', async () => {

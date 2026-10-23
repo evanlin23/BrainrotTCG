@@ -70,10 +70,6 @@ const TOAST_FADE: Variants = {
   leave: { opacity: 0 },
 };
 
-/**
- * Achievement unlocks, one small toast at a time at the top of the screen. A burst (one lucky pack
- * can unlock seven) becomes a single "N achievements" toast rather than a wall over the game.
- */
 /** Whether the focus on this element is the keyboard's (or the browser can't say, so it counts). */
 const focusVisible = (el: HTMLElement) => {
   try {
@@ -83,6 +79,10 @@ const focusVisible = (el: HTMLElement) => {
   }
 };
 
+/**
+ * Achievement unlocks, one small toast at a time at the top of the screen. A burst (one lucky pack
+ * can unlock seven) becomes a single "N achievements" toast rather than a wall over the game.
+ */
 const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = false }: AchievementToastsProps) => {
   // Level-ups and the like go one at a time; a run of achievements at the front can be grouped.
   const leadingAchievements = queue.findIndex((t) => t.kicker) === -1 ? queue : queue.slice(0, queue.findIndex((t) => t.kicker));

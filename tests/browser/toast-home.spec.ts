@@ -113,6 +113,8 @@ for (const viewport of VIEWPORTS) {
 
     for (const kicker of [/achievements? unlocked/i, /^Level up$/]) {
       await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 25000 });
+      // Held at once, so this toast's own timer can't expire while the checks run.
+      await hold(page);
       await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
       expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
       expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
@@ -135,6 +137,7 @@ test('at 200% text on a 360px phone both toasts leave every control uncovered an
 
   for (const kicker of [/achievements? unlocked/i, /^Level up$/]) {
     await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 25000 });
+    await hold(page);
     await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
     expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
     // The level-up's line is clamped on screen; the button's name still has all of it.

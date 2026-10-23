@@ -486,7 +486,7 @@ function App() {
         </div>
       </header>
 
-      {/* Right under the header, and the save warning when it shows: a toast never covers either. Held while a pack is torn and revealed, so it is never over the pack. */}
+      {/* Right under the header, and the save warning when it shows: a toast takes no room, and on the home screen lies over the header's wordmark. Held while a pack is torn and revealed, so it is never over the pack. */}
       <AchievementToasts
         queue={visibleNotifications}
         onDismiss={dismissNotifications}
