@@ -385,7 +385,7 @@ Reports come from their own tools (`test-results/...`) or a compact `{status, da
 `test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
 saves or secrets). The coordinator writes `ci-review`, `test-runtime` and `dependency-advisories`
 itself during a due review, from what it already read (PR checks, last CI timings, advisory lists),
-before `record`; `scripts/branch-inventory.ts --evidence` writes `branch-hygiene` (Branch hygiene,
+before `record`; `scripts/branch-inventory.ts --confirm=<batch> --evidence` writes `branch-hygiene` (Branch hygiene,
 below); `scripts/defect-replay.ts` writes `defect-replay`
 (below; a pass counts only for a replayed commit on `origin/main`, as for performance); a person writes `physical-device`, `screen-reader`,
 `native-share` and `compatibility` when they have a result. The cadence never opens a recurring
@@ -861,21 +861,23 @@ Until that exists, this section and CLAUDE.md are the restriction.
 review spends part of its budget on one batch of at most 25 deletions. Holds and sleep apply as for
 any other work, and there is no separate wake-up.
 
-**Inventory (read-only).** In a scratch directory, outside the checkout:
+**Inventory (read-only).** Keep the clone, `pulls.json`, `keep.txt` and the outputs in a scratch
+directory `<scratch>` outside the checkout, and run the script from the checkout:
 
 ```sh
-git clone --bare --filter=blob:none https://github.com/evanlin23/BrainrotTCG.git inv.git
-git --git-dir=inv.git fetch --filter=blob:none origin '+refs/pull/*/head:refs/pull/*/head'
+git clone --bare --filter=blob:none https://github.com/evanlin23/BrainrotTCG.git <scratch>/inv.git
+# Refresh: a bare clone has no fetch refspec, so a plain fetch would leave every branch tip stale.
+git --git-dir=<scratch>/inv.git fetch --prune origin '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head'
 # Every page of GET /repos/evanlin23/BrainrotTCG/pulls?state=all&per_page=100, saved as one JSON
 # list of pages, plus the protected branch names from GET .../branches?protected=true.
-npx tsx scripts/branch-inventory.ts --git-dir=inv.git --pulls=pulls.json --keep=keep.txt \
-  --protected=main --evidence > inventory.md
+npx tsx scripts/branch-inventory.ts --git-dir=<scratch>/inv.git --pulls=<scratch>/pulls.json \
+  --keep=<scratch>/keep.txt --protected=main > <scratch>/inventory.md
 ```
 
 `keep.txt` names branches to keep whatever their PR says: the branches of active sessions and of
 the ledger's `current` and `order` lines, every branch a ledger hold mentions, and branches that
-docs or open issues refer to. The script also writes the `branch-hygiene` evidence file. It sorts
-each branch into one category; the first that applies wins:
+docs or open issues refer to. The script sorts each branch into one category; the first that
+applies wins:
 
 | Category | Kept or retired |
 | --- | --- |
@@ -884,7 +886,8 @@ each branch into one category; the first that applies wins:
 | kept | kept: on the keep list |
 | dependency | kept: Dependabot manages its own branches |
 | recent | kept: tip committed in the last day, or a `claude/batch-*` branch in the last two days |
-| candidate | retired: the tip is a merged PR's head, or an ancestor of it |
+| candidate | retired: the tip is a merged PR's head, or an ancestor of it, and the clone's `refs/pull/<n>/head` is that head |
+| unverified | kept: a merged PR's head holds the tip, but the clone has no `refs/pull/<n>/head` at it; refresh and re-run |
 | merged-newer | kept: a merged PR, but the branch has commits after the merged head |
 | closed-unmerged | kept: a closed PR that never merged may hold unique work |
 | no-pr | kept: no PR from this repository, so its intent is unknown |
@@ -900,15 +903,20 @@ How these rules hold up:
 
 **Delete (coordinator only).** Each candidate line reads `branch|tip|merged-PR#|merged-head`.
 1. Re-read the ledger issue's holds. If they can't be loaded, delete nothing.
-2. Refresh the clone and the PR list, then re-run with `--confirm=<candidate lines>`. It prints
-   only the lines whose branch, tip, PR and merged head are all unchanged. A skipped line is
-   reclassified by the next inventory, not deleted.
-3. Delete at most 25 confirmed lines, each with a lease on its recorded tip, so a push since the
+2. Put at most 25 candidate lines in `<scratch>/batch.txt`. Refresh the clone with the same command
+   as above,
+   `git --git-dir=<scratch>/inv.git fetch --prune origin '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head'`,
+   and fetch the PR list again, then re-run the inventory command with
+   `--confirm=<scratch>/batch.txt --evidence` added, writing to `<scratch>/confirmed.txt`. It prints only the lines whose branch, tip, PR
+   and merged head are all unchanged, and writes the `branch-hygiene` evidence file under
+   `test-results/quality-evidence/` in the working directory, so run it from the checkout. A
+   skipped line is reclassified by the next inventory, not deleted. An empty, malformed or
+   oversized batch exits 2 and writes nothing.
+3. Delete the confirmed lines, each with a lease on its recorded tip, so a push since the
    check makes the delete fail rather than lose work:
    `git push --force-with-lease=refs/heads/<branch>:<tip> origin :refs/heads/<branch>`.
 4. Record the deletion manifest (branch, former tip, PR, merged head) and the before and after
-   totals on #710. The first inventory is docs/branch-inventory/2026-10-23.md; later ones go on
-   #710 rather than into the repository.
+   totals on #710. Inventories are posted on #710, not committed to the repository.
 Never issue a broad or age-based delete. Never delete tags, releases, set or proof files, deploy
 artifacts, issues or anyone's local work. Other cleanup gets its own issue.
 
@@ -927,7 +935,9 @@ repository and holds the dry runs:
 - open, draft and stacked PRs;
 - a held branch;
 - a squash merge;
+- a merged head with no `refs/pull/<n>/head` in the clone;
 - a merged branch with newer commits;
 - a closed-unmerged branch;
 - a fork that reuses a name;
-- a tip that changed before confirmation.
+- a tip that changed before confirmation, end to end through a refresh with the command above;
+- a confirm batch that is empty, malformed or over 25 lines.

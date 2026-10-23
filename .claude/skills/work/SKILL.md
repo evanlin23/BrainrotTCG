@@ -34,7 +34,8 @@ merges, so a compaction or lost container costs little, and don't reimpose a cap
 5. Quality review: between tasks, `npx tsx scripts/quality-review.ts check --state-file=.claude/state/NOW.md`
    at setup and each checkpoint. Not due prints one or two lines: carry on. Due: follow its slice and
    `record` as in docs/DEVELOPMENT.md (Quality review cadence), then replace the ledger's `quality review:` line.
-   Its `branch-hygiene` signal is one confirmed batch of at most 25 branch deletions (Branch hygiene).
+   Its `branch-hygiene` signal is one batch of at most 25 branch deletions, confirmed with
+   `--confirm --evidence` (Branch hygiene).
 
 ## 2. Keep the ledger (budget: under 80 lines, 3,600 characters / ~900 tokens)
 
