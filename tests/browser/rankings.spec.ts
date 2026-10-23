@@ -1,6 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
-import { monitor } from './support';
+import { monitor, relaysAnswerEmpty } from './support';
 
 // Rankings pages its rows, and Profile's best pulls lead with the best packs. The leaderboard is a synthetic
 // list served in place of hall-of-fame.json: its proofs are fake, and the page never re-derives a
@@ -20,16 +20,6 @@ const entries = Array.from({ length: 45 }, (_, i) => ({
   cards: [],
   issue: 1000 + i,
   githubUser: 'fixture',
-}));
-
-/**
- * Stand-in relays that answer every read with "nothing stored". `monitor` closes every socket, which the
- * page reads as the live feed being down; this is a relay that works and has nothing, so an empty board
- * is a real one. Nothing leaves the browser.
- */
-const relaysAnswerEmpty = (page: Page) => page.routeWebSocket(/.*/, (socket) => socket.onMessage((message) => {
-  const [type, subscription] = JSON.parse(String(message)) as [string, string];
-  if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
 }));
 
 test('Rankings shows 20 rows, and each Show more adds 20 from the keyboard', async ({ page, baseURL }) => {
