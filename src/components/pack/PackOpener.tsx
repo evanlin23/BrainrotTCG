@@ -1,5 +1,6 @@
+import type { ComponentProps } from 'react';
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useIsPresent } from 'framer-motion';
 import type { CardWithMeta } from '../cards/Card';
 import type { Settings } from '../../types';
 import type { SetDefinition } from '../../engine';
@@ -7,8 +8,7 @@ import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../..
 import { holdLive } from '../../game/admission';
 import { reloadPage } from '../../game/reload';
 import { whenIdle } from '../../game/idle';
-import { triggerRarityConfetti, triggerHoloSparkles } from './confettiEffects';
-import { buzz } from '../../utils/motion';
+import { buzz, prefersReducedMotion } from '../../utils/motion';
 import { useOpenCue } from '../../hooks/useOpenCue';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
@@ -26,12 +26,26 @@ import { revealAnnouncement } from '../cards/cardLabel';
 import { REFUSAL_COPY } from './refusal';
 import { usePackLifecycle } from './usePackLifecycle';
 import { stageEntrance } from './stageEntrance';
+import { loadConfetti } from './loadConfetti';
 import { packImageUrl } from '../../content/art';
 import { PlayerUnreadableError, StaleSaveError, type SaveMark } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
 
 const Motion = motion;
+
+/**
+ * A stage inside the pack/reveal AnimatePresence that takes itself out of the flow the render it
+ * starts leaving (PackOpener.css, `.lifted[data-leaving]`), so it overlaps whatever comes in. This is
+ * what AnimatePresence's popLayout mode does, but popLayout measures the leaving element in the commit
+ * that drops it (framer-motion 14 reads its computed style), and that commit is the one that brings
+ * the first card in: the browser lays the page out there, in the middle of the longest stall on a
+ * slow phone (#266). The attribute is rendered, so nothing is read.
+ */
+const Lifted = ({ className, ...props }: ComponentProps<typeof Motion.div>) => {
+  const present = useIsPresent();
+  return <Motion.div {...props} className={`lifted ${className ?? ''}`} data-leaving={present ? undefined : ''} />;
+};
 
 /** Where the sealed pack's stage rests. */
 const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0 };
@@ -139,6 +153,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const revealLockedUntilRef = useRef(0);
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const effectTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  /** The card whose confetti is still on its way (a slow import), so a late arrival can tell it's out of date. */
+  const burstForRef = useRef<CardWithMeta['uniqueId'] | null>(null);
   const skippingRef = useRef(false);
   /** What a ticket that lands after the player left needs, as of the latest render. */
   const preloadedRef = useRef<PreloadedAssets | null>(null);
@@ -196,10 +212,18 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
   }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
 
-  // Mine the next pack's ticket while this one is on screen.
+  // Fetched as the reveal opens, well before its first flip, so the first burst isn't held up. Not
+  // under reduced motion, which never bursts.
+  const particlesOn = settings.particlesEnabled && !reducedMotion;
   useEffect(() => {
-    if (!isOpening) prefetchNextPack(set);
-  }, [isOpening, set]);
+    if (isOpening && particlesOn) loadConfetti().catch(() => {});
+  }, [isOpening, particlesOn]);
+
+  // Mine the next pack's ticket while this one is on screen. Its art is fetched only if nothing covers
+  // Open when this runs, so a cover's change runs it again.
+  useEffect(() => {
+    if (!isOpening) prefetchNextPack(set, disabled);
+  }, [isOpening, set, disabled]);
 
   // From the tear on, the ticket is spent: the app mustn't swap sets (or open a sheet over it) until
   // the pack is recorded. The ticket can still be mining here on a slow phone.
@@ -254,7 +278,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     isCutting,
     isPressing,
     cutPoints,
-    sparks,
+    sparkCanvasRef,
     resetCutState,
     completeCut,
     handlePointerDown,
@@ -328,10 +352,18 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   }, [refusal, handleOpen, packRef, onOpenSave]);
   /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
   const stageRef = useRef<HTMLDivElement>(null);
+  /** Whether the player has scrolled the stage since it was last at the top. */
+  const stageScrolledRef = useRef(false);
+  const markStageScrolled = useCallback(() => { stageScrolledRef.current = true; }, []);
   // The stage is on its way out when the cards come in, and the reveal must not inherit anything it
-  // scrolled to: it goes back to the top as opening starts.
+  // scrolled to: it goes back to the top as opening starts. Setting scrollTop makes the browser lay
+  // the whole page out inside the commit that brings the cards in, which on a slow phone is the
+  // longest stall between the tear and the first card (#266). A stage that never scrolled (every
+  // phone, and most packs on a desktop) is already at the top, so it is left alone.
   useLayoutEffect(() => {
-    if (isOpening && stageRef.current) stageRef.current.scrollTop = 0;
+    if (!isOpening || !stageScrolledRef.current) return;
+    stageScrolledRef.current = false;
+    if (stageRef.current) stageRef.current.scrollTop = 0;
   }, [isOpening]);
   // A refusal replaces the button the player was on: its Try again takes focus.
   const retryButtonRef = useCallback((el: HTMLButtonElement | null) => focusIfFree(el), []);
@@ -339,6 +371,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const clearEffectTimers = useCallback(() => {
     effectTimersRef.current.forEach(clearTimeout);
     effectTimersRef.current.clear();
+    burstForRef.current = null;
   }, []);
 
   const finishPack = useCallback(() => {
@@ -559,14 +592,23 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     // A short buzz on phones: a tick for any card, a double for big pulls. None under reduced motion.
     buzz(isBigPull(currentCard) ? [18, 60, 30] : 8);
 
-    if (settings.particlesEnabled) {
+    if (settings.particlesEnabled && !prefersReducedMotion()) {
       // A finish or misprint gets at least an Epic's confetti.
       const modified = !!currentCard.finish || !!currentCard.misprint;
       const plainish = currentCard.rarity === 'COMMON' || currentCard.rarity === 'UNCOMMON' || currentCard.rarity === 'RARE';
-      triggerRarityConfetti(modified && plainish ? 'EPIC' : currentCard.rarity);
-      if (currentCard.isHolo) {
-        triggerHoloSparkles();
-      }
+      const rarity = modified && plainish ? 'EPIC' : currentCard.rarity;
+      const holo = currentCard.isHolo;
+      const flipped = currentCard.uniqueId;
+      burstForRef.current = flipped;
+      loadConfetti().then(
+        ({ triggerRarityConfetti, triggerHoloSparkles }) => {
+          // Late (the first load was slow): a later flip or the end of the pack has moved on.
+          if (burstForRef.current !== flipped) return;
+          triggerRarityConfetti(rarity);
+          if (holo) triggerHoloSparkles();
+        },
+        () => {},
+      );
     }
   }, [openedCards, currentIndex, preloadedAssets, playAndCleanup, playRandom, settings, effectsVolume, pauseBigPulls]);
 
@@ -724,21 +766,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         />
       )}
       {/* The torn pack flies off as the first card back fades in, not before it: waiting for the exit
-          left an empty stage between the tear and the reveal (#312 P2-6). popLayout lifts the leaving
-          pack out of the flow, so the two overlap in place. */}
-      <AnimatePresence mode="popLayout">
+          left an empty stage between the tear and the reveal (#312 P2-6). The leaving one lifts itself
+          out of the flow (Lifted), so the two overlap in place. */}
+      <AnimatePresence>
         {!isOpening ? (
-          <Motion.div
+          <Lifted
             key="pack"
             ref={stageRef}
+            onScroll={markStageScrolled}
             {...stageEntrance(landed, reducedMotion)}
-            onAnimationStart={(definition) => {
-              markLanded();
-              // A stage that comes back while it is still fading out is the same element. framer-motion 12
-              // left its leaving mark (which stops taps, PackOpener.css) on it; 14 clears it. Coming back
-              // clears it here too, so taps don't depend on the framer version.
-              if (definition === STAGE_AT_REST) stageRef.current?.removeAttribute('data-motion-pop-id');
-            }}
+            onAnimationStart={markLanded}
             animate={shown ? STAGE_AT_REST : false}
             // Quick, on its own timing: the drop-in spring's long tail left the screen blank before the reveal.
             exit={{ scale: 1.25, opacity: 0, transition: { duration: 0.25, ease: 'easeIn' } }}
@@ -759,14 +796,14 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               nudging={nudging === 'miss'}
               fellShort={nudging === 'short'}
               cutPoints={cutPoints}
-              sparks={sparks}
+              sparkCanvasRef={sparkCanvasRef}
               cue={cue}
               onCueEnd={endCue}
               onTouch={touchPack}
             />
-          </Motion.div>
+          </Lifted>
         ) : (
-          <Motion.div
+          <Lifted
             key="opening"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -797,7 +834,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 holdOptional={!disabled}
               />
             )}
-          </Motion.div>
+          </Lifted>
         )}
       </AnimatePresence>
     </div>

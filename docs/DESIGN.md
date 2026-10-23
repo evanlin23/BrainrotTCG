@@ -68,10 +68,15 @@ from a 390 px wide screen.
    visible focus ring; touch targets are at least 44 px; panels trap focus and close with Escape;
    motion is reduced when the OS asks for it.
 10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading. Card art shows a
-    placeholder while it loads (a shimmer only when motion is allowed; the 26-30px thumbs in Rankings and pull rows use a lighter wash so they don't read as dark boxes; a finish caption waits for the art, #762) and a hatched slot if it fails; the
-    card viewer offers Retry, and failed art also retries when the device comes back online. Standard UI transitions
-    are 120–320 ms (rare pull celebrations and card shimmers run longer, and specific card/reveal effects animate
-    properties like box-shadow or clip-path).
+    placeholder while it loads: a shimmer only when motion is allowed, and a lighter wash on the
+    26-30px thumbs in Rankings and pull rows so they don't read as dark boxes. A finish caption waits
+    for the art. The placeholder gives way once the art has loaded. Art that fails becomes a hatched
+    slot. The faces a screen shows first are fetched at high priority (#762). The next pack's art
+    isn't fetched if a page, a shared pull, a profile or a share sheet covers the Open screen when
+    its ticket is asked for; it is asked for again once the cover closes. A cover that opens later
+    doesn't stop it. The card viewer offers Retry, and failed art also retries when the device comes
+    back online. Standard UI transitions are 120–320 ms (rare pull celebrations and card shimmers run
+    longer, and specific card/reveal effects animate properties like box-shadow or clip-path).
 
 ## First-pack flow decision (#898)
 
@@ -264,7 +269,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   stops, `--seam-*` and `--pack-gold-*` (pack art), and single effects such as `--shine`, `--sheen`,
   `--glint` and `--holo-aura`. A sheet that needs a new colour adds a token first.
   `tests/style-scan.test.ts` fails on a literal anywhere else; its allowlist names each exception and
-  why (today only the tear sparks' per-spark `hsl(var(--hue) …)`).
+  why (today it is empty).
 - **Canvas.** The share images draw on a canvas, which can't read CSS variables, so
   `src/styles/palette.ts` mirrors the colours code paints with (ink, paper, brand, chip, rarity,
   finish and foil). The same test fails if it drifts from `tokens.css`; change `tokens.css` first.

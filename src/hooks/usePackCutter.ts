@@ -120,7 +120,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
   const [isPressing, setIsPressing] = useState(false);
   const [cutPoints, setCutPoints] = useState<CutPoint[]>([]);
 
-  const { sparks, emitSpark, clearSparks } = useSparks(particlesEnabled);
+  const { sparkCanvasRef, emitSpark, clearSparks } = useSparks(particlesEnabled);
 
   const packRef = useRef<HTMLDivElement>(null);
   /** The stroke from a press in the start band, or null. */
@@ -461,7 +461,7 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
     isCutting,
     isPressing,
     cutPoints,
-    sparks,
+    sparkCanvasRef,
     resetCutState,
     completeCut,
     handlePointerDown,

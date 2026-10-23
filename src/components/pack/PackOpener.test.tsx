@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
-import { openPack } from '../../game/pulls';
+import { openPack, prefetchNextPack } from '../../game/pulls';
 import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
@@ -26,7 +26,7 @@ vi.mock('../../hooks/usePackCutter', () => ({
       packRef: { current: null },
       isCutting: cutter.cutting,
       cutPoints: [],
-      sparks: [],
+      sparkCanvasRef: () => {},
       resetCutState: cutter.resetCutState,
       completeCut: cutter.completeCut,
       handlePointerDown: () => {},
@@ -38,7 +38,37 @@ vi.mock('../../hooks/usePackCutter', () => ({
   },
 }));
 vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
-vi.mock('./confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
+// The confetti chunk is a dynamic import, and in a browser every caller's import() of a module gets the
+// same promise. So `loaded` is one promise per test, handed to every caller, and `arrive` resolves it for all
+// of them at once. `fails` makes every import reject, as one with no network does.
+const confetti = vi.hoisted(() => {
+  const state = {
+    fetches: 0,
+    bursts: [] as string[],
+    loaded: Promise.resolve() as Promise<void>,
+    arrive: () => {},
+    fails: false,
+    /** The module once it is in: bursts are recorded in `bursts`. */
+    loadConfetti: () => {
+      state.fetches += 1;
+      if (state.fails) return Promise.reject(new Error('Failed to fetch dynamically imported module'));
+      return state.loaded.then(() => ({
+        triggerRarityConfetti: (rarity: string) => { state.bursts.push(rarity); },
+        triggerHoloSparkles: () => {},
+      }));
+    },
+    /** From here the chunk is in; or, with `pending`, still on its way until `arrive`. */
+    reset: (pending = false) => {
+      state.fetches = 0;
+      state.bursts = [];
+      state.fails = false;
+      state.loaded = Promise.resolve();
+      if (pending) state.loaded = new Promise<void>((resolve) => { state.arrive = resolve; });
+    },
+  };
+  return state;
+});
+vi.mock('./loadConfetti', () => ({ loadConfetti: () => confetti.loadConfetti(), warmConfetti: () => {} }));
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
 let root: Root;
@@ -109,6 +139,16 @@ describe('optional work around a pack', () => {
     await render(false);
     await admitOptional(work);
     expect(work).toHaveBeenCalledOnce();
+  });
+});
+
+describe("the next pack's art", () => {
+  it('waits while a page or a sheet covers the pack, and is fetched once nothing does (#762)', async () => {
+    vi.mocked(prefetchNextPack).mockClear();
+    await render(true);
+    expect(vi.mocked(prefetchNextPack).mock.calls).toEqual([[SETS[0], true]]);
+    await render(false);
+    expect(vi.mocked(prefetchNextPack).mock.calls).toEqual([[SETS[0], true], [SETS[0], false]]);
   });
 });
 
@@ -382,6 +422,7 @@ describe('the sealed pack stage on a desktop window', () => {
       // The stage scrolls here (PackOpener.css); the player has wheeled down to the bottom of the pack.
       const stage = document.querySelector<HTMLElement>('.pack-display')!;
       stage.scrollTop = 420;
+      stage.dispatchEvent(new Event('scroll')); // jsdom doesn't scroll on its own; a browser does this
       expect(stage.scrollTop).toBe(420);
 
       act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
@@ -395,9 +436,59 @@ describe('the sealed pack stage on a desktop window', () => {
       vi.useRealTimers();
     }
   });
+
+  // Writing scrollTop, or measuring the stage and its room, inside the commit that brings the cards in
+  // makes the browser lay the page out there, in the middle of the longest stall between the tear and
+  // the first card on a slow phone (#266). The hold measures once, as the pack is torn.
+  it('does not write the scroll or measure the stage in the commit that brings the cards in', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const set = SETS[0];
+    const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+    vi.mocked(openPack).mockResolvedValue({
+      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
+    } as unknown as Awaited<ReturnType<typeof openPack>>);
+    const scrollWrites: Element[] = [];
+    const measured: unknown[] = [];
+    const scrollTop = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get: scrollTop.get,
+      set(this: Element, value: number) { scrollWrites.push(this); scrollTop.set!.call(this, value); },
+    });
+    const getComputedStyle = window.getComputedStyle;
+    const computedSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation((element, ...rest) => {
+      measured.push(element);
+      return getComputedStyle.call(window, element, ...rest);
+    });
+    const getBoundingClientRect = Element.prototype.getBoundingClientRect;
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      measured.push(this);
+      return getBoundingClientRect.call(this);
+    });
+    try {
+      await render(false);
+      const stage = document.querySelector<HTMLElement>('.pack-display')!;
+      const room = stage.parentElement!;
+      act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
+      scrollWrites.length = 0;
+      measured.length = 0;
+
+      await act(async () => { vi.advanceTimersByTime(500); });
+      await act(async () => {});
+      expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
+      expect(scrollWrites).not.toContain(stage);
+      expect(measured).not.toContain(stage);
+      expect(measured).not.toContain(room);
+    } finally {
+      Object.defineProperty(Element.prototype, 'scrollTop', scrollTop);
+      computedSpy.mockRestore();
+      rectSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
 
-describe('the random effect after a flip', () => {
+describe('what a flip sets off', () => {
   const deal = async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     vi.stubGlobal('requestIdleCallback', (task: () => void) => task());
@@ -471,6 +562,88 @@ describe('the random effect after a flip', () => {
     act(() => root.unmount());
     await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
     expect(plays).toEqual([CARD_FLIP_SRC]);
+  });
+
+  describe('and the confetti that comes with it (#776)', () => {
+    beforeEach(() => confetti.reset());
+    // The last card on stage: the one before it may still be leaving.
+    const faceUp = () => document.querySelectorAll('.reveal-card .card-back').item(document.querySelectorAll('.reveal-card .card-back').length - 1)?.getAttribute('aria-hidden') === 'true';
+
+    it('bursts for the card flipped once the chunk is in', async () => {
+      await deal();
+      flip();
+      await vi.waitFor(() => expect(confetti.bursts).toHaveLength(1));
+    });
+
+    it('still flips the card, and the next one, when the chunk never loads', async () => {
+      confetti.fails = true;
+      await deal();
+      expect(faceUp()).toBe(false);
+      flip();
+      await act(async () => {});
+      expect(faceUp()).toBe(true);
+      // On to the next card: the import is tried again, fails again, and the flip still lands.
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(false));
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(true));
+      expect(confetti.fetches).toBeGreaterThan(1);
+      expect(confetti.bursts).toEqual([]);
+    });
+
+    it('bursts for the card flipped when a slow chunk lands while it is still the card on show', async () => {
+      confetti.reset(true);
+      await deal();
+      flip();
+      expect(confetti.bursts).toEqual([]);
+      await act(async () => { confetti.arrive(); });
+      expect(confetti.bursts).toHaveLength(1);
+    });
+
+    it('bursts only for the card on show when the chunk lands after a later flip', async () => {
+      confetti.reset(true);
+      await deal();
+      // The first flip turns a card over, the second moves on to the next, the third turns that one over.
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(true));
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(false));
+      confetti.fetches = 0;
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(true));
+      expect(confetti.fetches).toBe(1);
+      await act(async () => { confetti.arrive(); });
+      // Two flips asked for a burst; the chunk arrived for both at once, and only the later card is still on show.
+      expect(confetti.bursts).toHaveLength(1);
+    });
+
+    it('does not burst when a slow chunk lands after the pack was closed', async () => {
+      confetti.reset(true);
+      await deal();
+      flip();
+      act(() => document.querySelector<HTMLButtonElement>('.pack-close')!.click());
+      await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+      await act(async () => { confetti.arrive(); });
+      expect(confetti.bursts).toEqual([]);
+    });
+
+    it('does not burst when a slow chunk lands after the opener unmounted', async () => {
+      confetti.reset(true);
+      await deal();
+      flip();
+      act(() => root.unmount());
+      await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+      await act(async () => { confetti.arrive(); });
+      expect(confetti.bursts).toEqual([]);
+    });
+
+    it('fetches nothing when the device asks for less motion, since nothing would burst', async () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: /reduce/.test(query), addEventListener() {}, removeEventListener() {} }));
+      await deal();
+      flip();
+      await act(async () => {});
+      expect(confetti.fetches).toBe(0);
+    });
   });
 });
 
@@ -710,42 +883,23 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
   });
 
   describe('with the torn pack still flying off', () => {
-    const sizes: MockInstance[] = [];
     beforeEach(() => {
-      // jsdom has no layout, and without a size framer-motion never marks a leaving element. It reads
-      // the element's computed width and height, and its parent's offset size. Laid out, the held stage
-      // also follows its room, which jsdom has no ResizeObserver to watch.
-      vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
-      const computed = window.getComputedStyle.bind(window);
-      const sized = { width: '200px', height: '300px' } as Record<PropertyKey, string>;
-      sizes.push(
-        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200),
-        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300),
-        vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => new Proxy(computed(el, pseudo), {
-          get: (style, key) => {
-            if (key in sized) return sized[key];
-            const value: unknown = Reflect.get(style, key, style);
-            return typeof value === 'function' ? value.bind(style) : value;
-          },
-        })),
-      );
       // Framer's clock stops, so the 250ms exit cannot finish before the player returns.
       MotionGlobalConfig.useManualTiming = true;
     });
     afterEach(() => {
       MotionGlobalConfig.useManualTiming = false;
-      for (const spy of sizes.splice(0)) spy.mockRestore();
     });
 
     it('takes taps on a pack that comes back while the torn one is still flying off', async () => {
       show();
       await tear();
       const leaving = stage();
-      expect(leaving.getAttribute('data-motion-pop-id')).not.toBeNull();
+      expect(leaving.getAttribute('data-leaving')).not.toBeNull();
       escape();
       // The same element as the one that left, so it must not keep the mark that makes a leaving pack ignore taps.
       expect(stage()).toBe(leaving);
-      expect(stage().getAttribute('data-motion-pop-id')).toBeNull();
+      expect(stage().getAttribute('data-leaving')).toBeNull();
     });
   });
 });

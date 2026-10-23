@@ -10,7 +10,8 @@ import { runMigrations } from './utils/migrations'
 import { migratePullLog } from './game/history'
 import { receiveSave } from './game/move'
 import { resumeReopening } from './game/reopenJob'
-import { warmUpFirstPack } from './game/warmUp'
+import { warmUpArgon2, warmUpFirstPack } from './game/warmUp'
+import { warmConfetti } from './components/pack/loadConfetti'
 import { markStaging } from './game/staging'
 import { STORAGE_KEYS } from './constants'
 import { setMotionSetting } from './utils/motion'
@@ -71,5 +72,8 @@ handedOver.then((receiver) => {
     </StrictMode>,
   )
   resumeReopening()
-  warmUpFirstPack()
+  // Argon2 is what the main-thread fallback mines with (ticket worker down, Best cards rebuilds), so every
+  // page fetches it. The card back and the confetti library only matter to a first pack, so they wait.
+  warmUpArgon2()
+  warmUpFirstPack(warmConfetti)
 })

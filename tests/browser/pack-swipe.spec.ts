@@ -116,8 +116,13 @@ async function watchForCut(packShell: Locator) {
     new MutationObserver(() => {
       seen.cutting ||= shell.classList.contains('is-cutting');
       seen.line ||= !!shell.querySelector('.cut-line-svg, .cut-line');
-      seen.spark ||= !!shell.querySelector('.drag-spark');
     }).observe(shell, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
+    // Sparks are drawn on the spark layer's canvas (sparkField.ts): any draw onto it is a spark.
+    const draw = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+      if (this.canvas.classList.contains('spark-layer')) seen.spark = true;
+      return (draw as (...rest: unknown[]) => void).apply(this, args);
+    } as typeof CanvasRenderingContext2D.prototype.drawImage;
   });
 }
 

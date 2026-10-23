@@ -116,6 +116,18 @@ describe('warmUpFirstPack', () => {
     expect(images()).toEqual(['/card_back.webp']);
   });
 
+  it('runs what the caller also warms with the card back, and not before', async () => {
+    const images = fetched();
+    const alsoWarm = vi.fn();
+    const { warmUpFirstPack } = await import('./warmUp');
+    warmUpFirstPack(alsoWarm);
+    await load();
+    expect(alsoWarm).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(images()).toEqual(['/card_back.webp']);
+    expect(alsoWarm).toHaveBeenCalledOnce();
+  });
+
   it('waits while the tab is hidden, and starts once it is shown', async () => {
     const images = fetched();
     const { warmUpFirstPack } = await import('./warmUp');
@@ -145,11 +157,13 @@ describe('warmUpFirstPack', () => {
   it('fetches nothing when the visitor saves data', async () => {
     const images = fetched();
     vi.stubGlobal('navigator', { ...navigator, connection: { saveData: true } });
+    const alsoWarm = vi.fn();
     const { warmUpFirstPack } = await import('./warmUp');
-    warmUpFirstPack();
+    warmUpFirstPack(alsoWarm);
     await load();
     vi.runAllTimers();
     expect(images()).toEqual([]);
+    expect(alsoWarm).not.toHaveBeenCalled();
   });
 
   it.each(['#/cards', '#/rankings', '#/profile', '#/settings', '#/pull/abc', '#/profile/abc'])(
@@ -164,4 +178,69 @@ describe('warmUpFirstPack', () => {
       expect(images()).toEqual([]);
     },
   );
+});
+
+describe('warmUpArgon2 (#776)', () => {
+  // The Argon2 chunk is a dynamic import; each evaluation of its module is one fetch.
+  const fetches: number[] = [];
+  let artLoaded: () => void;
+  beforeEach(async () => {
+    fetches.length = 0;
+    vi.resetModules();
+    vi.doMock('../engine/argon2', () => {
+      fetches.push(1);
+      return { argon2id: vi.fn() };
+    });
+    vi.stubGlobal('requestIdleCallback', undefined);
+    artLoaded = (await import('./packArt')).packArtSettled;
+  });
+  afterEach(() => vi.doUnmock('../engine/argon2'));
+
+  const idle = async () => {
+    vi.runAllTimers();
+    await vi.dynamicImportSettled();
+  };
+
+  it("waits for the sealed pack's art on a page that can open a pack, then fetches it once idle", async () => {
+    const { warmUpArgon2 } = await import('./warmUp');
+    warmUpArgon2();
+    await idle();
+    expect(fetches).toEqual([]);
+    artLoaded();
+    await Promise.resolve();
+    expect(fetches).toEqual([]);
+    await idle();
+    expect(fetches).toEqual([1]);
+  });
+
+  it.each(['#/cards', '#/rankings', '#/profile', '#/settings', '#/pull/abc', '#/profile/abc'])(
+    'fetches it on %s, which opens no pack and so never shows sealed art',
+    async (hash) => {
+      history.replaceState(null, '', `/${hash}`);
+      const { warmUpArgon2 } = await import('./warmUp');
+      warmUpArgon2();
+      await idle();
+      expect(fetches).toEqual([1]);
+    },
+  );
+
+  it('fetches it when the visitor saves data, which skips the card back', async () => {
+    vi.stubGlobal('navigator', { ...navigator, connection: { saveData: true } });
+    const { warmUpArgon2 } = await import('./warmUp');
+    warmUpArgon2();
+    artLoaded();
+    await Promise.resolve();
+    await idle();
+    expect(fetches).toEqual([1]);
+  });
+
+  it('ignores a fetch that fails', async () => {
+    vi.doMock('../engine/argon2', () => { throw new Error('Failed to fetch dynamically imported module'); });
+    const { warmUpArgon2 } = await import('./warmUp');
+    warmUpArgon2();
+    artLoaded();
+    await Promise.resolve();
+    // An unhandled rejection from the import would fail the run.
+    await idle();
+  });
 });

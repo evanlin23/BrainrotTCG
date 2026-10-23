@@ -1,4 +1,3 @@
-import { argon2id } from 'hash-wasm';
 import { toHex, utf8 } from './bytes';
 
 /**
@@ -25,6 +24,8 @@ export const ticketPreimage = (setKey: string, publicKey: Uint8Array, nonce: num
 
 export const computeTicket = async (setKey: string, publicKey: Uint8Array, nonce: number): Promise<Uint8Array> => {
   if (!Number.isSafeInteger(nonce) || nonce < 0) throw new Error('Invalid nonce');
+  // Loaded on first use, so a page that mines in a worker (the usual case) doesn't ship Argon2 to the main thread.
+  const { argon2id } = await import('./argon2');
   return argon2id({
     password: utf8(ticketPreimage(setKey, publicKey, nonce)),
     salt: SALT,
