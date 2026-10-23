@@ -254,7 +254,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     isCutting,
     isPressing,
     cutPoints,
-    sparks,
+    sparkCanvasRef,
     resetCutState,
     completeCut,
     handlePointerDown,
@@ -758,7 +758,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               nudging={nudging === 'miss'}
               fellShort={nudging === 'short'}
               cutPoints={cutPoints}
-              sparks={sparks}
+              sparkCanvasRef={sparkCanvasRef}
               cue={cue}
               onCueEnd={endCue}
               onTouch={touchPack}

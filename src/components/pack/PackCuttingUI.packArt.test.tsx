@@ -21,7 +21,7 @@ beforeEach(() => {
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} refusal={null} onOpen={() => {}}
       isCutting={false} pressing={false} nudging={false} fellShort={false} isPackCut={false} waiting={false}
-      cutPoints={[]} sparks={[]}
+      cutPoints={[]}
     />,
   ));
 });

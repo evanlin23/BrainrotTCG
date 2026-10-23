@@ -5,6 +5,16 @@ import { SETS } from '../content/sets';
 import { cutPointInPixels, mapPackPointer, type PackLayout, type PackRect } from './packCutCoordinates';
 import { usePackCutter } from './usePackCutter';
 
+// Sparks are drawn on a canvas now, so what a test can see of them is where the hook throws them.
+const emitted = vi.hoisted(() => [] as { x: number; y: number }[]);
+vi.mock('./useSparks', () => ({
+  useSparks: () => ({
+    sparkCanvasRef: () => {},
+    emitSpark: (x: number, y: number) => { emitted.push({ x, y }); },
+    clearSparks: () => {},
+  }),
+}));
+
 const TEAR = 0.19;
 // A 320px-wide pack laid out at 1536:2752, so its height is 573.33px and clientHeight rounds it.
 const layout: PackLayout = { clientWidth: 320, clientHeight: 573 };
@@ -79,9 +89,8 @@ describe('mapPackPointer (#265)', () => {
 
 describe('usePackCutter sparks (#265)', () => {
   beforeEach(() => {
+    emitted.length = 0;
     vi.useFakeTimers();
-    vi.stubGlobal('window', globalThis); // emitSpark schedules removal with window.setTimeout
-    vi.spyOn(Math, 'random').mockReturnValue(0.5); // no spark jitter
     // A stroke draws at the next frame; there are no frames here, so draw at once.
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
   });
@@ -92,7 +101,7 @@ describe('usePackCutter sparks (#265)', () => {
   });
 
   /**
-   * Swipe 20px along the pack to a point and return where the pack drew its sparks. There's no DOM
+   * Swipe 20px along the pack to a point and return where the hook threw its sparks. There's no DOM
    * here, so the probe hands the hook a measured pack and swipes it while rendering; the server
    * renderer re-renders on those state updates until the cut has started. Sparks start where the
    * swipe has gone across, not at the press (#267).
@@ -110,16 +119,16 @@ describe('usePackCutter sparks (#265)', () => {
       }
       return (
         <PackCuttingUI packRef={cutter.packRef} packDesign="/test-design.webp" set={SETS[0]} onOpen={() => {}}
-          isCutting={cutter.isCutting} isPackCut={false} cutPoints={cutter.cutPoints} sparks={cutter.sparks} />
+          isCutting={cutter.isCutting} isPackCut={false} cutPoints={cutter.cutPoints} sparkCanvasRef={cutter.sparkCanvasRef} />
       );
     };
-    const html = renderToStaticMarkup(<Probe />);
-    return [...html.matchAll(/--x:([-\d.e]+)px;--y:([-\d.e]+)px/g)].map((m) => ({ x: Number(m[1]), y: Number(m[2]) }));
+    renderToStaticMarkup(<Probe />);
+    return [...emitted];
   };
 
   it('emits sparks in layout pixels inside a scaled, translated pack', () => {
     const sparks = pressPack(scaledRect, 100 + 240, 50 + 0.19 * 716.25);
-    expect(sparks).toHaveLength(3);
+    expect(sparks).toHaveLength(1);
     for (const spark of sparks) {
       expect(spark.x).toBeCloseTo(192);
       expect(spark.y).toBeCloseTo(tearPx);
@@ -129,14 +138,14 @@ describe('usePackCutter sparks (#265)', () => {
   it('emits sparks on the pack under a rotated ancestor', () => {
     const centreX = rotatedRect.left + rotatedRect.width / 2;
     const sparks = pressPack(rotatedRect, centreX, rotatedRect.top + TEAR * rotatedRect.height);
-    expect(sparks).toHaveLength(3);
+    expect(sparks).toHaveLength(1);
     expect(sparks[0].x).toBeCloseTo(layout.clientWidth / 2);
     expect(sparks[0].y).toBeCloseTo(tearPx);
   });
 });
 
 describe('PackCuttingUI spark layer (#265)', () => {
-  it('renders spark pixels in the same pack as the percentage cut line', () => {
+  it('puts the spark canvas in the same pack as the percentage cut line, and no element per spark', () => {
     const html = renderToStaticMarkup(
       <PackCuttingUI
         packRef={{ current: null }}
@@ -146,16 +155,14 @@ describe('PackCuttingUI spark layer (#265)', () => {
         isCutting={true}
         isPackCut={false}
         cutPoints={[{ x: 40, y: 19 }, { x: 60, y: 19 }]}
-        sparks={[{ id: 1, x: 192, y: 108.87, dx: 12, dy: -20, size: 10, hue: 40 }]}
+        sparkCanvasRef={() => {}}
       />
     );
 
-    expect(html).toContain('class="spark-layer"');
-    expect(html).toContain('class="drag-spark"');
-    expect(html).toContain('--x:192px');
-    expect(html).toContain('--y:108.87px');
-    // Both layers are children of the pack, before the pack and wrapper close
+    expect(html).toContain('<canvas class="spark-layer" aria-hidden="true"></canvas>');
+    expect(html).not.toContain('drag-spark');
+    // The canvas is a child of the pack, before the pack and wrapper close
     // (a refusal, when there is one, follows the wrapper).
-    expect(html.endsWith('</span></div></div></div>')).toBe(true);
+    expect(html.endsWith('<canvas class="spark-layer" aria-hidden="true"></canvas></div></div>')).toBe(true);
   });
 });

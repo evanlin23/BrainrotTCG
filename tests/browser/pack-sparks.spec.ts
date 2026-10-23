@@ -4,7 +4,7 @@ import { monitor, expectDecoded, expectStill, fingerFor } from './support';
 // Cut sparks start on the drawn cut at the pointer, in the frame that draws it (#265). Nothing
 // draws or sparks until the drag is plainly across rather than down, so the press itself sparks
 // nothing (#267).
-// useSparks jitters each spark by up to 8px across and 2px down in the pack's own pixels, so the
+// sparkField jitters each spark by up to 8px across and 2px down in the pack's own pixels, so the
 // checks allow that, times any ancestor scale, plus a pixel for rounding. A rotated ancestor is a
 // known limit (packCutCoordinates.ts) and isn't covered. The phone project presses with touch
 // events in Pixel 5 emulation, which is not a real phone.
@@ -30,11 +30,43 @@ interface SparkStart { x: number; y: number; hit: boolean; layerEvents: string }
 type SparkWindow = Window & { sparkStarts?: SparkStart[] };
 
 /**
+ * Sparks are drawn on one canvas (sparkField.ts), so there is no element to watch. A spark is drawn
+ * at full strength only in the frame it is thrown, so each draw onto a spark layer at alpha 1 is one
+ * spark's start. Its centre is read back to the screen through the canvas's transform and its
+ * on-screen box, where an ancestor's scale shows.
+ */
+async function recordSparkStarts(page: Page) {
+  await page.evaluate(() => {
+    const starts: SparkStart[] = [];
+    (window as SparkWindow).sparkStarts = starts;
+    const draw = CanvasRenderingContext2D.prototype.drawImage as unknown as (...args: unknown[]) => void;
+    CanvasRenderingContext2D.prototype.drawImage = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+      const canvas = this.canvas;
+      if (canvas.classList.contains('spark-layer') && this.globalAlpha === 1) {
+        const [, dx, dy, dw, dh] = args as number[];
+        const { a, b, c, d, e, f } = this.getTransform();
+        const cx = dx + dw / 2;
+        const cy = dy + dh / 2;
+        const rect = canvas.getBoundingClientRect();
+        const x = rect.left + ((a * cx + c * cy + e) / canvas.width) * rect.width;
+        const y = rect.top + ((b * cx + d * cy + f) / canvas.height) * rect.height;
+        starts.push({
+          x,
+          y,
+          hit: document.elementFromPoint(x, y) === canvas,
+          layerEvents: getComputedStyle(canvas).pointerEvents,
+        });
+      }
+      return draw.apply(this, args);
+    } as typeof CanvasRenderingContext2D.prototype.drawImage;
+  });
+}
+
+/**
  * Presses the tear line at 40% across, moves to 50% (past the 10px slop, under the 12% that opens the
  * pack on release, so it stays at rest) once the spark throttle has passed (so the move
  * draws its own burst), then, still pressed, reads where the drawn cut is on screen. A spark lives
- * 620ms, which a slow run can outlast before a read, so each one is read as it's added, held at its
- * first frame: where it starts.
+ * 620ms, which a slow run can outlast before a read, so each one is recorded as it's drawn: where it starts.
  */
 async function cutAndRead(page: Page, packShell: Locator, touch: boolean) {
   const box = (await packShell.boundingBox())!;
@@ -44,31 +76,7 @@ async function cutAndRead(page: Page, packShell: Locator, touch: boolean) {
   const onPack = await page.evaluate(([x, py]) => !!document.elementFromPoint(x, py)?.closest('.pack-shell'), [from, y]);
   expect(onPack, 'the press lands on the pack').toBe(true);
 
-  await packShell.evaluate((shell) => {
-    const starts: SparkStart[] = [];
-    (window as SparkWindow).sparkStarts = starts;
-    new MutationObserver((records) => {
-      for (const node of records.flatMap((record) => Array.from(record.addedNodes))) {
-        if (!(node instanceof HTMLElement)) continue;
-        const sparks = node.matches('.drag-spark') ? [node] : Array.from(node.querySelectorAll<HTMLElement>('.drag-spark'));
-        for (const spark of sparks) {
-          for (const animation of spark.getAnimations()) {
-            animation.pause();
-            animation.currentTime = 0;
-          }
-          const rect = spark.getBoundingClientRect();
-          const x = rect.left + rect.width / 2;
-          const sy = rect.top + rect.height / 2;
-          starts.push({
-            x,
-            y: sy,
-            hit: !!document.elementFromPoint(x, sy)?.closest('.drag-spark'),
-            layerEvents: getComputedStyle(spark.closest('.spark-layer')!).pointerEvents,
-          });
-        }
-      }
-    }).observe(shell, { childList: true, subtree: true });
-  });
+  await recordSparkStarts(page);
 
   const finger = await fingerFor(page, touch);
   await finger.press(from, y);
@@ -98,7 +106,7 @@ function expectAligned({ from, to, y, line, sparks }: Awaited<ReturnType<typeof 
   for (const spark of sparks) {
     expect(Math.abs(spark.y - line.y), `spark ${JSON.stringify(spark)} on the cut, not below it`).toBeLessThanOrEqual(downTolerance);
     expect(Math.abs(spark.x - line.right), `spark ${JSON.stringify(spark)} at the pointer`).toBeLessThanOrEqual(acrossTolerance);
-    expect(spark.hit, 'sparks take no pointer').toBe(false);
+    expect(spark.hit, 'the spark layer is not what a touch lands on').toBe(false);
     expect(spark.layerEvents, 'the spark layer takes no pointer').toBe('none');
   }
 }
@@ -132,12 +140,15 @@ test.describe('with reduced motion', () => {
     const packShell = await settledPack(page);
     const box = (await packShell.boundingBox())!;
     const y = box.y + box.height * TEAR_LINE;
+    await recordSparkStarts(page);
     const finger = await fingerFor(page, hasTouch);
     await finger.press(box.x + box.width * 0.4, y);
     await page.waitForTimeout(50);
     await finger.move(box.x + box.width * 0.5, y);
     await expect(packShell.locator('.cut-line')).toHaveCount(1);
-    await expect(packShell.locator('.drag-spark')).toHaveCount(0);
+    // Let the frames after the cut run: nothing is drawn on the spark layer in any of them.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await page.evaluate(() => (window as SparkWindow).sparkStarts)).toEqual([]);
     // A still seam: no shimmer.
     expect(await packShell.locator('.cut-line').evaluate((line) => getComputedStyle(line).animationName)).toBe('none');
     await finger.release();

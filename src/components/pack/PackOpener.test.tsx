@@ -26,7 +26,7 @@ vi.mock('../../hooks/usePackCutter', () => ({
       packRef: { current: null },
       isCutting: cutter.cutting,
       cutPoints: [],
-      sparks: [],
+      sparkCanvasRef: () => {},
       resetCutState: cutter.resetCutState,
       completeCut: cutter.completeCut,
       handlePointerDown: () => {},

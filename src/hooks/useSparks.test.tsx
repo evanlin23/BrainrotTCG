@@ -1,19 +1,22 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useEffect, type Ref } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_SPARKS, SPARK_LIFETIME_MS, SPARK_THROTTLE_MS } from './sparkField';
 import { useSparks } from './useSparks';
-
-const LIFETIME_MS = 620;
 
 type Sparks = ReturnType<typeof useSparks>;
 let latest: Sparks;
 let renders = 0;
-const Probe = ({ enabled, onRender }: { enabled: boolean; onRender: (sparks: Sparks) => void }) => {
-  onRender(useSparks(enabled));
-  return null;
+const SparkCanvas = ({ canvasRef }: { canvasRef: Ref<HTMLCanvasElement> }) => <canvas ref={canvasRef} className="spark-layer" />;
+const Probe = ({ enabled }: { enabled: boolean }) => {
+  const sparks = useSparks(enabled);
+  useEffect(() => {
+    latest = sparks;
+    renders += 1;
+  });
+  return <SparkCanvas canvasRef={sparks.sparkCanvasRef} />;
 };
-const record = (sparks: Sparks) => { latest = sparks; renders += 1; };
 
 let reduced = false;
 const motionListeners = new Set<() => void>();
@@ -22,153 +25,150 @@ const setReducedMotion = (value: boolean) => act(() => {
   motionListeners.forEach(listener => listener());
 });
 
+/** Frames the test steps by hand; `time` is what performance.now() reports. */
+let time = 0;
+let frames = new Map<number, FrameRequestCallback>();
+let nextFrame = 1;
+const runFrame = () => {
+  const [id, callback] = [...frames.entries()][0] ?? [];
+  if (id === undefined || !callback) return;
+  frames.delete(id);
+  callback(time);
+};
+const tick = (ms: number) => { time += ms; };
+
+let drawImage: ReturnType<typeof vi.fn>;
+let getContext: ReturnType<typeof vi.spyOn>;
+
 let root: Root | null = null;
+let container: HTMLElement;
 const render = (enabled: boolean) => act(() => {
-  root ??= createRoot(document.createElement('div'));
-  root.render(<Probe enabled={enabled} onRender={record} />);
+  root ??= createRoot(container);
+  root.render(<Probe enabled={enabled} />);
 });
 const emit = () => act(() => latest.emitSpark(40, 60));
 
 beforeEach(() => {
-  vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   renders = 0;
   reduced = false;
+  time = 1000;
+  frames = new Map();
+  nextFrame = 1;
   motionListeners.clear();
+  container = document.createElement('div');
   vi.stubGlobal('matchMedia', (query: string) => ({
     get matches() { return query === '(prefers-reduced-motion: reduce)' && reduced; },
     addEventListener: (_type: string, listener: () => void) => motionListeners.add(listener),
     removeEventListener: (_type: string, listener: () => void) => motionListeners.delete(listener),
   }));
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(nextFrame, callback); return nextFrame++; });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id); });
+  vi.spyOn(performance, 'now').mockImplementation(() => time);
+  drawImage = vi.fn();
+  const context = { globalAlpha: 1, setTransform: vi.fn(), clearRect: vi.fn(), drawImage, createRadialGradient: () => ({ addColorStop: vi.fn() }), fillRect: vi.fn(), fillStyle: '' };
+  getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as unknown as CanvasRenderingContext2D);
 });
 
 afterEach(() => {
   if (root) act(() => root?.unmount());
   root = null;
-  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe('useSparks', () => {
-  it('expires a burst after its lifetime and drops its timers', () => {
+  it('draws a burst on its canvas, then stops asking for frames once it has faded', () => {
     render(true);
-    const idle = latest.sparks;
     emit();
-    expect(latest.sparks).toHaveLength(3);
-    expect(vi.getTimerCount()).toBe(1);
+    expect(drawImage).toHaveBeenCalledTimes(3);
+    expect(frames.size).toBe(1);
 
-    act(() => vi.advanceTimersByTime(LIFETIME_MS));
-    expect(latest.sparks).toHaveLength(0);
-    expect(latest.sparks).toBe(idle);
-    expect(vi.getTimerCount()).toBe(0);
+    tick(SPARK_LIFETIME_MS + 1);
+    runFrame();
+    expect(frames.size).toBe(0);
   });
 
-  // One timer serves every burst on screen (#266), where each burst used to have its own.
-  it('expires overlapping bursts with one timer, leaving a later burst in place', () => {
-    const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+  it('adds no element and no render for a swipe-long stream of bursts', () => {
     render(true);
-    const idle = latest.sparks;
-    emit();
-    const firstIds = latest.sparks.map(spark => spark.id);
-    act(() => vi.advanceTimersByTime(100));
-    emit();
-    const secondIds = latest.sparks.slice(3).map(spark => spark.id);
-    expect(latest.sparks).toHaveLength(6);
-    expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(1);
-
-    act(() => vi.advanceTimersByTime(LIFETIME_MS - 100));
-    expect(latest.sparks.map(spark => spark.id)).toEqual(secondIds);
-    expect(secondIds.some(id => firstIds.includes(id))).toBe(false);
-    expect(vi.getTimerCount()).toBe(1);
-
-    act(() => vi.advanceTimersByTime(100));
-    expect(latest.sparks).toBe(idle);
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('expires a swipe-long stream of bursts with one timer and a few batched updates (#266)', () => {
-    render(true);
-    const idle = latest.sparks;
-    for (let burst = 0; burst < 60; burst += 1) {
+    const rendersBefore = renders;
+    const nodesBefore = container.querySelectorAll('*').length;
+    let peakFrames = 0;
+    for (let burst = 0; burst < 120; burst += 1) {
       emit();
-      expect(vi.getTimerCount()).toBe(1);
-      expect(latest.sparks.length).toBeLessThanOrEqual(220);
-      act(() => vi.advanceTimersByTime(10));
+      peakFrames = Math.max(peakFrames, frames.size);
+      tick(SPARK_THROTTLE_MS + 1);
+      runFrame();
     }
-    expect(latest.sparks).toHaveLength(180);
-
-    // 60 bursts over 600ms leave in at most one update per 100ms, not one each.
-    const before = renders;
-    for (let elapsed = 0; elapsed < LIFETIME_MS + 100 && latest.sparks !== idle; elapsed += 10) {
-      act(() => vi.advanceTimersByTime(10));
-      expect(vi.getTimerCount()).toBeLessThanOrEqual(1);
-    }
-    expect(latest.sparks).toBe(idle);
-    expect(renders - before).toBeLessThanOrEqual(7);
-    expect(vi.getTimerCount()).toBe(0);
+    expect(renders).toBe(rendersBefore);
+    expect(container.querySelectorAll('*')).toHaveLength(nodesBefore);
+    expect(peakFrames).toBe(1);
   });
 
-  it('cancels the expiry timer when cleared', () => {
+  it('keeps the live sparks at the cap through a long held drag', () => {
     render(true);
-    const idle = latest.sparks;
+    // Each frame redraws every live spark, and a draw is one spark: the most it ever draws is the cap.
+    let mostDrawn = 0;
+    for (let moves = 0; moves < 300; moves += 1) {
+      drawImage.mockClear();
+      emit();
+      mostDrawn = Math.max(mostDrawn, drawImage.mock.calls.length);
+      tick(SPARK_THROTTLE_MS + 1);
+      runFrame();
+    }
+    expect(mostDrawn).toBeGreaterThan(0);
+    expect(mostDrawn).toBeLessThanOrEqual(MAX_SPARKS);
+  });
+
+  it('cancels its pending frame when cleared', () => {
+    render(true);
     emit();
+    expect(frames.size).toBe(1);
     act(() => latest.clearSparks());
-    expect(latest.sparks).toBe(idle);
-    expect(vi.getTimerCount()).toBe(0);
+    expect(frames.size).toBe(0);
   });
 
-  it('still expires a burst when the clock goes back', () => {
-    render(true);
-    const idle = latest.sparks;
-    emit();
-    vi.setSystemTime(Date.now() - 60 * 60 * 1000);
-    act(() => vi.advanceTimersByTime(LIFETIME_MS));
-    expect(latest.sparks).toBe(idle);
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('schedules no timers and does no work with particles off or reduced motion', () => {
-    const random = vi.spyOn(Math, 'random');
-    render(false);
-    const empty = latest.sparks;
-    emit();
-    render(false);
-    expect(latest.sparks).toHaveLength(0);
-    expect(latest.sparks).toBe(empty);
-
-    render(true);
-    setReducedMotion(true);
-    emit();
-    expect(latest.sparks).toBe(empty);
-    expect(random).not.toHaveBeenCalled();
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('clears pending timers on unmount', () => {
+  it('cancels its pending frame on unmount', () => {
     render(true);
     emit();
-    expect(vi.getTimerCount()).toBe(1);
+    expect(frames.size).toBe(1);
     act(() => root?.unmount());
     root = null;
-    expect(vi.getTimerCount()).toBe(0);
+    expect(frames.size).toBe(0);
   });
 
-  it('clears pending timers and particles when disabled mid-burst, without reviving them', () => {
-    render(true);
-    emit();
+  it('asks for no context, frames or randomness with particles off or reduced motion', () => {
+    const random = vi.spyOn(Math, 'random');
     render(false);
-    expect(vi.getTimerCount()).toBe(0);
-    expect(latest.sparks).toHaveLength(0);
-    render(true);
-    expect(latest.sparks).toHaveLength(0);
-
     emit();
-    expect(vi.getTimerCount()).toBe(1);
     setReducedMotion(true);
-    expect(vi.getTimerCount()).toBe(0);
+    render(true);
+    emit();
+    expect(getContext).not.toHaveBeenCalled();
+    expect(drawImage).not.toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(random).not.toHaveBeenCalled();
+  });
+
+  it('wipes mid-burst when disabled, and does not revive the burst when re-enabled', () => {
+    render(true);
+    emit();
+    expect(frames.size).toBe(1);
+    render(false);
+    expect(frames.size).toBe(0);
+    drawImage.mockClear();
+    render(true);
+    expect(frames.size).toBe(0);
+    expect(drawImage).not.toHaveBeenCalled();
+
+    tick(SPARK_THROTTLE_MS + 1);
+    emit();
+    expect(frames.size).toBe(1);
+    setReducedMotion(true);
+    expect(frames.size).toBe(0);
+    drawImage.mockClear();
     setReducedMotion(false);
-    expect(latest.sparks).toHaveLength(0);
+    expect(frames.size).toBe(0);
+    expect(drawImage).not.toHaveBeenCalled();
   });
 });

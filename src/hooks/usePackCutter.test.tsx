@@ -5,6 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FAIRY_DUST_SRC, WOOSH_SRC, soundGain } from '../constants/audio';
 import { usePackCutter } from './usePackCutter';
 
+// The sparks are drawn on a canvas (sparkField.ts, tested there), so these tests watch what the hook
+// asks of it: where it throws a burst, and when it wipes the layer.
+const sparkCalls = vi.hoisted(() => ({ emits: [] as { x: number; y: number }[], clears: 0 }));
+vi.mock('./useSparks', () => ({
+  useSparks: (enabled = true) => ({
+    sparkCanvasRef: () => {},
+    emitSpark: (x: number, y: number) => { if (enabled) sparkCalls.emits.push({ x, y }); },
+    clearSparks: () => { sparkCalls.clears += 1; },
+  }),
+}));
+
 // A 320 x 573 pack, 100px right and 50px down the viewport. Its tear line sits at 19% of its
 // height, and a stroke starts anywhere from the pack's top down to 191px (a third of its height,
 // 82px under the tear line). A release opens it from 12% of the width (38.4px), a drag from 30%, and
@@ -497,6 +508,8 @@ describe('usePackCutter frame batching (#266)', () => {
     });
     vi.stubGlobal('cancelAnimationFrame', (frame: number) => { frames.delete(frame); });
     commits = 0;
+    sparkCalls.emits.length = 0;
+    sparkCalls.clears = 0;
   });
 
   afterEach(() => {
@@ -542,7 +555,7 @@ describe('usePackCutter frame batching (#266)', () => {
       expect(commits).toBe(1);
       expect(drawnX()).toEqual([30, 34, 36]);
       expect(cutter.isCutting).toBe(true);
-      expect(cutter.sparks.length).toBeGreaterThan(0);
+      expect(sparkCalls.emits.length).toBeGreaterThan(0);
     } finally {
       vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     }
@@ -563,34 +576,43 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(onCutComplete).toHaveBeenCalledTimes(1);
     expect(frames.size).toBe(0);
     expect(cutter.cutPoints).toEqual([]);
-    expect(cutter.sparks).toHaveLength(0);
+    expect(sparkCalls.emits).toHaveLength(0);
   });
 
-  it('draws one spark burst a frame, at the latest point', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.5); // no spark jitter
+  it('throws one spark burst a frame, at the latest point', () => {
     renderCounting(true);
     down(at(0.3));
-    expect(cutter.sparks).toHaveLength(0);
+    expect(sparkCalls.emits).toHaveLength(0);
     move(at(0.32));
     move(at(0.34));
     move(at(0.36));
-    expect(cutter.sparks).toHaveLength(0);
+    expect(sparkCalls.emits).toHaveLength(0);
     runFrame();
-    const burst = cutter.sparks.length;
-    expect(burst).toBeGreaterThan(0);
-    expect(cutter.sparks[0].x).toBeCloseTo(0.36 * rect.width);
+    expect(sparkCalls.emits).toHaveLength(1);
+    expect(sparkCalls.emits[0].x).toBeCloseTo(0.36 * rect.width);
+    expect(sparkCalls.emits[0].y).toBeCloseTo(0.19 * rect.height);
 
     vi.advanceTimersByTime(16);
     commits = 0;
     move(at(0.38));
     move(at(0.4));
     move(at(0.42));
-    expect(cutter.sparks).toHaveLength(burst);
+    expect(sparkCalls.emits).toHaveLength(1);
 
     runFrame();
     expect(commits).toBe(1);
-    expect(cutter.sparks).toHaveLength(2 * burst);
-    expect(cutter.sparks[burst].x).toBeCloseTo(0.42 * rect.width);
+    expect(sparkCalls.emits).toHaveLength(2);
+    expect(sparkCalls.emits[1].x).toBeCloseTo(0.42 * rect.width);
+  });
+
+  it('throws no sparks with particles off', () => {
+    renderCounting(false);
+    down(at(0.3));
+    move(at(0.34));
+    move(at(0.36));
+    runFrame();
+    expect(cutter.cutPoints.length).toBeGreaterThan(0);
+    expect(sparkCalls.emits).toHaveLength(0);
   });
 
   it('draws nothing for a press on the seam that goes clearly down', () => {
@@ -604,7 +626,7 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(cutter.cutPoints).toEqual([]);
     expect(cutter.isCutting).toBe(false);
     expect(cutter.isPressing).toBe(false);
-    expect(cutter.sparks).toHaveLength(0);
+    expect(sparkCalls.emits).toHaveLength(0);
     up(at(0.6, 40));
     expect(onCutComplete).not.toHaveBeenCalled();
   });
@@ -645,7 +667,7 @@ describe('usePackCutter frame batching (#266)', () => {
     runFrame();
     expect(cutter.cutPoints).toEqual([]);
     expect(cutter.isCutting).toBe(false);
-    expect(cutter.sparks).toHaveLength(0);
+    expect(sparkCalls.emits).toHaveLength(0);
     expect(onMiss).toHaveBeenCalledTimes(1);
   });
 
@@ -661,7 +683,7 @@ describe('usePackCutter frame batching (#266)', () => {
     runFrame();
     expect(cutter.cutPoints).toEqual([]);
     expect(cutter.isCutting).toBe(false);
-    expect(cutter.sparks).toHaveLength(0);
+    expect(sparkCalls.emits).toHaveLength(0);
   });
 
   it('decides the cut from points no frame has drawn yet', () => {
@@ -686,7 +708,7 @@ describe('usePackCutter frame batching (#266)', () => {
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     expect(cutter.cutPoints).toEqual([]);
-    expect(cutter.sparks).toHaveLength(0);
+    expect(sparkCalls.emits).toHaveLength(0);
   });
 
   it('measures the pack once per press, and again after a resize or a scroll', () => {
@@ -722,19 +744,23 @@ describe('usePackCutter frame batching (#266)', () => {
     }],
   ];
 
-  it.each(exits)('cancels its frame and spark timer on %s', (_exit, end) => {
+  it.each(exits)('cancels its frame and wipes its sparks on %s', (exit, end) => {
     renderCounting(true);
     down(at(0.3));
     move(at(0.34));
-    // This frame's sparks start the expiry timer; the next move asks for another frame.
+    // This frame throws the first burst; the next move asks for another frame.
     runFrame();
     move(at(0.36));
     expect(frames.size).toBe(1);
-    expect(vi.getTimerCount()).toBe(1);
+    expect(sparkCalls.emits).toHaveLength(1);
+    const wiped = sparkCalls.clears;
 
     end();
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
+    // The unmount's wipe belongs to useSparks, which ends its own field (useSparks.test.tsx).
+    if (exit !== 'unmount') expect(sparkCalls.clears).toBeGreaterThan(wiped);
+    expect(sparkCalls.emits).toHaveLength(1);
     expect(onCutComplete).not.toHaveBeenCalled();
   });
 
