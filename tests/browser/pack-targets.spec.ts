@@ -82,11 +82,13 @@ test('a swipe let go short springs back with a hint, and the pack still opens by
   expect(errors).toEqual([]);
 });
 
-for (const [name, width, height, bigText] of [
+const VIEWS = [
   ['390px wide', 390, 844, false],
   ['200% browser zoom (195px wide)', 195, 422, false],
   ['200% text on a 390px phone', 390, 844, true],
-] as const) {
+] as const;
+
+for (const [name, width, height, bigText] of VIEWS) {
   test(`the small controls keep 44px hit areas at ${name}`, async ({ page, baseURL }) => {
     test.setTimeout(60000);
     await page.setViewportSize({ width, height });
@@ -105,6 +107,12 @@ for (const [name, width, height, bigText] of [
     const home = ['.app-utilities button[aria-label="Settings"]', '.set-step', '.card-guide-link', '[data-pack-open]'];
     expectTargets(await sizes(page, home), home);
 
+    await page.locator('.card-guide-link').first().click();
+    await expect(page.locator('.sheet-close')).toBeVisible();
+    expectTargets(await sizes(page, ['.sheet-close']), ['.sheet-close']);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.sheet-close')).toHaveCount(0);
+
     await settingsButton(page).click();
     await expect(page.locator('.page-close')).toBeVisible();
     expectTargets(await sizes(page, ['.page-close']), ['.page-close']);
@@ -114,6 +122,24 @@ for (const [name, width, height, bigText] of [
     await expect(page.locator('.pack-close')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('button.reveal-skip')).toBeVisible({ timeout: 15000 });
     expectTargets(await sizes(page, ['.pack-close', 'button.reveal-skip']), ['.pack-close', 'button.reveal-skip']);
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const [name, width, height, bigText] of VIEWS) {
+  test(`the logo link and the profile's help summary keep 44px hit areas at ${name}`, async ({ page, baseURL }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width, height });
+    const errors = await monitor(page, baseURL!, 1, { returning: true });
+    await page.goto('./#/profile');
+    await expect(page.locator('.profile-how summary')).toBeVisible();
+    if (bigText) await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+
+    // The logo is the way home from every page but the first, and the summary opens the XP explanation.
+    const found = ['a.app-logo--link', '.profile-how summary'];
+    expectTargets(await sizes(page, found), found);
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     expect(errors).toEqual([]);
