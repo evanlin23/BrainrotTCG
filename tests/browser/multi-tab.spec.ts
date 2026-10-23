@@ -174,6 +174,48 @@ test.describe('two tabs at once, emulated Chromium (not real devices)', () => {
     expect(errorsB).toEqual([]);
   });
 
+  test('a profile switch that lands while the other tab mines its ticket keeps that pack sealed (#1139)', async ({ context, baseURL }) => {
+    test.setTimeout(90000);
+    const a = await context.newPage();
+    const b = await context.newPage();
+    const errorsA = await openTab(a, baseURL!);
+    // B's miner is held from its first load, so B's open is still waiting on its ticket when the
+    // switch lands: the order the test above leaves to how fast each tab runs.
+    const errorsB = await monitor(b, baseURL!);
+    let releaseMiner!: () => void;
+    const minerHeld = new Promise<void>((held) => {
+      void b.route('**/ticket.worker-*.js', async (route) => {
+        held();
+        await new Promise<void>((release) => { releaseMiner = release; });
+        await route.fallback();
+      });
+    });
+    await b.goto('./');
+    await expect(b.locator('.pack-shell')).toBeVisible();
+
+    await openPack(b).click();
+    await minerHeld;
+    // Shown only once the tear has spent its ticket and the open waits on the miner.
+    await expect(b.locator('.pack-hint.is-waiting')).toBeVisible({ timeout: 15000 });
+    await a.evaluate((keys) => {
+      for (const key of [keys.STATS, keys.COLLECTION, keys.HISTORY]) localStorage.removeItem(key);
+      localStorage.setItem('brainrot-player-v1', JSON.stringify({
+        secretKey: '02'.repeat(32), name: 'Second player', nextNonce: 0, createdAt: 2,
+      }));
+      localStorage.setItem('brainrot-save-stamp-v1', `switch-${Date.now()}`);
+    }, STORAGE_KEYS);
+    await expect(b.getByText(STALE, { exact: false })).toBeVisible({ timeout: 30000 });
+    releaseMiner();
+
+    await expect(sealed(b)).toHaveText(/^Your save changed in another tab, so this pack stayed sealed\./, { timeout: 30000 });
+    const saved = await snapshot(a);
+    expect((saved.history ?? []).filter((entry) => entry.k === FIRST_PLAYER)).toEqual([]);
+    expect(saved.stats?.packsOpened ?? 0).toBe(0);
+    expect((await player(a)).nextNonce).toBe(0);
+    expect(errorsA).toEqual([]);
+    expect(errorsB).toEqual([]);
+  });
+
   test('a storage quota error in one tab warns there and the pack is recovered', async ({ context, baseURL }) => {
     test.setTimeout(90000);
     const a = await context.newPage();
