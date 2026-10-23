@@ -96,13 +96,20 @@ Examples from merged fixes:
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
 
-CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
-deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
-to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
-deploying main. CI uploads files only from failed runs, kept for 7 days. A nightly workflow, not
-part of PR CI, runs the unit suite in shuffled order twice (see Shuffled and repeat runs).
-A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
-make a failing check pass.
+CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python
+verifier, the browser smoke, actionlint and the deploy contract test (`python3
+scripts/deploy_contract_test.py`) on every pull request and on pushes to branches other than main.
+In `ci.yml`, `npm run check` runs as four parallel stage jobs, each with its own result and time:
+`lint-and-types` (lint, import boundaries, both typechecks), `unit-tests` (`npm test` with coverage,
+then the escaped-defect replay), `content-checks` (set locks, card assets, old vectors and locks)
+and `build-and-site` (both builds and site checks). The required `check` job is their gate: it runs
+even after a failure or cancellation and passes only when all four succeeded.
+`scripts/ci-stages.test.ts` fails if a stage drops or changes a part of `npm run check`, or a job is
+left out of the gate. Locally, `npm run check` stays the one command. The deploy workflow runs the
+verifier and `npm run check` again before deploying main. CI uploads files only from failed runs,
+kept for 7 days. A nightly workflow, not part of PR CI, runs the unit suite in shuffled order twice
+(see Shuffled and repeat runs). A skipped or unrun check isn't a pass; list it in the PR. Never
+regenerate vectors or set locks to make a failing check pass.
 
 Rough wall times: `npm run check` about 2 min, a cold `npm run build` about 2 min, and one browser spec
 file about 3 min including its build. Give these commands a 5-minute timeout or run them in the background.
@@ -425,12 +432,12 @@ non-zero for both. The quality review shows the file as its `defect-replay` sign
 
 CI runs it on every pull request that changes the gate itself: `vite.config.ts`, `src/test/`, this
 script and its test, or a file a case owns or reverts (`GATE_PATHS` in the script). The step is in
-the required `check` job and diffs the merge commit against its base, so a `fail` or `blocked`
-replay turns that check red and blocks the merge until it is fixed or the case is updated to the
-moved code. Other pull requests skip it with one line. Each quality review runs it as a slice item
-(above). `scripts/defect-replay.test.ts` fails in the normal checks when a reversion no longer
-applies, and pins the CI step. The case stays a gate: it is never made report-only because it
-catches its defect.
+the `unit-tests` stage, which the required `check` gate needs, and diffs the merge commit against
+its base, so a `fail` or `blocked` replay turns that check red and blocks the merge until it is
+fixed or the case is updated to the moved code. Other pull requests skip it with one line. Each
+quality review runs it as a slice item (above). `scripts/defect-replay.test.ts` fails in the normal
+checks when a reversion no longer applies, and pins the CI step. The case stays a gate: it is never
+made report-only because it catches its defect.
 
 Findings and limits:
 - #741, the browser monitor missing a redirect between two local origins, isn't replayed because
