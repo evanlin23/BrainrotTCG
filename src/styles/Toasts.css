@@ -119,49 +119,39 @@
   line-clamp: 2;
 }
 
-/* A short screen (a phone on its side) has even less to give: the pack there is about 56x101, so a row
-   over 22px takes it under a touch target. The toast is one thin line: the icon is dropped (it only
-   decorates), the kicker is read but not drawn (still part of the button's name), and a level-up's line
-   runs on after the title, clipped. */
-@media (max-height: 420px) {
+/* A phone on its side has no room for a row: the page there is about 100px for the pack between the set
+   picker and the tab bar, and a row of the 44px a thumb needs takes it under a touch target. So the toast
+   does not take a row at all: it sits in the header, over the wordmark (the link to the home screen the
+   player is already on), with the Settings button moved to the right edge to keep clear of it. Nothing
+   the player can press is under it, and nothing moves when it arrives or leaves. A level-up's line is
+   clamped to one line (the full text is still the button's name). */
+@media (max-width: 899px) and (max-height: 420px) {
+  .app:not(.is-focus) .app-header {
+    justify-content: space-between;
+  }
+
+  .app:not(.is-focus) .toast-region,
   .app:not(.is-focus) .toast-region:has(.toast) {
-    padding-block: 2px;
+    position: absolute;
+    top: calc(var(--safe-top) + var(--space-2));
+    left: calc(var(--safe-left) + var(--gutter));
+    /* The Settings button's width and the gap before it. */
+    right: calc(var(--safe-right) + var(--gutter) + 48px + var(--space-3));
+    width: auto;
+    max-width: 24rem;
+    height: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
   }
 
   .app:not(.is-focus) .toast {
-    padding-block: 0;
-  }
-
-  .toast-icon {
-    display: none;
-  }
-
-  .toast-kicker {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-
-  .toast-text {
-    flex-direction: row;
-    align-items: baseline;
-    gap: var(--space-2);
-  }
-
-  .toast-title {
-    flex: 0 1 auto;
-    font-size: var(--text-xs);
+    padding-block: var(--space-1);
   }
 
   .toast--detail .toast-desc {
-    display: block;
-    flex: 1 1 0;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
   }
 }
 

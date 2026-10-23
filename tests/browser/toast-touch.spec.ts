@@ -147,6 +147,51 @@ test('no toast shows over the pack while it is torn and revealed', async ({ page
   expect(errors).toEqual([]);
 });
 
+/** Every control on the home screen: the set steps, the pack, the guide link, the header buttons, the tab bar. */
+const HOME_CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.app-utilities button', '.app-nav-item'];
+const TOUCH_TARGET = 44;
+
+for (const viewport of PHONES) {
+  test(`on the home screen the toast is a 44px target a tap opens, and covers no control at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+    test.setTimeout(120000);
+    await page.setViewportSize(viewport);
+    const { errors } = await toSummaryWithToast(page, baseURL!);
+    await page.getByRole('button', { name: /Next pack/ }).tap();
+    const toast = page.locator('.toast');
+    await expect(toast).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.set-current')).toBeVisible();
+    await toast.focus();
+
+    const box = (await toast.boundingBox())!;
+    expect(box.height, 'tall enough for a thumb').toBeGreaterThanOrEqual(TOUCH_TARGET - 0.5);
+    expect(box.width, 'wide enough for a thumb').toBeGreaterThanOrEqual(TOUCH_TARGET);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+
+    const covered = await page.evaluate((selectors) => {
+      const rect = document.querySelector('.toast')!.getBoundingClientRect();
+      const problems: string[] = [];
+      for (const selector of selectors) {
+        for (const [index, el] of Array.from(document.querySelectorAll(selector)).entries()) {
+          const at = el.getBoundingClientRect();
+          if (!at.width || !at.height) continue;
+          if (rect.left < at.right && rect.right > at.left && rect.top < at.bottom && rect.bottom > at.top) problems.push(`${selector}[${index}] is under the toast`);
+          const top = document.elementFromPoint(at.left + at.width / 2, at.top + at.height / 2);
+          if (top?.closest('.toast')) problems.push(`${selector}[${index}] loses its centre to the toast`);
+        }
+      }
+      return problems;
+    }, HOME_CONTROLS);
+    expect(covered).toEqual([]);
+
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await onProfile(page);
+    expect(errors).toEqual([]);
+  });
+}
+
 // What a toast must stay off on the summary of a pack: the X, the headline, each card and each button.
 const PROTECTED = ['.pack-close', '.summary-title', '.summary-card', '.summary-actions button'];
 
@@ -179,6 +224,7 @@ for (const viewport of PHONES) {
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
       expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+      expect(box.height, 'tall enough for a thumb').toBeGreaterThanOrEqual(TOUCH_TARGET - 0.5);
       // Away for the next one.
       await drag(page, page.locator('.toast'), [{ dx: 0, dy: -30 }, { dx: 0, dy: -80 }]);
     }
