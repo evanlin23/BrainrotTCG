@@ -100,8 +100,10 @@ authority and holds) and for the holds check before a merge.
    reproduced defect, copy the PR body's "Defect learning and issue closure" note (docs/DEVELOPMENT.md,
    checked by the reviewer before the merge) to the issue. Missing external verification (physical device, external API) stays
    pending, never complete.
-7. Once an item's PR is merged or closed, run `git worktree remove .claude/worktrees/agent-<id>` for
-   its implementer (it refuses a dirty worktree; leave that one and note it), then `git worktree prune`.
+7. Once an item's PR is merged, closed or superseded, run `git worktree remove .claude/worktrees/agent-<id>`
+   for every agent that worked on it (implementers, reviewers, an implementer resumed later), each only
+   once that agent has stopped, then `git worktree prune`. A locked worktree belongs to a live agent:
+   never force or remove it. `remove` refuses a dirty worktree; leave that one and note it.
 8. Update NOW.md, mirror it if this is a checkpoint, then continue.
 
 Stop early when a change could lose saves or break old proofs or published data: hold it and report.

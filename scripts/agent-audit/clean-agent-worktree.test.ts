@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -10,7 +10,7 @@ const scriptPath = join(process.cwd(), '.claude', 'hooks', 'clean-agent-worktree
 const scratch = mkdtempSync(join(tmpdir(), 'brainrot-clean-worktree-test-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
-const BUILD_DIRS = ['node_modules', 'dist', 'test-results', 'playwright-report', 'blob-report'];
+const BUILD_DIRS = ['node_modules', 'dist', 'playwright-report', 'blob-report'];
 
 /** A project folder with one agent worktree holding source, a .git file and every build folder. */
 function makeProject(agentId: string) {
@@ -20,20 +20,26 @@ function makeProject(agentId: string) {
   writeFileSync(join(worktree, '.git'), 'gitdir: /elsewhere/.git/worktrees/x\n');
   writeFileSync(join(worktree, 'src', 'main.ts'), 'export {};\n');
   writeFileSync(join(worktree, 'package.json'), '{}\n');
-  for (const dir of BUILD_DIRS) {
+  for (const dir of [...BUILD_DIRS, 'test-results']) {
     mkdirSync(join(worktree, dir, 'nested'), { recursive: true });
     writeFileSync(join(worktree, dir, 'nested', 'file.txt'), 'x');
   }
   return { project, worktree };
 }
 
-function runHook(project: string, input: unknown) {
+function runHook(project: string, input: unknown, env: NodeJS.ProcessEnv = {}) {
   return spawnSync('bash', [scriptPath], {
     cwd: scratch,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: project },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: project, ...env },
     input: typeof input === 'string' ? input : JSON.stringify(input),
     encoding: 'utf8',
   });
+}
+
+function writeInput(input: unknown) {
+  const file = join(mkdtempSync(join(scratch, 'input-')), 'input.json');
+  writeFileSync(file, JSON.stringify(input));
+  return file;
 }
 
 const stopInput = (agentId: unknown) => ({
@@ -60,6 +66,9 @@ describe('clean-agent-worktree hook', () => {
     expect(readFileSync(join(worktree, 'src', 'main.ts'), 'utf8')).toBe('export {};\n');
     expect(existsSync(join(worktree, 'package.json'))).toBe(true);
     expect(existsSync(join(worktree, '.git'))).toBe(true);
+    // Other agents read evidence (agent-audit.json, quality-evidence) from test-results later.
+    expect(existsSync(join(worktree, 'test-results', 'nested', 'file.txt'))).toBe(true);
+    expect(readdirSync(worktree).filter((name) => name.startsWith('.cleaning-'))).toEqual([]);
     expect(existsSync(join(otherInSameProject, 'node_modules'))).toBe(true);
     expect(existsSync(join(project, 'node_modules'))).toBe(true);
     expect(existsSync(join(other, 'node_modules'))).toBe(true);
@@ -127,6 +136,56 @@ describe('clean-agent-worktree hook', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toBe('');
     expect(existsSync(join(worktree, 'node_modules'))).toBe(true);
+  });
+
+  it('ignores its own ancestors: cleans when the shell that ran it sits inside the worktree', () => {
+    const { project, worktree } = makeProject('a1b2c3');
+    // `; true` keeps sh alive as the hook's parent, with its cwd inside the worktree.
+    const result = spawnSync('sh', ['-c', 'bash "$HOOK" < "$INPUT"; true'], {
+      cwd: join(worktree, 'src'),
+      env: { ...process.env, CLAUDE_PROJECT_DIR: project, HOOK: scriptPath, INPUT: writeInput(stopInput('a1b2c3')) },
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(`Cleaned agent-a1b2c3 worktree: removed ${BUILD_DIRS.join(' ')}.`);
+    for (const dir of BUILD_DIRS) expect(existsSync(join(worktree, dir))).toBe(false);
+  });
+
+  it('fails closed when the process scan sees nothing (no /proc or no find -printf)', () => {
+    const { project, worktree } = makeProject('a1b2c3');
+    const bin = mkdtempSync(join(scratch, 'bin-'));
+    writeFileSync(join(bin, 'find'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const result = runHook(project, stopInput('a1b2c3'), { PATH: `${bin}:${process.env.PATH ?? ''}` });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    for (const dir of BUILD_DIRS) expect(existsSync(join(worktree, dir))).toBe(true);
+  });
+
+  it('does nothing when .claude/worktrees is a symlink out of the project', () => {
+    const project = mkdtempSync(join(scratch, 'linked-'));
+    const external = makeProject('abc');
+    mkdirSync(join(project, '.claude'));
+    symlinkSync(join(external.project, '.claude', 'worktrees'), join(project, '.claude', 'worktrees'));
+
+    const result = runHook(project, stopInput('abc'));
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    for (const dir of BUILD_DIRS) expect(existsSync(join(external.worktree, dir))).toBe(true);
+  });
+
+  it('deletes folders an interrupted run left renamed aside, without following symlinks', () => {
+    const { project, worktree } = makeProject('a1b2c3');
+    mkdirSync(join(worktree, '.cleaning-123-node_modules', 'pkg'), { recursive: true });
+    const outside = mkdtempSync(join(scratch, 'outside-'));
+    writeFileSync(join(outside, 'keep.txt'), 'keep');
+    symlinkSync(outside, join(worktree, '.cleaning-456-dist'));
+
+    const result = runHook(project, stopInput('a1b2c3'));
+
+    expect(result.status).toBe(0);
+    expect(existsSync(join(worktree, '.cleaning-123-node_modules'))).toBe(false);
+    expect(readFileSync(join(outside, 'keep.txt'), 'utf8')).toBe('keep');
   });
 
   it('keeps the build folders while a process still runs inside the worktree', () => {
