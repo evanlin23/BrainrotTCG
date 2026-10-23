@@ -167,7 +167,7 @@ for (const viewport of VIEWPORTS) {
     test.setTimeout(120000);
     await page.setViewportSize(viewport);
     const errors = await toSummary(page, baseURL!);
-    const toast = await toHome(page);
+    await toHome(page);
     // The taller level-up toast comes second; measure with it up.
     await dismiss(page);
     await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 15000 });

@@ -213,6 +213,12 @@ const recordRequests = () => {
 
 it('fetches the toasts ahead of the first pack: not at startup, once the sealed pack art has settled and the page is idle', async () => {
   const requested = recordRequests();
+  // The art's own gate, held shut: StrictMode's effect cleanup in jsdom settles the real one at mount.
+  vi.doMock('../game/packArt', () => {
+    let release!: () => void;
+    const settled = new Promise<void>((resolve) => { release = resolve; });
+    return { packArtSettled: () => {}, afterPackArt: (task: () => void) => { void settled.then(task); }, releaseArt: release };
+  });
   app = await mountedApp({
     ...PLAYER('Warm-up fixture'),
     ...RETURNING,
@@ -226,8 +232,8 @@ it('fetches the toasts ahead of the first pack: not at startup, once the sealed 
   await app.settle(5000);
   expect(requested, 'the toasts are not fetched at startup, ahead of the pack art').toEqual([]);
 
-  const { packArtSettled } = await import('../game/packArt');
-  await app.interact(() => packArtSettled());
+  const { releaseArt } = await import('../game/packArt') as unknown as { releaseArt: () => void };
+  await app.interact(() => releaseArt());
   await app.until('the idle page fetches the toasts for the pack to come', () => expect(requested.filter((importer) => importer.includes('AchievementToasts'))).toHaveLength(1));
   expect(requested, 'only the toasts are warmed').toHaveLength(1);
 });
@@ -263,15 +269,15 @@ it('fetches a page on intent, but not while a pack is opening', async () => {
   expect(button('Settings').disabled).toBe(true);
   await app.interact(() => { point('Cards'); point('Rankings'); });
   await app.settle(100);
-  expect(requested, 'no page is fetched while a pack opens').toEqual([]);
+  // (The toasts' chunk is warmed once the art settles, which StrictMode does at mount here; it is no page.)
+  const pages = () => requested.filter((importer) => !importer.includes('AchievementToasts'));
+  expect(pages(), 'no page is fetched while a pack opens').toEqual([]);
 
   await app.until('the ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
   await app.until('the pack lets go of the app', () => expect(button('Settings').disabled).toBe(false));
-  // The pack's own toasts are due now (its art never settles in jsdom, so this is the fetch for a toast that
-  // is due, not the idle warm-up), so their chunk is fetched, once; no page is until one is pointed at.
+  // The toasts' chunk is fetched once, however it came to be wanted; no page is until one is pointed at.
   expect(requested.filter((importer) => importer.includes('AchievementToasts'))).toHaveLength(1);
-  const pages = () => requested.filter((importer) => !importer.includes('AchievementToasts'));
   expect(pages()).toEqual([]);
   await app.interact(() => point('Cards'));
   expect(pages()).toHaveLength(1);
@@ -293,6 +299,7 @@ afterEach(() => {
   vi.doUnmock('../components/ui/DeferredSheet');
   vi.doUnmock('../components/ui/Page');
   vi.doUnmock('../components/ui/sheetEntry');
+  vi.doUnmock('../game/packArt');
 });
 
 it('mounts the App Rankings and Profile pages and the Share sheet on demand and recovers them from a stale chunk', async () => {
