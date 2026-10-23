@@ -115,6 +115,17 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setLanded(true);
     onArrive?.();
   };
+  // The first fall passes over the header and any warning above the stage. Until it first reaches its place
+  // the stage takes no presses (PackOpener.css), so a tap aimed at the Settings gear or a banner's Download
+  // then reaches them, not the pack falling past. From there it only settles, so a tap on the pack lands.
+  // Reduced motion puts it in its place at once, so it never passes over them.
+  const [falling, setFalling] = useState(!arrived);
+  const reachedPlace = useRef(arrived);
+  const markInPlace = () => {
+    if (reachedPlace.current) return;
+    reachedPlace.current = true;
+    setFalling(false);
+  };
   /** Why the last tear didn't open a pack, shown under it with a way to try again. */
   const refusal = stage.kind === 'sealed' ? stage.refusal : null;
   /** The player left a torn pack while its ticket was still being worked out: keep it, don't show it. */
@@ -738,7 +749,25 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               // left its leaving mark (which stops taps, PackOpener.css) on it; 14 clears it. Coming back
               // clears it here too, so taps don't depend on the framer version.
               if (definition === STAGE_AT_REST) stageRef.current?.removeAttribute('data-motion-pop-id');
+              if (definition !== STAGE_AT_REST || reachedPlace.current) return;
+              // Each frame, how far above its place the stage is drawn. An onUpdate prop could say, but it
+              // takes all of the stage's animations off the compositor (framer-motion), and under reduced
+              // motion the torn pack's exit then never ends. The completion catches a fall that stops short.
+              const element = stageRef.current;
+              const watch = () => {
+                if (reachedPlace.current || !element?.isConnected) return;
+                const { transform } = getComputedStyle(element);
+                const matrix = /^matrix(3d)?\((.*)\)$/.exec(transform);
+                const y = transform === 'none' ? 0 : matrix ? Number(matrix[2].split(',')[matrix[1] ? 13 : 5]) : NaN;
+                if (y >= 0) markInPlace();
+                else requestAnimationFrame(watch);
+              };
+              requestAnimationFrame(watch);
             }}
+            onAnimationComplete={(definition) => {
+              if (definition === STAGE_AT_REST) markInPlace();
+            }}
+            data-falling={(falling && !reducedMotion) || undefined}
             animate={shown ? STAGE_AT_REST : false}
             // Quick, on its own timing: the drop-in spring's long tail left the screen blank before the reveal.
             exit={{ scale: 1.25, opacity: 0, transition: { duration: 0.25, ease: 'easeIn' } }}

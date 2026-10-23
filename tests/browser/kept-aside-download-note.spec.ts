@@ -113,3 +113,44 @@ for (const variant of VARIANTS) {
     });
   }
 }
+
+// The sealed pack's first fall comes from above the screen, over the banner and the Settings gear. A tap on
+// Download in that second once landed on the falling stage and downloaded nothing (#1133).
+// Every frame of the fall, from the first, is checked: a tap at either control's centre must reach it.
+test('a tap on the banner Download or the gear reaches it while the pack falls past (#1133)', async ({ page, baseURL }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.addInitScript(() => {
+    const seen = { frames: 0, missed: [] as string[], landed: false };
+    (window as unknown as { fall: typeof seen }).fall = seen;
+    const reaches = (el: Element | null) => {
+      const { left, top, width, height } = el!.getBoundingClientRect();
+      return document.elementFromPoint(left + width / 2, top + height / 2)?.closest('button') === el;
+    };
+    const watch = () => {
+      const stage = document.querySelector('.pack-display');
+      const download = Array.from(document.querySelectorAll('.save-warning button')).find((b) => b.textContent === 'Download');
+      const gear = document.querySelector('button[aria-label="Settings"]');
+      if (!stage || !download || !gear) return requestAnimationFrame(watch);
+      if (getComputedStyle(stage).transform === 'none') {
+        seen.landed = true;
+        return undefined;
+      }
+      seen.frames += 1;
+      if (!reaches(download)) seen.missed.push(`Download, frame ${seen.frames}`);
+      if (!reaches(gear)) seen.missed.push(`the gear, frame ${seen.frames}`);
+      return requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+  });
+  const { errors } = await open(page, baseURL!, VARIANTS[0], 100);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { fall: { landed: boolean } }).fall.landed), { message: 'the pack has landed' }).toBe(true);
+  const { frames, missed } = await page.evaluate(() => (window as unknown as { fall: { frames: number; missed: string[] } }).fall);
+  expect(frames, 'the fall was watched from its first frame').toBeGreaterThan(0);
+  expect(missed, 'taps that would have landed on the falling pack').toEqual([]);
+  // At rest the pack takes presses again.
+  expect(await page.locator('.pack-shell').evaluate((el) => {
+    const { left, top, width, height } = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(left + width / 2, top + height / 2));
+  })).toBe(true);
+  expect(errors).toEqual([]);
+});

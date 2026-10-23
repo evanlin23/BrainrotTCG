@@ -678,6 +678,28 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
     expect(onArrive).toHaveBeenCalledOnce();
   });
 
+  it('takes no presses on the first fall until it reaches its place, and takes them at once on a return', async () => {
+    // Framer finishes each animation in its first frame, so the fall's completion needs no clock.
+    MotionGlobalConfig.skipAnimations = true;
+    try {
+      show();
+      expect(stage().hasAttribute('data-falling')).toBe(true);
+      await vi.waitFor(() => expect(stage().hasAttribute('data-falling')).toBe(false));
+
+      await tearIntoReveal();
+      escape();
+      expect(stage().hasAttribute('data-falling')).toBe(false);
+    } finally {
+      MotionGlobalConfig.skipAnimations = false;
+    }
+  });
+
+  it('takes presses from the first frame when the device asks for less motion, as it is in its place at once', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
+    show();
+    expect(stage().hasAttribute('data-falling')).toBe(false);
+  });
+
   it('rises in from the first stage of an opener the page has already seen the pack arrive in', () => {
     const onArrive = vi.fn();
     show({ arrived: true, onArrive });
