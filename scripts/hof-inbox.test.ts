@@ -53,7 +53,9 @@ describe('Hall of Fame inbox', () => {
     const id = idOf(fourOfAKind);
     const { ctx, filedProofs } = context({ filed: new Set([id]), unconfirmed: new Set([id]) });
     const event = hallOfFameEvent(fourOfAKind, id, 1000);
-    expect((await processInbox([event], ctx)).added).toBe(0);
+    const later = hallOfFameEvent(fourOfAKind, 'later', 2000);
+    // The oldest one passed over is reported, so the caller doesn't count its time as handled.
+    expect(await processInbox([later, event], ctx)).toEqual({ added: 0, deferred: 0, unconfirmedFrom: 1 });
     expect(ctx.seen.has(event.id)).toBe(false);
     // Once a full listing no longer has it, the same event is filed.
     ctx.filed.clear();

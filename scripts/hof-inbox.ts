@@ -225,10 +225,15 @@ export const probeLine = (relay: string, sent: PublishResult, read: { count: num
 /** The deploy's line for a Hall of Fame issue it leaves out; the reason can quote the proof. */
 export const buildSkipLine = (issue: number, reason: string): string => `#${issue}: skipped (${logSafeError(reason)})`;
 
-/** Oldest first; each pull is filed at most once, and only if it verifies and qualifies. */
-export const processInbox = async (events: readonly NostrEvent[], ctx: InboxContext): Promise<{ added: number; deferred: number }> => {
+/**
+ * Oldest first; each pull is filed at most once, and only if it verifies and qualifies. `deferred`
+ * events were left for the next run; `unconfirmedFrom` is the time of the oldest event passed over
+ * for an `unconfirmed` pull (not marked seen), if any, so the caller doesn't count it as handled.
+ */
+export const processInbox = async (events: readonly NostrEvent[], ctx: InboxContext): Promise<{ added: number; deferred: number; unconfirmedFrom?: number }> => {
   let added = 0;
   let budget = ctx.budget;
+  let unconfirmedFrom: number | undefined;
   const ordered = handlingOrder(events);
   for (const [i, event] of ordered.entries()) {
     if (ctx.seen.has(event.id)) continue;
@@ -248,6 +253,7 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
     }
     if (!proof || !decoded || !id || ctx.filed.has(id)) {
       if (!id || !ctx.unconfirmed?.has(id)) ctx.seen.add(event.id);
+      else unconfirmedFrom ??= event.created_at;
       continue;
     }
     // A blocked display name is never filed (see isNameAllowed), so its proof isn't worth checking.
@@ -264,7 +270,7 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       continue;
     }
     // The rest wait for the next run.
-    if (added >= ctx.maxFiled || budget-- <= 0) return { added, deferred: ordered.length - i };
+    if (added >= ctx.maxFiled || budget-- <= 0) return { added, deferred: ordered.length - i, unconfirmedFrom };
     ctx.seen.add(event.id);
     let pull: VerifiedPull;
     try {
@@ -283,10 +289,10 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       // GitHub hiccup: leave this event unhandled so the next run tries again, and stop for now.
       ctx.seen.delete(event.id);
       ctx.log?.(`${event.id}: couldn't file it (${logSafeError(error)}); will retry`);
-      return { added, deferred: ordered.length - i };
+      return { added, deferred: ordered.length - i, unconfirmedFrom };
     }
     ctx.filed.add(id);
     added++;
   }
-  return { added, deferred: 0 };
+  return { added, deferred: 0, unconfirmedFrom };
 };

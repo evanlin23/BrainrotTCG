@@ -960,19 +960,25 @@ describe('the filed index (#1000)', () => {
     vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [], perRelay: [] });
     await inbox();
     issues.length = 0; // deleted: it isn't in any listing, and the index still has it
-    const event = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000);
-    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
+    const event = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [{ relay: 'wss://a', count: 1 }] });
+    const readRanges = () => JSON.parse(readFileSync('hof-inbox-read.json', 'utf8')) as unknown;
     vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
     gh.requests.length = 0;
     await inbox();
     expect(gh.writes()).toEqual([]);
-    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).not.toContain(event.id);
+    expect(seenIds()).not.toContain(event.id);
+    // Not read through from the passed-over event up, so a later run reads it again.
+    const now = Date.parse('2026-10-16T12:15:00Z') / 1000;
+    expect(readRanges()).toEqual({ 'wss://a': [[now - 7 * 86_400, SENT / 1000 - 1]] });
 
     vi.setSystemTime(new Date('2026-10-17T12:30:00Z'));
     gh.requests.length = 0;
     await inbox();
     expect(listings(gh)[0]).toBe(VERIFIED);
     expect(gh.writes()).toEqual(FILED);
+    const later = Date.parse('2026-10-17T12:30:00Z') / 1000;
+    expect(readRanges()).toEqual({ 'wss://a': [[later - 7 * 86_400, later]] });
   });
 
   it('marks an event seen when a recent issue confirms what the kept index says', async () => {
