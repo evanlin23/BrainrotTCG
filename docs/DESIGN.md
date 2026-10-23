@@ -170,8 +170,9 @@ results rules below (#339).
 - #803: drag failures are never dead ends (tap opens, seam progress shows); small controls get
   44 px hit areas (pack-targets.spec measures the gear, set steps, Card guide, sheet and page
   closes, Skip, the logo link and the profile's "What do these numbers mean?" summary at 390 px,
-  at 195 px and with doubled text). The achievement toast stays a button; #943 keeps it off the
-  pack's X and holds it while the pointer or focus is on it.
+  at 195 px and with doubled text). #943 keeps the achievement toast off the pack's X and holds it
+  while the pointer or focus is on it, but #803 still owns the clickable toast as a moving target
+  in the tap path: it can cover the set picker on the home screen.
 
 ## Looks like a card game, not like an AI demo
 
