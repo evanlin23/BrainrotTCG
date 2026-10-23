@@ -4,7 +4,7 @@ import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { decodeProof, encodeProof, pullId, signProof, utf8 } from '../src/engine/index.ts';
 import { hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, logSafeError, probeLine, processInbox, relayReadLine, type InboxContext } from './hof-inbox.ts';
+import { buildSkipLine, logSafeError, parseSeenCache, probeLine, processInbox, relayReadLine, seenCacheText, type InboxContext } from './hof-inbox.ts';
 
 const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.proof;
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
@@ -174,6 +174,29 @@ describe('Hall of Fame inbox', () => {
       expect(line).toContain('bad ::error::x ::add-mask::y ::warning::z a');
       expect(line.length).toBeLessThan(400);
     }
+  });
+});
+
+describe('Hall of Fame seen cache (hall-of-fame.ts inbox)', () => {
+  const now = 1_800_000_000;
+  const since = now - 7 * 86_400;
+
+  it('reads ids with their times, bare ids from older caches as made now, and starts empty on anything else', () => {
+    expect(parseSeenCache(JSON.stringify([['a', 5], 'b', ['c', 1.5], ['d'], 7, null]), now)).toEqual(new Map([['a', 5], ['b', now]]));
+    for (const text of ['', 'not json', '{"a":1}', 'null']) expect(parseSeenCache(text, now)).toEqual(new Map());
+  });
+
+  it('keeps every handled id inside the window, newest first, and none from before it', () => {
+    const at = new Map([['old', since - 1], ['edge', since], ['new', now - 10], ['later', now + 3600]]);
+    expect(JSON.parse(seenCacheText(['old', 'edge', 'new', 'later', 'undated'], at, since, now, 10))).toEqual([['later', now + 3600], ['undated', now], ['new', now - 10], ['edge', since]]);
+  });
+
+  it('drops the oldest past the cap, counting a future date as now', () => {
+    const at = new Map([['a', now - 30], ['b', now - 20], ['future', now + 86_400], ['c', now - 10]]);
+    expect(JSON.parse(seenCacheText(at.keys(), at, since, now, 2)).map(([id]: [string]) => id)).toEqual(['future', 'c']);
+    // Round trip.
+    const text = seenCacheText(at.keys(), at, since, now, 10);
+    expect(parseSeenCache(text, now)).toEqual(at);
   });
 });
 

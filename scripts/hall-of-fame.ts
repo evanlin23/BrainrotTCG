@@ -77,7 +77,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, probeLine, processInbox, relayReadLine } from './hof-inbox.ts';
+import { buildSkipLine, parseSeenCache, probeLine, processInbox, relayReadLine, seenCacheText } from './hof-inbox.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -500,8 +500,12 @@ export const INBOX_MAX_FILED = 20;
 export const INBOX_PAGE_SIZE = 100;
 /** Requests per relay for older events, so a burst of junk can't push real submissions out of reach. */
 export const INBOX_PAGES = 50;
-/** Event ids remembered between runs; the newest are kept. */
-export const INBOX_SEEN_CAP = 20000;
+/**
+ * Handled event ids remembered between runs. Each is kept while its event is in the read window, so
+ * this is only a bound on the cache (about 8 MB): four times what one run can read (pages of 100,
+ * 50 pages, five relays), and well above a week of #225's expected traffic.
+ */
+export const INBOX_SEEN_CAP = 100_000;
 
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
 const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
@@ -509,9 +513,12 @@ const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
 export const inbox = async (ticketFn?: TicketFn) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('inbox needs GITHUB_TOKEN to file issues');
-  const seen = new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
+  const nowS = Math.floor(Date.now() / 1000);
+  // Handled event ids with their events' times, so each is kept until it leaves the read window.
+  const seenAt = existsSync(SEEN_PATH) ? parseSeenCache(readFileSync(SEEN_PATH, 'utf8'), nowS) : new Map<string, number>();
+  const seen = new Set(seenAt.keys());
 
-  const since = Math.floor(Date.now() / 1000) - INBOX_WINDOW_S;
+  const since = nowS - INBOX_WINDOW_S;
   const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES);
   for (const r of perRelay) console.log(relayReadLine(r));
 
@@ -582,8 +589,8 @@ export const inbox = async (ticketFn?: TicketFn) => {
   });
   if (deferred) console.log(`${deferred} events left for the next run`);
 
-  // Keep the cache bounded; the newest ids matter (older events fall out of the window anyway).
-  writeFileSync(SEEN_PATH, JSON.stringify([...seen].slice(-INBOX_SEEN_CAP)));
+  for (const event of events) seenAt.set(event.id, event.created_at);
+  writeFileSync(SEEN_PATH, seenCacheText(seen, seenAt, since, nowS, INBOX_SEEN_CAP));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `added=${added}\n`);
   console.log(`${events.length} events read, ${added} added`);
 };

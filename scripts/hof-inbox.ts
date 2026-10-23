@@ -50,6 +50,44 @@ export const logSafeError = (error: unknown, max = 200): string => {
 export const relayReadLine = (r: { relay: string; count: number; error?: string }): string =>
   `${r.relay}: ${r.count} events${r.error ? ` (${logSafeError(r.error)})` : ''}`;
 
+/**
+ * The seen cache (hof-inbox-seen.json) as read back: each handled event id with the time its event
+ * claims (`created_at`). Caches written before ids carried a time hold bare ids; those count as made
+ * now, so they are kept for one more window. A cache that can't be read starts empty: handled events
+ * are then derived again, but filed pulls stay deduplicated by their issues.
+ */
+export const parseSeenCache = (text: string, nowS: number): Map<string, number> => {
+  const seen = new Map<string, number>();
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return seen;
+  }
+  if (!Array.isArray(data)) return seen;
+  for (const entry of data) {
+    if (typeof entry === 'string') seen.set(entry, nowS);
+    else if (Array.isArray(entry) && typeof entry[0] === 'string' && Number.isSafeInteger(entry[1])) seen.set(entry[0], entry[1] as number);
+  }
+  return seen;
+};
+
+/**
+ * The seen cache to save: `[id, created_at]` for every handled event still inside the read window
+ * (`since` on), so a handled event isn't derived again while relays can still serve it, however many
+ * others arrive. An event before `since` can't be read again, so it is dropped. Past `cap` the oldest
+ * go first, since relays serve the newest events first; an event dated in the future counts as now.
+ */
+export const seenCacheText = (seen: Iterable<string>, createdAt: ReadonlyMap<string, number>, since: number, nowS: number, cap: number): string => {
+  const kept: [string, number][] = [];
+  for (const id of seen) {
+    const at = createdAt.get(id) ?? nowS;
+    if (at >= since) kept.push([id, at]);
+  }
+  kept.sort((a, b) => Math.min(b[1], nowS) - Math.min(a[1], nowS));
+  return JSON.stringify(kept.slice(0, cap));
+};
+
 /** The probe's line for one relay; a relay's OK message and reason for closing are its own text. */
 export const probeLine = (relay: string, sent: PublishResult, read: { count: number; error?: string }): string =>
   `${relay}: write ${sent.ok ? 'ok' : `failed (${logSafeError(sent.message)})`}, read ${read.count > 0 ? 'ok' : `failed (${logSafeError(read.error ?? 'not found')})`}`;
