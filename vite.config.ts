@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { reducedMotionCss } from './scripts/reduced-motion-css.ts'
 import { testBudget } from './scripts/test-budget.ts'
 import { CANONICAL_SITE_URL, robotsTxt, siteFromEnv, sitemapXml } from './scripts/crawler-files.ts'
 
@@ -68,6 +69,8 @@ const preloadRecovery = (): Plugin => {
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
   define: { __BUILD_REVISION__: JSON.stringify(buildRevision()) },
+  // The Motion setting reaches every reduced-motion rule in the stylesheets (scripts/reduced-motion-css.ts).
+  css: { postcss: { plugins: [reducedMotionCss()] } },
   plugins: [react(), siteUrl(), preloadRecovery(), testBudget()],
   test: {
     // Vitest's defaults (any node_modules, .git) plus the Playwright suites, build output and the

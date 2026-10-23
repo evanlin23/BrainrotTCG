@@ -772,6 +772,69 @@ describe('Settings: Show every page', () => {
   });
 });
 
+describe('Settings: Motion', () => {
+  const choices = () => ({
+    group: document.body.querySelector<HTMLElement>('[role="radiogroup"][aria-labelledby]')!,
+    auto: button('Auto'),
+    reduced: button('Reduced'),
+  });
+  const renderWith = (settings: typeof DEFAULT_SETTINGS) => {
+    const onSettingsChange = vi.fn();
+    act(() => root.render(<SettingsPage settings={settings} onSettingsChange={onSettingsChange} onImportSave={() => null} />));
+    return onSettingsChange;
+  };
+
+  it('offers Auto and Reduced as a named pair, Auto chosen for a save with no choice yet', () => {
+    const { group, auto, reduced } = choices();
+    expect(document.getElementById(group.getAttribute('aria-labelledby')!)?.textContent).toBe('Motion');
+    expect(document.getElementById(group.getAttribute('aria-describedby')!)?.textContent).toMatch(/device's reduced-motion setting/);
+    expect(group.contains(auto) && group.contains(reduced)).toBe(true);
+    expect(auto.getAttribute('role')).toBe('radio');
+    expect(auto.getAttribute('aria-checked')).toBe('true');
+    expect(reduced.getAttribute('aria-checked')).toBe('false');
+    // One Tab stop: the chosen one.
+    expect([auto.tabIndex, reduced.tabIndex]).toEqual([0, -1]);
+    expect(auto.type).toBe('button');
+  });
+
+  it('shows a saved Reduced choice as chosen', () => {
+    renderWith({ ...DEFAULT_SETTINGS, motion: 'reduced' });
+    expect(choices().reduced.getAttribute('aria-checked')).toBe('true');
+    expect(choices().auto.getAttribute('aria-checked')).toBe('false');
+    expect([choices().auto.tabIndex, choices().reduced.tabIndex]).toEqual([-1, 0]);
+  });
+
+  it('moves the choice with the arrow keys, wrapping, and keeps the focus on the chosen one', async () => {
+    const onSettingsChange = renderWith(DEFAULT_SETTINGS);
+    const press = (key: string) => act(() => void document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));
+    choices().auto.focus();
+    press('ArrowRight');
+    expect(onSettingsChange).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, motion: 'reduced' });
+    expect(document.activeElement).toBe(choices().reduced);
+    // The parent hasn't re-rendered, so the choice is still Auto and a step left wraps to Reduced too.
+    press('ArrowLeft');
+    expect(onSettingsChange).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, motion: 'reduced' });
+    act(() => root.render(<SettingsPage settings={{ ...DEFAULT_SETTINGS, motion: 'reduced' }} onSettingsChange={onSettingsChange} onImportSave={() => null} />));
+    choices().reduced.focus();
+    press('ArrowDown');
+    expect(onSettingsChange).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, motion: 'auto' });
+    onSettingsChange.mockClear();
+    press('Home');
+    expect(onSettingsChange).not.toHaveBeenCalled();
+  });
+
+  it('changes only Motion when a choice is pressed', async () => {
+    const saved = { ...DEFAULT_SETTINGS, effectsVolume: 0.4, particlesEnabled: false, pauseBigPulls: false };
+    const onSettingsChange = renderWith(saved);
+    await click('Reduced');
+    expect(onSettingsChange).toHaveBeenCalledExactlyOnceWith({ ...saved, motion: 'reduced' });
+    onSettingsChange.mockClear();
+    act(() => root.render(<SettingsPage settings={{ ...saved, motion: 'reduced' }} onSettingsChange={onSettingsChange} onImportSave={() => null} />));
+    await click('Auto');
+    expect(onSettingsChange).toHaveBeenCalledExactlyOnceWith({ ...saved, motion: 'auto' });
+  });
+});
+
 describe('Settings: a player record that cannot be read (#1052)', () => {
   const rowNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Player record')!;
   const DAMAGED = '{"secretKey":"not a key"';
