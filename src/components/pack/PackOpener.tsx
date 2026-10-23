@@ -205,10 +205,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     if (isOpening && particlesOn) loadConfetti().catch(() => {});
   }, [isOpening, particlesOn]);
 
-  // Mine the next pack's ticket while this one is on screen.
+  // Mine the next pack's ticket while this one is on screen. Its art is fetched only if nothing covers
+  // Open when this runs, so a cover's change runs it again.
   useEffect(() => {
-    if (!isOpening) prefetchNextPack(set);
-  }, [isOpening, set]);
+    if (!isOpening) prefetchNextPack(set, disabled);
+  }, [isOpening, set, disabled]);
 
   // From the tear on, the ticket is spent: the app mustn't swap sets (or open a sheet over it) until
   // the pack is recorded. The ticket can still be mining here on a slow phone.
