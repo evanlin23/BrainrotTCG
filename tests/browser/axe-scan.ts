@@ -29,8 +29,14 @@ export const AXE_RULES = [
   'color-contrast',
 ] as const;
 
-/** The screens scanned. A scan or an exception for any other name is a typo, not a state. */
-export const AXE_STATES = ['first-pack', 'summary', 'settings', 'card-share'] as const;
+/** The screens scanned, each with the spec that scans it (axe-routes.spec.ts checks it does). A scan or an exception for any other name is a typo, not a state. */
+export const AXE_STATE_SPECS = {
+  'first-pack': 'axe-critical-states.spec.ts', summary: 'axe-critical-states.spec.ts', settings: 'axe-critical-states.spec.ts',
+  'card-share': 'axe-critical-states.spec.ts', 'mid-reveal': 'axe-routes.spec.ts', cards: 'axe-routes.spec.ts',
+  rankings: 'axe-routes.spec.ts', profile: 'axe-routes.spec.ts', 'shared-pull': 'axe-routes.spec.ts',
+} as const;
+export type AxeState = keyof typeof AXE_STATE_SPECS;
+export const AXE_STATES = Object.keys(AXE_STATE_SPECS) as AxeState[];
 
 /** Rules a scan must have reached on every screen, so a scan of an empty or wrong page cannot pass. */
 const ALWAYS_APPLICABLE = ['color-contrast', 'document-title', 'html-has-lang'] as const;
@@ -39,6 +45,7 @@ const ALWAYS_APPLICABLE = ['color-contrast', 'document-title', 'html-has-lang'] 
 export const NOT_COVERED = [
   'Text on art, gradients, overlapping layers or partly transparent backgrounds: axe marks these "needs review" (listed per scan).',
   'Anything drawn on a canvas, including card faces and effects, and the content of images.',
+  'Opacity-pulse troughs (the waiting pack hint fades while mining): scans read looping animations at rest, so the dimmest phase is never measured.',
   'Keyboard order, focus visibility, target sizes, reduced motion and forced colours: owned by the specs that test them.',
   'Real screen readers and physical phones.',
 ] as const;
@@ -120,17 +127,17 @@ export async function settle(page: Page) {
 /**
  * Scans `page` as it is now and returns the report. Reduced motion is emulated for the scan so looping
  * pulses (the pack's waiting hint fades to 0.55 opacity) cannot make contrast depend on the animation
- * phase; the page's own setting comes back afterwards.
+ * phase; the page's own setting, read before the scan, comes back afterwards.
  */
-export async function scanPage(page: Page, state: string, scope?: string, exceptions: readonly AxeException[] = AXE_EXCEPTIONS): Promise<AxeReport> {
+export async function scanPage(page: Page, state: string, exceptions: readonly AxeException[] = AXE_EXCEPTIONS): Promise<AxeReport> {
+  const before = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   let results;
   try {
     await settle(page);
-    const builder = new AxeBuilder({ page }).withRules([...AXE_RULES]);
-    results = await (scope ? builder.include(scope) : builder).analyze();
+    results = await new AxeBuilder({ page }).withRules([...AXE_RULES]).analyze();
   } finally {
-    await page.emulateMedia({ reducedMotion: null });
+    await page.emulateMedia({ reducedMotion: before ? 'reduce' : 'no-preference' });
   }
 
   const applied = new Set([...results.passes, ...results.violations, ...results.incomplete].map((r) => r.id));
@@ -167,9 +174,9 @@ export function problems(report: AxeReport): string[] {
 }
 
 /** Scans the loaded screen, attaches what axe could not judge to the test report, and fails on any problem. */
-export async function expectAxeClean(page: Page, testInfo: TestInfo, state: string, scope?: string) {
+export async function expectAxeClean(page: Page, testInfo: TestInfo, state: string) {
   expect(AXE_STATES as readonly string[], 'a scanned state is listed in AXE_STATES').toContain(state);
-  const report = await scanPage(page, state, scope);
+  const report = await scanPage(page, state);
   await testInfo.attach(`axe-${state}`, {
     contentType: 'application/json',
     body: JSON.stringify({ state, passedNodes: report.passedNodes, excepted: report.excepted, needsReview: report.needsReview, notCovered: NOT_COVERED }, null, 2),
