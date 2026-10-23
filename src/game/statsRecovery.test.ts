@@ -248,8 +248,20 @@ describe('exported stats', () => {
     expect(isValidSaveValue(STORAGE_KEYS.COLLECTION_RECOVERY, file.collectionRecovery, CURRENT_DATA_VERSION)).toBe(true);
   });
 
+  it("leaves out another player's data kept aside for this visit, once a different save is stored (#1053)", () => {
+    data.set(STORAGE_KEYS.STATS, 'garbage');
+    refuseWrites = new Set([STORAGE_KEYS.COLLECTION_RECOVERY]);
+    loadStats({});
+    const other = JSON.stringify({ secretKey: 'ef'.repeat(32), name: 'Other', nextNonce: 3, createdAt: 2 });
+    data.set('brainrot-player-v1', other);
+    expect((JSON.parse(exportSaveFile()) as { collectionRecovery: string | null }).collectionRecovery).toBeNull();
+    data.set('brainrot-player-v1', JSON.stringify({ ...(JSON.parse(PLAYER) as object), nextNonce: 9 }));
+    const file = JSON.parse(exportSaveFile()) as { collectionRecovery: string };
+    expect(JSON.parse(file.collectionRecovery)).toEqual({ raw: 'garbage', player: PLAYER, key: STORAGE_KEYS.STATS });
+  });
+
   it('exports stored kept-aside data byte for byte when this visit added none', () => {
-    const raw = JSON.stringify({ raw: 'garbage', player: PLAYER, key: STORAGE_KEYS.STATS });
+    const raw = JSON.stringify({ raw: 'garbage', player: PLAYER, key: STORAGE_KEYS.STATS }, null, 2);
     data.set(STORAGE_KEYS.COLLECTION_RECOVERY, raw);
     expect((JSON.parse(exportSaveFile()) as { collectionRecovery: string }).collectionRecovery).toBe(raw);
   });

@@ -14,6 +14,7 @@ import { hydrateCollection } from '../utils/migrations';
 import { getStoredData, setStoredData } from '../utils/storage';
 import { keepUnreadableAside, keptInStorage, type CollectionSaveResult } from './collectionRecovery';
 import { byBest, historyCards, historyForKey } from './history';
+import { beatsBestPack } from './packProgress';
 import { getPlayer } from './player';
 import { isStats, STATS_FIELDS } from './saveFile';
 
@@ -80,12 +81,11 @@ const rebuild = (value: unknown, collection: Record<string, CollectionItem>): Lo
   stats.holoCards = holoCards;
 
   // The history's best pack replaces a kept one it beats (a better pack may have opened since the stats broke).
-  const keptScore = stats.highestPackFlexValue || stats.highestPackValue || 0;
   for (const entry of [...history].sort(byBest)) {
     const cards = historyCards(entry);
     if (!cards || cards.length === 0) continue;
     const { points, hand, score } = scoreCards(cards);
-    if (score > keptScore) {
+    if (beatsBestPack(score, stats)) {
       Object.assign(stats, {
         highestPackFlexValue: score,
         highestPackBaseValue: points,

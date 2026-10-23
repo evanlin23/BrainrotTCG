@@ -315,8 +315,11 @@ export const dismissCollectionRecovery = (): boolean => {
   }
 };
 
-/** The stored archive (wrapped if it can't be read) with this visit's unsaved payloads after it, and whether those added any. */
-const keptArchive = (): { file: Archive; added: boolean } | null => {
+/**
+ * The stored archive (wrapped if it can't be read) with this visit's unsaved payloads after it (those
+ * `ours` accepts), and whether those added any.
+ */
+const keptArchive = (ours: (entry: Entry) => boolean = () => true): { file: Archive; added: boolean } | null => {
   const stored = getStoredArchive();
   if (stored.status === 'unavailable') {
     throw (stored.error instanceof Error ? stored.error : new DOMException('Storage read denied', 'SecurityError'));
@@ -324,17 +327,35 @@ const keptArchive = (): { file: Archive; added: boolean } | null => {
   const raw = stored.status === 'found' ? stored.raw : null;
   const archive = raw === null ? null : readArchive(raw);
   const kept = entriesOf(archive);
-  const extra = unsaved.filter((entry) => !kept.some((k) => sameEntry(k, entry)));
-  const dropped = (archive?.dropped ?? 0) + droppedThisVisit;
-  if (archive && extra.length === 0 && droppedThisVisit === 0) return { file: archive, added: false };
+  const extra = unsaved.filter((entry) => ours(entry) && !kept.some((k) => sameEntry(k, entry)));
+  // Payloads let go this visit count only beside one of the payloads they were kept with.
+  const droppedNow = extra.length > 0 || unsaved.every(ours) ? droppedThisVisit : 0;
+  const dropped = (archive?.dropped ?? 0) + droppedNow;
+  if (archive && extra.length === 0 && droppedNow === 0) return { file: archive, added: false };
   if (archive) return { file: withLater(archive, [...(archive.later ?? []), ...extra], dropped), added: true };
   if (extra.length > 0) return { file: withLater(extra[0], extra.slice(1), dropped), added: true };
   return null;
 };
 
-/** The kept-aside data a backup carries: the stored text as is, or with this visit's unsaved payloads when storage had no room for them. */
+/** The secret key a stored player record holds, if it can be read. */
+const keyOf = (raw: string | null): string | undefined => {
+  try {
+    const value: unknown = JSON.parse(raw ?? 'null');
+    return isRecord(value) && typeof value.secretKey === 'string' && /^[0-9a-f]{64}$/.test(value.secretKey) ? value.secretKey : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * The kept-aside data a backup carries: the stored text as is, or with this visit's unsaved payloads when
+ * storage had no room for them. Only payloads kept for the player stored now go in (by secret key, as the
+ * record's other fields change with every pack), so a save another tab imported never carries this tab's.
+ */
 export const exportedCollectionRecovery = (stored: string | null): string | null => {
-  const kept = keptArchive();
+  const now = localStorage.getItem(PLAYER_KEY);
+  const key = keyOf(now);
+  const kept = keptArchive((entry) => (key === undefined ? entry.player === now : keyOf(entry.player) === key));
   return kept?.added ? JSON.stringify(kept.file) : stored;
 };
 

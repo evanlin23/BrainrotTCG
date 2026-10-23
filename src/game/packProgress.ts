@@ -25,6 +25,10 @@ export interface PackRecorded {
  * App only applies the result. A pack put back on the shelf (`counted`) counted when it opened (stats,
  * pack milestones): it only adds its cards.
  */
+/** Whether a pack scoring `score` beats the best pack these stats hold. */
+export const beatsBestPack = (score: number, stats: Stats): boolean =>
+  score > (stats.highestPackFlexValue || stats.highestPackValue || 0);
+
 export const recordPack = (
   from: PackProgress,
   pack: Pick<OpenedPack, 'cards' | 'counted' | 'setId' | 'setVersion' | 'nonce' | 'publicKeyHex'>,
@@ -43,7 +47,7 @@ export const recordPack = (
   };
 
   // Update highest pack value - compare against previous state
-  if (score > (from.stats.highestPackFlexValue || from.stats.highestPackValue || 0)) {
+  if (beatsBestPack(score, from.stats)) {
     updatedStats.highestPackFlexValue = score;
     updatedStats.highestPackBaseValue = packValue;
     updatedStats.highestPackMultiplier = pokerHand.multiplier;
