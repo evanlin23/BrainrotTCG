@@ -191,6 +191,12 @@ used first, npm caches included. Fetching requests up to 50 pages of
 again from one older range that relay hasn't been read through (the newest in even UTC hours, the
 oldest in odd ones); the ranges read and handled, including the pages a failed read finished, are
 kept per relay in a second Actions cache, so a backlog past the page cap is read over later runs.
+A second holding more events than a page can't be paged into (`until` is the only cursor), so a page
+whose events all sit at its `until` (a full one, or a short one of repeats from a relay that caps
+`limit` below ours) counts that second as read and pages on from the second before; a full one is
+logged. A crowd at one time can't hide older submissions, even from a relay that serves it in a new
+order each time. Frames too big to parse still fill a page and move
+it on by the time they claim, so padding can't pass for the end of a relay's history.
 These are client request limits, not guarantees that relays return or retain every event or obey the limits.
 A run in which every relay fails without sending an event fails the job, so an outage shows before
 events age out of the window; a run that reads at least one relay succeeds.

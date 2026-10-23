@@ -421,8 +421,16 @@ describe('read ranges (#999)', () => {
     expect(relayReadLine({ relay: 'wss://a', count: 4942, more: 60 })).toBe('wss://a: 4942 events, stopped at the page cap');
     expect(olderReadLine({ relay: 'wss://a', count: 258 }, 60)).toBe('wss://a: 258 older events up to 1970-01-01T00:01:00.000Z');
     expect(olderReadLine({ relay: 'wss://a', count: 5000, more: 50 }, 60)).toBe('wss://a: 5000 older events up to 1970-01-01T00:01:00.000Z, stopped at the page cap');
-    for (const line of [relayReadLine({ relay: 'wss://a', count: 1, more: 1 }), olderReadLine({ relay: 'wss://a', count: 0, error: 'timed out' }, 60)]) {
+    for (const line of [relayReadLine({ relay: 'wss://a', count: 1, more: 1 }), olderReadLine({ relay: 'wss://a', count: 0, error: 'timed out' }, 60), relayReadLine({ relay: 'wss://a', count: 1, crowded: [60] })]) {
       expect(line).not.toMatch(/^wss:\/\/\S+: \d+ events \(/);
     }
+  });
+
+  it('names the crowded seconds a read paged past, and counts them as read (#1057)', () => {
+    expect(relayReadLine({ relay: 'wss://a', count: 202, crowded: [120, 60] })).toBe('wss://a: 202 events, read past 2 seconds with more events than a page (newest 1970-01-01T00:02:00.000Z)');
+    expect(olderReadLine({ relay: 'wss://a', count: 5000, more: 50, crowded: [60] }, 60)).toBe('wss://a: 5000 older events up to 1970-01-01T00:01:00.000Z, stopped at the page cap, read past 1 second with more events than a page (newest 1970-01-01T00:01:00.000Z)');
+    // A crowd can't be paged into, so it is read through rather than a gap every later run would pick.
+    expect(rangeRead({ crowded: [60] }, 0, 100)).toEqual([[0, 100]]);
+    expect(rangeRead({ more: 50, crowded: [60] }, 0, 100)).toEqual([[51, 100]]);
   });
 });
