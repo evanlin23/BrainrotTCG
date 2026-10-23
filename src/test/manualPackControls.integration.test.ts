@@ -12,7 +12,7 @@ const button = (label: string) => [...document.querySelectorAll<HTMLButtonElemen
   .find((el) => (el.getAttribute('aria-label') ?? el.textContent?.trim()) === label)!;
 const $ = (selector: string) => document.querySelector<HTMLElement>(selector);
 /** The sealed pack's Open pack button: there only while the pack is sealed (#312). */
-const sealed = () => $('.pack-open-button');
+const sealed = () => $('[data-pack-open]');
 const progress = () => $('.reveal-progress')?.getAttribute('aria-valuenow');
 // Nonce 22 of this key deals a special-reveal card, which a big-pull pause holds for its full reveal.
 const preferences = ({ nextNonce = 0, pauseBigPulls = false } = {}) => ({
@@ -67,6 +67,8 @@ const summary = async () => {
   await app!.interact(() => button('Skip opening animation').click());
   await app!.until('summary has all cards', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
 };
+/** The summary ignores clicks on its cards and Share for its first moments (#627). */
+const settledSummary = () => app!.until('summary takes clicks', () => expect($('.summary-cards')!.hasAttribute('data-settling')).toBe(false));
 
 it('ignores the old auto-open key on the sealed pack and during a reveal', async () => {
   app = await mountedApp(preferences());
@@ -226,6 +228,7 @@ it('shares from the summary, which leads with the result and puts its actions af
   expect(stats()?.packsOpened).toBe(1);
   expect(toasts(), 'a pack seen to the end said it was kept').not.toContain('Pack kept');
 
+  await settledSummary();
   await app.interact(() => button('Share').click());
   await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
   expect([...document.querySelectorAll('[role="dialog"]')].some((dialog) => dialog.textContent?.includes('Share your pull'))).toBe(true);
@@ -505,6 +508,7 @@ describe('browser Back in a pack', () => {
     await reveal();
     const length = history.length;
     await summary();
+    await settledSummary();
     await app.interact(() => button('Share').click());
     await app.until('share sheet opens for this pack', () => expect(button('Copy link')).toBeDefined());
     await back();

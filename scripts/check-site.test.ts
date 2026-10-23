@@ -1,10 +1,11 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
-import { checkCacheContract, checkCrawlerFiles, checkFileCount, checkSite, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
 import { robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
@@ -263,6 +264,14 @@ describe('checkSite', () => {
     expect(errors).toHaveLength(2);
   });
 
+  it.each([GITHUB, CLOUDFLARE])("fails a build for $name whose index.html loads more than the first-load budget up front (#776)", async (host) => {
+    const { options, outDir } = await build(host);
+    // Random bytes don't compress, so this script alone is over the budget gzipped.
+    write(`${outDir}assets/index-AbCd1234.js`, randomBytes(MAX_FIRST_LOAD_BYTES).toString('base64'));
+    const { errors } = await checkSite(options);
+    expect(errors).toEqual([{ path: 'index.html', error: expect.stringMatching(/^Loads [\d,]+ bytes \(gzip\) before the app can render, over 280,000 \(MAX_FIRST_LOAD_BYTES, #776\)$/) }]);
+  });
+
   it('fails a build missing what its pages or stylesheets load', async () => {
     const { options, outDir } = await build(GITHUB);
     unlinkSync(`${outDir}assets/index-AbCd1234.js`);
@@ -352,6 +361,25 @@ describe('checkFileCount', () => {
     expect(checkFileCount(MAX_SITE_FILES)).toEqual([]);
     expect(checkFileCount(MAX_SITE_FILES + 1)).toEqual([{ path: '.', error: 'Has 19,001 files, over 19,000 (Cloudflare Pages takes 20,000 per deploy)' }]);
     expect(checkFileCount(4, 3)).toHaveLength(1);
+  });
+});
+
+describe('first-load budget', () => {
+  it.each([GITHUB, CLOUDFLARE])("counts the scripts, modulepreloads and stylesheets index.html loads for $name, not what it only links to", ({ base }) => {
+    const html = `<link rel="icon" href="${base}favicon.svg" />
+      <script type="module" crossorigin src="${base}assets/index-AbCd1234.js"></script>
+      <link rel="modulepreload" crossorigin href="${base}assets/proof-AbCd1234.js">
+      <link crossorigin rel="stylesheet" href="${base}assets/index-AbCd1234.css">
+      <link rel="manifest" href="${base}manifest.webmanifest" />
+      <script src="https://example.com/elsewhere.js"></script>`;
+    expect(firstLoadFiles(html, base)).toEqual(['assets/index-AbCd1234.js', 'assets/proof-AbCd1234.js', 'assets/index-AbCd1234.css']);
+  });
+
+  it('passes up to the budget and fails a first load over it', () => {
+    expect(MAX_FIRST_LOAD_BYTES).toBe(280_000);
+    expect(checkFirstLoad(MAX_FIRST_LOAD_BYTES)).toEqual([]);
+    expect(checkFirstLoad(MAX_FIRST_LOAD_BYTES + 1)).toEqual([{ path: 'index.html', error: 'Loads 280,001 bytes (gzip) before the app can render, over 280,000 (MAX_FIRST_LOAD_BYTES, #776)' }]);
+    expect(checkFirstLoad(4, 3)).toHaveLength(1);
   });
 });
 

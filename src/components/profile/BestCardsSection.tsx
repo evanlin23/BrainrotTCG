@@ -4,7 +4,7 @@ import CardImage from '../cards/CardImage';
 import CardViewerModal from '../cards/CardViewerModal';
 import { getLatestSet, setCode } from '../../content/sets';
 import { getCard, type Card } from '../../data/cards';
-import { getBestCards, rebuildBestCards, type BestCard, type BestCards } from '../../game/bestCards';
+import { awaitsRebuild, getBestCards, rebuildBestCards, type BestCard, type BestCards } from '../../game/bestCards';
 import { modifierClasses, modifierLabel } from '../../game/modifiers';
 import { getPlayerTickets } from '../../game/player';
 import { syncMyBestCards } from '../../game/profiles';
@@ -44,13 +44,17 @@ interface BestCardsSectionProps {
   refreshKey: string;
   /** Saved packs are all read in. Until then an empty list may only be one that isn't loaded yet. */
   cacheReady: boolean;
+  /** The stored list was weighed or rebuilt (the Best card highlight finds its winner again). */
+  onListChange?: () => void;
+  /** Whether every winner has its card, or the last rebuild gave up on some: no best card is still on its way. */
+  onSettledChange?: (settled: boolean) => void;
 }
 
 /**
  * The player's best individual cards (game/bestCards.ts), best first, each opening the card viewer with
  * its Share card action for that exact version. Only the current key's list is ever read.
  */
-const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => {
+const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChange }: BestCardsSectionProps) => {
   const [list, setList] = useState(readList);
   const [rebuilding, setRebuilding] = useState(false);
   /** The last rebuild lost some winners' cards (a pack that wouldn't derive, or the rebuild itself): not an empty collection. */
@@ -59,6 +63,11 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
   const [attempt, setAttempt] = useState(0);
   const [viewing, setViewing] = useState<Row | null>(null);
   const mounted = useRef(true);
+  // The latest callback, for the effects below without restarting them.
+  const listChanged = useRef(onListChange);
+  useEffect(() => {
+    listChanged.current = onListChange;
+  });
   const rebuilt = useRef(new Set<string>());
   const opener = useRef<HTMLButtonElement | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
@@ -85,6 +94,7 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
       // Reads and saves the stored list (an external system), so it runs after the render, not in it.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setList(syncMyBestCards());
+      listChanged.current?.();
     } catch { /* The list as stored stays on screen. */ }
   }, [refreshKey]);
 
@@ -95,7 +105,7 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
     const skip = () => {
       if (retried.current === 'asked') retried.current = null;
     };
-    if (!cacheReady || !list.cards.some((c) => !c.card)) return skip();
+    if (!cacheReady || !list.cards.some(awaitsRebuild)) return skip();
     const { player, nextNonce } = getPlayerTickets();
     if (rebuilt.current.has(player.publicKeyHex)) return skip();
     rebuilt.current.add(player.publicKeyHex);
@@ -107,6 +117,7 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
         if (!mounted.current || getPlayerTickets().player.publicKeyHex !== player.publicKeyHex) return;
         setList({ cards, complete, unsaved });
         setUnavailable(failed > 0);
+        listChanged.current?.();
       })
       .catch(() => {
         if (mounted.current && getPlayerTickets().player.publicKeyHex === player.publicKeyHex) setUnavailable(true);
@@ -125,8 +136,19 @@ const BestCardsSection = ({ refreshKey, cacheReady }: BestCardsSectionProps) => 
 
   const rows = useMemo(() => list.cards.map(toRow).filter((r): r is Row => r !== null), [list]);
   // No heading over a list that is still on its way in.
+  // Only winners the rebuild will try count (awaitsRebuild): one this build can't rebuild is never coming.
+  const awaiting = list.cards.some(awaitsRebuild);
   // Only while winners are still unscored: packs read in later may have settled them.
-  const lost = unavailable && list.cards.some((c) => !c.card);
+  const lost = unavailable && awaiting;
+  // Try again after `lost` keeps it settled: the note stays in place while the rebuild runs, so nothing below shifts.
+  const settled = cacheReady && (lost || !awaiting);
+  const settledChanged = useRef(onSettledChange);
+  useEffect(() => {
+    settledChanged.current = onSettledChange;
+  });
+  useEffect(() => {
+    settledChanged.current?.(settled);
+  }, [settled]);
   // A retry that settles it removes the status and its button, which had focus: land on the first row, else the heading.
   useEffect(() => {
     if (rebuilding || retried.current !== 'running') return;

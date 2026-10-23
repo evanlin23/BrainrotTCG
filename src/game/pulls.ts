@@ -24,6 +24,7 @@ import { STORAGE_KEYS } from '../constants';
 import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADLINE_TOKENS, previewOf, previewPath, type ModifiedCard } from './previewLinks';
 import { revealOrder } from './reveal';
 import { getTicket, prefetchTicket } from './ticketMiner';
+import { afterPackArt } from './packArt';
 import type { CardWithMeta } from '../components/cards/Card';
 
 /** Enough to re-derive and re-sign a pull later (e.g. to share a past best pack). */
@@ -84,11 +85,12 @@ export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefi
 export const prefetchNextPack = (set: SetDefinition) => {
   void getTicket(setKey(set), getPlayer().publicKey, peekNonce())
     .then((ticket) => {
-      // And its cards' pictures, so they're cached before the tear (and there if the connection drops).
-      for (const card of generatePack(set, packSeedFromTicket(ticket))) {
-        const image = getCard(`${card.setId}/${card.cardId}`)?.image;
-        if (image) new Image().src = image;
-      }
+      // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
+      // once the sealed pack's own art is in.
+      const images = generatePack(set, packSeedFromTicket(ticket)).map((card) => getCard(`${card.setId}/${card.cardId}`)?.image);
+      afterPackArt(() => {
+        for (const image of images) if (image) new Image().src = image;
+      });
     })
     .catch(() => undefined);
 };

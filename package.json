@@ -15,14 +15,17 @@
     "cards": "tsx scripts/cards/build.ts",
     "cards:finish-thumbs": "tsx scripts/cards/build-finish-thumbs.ts",
     "check:card-assets": "tsx scripts/check-card-assets.ts",
+    "check:history": "tsx scripts/check-history.ts",
     "check:sets": "tsx scripts/check-sets.ts",
     "check:site": "tsx scripts/check-site.ts",
-    "check": "npm run lint && npm run typecheck && npm test && npm run check:sets && npm run check:card-assets",
+    "check:imports": "tsx scripts/check-import-boundaries.ts",
+    "check": "npm run lint && npm run check:imports && npm run typecheck && npm test && npm run check:sets && npm run check:card-assets",
     "prompts": "tsx scripts/cards/prompts.ts",
     "og-image": "tsx scripts/og-image.ts",
     "icons": "tsx scripts/logo-icons.ts",
     "test:performance": "playwright test --config=playwright.performance.config.ts",
     "test:performance:optional-work": "playwright test --config=playwright.optional-work.config.ts",
+    "test:performance:pending-verify": "tsx scripts/pending-verify-fixture.ts && playwright test --config=playwright.pending-verify.config.ts",
     "audit:agent": "tsx scripts/agent-audit/run.ts"
   },
   "dependencies": {
@@ -40,6 +43,7 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.1",
     "@resvg/resvg-js": "^2.6.2",
