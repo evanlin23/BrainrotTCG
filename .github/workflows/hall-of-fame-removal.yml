@@ -1,0 +1,30 @@
+name: Hall of Fame removal
+
+# A maintainer adding `rejected` to a Hall of Fame issue (or taking it off) redeploys now, so the
+# published list and the list of rejected pulls (scripts/hall-of-fame.ts build) catch up without
+# waiting for the next deploy. The labels the verify workflow adds itself never start this. It
+# reads no issue text and checks out no code.
+on:
+  issues:
+    types: [labeled, unlabeled]
+
+# The one job gets only what it uses.
+permissions: {}
+
+jobs:
+  # All it can do is start a deploy of the default branch, whose concurrency group folds
+  # back-to-back runs into one.
+  redeploy:
+    name: Redeploy so the removal goes live
+    if: github.event.label.name == 'rejected' && contains(github.event.issue.labels.*.name, 'hall-of-fame') && github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          # No checkout here, so gh is told the repository.
+          GH_REPO: ${{ github.repository }}
+          REF: ${{ github.event.repository.default_branch }}
+        run: gh workflow run deploy.yml --ref "$REF"
