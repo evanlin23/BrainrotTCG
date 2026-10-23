@@ -330,10 +330,11 @@ export const oversizedEventTime = (raw: string): number => {
  * (`until` the oldest so far), so a burst of new events can't push older ones out of reach. A relay
  * that didn't read to the end reports `more`: the `until` to go on from (everything newer than it was
  * read; some events at that second may not have been). That is a relay the page cap stopped while it
- * still had new events or a full page, and one that failed after finishing a page. A full page of
- * nothing new means more than `limit` events share one second (which the sender picks), and `until`
- * can't page into it: that second is counted as read and listed in `crowded`, and paging goes on
- * from the second before, so a crowd can't hide older events. Frames too big to parse still fill a
+ * still had new events or a full page, and one that failed after finishing a page. A page whose
+ * events all sit at its `until`, full or else all repeats, means more events share that second (which
+ * the sender picks) than the relay sends at once, and `until` can't page into it: that second is
+ * counted as read (and listed in `crowded` after a full page), and paging goes on from the second
+ * before, so a crowd can't hide older events. Frames too big to parse still fill a
  * page, and the time they claim (oversizedEventTime) still moves paging on.
  *
  * Relays are untrusted, so each is held to `bounds`: frames are size-checked before parsing, events
@@ -377,6 +378,8 @@ export const fetchEvents = async (
           let pages = 0;
           let pageNew = 0;
           let pageEvents = 0;
+          /** The oldest time an event on this page has, new or not. */
+          let pageLow = Infinity;
           let oldest = Infinity;
           /** The `until` of the page being read (none for the first). */
           let asked: number | undefined;
@@ -416,6 +419,7 @@ export const fetchEvents = async (
             pages++;
             pageNew = 0;
             pageEvents = 0;
+            pageLow = Infinity;
             asked = until;
             socket!.send(JSON.stringify(['REQ', sub, until === undefined ? filter : { ...filter, until }]));
           };
@@ -446,7 +450,9 @@ export const fetchEvents = async (
               if (!raw.slice(0, 64).startsWith(`["EVENT",${JSON.stringify(sub)},`)) return;
               count++;
               pageEvents++;
-              oldest = Math.min(oldest, oversizedEventTime(raw));
+              const time = oversizedEventTime(raw);
+              oldest = Math.min(oldest, time);
+              pageLow = Math.min(pageLow, time);
               return;
             }
             let data: unknown;
@@ -463,6 +469,7 @@ export const fetchEvents = async (
               count++;
               pageEvents++;
               if (!isEventShape(e)) return malformed();
+              pageLow = Math.min(pageLow, e.created_at);
               if (fromHere.has(e.id)) return;
               if (fromHere.size >= maxRelayEvents) return finish('relay event budget exceeded');
               fromHere.add(e.id);
@@ -496,27 +503,32 @@ export const fetchEvents = async (
               // The page brought new events, or reached below its `until` (with events too big to read).
               const onward = pageNew > 0 || cursor < (asked ?? Infinity);
               const full = pageEvents >= pageLimit;
+              // Every event on the page sits at its `until`: more share that second than the relay
+              // will send at once (a full page, or a short page of repeats from a relay that caps
+              // `limit` below ours), and asking `until` it again can't get past them, even from a
+              // relay that serves them in a new order each time.
+              const crowd = asked !== undefined && Number.isFinite(pageLow) && pageLow >= asked && (full || pageNew === 0);
               if (!Number.isFinite(cursor)) {
                 // Nothing on the page has a time to page on from.
                 finish(full ? 'a full page of events too big to read' : undefined);
               } else if (pages >= maxPages) {
-                if (onward || full) more = cursor;
+                if (onward || full || crowd) more = cursor;
                 finish();
+              } else if (crowd || (full && !onward)) {
+                // Count that second as read and go on from the second before, so a crowd (which the
+                // sender picks) can't hide what is older. Only a full page names it: a short page of
+                // repeats is also how an ordinary read ends, and the step past it then comes back empty.
+                if (full) crowded.push(cursor);
+                readTo = cursor - 1;
+                if (filter.since !== undefined && cursor - 1 < filter.since) return finish();
+                socket!.send(JSON.stringify(['CLOSE', sub]));
+                request(cursor - 1);
               } else if (onward) {
                 // Ask for anything older than this page until a page brings nothing new. (Relays cap
                 // `limit` at different sizes, so a short page doesn't prove there's nothing older.)
                 socket!.send(JSON.stringify(['CLOSE', sub]));
                 readTo = cursor;
                 request(cursor);
-              } else if (full) {
-                // A full page of nothing new: more events share the second `cursor` than a page holds,
-                // and `until` can't reach past the newest of them. Count it as read and go on from the
-                // second before, so a crowd (which the sender picks) can't hide what is older.
-                crowded.push(cursor);
-                readTo = cursor - 1;
-                if (filter.since !== undefined && cursor - 1 < filter.since) return finish();
-                socket!.send(JSON.stringify(['CLOSE', sub]));
-                request(cursor - 1);
               } else {
                 finish();
               }

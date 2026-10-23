@@ -255,10 +255,12 @@ describe('nostr inbox', () => {
     const relays = fakeRelays({ 'wss://a': 'accept', 'wss://b': 'accept' }, { 'wss://a': events, 'wss://b': events.slice(6) });
     const capped = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a', 'wss://b'], 500, relays, 2);
     // Event times 1000..1008. a: two pages of three, the second from `until` 1006 (inclusive), so
-    // 1004..1008 were read and 1004 is where to go on; b's second page brought nothing new.
+    // 1004..1008 were read and 1004 is where to go on. b's second page brought nothing new, but all of
+    // it sits at its `until` (as a crowd from a relay that caps `limit` below ours would), so the cap
+    // stopped b before it could step past 1006.
     expect(capped.perRelay).toEqual([
       { relay: 'wss://a', count: 6, error: undefined, more: 1004 },
-      { relay: 'wss://b', count: 4, error: undefined },
+      { relay: 'wss://b', count: 4, error: undefined, more: 1006 },
     ]);
     expect(capped.events.map((e) => e.created_at).sort()).toEqual([1004, 1005, 1006, 1007, 1008]);
     const rest = await fetchEvents({ kinds: [HOF_KIND], limit: 3, until: 1004 }, ['wss://a'], 500, relays, 2);
@@ -297,7 +299,8 @@ describe('nostr inbox', () => {
     const requests: string[] = [];
     const read = await fetchEvents({ kinds: [HOF_KIND], limit: 100 }, ['wss://a'], 500, fakeRelays({ 'wss://a': 'accept' }, [...crowd, real], requests), 5);
     expect(read.events).toContainEqual(real);
-    expect(requests).toEqual(['wss://a until=-', 'wss://a until=2000', 'wss://a until=1999', 'wss://a until=1990']);
+    // The page from 1990 is `real` again, all at its `until`, so the read steps past it to an empty page.
+    expect(requests).toEqual(['wss://a until=-', 'wss://a until=2000', 'wss://a until=1999', 'wss://a until=1990', 'wss://a until=1989']);
     // Read through: the crowded second counts as read, and is named.
     expect(read.perRelay).toEqual([{ relay: 'wss://a', count: 202, error: undefined, crowded: [2000] }]);
   });
@@ -342,6 +345,69 @@ describe('nostr inbox', () => {
     } finally {
       parse.mockRestore();
     }
+  });
+
+  it('pages on from events too big to parse that reach below a page of nothing new (#1057)', async () => {
+    const big = (s: number) => signedHof(s, 'x'.repeat(3000));
+    const newest = hallOfFameEvent(PROOF, 'newest', 3_000_000);
+    const real = hallOfFameEvent(PROOF, 'real', 2_001_000);
+    const requests: string[] = [];
+    const stored = [newest, big(2003), big(2002), big(2002), big(2001), big(2001), real];
+    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, fakeRelays({ 'wss://a': 'accept' }, stored, requests), 10, undefined, { maxRawMessageChars: 2000 });
+    // The page from 2002 brings nothing new, but reaches 2001: that second isn't a crowd yet.
+    expect(requests).toEqual(['wss://a until=-', 'wss://a until=2002', 'wss://a until=2001', 'wss://a until=2000']);
+    expect(read.events).toContainEqual(real);
+    expect(read.perRelay[0]).toMatchObject({ error: undefined, crowded: [2001] });
+  });
+
+  it('pages past a crowd that a relay serves in a new order every time (#1057)', async () => {
+    const crowd = Array.from({ length: 30 }, (_, i) => hallOfFameEvent(PROOF, `c${i}`, 2_000_000));
+    const real = hallOfFameEvent(PROOF, 'real', 1_990_000);
+    const stored = [...crowd, real];
+    const requests: string[] = [];
+    // Breaks NIP-01's lowest-id-first order within a second, so each page from 2000 brings new events.
+    let reqs = 0;
+    const rotating = createMockSocket({
+      send: (raw, socket) => {
+        const msg = JSON.parse(raw) as unknown[];
+        if (msg[0] !== 'REQ') return;
+        const filter = msg[2] as Filter;
+        requests.push(`until=${filter.until ?? '-'}`);
+        const turn = reqs++ * (filter.limit ?? 0);
+        const page = stored
+          .map((_, i) => stored[(i + turn) % stored.length])
+          .filter((e) => filter.until === undefined || e.created_at <= filter.until)
+          .sort((a, b) => b.created_at - a.created_at)
+          .slice(0, filter.limit);
+        for (const f of [...page.map((e) => ['EVENT', msg[1], e]), ['EOSE', msg[1]]]) queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(f) }));
+      },
+    });
+    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, rotating, 6);
+    expect(requests).toEqual(['until=-', 'until=2000', 'until=1999', 'until=1990', 'until=1989']);
+    expect(read.events).toContainEqual(real);
+    expect(read.perRelay).toEqual([{ relay: 'wss://a', count: 8, error: undefined, crowded: [2000] }]);
+  });
+
+  it('pages past a crowd from a relay that caps `limit` below ours (#1057)', async () => {
+    const crowd = Array.from({ length: 4 }, (_, i) => hallOfFameEvent(PROOF, `c${i}`, 2_000_000));
+    const real = hallOfFameEvent(PROOF, 'real', 1_990_000);
+    const requests: string[] = [];
+    const store = fakeRelays({ 'wss://a': 'accept' }, [...crowd, real], requests);
+    // Sends at most two events a page, whatever it is asked for.
+    const capsAtTwo: SocketFactory = (url) => {
+      const socket = store(url);
+      const send = socket.send.bind(socket);
+      socket.send = (raw: string) => {
+        const msg = JSON.parse(raw) as unknown[];
+        send(JSON.stringify(msg[0] === 'REQ' ? [msg[0], msg[1], { ...(msg[2] as Filter), limit: 2 }] : msg));
+      };
+      return socket;
+    };
+    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, capsAtTwo, 10);
+    // Two short pages from 2000, the second all repeats; then on past it, at the cost of an empty page.
+    expect(requests).toEqual(['wss://a until=-', 'wss://a until=2000', 'wss://a until=1999', 'wss://a until=1990', 'wss://a until=1989']);
+    expect(read.events).toContainEqual(real);
+    expect(read.perRelay).toEqual([{ relay: 'wss://a', count: 6, error: undefined }]);
   });
 
   it('fails a relay whose full page is events too big to parse with no time to page on from (#1057)', async () => {
