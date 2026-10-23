@@ -123,6 +123,12 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+    /* Never transitions: PackOpener holds this box's size and place with inline styles as the chrome around
+       it goes, and a transition would stretch that change over frames. Reduced motion makes it matter: the
+       app-wide rule there sets every transition-duration to 0.01ms (not 0, so transitionend still fires),
+       which left the held stage at the grown size for a frame or two, and the pack, fitted to it by
+       container query, jumped as focus mode began. */
+    transition: none;
 }
 
 /* The leaving pack is lifted out of the flow (AnimatePresence popLayout) and fades over the reveal for a
