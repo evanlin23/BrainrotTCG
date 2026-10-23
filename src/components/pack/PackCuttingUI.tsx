@@ -73,6 +73,9 @@ const PackCuttingUI = ({
   const press = useRef<{ id: number; x: number; y: number; farthest: number } | null>(null);
   // A finger is down on the pack, wherever it landed: the idle cue waits for it to lift (a press below the
   // tear line sets neither `pressing` nor `isCutting`, and its nudge timer can run out under a slow hold).
+  // A pack that leaves before its art loads or fails (the player moved on from Open) still lets the deferred
+  // downloads start, so they aren't held for the rest of the visit.
+  useEffect(() => packArtSettled, []);
   const [held, setHeld] = useState(false);
   const heldId = useRef<number | null>(null);
   const onPressStart = (event: PointerEvent) => {
