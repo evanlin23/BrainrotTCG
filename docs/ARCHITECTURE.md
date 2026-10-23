@@ -435,9 +435,10 @@ have free static-hosting options, with provider build, storage, traffic and serv
 domains or additional services can cost money. See `docs/HOSTING.md` for configuration and old-address
 redirects. Save transfer (`move.ts`, `scripts/redirect-site.ts`) uses origin-checked
 window-to-window postMessage, not URL contents. The old address never deletes its save: it sets
-`brainrot-moved-v1` (a timestamp) once the new address reports `saved` or `same`, or once it sends
-its save to Save & backup (`#/send`), and from then on old links go straight through without offering
-the move. At the new address, the handed-over player and fields must pass the same checks as an
+`brainrot-moved-v1` (a timestamp) once the new address reports `saved` or `same` to Bring, and from
+then on old links go straight through without offering the move. Sending its save to Save & backup
+(`#/send`) never sets it: that window is closed before the new address imports, so it can't learn
+whether the save arrived. At the new address, the handed-over player and fields must pass the same checks as an
 imported file, except for collection entries that storage keeps on purpose (first-format entries
 migrations rebuild, and entries hydration hides for recovery) and best-pack cards in a save older
 than v3 (checked as migrations and the profile read them), and a missing `brainrot-data-version`

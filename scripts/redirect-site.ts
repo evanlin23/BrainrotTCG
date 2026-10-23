@@ -44,10 +44,11 @@ export const redirectScript = (newUrl: string, oldBase: string) => `(function ()
   var markMoved = function () { try { localStorage.setItem(MOVED, new Date().toISOString()); } catch (e) {} };
 
   // Asked by the new address's Save & backup: send the save to the window that opened this one (which
-  // closes this one straight away). Old links then go straight through.
+  // closes this one straight away). Sending isn't arriving: that window imports it only after this one
+  // is gone, and the import can fail or be declined, so nothing here says the save moved (#1035). Old
+  // links keep offering Bring, which marks it moved once the new address reports it stored.
   if (location.hash === '#/send' && window.opener) {
     window.opener.postMessage(has ? { type: 'brainrot-save', save: save } : { type: 'brainrot-no-save' }, NEW_ORIGIN);
-    if (has) markMoved();
     status.textContent = has ? 'Sent to ' + ${JSON.stringify(shortNameOf(newUrl))} + '. You can close this window.' : 'There is no save here.';
     return;
   }
