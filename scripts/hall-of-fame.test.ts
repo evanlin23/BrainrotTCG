@@ -715,6 +715,33 @@ describe('inbox (scheduled workflow)', () => {
     expect(gh.writes()).toEqual(FILED);
   });
 
+  it('fails the run when every relay failed, leaving the seen cache as it was', async () => {
+    const gh = fakeGitHub({ issues: [], published: [] });
+    writeFileSync('hof-inbox-seen.json', JSON.stringify(['earlier']));
+    const down = (relay: string) => ({ relay, count: 0, error: 'connection failed' });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [down('wss://a'), down('wss://b'), { relay: 'wss://c', count: 0, error: 'timed out' }] });
+    await expect(inbox()).rejects.toThrow('every relay failed (3 of 3); nothing was read');
+    expect(gh.requests).toEqual([]);
+    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(['earlier']);
+    expect(outputs()).toEqual({});
+  });
+
+  it('keeps going when only some relays failed, or one failed after sending events', async () => {
+    const gh = fakeGitHub({ issues: [], published: [] });
+    const [event] = relaysHold(fourOfAKind);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [{ relay: 'wss://a', count: 0, error: 'connection failed' }, { relay: 'wss://b', count: 1 }] });
+    await inbox();
+    expect(gh.writes()).toEqual(FILED);
+    expect(outputs()).toEqual({ added: '1' });
+
+    // A relay that sent events before timing out was read, even if every relay ended in an error.
+    rmSync('hof-inbox-seen.json');
+    const late = fakeGitHub({ issues: [], published: [] });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [{ relay: 'wss://a', count: 0, error: 'connection failed' }, { relay: 'wss://b', count: 1, error: 'timed out' }] });
+    await inbox();
+    expect(late.writes()).toEqual(FILED);
+  });
+
   it('needs a token', async () => {
     vi.stubEnv('GITHUB_TOKEN', undefined);
     const gh = fakeGitHub({ issues: [] });

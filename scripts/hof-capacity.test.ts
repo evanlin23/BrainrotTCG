@@ -97,6 +97,9 @@ describe('outages and expiry', () => {
     expectPassed(s);
     expect(s.runs[0].relaysFailed).toBe(HOF_RELAYS.length);
     expect(s.runs[0].eventsRead).toBe(0);
+    // Every run in the outage fails, so it shows long before the window expires; the rest succeed.
+    expect(s.runs.map((r) => r.outcome)).toEqual([...Array(8).fill('failed'), ...Array(4).fill('ok')]);
+    expect(s.runs[0].error).toContain('every relay failed');
     expect([s.runs[0].beyondPaging, s.runs[0].unreadable]).toEqual([0, s.runs[0].onRelays]); // unread because every relay was down, not past the paging cap
     expect(s.runs[0].onRelays).toBeGreaterThan(0);
     expect(s.totals.kinds.qualifying.expiredWindow).toBe(s.runs[0].arrived); // the first batch aged out unread
@@ -104,6 +107,13 @@ describe('outages and expiry', () => {
     expect(s.totals.pulls.expiredBeforeHandled).toBe(s.runs[0].arrived);
     expect(s.totals.pulls.delivered).toBe(s.totals.arrived - s.runs[0].arrived); // later arrivals were not lost to it
     expect(s.totals.pulls.lost).toBe(0);
+  }, 30_000);
+
+  it('keeps succeeding and delivering while only some relays are down', async () => {
+    const s = await run({ name: 'some-relays-down', runs: 3, cadenceS: 3600, qualifyingFraction: 1, phases: [{ fromS: 0, toS: 3600, ratePerS: 0.002 }], relayOutage: { fromS: 0, durationS: 10 * 3600, relaysDown: HOF_RELAYS.length - 1 } });
+    expectPassed(s);
+    expect(s.runs.map((r) => [r.outcome, r.relaysFailed])).toEqual(Array(3).fill(['ok', HOF_RELAYS.length - 1]));
+    expect(s.totals.pulls).toMatchObject({ delivered: s.totals.arrived, pending: 0, lost: 0 });
   }, 30_000);
 
   it('counts relay retention expiry apart from the read window', async () => {
