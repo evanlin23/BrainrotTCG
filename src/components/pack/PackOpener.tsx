@@ -7,7 +7,6 @@ import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../..
 import { holdLive } from '../../game/admission';
 import { reloadPage } from '../../game/reload';
 import { whenIdle } from '../../game/idle';
-import { triggerRarityConfetti, triggerHoloSparkles } from './confettiEffects';
 import { buzz } from '../../utils/motion';
 import { useOpenCue } from '../../hooks/useOpenCue';
 import { usePackCutter } from '../../hooks/usePackCutter';
@@ -32,6 +31,9 @@ import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrde
 import '../../styles/PackOpener.css';
 
 const Motion = motion;
+
+/** The confetti library is only needed once a card is flipped, so it stays out of the first load. */
+const loadConfetti = () => import('./confettiEffects');
 
 /** Where the sealed pack's stage rests. */
 const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0 };
@@ -195,6 +197,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     if (!isOpening || !preloadedAssets || !effectsOn) return;
     return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
   }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
+
+  // Fetched as the reveal opens, well before its first flip, so the first burst isn't held up.
+  const particlesOn = settings.particlesEnabled;
+  useEffect(() => {
+    if (isOpening && particlesOn) loadConfetti().catch(() => {});
+  }, [isOpening, particlesOn]);
 
   // Mine the next pack's ticket while this one is on screen.
   useEffect(() => {
@@ -563,10 +571,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       // A finish or misprint gets at least an Epic's confetti.
       const modified = !!currentCard.finish || !!currentCard.misprint;
       const plainish = currentCard.rarity === 'COMMON' || currentCard.rarity === 'UNCOMMON' || currentCard.rarity === 'RARE';
-      triggerRarityConfetti(modified && plainish ? 'EPIC' : currentCard.rarity);
-      if (currentCard.isHolo) {
-        triggerHoloSparkles();
-      }
+      const rarity = modified && plainish ? 'EPIC' : currentCard.rarity;
+      const holo = currentCard.isHolo;
+      loadConfetti().then(
+        ({ triggerRarityConfetti, triggerHoloSparkles }) => {
+          triggerRarityConfetti(rarity);
+          if (holo) triggerHoloSparkles();
+        },
+        () => {},
+      );
     }
   }, [openedCards, currentIndex, preloadedAssets, playAndCleanup, playRandom, settings, effectsVolume, pauseBigPulls]);
 
