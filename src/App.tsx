@@ -458,12 +458,12 @@ function App() {
         </div>
       </header>
 
-      {/* Right under the header, and the save warning when it shows: a toast never covers either. */}
+      {/* Right under the header, and the save warning when it shows: a toast never covers either. Held while a pack is torn and revealed, so it is never over the pack. */}
       <AchievementToasts
         queue={visibleNotifications}
         onDismiss={dismissNotifications}
         onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
-        paused={isAnyModalOpen || onPage || anySheetOpen}
+        paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
         held={packShowcase}
         layoutKey={`${route}|${packFocus ? 'pack' : ''}`}
       />

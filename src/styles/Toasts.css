@@ -173,6 +173,17 @@
   }
 }
 
+/* A phone on its side has no band under the pack's X that is clear of the summary's headline, so the
+   toast moves up beside the X instead, at the right: the top bar's X is at the left, and what the bar
+   draws between them is not on the summary (the toasts are held while a pack is torn and revealed). */
+@media (max-height: 520px) {
+  .app.is-focus .toast-region {
+    top: var(--space-2);
+    width: min(calc(100vw - var(--touch-target) - 3 * var(--gutter)), 24rem);
+    margin: 0 var(--gutter) 0 auto;
+  }
+}
+
 /* Wide screens: top right, under the nav so it never covers a tab, and clear of the logo. */
 @media (min-width: 900px) {
   .toast-region {

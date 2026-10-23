@@ -333,8 +333,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   opens the era you open packs from (else the newest started one), then the other started eras newest
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
-- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss after 8 s (10 s for a grouped toast); hovering or focusing
-  a toast holds it, and it gets its full time again when the pointer or focus leaves. On the home
+- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss after 5 s (6 s for a grouped toast); hovering or focusing
+  a toast holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or
+  sideways follows the finger and sends it away (a press that travels under 10 px is still a tap, a
+  swipe that stops short springs back); Escape on the focused toast does the same without opening it. On the home
   screen the toast is a row of its own under the header and the pack stage gives up that height, so it
   never covers the set picker, the pack, the guide link or a tab (#803). The row is kept short (tight
   padding, a one-line kicker, a two-line clamp on a level-up's line, the full text still the button's
@@ -344,10 +346,14 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   after the toast expires, so nothing moves under a finger at expiry (a shift as it first appears is
   fine). It can grow when a taller toast arrives; it never shrinks under the player until the screen
   changes. It is forgotten when the route or pack focus changes (a return to a screen already seen
-  starts with no empty row) and when the window resizes. A card close-up or any other sheet holds
-  the toast until it closes. In pack focus mode it still overlays, under the pack's X.
+  starts with no empty row) and when the window resizes. A card close-up, any other sheet or page, and
+  a pack being torn and revealed hold the toasts until they clear, and a toast the player had 1.5 s to
+  see is let go then, not shown again in full. In pack focus mode it still overlays, under the pack's
+  X, or beside the X at the right on a short screen (520 px tall or less).
   `tests/browser/toast-home.spec.ts` checks every home control at 360, 390, 1280 and 640x360, 200% text
-  at 360, expiry, the return to the screen, and the sheet hold.
+  at 360, expiry, the return to the screen, and the sheet hold. `tests/browser/toast-touch.spec.ts`
+  checks the tap, the swipe, the seen toast, the pack hold, and what the toast covers on the summary at
+  five phone sizes, in touch emulation.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
