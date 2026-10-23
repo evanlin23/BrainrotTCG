@@ -2,7 +2,7 @@
 // API, the deployed list and the Nostr relays are all faked, and files go to a temporary folder.
 // Nothing here reaches the network or writes public/hall-of-fame.json.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,6 +14,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
 import { build, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
+import { parseInboxSummary } from './ops-health.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
 
@@ -907,6 +908,56 @@ describe('inbox (scheduled workflow)', () => {
     await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
     expect(gh.requests).toEqual([]);
   });
+
+  describe('run summary for ops-health (#715)', () => {
+    const summary = () => JSON.parse(readFileSync('hof-inbox-summary.json', 'utf8')) as Record<string, unknown>;
+    beforeEach(() => {
+      vi.stubEnv('GITHUB_SHA', 'a'.repeat(40));
+      vi.stubEnv('GITHUB_RUN_ID', '4242');
+    });
+
+    it('writes counts only, which ops-health reads back unchanged', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = relaysHold(pair, fourOfAKind);
+      vi.mocked(fetchEvents).mockResolvedValue({ events, perRelay: [{ relay: 'wss://a', count: 2 }, { relay: 'wss://b', count: 0, error: 'timeout' }] });
+      await inbox();
+      const written = summary();
+      expect(written).toEqual({
+        v: 1, rev: 'a'.repeat(40), run: 4242, at: '2026-10-16T12:00:00.000Z', stage: 'done', outcome: 'ok',
+        relays: { total: 2, failed: 1 }, read: 2, checked: 2, added: 1, deferred: 0, stop: null, oldestDeferredAgeS: null,
+      });
+      expect(parseInboxSummary(written)).toEqual(written);
+      const text = readFileSync('hof-inbox-summary.json', 'utf8');
+      for (const leak of [fourOfAKind, events[0].id, 'wss://', 'timeout', 'Combo Miner']) expect(text).not.toContain(leak);
+    });
+
+    it('still writes one, with the stage it stopped in, when the run fails', async () => {
+      vi.stubEnv('GITHUB_TOKEN', undefined);
+      await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
+      expect(summary()).toMatchObject({ stage: 'relays', outcome: 'error', read: 0, added: 0, deferred: 0 });
+      expect(parseInboxSummary(summary())).not.toBeNull();
+    });
+
+    it('shows a full relay outage as failed at the relays stage, with every relay counted as failed', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const down = (relay: string) => ({ relay, count: 0, error: 'connection failed' });
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [down('wss://a'), down('wss://b'), down('wss://c')] });
+      await expect(inbox()).rejects.toThrow('every relay failed (3 of 3)');
+      expect(summary()).toMatchObject({ stage: 'relays', outcome: 'error', relays: { total: 3, failed: 3 }, read: 0, added: 0 });
+      expect(parseInboxSummary(summary())).not.toBeNull();
+    });
+
+    it("logs a summary it can't write without replacing the run's own result", async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mkdirSync('hof-inbox-summary.json');
+      fakeGitHub({ issues: [], published: [] });
+      relaysHold(fourOfAKind);
+      await expect(inbox()).resolves.toBeUndefined();
+      vi.stubEnv('GITHUB_TOKEN', undefined);
+      await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
+      expect(error.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringMatching(/^Couldn't write hof-inbox-summary\.json: EISDIR/), expect.stringMatching(/^Couldn't write hof-inbox-summary\.json: EISDIR/)]);
+    });
+  });
 });
 
 describe('the filed index (#1000)', () => {
@@ -1125,7 +1176,8 @@ describe('retention and intake contracts (offline)', () => {
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json']);
+    // The run's counts-only summary (#715) is the one other file it leaves.
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json', 'hof-inbox-summary.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });

@@ -136,6 +136,27 @@ describe('Hall of Fame inbox', () => {
     expect(filedProofs).toEqual([fourOfAKind]);
   });
 
+  it('records for the run summary how many pulls it checked and why it left events for later (#715)', async () => {
+    const fresh = () => ({ checked: 0, stop: null, oldestDeferredAt: null });
+    // hallOfFameEvent takes milliseconds; an event's created_at is in seconds.
+    const events = [hallOfFameEvent(pair, idOf(pair), 1000), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 2000)];
+    const budget = context({ budget: 1, stats: fresh() }).ctx;
+    await processInbox(events, budget);
+    expect(budget.stats).toEqual({ checked: 1, stop: 'budget', oldestDeferredAt: 2 });
+
+    const cap = context({ maxFiled: 0, stats: fresh() }).ctx;
+    await processInbox(events.slice(1), cap);
+    expect(cap.stats).toEqual({ checked: 0, stop: 'filing-cap', oldestDeferredAt: 2 });
+
+    const failing = context({ stats: fresh(), file: () => Promise.reject(new Error('HTTP 502')) }).ctx;
+    await processInbox(events, failing);
+    expect(failing.stats).toEqual({ checked: 2, stop: 'write-failed', oldestDeferredAt: 2 });
+
+    const drained = context({ stats: fresh() }).ctx;
+    expect(await processInbox(events, drained)).toEqual({ added: 1, deferred: 0 });
+    expect(drained.stats).toEqual({ checked: 2, stop: null, oldestDeferredAt: null });
+  });
+
   it("skips a real, qualifying pull that wouldn't make the list, and doesn't check it again", async () => {
     let asked = 0;
     const { ctx, filedProofs } = context({ accepts: () => (asked++, false) });
