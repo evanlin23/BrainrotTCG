@@ -13,7 +13,7 @@ let root: Root;
 let container: HTMLDivElement;
 
 const ui = (props: Partial<React.ComponentProps<typeof PackCuttingUI>> = {}) => (
-  <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={() => {}} isCutting={false} isPackCut={false} cutPoints={[]} sparks={[]} {...props} />
+  <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={() => {}} isCutting={false} isPackCut={false} cutPoints={[]} {...props} />
 );
 
 beforeEach(async () => {

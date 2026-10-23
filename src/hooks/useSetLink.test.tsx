@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SETS } from '../content/sets';
 import type { SetDefinition } from '../engine';
 import { useRoute } from './useRoute';
-import { useSetLink } from './useSetLink';
+import { linkedSetAtLoad, useSetLink } from './useSetLink';
 
 const released = SETS.find((s) => !s.draft && !s.archivedAt)!;
 const draft: SetDefinition = { ...released, id: 'draft-preview', draft: true };
@@ -148,5 +148,30 @@ describe('useSetLink with the route', () => {
     // Let any hashchange from that step land before looking.
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
     expect(current.chosen).toBe(other.id);
+  });
+});
+
+describe('linkedSetAtLoad', () => {
+  it('names the released set the address links to, for the first render to start on', () => {
+    history.replaceState(null, '', `/#/set/${released.id}`);
+    expect(linkedSetAtLoad(sets)).toBe(released.id);
+  });
+
+  it('names nothing for no link, an unknown, draft or archived set, or an entry already followed', () => {
+    expect(linkedSetAtLoad(sets)).toBeNull();
+    for (const id of ['not-a-set', draft.id, archived.id]) {
+      history.replaceState(null, '', `/#/set/${id}`);
+      expect(linkedSetAtLoad(sets), id).toBeNull();
+    }
+    history.replaceState({ brainrotSetLink: true }, '', `/#/set/${released.id}`);
+    expect(linkedSetAtLoad(sets)).toBeNull();
+  });
+
+  it('saves nothing itself: reading it leaves the address and history as they were', () => {
+    history.replaceState(null, '', `/#/set/${released.id}`);
+    const length = history.length;
+    linkedSetAtLoad(sets);
+    expect(location.hash).toBe(`#/set/${released.id}`);
+    expect(history.length).toBe(length);
   });
 });

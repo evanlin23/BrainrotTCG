@@ -17,6 +17,8 @@ const vectors = JSON.parse(readFileSync(new URL('../../spec/vectors-python.json'
   valid: { note: string; proof: string; hand: string; score: number; cards: { finish: string | null }[] }[];
 };
 const vector = vectors.valid.find((v) => v.note === 'modifiers (§5.4): a Silver misprint, stacked')!;
+/** A pull whose set isn't offered to chase here, so it offers "Open your own packs" (a chase button fetches that set's art itself). */
+const plain = vectors.valid.find((v) => v.note === 'mined Full House')!;
 const finished = vector.cards.filter((card) => card.finish).length;
 
 /** Freezes the page clock after load starts, so the app's own timeouts never fire during the hold. */
@@ -25,11 +27,14 @@ async function freezeClock(page: Page) {
   await page.clock.pauseAt(new Date(Date.now() + 60_000));
 }
 
-async function openSharedPull(page: Page) {
-  const pull = page.getByRole('dialog', { name: vector.hand, exact: true });
-  await page.goto(`./#/pull/${vector.proof}`);
+/** Each slot's painted placeholder, from its computed background. */
+const backgrounds = (slots: Locator) => slots.evaluateAll((images) => images.map((img) => getComputedStyle(img).backgroundImage));
+
+async function openSharedPull(page: Page, shared = vector) {
+  const pull = page.getByRole('dialog', { name: shared.hand, exact: true });
+  await page.goto(`./#/pull/${shared.proof}`);
   await expect(pull).toContainText('This pull checks out — re-verified in your browser just now', { timeout: 20000 });
-  await expect(pull.locator('.score-panel-total')).toHaveText(vector.score.toLocaleString('en-US'));
+  await expect(pull.locator('.score-panel-total')).toHaveText(shared.score.toLocaleString('en-US'));
   return pull;
 }
 
@@ -56,6 +61,12 @@ test('a shared pull shows no finish captions on pending art, and keeps score and
     // The build names a thumbnail `<card>.<finish>-<hash>.webp`; a plain card's art has no finish in its name.
     if (finish) expect(src, `card ${index + 1} is finished`).toMatch(new RegExp(`\\.${finish.toLowerCase()}-[\\w-]+\\.webp$`));
   });
+  // Pending is its own look: the shimmer, not the hatching of art that failed, and no card back, so a
+  // slot never reads as a face-down card in play.
+  for (const background of await backgrounds(slots)) {
+    expect(background).toMatch(/^linear-gradient\(/);
+  }
+  await expect(pull.locator('.card-back, .card-back-image')).toHaveCount(0);
   const captions = cards.locator('.mod-label');
   await expect(captions).toHaveCount(finished);
   for (const caption of await captions.all()) await expect(caption).toBeHidden();
@@ -64,7 +75,29 @@ test('a shared pull shows no finish captions on pending art, and keeps score and
 
   art.set('serve');
   await expectDecoded(slots, vector.cards.length);
+  for (const background of await backgrounds(slots)) expect(background).not.toMatch(/gradient/);
   for (const caption of await captions.all()) await expect(caption).toBeVisible();
+  expect(unexpectedArtErrors(errors)).toEqual([]);
+});
+
+test('the action to open packs works while a shared pull\'s art is still held', async ({ page, baseURL }) => {
+  test.setTimeout(60000);
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  const art = await holdArt(page);
+  await freezeClock(page);
+  const pull = await openSharedPull(page, plain);
+  await expect.poll(() => art.requests()).toBeGreaterThan(0);
+  const slots = pull.locator('.pack-viewer-cards img.card-image');
+  await expect.poll(() => slots.evaluateAll((images) => images.every((img) => (img as HTMLImageElement).dataset.state === 'loading'))).toBe(true);
+
+  const whilePullShows = art.requests();
+  await pull.getByRole('button', { name: 'Open your own packs', exact: true }).click();
+  await expect(pull).toBeHidden();
+  await expect(page.getByRole('button', { name: /^Open pack/ })).toBeEnabled();
+  // The next pack's art waited for the pull's own; now the Open screen shows, it is fetched ahead.
+  await expect.poll(() => art.requests(), { timeout: 20000 }).toBeGreaterThan(whilePullShows);
+
+  art.set('serve');
   expect(unexpectedArtErrors(errors)).toEqual([]);
 });
 
@@ -86,6 +119,7 @@ test('art that was held and then fails leaves the captions on its hatched slots'
   art.set('drop');
   const slots = cards.locator('img.card-image');
   await expect.poll(() => slots.evaluateAll((images) => images.every((img) => (img as HTMLImageElement).dataset.state === 'failed'))).toBe(true);
+  for (const background of await backgrounds(slots)) expect(background).toMatch(/^repeating-linear-gradient\(/);
   for (const caption of await captions.all()) await expect(caption).toBeVisible();
   expect(art.failed()).toBeGreaterThan(0);
   expect(unexpectedArtErrors(errors)).toEqual([]);

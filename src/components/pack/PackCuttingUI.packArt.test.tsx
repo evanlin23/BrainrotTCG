@@ -21,7 +21,7 @@ beforeEach(() => {
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} refusal={null} onOpen={() => {}}
       isCutting={false} pressing={false} nudging={false} fellShort={false} isPackCut={false} waiting={false}
-      cutPoints={[]} sparks={[]}
+      cutPoints={[]}
     />,
   ));
 });
@@ -39,5 +39,12 @@ describe("the sealed pack's art", () => {
     expect(packArt.packArtSettled).not.toHaveBeenCalled();
     act(() => { wrapper().dispatchEvent(new Event(event)); });
     expect(packArt.packArtSettled).toHaveBeenCalledOnce();
+  });
+
+  it('lets them start when the pack leaves before its art has loaded or failed (#776)', () => {
+    expect(packArt.packArtSettled).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    expect(packArt.packArtSettled).toHaveBeenCalledOnce();
+    root = createRoot(container);
   });
 });

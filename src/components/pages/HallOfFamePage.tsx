@@ -34,6 +34,8 @@ const HACKATHON_LEGENDS: LegendEntry[] = [
 
 /** How many leaderboard rows show at first, and how many more each "Show more" adds. */
 const PAGE_SIZE = 20;
+/** Rows a phone shows before scrolling. */
+const ON_FIRST_SCREEN = 5;
 /**
  * How long the page waits on the live relays before it stops saying it is checking. Re-deriving recent
  * submissions queues behind pack-opening tickets and can take far longer; the check itself carries on,
@@ -207,6 +209,8 @@ const HallOfFamePage = () => {
   const renderEntry = (entry: HallOfFameEntry, rank: number) => {
     const who = visitorName(entry.name);
     const via = provenanceText(entry.githubUser);
+    // The top rows are what a phone shows first: their art goes ahead, and rows further down wait to be scrolled near (#762).
+    const order = rank < ON_FIRST_SCREEN ? { fetchPriority: 'high' } as const : { loading: 'lazy' } as const;
     return (
       <li key={entry.id}>
         <a className="hof-entry" href={`#/pull/${entry.proof}`} aria-label={`Number ${rank + 1}: ${entry.hand} by ${who} in ${entry.setName}, score ${entry.score}${via ? `, ${via}` : ''}`}>
@@ -214,7 +218,7 @@ const HallOfFamePage = () => {
           <span className="hof-cards" aria-hidden="true">
             {entry.cards.map((c, i) => {
               const card = getCard(`${entry.setId}/${c.cardId}`);
-              return card ? <CardImage key={i} src={card.image} finish={c.finish} thumbnail alt="" className={`${card.rarity.toLowerCase()} ${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} /> : null;
+              return card ? <CardImage key={i} src={card.image} finish={c.finish} thumbnail alt="" {...order} className={`${card.rarity.toLowerCase()} ${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} /> : null;
             })}
           </span>
           <span className="hof-main">

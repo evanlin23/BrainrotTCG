@@ -131,12 +131,14 @@
     transition: none;
 }
 
-/* The leaving pack is lifted out of the flow (AnimatePresence popLayout) and fades over the reveal for a
-   quarter second; it must not take a tap meant for the reveal's Skip or its first card. The attribute is
-   set on the leaving element by framer-motion's PopChild (popLayout) in the version the lockfile pins; if
-   a framer upgrade (#673) stops setting it, this rule goes quiet and the "pack leaving" frame-sampling
-   test in summary-actions.spec.ts fails. */
-.pack-display[data-motion-pop-id] {
+/* A leaving stage (the torn pack, or the reveal when the player returns to the pack) is lifted out of the
+   flow over the container, so it overlaps what comes in instead of pushing it. PackOpener's Lifted sets
+   the attribute in the render that starts the exit. The pack stage keeps the height and place it was held
+   at (inline), so it leaves where it was. It fades over the reveal for a quarter second and must not take
+   a tap meant for the reveal's Skip or its first card. */
+.lifted[data-leaving] {
+    position: absolute;
+    inset: 0;
     pointer-events: none;
 }
 
@@ -605,7 +607,6 @@
     padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
     border-radius: var(--radius-pill);
     background: var(--chip-bg-ink);
-    backdrop-filter: blur(6px);
     box-shadow: var(--shadow-1);
     z-index: var(--z-stage-fx);
     pointer-events: none;
@@ -929,47 +930,20 @@
 }
 
 .spark-layer {
+    /*
+     * A band across the pack around the seam, which is where every spark starts: it reaches as far
+     * as a spark rises and a glow spreads, so the browser composites a band, not the whole pack, on
+     * every frame a spark moves (#266). useSparks reads its box to place sparks on it.
+     */
     position: absolute;
-    inset: 0;
+    left: 0;
+    top: calc(var(--tear-y) - 96px);
+    display: block;
+    width: 100%;
+    height: 144px;
     pointer-events: none;
     /* After the swipe hint in the DOM, so the sparks still draw over it. */
     z-index: var(--z-stage-fx);
-    overflow: visible;
-}
-
-.drag-spark {
-    position: absolute;
-    left: var(--x);
-    top: var(--y);
-    width: calc(var(--size) * 2.5);
-    height: calc(var(--size) * 2.5);
-    /*
-     * A hot core fading through the spark's own hue to the warm glow and out, in one gradient: a
-     * swipe makes up to 220 of these, and blurred shadows plus a blend mode on each cost a phone about
-     * half its frame rate (#266). It animates only transform and opacity, so it stays on the compositor.
-     */
-    background: radial-gradient(
-        circle closest-side,
-        hsl(var(--hue) 100% 92% / 1) 0%,
-        hsl(var(--hue) 100% 78% / 1) 42%,
-        hsl(var(--hue) 100% 66% / 0.95) 62%,
-        var(--spark-glow) 78%,
-        transparent 100%
-    );
-    transform: translate(-50%, -50%);
-    animation: sparkPop var(--spark-life) ease-out forwards;
-}
-
-@keyframes sparkPop {
-    0% {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(0.52);
-    }
-
-    100% {
-        opacity: 0;
-        transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.7);
-    }
 }
 
 .card-reveal-area {
