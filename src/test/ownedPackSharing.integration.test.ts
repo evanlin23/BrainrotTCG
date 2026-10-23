@@ -59,4 +59,4 @@ it('shares the exact owned modifier from a history pack, retaining pack sharing 
   expect(document.querySelector('.card-viewer')).toBeNull();
   expect(document.querySelector('.share-pack-cards')).not.toBeNull();
   expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!).packsOpened).toBe(1);
-}, 30_000);
+});

@@ -114,7 +114,7 @@ describe('the defect-replay signal', () => {
 });
 
 describe('the gate', () => {
-  it('replays when a change touches the Vitest config, the test setup, the dependencies, the test budget, this harness, an owning test or a fixed file', () => {
+  it('replays when a change touches the Vitest config, the test setup, the dependencies, the test timing, this harness, an owning test or a fixed file', () => {
     const owned = [...CASES, ...META].flatMap((c) => [c.test.file, c.fault.file]);
     for (const file of ['vite.config.ts', 'src/test/setup.ts', 'package.json', 'package-lock.json', 'scripts/test-budget.ts', 'scripts/defect-replay.ts', 'scripts/defect-replay.test.ts', ...owned]) {
       expect(gateChanges(`README.md\n${file}\n`), file).toEqual([file]);

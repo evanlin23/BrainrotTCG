@@ -55,5 +55,5 @@ describe('isStaging', () => {
     expect(canBringOldSave()).toBe(true);
     at(`https://staging.${PAGES}/`);
     expect(canBringOldSave()).toBe(false);
-  }, 30000); // a fresh import of move.ts loads the card sets
+  });
 });

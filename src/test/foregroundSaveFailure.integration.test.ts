@@ -165,7 +165,7 @@ it('warns when the ticket mapping of a new pack cannot be written to the history
   expectAppShown();
   expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
   await drainToasts(app);
-}, 60_000);
+});
 
 it('records a ticket mapping the history refused once the collection holding its pack is saved', async () => {
   app = await mountedApp(SEED);
@@ -189,7 +189,7 @@ it('records a ticket mapping the history refused once the collection holding its
   // It did fail when the pack opened, so the warning still says so.
   expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
   await drainToasts(app);
-}, 60_000);
+});
 
 it('warns when a ticket mapping missing from the history still cannot be recorded once its pack is stored', async () => {
   // A pack waiting on the shelf from an earlier visit, whose ticket mapping never reached the history.
@@ -216,7 +216,7 @@ it('warns when a ticket mapping missing from the history still cannot be recorde
   expectAppShown();
   expect(banner()?.textContent).toMatch(/couldn't be saved in this browser/);
   await drainToasts(app);
-}, 60_000);
+});
 
 it('warns when a name edited on Profile cannot be stored as the page is left', async () => {
   app = await mountedApp(SEED);

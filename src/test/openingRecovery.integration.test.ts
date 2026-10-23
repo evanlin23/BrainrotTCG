@@ -94,7 +94,7 @@ it('adds a pack left mid-reveal by a reload once, from the pending shelf', async
   const settled = Object.entries(localStorage);
   await app.reload();
   expect(Object.entries(localStorage)).toEqual(settled);
-}, 60_000);
+});
 
 const toastTexts = () => [...document.querySelectorAll('.toast')].map((el) => el.textContent ?? '');
 /** Leave a pack mid-reveal, then reload; `shelfCopies` more packs are put on the shelf beside it first. */
@@ -132,7 +132,7 @@ it('says on return that an interrupted pack was kept, once, with a way to its ca
   expect(document.querySelector('[data-pack-open]')).not.toBeNull();
   await app.settle(500);
   expect(toastTexts()).toEqual([]);
-}, 60_000);
+});
 
 it('gives several recovered packs one notice, not one each', async () => {
   app = await mountedApp(SEED);
@@ -144,7 +144,7 @@ it('gives several recovered packs one notice, not one each', async () => {
   expect(toastTexts()[0]).toContain('3 packs from your last visit are in Cards');
   await app.settle(500);
   expect(toastTexts()).toHaveLength(1);
-}, 60_000);
+});
 
 it('does not say a recovered pack was kept when the collection cannot be stored', async () => {
   app = await mountedApp(SEED);
@@ -162,7 +162,7 @@ it('does not say a recovered pack was kept when the collection cannot be stored'
   // Still owed on the shelf, so a later load can keep it and say so then.
   expect(shelvedPacks().map((pack) => pack.n)).toEqual([0]);
   expect(app.takeErrors(/^Failed to save to localStorage key /)).toEqual([expect.stringContaining(`"${STORAGE_KEYS.COLLECTION}"`)]);
-}, 60_000);
+});
 
 it('waits for a slow ticket with the app held on the pack, then records the late pack once', async () => {
   app = await mountedApp(SEED, { tickets: () => ({ delayMs: 4000 }) });
@@ -187,7 +187,7 @@ it('waits for a slow ticket with the app held on the pack, then records the late
   expect(storedCards()).toBe(5);
   expectShelvesEmpty();
   expect(document.querySelector('.pack-hint.is-waiting')).toBeNull();
-}, 60_000);
+});
 
 it('refuses a late pack opening when another tab imports player B during mining, leaving B untouched with no reveal', async () => {
   app = await mountedApp(SEED, { tickets: () => ({ delayMs: 4000 }) });
@@ -230,7 +230,7 @@ it('refuses a late pack opening when another tab imports player B during mining,
   expect(await history()).toEqual([]);
   expectShelvesEmpty();
   expect(storedCards()).toBe(0);
-}, 60_000);
+});
 
 it('refuses a late pack opening when another tab imports a backup of the same player during mining', async () => {
   app = await mountedApp(SEED, { tickets: () => ({ delayMs: 4000 }) });
@@ -268,7 +268,7 @@ it('refuses a late pack opening when another tab imports a backup of the same pl
   expect(await history()).toEqual([]);
   expectShelvesEmpty();
   expect(storedCards()).toBe(0);
-}, 60_000);
+});
 
 it('refuses a tear after another tab imported player B, even before this tab hears of it, leaving B untouched', async () => {
   app = await mountedApp(SEED);
@@ -304,7 +304,7 @@ it('refuses a tear after another tab imported player B, even before this tab hea
   expect(localStorage.getItem(STORAGE_KEYS.BEST_CARDS)).toBe(bestCardsB);
   expectShelvesEmpty();
   expect(storedCards()).toBe(0);
-}, 60_000);
+});
 
 it('spends nothing for a pack whose ticket was still mining at a reload, and opens that nonce once later', async () => {
   let delayMs = 60_000;
@@ -328,7 +328,7 @@ it('spends nothing for a pack whose ticket was still mining at a reload, and ope
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(1);
   expect(storedCards()).toBe(5);
   expectShelvesEmpty();
-}, 60_000);
+});
 
 it('shows a failed ticket with its reason and Try again, records nothing, and records exactly one pack on retry', async () => {
   let failing = true;
@@ -353,7 +353,7 @@ it('shows a failed ticket with its reason and Try again, records nothing, and re
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(1);
   expect(storedCards()).toBe(5);
   expectShelvesEmpty();
-}, 60_000);
+});
 
 it('never retries a failed ticket by itself: each press asks once more, and a second failure is shown like the first', async () => {
   app = await mountedApp(SEED, { tickets: () => ({ error: 'Simulated ticket failure' }) });
@@ -376,7 +376,7 @@ it('never retries a failed ticket by itself: each press asks once more, and a se
   expect(app.ticketRequests.slice(-2).map((request) => request.nonce)).toEqual([0, 0]);
   expect(read<{ nextNonce: number }>(PLAYER_KEY).nextNonce).toBe(0);
   await expectNothingRecorded();
-}, 60_000);
+});
 
 it('finishes on the main thread when the ticket worker crashes, with the same pack', async () => {
   app = await mountedApp(SEED, { tickets: () => 'crash' });
@@ -388,7 +388,7 @@ it('finishes on the main thread when the ticket worker crashes, with the same pa
   expect(await historyCodes()).toEqual(GOLDEN_CARDS);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(1);
   expectShelvesEmpty();
-}, 60_000);
+});
 
 it("restores this player's save when storage fills mid-import, then keeps opening packs as this player", async () => {
   const incomingStats = JSON.stringify({ packsOpened: 5, holoCards: {} });
@@ -431,7 +431,7 @@ it("restores this player's save when storage fills mid-import, then keeps openin
   expect((await history())[0].key).toBe(SEED_KEY_PREFIX);
   expect(read<Stats>(STORAGE_KEYS.STATS).packsOpened).toBe(4);
   expect(read<{ secretKey: string }>(PLAYER_KEY).secretKey).toBe('01'.repeat(32));
-}, 60_000);
+});
 
 it("says so and then reloads when a failed import can't be undone, so the app doesn't keep showing the old save", async () => {
   const save = JSON.stringify({
@@ -462,7 +462,7 @@ it("says so and then reloads when a failed import can't be undone, so the app do
   expect(alert).toHaveBeenCalledOnce();
   expect(alert.mock.calls[0][0]).toContain(PARTIAL_IMPORT_NOTE);
   expect(alert.mock.invocationCallOrder[0]).toBeLessThan(reload.mock.invocationCallOrder[0]);
-}, 60_000);
+});
 
 it("offers the save from before as a download, then reloads, when an import without a copy can't be undone", async () => {
   const save = JSON.stringify({
@@ -505,4 +505,4 @@ it("offers the save from before as a download, then reloads, when an import with
   expect(JSON.parse(download.mock.calls[0][0]!).stats).toBe(before[STORAGE_KEYS.STATS]);
   expect(download.mock.invocationCallOrder[0]).toBeLessThan(reload.mock.invocationCallOrder[0]);
   expect(alert).not.toHaveBeenCalled();
-}, 60_000);
+});

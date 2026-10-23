@@ -236,7 +236,7 @@ describe('inbox: signature checks (#1000)', () => {
 });
 
 describe('inbox: per-run caps', () => {
-  it('stops re-deriving pulls at the run budget and picks the rest up next run', { timeout: 60_000 }, async () => {
+  it('stops re-deriving pulls at the run budget and picks the rest up next run', async () => {
     // 300 submissions that decode but fail to verify, all older than one real pull.
     const cheap = ['name with a trailing space', 'name not normalised (double space)', 'unknown set', 'signature byte flipped'].map(invalid);
     const flood = Array.from({ length: 300 }, (_, i) => submit(cheap[i % cheap.length], 3600 + i));
@@ -262,7 +262,7 @@ describe('inbox: per-run caps', () => {
 
   // Only one test vector qualifies, so the per-run cap on filings (20 in `inbox`) is driven through
   // processInbox, with every verified pull accepted, over events read by the real relay reader.
-  it('files at most maxFiled pulls a run, the rest on later runs, each once', { timeout: 30_000 }, async () => {
+  it('files at most maxFiled pulls a run, the rest on later runs, each once', async () => {
     net.relays = everywhere([submit(pair, 400), submit(twoPair, 300), submit(threeOfAKind, 200), submit(pair, 100)]);
     const { events } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], limit: 100 }, HOF_RELAYS, 5000, undefined, 50);
     expect(events).toHaveLength(4);
@@ -290,7 +290,7 @@ describe('inbox: interrupted runs', () => {
     { step: 'posting the verified comment', fail: (r: GitHubRequest) => r.method === 'POST' && r.path.endsWith('/comments') },
     { step: 'adding the label', fail: (r: GitHubRequest) => r.path.endsWith('/labels') },
     { step: 'closing the issue', fail: (r: GitHubRequest) => r.method === 'PATCH' },
-  ])('finishes the pull on one issue after a run stopped at $step', { timeout: 30_000 }, async ({ step, fail }) => {
+  ])('finishes the pull on one issue after a run stopped at $step', async ({ step, fail }) => {
     net.relays = everywhere([submit(fourOfAKind)]);
     const gh = (net.github = new FakeGitHub());
     gh.fail = fail;
@@ -341,7 +341,7 @@ describe('build: the published snapshot', () => {
     expect(readFileSync(output(), 'utf8')).toBe('[]\n');
   });
 
-  it('keeps a pull out once its inbox issue is rejected, even when it is sent again', { timeout: 30_000 }, async () => {
+  it('keeps a pull out once its inbox issue is rejected, even when it is sent again', async () => {
     net.relays = everywhere([submit(fourOfAKind, 600)]);
     const gh = (net.github = new FakeGitHub());
     await inbox();
@@ -361,7 +361,7 @@ describe('build: the published snapshot', () => {
     expect(readFileSync(output(), 'utf8')).toBe('[]\n');
   });
 
-  it('publishes only issues whose body carries a real, qualifying pull the bot verified there', { timeout: 30_000 }, async () => {
+  it('publishes only issues whose body carries a real, qualifying pull the bot verified there', async () => {
     const gh = (net.github = new FakeGitHub(
       [
         issue(1, null),
@@ -382,7 +382,7 @@ describe('build: the published snapshot', () => {
     expect(logs.join('\n')).not.toMatch(/(^|\n)::/);
   });
 
-  it('writes byte-identical hall-of-fame.json on repeated runs over the same issues', { timeout: 30_000 }, async () => {
+  it('writes byte-identical hall-of-fame.json on repeated runs over the same issues', async () => {
     const fixture = (reverse = false) => {
       const issues = [
         issue(1, fourOfAKind), // the first verification keeps the credit
