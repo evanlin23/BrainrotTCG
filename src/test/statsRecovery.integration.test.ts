@@ -33,9 +33,9 @@ const historyNonces = async () => (await import('../game/history')).getHistory()
 
 /** Opens a pack and leaves it mid-reveal: its ticket is in the history, and the pack waits on the shelf. */
 async function startPack(current: NonNullable<typeof app>) {
-  await current.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await current.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await current.interact(() => {
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLButtonElement>('[data-pack-open]')!;
     open.focus();
     open.click();
   });

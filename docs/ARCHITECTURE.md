@@ -404,10 +404,10 @@ within 1M characters (older ones in between are let go and counted). The archive
 save: a payload storage has no room for is kept for that visit only, and the note asks the player to
 download it. Stored stats this build can't read go in the same archive, marked with their key, when
 they load; the stats in use are rebuilt from their readable fields, this key's history and the
-collection (`statsRecovery.ts`), and App stores them at once, unless their copy is held only for that
+collection (`statsRecovery.ts`), taking the history's best pack when it beats a readable one kept, and App stores them at once, unless their copy is held only for that
 visit (then the stats stay unsaved and the save warning shows). Nothing discards kept-aside data
 silently; the player can download or discard it from the save warning or Settings, and after a
-discard the next write replaces the bytes it came from. Export includes that archive, and rebuilds
+discard the next write replaces the bytes it came from. Export includes that archive, with the payloads held for that visit only, and rebuilds
 unreadable stats as a load does, so the file imports again. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier

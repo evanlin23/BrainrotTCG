@@ -120,6 +120,17 @@ describe('loadStats', () => {
     expect(stats.highestPackCards?.map((card) => card.id)).toEqual(pack(4).cards.map((card) => card.id));
   });
 
+  it('re-scores the best pack from the history when a pack in it beats the readable one kept (#1053)', () => {
+    opened(4);
+    const keptBest = { highestPackValue: 1, highestPackFlexValue: 1, highestPackCards: [] };
+    data.set(STORAGE_KEYS.STATS, JSON.stringify({ packsOpened: 1, holoCards: 'lost', ...keptBest }));
+    expect(loadStats({}).stats.highestPackRef?.nonce).toBe(4);
+
+    data.set(STORAGE_KEYS.STATS, JSON.stringify({ packsOpened: 1, holoCards: 'lost', ...keptBest, highestPackFlexValue: 1e9 }));
+    const { stats } = loadStats({});
+    expect([stats.highestPackFlexValue, stats.highestPackRef]).toEqual([1e9, undefined]);
+  });
+
   it("counts only this player's packs from the history", () => {
     opened(0);
     recordPack({ ...pack(5), publicKeyHex: 'ef'.repeat(32) } as OpenedPack);
@@ -227,6 +238,21 @@ describe('exported stats', () => {
       expect(isValidSaveValue(STORAGE_KEYS.STATS, file.stats, CURRENT_DATA_VERSION)).toBe(true);
       expect(data.get(STORAGE_KEYS.STATS)).toBe(damaged);
     });
+
+  it('carries the damaged stats kept aside for this visit only, while storage has no room for them (#1053)', () => {
+    data.set(STORAGE_KEYS.STATS, 'garbage');
+    refuseWrites = new Set([STORAGE_KEYS.COLLECTION_RECOVERY]);
+    loadStats({});
+    const file = JSON.parse(exportSaveFile()) as { collectionRecovery: string };
+    expect(JSON.parse(file.collectionRecovery)).toEqual({ raw: 'garbage', player: PLAYER, key: STORAGE_KEYS.STATS });
+    expect(isValidSaveValue(STORAGE_KEYS.COLLECTION_RECOVERY, file.collectionRecovery, CURRENT_DATA_VERSION)).toBe(true);
+  });
+
+  it('exports stored kept-aside data byte for byte when this visit added none', () => {
+    const raw = JSON.stringify({ raw: 'garbage', player: PLAYER, key: STORAGE_KEYS.STATS });
+    data.set(STORAGE_KEYS.COLLECTION_RECOVERY, raw);
+    expect((JSON.parse(exportSaveFile()) as { collectionRecovery: string }).collectionRecovery).toBe(raw);
+  });
 
   it('exports readable stats byte for byte', () => {
     const raw = JSON.stringify({ packsOpened: 3, holoCards: {} });

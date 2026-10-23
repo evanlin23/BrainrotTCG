@@ -315,11 +315,8 @@ export const dismissCollectionRecovery = (): boolean => {
   }
 };
 
-/**
- * Everything kept aside, as a JSON file built in this browser: the stored archive (wrapped if it
- * can't be read) with this visit's unsaved payloads after it. Null when nothing is kept.
- */
-export const collectionRecoveryFile = (now = new Date()): { name: string; text: string } | null => {
+/** The stored archive (wrapped if it can't be read) with this visit's unsaved payloads after it, and whether those added any. */
+const keptArchive = (): { file: Archive; added: boolean } | null => {
   const stored = getStoredArchive();
   if (stored.status === 'unavailable') {
     throw (stored.error instanceof Error ? stored.error : new DOMException('Storage read denied', 'SecurityError'));
@@ -329,10 +326,26 @@ export const collectionRecoveryFile = (now = new Date()): { name: string; text: 
   const kept = entriesOf(archive);
   const extra = unsaved.filter((entry) => !kept.some((k) => sameEntry(k, entry)));
   const dropped = (archive?.dropped ?? 0) + droppedThisVisit;
-  let file: Archive;
-  if (archive) file = extra.length === 0 && droppedThisVisit === 0 ? archive : withLater(archive, [...(archive.later ?? []), ...extra], dropped);
-  else if (extra.length > 0) file = withLater(extra[0], extra.slice(1), dropped);
-  else return null;
+  if (archive && extra.length === 0 && droppedThisVisit === 0) return { file: archive, added: false };
+  if (archive) return { file: withLater(archive, [...(archive.later ?? []), ...extra], dropped), added: true };
+  if (extra.length > 0) return { file: withLater(extra[0], extra.slice(1), dropped), added: true };
+  return null;
+};
+
+/** The kept-aside data a backup carries: the stored text as is, or with this visit's unsaved payloads when storage had no room for them. */
+export const exportedCollectionRecovery = (stored: string | null): string | null => {
+  const kept = keptArchive();
+  return kept?.added ? JSON.stringify(kept.file) : stored;
+};
+
+/**
+ * Everything kept aside, as a JSON file built in this browser: the stored archive (wrapped if it
+ * can't be read) with this visit's unsaved payloads after it. Null when nothing is kept.
+ */
+export const collectionRecoveryFile = (now = new Date()): { name: string; text: string } | null => {
+  const kept = keptArchive();
+  if (!kept) return null;
+  const file = kept.file;
   return { name: `brainrot-collection-recovery-${now.toISOString().split('T')[0]}.json`, text: JSON.stringify(file, null, 2) };
 };
 

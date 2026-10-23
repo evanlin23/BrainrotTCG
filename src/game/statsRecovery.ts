@@ -79,11 +79,13 @@ const rebuild = (value: unknown, collection: Record<string, CollectionItem>): Lo
   }
   stats.holoCards = holoCards;
 
-  if (!stats.highestPackFlexValue && !stats.highestPackValue) {
-    for (const entry of [...history].sort(byBest)) {
-      const cards = historyCards(entry);
-      if (!cards || cards.length === 0) continue;
-      const { points, hand, score } = scoreCards(cards);
+  // The history's best pack replaces a kept one it beats (a better pack may have opened since the stats broke).
+  const keptScore = stats.highestPackFlexValue || stats.highestPackValue || 0;
+  for (const entry of [...history].sort(byBest)) {
+    const cards = historyCards(entry);
+    if (!cards || cards.length === 0) continue;
+    const { points, hand, score } = scoreCards(cards);
+    if (score > keptScore) {
       Object.assign(stats, {
         highestPackFlexValue: score,
         highestPackBaseValue: points,
@@ -93,8 +95,8 @@ const rebuild = (value: unknown, collection: Record<string, CollectionItem>): Lo
         highestPackRef: { setId: entry.setId, setVersion: entry.setVersion, nonce: entry.nonce, publicKeyHex },
         highestPackLegacy: false,
       });
-      break;
     }
+    break;
   }
   return { stats, counted, rebuilt: true };
 };
