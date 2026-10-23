@@ -46,7 +46,7 @@ async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewpo
 async function settled(page: Page) {
   await expect.poll(() => page.locator('.pack-summary').evaluate((el) => {
     const { transform, opacity } = getComputedStyle(el);
-    return transform === 'none' && opacity === '1';
+    return new DOMMatrixReadOnly(transform).isIdentity && opacity === '1';
   }), { message: 'the summary settled' }).toBe(true);
 }
 
