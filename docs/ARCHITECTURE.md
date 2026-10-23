@@ -220,6 +220,11 @@ issue `rejected`, the build leaves `rejected` issues and blocked names out, and 
 check skips them. Other players' names show through `visitorName` (`publicName`, with a blank or blocked one
 read as "Someone"), beside the key fingerprint in Rankings, shared pull links and shared profiles.
 
+Each Rankings row also says where the entry was submitted from, on its muted set line (`provenanceText`
+in `src/game/hallOfFameList.ts`): "via relay" when `githubUser` is `nostr`, "via GitHub issue" for an
+issue author's login, and nothing for a missing, `unknown` or malformed value. It never shows or links
+the login, since `githubUser` is just the issue author as recorded and not a verified identity.
+
 - Removal, including a reported name the check missed: the owner adds the `rejected` label to the
   entry's issue and the next deploy leaves it out. The workflows never take that label off, and the
   issue still counts as filed, so the relays can't file the same pull again. To restore an entry,

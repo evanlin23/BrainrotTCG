@@ -22,6 +22,19 @@ export interface HallOfFameEntry extends RankableEntry {
   mine?: boolean;
 }
 
+/**
+ * Where an entry was submitted from, in plain words for the row's muted line. `githubUser` is the
+ * issue author as the deploy recorded it, and 'nostr' marks the relay inbox's own bot filing the
+ * issue: neither says who the player is, so this never names a login or calls anyone a verified
+ * GitHub user. Returns null for a missing, 'unknown' or malformed value, and the row then says nothing.
+ */
+export const provenanceText = (githubUser: unknown): string | null => {
+  if (typeof githubUser !== 'string') return null;
+  if (githubUser === 'nostr') return 'via relay';
+  // A GitHub login: letters, digits and single hyphens, up to 39 characters.
+  return /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(githubUser) && githubUser !== 'unknown' ? 'via GitHub issue' : null;
+};
+
 /** Entries from before ids were published get theirs from the proof (a bad proof keys on its text). */
 const withId = (entry: Omit<HallOfFameEntry, 'id'> & { id?: unknown }): HallOfFameEntry => {
   if (typeof entry.id === 'string') return entry as HallOfFameEntry;

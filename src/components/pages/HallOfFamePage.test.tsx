@@ -7,7 +7,7 @@ import { HALL_OF_FAME_MIN_MULTIPLIER, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP }
 import HallOfFamePage from './HallOfFamePage';
 
 const { loadHallOfFame, loadPending, checkPull } = vi.hoisted(() => ({ loadHallOfFame: vi.fn(), loadPending: vi.fn(), checkPull: vi.fn() }));
-vi.mock('../../game/hallOfFameList', () => ({ loadHallOfFame, loadPending }));
+vi.mock('../../game/hallOfFameList', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../game/hallOfFameList')>()), loadHallOfFame, loadPending }));
 // Re-deriving a pull mines its ticket. The page must never do that for published entries.
 vi.mock('../../game/pulls', () => ({ checkPull }));
 
@@ -53,7 +53,8 @@ const retryButton = () => document.querySelector<HTMLButtonElement>('button[aria
 const tab = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((el) => el.textContent === label)!;
 const select = async (label: string) => act(async () => tab(label).click());
 const rows = () => [...document.querySelectorAll<HTMLAnchorElement>('.hof-list .hof-entry')];
-const labels = () => rows().map((a) => a.getAttribute('aria-label'));
+// The row's accessible name without the trailing source ("…, via relay"), which has its own test.
+const labels = () => rows().map((a) => a.getAttribute('aria-label')?.replace(/, via (?:relay|GitHub issue)$/, ''));
 const showMore = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Show more');
 /** jsdom's click() doesn't focus the button the way a real click does. */
 const clickRetry = () => {
@@ -85,7 +86,7 @@ describe('Hall of Fame loading', () => {
     expect(document.activeElement).toBe(status());
     expect(retryButton()).toBeNull();
     await select('All-time');
-    expect(document.querySelector('a[aria-label="Number 1: Full House by Alice in Original, score 12345"]')).not.toBeNull();
+    expect(document.querySelector('a[aria-label="Number 1: Full House by Alice in Original, score 12345, via GitHub issue"]')).not.toBeNull();
     expect(loadPending).toHaveBeenCalledTimes(1);
     expect(loadPending.mock.calls[0][0]).toEqual([ENTRY]);
     expect((loadPending.mock.calls[0][2] as AbortSignal).aborted).toBe(false);
@@ -770,5 +771,23 @@ describe('Where it started', () => {
     await open();
     expect(dialog()?.querySelectorAll('.hof-legend')).toHaveLength(3);
     expect(document.body.textContent).not.toContain('Nothing filed here yet');
+  });
+
+  it('says where each entry came from on its muted line, and nothing for an unknown source', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.parse(ENTRY.submittedAt) + 3_600_000);
+    loadHallOfFame.mockResolvedValueOnce([
+      ENTRY,
+      { ...ENTRY, id: 'pull-2', proof: 'proof-2', issue: 8, score: 5_000, githubUser: 'nostr' },
+      { ...ENTRY, id: 'pull-3', proof: 'proof-3', issue: 9, score: 1_000, githubUser: 'unknown' },
+    ]);
+    await act(async () => root.render(<HallOfFamePage />));
+    expect([...document.querySelectorAll('.hof-meta')].map((el) => el.textContent)).toEqual(['Original · via GitHub issue', 'Original · via relay', 'Original']);
+    expect(rows().map((a) => a.getAttribute('aria-label'))).toEqual([
+      'Number 1: Full House by Alice in Original, score 12345, via GitHub issue',
+      'Number 2: Full House by Alice in Original, score 5000, via relay',
+      'Number 3: Full House by Alice in Original, score 1000',
+    ]);
+    expect(container.querySelector('.hof-entry a')).toBeNull();
   });
 });

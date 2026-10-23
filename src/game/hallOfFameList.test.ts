@@ -356,3 +356,23 @@ describe('loadPending', () => {
     });
   });
 });
+
+describe('provenanceText', () => {
+  it('says relay for an entry the relay inbox filed', async () => {
+    const { provenanceText } = await import('./hallOfFameList');
+    expect(provenanceText('nostr')).toBe('via relay');
+  });
+
+  it('says GitHub issue for an issue author, without naming the login', async () => {
+    const { provenanceText } = await import('./hallOfFameList');
+    expect(provenanceText('alice')).toBe('via GitHub issue');
+    expect(provenanceText('a-b-9')).toBe('via GitHub issue');
+  });
+
+  it('says nothing for a missing, unknown or odd value', async () => {
+    const { provenanceText } = await import('./hallOfFameList');
+    for (const odd of [undefined, null, 7, {}, '', 'unknown', 'not a login', '-alice', 'alice-', 'a--b', 'x'.repeat(40), '<b>hi</b>']) {
+      expect(provenanceText(odd)).toBeNull();
+    }
+  });
+});

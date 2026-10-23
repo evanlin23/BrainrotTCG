@@ -7,7 +7,7 @@ import { tabPanelProps } from '../ui/tabPanel';
 import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
-import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
+import { loadHallOfFame, loadPending, provenanceText, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { dailyPulls, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
 
 // Hackathon legends ("Where it started"): screenshots from before pulls were verifiable.
@@ -181,9 +181,10 @@ const HallOfFamePage = () => {
 
   const renderEntry = (entry: HallOfFameEntry, rank: number) => {
     const who = visitorName(entry.name);
+    const via = provenanceText(entry.githubUser);
     return (
       <li key={entry.id}>
-        <a className="hof-entry" href={`#/pull/${entry.proof}`} aria-label={`Number ${rank + 1}: ${entry.hand} by ${who} in ${entry.setName}, score ${entry.score}`}>
+        <a className="hof-entry" href={`#/pull/${entry.proof}`} aria-label={`Number ${rank + 1}: ${entry.hand} by ${who} in ${entry.setName}, score ${entry.score}${via ? `, ${via}` : ''}`}>
           <span className="hof-rank tabular">{rank + 1}</span>
           <span className="hof-cards" aria-hidden="true">
             {entry.cards.map((c, i) => {
@@ -199,6 +200,7 @@ const HallOfFamePage = () => {
             <span className="hof-meta">
               {entry.mine && <span className="hof-pending">Just submitted · </span>}
               {entry.setName}
+              {via && ` · ${via}`}
             </span>
           </span>
           <span className="hof-side">
