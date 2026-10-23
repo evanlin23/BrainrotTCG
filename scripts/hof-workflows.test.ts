@@ -402,7 +402,7 @@ describe('ops-health.yml, the operational health report (#715)', () => {
   it('runs on a schedule, after a deploy of main or by hand, never for a pull request, and holds no secrets', () => {
     const on = triggers(text);
     expect(on).toMatch(/^ {2}schedule:\n(?: {4}#.*\n)* {4}- cron: '\d+ [\d*/]+ \* \* \*'/m);
-    expect(on).toMatch(/^ {2}workflow_run:\n {4}workflows: \['Deploy to GitHub Pages'\]\n {4}types: \[completed\]\n {4}branches: \[main\]$/m);
+    expect(on).toMatch(/^ {2}workflow_run:\n {4}workflows:\n {6}- Deploy to GitHub Pages\n {4}types: \[completed\]\n {4}branches: \[main\]$/m);
     expect(read('deploy.yml')).toMatch(/^name: Deploy to GitHub Pages$/m);
     expect(on).toMatch(/^ {2}workflow_dispatch:/m);
     expect(on).not.toMatch(/pull_request/);
