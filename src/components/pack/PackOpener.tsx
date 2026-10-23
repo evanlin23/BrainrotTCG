@@ -25,15 +25,13 @@ import { revealAnnouncement } from '../cards/cardLabel';
 import { REFUSAL_COPY } from './refusal';
 import { usePackLifecycle } from './usePackLifecycle';
 import { stageEntrance } from './stageEntrance';
+import { loadConfetti } from './loadConfetti';
 import { packImageUrl } from '../../content/art';
 import { PlayerUnreadableError, StaleSaveError, type SaveMark } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
 
 const Motion = motion;
-
-/** The confetti library is only needed once a card is flipped, so it stays out of the first load. */
-const loadConfetti = () => import('./confettiEffects');
 
 /** Where the sealed pack's stage rests. */
 const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0 };

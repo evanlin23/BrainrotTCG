@@ -38,23 +38,37 @@ vi.mock('../../hooks/usePackCutter', () => ({
   },
 }));
 vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
-// The confetti chunk is a dynamic import: `loads` says how this test's import goes. A mock's module is
-// cached once built, so the tests that need a different outcome register it again (see `load`).
+// The confetti chunk is a dynamic import, and in a browser every caller's import() of a module gets the
+// same promise. So `loaded` is one promise per test, handed to every caller, and `arrive` resolves it for all
+// of them at once. `fails` makes every import reject, as one with no network does.
 const confetti = vi.hoisted(() => {
   const state = {
-    loads: 'arrives' as 'arrives' | 'fails' | Promise<void>,
     fetches: 0,
     bursts: [] as string[],
-    module: async () => {
+    loaded: Promise.resolve() as Promise<void>,
+    arrive: () => {},
+    fails: false,
+    /** The module once it is in: bursts are recorded in `bursts`. */
+    loadConfetti: () => {
       state.fetches += 1;
-      if (state.loads === 'fails') throw new Error('Failed to fetch dynamically imported module');
-      if (typeof state.loads !== 'string') await state.loads;
-      return { triggerRarityConfetti: (rarity: string) => state.bursts.push(rarity), triggerHoloSparkles: () => {} };
+      if (state.fails) return Promise.reject(new Error('Failed to fetch dynamically imported module'));
+      return state.loaded.then(() => ({
+        triggerRarityConfetti: (rarity: string) => { state.bursts.push(rarity); },
+        triggerHoloSparkles: () => {},
+      }));
+    },
+    /** From here the chunk is in; or, with `pending`, still on its way until `arrive`. */
+    reset: (pending = false) => {
+      state.fetches = 0;
+      state.bursts = [];
+      state.fails = false;
+      state.loaded = Promise.resolve();
+      if (pending) state.loaded = new Promise<void>((resolve) => { state.arrive = resolve; });
     },
   };
   return state;
 });
-vi.mock('./confettiEffects', () => confetti.module());
+vi.mock('./loadConfetti', () => ({ loadConfetti: () => confetti.loadConfetti(), warmConfetti: () => {} }));
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
 let root: Root;
@@ -490,29 +504,19 @@ describe('what a flip sets off', () => {
   });
 
   describe('and the confetti that comes with it (#776)', () => {
-    let arrive = () => {};
-    const load = (how: 'arrives' | 'fails' | 'later') => {
-      vi.doMock('./confettiEffects', () => confetti.module());
-      confetti.fetches = 0;
-      confetti.bursts = [];
-      confetti.loads = how === 'later' ? new Promise<void>((resolve) => { arrive = resolve; }) : how;
-    };
-    afterEach(() => {
-      confetti.loads = 'arrives';
-    });
+    beforeEach(() => confetti.reset());
+    // The last card on stage: the one before it may still be leaving.
+    const faceUp = () => document.querySelectorAll('.reveal-card .card-back').item(document.querySelectorAll('.reveal-card .card-back').length - 1)?.getAttribute('aria-hidden') === 'true';
 
     it('bursts for the card flipped once the chunk is in', async () => {
-      load('arrives');
       await deal();
       flip();
       await vi.waitFor(() => expect(confetti.bursts).toHaveLength(1));
     });
 
     it('still flips the card, and the next one, when the chunk never loads', async () => {
-      load('fails');
+      confetti.fails = true;
       await deal();
-      // The last card on stage: the one before it may still be leaving.
-      const faceUp = () => document.querySelectorAll('.reveal-card .card-back').item(document.querySelectorAll('.reveal-card .card-back').length - 1)?.getAttribute('aria-hidden') === 'true';
       expect(faceUp()).toBe(false);
       flip();
       await act(async () => {});
@@ -522,20 +526,57 @@ describe('what a flip sets off', () => {
       await vi.waitFor(() => expect(faceUp()).toBe(false));
       flip();
       await vi.waitFor(() => expect(faceUp()).toBe(true));
-      expect(confetti.fetches).toBeGreaterThan(0);
+      expect(confetti.fetches).toBeGreaterThan(1);
       expect(confetti.bursts).toEqual([]);
     });
 
     it('bursts for the card flipped when a slow chunk lands while it is still the card on show', async () => {
-      load('later');
+      confetti.reset(true);
       await deal();
       flip();
-      await act(async () => { arrive(); });
-      await vi.waitFor(() => expect(confetti.bursts).toHaveLength(1));
+      expect(confetti.bursts).toEqual([]);
+      await act(async () => { confetti.arrive(); });
+      expect(confetti.bursts).toHaveLength(1);
+    });
+
+    it('bursts only for the card on show when the chunk lands after a later flip', async () => {
+      confetti.reset(true);
+      await deal();
+      // The first flip turns a card over, the second moves on to the next, the third turns that one over.
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(true));
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(false));
+      confetti.fetches = 0;
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(true));
+      expect(confetti.fetches).toBe(1);
+      await act(async () => { confetti.arrive(); });
+      // Two flips asked for a burst; the chunk arrived for both at once, and only the later card is still on show.
+      expect(confetti.bursts).toHaveLength(1);
+    });
+
+    it('does not burst when a slow chunk lands after the pack was closed', async () => {
+      confetti.reset(true);
+      await deal();
+      flip();
+      act(() => document.querySelector<HTMLButtonElement>('.pack-close')!.click());
+      await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+      await act(async () => { confetti.arrive(); });
+      expect(confetti.bursts).toEqual([]);
+    });
+
+    it('does not burst when a slow chunk lands after the opener unmounted', async () => {
+      confetti.reset(true);
+      await deal();
+      flip();
+      act(() => root.unmount());
+      await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
+      await act(async () => { confetti.arrive(); });
+      expect(confetti.bursts).toEqual([]);
     });
 
     it('fetches nothing when the device asks for less motion, since nothing would burst', async () => {
-      load('arrives');
       vi.stubGlobal('matchMedia', (query: string) => ({ matches: /reduce/.test(query), addEventListener() {}, removeEventListener() {} }));
       await deal();
       flip();

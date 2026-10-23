@@ -531,6 +531,64 @@ test.describe('Argon2 chunk fetched ahead (#776)', () => {
       ...finishes,
     ].sort());
   });
+
+  test('the Best cards rebuild finishes offline, on the main thread, from the Argon2 chunk already fetched', async ({ page, baseURL }) => {
+    const errors = await seedSave(page, baseURL!);
+    let offline = false;
+    const cut: string[] = [];
+    await relaysAnswerEmpty(page, () => offline);
+    await page.route('**/*', (route) => {
+      if (!offline) return route.fallback();
+      cut.push(route.request().url());
+      return route.abort('internetdisconnected');
+    });
+    // The page fetches the chunk once the packs screen idles; the connection only drops after it is in.
+    const argon2Loaded = page.waitForResponse((response) => /\/argon2-[^/]+\.js$/.test(response.url()));
+    await page.goto('./');
+    await packsScreen(page);
+    await openOne(page);
+    await argon2Loaded;
+    await page.getByRole('button', { name: 'Back to packs', exact: true }).click();
+    await packsScreen(page);
+
+    // Profile's own chunk is loaded now, and its Best cards list is the two packs' cards, best first.
+    await nav(page).getByRole('button', { name: 'Profile', exact: true }).click();
+    const bestCards = () => page.getByRole('main', { name: 'Profile', exact: true }).getByRole('region', { name: 'Best cards', exact: true });
+    const rows = () => bestCards().locator('button.best-card-row');
+    await expect(rows()).toHaveCount(10);
+    const before = await rows().locator('.pull-row-score').allTextContents();
+    await nav(page).getByRole('button', { name: 'Open', exact: true }).click();
+    await packsScreen(page);
+
+    // Leave every winner without its cached card, so coming back to Profile has to rebuild them from their tickets
+    // (Argon2 again, on the main thread), now with no connection.
+    await page.evaluate((key) => {
+      const store = JSON.parse(localStorage.getItem(key)!) as Record<string, { b: { c?: string }[] }>;
+      for (const list of Object.values(store)) for (const winner of list.b) delete winner.c;
+      localStorage.setItem(key, JSON.stringify(store));
+    }, STORAGE_KEYS.BEST_CARDS);
+    offline = true;
+    await page.context().setOffline(true);
+    await nav(page).getByRole('button', { name: 'Profile', exact: true }).click();
+    await expect(rows()).toHaveCount(10, { timeout: 30000 });
+    expect(await rows().locator('.pull-row-score').allTextContents()).toEqual(before);
+    await expect(bestCards().getByRole('status')).toHaveCount(0);
+    expect(await page.evaluate((key) => Object.values(JSON.parse(localStorage.getItem(key)!) as Record<string, { b: { c?: string }[] }>)
+      .every((list) => list.b.every((winner) => typeof winner.c === 'string')), STORAGE_KEYS.BEST_CARDS)).toBe(true);
+    // Nothing the rebuild needed was missing: only pictures were cut.
+    expect(cut.filter((url) => !/\.(webp|png|svg)$/.test(new URL(url).pathname))).toEqual([]);
+
+    offline = false;
+    await page.context().setOffline(false);
+    // Back online, the rows' pictures that were cut load in place; by then every cut request has been reported.
+    await expect(rows().locator('img[data-state="failed"]')).toHaveCount(0);
+    const finishes = errors.filter((error) => error.startsWith('Could not render card finish '));
+    for (const finish of finishes) expect(cut.some((url) => finish.includes(new URL(url).pathname)), finish).toBe(true);
+    expect([...errors].sort()).toEqual([
+      ...cut.flatMap((url) => [`net::ERR_INTERNET_DISCONNECTED ${url}`, 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED']),
+      ...finishes,
+    ].sort());
+  });
 });
 
 test.describe('confetti library cut', () => {

@@ -10,10 +10,11 @@ import { runMigrations } from './utils/migrations'
 import { migratePullLog } from './game/history'
 import { receiveSave } from './game/move'
 import { resumeReopening } from './game/reopenJob'
-import { warmUpFirstPack } from './game/warmUp'
+import { warmUpArgon2, warmUpFirstPack } from './game/warmUp'
+import { warmConfetti } from './components/pack/loadConfetti'
 import { markStaging } from './game/staging'
 import { STORAGE_KEYS } from './constants'
-import { prefersReducedMotion, setMotionSetting } from './utils/motion'
+import { setMotionSetting } from './utils/motion'
 import { readSettings } from './utils/settings'
 import { getStoredData } from './utils/storage'
 
@@ -71,11 +72,8 @@ handedOver.then((receiver) => {
     </StrictMode>,
   )
   resumeReopening()
-  // The confetti library and Argon2 come with the card back, so a player who goes offline before the
-  // first pack still has them (Argon2 is what the main-thread fallback mines with when the worker
-  // can't). A failed load is ignored: the reveal tries confetti again at the first flip.
-  warmUpFirstPack(() => {
-    import('./engine/argon2').catch(() => {})
-    if (readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)).particlesEnabled && !prefersReducedMotion()) import('./components/pack/confettiEffects').catch(() => {})
-  })
+  // Argon2 is what the main-thread fallback mines with (ticket worker down, Best cards rebuilds), so every
+  // page fetches it. The card back and the confetti library only matter to a first pack, so they wait.
+  warmUpArgon2()
+  warmUpFirstPack(warmConfetti)
 })

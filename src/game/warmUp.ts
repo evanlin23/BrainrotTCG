@@ -39,3 +39,16 @@ export const warmUpFirstPack = (alsoWarm: () => void = () => {}): void => {
     alsoWarm();
   }));
 };
+
+/**
+ * Fetch the Argon2 chunk once the page is idle, on every page and whatever the visitor's data setting:
+ * it is what the main-thread mining fallback uses (a ticket worker that can't load, the Best cards
+ * rebuild, verifying a pull), and a player who has gone offline can't fetch it then. On a page that can
+ * open a pack it waits for the sealed pack's art like the card back does. A failed fetch is ignored: the
+ * mining that needs it tries again.
+ */
+export const warmUpArgon2 = (): void => {
+  const warm = () => whenIdle(() => { import('../engine/argon2').catch(() => {}); });
+  if (canOpenPack()) afterPackArt(warm);
+  else warm();
+};
