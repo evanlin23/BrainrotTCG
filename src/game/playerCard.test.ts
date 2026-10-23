@@ -50,9 +50,18 @@ describe('playerCardInput', () => {
     expect(playerCardInput(blankStats(), PLAYER)).toMatchObject({ level: 1, title: 'Fresh Pull', levelXp: 0, nextLevelXp: 100 });
   });
 
-  it('counts only collectible cards as unique, not the sum on the stats', () => {
-    const input = playerCardInput(blankStats({ unique: 500, uniqueBySet: { 'web-ancients': 3, 'vine-and-dank': 4 } }), PLAYER);
+  it('counts only collectible cards as unique, not the sum on the stats or an archived set', () => {
+    const input = playerCardInput(blankStats({ unique: 500, uniqueBySet: { 'web-ancients': 3, 'vine-and-dank': 4, genesis: 5 } }), PLAYER);
     expect(input.unique).toBe(7);
+  });
+
+  it.each([
+    [2, 'Fresh Pull'],
+    [3, 'Pack Rat'],
+    [4, 'Pack Rat'],
+    [5, 'Certified Opener'],
+  ])('titles level %i %s, a title holding until the next one is reached', (level, title) => {
+    expect(playerCardInput(blankStats({ level }), PLAYER).title).toBe(title);
   });
 
   describe('milestones', () => {
@@ -92,9 +101,14 @@ describe('playerCardInput', () => {
   describe('sets', () => {
     const real = (id: string): SetDefinition => SETS.find((s) => s.id === id)!;
     const original = [...SETS];
+    // Open whatever web-ancients is on disk, so the other cases don't lean on it staying released.
+    const open = (id: string): SetDefinition => {
+      const { draft: _draft, archivedAt: _archivedAt, ...rest } = real(id);
+      return rest;
+    };
     // Open, unowned draft, unowned archived, owned draft, owned archived: every branch of the filter.
     const fixture = (): SetDefinition[] => [
-      real('web-ancients'),
+      open('web-ancients'),
       { ...real('vine-and-dank'), draft: true },
       { ...real('lockdown-lore'), archivedAt: '2026-01-01' },
       { ...real('gen-alpha-uprising'), draft: true },

@@ -147,7 +147,6 @@ describe('warmUpFirstPack', () => {
       const { warmUpFirstPack } = await import('./warmUp');
       warmUpFirstPack();
       await load();
-    await load();
       vi.runAllTimers();
       expect(images()).toEqual([]);
     },

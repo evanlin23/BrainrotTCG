@@ -65,6 +65,9 @@ for (const variant of VARIANTS) {
     await download.click();
     expect((await first).suggestedFilename()).toMatch(FILE_NAME);
     await expect(status).toHaveText(NOTE);
+    // Settings has nothing assertive around the note. In the banner it sits inside the warning's own alert,
+    // which is assertive and atomic: a screen reader may read the warning again with it.
+    expect(await status.evaluate((el) => el.closest('[aria-live="assertive"], [role="alert"]')?.getAttribute('role') ?? null)).toBe(variant.name === 'banner' ? 'alert' : null);
     await expect(status.locator('span')).toHaveCount(1);
     // Mark the note's element: a repeat Download must replace it, not just rewrite the same text.
     await status.locator('span').evaluate((el) => el.setAttribute('data-first', ''));

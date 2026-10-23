@@ -1,0 +1,100 @@
+/**
+ * The published rankings files (src/engine/rankingsArchive.ts, written by the Hall of Fame build next
+ * to hall-of-fame.json): rankings.json says when the build ran and which months have a daily archive,
+ * and rankings/daily-YYYY-MM.json keeps each past UTC day's top. Each file is checked in full with the
+ * engine's strict parsers before anything is shown. A missing, unreadable or malformed file reads as
+ * null, "no archive", never as an error.
+ */
+import { parseDailyArchive, parseRankingsFile, previousUtcDay, utcDay, type ArchivedPull } from '../engine';
+import { LOAD_TIMEOUT_MS } from './hallOfFameList';
+
+export interface PublishedRankings {
+  /** When the build wrote the rankings (and hall-of-fame.json with them), from the file itself. */
+  generatedAt: string;
+  /** The first day still open when it ran (the day before its UTC day): archived days before it are closed. */
+  openFrom: string;
+  /** Archived months that can hold a closed day, newest first. */
+  months: string[];
+}
+
+/** A closed UTC day's top, best first, as archived. */
+export interface PastDay {
+  day: string;
+  entries: ArchivedPull[];
+}
+
+const fetchText = async (path: string): Promise<string | null> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}${path}`, { cache: 'no-cache', signal: controller.signal });
+    return res.ok ? await res.text() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+/** rankings.json's text, checked; null if it isn't a rankings file this code can read. */
+export const parsePublishedRankings = (text: string): PublishedRankings | null => {
+  try {
+    const listed = parseRankingsFile(text);
+    const { generatedAt } = JSON.parse(text) as { generatedAt: string };
+    const openFrom = previousUtcDay(utcDay(generatedAt));
+    // A month whose first day is still open has no closed day yet.
+    return { generatedAt, openFrom, months: listed.filter((month) => `${month}-01` < openFrom).reverse() };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * A month's archive text, checked in full (`parseDailyArchive`: its schema, only that month's days,
+ * each cut at RANKINGS_BOARD_SIZE in ranking order, in its one written form), as its closed days,
+ * newest first. Days still open when the build ran are left out: Today shows those, and they change
+ * until they close. Null if the archive doesn't check.
+ */
+export const parsePastMonth = (text: string, month: string, rankings: PublishedRankings): PastDay[] | null => {
+  if (!rankings.months.includes(month)) return null;
+  try {
+    const { days } = parseDailyArchive(text, month);
+    return Object.keys(days)
+      .filter((day) => day < rankings.openFrom)
+      .sort()
+      .reverse()
+      .map((day) => ({ day, entries: days[day] }));
+  } catch {
+    return null;
+  }
+};
+
+let loading: Promise<PublishedRankings | null> | null = null;
+
+/** rankings.json, fetched once per visit (again after a failure); null if missing or malformed. */
+export const loadPublishedRankings = (): Promise<PublishedRankings | null> => {
+  if (loading) return loading;
+  loading = fetchText('rankings.json').then((text) => {
+    const rankings = text === null ? null : parsePublishedRankings(text);
+    if (rankings === null) loading = null;
+    return rankings;
+  });
+  return loading;
+};
+
+const months = new Map<string, Promise<PastDay[] | null>>();
+
+/** A listed month's closed days, fetched once per visit (again after a failure); null if missing or malformed. */
+export const loadPastMonth = (rankings: PublishedRankings, month: string): Promise<PastDay[] | null> => {
+  if (!rankings.months.includes(month)) return Promise.resolve(null);
+  const key = `${rankings.generatedAt} ${month}`;
+  const cached = months.get(key);
+  if (cached) return cached;
+  const load = fetchText(`rankings/daily-${month}.json`).then((text) => {
+    const days = text === null ? null : parsePastMonth(text, month, rankings);
+    if (days === null) months.delete(key);
+    return days;
+  });
+  months.set(key, load);
+  return load;
+};

@@ -555,6 +555,7 @@ it('refuses "Replace without a copy" when another tab imported the same player a
     await app.interact(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
     await app.until('the no-room offer appears', () => expect(button(document, 'Replace without a copy')).toBeDefined());
 
+    // App's own samePlayer check is what refuses this click; the Settings-side no-room fix is covered by SettingsPage.test.tsx.
     // The other tab imports a save of this same player (only the stamp tells them apart); its storage event is on the way.
     otherTabWrites({ [SAVE_STAMP_KEY]: 'imported', [PLAYER_KEY]: record(MINE, 'This tab'), ...THEIR_PROGRESS });
     const stored = Object.fromEntries(Object.entries(localStorage));

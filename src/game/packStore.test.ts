@@ -188,6 +188,11 @@ describe('pack store connection ownership', () => {
     vi.stubGlobal('indexedDB', null);
     expect(await putStoredPacks([sample])).toBe(true);
     expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBe(sample.cards);
+    // Reading what is not in memory has nowhere to look, and says so by finishing, not by opening or throwing.
+    const unseen = { setKey: sample.setKey, publicKeyHex: sample.publicKeyHex, nonce: sample.nonce + 1 };
+    expect(await hydratePackStore([unseen])).toBe(true);
+    expect(getStoredPack(unseen.setKey, unseen.publicKeyHex, unseen.nonce)).toBeUndefined();
+    expect(openDatabase).not.toHaveBeenCalled();
   });
 
   it('keeps packs in memory only, as saved, where reading IndexedDB throws', async () => {
@@ -199,6 +204,9 @@ describe('pack store connection ownership', () => {
     try {
       expect(await putStoredPacks([sample])).toBe(true);
       expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBe(sample.cards);
+      const unseen = { setKey: sample.setKey, publicKeyHex: sample.publicKeyHex, nonce: sample.nonce + 1 };
+      expect(await hydratePackStore([unseen])).toBe(true);
+      expect(getStoredPack(unseen.setKey, unseen.publicKeyHex, unseen.nonce)).toBeUndefined();
     } finally {
       delete (globalThis as { indexedDB?: unknown }).indexedDB;
     }

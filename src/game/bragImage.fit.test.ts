@@ -291,6 +291,15 @@ describe('poster text fitting', () => {
       expect(canvas.ctx.measureText(cut).width).toBeLessThanOrEqual(150);
     });
 
+    it('ellipsize without Intl.Segmenter still never cuts a surrogate pair', () => {
+      vi.stubGlobal('Intl', { ...Intl, Segmenter: undefined });
+      canvas.ctx.font = '800 20px x';
+      const cut = ellipsize(canvas.ctx, '\u{1F600}'.repeat(30), 150);
+      expect(cut.endsWith('…')).toBe(true);
+      expect(cut.slice(0, -1).split('\u{1F600}').join('')).toBe('');
+      expect(canvas.ctx.measureText(cut).width).toBeLessThanOrEqual(150);
+    });
+
     it('ellipsize degrades to a bare ellipsis when nothing else fits', () => {
       canvas.ctx.font = '800 20px x';
       expect(ellipsize(canvas.ctx, 'wide wide', 1)).toBe('…');

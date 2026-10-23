@@ -5,7 +5,7 @@ import { encodeCard } from './cardCode';
 import { generatePack, packSeedFromTicket } from '../engine';
 import { getBestCards, resetBestCards } from './bestCards';
 import { recordTicket } from './history';
-import { clearPendingPack, openPack, savePendingPack, takePendingPacks, type OpenedPack } from './pulls';
+import { clearPendingPack, openPack, savePendingPack, takePendingPacks, toCardsWithMeta, UnknownCardError, type OpenedPack } from './pulls';
 import { getPlayer, StaleSaveError } from './player';
 
 // Any ticket will do: these tests are about where an opened pack is kept, and when its number is spent.
@@ -790,5 +790,13 @@ describe('opening a pack', () => {
     expect(after.unrecorded).toBeUndefined();
     expect(counter()).toBe(before.nonce + 3);
     error.mockRestore();
+  });
+});
+
+describe('turning pulled cards into cards to show', () => {
+  it('throws an UnknownCardError naming the card once, for one the app does not have', () => {
+    const attempt = () => toCardsWithMeta([{ setId: 'og', cardId: 'missing', isHolo: false }]);
+    expect(attempt).toThrow(UnknownCardError);
+    expect(attempt).toThrow(/^Unknown card og\/missing$/);
   });
 });
