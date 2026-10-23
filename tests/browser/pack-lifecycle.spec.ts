@@ -41,7 +41,7 @@ async function sealedPack(page: Page) {
   return packShell;
 }
 
-const openPack = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
+const openPack = (page: Page) => page.getByRole('button', { name: /^Open pack/ });
 
 /** Still sealed: the pack and its button show, no reveal started and nothing was saved. */
 async function expectSealed(page: Page, packShell: Locator) {

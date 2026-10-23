@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectStill, fingerFor, type Finger } from './support';
+import { monitor, expectDecoded, expectStill, fingerFor, holdTickets, releaseTickets, type Finger } from './support';
 
 /**
  * As a pack opens, the app moves focus by script: onto each card, then the result. Chromium rings
@@ -51,7 +51,7 @@ async function expectRing(target: Locator, what: string, input = 'keyboard') {
 const expectNoRingAfterPress = (target: Locator, what: string) => expectNoRing(target, what, 'press');
 
 /** A control left focused by Space or Enter: no yellow ring, but a thin neutral outline, so focus is never invisible. */
-async function expectQuietOutlineAfterPress(target: Locator, what: string) {
+async function expectQuietOutlineAfterPress(target: Locator, what: string, outlineOffset = '3px') {
   const ring = await ringOf(target);
   expect(ring, `${what}: focus`).toMatchObject({ focusVisible: true, input: 'press' });
   expect(ring.shadows, `${what}: box-shadow`).not.toContain(RING);
@@ -59,7 +59,7 @@ async function expectQuietOutlineAfterPress(target: Locator, what: string) {
     outline: 'solid',
     outlineColor: QUIET_OUTLINE,
     outlineWidth: '2px',
-    outlineOffset: '3px',
+    outlineOffset,
   });
   return ring;
 }
@@ -247,7 +247,9 @@ test('opened with Space alone: no yellow ring, but focus stays visible on the ca
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
   test.setTimeout(90000);
   const { errors } = await sealedPack(page, baseURL!);
-  // The first Space opens the pack from the sealed screen, cutting it with no button pressed.
+  // The first Space opens the pack from its own focus (a script's, not a Tab's), cutting it with no
+  // swipe or click: Space with focus anywhere else is the page's.
+  await page.getByRole('button', { name: /^Open pack/ }).focus();
   await page.keyboard.press('Space');
   await revealAll(page, () => page.keyboard.press('Space'), expectQuietOutlineAfterPress);
   // The result is a heading, not a control: nothing shows on it.
@@ -255,27 +257,34 @@ test('opened with Space alone: no yellow ring, but focus stays visible on the ca
   // Space again closes the result; the control focus lands on next wears the quiet outline, not the ring.
   await page.keyboard.press('Space');
   await expect(page.locator('.pack-summary')).toBeHidden();
-  await expectQuietOutlineAfterPress(page.locator('.pack-open-button'), 'Open pack once the result closes');
+  // The pack draws its outline inside its own edge (-3px) so the stage can't clip it.
+  await expectQuietOutlineAfterPress(page.locator('[data-pack-open]'), 'Open pack once the result closes', '-3px');
   expect(errors).toEqual([]);
 });
 
 test('opened by keyboard: Tab rings, Space is quiet, Tab rings again, until a click', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
   test.setTimeout(90000);
+  // The ticket is held, so the pack that Space starts opening stays up and keeps the focus Tab gave it.
+  await holdTickets(page);
   const { errors } = await sealedPack(page, baseURL!);
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   for (let tabs = 0; !(await pack.evaluate((el) => el === document.activeElement)); tabs++) {
     expect(tabs, 'Tab never reached the Open pack button').toBeLessThan(40);
     await page.keyboard.press('Tab');
   }
   await expectRing(pack, 'Open pack');
 
-  // Space is down but not yet released (a button clicks on keyup), so Open pack still holds the focus
-  // Tab gave it: it keeps its ring.
+  // Space on the pack opens it as it goes down, and from then on the page counts the press as input.
+  // The pack is waiting on its ticket and still holds the focus Tab gave it: it keeps its ring.
+  // Its name changes to Opening…, so it is found by what it is rather than by name from here.
+  const opening = page.locator('[data-pack-open]');
   await page.keyboard.down('Space');
+  await expect(opening).toHaveAttribute('aria-label', 'Opening…');
   expect(await page.evaluate(() => document.documentElement.dataset.input)).toBe('press');
-  await expectRing(pack, 'Open pack while Space is held', 'press');
+  await expectRing(opening, 'Open pack while Space is held', 'press');
   await page.keyboard.up('Space');
+  await releaseTickets(page);
   await revealAll(page, () => page.keyboard.press('Space'), expectQuietOutlineAfterPress);
   const title = page.locator('.summary-title');
   await expect(title).toBeFocused();
@@ -308,7 +317,7 @@ test('before any input, focus the app moves keeps its ring', async ({ page, base
   const { errors } = await sealedPack(page, baseURL!);
   await expectNothingRingedAtBoot(page);
   // A screen reader, switch or voice control can move focus with no key or press the page hears.
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   await scriptFocus(pack);
   await expectRing(pack, 'Open pack, focused before any input');
   expect(errors).toEqual([]);

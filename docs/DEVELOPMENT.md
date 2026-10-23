@@ -151,8 +151,7 @@ package such as `react`, and needs a reason, an owner issue and a removal condit
 limits it to a type import (`import type`, or `import { type X }` for every name): a run-time import of
 the same target still fails. It fails the check once the import is gone, so remove the entry in the PR
 that fixes the import. There is no wildcard or per-directory exception. Current exceptions: six
-`CardWithMeta` type imports (#700), `game/modifiers.ts` importing a React type and
-`utils/confettiEffects.ts` using `canvas-confetti` (#1042).
+`CardWithMeta` type imports (#700).
 
 `src/engine` also has ESLint rules for browser globals (`window`, `document`, storage, `fetch`,
 `XMLHttpRequest`, `Worker` and so on), including `globalThis.<name>` and `self.<name>`. An alias such as
@@ -250,12 +249,17 @@ close-up sets `data-tilt="live"` once it follows the mouse.
 
 `tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
 browser spec. `axe-critical-states.spec.ts` calls it for four loaded states: the first pack, the pack
-summary, Settings and a card's share sheet over its viewer, in both projects. A scan runs a fixed list of
+summary, Settings and a card's share sheet over its viewer, in both projects. `axe-routes.spec.ts` adds
+mid-reveal, Cards, Rankings, Profile and a shared pull, and checks that each page, Settings included, is a
+named main landmark with one level-1 heading and has no focusable control stranded off the page (a control
+in a horizontal scroller is not stranded). Those checks wait for the page's own content first, so the loading
+placeholder is never judged; Cards runs on a saved whole-set collection. A coverage test fails when a page in
+`PAGE_TITLES` has no scan, or a state in `AXE_STATE_SPECS` is not scanned by the spec that owns it. A scan runs a fixed list of
 rules (names, roles and relationships, the document, and `color-contrast`) after fonts, images and finite
 running animations have settled, with reduced motion emulated for the scan so looping pulses cannot make
 contrast depend on their phase; it is not a tag or the whole rule set, and no rule is disabled. Add a state by
-calling `expectAxeClean(page, testInfo, '<state>')` once its screen is loaded, after listing the state in
-`AXE_STATES`; do not add another scanner.
+awaiting `expectAxeClean(page, testInfo, '<state>')` directly in a test body once its screen is loaded, after
+naming the state and its owner spec in `AXE_STATE_SPECS`; do not add another scanner.
 
 - A scan fails on any violation, on a scan that passed no nodes, and on a page where contrast or the
   document checks found nothing to check, so an empty or wrong page cannot pass.
@@ -620,6 +624,39 @@ the measured main-target heap. Reports go to
 `test-results/performance-optional-work/`. It's **desktop-Chromium emulation**, so label it as
 such (#8, closed 2026-10-16/17): CDP's CPU slowdown doesn't throttle workers, and the pool size follows the emulated
 navigator. `npx vitest run tests/performance/optional-work.test.ts` checks its report.
+
+### Pending Hall of Fame checks (opt-in)
+
+`npm run test:performance:pending-verify` (report-only, in no check or CI job) times the Rankings
+page re-deriving pending pulls (#777). `scripts/pending-verify-fixture.ts` writes 10 signed pulls
+that each qualify; stand-in relays serve them and 3 published rows replace `hall-of-fame.json`.
+Each run records, from the Rankings click: published-board paint, the first and last pending row,
+each pending ticket's mining time and the worker's idle time between them, workers created, peak
+busy tickets (× `TICKET_PARAMS.memorySize` for the Argon2 estimate), long tasks and frame gaps while
+they're checked, and the main-target heap. It prints one JSON line per run. Same profile and
+emulation limits as above (#8): the CPU slowdown reaches the page's main thread, not the worker.
+
+**Outcome (#777): pending pulls stay checked one at a time.** Tickets already mine one at a time in
+one worker (`ticketMiner.ts`, 32 MiB each), so running checks in parallel would need a second
+worker and twice the Argon2 memory. A one-ahead variant kept one worker and just queued the next
+ticket while the last result was applied. Measured interleaved, n=15 each, on a 4-vCPU 2.1 GHz
+Xeon host with Chromium 141 headless at `819311f` (emulation, not a device), as median
+(25th to 75th percentile):
+
+| | One at a time (kept) | One ahead |
+| --- | --- | --- |
+| Published board | 302 (270 to 309) ms | 293 (242 to 309) ms |
+| First pending row | 889 (826 to 909) ms | 927 (910 to 972) ms |
+| Last of 10 pending rows | 4103 (3939 to 4178) ms | 3970 (3893 to 4105) ms |
+| Worker idle between tickets, total | 249 ms | 13 ms |
+| Long tasks while checking: count, total | 5, 734 ms | 9, 1001 ms |
+| Peak busy tickets, workers created | 1, 3 | 1, 3 |
+
+Going one ahead saves about 3% on the last row (the ranges overlap) and costs about 4% on the
+first row. It also adds main-thread long tasks, because the next pull's checks run while the
+worker mines. On a phone the worker slows down as much as the main thread does, which shrinks that
+saving further: unthrottled, tickets took about 220 ms with 60 ms idle in all. Leaving the page
+aborts the check, so a pack opening never waits behind more than the one ticket already mining.
 
 ### Proposed budgets (not enforced)
 

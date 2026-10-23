@@ -517,8 +517,10 @@ totals count only the known packs; only a backup holding the records brings the 
 If cards are missing, signing waits for reconstruction rather than completing instantly.
 
 Own-pack reconstruction runs independently of the profile screen, batches up to 25 results into
-`packStore.ts`, and uses a localStorage pending flag to attempt resumption after a reload. The
-IndexedDB card-code cache is no longer loaded before rendering: after mount, `watchMyPacks`
+`packStore.ts`, and uses a localStorage pending flag to attempt resumption after a reload. The flag
+clears only once every batch is on disk: an IndexedDB open that fails or is blocked, or a failed write,
+keeps it and backs off (#1023); a browser without IndexedDB has only memory, so its writes count as saved.
+The IndexedDB card-code cache is no longer loaded before rendering: after mount, `watchMyPacks`
 (`profiles.ts`, via `usePackCache`) reads the current player's packs in pages of 64, one page in
 flight, and aborts on unmount or when another tab changes the save; a read whose player changed is
 dropped. Then it reads the rest of the history's saved packs (other players on this device), which

@@ -55,7 +55,7 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
   await expect(page.locator('.app-logo')).toBeVisible();
 
   // Tab, from the top of the page, reaches the Open pack button.
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   await expect(pack).toBeVisible();
   let tabs = 0;
   while (!(await pack.evaluate((el) => el === document.activeElement))) {
@@ -63,9 +63,10 @@ test('opens a pack and reveals every card by keyboard alone, with a visible focu
     await page.keyboard.press('Tab');
   }
   // The shared ring, over the transparent outline forced colours paint (#312 S5). The button's
-  // box-shadow eases in, so the ring is read once that transition has settled.
-  await expect.poll(async () => (await ring(pack)).boxShadow).toContain(BRAND);
-  const packRing = await ring(pack);
+  // box-shadow eases in, so the ring is read once that transition has settled. The pack draws its ring
+  // on its ::after, inside its edge, where the stage can't clip it (#628); the outline is still its own.
+  await expect.poll(async () => (await ring(pack, '::after')).boxShadow).toContain(BRAND);
+  const packRing = { ...(await ring(pack, '::after')), outline: (await ring(pack)).outline };
   expect(packRing.focusVisible).toBe(true);
   expect(packRing.outline).toBe('solid rgba(0, 0, 0, 0)');
   expect(contrast(rgb(BRAND), rgb(packRing.page))).toBeGreaterThanOrEqual(3);
@@ -198,7 +199,7 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
   await seedNonce21(page, baseURL!);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   await expect(pack).toBeVisible();
   await pack.focus();
   await page.keyboard.press('Space');
@@ -236,7 +237,7 @@ test('keeps the provenance line whole on a 320px phone, wrapping the set and num
 /** Opens the fixture pack by keyboard and waits for its first card, face down. */
 async function revealFirstCard(page: Page) {
   await page.goto('./');
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   await expect(pack).toBeVisible();
   await pack.focus();
   await page.keyboard.press('Space');

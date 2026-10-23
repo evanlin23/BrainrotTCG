@@ -28,7 +28,7 @@ it('shares the exact owned modifier from a history pack, retaining pack sharing 
   });
   await app.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();
@@ -37,7 +37,7 @@ it('shares the exact owned modifier from a history pack, retaining pack sharing 
   await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
   await app.until('summary records the full pack', () => expect(document.querySelectorAll('.summary-card')).toHaveLength(5));
   await app.interact(() => button('Next pack').click());
-  await app.until('manual pack screen returns', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await app.until('manual pack screen returns', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await app.interact(() => button('Profile').click());
   await app.until('history has the owned pack', () => expect(document.querySelector('.pull-row')).not.toBeNull());
   await app.interact(() => document.querySelector<HTMLButtonElement>('.pull-row')!.click());
