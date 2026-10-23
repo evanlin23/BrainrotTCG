@@ -290,7 +290,7 @@ for (const { vector, entry } of cases) {
       await expect(detail).toBeVisible();
       await expectDecoded(detail.locator('.card-viewer-card img'), misprint ? 2 : 1);
       await expect(detail.locator('.card-viewer-card img').first()).toBeVisible();
-      for (const label of modifiers) await expect(detail.locator('.rarity-pill')).toContainText(label as string);
+      for (const label of modifiers) await expect(detail.locator('.card-viewer-identity')).toContainText(label as string);
       // Viewing another player's signed proof never grants permission to sign their cards.
       await expect(detail.getByRole('button', { name: 'Share card', exact: true })).toHaveCount(0);
       await page.keyboard.press('Escape');
