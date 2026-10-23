@@ -58,12 +58,15 @@ test("a set's link opens the packs screen on that set, and leaves the address cl
   const current = page.locator('.set-current-name');
   await expect(current).toHaveText(SET.name);
   await expect(page).toHaveURL(baseURL!);
+  await expectDecoded(page.locator('.pack-shell img'), 2);
 
   // A set link followed inside the app picks that set too, but keeps the history entry the browser
   // added for it (useSetLink), so Back still steps back to the plain address. An unknown set stays put.
   await page.evaluate(() => { location.hash = '#/set/vine-and-dank'; });
   await expect(current).toHaveText('Vine & Dank');
   await expect(page).toHaveURL(`${baseURL}#/set/vine-and-dank`);
+  // Each set's stage fetches its own pack art; the next change must not cancel it mid-flight.
+  await expectDecoded(page.locator('.pack-shell img'), 2);
   await page.evaluate(() => { location.hash = '#/set/not-a-set'; });
   await expect(page).toHaveURL(`${baseURL}#/set/not-a-set`);
   await expect(current).toHaveText('Vine & Dank');
