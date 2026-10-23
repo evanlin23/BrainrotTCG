@@ -1,6 +1,6 @@
 import { COLLECTIBLE_CARDS, cardPoints, type RarityKey } from '../data/cards';
 import type { CollectionItem, Stats, CardsByRarity, RarityCount } from '../types';
-import type { CardWithMeta } from '../components/cards/Card';
+import type { CardWithMeta } from '../types/card';
 import type { AchievementData } from '../types';
 import { isOpenable, SETS } from '../content/sets';
 import { setCompleteId, setMasterId } from '../data/achievements';

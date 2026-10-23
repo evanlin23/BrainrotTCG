@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { dailyRank, pullId, qualifiesForHallOfFame, wouldJoinHallOfFame, type PackScore } from '../../engine';
+import { dailyRank, HALL_OF_FAME_MIN_SCORE, pullId, qualifiesForHallOfFame, wouldJoinHallOfFame, type PackScore } from '../../engine';
 import { DEFAULT_SET_ID, getSet } from '../../content/sets';
 import { getSetCards } from '../../data/cards';
 import { STAGE_CLICK_GUARD_MS } from '../../hooks/useStageClickGuard';
@@ -75,6 +75,7 @@ const render = async (sheet = false) => {
   ));
   return container.querySelector('.summary-hof');
 };
+const RULE = `a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+`;
 const PUBLIC_NOTICE = 'Your display name and public key become public.';
 /** The line as read, one space between its parts (the gaps are CSS), without the public-name notice. */
 const line = () =>
@@ -100,10 +101,20 @@ const expectPlaceholder = (el: Element | null) => {
 };
 
 describe('the Hall of Fame line on the pack summary', () => {
-  it('shows nothing for a pull that does not qualify', async () => {
+  it('says why there is no Submit for a pull that does not qualify, in the words Rankings uses (#1004)', async () => {
     vi.mocked(qualifiesForHallOfFame).mockReturnValueOnce(false);
-    expect(await render()).toBeNull();
+    const el = await render();
+    expect(el?.textContent).toBe(
+      `Doesn't qualify for Rankings, which take ${RULE}. See How Rankings work.`,
+    );
+    expect(el?.getAttribute('aria-hidden')).toBeNull();
+    expect(el?.querySelector('button')).toBeNull();
     expect(loadHallOfFame).not.toHaveBeenCalled();
+  });
+
+  it('says nothing about qualifying for a pull that does', async () => {
+    await render();
+    expect(container.querySelector('.summary-hof')?.textContent).not.toMatch(/qualif|How Rankings work/);
   });
 
   it('keeps its room while the list loads', async () => {
@@ -128,8 +139,8 @@ describe('the Hall of Fame line on the pack summary', () => {
 
   it("offers one-tap Submit for a pull that makes today's Rankings", async () => {
     await render();
-    expect(line()).toBe("🏆 Makes today's Rankings · Submit to the Hall of Fame");
-    expect(button()?.textContent).toBe('Submit to the Hall of Fame');
+    expect(line()).toBe("🏆 Makes today's Rankings · Submit to Rankings");
+    expect(button()?.textContent).toBe('Submit to Rankings');
   });
 
   it('says the display name and public key become public, read before Submit and kept after it', async () => {
@@ -141,11 +152,11 @@ describe('the Hall of Fame line on the pack summary', () => {
     expect(notice()?.textContent).toBe(PUBLIC_NOTICE);
   });
 
-  it("says the Hall of Fame, not today's Rankings, for a pull that only makes the all-time list", async () => {
+  it("says the all-time Rankings, not today's, for a pull that only makes the all-time list", async () => {
     vi.mocked(dailyRank).mockReturnValue(null);
     try {
       await render();
-      expect(line()).toBe('🏆 Makes the Hall of Fame · Submit to the Hall of Fame');
+      expect(line()).toBe('🏆 Makes the all-time Rankings · Submit to Rankings');
       await act(async () => button()!.click());
       expect(line()).toBe('🏆 Submitted · #1 all-time');
     } finally {
@@ -177,7 +188,7 @@ describe('the Hall of Fame line on the pack summary', () => {
   it("reads just Submitted when the list couldn't load", async () => {
     vi.mocked(loadHallOfFame).mockResolvedValueOnce(null);
     await render();
-    expect(line()).toBe("🏆 Makes today's Rankings · Submit to the Hall of Fame");
+    expect(line()).toBe("🏆 Makes today's Rankings · Submit to Rankings");
     await act(async () => button()!.click());
     expect(line()).toBe('🏆 Submitted');
   });
@@ -254,13 +265,13 @@ describe("the Hall of Fame line in the summary's first moments (#627)", () => {
   it('ignores a Submit click until the summary has settled, so a stuck click never publishes the name and key', async () => {
     vi.useFakeTimers();
     await act(async () => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={pack} />));
-    expect(button()?.textContent).toBe('Submit to the Hall of Fame');
+    expect(button()?.textContent).toBe('Submit to Rankings');
 
     await act(async () => { button()!.click(); });
     await act(async () => { vi.advanceTimersByTime(STAGE_CLICK_GUARD_MS - 1); });
     await act(async () => { button()!.click(); });
     expect(publishUntilAccepted).not.toHaveBeenCalled();
-    expect(line()).toBe("🏆 Makes today's Rankings · Submit to the Hall of Fame");
+    expect(line()).toBe("🏆 Makes today's Rankings · Submit to Rankings");
 
     await act(async () => { vi.advanceTimersByTime(1); });
     await act(async () => { button()!.click(); });

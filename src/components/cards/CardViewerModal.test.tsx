@@ -2,9 +2,10 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ALL_CARDS, getSetCards, type Card } from '../../data/cards';
+import { ALL_CARDS, CARD_RARITIES, getSetCards, type Card } from '../../data/cards';
 import { DEFAULT_SET_ID } from '../../content/sets';
 import CardViewerModal from './CardViewerModal';
+import { cardStats } from '../../game/cardStats';
 import type { OwnedVersion } from '../../game/versions';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -29,6 +30,9 @@ describe('CardViewerModal versions presentation (issue #655)', () => {
   });
 
   const card: Card = getSetCards(DEFAULT_SET_ID)[0];
+  const rarityName = CARD_RARITIES[card.rarity].name;
+  /** The one line naming the shown version and its rarity. */
+  const identity = () => document.querySelector('.card-viewer-identity')?.textContent;
 
   it('renders a single combined Gold Misprint card without presenting multiple bogus chips', () => {
     const versions: OwnedVersion[] = [
@@ -48,7 +52,7 @@ describe('CardViewerModal versions presentation (issue #655)', () => {
     // When there is only 1 version, chips are not rendered
     expect(document.querySelector('.card-viewer-versions')).toBeNull();
     // The modal displays the Gold Misprint version name
-    expect(document.querySelector('.card-viewer-version')?.textContent).toBe('Gold · Misprint');
+    expect(identity()).toBe(`Gold · Misprint · ${rarityName}`);
   });
 
   it('renders uncertain chips with dashed styling and uncertain labels when modifiers are ambiguous', () => {
@@ -83,12 +87,12 @@ describe('CardViewerModal versions presentation (issue #655)', () => {
     act(() => root.render(<CardViewerModal card={card} versions={versions} onClose={() => {}} canShare />));
     const shareButton = () => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Share card'));
 
-    expect(document.querySelector('.card-viewer-version')?.textContent).toBe('Gold · Misprint (uncertain)');
+    expect(identity()).toBe(`Gold · Misprint · ${rarityName} (uncertain)`);
     expect(document.querySelector('.modifier-sticker')?.textContent).toBe('Gold · Misprint');
     expect(shareButton()).toBeUndefined();
 
     act(() => document.querySelectorAll<HTMLButtonElement>('.version-chip')[1].click());
-    expect(document.querySelector('.card-viewer-version')?.textContent).toBe('Silver');
+    expect(identity()).toBe(`Silver · ${rarityName}`);
     expect(shareButton()).toBeDefined();
   });
 
@@ -111,14 +115,17 @@ describe('CardViewerModal versions presentation (issue #655)', () => {
     const chips = [...document.querySelectorAll<HTMLButtonElement>('.version-chip')];
     expect(chips).toHaveLength(2);
     expect(chips[0].getAttribute('aria-pressed')).toBe('true');
-    expect(document.querySelector('.card-viewer-version')?.textContent).toBe('Gold');
+    expect(document.querySelector('.card-viewer-points')?.textContent).toBe(cardStats(card, { isHolo: false, finish: 'GOLD', misprint: false }).line);
+    expect(identity()).toBe(`Gold · ${rarityName}`);
 
     act(() => {
       chips[1].click();
     });
 
     expect(chips[1].getAttribute('aria-pressed')).toBe('true');
-    expect(document.querySelector('.card-viewer-version')?.textContent).toBe('Plain');
+    // An unmodified copy has no "Plain" headline: its identity is just its rarity.
+    expect(identity()).toBe(rarityName);
+    expect(document.querySelector('.card-viewer-points')?.textContent).toBe(cardStats(card, { isHolo: false, finish: null, misprint: false }).line);
   });
 });
 

@@ -55,7 +55,7 @@ it('shows one uncached Gold Misprint copy as that one version, never two (issue 
 
   // One copy carrying both modifiers: no Gold ×1 and Misprint ×1 chips, and it isn't marked uncertain.
   expect(document.querySelector('.card-viewer-versions')).toBeNull();
-  expect(document.querySelector('.card-viewer-version')?.textContent).toBe('Gold · Misprint');
+  expect(document.querySelector('.card-viewer-identity')?.textContent).toMatch(/^Gold · Misprint · \w+$/);
 });
 
 it('marks a guessed combination uncertain, then shows the exact versions once the history has the cards (issue #655)', async () => {

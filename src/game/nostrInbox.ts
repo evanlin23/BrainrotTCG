@@ -105,13 +105,16 @@ export const matchesFilter = (e: NostrEvent, f: Filter): boolean => {
   return true;
 };
 
-export const verifyEvent = (e: unknown): e is NostrEvent => {
+/** Whether `e.sig` is its pubkey's signature of `e.id` (not whether the id matches the content). */
+const signatureVerifies = (e: NostrEvent): boolean => {
   try {
-    return isEventShape(e) && eventId(e) === e.id && schnorr.verify(fromHex(e.sig), fromHex(e.id), fromHex(e.pubkey));
+    return schnorr.verify(fromHex(e.sig), fromHex(e.id), fromHex(e.pubkey));
   } catch {
     return false;
   }
 };
+
+export const verifyEvent = (e: unknown): e is NostrEvent => isEventShape(e) && eventId(e) === e.id && signatureVerifies(e);
 
 /**
  * A Hall of Fame submission for one pull, signed with a fresh throwaway key. `score` is the pull's
@@ -293,15 +296,46 @@ export interface FetchEventsBounds {
   maxRetainedBytes?: number;
 }
 
+/** What fetchEvents read from one relay. */
+export interface RelayRead {
+  relay: string;
+  /** Events the relay sent, counting repeats and ones skipped unread. */
+  count: number;
+  error?: string;
+  /** The relay wasn't read to the end: everything newer than this second was (see fetchEvents). */
+  more?: number;
+  /** Seconds holding more events than a page, read past (newest first); some of their events weren't read. */
+  crowded?: number[];
+}
+
+/**
+ * The time an event frame too big to parse claims, read without parsing it: the largest
+ * `"created_at":` number in it (only a key can hold one, since quotes in strings are escaped), so a
+ * frame with extra fields can't claim an earlier time than its own. Infinity when there is none.
+ */
+export const oversizedEventTime = (raw: string): number => {
+  let time = -Infinity;
+  for (const m of raw.matchAll(/"created_at"\s*:\s*(\d{1,15})/g)) time = Math.max(time, Number(m[1]));
+  return Number.isFinite(time) ? time : Infinity;
+};
+
 /**
  * Ask every relay for matching events and merge them by id. Only events whose signature checks out
- * are kept, so one relay serving a tampered copy can't hide the real one from the others. Relays
+ * are kept, so one relay serving a tampered copy can't hide the real one from the others. With
+ * `lazySignatures`, an event is kept once its id matches its content (a cheap hash), and signatures
+ * are checked only when relays send one event with different signatures, to keep a copy that
+ * verifies; the caller then checks each event (verifyEvent) before trusting it, and pays only for
+ * the ones it uses (a Schnorr check costs far more than the hash). Relays
  * send the newest `limit` events per request; with `maxPages` > 1 it keeps asking for older ones
  * (`until` the oldest so far), so a burst of new events can't push older ones out of reach. A relay
  * that didn't read to the end reports `more`: the `until` to go on from (everything newer than it was
  * read; some events at that second may not have been). That is a relay the page cap stopped while it
- * still had new events, one that sent a full page of nothing new (more than `limit` events share a
- * second, which the sender picks), and one that failed after finishing a page.
+ * still had new events or a full page, and one that failed after finishing a page. A page whose
+ * events all sit at its `until`, full or else all repeats, means more events share that second (which
+ * the sender picks) than the relay sends at once, and `until` can't page into it: that second is
+ * counted as read (and listed in `crowded` after a full page), and paging goes on from the second
+ * before, so a crowd can't hide older events. Frames too big to parse still fill a
+ * page, and the time they claim (oversizedEventTime) still moves paging on.
  *
  * Relays are untrusted, so each is held to `bounds`: frames are size-checked before parsing, events
  * bigger than a Hall of Fame event needs (isRetainable) or off the filter are skipped before any
@@ -317,6 +351,7 @@ export const fetchEvents = async (
   maxPages = 1,
   signal?: AbortSignal,
   bounds: FetchEventsBounds = {},
+  lazySignatures = false,
 ) => {
   const pageLimit = filter.limit ?? filter.ids?.length ?? DEFAULT_PAGE_LIMIT;
   const maxRelayEvents = bounds.maxRelayEvents ?? Math.max(1, pageLimit * maxPages);
@@ -331,16 +366,25 @@ export const fetchEvents = async (
   const relayByteShare = Math.ceil(maxRetainedBytes / relayCount);
 
   const byId = new Map<string, NostrEvent>();
+  // With lazySignatures, ids whose kept copy is known to verify: other copies are ignored. Each relay
+  // sends a copy of an event at most once, so a conflict costs at most one check per relay.
+  const signed = new Set<string>();
   const perRelay = await Promise.all(
     relays.map(
       (relay) =>
-        new Promise<{ relay: string; count: number; error?: string; more?: number }>((resolve) => {
+        new Promise<RelayRead>((resolve) => {
           let sub = '';
           let count = 0;
           let pages = 0;
           let pageNew = 0;
           let pageEvents = 0;
+          /** The oldest time an event on this page has, new or not. */
+          let pageLow = Infinity;
           let oldest = Infinity;
+          /** The `until` of the page being read (none for the first). */
+          let asked: number | undefined;
+          /** Seconds with more events than a page holds, read past (newest first). */
+          const crowded: number[] = [];
           /** Where the pages finished so far reach down to, for a relay that fails partway. */
           let readTo: number | undefined;
           let messages = 0;
@@ -364,7 +408,7 @@ export const fetchEvents = async (
               // already closed
             }
             try { socket?.close(); } catch { /* Already closed. */ }
-            resolve(more === undefined ? { relay, count, error } : { relay, count, error, more });
+            resolve({ relay, count, error, ...(more === undefined ? {} : { more }), ...(crowded.length ? { crowded } : {}) });
           };
           /** A frame no honest relay sends; too many of them closes the relay. */
           const malformed = () => {
@@ -375,6 +419,8 @@ export const fetchEvents = async (
             pages++;
             pageNew = 0;
             pageEvents = 0;
+            pageLow = Infinity;
+            asked = until;
             socket!.send(JSON.stringify(['REQ', sub, until === undefined ? filter : { ...filter, until }]));
           };
           const timer = setTimeout(() => finish('timed out'), timeoutMs);
@@ -397,8 +443,18 @@ export const fetchEvents = async (
             const raw = msg?.data;
             // NIP-01 is text frames only.
             if (typeof raw !== 'string') return malformed();
-            // Relays may allow bigger events than we read; skip those unparsed.
-            if (raw.length > maxRawMessageChars) return;
+            // Relays may allow bigger events than we read; skip those unparsed. One for this request
+            // still fills the page, and its time (see oversizedEventTime) still moves paging on, so a
+            // page of them isn't taken for the end of the relay's history.
+            if (raw.length > maxRawMessageChars) {
+              if (!raw.slice(0, 64).startsWith(`["EVENT",${JSON.stringify(sub)},`)) return;
+              count++;
+              pageEvents++;
+              const time = oversizedEventTime(raw);
+              oldest = Math.min(oldest, time);
+              pageLow = Math.min(pageLow, time);
+              return;
+            }
             let data: unknown;
             try {
               data = JSON.parse(raw);
@@ -413,31 +469,67 @@ export const fetchEvents = async (
               count++;
               pageEvents++;
               if (!isEventShape(e)) return malformed();
+              pageLow = Math.min(pageLow, e.created_at);
               if (fromHere.has(e.id)) return;
               if (fromHere.size >= maxRelayEvents) return finish('relay event budget exceeded');
               fromHere.add(e.id);
               oldest = Math.min(oldest, e.created_at);
               pageNew++;
               // Seen, so paging goes on past it, but not worth hashing: too big for a Hall of Fame
-              // event, off the filter, or already kept from another relay.
-              if (!isRetainable(e) || !matchesFilter(e, filter) || byId.has(e.id)) return;
+              // event, or off the filter.
+              if (!isRetainable(e) || !matchesFilter(e, filter)) return;
+              const kept = byId.get(e.id);
+              if (kept) {
+                // Already kept from another relay. A copy with the same id has the same content, so
+                // only its signature can differ: one that verifies takes the kept copy's place.
+                if (!lazySignatures || signed.has(e.id) || e.sig === kept.sig) return;
+                if (eventId(e) === e.id && signatureVerifies(e)) {
+                  byId.set(e.id, e);
+                  signed.add(e.id);
+                }
+                return;
+              }
               const size = eventByteSize(e);
               if (keptEvents >= relayEventShare) return finish('retained event budget exceeded');
               if (keptBytes + size > relayByteShare) return finish('retained byte budget exceeded');
-              if (verifyEvent(e)) {
+              if (lazySignatures ? eventId(e) === e.id : verifyEvent(e)) {
                 byId.set(e.id, e);
                 keptEvents++;
                 keptBytes += size;
               }
             } else if (data[0] === 'EOSE') {
-              // Ask for anything older than this page until a page brings nothing new. (Relays cap
-              // `limit` at different sizes, so a short page doesn't prove there's nothing older.)
-              if (pageNew > 0 && pages < maxPages && Number.isFinite(oldest)) {
+              // Where to go on from: the oldest time read, or this page's `until` after a crowd.
+              const cursor = Math.min(oldest, asked ?? Infinity);
+              // The page brought new events, or reached below its `until` (with events too big to read).
+              const onward = pageNew > 0 || cursor < (asked ?? Infinity);
+              const full = pageEvents >= pageLimit;
+              // Every event on the page sits at its `until`: more share that second than the relay
+              // will send at once (a full page, or a short page of repeats from a relay that caps
+              // `limit` below ours), and asking `until` it again can't get past them, even from a
+              // relay that serves them in a new order each time.
+              const crowd = asked !== undefined && Number.isFinite(pageLow) && pageLow >= asked && (full || pageNew === 0);
+              if (!Number.isFinite(cursor)) {
+                // Nothing on the page has a time to page on from.
+                finish(full ? 'a full page of events too big to read' : undefined);
+              } else if (pages >= maxPages) {
+                if (onward || full || crowd) more = cursor;
+                finish();
+              } else if (crowd || (full && !onward)) {
+                // Count that second as read and go on from the second before, so a crowd (which the
+                // sender picks) can't hide what is older. Only a full page names it: a short page of
+                // repeats is also how an ordinary read ends, and the step past it then comes back empty.
+                if (full) crowded.push(cursor);
+                readTo = cursor - 1;
+                if (filter.since !== undefined && cursor - 1 < filter.since) return finish();
                 socket!.send(JSON.stringify(['CLOSE', sub]));
-                readTo = oldest;
-                request(oldest);
+                request(cursor - 1);
+              } else if (onward) {
+                // Ask for anything older than this page until a page brings nothing new. (Relays cap
+                // `limit` at different sizes, so a short page doesn't prove there's nothing older.)
+                socket!.send(JSON.stringify(['CLOSE', sub]));
+                readTo = cursor;
+                request(cursor);
               } else {
-                if ((pageNew > 0 || pageEvents >= pageLimit) && Number.isFinite(oldest)) more = oldest;
                 finish();
               }
             } else if (data[0] === 'CLOSED') {
