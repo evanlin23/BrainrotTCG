@@ -41,10 +41,27 @@ The rarest slots go to the most iconic memes in the set.
 Downloaded files are untrusted: download each into its own empty folder, then validate and re-encode it
 with Pillow (`python3 -I`, which also strips metadata) before it goes into `art/`.
 
-Then run `npm run cards`. It also builds the set's booster pack wrapper (`pack.webp`) from the set's
-colours, the logo mark (`src/styles/logoMark.ts`) and the card frames' loud motifs (starbursts, lightning,
-skulls, stars, heavy dark outlines), so every era gets its own pack with no extra art. The wrapper is one
-sealed foil pack with a single burst badge: it carries no card art and no card fan.
+Then run `npm run cards`. It also builds the set's booster pack wrapper (`pack.webp`, and
+`pack-thumb.webp` for the pack picker): a sticker bomb. Eight to twelve of the set's own characters, cut
+from its `art/` as die-cut stickers (thick white border, thin dark edge, soft shadow), overlap each other
+and the pack's edges at random tilts around a die-cut sticker of the site logo (the mark in
+`src/styles/logoMark.ts` and the Rubik Glitch wordmark) on a starburst, over crimped foil in the set's
+colours, with the era and "N CARDS INSIDE" on a plate at the bottom. No card frames, titles or card
+shapes, and no outside images. The flap above the tear line (19% down) holds only foil, crimp and
+border. Which cards and where is seeded by the set id, so each set gets its own mix and a rebuild gives
+the same bytes.
+
+The sticker outlines come from `scripts/cards/cut-stickers.py`, run by hand once a set's art is in
+place (and again whenever its art changes; `scripts/cards/pack.test.ts` fails on a stale cut). It cuts
+each card's subject out with rembg (`isnet-general-use`, pinned in
+`scripts/cards/stickers-requirements.txt`; the header there has the setup), keeps the largest piece,
+fills holes and smooths the edge. Cuts that come out tiny, fragmented, mostly scenery or stringy fall
+back to a round or rounded-rect sticker of a crop on the subject. Its output is committed in
+`src/content/sets/<set>/stickers/`: `index.json` (per card: the art file, the kind, the crop and the
+grades) and a small 1-bit mask per die-cut sticker. `npm run cards` only composites those files, so it
+needs no Python. Look at every sticker before committing (render the packs with `npm run cards`); when
+a cut is wrong, add the card to `OVERRIDES` in the script (`die`, `round`, `rect` or `skip`) and run it
+again with `--set <id> --force`.
 
 To preview one set (registered or not) as a contact sheet:
 

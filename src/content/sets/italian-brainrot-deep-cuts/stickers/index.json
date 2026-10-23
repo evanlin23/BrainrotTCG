@@ -1,0 +1,222 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "ballerino-lololo": {
+      "art": "art/ballerino-lololo.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.316,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.366
+      },
+      "crop": [
+        23,
+        0,
+        809,
+        1038
+      ],
+      "mask": "ballerino-lololo.png",
+      "source": "189f518825ef91f8"
+    },
+    "chicleteira-bicicleteira": {
+      "art": "art/chicleteira-bicicleteira.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.447,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.664
+      },
+      "crop": [
+        33,
+        0,
+        216,
+        350
+      ],
+      "mask": "chicleteira-bicicleteira.png",
+      "source": "a3bf1e69f9cb712c"
+    },
+    "dragon-cannelloni": {
+      "art": "art/dragon-cannelloni.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.316,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.508
+      },
+      "crop": [
+        0,
+        50,
+        653,
+        949
+      ],
+      "mask": "dragon-cannelloni.png",
+      "source": "f43219e79e2ce321"
+    },
+    "gangster-footera": {
+      "art": "art/gangster-footera.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.536,
+        "mainShare": 1.0,
+        "edges": 3,
+        "solidity": 0.549
+      },
+      "flag": "scenery",
+      "crop": [
+        77,
+        0,
+        352,
+        352
+      ],
+      "source": "6d6682e90c1aecf3"
+    },
+    "glorbo-fruttodrillo": {
+      "art": "art/glorbo-fruttodrillo.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.236,
+        "mainShare": 0.998,
+        "edges": 0,
+        "solidity": 0.71
+      },
+      "crop": [
+        34,
+        94,
+        361,
+        271
+      ],
+      "mask": "glorbo-fruttodrillo.png",
+      "source": "3494c558f8705768"
+    },
+    "lirili-larila": {
+      "art": "art/lirili-larila.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.305,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.625
+      },
+      "crop": [
+        9,
+        62,
+        356,
+        441
+      ],
+      "mask": "lirili-larila.png",
+      "source": "c1fe07d2e11d0ee7"
+    },
+    "pot-hotspot": {
+      "art": "art/pot-hotspot.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.369,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.449
+      },
+      "crop": [
+        78,
+        0,
+        772,
+        1038
+      ],
+      "mask": "pot-hotspot.png",
+      "source": "827fdad4c03e8893"
+    },
+    "spijuniro-golubiro": {
+      "art": "art/spijuniro-golubiro.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.519,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.758
+      },
+      "crop": [
+        113,
+        62,
+        703,
+        976
+      ],
+      "mask": "spijuniro-golubiro.png",
+      "source": "422496e4abf84c2d"
+    },
+    "strawberry-elephant": {
+      "art": "art/strawberry-elephant.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.398,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.675
+      },
+      "crop": [
+        41,
+        54,
+        626,
+        638
+      ],
+      "mask": "strawberry-elephant.png",
+      "source": "edf8b80e0e8f6961"
+    },
+    "tric-trac-baraboom": {
+      "art": "art/tric-trac-baraboom.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.397,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.576
+      },
+      "crop": [
+        23,
+        32,
+        361,
+        456
+      ],
+      "mask": "tric-trac-baraboom.png",
+      "source": "061df8dcd2fd338e"
+    },
+    "trippi-troppi": {
+      "art": "art/trippi-troppi.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.556,
+        "mainShare": 0.996,
+        "edges": 1,
+        "solidity": 0.66
+      },
+      "crop": [
+        0,
+        43,
+        847,
+        983
+      ],
+      "mask": "trippi-troppi.png",
+      "source": "a5faa16e1dcd8e78"
+    },
+    "trulimero-trulicina": {
+      "art": "art/trulimero-trulicina.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.462,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.512
+      },
+      "crop": [
+        0,
+        0,
+        436,
+        504
+      ],
+      "mask": "trulimero-trulicina.png",
+      "source": "25569c81213901c6"
+    }
+  }
+}

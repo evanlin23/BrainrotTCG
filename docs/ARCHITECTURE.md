@@ -67,7 +67,8 @@ src/content/       Set data, art and registry; existing schemas use the existing
   sets/<set>/art/      source art (real images, full cards, or SVG placeholders)
   sets/<set>/cards/    built card images (npm run cards); committed
   sets/<set>/finish-thumbs/  small ready-made metallic finishes for the collection and the other small card views; committed
-  sets/<set>/pack.webp the set's booster pack wrapper, built from its colours, the logo and the card frames' motifs
+  sets/<set>/pack.webp the set's booster pack wrapper: its own characters as stickers round the logo, in its colours
+  sets/<set>/stickers/ sticker cutouts for the pack (scripts/cards/cut-stickers.py, run by hand); committed, not bundled
   sets/index.ts        the registry: every version of every set (old versions and archived sets stay for old proofs)
   sets.lock.json       hash of each released set@version (npm run check:sets)
 

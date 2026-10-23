@@ -1,33 +1,48 @@
 /**
- * Booster pack wrapper for a set, built from the set itself: its colours, the site logo (the mark
- * in src/styles/logoMark.ts and the Rubik Glitch wordmark) and the loud motifs of the card frames
- * and back (starbursts, lightning, skulls, stars, hearts, heavy dark outlines). One sealed foil
- * wrapper with a single central burst badge, no cards on it. Written to `src/content/sets/<set>/pack.webp`,
- * with a small `pack-thumb.webp` for the pack picker.
+ * Booster pack wrapper for a set: a sticker bomb, like the original March packs. Characters from
+ * the set's own card art, die-cut as stickers with thick white borders and a thin dark edge, overlap
+ * each other and the pack's edges at random tilts around a die-cut sticker of the site logo (the
+ * mark in src/styles/logoMark.ts and the Rubik Glitch wordmark) on a starburst, over foil in the
+ * set's colours. Written to `src/content/sets/<set>/pack.webp`, with a small `pack-thumb.webp` for
+ * the pack picker.
  *
- * Layout (768x1376, same shape as the pack opener): crimped foil edges, the flap above the tear
- * line (19%) is left clear for the set ribbon the app draws, then the logo, the burst badge and the
- * era.
+ * The stickers' outlines come from scripts/cards/cut-stickers.py, run by hand: its committed output
+ * in `src/content/sets/<set>/stickers/` (index.json, and a mask per die-cut sticker) says which part
+ * of which art file each sticker is. This file only composites those committed files, so a build
+ * gives the same bytes every time.
+ *
+ * Layout (768x1376, same shape as the pack opener): crimped foil edges; the flap above the tear line
+ * (19%) holds only foil, crimp and border, for the set ribbon the app draws and the cut that tears
+ * it off; then the stickers and the logo; the era and "N CARDS INSIDE" on a plate at the bottom.
  */
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import sharp from 'sharp';
 import type { SetDefinition } from '../../src/engine/index.ts';
 import { LOGO_MARK_PATH, LOGO_MARK_SIZE } from '../../src/styles/logoMark.ts';
 import { SETS_DIR } from './lib.ts';
 import { logoFont, trackedText } from './logo.ts';
+import { clipToCanvas, dieCut, shadowAndTurn, shapeCoverage, WHITE, type Rgb } from './sticker.ts';
 import { bodyFont, centredText, fitSize, titleFont } from './text.ts';
 
 export const PACK_WIDTH = 768;
 export const PACK_HEIGHT = 1376;
 /** Bump when the design changes, so `npm run cards` rebuilds every pack. */
-const DESIGN_VERSION = 9;
+const DESIGN_VERSION = 10;
 
 const W = PACK_WIDTH;
 const H = PACK_HEIGHT;
 const CRIMP = 46;
 /** Where the pack body sits in the frame. The face is designed at W x H, then scaled into this box. */
-const BODY = { x: 48, y: 148, w: 672, h: 1204 };
+export const BODY = { x: 48, y: 148, w: 672, h: 1204 };
+/** The pack opener's seam (TEAR_LINE_RATIO in src/hooks/usePackCutter.ts), as a share of the frame's height. */
+export const TEAR_LINE = 0.19;
+/**
+ * Nothing but foil, crimp and border above this line of the face: the flap the cutting UI tears
+ * off. The seam is 19% down the frame; the face starts BODY.y into it, scaled from H to BODY.h tall.
+ * Eight px of clearance below that.
+ */
+export const FLAP = Math.ceil(((TEAR_LINE * H - BODY.y) * H) / BODY.h) + 8;
 
 /** Opaque everywhere except saw-tooth cuts along the top and bottom edges. */
 const serratedMask = (w: number, h: number) => {
@@ -53,13 +68,11 @@ const zigzag = (y: number, depth: number, up: boolean) => {
 
 /** The card frames' dark outline colour (the title's outline, TITLE_STYLE.outline in frame.ts). */
 const INK = '#2a0638';
-/** Where the burst badge sits: centred, in the band between the logo's plate and the era's. */
-export const EMBLEM = { x: W / 2, y: 858, r: 292 };
-/** The logo's dark plate, and the era's: spiky bands, like the card back's logo shield and banners. */
-export const LOGO_PLATE = { x: 22, y: 270, w: W - 44, h: 292 };
+/** The starburst behind the logo sticker, centred on the logo. */
+export const EMBLEM = { x: W / 2, y: 706, r: 372 };
+/** The era's dark plate: a spiky band, like the card back's banners. */
 export const ERA_PLATE = { x: 22, y: 1168, w: W - 44, h: 138 };
 
-type Rgb = [number, number, number];
 const toRgb = (hex: string): Rgb => {
   const h = hex.replace('#', '');
   const full = h.length === 3 ? [...h].map((c) => c + c).join('') : h;
@@ -85,7 +98,7 @@ export const packColours = (set: SetDefinition) => {
   return { hi, mid, lo, base, glow: mix(mid, INK, 0.25) };
 };
 
-/** A small deterministic generator (mulberry32), so a set's confetti is the same on every build. */
+/** A small deterministic generator (mulberry32), so a set's pack is the same on every build. */
 const seeded = (seed: string) => {
   let a = createHash('sha256').update(seed).digest().readUInt32LE(0);
   return () => {
@@ -109,31 +122,7 @@ const burstPath = (cx: number, cy: number, outer: number, inner: number, points:
   return `${d}Z`;
 };
 
-/** The motifs of the card frames, each drawn in a box about 100 wide, centred on its middle. */
-const MOTIFS = {
-  star: 'M50 4 L62 36 L96 38 L69 59 L79 92 L50 73 L21 92 L31 59 L4 38 L38 36 Z',
-  bolt: 'M62 0 L8 112 L44 112 L26 200 L92 78 L54 78 Z',
-  heart: 'M50 90 C8 58 4 28 26 15 C38 9 48 17 50 28 C52 17 62 9 74 15 C96 28 92 58 50 90 Z',
-  skull: 'M50 6 C22 6 8 28 13 52 C15 62 24 66 28 70 L28 90 L72 90 L72 70 C76 66 85 62 87 52 C92 28 78 6 50 6 Z',
-} as const;
-type Motif = keyof typeof MOTIFS;
-const BOX: Record<Motif, [number, number]> = { star: [50, 50], bolt: [50, 100], heart: [50, 50], skull: [50, 50] };
-
-/** A skull's features, over a skull of `MOTIFS.skull`: eye sockets, nose and teeth in the outline's ink. */
-const skullFace = `<circle cx="34" cy="48" r="11" fill="${INK}"/><circle cx="66" cy="48" r="11" fill="${INK}"/><path d="M50 58 L43 72 L57 72 Z" fill="${INK}"/><path d="M39 78 V90 M50 78 V90 M61 78 V90" stroke="${INK}" stroke-width="4" fill="none"/>`;
-
-/** One motif at (x, y), `size` px tall, tilted `rot` degrees, filled `fill` inside a heavy dark outline. */
-const motif = (kind: Motif, x: number, y: number, size: number, rot: number, fill: string, outline = 9) => {
-  const [bx, by] = BOX[kind];
-  const k = size / (by * 2);
-  return (
-    `<g transform="translate(${f(x)} ${f(y)}) rotate(${f(rot)}) scale(${k.toFixed(3)}) translate(${-bx} ${-by})">` +
-    `<path d="${MOTIFS[kind]}" fill="${fill}" stroke="${INK}" stroke-width="${f(outline / k)}" stroke-linejoin="round"/>` +
-    `${kind === 'skull' ? skullFace : ''}</g>`
-  );
-};
-
-/** A band with spiky top and bottom edges, for the plates behind the logo and the era. */
+/** A band with spiky top and bottom edges, for the plate behind the era. */
 const spikyPlate = (x: number, y: number, w: number, h: number, depth: number, teeth: number) => {
   const step = w / teeth;
   let d = `M${x} ${y + depth}`;
@@ -143,29 +132,12 @@ const spikyPlate = (x: number, y: number, w: number, h: number, depth: number, t
   return `${d}Z`;
 };
 
-/** Confetti for the gaps around the badge: no two touching, none on the badge, plates or flap. */
-const confetti = (set: SetDefinition, colours: string[]) => {
-  const rand = seeded(`pack:${set.id}`);
-  const kinds: Motif[] = ['star', 'bolt', 'heart', 'skull', 'star', 'bolt'];
-  const placed: { x: number; y: number; r: number }[] = [];
-  let out = '';
-  for (let attempt = 0; attempt < 400 && placed.length < 18; attempt++) {
-    const size = 56 + rand() * 50;
-    const r = size * 0.6;
-    const x = 36 + r + rand() * (W - 72 - 2 * r);
-    const y = LOGO_PLATE.y + LOGO_PLATE.h + 30 + r + rand() * (ERA_PLATE.y - LOGO_PLATE.y - LOGO_PLATE.h - 60 - 2 * r);
-    if (Math.hypot(x - EMBLEM.x, y - EMBLEM.y) < EMBLEM.r + r + 6) continue;
-    if (placed.some((p) => Math.hypot(p.x - x, p.y - y) < p.r + r + 8)) continue;
-    placed.push({ x, y, r });
-    const kind = kinds[placed.length % kinds.length];
-    out += motif(kind, x, y, size, (rand() - 0.5) * 70, colours[Math.floor(rand() * colours.length)]);
-  }
-  return out;
-};
-
-/** Two SVG layers: the foil goes under the logo, the trim (crimps and text) over it. */
+/**
+ * Two SVG layers: the foil (colour, rays, halftone and the starburst) goes under the stickers; the
+ * trim (era plate, sheen, border, crimps and text) over them.
+ */
 export const wrapperSvg = (set: SetDefinition) => {
-  const { hi, mid, lo, base, glow } = packColours(set);
+  const { hi, mid, base, glow } = packColours(set);
   const rand = seeded(`burst:${set.id}`);
   const { x: cx, y: cy, r: R } = EMBLEM;
   const rays = Array.from({ length: 28 }, (_, i) => {
@@ -175,27 +147,11 @@ export const wrapperSvg = (set: SetDefinition) => {
     return `<path d="M${cx} ${cy} L${f(cx + r * Math.cos(t0))} ${f(cy + r * Math.sin(t0))} L${f(cx + r * Math.cos(t1))} ${f(cy + r * Math.sin(t1))} Z"/>`;
   }).join('');
   const ridges = Array.from({ length: 96 }, (_, i) => `<rect x="${i * 8}" y="0" width="4" height="${H}"/>`).join('');
-  // Big half-cropped bursts on the sides, like the card frame's corner stars.
-  const sideBursts = [
-    [-14, 690, 170, hi],
-    [W + 14, 760, 190, mid],
-    [-10, 1080, 190, mid],
-    [W + 10, 1050, 170, hi],
-  ]
-    .map(([x, y, r, c]) => `<path d="${burstPath(x as number, y as number, r as number, (r as number) * 0.55, 11, rand() * 2, rand, 0.08)}" fill="${c}" stroke="${INK}" stroke-width="12" stroke-linejoin="round"/>`)
-    .join('');
-  const points = 20 + Math.floor(rand() * 5);
+  const points = 18 + Math.floor(rand() * 5);
   const spin = rand() * Math.PI;
-  const badge =
-    // Two lightning bolts crossing behind the burst, then the burst in three tiers.
-    motif('bolt', cx - 150, cy + 10, 640, 32, mid, 14) +
-    motif('bolt', cx + 150, cy + 10, 640, -32, hi, 14) +
-    `<path d="${burstPath(cx, cy, R, R * 0.72, points, spin, rand, 0.05)}" fill="${hi}" stroke="${INK}" stroke-width="18" stroke-linejoin="round"/>` +
-    `<path d="${burstPath(cx, cy, R * 0.84, R * 0.6, points, spin + Math.PI / points, rand, 0.05)}" fill="${mid}" stroke="${INK}" stroke-width="12" stroke-linejoin="round"/>` +
-    `<circle cx="${cx}" cy="${cy}" r="${R * 0.5}" fill="${INK}" stroke="${hi}" stroke-width="10"/>` +
-    `<circle cx="${cx}" cy="${cy}" r="${R * 0.43}" fill="${lo}" stroke="${mid}" stroke-width="5"/>` +
-    motif('skull', cx, cy + 6, R * 0.74, 0, '#fff7e0', 11) +
-    [0, 1, 2, 3, 4, 5].map((i) => motif('star', cx + R * 0.64 * Math.cos(spin + i * (Math.PI / 3)), cy + R * 0.64 * Math.sin(spin + i * (Math.PI / 3)), 56, 0, '#fff7e0', 6)).join('');
+  const burst =
+    `<path d="${burstPath(cx, cy, R, R * 0.74, points, spin, rand, 0.06)}" fill="${escapeXml(hi)}" stroke="${INK}" stroke-width="14" stroke-linejoin="round"/>` +
+    `<path d="${burstPath(cx, cy, R * 0.82, R * 0.62, points, spin + Math.PI / points, rand, 0.06)}" fill="${escapeXml(mid)}" stroke="${INK}" stroke-width="10" stroke-linejoin="round"/>`;
   const footer = `${set.packSize} CARDS INSIDE`;
   const eraSize = fitSize(titleFont, set.era.toUpperCase(), W - 160, 64, 30);
   const footerSize = fitSize(bodyFont, footer, W - 200, 40, 20);
@@ -207,20 +163,9 @@ export const wrapperSvg = (set: SetDefinition) => {
       <stop offset="0.5" stop-color="${escapeXml(base)}"/>
       <stop offset="1" stop-color="${escapeXml(mix(base, mid, 0.35))}"/>
     </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0.6">
-      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="0.45" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="0.5" stop-color="#fff" stop-opacity="0.2"/>
-      <stop offset="0.55" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
     <radialGradient id="glow" cx="${cx / W}" cy="${cy / H}" r="0.5">
       <stop offset="0" stop-color="${escapeXml(glow)}" stop-opacity="0.95"/>
       <stop offset="1" stop-color="${escapeXml(glow)}" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.75">
-      <stop offset="0.62" stop-color="#000" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000" stop-opacity="0.32"/>
     </radialGradient>
     <pattern id="halftone" width="14" height="14" patternUnits="userSpaceOnUse">
       <circle cx="7" cy="7" r="3.2" fill="${INK}"/>
@@ -230,23 +175,30 @@ export const wrapperSvg = (set: SetDefinition) => {
   <rect width="${W}" height="${H}" fill="url(#glow)"/>
   <g fill="${escapeXml(hi)}" opacity="0.28">${rays}</g>
   <rect width="${W}" height="${H}" fill="url(#halftone)" opacity="0.28"/>
-  ${sideBursts}
-  ${confetti(set, [hi, mid, '#fff7e0', lo].map(escapeXml))}
-  ${badge}
-  <path d="${spikyPlate(LOGO_PLATE.x, LOGO_PLATE.y, LOGO_PLATE.w, LOGO_PLATE.h, 12, 30)}" fill="${INK}" stroke="${escapeXml(hi)}" stroke-width="6" stroke-linejoin="round"/>
-  ${motif('bolt', 118, 350, 190, -14, hi)}${motif('bolt', W - 118, 350, 190, 14, mid)}${motif('star', 214, 318, 80, -12, mid, 8)}${motif('star', W - 214, 318, 80, 12, hi, 8)}${motif('star', 232, 404, 54, 10, '#fff7e0', 7)}${motif('star', W - 232, 404, 54, -10, '#fff7e0', 7)}
-  <path d="${spikyPlate(ERA_PLATE.x, ERA_PLATE.y, ERA_PLATE.w, ERA_PLATE.h, 12, 30)}" fill="${INK}" stroke="${escapeXml(mid)}" stroke-width="6" stroke-linejoin="round"/>
-  <rect width="${W}" height="${H}" fill="url(#sheen)"/>
-  <rect width="${W}" height="${H}" fill="url(#vignette)"/>
-  <g fill="#fff" opacity="0.06">${ridges}</g>
-  <rect x="14" y="14" width="${W - 28}" height="${H - 28}" rx="26" fill="none" stroke="${INK}" stroke-width="16"/>
-  <rect x="24" y="24" width="${W - 48}" height="${H - 48}" rx="18" fill="none" stroke="${escapeXml(hi)}" stroke-width="4"/>`);
+  ${burst}`);
   const trim = svg(`
   <defs>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0.6">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.45" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#fff" stop-opacity="0.16"/>
+      <stop offset="0.55" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0.62" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.3"/>
+    </radialGradient>
     <linearGradient id="silver" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#f4f4f8"/><stop offset="0.5" stop-color="#9a9ab0"/><stop offset="1" stop-color="#e2e2ea"/>
     </linearGradient>
   </defs>
+  <path d="${spikyPlate(ERA_PLATE.x, ERA_PLATE.y, ERA_PLATE.w, ERA_PLATE.h, 12, 30)}" fill="${INK}" stroke="${escapeXml(mid)}" stroke-width="6" stroke-linejoin="round"/>
+  <rect width="${W}" height="${H}" fill="url(#sheen)"/>
+  <rect width="${W}" height="${H}" fill="url(#vignette)"/>
+  <g fill="#fff" opacity="0.05">${ridges}</g>
+  <rect x="14" y="14" width="${W - 28}" height="${H - 28}" rx="26" fill="none" stroke="${INK}" stroke-width="16"/>
+  <rect x="24" y="24" width="${W - 48}" height="${H - 48}" rx="18" fill="none" stroke="${escapeXml(hi)}" stroke-width="4"/>
   <path d="${zigzag(CRIMP, 14, false)} L${W} 0 L0 0 Z" fill="url(#silver)"/>
   <path d="${zigzag(H - CRIMP, 14, true)} L${W} ${H} L0 ${H} Z" fill="url(#silver)"/>
   <g fill="#000" opacity="0.18">${Array.from({ length: 48 }, (_, i) => `<rect x="${i * 16 + 4}" y="6" width="6" height="${CRIMP - 18}"/><rect x="${i * 16 + 4}" y="${H - CRIMP + 12}" width="6" height="${CRIMP - 18}"/>`).join('')}</g>
@@ -255,8 +207,8 @@ export const wrapperSvg = (set: SetDefinition) => {
   return { foil, trim };
 };
 
-/** The logo's band: under the flap the set ribbon covers (19%), above the burst badge. */
-export const LOGO_SLOT = { top: 288, bottom: 540, width: 660 };
+/** The logo's band, in the middle of the pack on the starburst. */
+export const LOGO_SLOT = { top: 586, bottom: 816, width: 616 };
 
 /**
  * The site header's wordmark (src/styles/index.css `.app-logo`): Rubik Glitch capitals in --text,
@@ -301,35 +253,217 @@ export const logoLockup = () => {
 
 const logoSvg = () => logoLockup().svg;
 
-const inputHash = (set: SetDefinition) =>
-  createHash('sha256')
-    .update(JSON.stringify({ DESIGN_VERSION, id: set.id, palette: set.palette, era: set.era, packSize: set.packSize }))
+/** The logo sticker's die-cut: a dark backing this far round the logo, then white, then the edge. */
+export const LOGO_CUT = { backing: 18, white: 12, edge: 4 };
+/** A card sticker's die-cut: white border and dark edge, in px of the face. */
+export const STICKER_CUT = { white: 11, edge: 3 };
+
+/** One sticker as cut-stickers.py describes it in the set's `stickers/index.json`. */
+export interface StickerSource {
+  /** The art file, relative to the set folder (always under `art/`). */
+  art: string;
+  kind: 'die' | 'round' | 'rect' | 'skip';
+  /** [x, y, width, height] of the sticker in the art file's pixels. */
+  crop?: [number, number, number, number];
+  /** Die-cut stickers: the mask of the crop, in `stickers/`. */
+  mask?: string;
+  flag?: string;
+  source: string;
+}
+
+export const stickerIndex = (setId: string): Record<string, StickerSource> => {
+  const path = `${SETS_DIR}/${setId}/stickers/index.json`;
+  if (!existsSync(path)) throw new Error(`${setId} has no stickers: run scripts/cards/cut-stickers.py --set ${setId}`);
+  return JSON.parse(readFileSync(path, 'utf8')).stickers;
+};
+
+/**
+ * Where the stickers go: (x, y) is the centre and `size` the long side, before the border, in the
+ * face's px. Roughly a ring round the logo, the outer ones bleeding off the pack's edge; each set
+ * jitters them. Listed back to front.
+ */
+const SLOTS: [number, number, number][] = [
+  [384, 300, 214],
+  [124, 296, 232],
+  [648, 300, 232],
+  [392, 488, 190],
+  [100, 520, 214],
+  [672, 528, 214],
+  [84, 790, 214],
+  [690, 800, 214],
+  [384, 1010, 236],
+  [160, 1010, 244],
+  [612, 1010, 244],
+  [380, 1196, 220],
+];
+export const STICKER_COUNT = SLOTS.length;
+
+export interface PlacedSticker extends StickerSource {
+  card: string;
+  crop: [number, number, number, number];
+  x: number;
+  y: number;
+  size: number;
+  rot: number;
+}
+
+/**
+ * The set's stickers and where they go, picked from its own cards' art with a generator seeded by
+ * the set id: die-cut characters first, round and rounded-rect ones only to fill the slots.
+ */
+export const stickerPlan = (set: SetDefinition): PlacedSticker[] => {
+  const index = stickerIndex(set.id);
+  const rand = seeded(`stickers:${set.id}`);
+  const shuffle = <T>(xs: T[]) => {
+    const out = [...xs];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  };
+  const usable = set.cards.map((c) => c.id).filter((id) => index[id] && index[id].kind !== 'skip' && index[id].crop);
+  const die = shuffle(usable.filter((id) => index[id].kind === 'die'));
+  const flat = shuffle(usable.filter((id) => index[id].kind !== 'die'));
+  const picked = shuffle([...die, ...flat].slice(0, SLOTS.length));
+  return picked.map((card, i) => {
+    const [x, y, size] = SLOTS[i];
+    const tilt = (8 + rand() * 14) * (rand() < 0.5 ? -1 : 1);
+    return {
+      ...index[card],
+      card,
+      crop: index[card].crop!,
+      x: Math.round(x + (rand() - 0.5) * 36),
+      y: Math.round(y + (rand() - 0.5) * 28),
+      size: Math.round(size * (0.94 + rand() * 0.12)),
+      rot: Number(tilt.toFixed(1)),
+    };
+  });
+};
+
+const INK_RGB = toRgb(INK);
+
+/** One card sticker, bordered, shadowed and turned: a PNG and its size. */
+export const renderSticker = async (setId: string, s: PlacedSticker) => {
+  const [left, top, width, height] = s.crop;
+  const k = s.size / Math.max(width, height);
+  const [tw, th] = [Math.max(1, Math.round(width * k)), Math.max(1, Math.round(height * k))];
+  const pad = STICKER_CUT.white + STICKER_CUT.edge + 3;
+  const [cw, ch] = [tw + 2 * pad, th + 2 * pad];
+  const art = await sharp(`${SETS_DIR}/${setId}/${s.art}`)
+    .extract({ left, top, width, height })
+    .resize(tw, th, { kernel: 'lanczos3' })
+    .removeAlpha()
+    .extend({ top: pad, bottom: pad, left: pad, right: pad, background: '#000' })
+    .raw()
+    .toBuffer();
+  let shape: Uint8Array;
+  if (s.kind === 'die') {
+    const mask = await sharp(`${SETS_DIR}/${setId}/stickers/${s.mask}`)
+      .greyscale()
+      .resize(tw, th, { kernel: 'lanczos3', fit: 'fill' })
+      .extend({ top: pad, bottom: pad, left: pad, right: pad, background: '#000' })
+      .extractChannel(0)
+      .raw()
+      .toBuffer();
+    shape = new Uint8Array(mask);
+  } else {
+    const inner = shapeCoverage(s.kind as 'round' | 'rect', tw, th);
+    shape = new Uint8Array(cw * ch);
+    for (let y = 0; y < th; y++) shape.set(inner.subarray(y * tw, (y + 1) * tw), (y + pad) * cw + pad);
+  }
+  const top4 = Buffer.alloc(cw * ch * 4);
+  for (let i = 0; i < cw * ch; i++) {
+    top4[i * 4] = art[i * 3];
+    top4[i * 4 + 1] = art[i * 3 + 1];
+    top4[i * 4 + 2] = art[i * 3 + 2];
+    top4[i * 4 + 3] = shape[i];
+  }
+  const rgba = dieCut(shape, cw, ch, [{ grow: STICKER_CUT.white + STICKER_CUT.edge, fill: INK_RGB }, { grow: STICKER_CUT.white, fill: WHITE }], top4);
+  return shadowAndTurn(rgba, cw, ch, s.rot);
+};
+
+/** The logo as a die-cut sticker: the lockup on a dark backing inside a white border and dark edge. */
+const renderLogoSticker = async () => {
+  const { data } = await sharp(Buffer.from(logoSvg())).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const shape = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) shape[i] = data[i * 4 + 3];
+  const c = LOGO_CUT;
+  const rgba = dieCut(
+    shape,
+    W,
+    H,
+    [
+      { grow: c.backing + c.white + c.edge, fill: INK_RGB },
+      { grow: c.backing + c.white, fill: WHITE },
+      { grow: c.backing, fill: toRgb('#17130a') },
+    ],
+    data,
+  );
+  return shadowAndTurn(rgba, W, H, 0, { x: 6, y: 10, blur: 8, opacity: 0.55 });
+};
+
+/** Every input of a set's pack, so a change to any of them rebuilds it. */
+const inputHash = (set: SetDefinition) => {
+  const hash = createHash('sha256')
+    .update(JSON.stringify({ DESIGN_VERSION, id: set.id, palette: set.palette, era: set.era, packSize: set.packSize, cards: set.cards.map((c) => c.id) }))
     .update(logoSvg())
-    .digest('hex');
+    .update(readFileSync(`${SETS_DIR}/${set.id}/stickers/index.json`));
+  for (const s of stickerPlan(set)) {
+    hash.update(readFileSync(`${SETS_DIR}/${set.id}/${s.art}`));
+    if (s.mask) hash.update(readFileSync(`${SETS_DIR}/${set.id}/stickers/${s.mask}`));
+  }
+  return hash.digest('hex');
+};
+
+/**
+ * The face's layers, back to front, each a PNG at its place on the W x H face: the foil, the
+ * stickers (clipped to the face, and kept below the flap), the logo sticker, the trim.
+ */
+export const faceLayers = async (set: SetDefinition) => {
+  const { foil, trim } = wrapperSvg(set);
+  const layers: { name: string; input: Buffer; left: number; top: number }[] = [];
+  for (const s of stickerPlan(set)) {
+    const sticker = await renderSticker(set.id, s);
+    const left = Math.round(s.x - sticker.width / 2);
+    // Its top, shadow included, stays under the flap.
+    const top = Math.max(FLAP, Math.round(s.y - sticker.height / 2));
+    const clipped = await clipToCanvas(sticker.png, sticker.width, sticker.height, left, top, W, H);
+    if (clipped) layers.push({ name: `sticker:${s.card}`, ...clipped });
+  }
+  const logo = await renderLogoSticker();
+  const logoLayer = await clipToCanvas(logo.png, logo.width, logo.height, Math.round((W - logo.width) / 2), Math.round((H - logo.height) / 2), W, H);
+  if (logoLayer) layers.push({ name: 'logo', ...logoLayer });
+  layers.push({ name: 'trim', input: Buffer.from(trim), left: 0, top: 0 });
+  return { foil: Buffer.from(foil), layers };
+};
 
 /**
  * The pack picker's thumbnail: the wrapper cropped to the pack and its shadow, 300px wide (a quarter
  * of the full image's bytes, since the picker shows every pack at once).
  */
-const buildPackThumb = async (setId: string) => {
+const buildPackThumb = async (dir: string) => {
   const crop = { left: BODY.x - 8, top: BODY.y - 8, width: BODY.w + 24, height: H - BODY.y + 8 };
-  await sharp(`${SETS_DIR}/${setId}/pack.webp`).extract(crop).resize(300).webp({ quality: 70, alphaQuality: 80 }).toFile(`${SETS_DIR}/${setId}/pack-thumb.webp`);
+  await sharp(`${dir}/pack.webp`).extract(crop).resize(300).webp({ quality: 62, alphaQuality: 80 }).toFile(`${dir}/pack-thumb.webp`);
 };
 
-/** Build a set's pack wrapper (and its thumbnail). Returns false when it was already up to date. */
-export const buildSetPack = async (set: SetDefinition, manifest: Record<string, string>, force = false): Promise<boolean> => {
-  const outPath = `${SETS_DIR}/${set.id}/pack.webp`;
+/**
+ * Build a set's pack wrapper (and its thumbnail) into `outDir` (the set's folder unless given).
+ * Returns false when it was already up to date.
+ */
+export const buildSetPack = async (set: SetDefinition, manifest: Record<string, string>, force = false, outDir = `${SETS_DIR}/${set.id}`): Promise<boolean> => {
+  const outPath = `${outDir}/pack.webp`;
   const hash = inputHash(set);
   if (!force && manifest['(pack)'] === hash && existsSync(outPath)) {
-    if (existsSync(`${SETS_DIR}/${set.id}/pack-thumb.webp`)) return false;
-    await buildPackThumb(set.id);
+    if (existsSync(`${outDir}/pack-thumb.webp`)) return false;
+    await buildPackThumb(outDir);
     return true;
   }
 
-  const { foil, trim } = wrapperSvg(set);
+  const { foil, layers } = await faceLayers(set);
   // sharp applies one composite() per pipeline, so the face and its mask are two passes.
-  const flat = await sharp(Buffer.from(foil))
-    .composite([{ input: Buffer.from(logoSvg()) }, { input: Buffer.from(trim) }])
+  const flat = await sharp(foil)
+    .composite(layers.map(({ input, left, top }) => ({ input, left, top })))
     .png()
     .toBuffer();
   const face = await sharp(await sharp(flat).resize(BODY.w, BODY.h).png().toBuffer())
@@ -343,9 +477,9 @@ export const buildSetPack = async (set: SetDefinition, manifest: Record<string, 
   );
   await sharp({ create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
     .composite([{ input: await sharp(shadow).blur(12).png().toBuffer() }, { input: face, left: BODY.x, top: BODY.y }])
-    .webp({ quality: 82, alphaQuality: 90 })
+    .webp({ quality: 80, alphaQuality: 90 })
     .toFile(outPath);
-  await buildPackThumb(set.id);
+  await buildPackThumb(outDir);
   manifest['(pack)'] = hash;
   return true;
 };

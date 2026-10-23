@@ -1,0 +1,225 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {
+    "coffin-dance": "round",
+    "stick-bug": "rect"
+  },
+  "stickers": {
+    "bernie-mittens": {
+      "art": "art/bernie-mittens.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.278,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.65
+      },
+      "crop": [
+        268,
+        55,
+        466,
+        971
+      ],
+      "mask": "bernie-mittens.png",
+      "source": "55ad4f5dbdfe9137"
+    },
+    "big-floppa": {
+      "art": "art/big-floppa.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.488,
+        "mainShare": 0.997,
+        "edges": 2,
+        "solidity": 0.546
+      },
+      "crop": [
+        4,
+        0,
+        723,
+        900
+      ],
+      "mask": "big-floppa.png",
+      "source": "9ab489384dafe692"
+    },
+    "bing-chilling": {
+      "art": "art/bing-chilling.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.001,
+        "mainShare": 0.734,
+        "edges": 0,
+        "solidity": 0.803
+      },
+      "flag": "tiny",
+      "crop": [
+        0,
+        202,
+        554,
+        518
+      ],
+      "source": "1bb943ffca564747"
+    },
+    "coffin-dance": {
+      "art": "art/coffin-dance.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.088,
+        "mainShare": 0.975,
+        "edges": 0,
+        "solidity": 0.554
+      },
+      "override": true,
+      "crop": [
+        11,
+        46,
+        316,
+        316
+      ],
+      "source": "8b204e09b2cbef36"
+    },
+    "dalgona-coffee": {
+      "art": "art/dalgona-coffee.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.439,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.723
+      },
+      "crop": [
+        76,
+        102,
+        730,
+        856
+      ],
+      "mask": "dalgona-coffee.png",
+      "source": "f008dec606b673b7"
+    },
+    "ever-given": {
+      "art": "art/ever-given.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.043,
+        "mainShare": 0.997,
+        "edges": 0,
+        "solidity": 0.354
+      },
+      "flag": "tiny",
+      "crop": [
+        52,
+        67,
+        474,
+        474
+      ],
+      "source": "0eca75479ae94f54"
+    },
+    "im-not-a-cat": {
+      "art": "art/im-not-a-cat.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.6,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.816
+      },
+      "crop": [
+        26,
+        104,
+        620,
+        688
+      ],
+      "mask": "im-not-a-cat.png",
+      "source": "cf001f366e811e17"
+    },
+    "polish-cow": {
+      "art": "art/polish-cow.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.323,
+        "mainShare": 0.993,
+        "edges": 0,
+        "solidity": 0.438
+      },
+      "crop": [
+        29,
+        18,
+        306,
+        394
+      ],
+      "mask": "polish-cow.png",
+      "source": "93ac795d184336ee"
+    },
+    "sourdough-starter": {
+      "art": "art/sourdough-starter.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.547,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.877
+      },
+      "crop": [
+        86,
+        100,
+        727,
+        881
+      ],
+      "mask": "sourdough-starter.png",
+      "source": "3cec322d19c3d822"
+    },
+    "stick-bug": {
+      "art": "art/stick-bug.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.307,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.633
+      },
+      "override": true,
+      "crop": [
+        17,
+        98,
+        297,
+        278
+      ],
+      "source": "1829b441932066c6"
+    },
+    "toilet-paper-panic": {
+      "art": "art/toilet-paper-panic.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.0,
+        "mainShare": 0.364,
+        "edges": 0,
+        "solidity": 0.0
+      },
+      "flag": "tiny",
+      "crop": [
+        44,
+        93,
+        799,
+        747
+      ],
+      "source": "350b21c43e3b3c39"
+    },
+    "vibing-cat": {
+      "art": "art/vibing-cat.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.048,
+        "mainShare": 0.595,
+        "edges": 0,
+        "solidity": 0.361
+      },
+      "flag": "tiny",
+      "crop": [
+        47,
+        11,
+        404,
+        404
+      ],
+      "source": "1dacf3e388aba365"
+    }
+  }
+}

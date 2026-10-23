@@ -1,0 +1,222 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "big-arch-burger-test": {
+      "art": "art/big-arch-burger-test.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.565,
+        "mainShare": 1.0,
+        "edges": 4,
+        "solidity": 0.565
+      },
+      "flag": "scenery",
+      "crop": [
+        9,
+        0,
+        657,
+        614
+      ],
+      "source": "7176de45368e0500"
+    },
+    "bowie-knife99": {
+      "art": "art/bowie-knife99.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.012,
+        "mainShare": 0.463,
+        "edges": 0,
+        "solidity": 0.407
+      },
+      "flag": "tiny",
+      "crop": [
+        50,
+        215,
+        505,
+        505
+      ],
+      "source": "584fe313b15feb70"
+    },
+    "crying-horse": {
+      "art": "art/crying-horse.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.572,
+        "mainShare": 0.999,
+        "edges": 3,
+        "solidity": 0.588
+      },
+      "flag": "scenery",
+      "crop": [
+        98,
+        0,
+        728,
+        728
+      ],
+      "source": "c106a6da24e8b8b2"
+    },
+    "dlss-5-on": {
+      "art": "art/dlss-5-on.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.546,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.719
+      },
+      "crop": [
+        166,
+        18,
+        722,
+        1020
+      ],
+      "mask": "dlss-5-on.png",
+      "source": "dce60b52b974c52d"
+    },
+    "du-bist-gut-genug": {
+      "art": "art/du-bist-gut-genug.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.586,
+        "mainShare": 1.0,
+        "edges": 3,
+        "solidity": 0.686
+      },
+      "flag": "scenery",
+      "crop": [
+        47,
+        76,
+        505,
+        505
+      ],
+      "source": "fb1bc497a5d7d16d"
+    },
+    "dubai-chewy-cookie": {
+      "art": "art/dubai-chewy-cookie.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.331,
+        "mainShare": 0.999,
+        "edges": 1,
+        "solidity": 0.713
+      },
+      "crop": [
+        0,
+        241,
+        880,
+        541
+      ],
+      "mask": "dubai-chewy-cookie.png",
+      "source": "fe5119c2ccd7efcf"
+    },
+    "he-is-20-years-old": {
+      "art": "art/he-is-20-years-old.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.674,
+        "mainShare": 1.0,
+        "edges": 3,
+        "solidity": 0.714
+      },
+      "flag": "scenery",
+      "crop": [
+        11,
+        10,
+        554,
+        518
+      ],
+      "source": "c45cfe989d073d89"
+    },
+    "nihilist-penguin": {
+      "art": "art/nihilist-penguin.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.0,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.762
+      },
+      "flag": "tiny",
+      "crop": [
+        19,
+        41,
+        347,
+        325
+      ],
+      "source": "8de350d5a1687575"
+    },
+    "punch-the-monkey": {
+      "art": "art/punch-the-monkey.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.41,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.566
+      },
+      "crop": [
+        93,
+        123,
+        795,
+        904
+      ],
+      "mask": "punch-the-monkey.png",
+      "source": "b9c968d58604aed4"
+    },
+    "reginald-skulinski": {
+      "art": "art/reginald-skulinski.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.664,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.781
+      },
+      "crop": [
+        54,
+        11,
+        524,
+        665
+      ],
+      "mask": "reginald-skulinski.png",
+      "source": "9402d5554f6bd108"
+    },
+    "skeleton-banging-shield": {
+      "art": "art/skeleton-banging-shield.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.407,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.544
+      },
+      "crop": [
+        70,
+        59,
+        540,
+        661
+      ],
+      "mask": "skeleton-banging-shield.png",
+      "source": "b0b8eb7f6fa1d5bf"
+    },
+    "your-ai-slop-bores-me": {
+      "art": "art/your-ai-slop-bores-me.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.688,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.843
+      },
+      "crop": [
+        0,
+        37,
+        616,
+        615
+      ],
+      "mask": "your-ai-slop-bores-me.png",
+      "source": "db9ef11bfc2d37f6"
+    }
+  }
+}

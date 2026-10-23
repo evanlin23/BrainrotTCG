@@ -1,0 +1,224 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {
+    "remember-november": "round"
+  },
+  "stickers": {
+    "ai-rumpelstiltskin": {
+      "art": "art/ai-rumpelstiltskin.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.552,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.576
+      },
+      "crop": [
+        0,
+        0,
+        888,
+        1038
+      ],
+      "mask": "ai-rumpelstiltskin.png",
+      "source": "37dc954e0bc70ec1"
+    },
+    "black-cat-clapping": {
+      "art": "art/black-cat-clapping.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.687,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.737
+      },
+      "crop": [
+        5,
+        0,
+        602,
+        720
+      ],
+      "mask": "black-cat-clapping.png",
+      "source": "641a673ba3fe6784"
+    },
+    "bukangi": {
+      "art": "art/bukangi.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.027,
+        "mainShare": 0.999,
+        "edges": 0,
+        "solidity": 0.557
+      },
+      "flag": "tiny",
+      "crop": [
+        41,
+        53,
+        376,
+        376
+      ],
+      "source": "c816872b1d2cf403"
+    },
+    "chile-memes": {
+      "art": "art/chile-memes.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.408,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.589
+      },
+      "crop": [
+        0,
+        101,
+        496,
+        502
+      ],
+      "mask": "chile-memes.png",
+      "source": "0a481d618fb0feb5"
+    },
+    "huss-valley": {
+      "art": "art/huss-valley.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.21,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.569
+      },
+      "crop": [
+        78,
+        25,
+        225,
+        551
+      ],
+      "mask": "huss-valley.png",
+      "source": "5f51820c6e111700"
+    },
+    "jimothy": {
+      "art": "art/jimothy.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.226,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.675
+      },
+      "crop": [
+        106,
+        106,
+        326,
+        375
+      ],
+      "mask": "jimothy.png",
+      "source": "8575225ac6dc3b85"
+    },
+    "la-peace": {
+      "art": "art/la-peace.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.543,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.687
+      },
+      "crop": [
+        0,
+        120,
+        616,
+        600
+      ],
+      "mask": "la-peace.png",
+      "source": "a0d07c0a665278d8"
+    },
+    "niu-lai": {
+      "art": "art/niu-lai.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.553,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.645
+      },
+      "crop": [
+        0,
+        2,
+        616,
+        645
+      ],
+      "mask": "niu-lai.png",
+      "source": "fe8f9d85ee37efa9"
+    },
+    "pirate-gaster": {
+      "art": "art/pirate-gaster.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.435,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.636
+      },
+      "crop": [
+        27,
+        0,
+        661,
+        1038
+      ],
+      "mask": "pirate-gaster.png",
+      "source": "415ba0c12f18be2b"
+    },
+    "remember-november": {
+      "art": "art/remember-november.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.282,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.821
+      },
+      "override": true,
+      "crop": [
+        39,
+        0,
+        505,
+        505
+      ],
+      "source": "f910ef224c71719f"
+    },
+    "steal-an-egg": {
+      "art": "art/steal-an-egg.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.25,
+        "mainShare": 0.516,
+        "edges": 1,
+        "solidity": 0.626
+      },
+      "flag": "fragmented",
+      "crop": [
+        6,
+        0,
+        394,
+        369
+      ],
+      "source": "76c3f69b88133d5c"
+    },
+    "verity": {
+      "art": "art/verity.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.094,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.789
+      },
+      "crop": [
+        112,
+        162,
+        161,
+        162
+      ],
+      "mask": "verity.png",
+      "source": "02e0516455651046"
+    }
+  }
+}

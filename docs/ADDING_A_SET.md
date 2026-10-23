@@ -64,13 +64,15 @@ npx tsx scripts/cards/preview.ts my-set /tmp/my-set.png
 
 1. Add the import to `src/content/sets/index.ts` and put it in `ALL_SET_VERSIONS` (array order is
    timeline order).
-2. Run:
+2. Cut the pack's stickers from the set's art (once, by hand; setup in
+   `scripts/cards/stickers-requirements.txt`, review steps in docs/ART_STYLE.md), then build:
    ```bash
+   python3 scripts/cards/cut-stickers.py --set my-set   # writes src/content/sets/my-set/stickers/
    npm run cards
    npm run check:sets -- --update   # locks my-set@1
    npm run check
    ```
-3. Commit `set.json`, `art/`, `cards/`, `pack.webp`, `pack-thumb.webp`, `CREDITS.md` and `sets.lock.json`, then
+3. Commit `set.json`, `art/`, `cards/`, `stickers/`, `pack.webp`, `pack-thumb.webp`, `CREDITS.md` and `sets.lock.json`, then
    open a PR.
 4. Optionally run `npm run og-image` so link previews show the newest sets.
 

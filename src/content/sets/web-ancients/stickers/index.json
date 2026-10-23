@@ -1,0 +1,222 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "arrow-to-the-knee": {
+      "art": "art/arrow-to-the-knee.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.347,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.624
+      },
+      "crop": [
+        112,
+        41,
+        390,
+        660
+      ],
+      "mask": "arrow-to-the-knee.png",
+      "source": "1e0a44beaa931a65"
+    },
+    "ceiling-cat": {
+      "art": "art/ceiling-cat.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.159,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.585
+      },
+      "crop": [
+        33,
+        83,
+        239,
+        147
+      ],
+      "mask": "ceiling-cat.png",
+      "source": "b1b7c6d92eedfc96"
+    },
+    "double-rainbow": {
+      "art": "art/double-rainbow.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.003,
+        "mainShare": 0.347,
+        "edges": 0,
+        "solidity": 0.525
+      },
+      "flag": "tiny",
+      "crop": [
+        19,
+        40,
+        346,
+        324
+      ],
+      "source": "f14b9e22264de3d1"
+    },
+    "dramatic-chipmunk": {
+      "art": "art/dramatic-chipmunk.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.524,
+        "mainShare": 0.999,
+        "edges": 2,
+        "solidity": 0.816
+      },
+      "crop": [
+        0,
+        115,
+        370,
+        371
+      ],
+      "mask": "dramatic-chipmunk.png",
+      "source": "bf158a61c09626d4"
+    },
+    "forever-alone": {
+      "art": "art/forever-alone.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.027,
+        "mainShare": 0.45,
+        "edges": 0,
+        "solidity": 0.374
+      },
+      "flag": "tiny",
+      "crop": [
+        35,
+        56,
+        513,
+        513
+      ],
+      "source": "45e6073ca1da03f4"
+    },
+    "gangnam-style": {
+      "art": "art/gangnam-style.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.234,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.692
+      },
+      "crop": [
+        110,
+        185,
+        274,
+        386
+      ],
+      "mask": "gangnam-style.png",
+      "source": "c4def7bacf93e7f2"
+    },
+    "i-can-has-cheezburger": {
+      "art": "art/i-can-has-cheezburger.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.45,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.776
+      },
+      "crop": [
+        54,
+        25,
+        177,
+        273
+      ],
+      "mask": "i-can-has-cheezburger.png",
+      "source": "03039ac0a61aaac1"
+    },
+    "longcat": {
+      "art": "art/longcat.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.319,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.441
+      },
+      "crop": [
+        20,
+        17,
+        289,
+        397
+      ],
+      "mask": "longcat.png",
+      "source": "7e38f2f06a97ec9a"
+    },
+    "me-gusta": {
+      "art": "art/me-gusta.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.112,
+        "mainShare": 0.463,
+        "edges": 0,
+        "solidity": 0.379
+      },
+      "flag": "fragmented",
+      "crop": [
+        35,
+        42,
+        799,
+        747
+      ],
+      "source": "c85d407035492697"
+    },
+    "philosoraptor": {
+      "art": "art/philosoraptor.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.275,
+        "mainShare": 0.873,
+        "edges": 0,
+        "solidity": 0.638
+      },
+      "crop": [
+        17,
+        88,
+        299,
+        224
+      ],
+      "mask": "philosoraptor.png",
+      "source": "a7790b6757e41607"
+    },
+    "trololo-guy": {
+      "art": "art/trololo-guy.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.684,
+        "mainShare": 1.0,
+        "edges": 3,
+        "solidity": 0.852
+      },
+      "flag": "scenery",
+      "crop": [
+        111,
+        0,
+        505,
+        505
+      ],
+      "source": "674bf2e894fbd984"
+    },
+    "y-u-no-guy": {
+      "art": "art/y-u-no-guy.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.397,
+        "mainShare": 0.99,
+        "edges": 0,
+        "solidity": 0.808
+      },
+      "crop": [
+        67,
+        56,
+        489,
+        485
+      ],
+      "mask": "y-u-no-guy.png",
+      "source": "6c803fbce317873e"
+    }
+  }
+}

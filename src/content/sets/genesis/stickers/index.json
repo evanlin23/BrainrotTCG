@@ -1,0 +1,348 @@
+{
+  "tool": "cut-stickers.py v1 (rembg 2.0.86, isnet-general-use)",
+  "overrides": {},
+  "stickers": {
+    "amogus": {
+      "art": "art/amogus.card.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.075,
+        "mainShare": 0.818,
+        "edges": 0,
+        "solidity": 0.209
+      },
+      "flag": "stringy",
+      "crop": [
+        194,
+        280,
+        341,
+        341
+      ],
+      "source": "ade1f240e859e8b1"
+    },
+    "ballerina-cappuccina": {
+      "art": "art/ballerina-cappuccina.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.363,
+        "mainShare": 0.998,
+        "edges": 1,
+        "solidity": 0.757
+      },
+      "crop": [
+        136,
+        234,
+        369,
+        293
+      ],
+      "mask": "ballerina-cappuccina.png",
+      "source": "8e3a679831cd8c6f"
+    },
+    "big-chungus": {
+      "art": "art/big-chungus.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.23,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.505
+      },
+      "crop": [
+        217,
+        231,
+        243,
+        437
+      ],
+      "mask": "big-chungus.png",
+      "source": "fe0e12a76b61fc5f"
+    },
+    "bombardino-crocodilo": {
+      "art": "art/bombardino-crocodilo.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.239,
+        "mainShare": 0.904,
+        "edges": 1,
+        "solidity": 0.769
+      },
+      "crop": [
+        136,
+        273,
+        340,
+        212
+      ],
+      "mask": "bombardino-crocodilo.png",
+      "source": "26c4102cfc462fee"
+    },
+    "bombini-gusini": {
+      "art": "art/bombini-gusini.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.256,
+        "mainShare": 0.997,
+        "edges": 1,
+        "solidity": 0.416
+      },
+      "crop": [
+        169,
+        278,
+        383,
+        357
+      ],
+      "mask": "bombini-gusini.png",
+      "source": "eca30991c15a9000"
+    },
+    "boneca-ambalabu": {
+      "art": "art/boneca-ambalabu.card.jpg",
+      "kind": "die",
+      "grades": {
+        "subject": 0.376,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.582
+      },
+      "crop": [
+        220,
+        235,
+        298,
+        484
+      ],
+      "mask": "boneca-ambalabu.png",
+      "source": "ea3a46490b43aae6"
+    },
+    "brr-brr-patapim": {
+      "art": "art/brr-brr-patapim.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.504,
+        "mainShare": 0.999,
+        "edges": 2,
+        "solidity": 0.53
+      },
+      "crop": [
+        140,
+        228,
+        412,
+        491
+      ],
+      "mask": "brr-brr-patapim.png",
+      "source": "98137e80d7247303"
+    },
+    "buh67": {
+      "art": "art/buh67.card.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.517,
+        "mainShare": 1.0,
+        "edges": 3,
+        "solidity": 0.577
+      },
+      "flag": "scenery",
+      "crop": [
+        172,
+        259,
+        341,
+        341
+      ],
+      "source": "c2412fc6c407d34c"
+    },
+    "chimpanzini-bananini": {
+      "art": "art/chimpanzini-bananini.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.468,
+        "mainShare": 0.999,
+        "edges": 1,
+        "solidity": 0.539
+      },
+      "crop": [
+        160,
+        228,
+        392,
+        482
+      ],
+      "mask": "chimpanzini-bananini.png",
+      "source": "e59a8d3c893ab0d3"
+    },
+    "clavicular": {
+      "art": "art/clavicular.card.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.76,
+        "mainShare": 0.999,
+        "edges": 4,
+        "solidity": 0.76
+      },
+      "flag": "scenery",
+      "crop": [
+        176,
+        228,
+        341,
+        341
+      ],
+      "source": "3f97713e861ed9e5"
+    },
+    "duh67": {
+      "art": "art/duh67.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.505,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.678
+      },
+      "crop": [
+        223,
+        232,
+        329,
+        487
+      ],
+      "mask": "duh67.png",
+      "source": "b3e730426ff35bf7"
+    },
+    "gigachad": {
+      "art": "art/gigachad.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.24,
+        "mainShare": 1.0,
+        "edges": 0,
+        "solidity": 0.764
+      },
+      "crop": [
+        225,
+        228,
+        234,
+        316
+      ],
+      "mask": "gigachad.png",
+      "source": "154431b423414311"
+    },
+    "john-pork": {
+      "art": "art/john-pork.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.555,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.748
+      },
+      "crop": [
+        136,
+        306,
+        386,
+        413
+      ],
+      "mask": "john-pork.png",
+      "source": "05a810267d8da53e"
+    },
+    "locked-in-alien": {
+      "art": "art/locked-in-alien.card.png",
+      "kind": "round",
+      "grades": {
+        "subject": 0.252,
+        "mainShare": 0.592,
+        "edges": 2,
+        "solidity": 0.719
+      },
+      "flag": "fragmented",
+      "crop": [
+        179,
+        228,
+        341,
+        341
+      ],
+      "source": "7e40af2f1882e278"
+    },
+    "meowl": {
+      "art": "art/meowl.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.456,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.8
+      },
+      "crop": [
+        246,
+        228,
+        264,
+        487
+      ],
+      "mask": "meowl.png",
+      "source": "717b2fa9f962e19e"
+    },
+    "skibidi-toilet": {
+      "art": "art/skibidi-toilet.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.666,
+        "mainShare": 1.0,
+        "edges": 2,
+        "solidity": 0.8
+      },
+      "crop": [
+        167,
+        228,
+        366,
+        491
+      ],
+      "mask": "skibidi-toilet.png",
+      "source": "6ac1c0df9702138b"
+    },
+    "suh67": {
+      "art": "art/suh67.card.png",
+      "kind": "rect",
+      "grades": {
+        "subject": 0.597,
+        "mainShare": 1.0,
+        "edges": 3,
+        "solidity": 0.706
+      },
+      "flag": "scenery",
+      "crop": [
+        170,
+        228,
+        374,
+        354
+      ],
+      "source": "bb84145b568856ff"
+    },
+    "tralalero-tralala": {
+      "art": "art/tralalero-tralala.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.148,
+        "mainShare": 0.943,
+        "edges": 1,
+        "solidity": 0.304
+      },
+      "crop": [
+        248,
+        341,
+        304,
+        358
+      ],
+      "mask": "tralalero-tralala.png",
+      "source": "ba98afed2992dfda"
+    },
+    "tung-tung-tung-sahur": {
+      "art": "art/tung-tung-tung-sahur.card.png",
+      "kind": "die",
+      "grades": {
+        "subject": 0.265,
+        "mainShare": 1.0,
+        "edges": 1,
+        "solidity": 0.573
+      },
+      "crop": [
+        223,
+        228,
+        214,
+        491
+      ],
+      "mask": "tung-tung-tung-sahur.png",
+      "source": "0887c6b0c525d2d3"
+    }
+  }
+}
