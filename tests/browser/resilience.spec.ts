@@ -55,9 +55,9 @@ const cardCount = (collection: Record<string, { normalCount: number; holoCount: 
 let saved: Record<string, string>;
 
 test.beforeAll(async ({ browser }, testInfo) => {
-  if (testInfo.project.name !== 'desktop-chromium') return;
+  if (testInfo.project.use.isMobile) return;
   const baseURL = testInfo.project.use.baseURL!;
-  const context = await browser.newContext({ baseURL });
+  const context = await browser.newContext({ baseURL, serviceWorkers: 'block' });
   const page = await context.newPage();
   const errors = await monitor(page, baseURL);
   await page.goto('./');
@@ -239,6 +239,8 @@ test.describe('offline mid-session', () => {
       cut.push(route.request().url());
       return route.abort('internetdisconnected');
     });
+    // Each toggle comes once the page is idle, but the browser's own favicon fetch can still be in flight, so
+    // in-flight requests aren't counted here; the exact error list at the end fails on any other cut request.
     const setOffline = async (value: boolean) => {
       offline = value;
       await page.context().setOffline(value);
