@@ -11,6 +11,13 @@ export interface InboxContext {
   seen: Set<string>;
   /** Pull ids already in the Hall of Fame (any state); updated as entries are filed. */
   filed: Set<string>;
+  /**
+   * Of `filed`, the ones known only from a filed index kept from an earlier run, not from this run's
+   * listing. An event for one is passed over but not marked seen, so if its issue has gone since the
+   * index was listed, a later full listing that reads the event again (while it is in the relay
+   * window) lets it be filed.
+   */
+  unconfirmed?: Set<string>;
   /** How many pulls may be re-derived this run (about 0.1 s each). */
   budget: number;
   /** How many entries may be filed this run, so a burst of real pulls can't flood the issue tracker. */
@@ -177,6 +184,40 @@ export const seenCacheText = (seen: Iterable<string>, createdAt: ReadonlyMap<str
 export const everyRelayFailed = (perRelay: readonly { relay: string; count: number; error?: string }[]): boolean =>
   perRelay.length > 0 && perRelay.every((r) => r.error !== undefined && r.count === 0);
 
+/**
+ * Every `verified` Hall of Fame issue as of one full listing (`listedAt`, ms): issue number to the
+ * pull id its proof holds and that proof's display name (kept so name rules apply as they are when
+ * it is read). Intake keeps it between runs so it doesn't list every `verified` issue each time.
+ */
+export interface FiledIndex {
+  listedAt: number;
+  issues: Record<string, [id: string, name: string]>;
+}
+
+/**
+ * The filed index from its file, or null (list every `verified` issue again) if it is malformed, from
+ * the future, or older than `maxAgeMs`: changes that leave no trace in a later listing (an issue
+ * deleted, or its `hall-of-fame` label removed) last at most that long.
+ */
+export const parseFiledIndex = (text: string, nowMs: number, maxAgeMs: number): FiledIndex | null => {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== 'object') return null;
+  const { listedAt, issues } = data as Record<string, unknown>;
+  if (!Number.isSafeInteger(listedAt) || (listedAt as number) > nowMs || (listedAt as number) < nowMs - maxAgeMs) return null;
+  if (!issues || typeof issues !== 'object' || Array.isArray(issues)) return null;
+  const entries = Object.entries(issues);
+  const ok = entries.every(
+    ([number, entry]) =>
+      /^[1-9]\d*$/.test(number) && Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string' && entry[0] !== '' && typeof entry[1] === 'string',
+  );
+  return ok ? { listedAt: listedAt as number, issues: Object.fromEntries(entries) as FiledIndex['issues'] } : null;
+};
+
 /** The probe's line for one relay; a relay's OK message and reason for closing are its own text. */
 export const probeLine = (relay: string, sent: PublishResult, read: { count: number; error?: string }): string =>
   `${relay}: write ${sent.ok ? 'ok' : `failed (${logSafeError(sent.message)})`}, read ${read.count > 0 ? 'ok' : `failed (${logSafeError(read.error ?? 'not found')})`}`;
@@ -184,14 +225,23 @@ export const probeLine = (relay: string, sent: PublishResult, read: { count: num
 /** The deploy's line for a Hall of Fame issue it leaves out; the reason can quote the proof. */
 export const buildSkipLine = (issue: number, reason: string): string => `#${issue}: skipped (${logSafeError(reason)})`;
 
-/** Oldest first; each pull is filed at most once, and only if it verifies and qualifies. */
-export const processInbox = async (events: readonly NostrEvent[], ctx: InboxContext): Promise<{ added: number; deferred: number }> => {
+/**
+ * Oldest first; each pull is filed at most once, and only if it verifies and qualifies. `deferred`
+ * events were left for the next run; `unconfirmedFrom` is the time of the oldest event passed over
+ * for an `unconfirmed` pull (not marked seen), if any, so the caller doesn't count it as handled.
+ */
+export const processInbox = async (events: readonly NostrEvent[], ctx: InboxContext): Promise<{ added: number; deferred: number; unconfirmedFrom?: number }> => {
   let added = 0;
   let budget = ctx.budget;
+  let unconfirmedFrom: number | undefined;
   const ordered = handlingOrder(events);
   for (const [i, event] of ordered.entries()) {
     if (ctx.seen.has(event.id)) continue;
-    const proof = verifyEvent(event) ? proofFromEvent(event) : null;
+    // The inbox reads relays with lazySignatures, so this is where an event's signature is checked:
+    // only for events not handled yet. One that fails isn't marked seen, as fetchEvents never kept it
+    // before, so a good copy read on a later run still counts.
+    if (!verifyEvent(event)) continue;
+    const proof = proofFromEvent(event);
     let decoded: PullProof | null;
     let id: string | null;
     try {
@@ -202,7 +252,8 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       id = null;
     }
     if (!proof || !decoded || !id || ctx.filed.has(id)) {
-      ctx.seen.add(event.id);
+      if (!id || !ctx.unconfirmed?.has(id)) ctx.seen.add(event.id);
+      else unconfirmedFrom ??= event.created_at;
       continue;
     }
     // A blocked display name is never filed (see isNameAllowed), so its proof isn't worth checking.
@@ -219,7 +270,7 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       continue;
     }
     // The rest wait for the next run.
-    if (added >= ctx.maxFiled || budget-- <= 0) return { added, deferred: ordered.length - i };
+    if (added >= ctx.maxFiled || budget-- <= 0) return { added, deferred: ordered.length - i, unconfirmedFrom };
     ctx.seen.add(event.id);
     let pull: VerifiedPull;
     try {
@@ -238,10 +289,10 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
       // GitHub hiccup: leave this event unhandled so the next run tries again, and stop for now.
       ctx.seen.delete(event.id);
       ctx.log?.(`${event.id}: couldn't file it (${logSafeError(error)}); will retry`);
-      return { added, deferred: ordered.length - i };
+      return { added, deferred: ordered.length - i, unconfirmedFrom };
     }
     ctx.filed.add(id);
     added++;
   }
-  return { added, deferred: 0 };
+  return { added, deferred: 0, unconfirmedFrom };
 };

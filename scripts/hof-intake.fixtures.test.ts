@@ -18,6 +18,12 @@ import { BOT, FakeGitHub, FakeRelays, offlineNetwork, type FakeComment, type Fak
 import { build, inbox } from './hall-of-fame.ts';
 import { processInbox } from './hof-inbox.ts';
 
+// Count signature checks (schnorr is frozen, so it can't be spied on in place).
+vi.mock('@noble/curves/secp256k1.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@noble/curves/secp256k1.js')>();
+  return { ...actual, schnorr: { ...actual.schnorr, verify: vi.fn(actual.schnorr.verify) } };
+});
+
 /** The frozen clock (only `Date`; timers stay real so the relay reader's timeouts work). */
 const NOW = Date.parse('2026-10-16T12:00:00Z');
 const at = (secondsAgo: number) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -198,6 +204,29 @@ describe('inbox: malformed relay data', () => {
     logs.length = 0;
     await inbox();
     expect(logs.some((l) => l.includes("didn't verify") || l.includes("doesn't make"))).toBe(false);
+    expect(gh.writes()).toEqual(FILING);
+  });
+});
+
+describe('inbox: signature checks (#1000)', () => {
+  it('checks the signature of each event it handles once, and none of the events it has handled', async () => {
+    const real = submit(fourOfAKind, 60);
+    const badSig = { ...real, sig: (real.sig[0] === '0' ? '1' : '0') + real.sig.slice(1) };
+    const served = [submit(pair, 300), submit(forged, 200), submit(invalid('unknown set'), 100), real];
+    // One relay serves the real event with a bad signature first; the copy that verifies is kept.
+    net.relays = relays({ ...Object.fromEntries(HOF_RELAYS.map((r) => [r, { events: served }])), [HOF_RELAYS[0]]: { events: [badSig, ...served.slice(0, -1)] } });
+    const gh = (net.github = new FakeGitHub());
+    vi.mocked(schnorr.verify).mockClear();
+    await inbox();
+    expect(gh.writes()).toEqual(FILING);
+    // One check per event handled, and one for the copy that differs from the kept one.
+    expect(vi.mocked(schnorr.verify).mock.calls.length).toBe(served.length + 1);
+
+    // Read again on every run, but already handled: no signature is checked.
+    net.relays = everywhere(served);
+    vi.mocked(schnorr.verify).mockClear();
+    await inbox();
+    expect(vi.mocked(schnorr.verify).mock.calls.length).toBe(0);
     expect(gh.writes()).toEqual(FILING);
   });
 });
