@@ -416,8 +416,11 @@ test.describe('offline mid-session', () => {
     // The next pack's ticket mines only once the connection is down, so prefetchNextPack can't put this
     // pack's art in the memory cache first (it fetches the pictures as soon as the ticket is in).
     await holdTickets(page);
+    // The confetti library is fetched once the packs screen idles; the connection only drops after it is in.
+    const confettiLoaded = page.waitForResponse((response) => /\/confettiEffects-[^/]+\.js$/.test(response.url()));
     await page.goto('./');
     await packsScreen(page);
+    await confettiLoaded;
 
     // Offline: the pack opens and is recorded; only pictures fail to load. It opens before any card art
     // has shown on this page (Rankings shows the saved pack's), and its prefetch ran offline, so none of
@@ -463,6 +466,90 @@ test.describe('offline mid-session', () => {
       ...cut.flatMap((url) => [`net::ERR_INTERNET_DISCONNECTED ${url}`, 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED']),
       ...finishes,
     ].sort());
+  });
+});
+
+test.describe('Argon2 chunk fetched ahead (#776)', () => {
+  test('a pack still opens offline when the ticket worker fails and mining falls back to the main thread', async ({ page, baseURL }) => {
+    const errors = await seedSave(page, baseURL!);
+    let offline = false;
+    const cut: string[] = [];
+    await relaysAnswerEmpty(page, () => offline);
+    await page.route('**/*', (route) => {
+      if (!offline) return route.fallback();
+      cut.push(route.request().url());
+      return route.abort('internetdisconnected');
+    });
+    // A ticket worker that takes its jobs and then fails, as one that can't start does: mining goes to the
+    // main thread, which needs Argon2 in the page itself. Its jobs wait until `__failTicketWorker`, so the
+    // failure comes only once the connection is down.
+    await page.addInitScript(() => {
+      let failed = false;
+      const waiting: FailingWorker[] = [];
+      class FailingWorker {
+        onmessage: unknown = null;
+        onerror: ((event: unknown) => void) | null = null;
+        postMessage() {
+          if (failed) queueMicrotask(() => this.fail());
+          else if (!waiting.includes(this)) waiting.push(this);
+        }
+        fail() { this.onerror?.({ preventDefault() {}, message: 'blocked' }); }
+        terminate() {}
+      }
+      window.Worker = FailingWorker as unknown as typeof Worker;
+      Object.defineProperty(window, '__failTicketWorker', {
+        value: () => { failed = true; waiting.splice(0).forEach((worker) => worker.fail()); },
+      });
+    });
+    // The Argon2 chunk comes with the card back once the packs screen idles; the connection only drops after it is in.
+    const argon2Loaded = page.waitForResponse((response) => /\/argon2-[^/]+\.js$/.test(response.url()));
+    await page.goto('./');
+    await packsScreen(page);
+    await argon2Loaded;
+
+    offline = true;
+    await page.context().setOffline(true);
+    await page.evaluate(() => (window as unknown as { __failTicketWorker: () => void }).__failTicketWorker());
+    await openOne(page);
+    expect(await tickets(page)).toEqual([0, 1]);
+    expect(await nextNonce(page)).toBe(2);
+    expect(cardCount((await snapshot(page)).collection)).toBe(10);
+    // Only pictures were cut: nothing the main-thread mining needed was missing.
+    expect(cut.filter((url) => !/\.(webp|png|svg)$/.test(new URL(url).pathname))).toEqual([]);
+    const art = page.locator('.summary-cards img');
+    await expect(art).toHaveCount(5);
+    for (const image of await art.all()) await expect(image).toHaveAttribute('data-state', 'failed');
+
+    // Back online, the art loads in place; by then every cut request has been reported.
+    offline = false;
+    await page.context().setOffline(false);
+    await expectDecoded(art, 5);
+    const finishes = errors.filter((error) => error.startsWith('Could not render card finish '));
+    for (const finish of finishes) expect(cut.some((url) => finish.includes(new URL(url).pathname)), finish).toBe(true);
+    expect([...errors].sort()).toEqual([
+      ...cut.flatMap((url) => [`net::ERR_INTERNET_DISCONNECTED ${url}`, 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED']),
+      ...finishes,
+    ].sort());
+  });
+});
+
+test.describe('confetti library cut', () => {
+  test('a pack still opens, is recorded and throws nothing when the confetti chunk never arrives', async ({ page, baseURL }) => {
+    const errors = await seedSave(page, baseURL!);
+    const cut: string[] = [];
+    await page.route('**/confettiEffects-*.js', (route) => {
+      cut.push(route.request().url());
+      return route.abort('failed');
+    });
+    await page.goto('./');
+    await packsScreen(page);
+    await openOne(page);
+
+    expect(cut.length).toBeGreaterThan(0);
+    expect(await tickets(page)).toEqual([0, 1]);
+    expect(cardCount((await snapshot(page)).collection)).toBe(10);
+    // The only errors are the cut requests themselves: nothing thrown or rejected unhandled.
+    expect([...errors].sort()).toEqual(cut.flatMap((url) => [`net::ERR_FAILED ${url}`, 'Failed to load resource: net::ERR_FAILED']).sort());
   });
 });
 
