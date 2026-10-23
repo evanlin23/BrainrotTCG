@@ -594,6 +594,7 @@ describe('browser-tests.yml Playwright jobs (#658)', () => {
     'browser-shard': 'browser-tests shard ${{ matrix.shard }}/3',
     'browser-burn-in': 'browser-burn-in shard ${{ matrix.shard }}/3',
     'cross-browser-smoke': 'cross-browser-smoke',
+    'visual-baselines': 'visual-baselines',
   };
   const runners = Object.entries(all).filter(([, job]) => /npx playwright|npm run test:(browser|visual)/.test(job.join('\n')));
 
@@ -602,7 +603,10 @@ describe('browser-tests.yml Playwright jobs (#658)', () => {
   });
 
   it.each(Object.entries(names))('%s keeps its name', (id, name) => {
-    expect(all[id].join('\n')).toMatch(new RegExp(`^ {4}name: ${name.replace(/[$.{}/]/g, '\\$&')}$`, 'm'));
+    const job = all[id].join('\n');
+    // A job without a `name:` is checked under its id.
+    if (!/^ {4}name: /m.test(job)) expect(id).toBe(name);
+    else expect(job).toMatch(new RegExp(`^ {4}name: ${name.replace(/[$.{}/]/g, '\\$&')}$`, 'm'));
   });
 
   it.each(Object.keys(names))(

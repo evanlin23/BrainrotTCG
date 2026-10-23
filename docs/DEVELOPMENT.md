@@ -275,7 +275,7 @@ Add `{ tag: '@cross-browser' }` to a test to include it, and keep the set small:
 suite. Every test uses the same network guard as the Chromium suite (no outside HTTP or WebSockets, a disposable
 identity, nothing published, exported or shared natively). The reporter prints each project's engine, version and
 passed, failed, skipped and flaky counts, and adds them to the CI job summary. Install the browsers once with
-`npx playwright install --with-deps firefox webkit`. CI runs this job, the `browser-tests` shards and the `browser-burn-in` shards in Playwright's official image
+`npx playwright install --with-deps firefox webkit`. CI runs this job, the `browser-tests` shards, the `browser-burn-in` shards and `visual-baselines` in Playwright's official image
 (`mcr.microsoft.com/playwright`, tag equal to the `@playwright/test` version and pinned by digest), which already holds the
 browsers and their libraries, so none of them installs anything; when you bump Playwright, bump the tag and digest in all of
 them (`scripts/hof-workflows.test.ts` fails until they match). The Chromium there is the image's, not your machine's, so a

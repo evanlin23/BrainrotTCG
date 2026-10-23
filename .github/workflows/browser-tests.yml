@@ -8,13 +8,13 @@ on:
 permissions:
   contents: read
 
-# Every job here that runs Playwright (the shards, the burn-in and the cross-browser smoke) runs in
-# Playwright's official image, whose tag must equal the installed @playwright/test (a test in
-# scripts/hof-workflows.test.ts checks it and that the digest is pinned like the actions). The image
+# Every job here that runs Playwright (the shards, the burn-in, the cross-browser smoke and the visual
+# baselines) runs in Playwright's official image, whose tag must equal the installed @playwright/test
+# (a test in scripts/hof-workflows.test.ts checks it and that the digest is pinned like the actions). The image
 # already holds the browsers and their system libraries, so no run installs packages from an outside
 # mirror: `playwright install --with-deps` runs apt-get update, which fails whenever one of the
 # runner image's third-party apt sources is down or unsigned. Bump the tag and digest together with
-# Playwright, in all three jobs (docs/DEVELOPMENT.md).
+# Playwright, in all four jobs (docs/DEVELOPMENT.md).
 # `--user 1001` is the runner's user: Firefox won't run as root without a HOME, and the checkout and
 # the npm cache belong to it. `--ipc=host` gives Chromium the host's /dev/shm, not Docker's 64 MB.
 jobs:
