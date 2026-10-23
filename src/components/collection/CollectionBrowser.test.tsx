@@ -97,8 +97,13 @@ const unboundedPockets = (collection: Record<string, CollectionItem>) =>
     const have = getSetCards(set.id).filter((card) => collection[card.key]).length;
     return have === 0 ? n : n + (isOpenable(set) ? getSetCards(set.id).length : have);
   }, 0);
+/**
+ * Opens every collapsed era in one batch. One act per header re-rendered the whole page, every grid
+ * already open included, once per era: quadratic work that took seconds on a loaded machine.
+ */
 const expandAll = () => {
-  for (const header of headers()) if (header.getAttribute('aria-expanded') === 'false') act(() => header.click());
+  const collapsed = headers().filter((header) => header.getAttribute('aria-expanded') === 'false');
+  act(() => { for (const header of collapsed) header.click(); });
 };
 
 describe('bounded collection grid (#344)', () => {
@@ -210,7 +215,9 @@ describe('bounded collection grid (#344)', () => {
 
 describe('every owned card stays reachable', () => {
   it('shows every owned card, its counts and collector number, and the totals, once each era is opened', () => {
-    addFutureSets();
+    // A few eras past today's prove newer art is reachable too; the 40-era scale is the bound test's job,
+    // and opening 30 more eras here meant mounting ~1,000 tiles in jsdom for no extra coverage.
+    addFutureSets(3);
     // Every seventh card missing, so openable eras show empty pockets and archived ones skip them.
     const collection = own(ALL_CARDS, (i) => i % 7 === 3);
     const owned = Object.values(collection);

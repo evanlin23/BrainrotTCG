@@ -184,7 +184,7 @@ export const REVIEW_CRITERIA: readonly string[] = [
 ];
 
 export interface Change { file: string; commits: number; lines: number }
-export interface SliceItem { kind: 'journey' | 'hotspot'; id: string | null; detail: string }
+export interface SliceItem { kind: 'journey' | 'hotspot' | 'replay'; id: string | null; detail: string }
 
 const isCode = (file: string): boolean =>
   /^(src|scripts)\//.test(file) && /\.(ts|tsx|mjs)$/.test(file) && !/\.(test|spec)\./.test(file);
@@ -237,12 +237,16 @@ export const planSlice = (journey: Journey, hotspot: Change | null, budget: Budg
   add(
     { kind: 'hotspot', id: hotspot?.file ?? null, detail: hotspot ? `${hotspot.commits} commits, ${hotspot.lines} lines: read-only review` : 'no changed code file in range' },
     { tasks: 1, minutes: 10, providerRuns: 0 }, hotspot ? null : 'not applicable: no code changed since the last review', hotspot !== null);
+  // The escaped-defect replay (#758): local, no provider, a couple of minutes. Its signal is its result.
+  add(
+    { kind: 'replay', id: 'defect-replay', detail: 'npx tsx scripts/defect-replay.ts; its defect-replay signal is this item\'s result' },
+    { tasks: 0, minutes: 2, providerRuns: 0 }, null);
   return items;
 };
 
 // --- Evidence --------------------------------------------------------------------------------
 
-export interface Source { id: string; label: string; issue: string; path: string; native?: 'agent-audit' | 'release-blockers' | 'report-only' }
+export interface Source { id: string; label: string; issue: string; path: string; native?: 'agent-audit' | 'release-blockers' | 'report-only' | 'defect-replay' }
 
 export const EVIDENCE_DIR = 'test-results/quality-evidence';
 /**
@@ -260,6 +264,8 @@ export const SOURCES: readonly Source[] = [
   { id: 'release-blockers', label: 'Release blockers record', issue: '#759', path: RECORD_PATH, native: 'release-blockers' },
   { id: 'dependency-advisories', label: 'Dependency advisory disposition', issue: 'docs/DEVELOPMENT.md', path: `${EVIDENCE_DIR}/dependency-advisories.json` },
   { id: 'branch-hygiene', label: 'Branch hygiene', issue: '#710', path: `${EVIDENCE_DIR}/branch-hygiene.json` },
+  // Written by scripts/defect-replay.ts: whether the unit gate still stops a few real escaped defects.
+  { id: 'defect-replay', label: 'Escaped-defect replay', issue: '#758', path: `${EVIDENCE_DIR}/defect-replay.json`, native: 'defect-replay' },
   { id: 'agent-audit', label: 'Agent task audit (simulated reviewers)', issue: '#239', path: 'test-results/agent-audit.json', native: 'agent-audit' },
   // Never inferred from emulation or agent runs: unrun until a person records a result.
   { id: 'physical-device', label: 'Physical device', issue: '#32', path: `${EVIDENCE_DIR}/physical-device.json` },
@@ -352,6 +358,19 @@ const interpretPerformance = (json: Record<string, unknown>, main: MainChecks): 
   return { status: 'pass', date, detail: note };
 };
 
+/** scripts/defect-replay.ts: `{status, date, detail, revision}`. A pass only counts for a commit on origin/main. */
+const interpretReplay = (json: Record<string, unknown>, main: MainChecks): Reading => {
+  const date = stampOf(json);
+  const status = asStatus(json.status);
+  if (!status) return { status: 'unrun', date, detail: 'no recognised status in report' };
+  const revision = typeof json.revision === 'string' && COMMIT_SHA.test(json.revision) ? json.revision : null;
+  const detail = `${clip(json.detail)} at ${revision ? `commit ${revision.slice(0, REV_CHARS)}` : 'no commit recorded'}`;
+  if (status !== 'pass') return { status, date, detail };
+  if (!revision) return { status: 'unrun', date, detail: `${detail}; not a pass: replayed commit unknown` };
+  if (!main.isOnMain(revision)) return { status: 'unrun', date, detail: `${detail}; not a pass: commit is not on ${MAIN_REF}` };
+  return { status, date, detail };
+};
+
 const interpret = (source: Source, read: FileRead, today: string, committed: CommitDates, main: MainChecks): Reading => {
   let json: Record<string, unknown>;
   try { json = JSON.parse(read.text) as Record<string, unknown>; } catch { return { status: 'unrun', date: null, detail: 'unreadable report' }; }
@@ -359,6 +378,7 @@ const interpret = (source: Source, read: FileRead, today: string, committed: Com
   // The blockers record carries no date: its last commit day on origin/main is the only honest one. A file mtime is a checkout time.
   if (source.native === 'release-blockers') return interpretBlockers(json, today, committed[source.path] ?? null, main);
   if (source.native === 'report-only') return interpretPerformance(json, main);
+  if (source.native === 'defect-replay') return interpretReplay(json, main);
   // Only a date the report states is a date. The file's mtime is never freshness (see collectSignals).
   const date = stampOf(json);
   if (source.native === 'agent-audit') {

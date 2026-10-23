@@ -352,6 +352,24 @@ class Workflows(unittest.TestCase):
         self.assertBroken('deploy.yml', 'spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json',
                           'spec/verify_pull.py --vectors spec/vectors.json', 'independent-verifier must end')
 
+    def test_history_gate_removed_or_weakened(self):
+        gate = 'npm run check:history -- --base "$base"\n'
+        for old, new in ((gate, 'true\n'), (gate, gate.rstrip('\n') + ' || true\n'),
+                         ('BEFORE: ${{ github.event.before }}', 'BEFORE: ""'),
+                         ('      - name: Keep old vectors and set locks\n', ('      - name: Keep old vectors and set locks\n'
+                                                                             "        if: needs.site.outputs.host == 'cloudflare'\n"))):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, 'build must always run npm run check:history')
+
+    def test_ci_runs_the_history_gate_on_pull_requests(self):
+        steps = dc.load(WORKFLOWS / 'ci.yml')['jobs']['check']['steps']
+        gate = next(s for s in steps if s.get('name') == 'Keep old vectors and set locks')
+        self.assertEqual(gate, {'name': 'Keep old vectors and set locks', 'if': "github.event_name == 'pull_request'",
+                                'run': 'npm run check:history -- --base HEAD^1'})
+        checkout = next(s for s in steps if str(s.get('uses', '')).startswith('actions/checkout@'))
+        self.assertEqual(checkout.get('with'), {'fetch-depth': 2})
+
     def test_runs_on_other_branches(self):
         self.assertBroken('deploy.yml', 'branches: [main]', 'branches: [main, release]', 'only on pushes to main')
 

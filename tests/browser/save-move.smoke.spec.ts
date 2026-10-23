@@ -55,7 +55,8 @@ test.describe('bringing a save from the old address', () => {
     // The first load makes Vite prepare dependencies; do it before any window is timed.
     const warm = await browser.newContext();
     await (await warm.newPage()).goto(NEW_URL);
-    await expect((await warm.pages())[0].locator('#root')).not.toBeEmpty({ timeout: 90000 });
+    // index.html's placeholder is there from the start; wait for what the app renders in its place.
+    await expect((await warm.pages())[0].locator('#root > :not(.boot-status)')).toBeAttached({ timeout: 90000 });
     await warm.close();
   });
 

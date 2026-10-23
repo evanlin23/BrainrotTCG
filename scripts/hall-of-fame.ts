@@ -77,7 +77,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, parseSeenCache, probeLine, processInbox, relayReadLine, seenCacheText } from './hof-inbox.ts';
+import { buildSkipLine, everyRelayFailed, parseSeenCache, probeLine, processInbox, relayReadLine, seenCacheText } from './hof-inbox.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -521,6 +521,9 @@ export const inbox = async (ticketFn?: TicketFn) => {
   const since = nowS - INBOX_WINDOW_S;
   const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES);
   for (const r of perRelay) console.log(relayReadLine(r));
+  // Nothing was read, so a run that carried on would look fine while unread events age out of the
+  // window. Fail it instead; the seen cache is left as it was.
+  if (everyRelayFailed(perRelay)) throw new Error(`every relay failed (${perRelay.length} of ${perRelay.length}); nothing was read`);
 
   // Pulls already in the Hall of Fame: only verified issues count (`verified`, or `daily`), so an
   // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't

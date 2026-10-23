@@ -4,7 +4,7 @@ import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { decodeProof, encodeProof, pullId, signProof, utf8 } from '../src/engine/index.ts';
 import { hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, logSafeError, parseSeenCache, probeLine, processInbox, relayReadLine, seenCacheText, type InboxContext } from './hof-inbox.ts';
+import { buildSkipLine, everyRelayFailed, logSafeError, parseSeenCache, probeLine, processInbox, relayReadLine, seenCacheText, type InboxContext } from './hof-inbox.ts';
 
 const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.proof;
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
@@ -207,6 +207,16 @@ describe('Hall of Fame seen cache (hall-of-fame.ts inbox)', () => {
     const later = now + 3600;
     const seenAt = new Map([...first, ['real', later - 60]]);
     expect(JSON.parse(seenCacheText(seenAt.keys(), seenAt, later - 7 * 86_400, later, 2)).map(([id]: [string]) => id)).toContain('real');
+  });
+});
+
+describe('Hall of Fame relay outage (hall-of-fame.ts inbox)', () => {
+  const down = { relay: 'wss://a', count: 0, error: 'connection failed' };
+  it('is an outage only when every relay failed without sending an event', () => {
+    expect(everyRelayFailed([down, { ...down, relay: 'wss://b', error: 'timed out' }])).toBe(true);
+    expect(everyRelayFailed([down, { relay: 'wss://b', count: 0 }])).toBe(false); // answered with nothing
+    expect(everyRelayFailed([down, { relay: 'wss://b', count: 3, error: 'timed out' }])).toBe(false); // read, then failed
+    expect(everyRelayFailed([])).toBe(false);
   });
 });
 

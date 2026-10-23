@@ -427,7 +427,9 @@ export const runScenario = async (input: ScenarioInput, opts: { argon?: Awaited<
       const modeledRunS = (tickets * argonMs + (requests.length * cfg.model.githubLatencyMs) + Math.ceil(relayRequests / HOF_RELAYS.length) * cfg.model.relayLatencyMs) / 1000;
       const relaysFailed = logs.filter((l) => /^wss:\/\/\S+: \d+ events \(/.test(l)).length;
       const allRelaysDown = relaysFailed === HOF_RELAYS.length;
-      const unread = error ? 0 : Math.max(0, onRelays - read);
+      // A run that failed for another reason may have read events before it stopped; one that
+      // failed because every relay was down read none.
+      const unread = error && !allRelaysDown ? 0 : Math.max(0, onRelays - read);
       const oldest = unhandled.length ? Math.min(...unhandled.map((e) => e.created_at)) : nowS;
       rows.push({
         run: run + 1, tS, outcome: error ? 'failed' : 'ok', ...(error ? { error } : {}), arrived, onRelays, eventsRead: read, relaysFailed, beyondPaging: allRelaysDown ? 0 : unread, unreadable: allRelaysDown ? unread : 0,
