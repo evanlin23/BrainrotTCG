@@ -222,6 +222,82 @@ describe('KeptAsideActions', () => {
     expect(onGone).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("Couldn't read browser storage to download your recovery file.");
   });
+  describe('the Download started note', () => {
+    const NOTE = 'Download started — keep the recovery file safe.';
+    const status = () => container.querySelector<HTMLElement>('[role="status"]');
+    const stubAnchor = () => vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    // As App renders the banner: inside the save warning, which is a role="alert".
+    const at = (variant: 'banner' | 'settings') => {
+      const actions = <KeptAsideActions variant={variant} canAct={canAct} onGone={onGone} onChanged={onChanged} onLeave={onLeave} />;
+      return variant === 'banner' ? <p role="alert">{actions}</p> : actions;
+    };
+
+    it.each(['settings', 'banner'] as const)('in the %s variant: its own status region is there before Download and says it started afterwards', async (variant) => {
+      await act(() => root.render(at(variant)));
+      stubAnchor();
+      const region = status()!;
+      expect(region, 'a status region from the start').not.toBeNull();
+      expect(region.textContent).toBe('');
+      await click('Download');
+      // The same element, so a screen reader that was watching it hears the text arrive.
+      expect(status()).toBe(region);
+      expect(region.textContent?.trim()).toBe(NOTE);
+      expect(region.getAttribute('aria-live')).toBeNull();
+      // Settings has nothing assertive around the note. In the banner it sits inside the warning's own alert,
+      // which is assertive and atomic: a screen reader may read the warning again with it.
+      expect(region.closest('[aria-live="assertive"], [role="alert"]')?.getAttribute('role') ?? null).toBe(variant === 'banner' ? 'alert' : null);
+    });
+
+    it('announces a repeat Download again: the note is a fresh element each time', async () => {
+      stubAnchor();
+      await click('Download');
+      const first = status()!.firstElementChild;
+      expect(first?.textContent).toBe(NOTE);
+      await click('Download');
+      const second = status()!.firstElementChild;
+      expect(second?.textContent).toBe(NOTE);
+      expect(second).not.toBe(first);
+      expect(first?.isConnected).toBe(false);
+    });
+
+    it('claims no more than that the download started, and clears when a Download fails or Discard asks', async () => {
+      stubAnchor();
+      await click('Download');
+      expect(status()!.textContent).not.toMatch(/saved|downloaded|complete/i);
+      await click('Discard');
+      expect(status()!.textContent).toBe('');
+      await click('Keep it');
+      expect(status()!.textContent).toBe('');
+
+      await click('Download');
+      expect(status()!.textContent).toBe(NOTE);
+      const getItem = Storage.prototype.getItem;
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) => {
+        if (key === STORAGE_KEYS.COLLECTION_RECOVERY) throw new DOMException('denied', 'SecurityError');
+        return getItem.call(localStorage, key);
+      });
+      await click('Download');
+      expect(status()!.textContent).toBe('');
+      expect(container.textContent).toContain("Couldn't read browser storage");
+    });
+
+    it('clears when nothing is left to download', async () => {
+      stubAnchor();
+      await click('Download');
+      expect(status()!.textContent).toBe(NOTE);
+      localStorage.removeItem(STORAGE_KEYS.COLLECTION_RECOVERY);
+      await click('Download');
+      expect(status()!.textContent).toBe('');
+      expect(onGone).toHaveBeenCalledOnce();
+    });
+
+    it('says nothing when this tab may no longer act', async () => {
+      stubAnchor();
+      allowed = false;
+      await click('Download');
+      expect(status()!.textContent).toBe('');
+    });
+  });
 });
 
 describe('KeptAsideActions leaving with focus inside', () => {

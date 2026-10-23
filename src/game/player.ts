@@ -8,6 +8,8 @@ import { keepUnreadableAside } from './collectionRecovery';
 import { ticketsRecorded } from './history';
 
 const STORAGE_KEY = 'brainrot-player-v1';
+/** Where the player is kept: a storage event for it means another tab switched, imported or renamed the player. */
+export const PLAYER_STORAGE_KEY = STORAGE_KEY;
 
 interface StoredPlayer {
   secretKey: string;

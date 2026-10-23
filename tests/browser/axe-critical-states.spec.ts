@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AXE_EXCEPTIONS, AXE_RULES, AXE_STATES, type AxeException, expectAxeClean, invalidExceptions, problems, scanPage, settle } from './axe-scan';
+import { AXE_EXCEPTIONS, AXE_RULES, type AxeException, expectAxeClean, invalidExceptions, problems, scanPage, settle } from './axe-scan';
 import { expectDecoded, monitor } from './support';
 
 /**
@@ -17,7 +17,7 @@ test.describe('critical states', () => {
     const errors = await monitor(page, baseURL!);
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Open pack/ })).toBeVisible();
     await expectDecoded(page.locator('.pack-shell img'), 2);
     await expectAxeClean(page, testInfo, 'first-pack');
     expect(errors).toEqual([]);
@@ -28,7 +28,7 @@ test.describe('critical states', () => {
     const errors = await monitor(page, baseURL!);
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
-    const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+    const pack = page.getByRole('button', { name: /^Open pack/ });
     await pack.focus();
     await page.keyboard.press('Space');
     await page.locator('button.reveal-skip').click({ timeout: 15000 });
@@ -112,11 +112,10 @@ test.describe('the scanner reports what is wrong', () => {
     expect(problems(report)).toEqual(['color-contrast found nothing to check']);
   });
 
-  test('a scan that passed no nodes cannot pass', async ({ page }) => {
-    await page.setContent(page5('<div id="empty"></div>'));
-    const report = await scanPage(page, 'wiring-scope', '#empty');
-    expect(report.passedNodes).toBe(0);
-    expect(problems(report)).toContain('axe passed no nodes at all');
+  test('a scan that passed no nodes cannot pass', () => {
+    const report = { state: 'wiring-none', violations: [], excepted: [], staleExceptions: [], needsReview: [], notApplied: [], passedNodes: 0 };
+    expect(problems(report)).toEqual(['axe passed no nodes at all']);
+    expect(problems({ ...report, passedNodes: 1 })).toEqual([]);
   });
 
   test('the scan waits for a colour transition to finish', async ({ page }) => {
@@ -133,13 +132,27 @@ test.describe('the scanner reports what is wrong', () => {
   });
 
   test('the scan does not wait on a paused animation, and reads a looping one at rest', async ({ page }) => {
-    await page.setContent(page5('<style>@keyframes fade { to { opacity: 0.3 } } .held { animation: fade 600ms paused } .pulse { animation: fade 600ms ease-in-out infinite alternate }'
+    // Both fade to a trough far below the contrast limit; the looping one stays there in the animation's dim phase.
+    await page.setContent(page5('<style>@keyframes dim { from, to { opacity: 0.3 } } .held { animation: dim 600ms paused } .pulse { animation: dim 600ms linear infinite }'
       + ' @media (prefers-reduced-motion: reduce) { .pulse { animation: none } }</style><p class="held">Held words</p><p class="pulse">Pulsing words</p>'));
     expect(await page.evaluate(() => document.getAnimations().length)).toBe(2);
     const report = await scanPage(page, 'wiring-motion');
-    expect(report.violations).toEqual([]);
+    // Only the paused animation is still dim: reduced motion was in force while the pulse was read.
+    expect(report.violations.map((v) => v.selector)).toEqual(['.held']);
     // The page's own motion setting is back once the scan is over.
     expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(false);
+  });
+
+  test('the scan gives back a reduced-motion setting the page already had', async ({ browser, baseURL }) => {
+    const context = await browser.newContext({ baseURL, reducedMotion: 'reduce' });
+    try {
+      const page = await context.newPage();
+      await page.setContent(page5('<p>Words</p>'));
+      await scanPage(page, 'wiring-motion-kept');
+      expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
+    } finally {
+      await context.close();
+    }
   });
 
   test('contrast on art is reported as unjudged, not as passed', async ({ page }) => {
@@ -167,17 +180,17 @@ test.describe('the scanner reports what is wrong', () => {
     const accepted: AxeException = {
       state: 'wiring-exception', rule: 'button-name', selector: '#bare', reason: 'fixture', owner: 'this test', removeWhen: 'never',
     };
-    const covered = await scanPage(page, 'wiring-exception', undefined, [accepted]);
+    const covered = await scanPage(page, 'wiring-exception', [accepted]);
     expect(covered.violations).toEqual([]);
     expect(covered.excepted.map((f) => f.rule)).toEqual(['button-name']);
     expect(problems(covered)).toEqual([]);
 
     // Another selector, another rule or another state accepts nothing, and the unused entry is reported.
     for (const other of [{ selector: '#other' }, { rule: 'link-name' as const }, { state: 'elsewhere' }]) {
-      const report = await scanPage(page, 'wiring-exception', undefined, [{ ...accepted, ...other }]);
+      const report = await scanPage(page, 'wiring-exception', [{ ...accepted, ...other }]);
       expect(report.violations.map((v) => v.rule)).toContain('button-name');
     }
-    const gone = await scanPage(page, 'wiring-exception', undefined, [{ ...accepted, selector: '#gone' }]);
+    const gone = await scanPage(page, 'wiring-exception', [{ ...accepted, selector: '#gone' }]);
     expect(gone.staleExceptions).toHaveLength(1);
     expect(problems(gone).some((line) => line.startsWith('stale exception'))).toBe(true);
   });
@@ -185,7 +198,6 @@ test.describe('the scanner reports what is wrong', () => {
   test('the exception list is complete, and names only listed rules and states', () => {
     expect(invalidExceptions(AXE_EXCEPTIONS)).toEqual([]);
     expect(new Set(AXE_RULES).size).toBe(AXE_RULES.length);
-    expect(new Set(AXE_STATES).size).toBe(AXE_STATES.length);
   });
 
   test('an incomplete or misnamed exception is reported', () => {

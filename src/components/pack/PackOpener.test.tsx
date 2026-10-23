@@ -37,7 +37,7 @@ vi.mock('../../hooks/usePackCutter', () => ({
   },
 }));
 vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
-vi.mock('../../utils/confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
+vi.mock('./confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
 let root: Root;
@@ -166,7 +166,7 @@ describe('a stroke cut short by leaving the page (#266)', () => {
 
 describe('the controls under the pack (#312)', () => {
   const $ = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
-  const openButton = () => $<HTMLButtonElement>('.pack-open-button');
+  const openButton = () => $<HTMLElement>('[data-pack-open]');
   const retryButton = () => $<HTMLButtonElement>('.pack-retry-button');
   const announced = () => $('.pack-opener-container > [aria-live="polite"]')?.textContent;
   /** Past the tear's 460ms pause, to where the ticket is asked for, and let a refused one settle. */
@@ -182,14 +182,18 @@ describe('the controls under the pack (#312)', () => {
 
   it('opens the pack with one press, through the same cut and ticket as a swipe', async () => {
     await render(false);
-    expect(openButton()?.textContent).toBe('Open pack');
-    expect($('.pack-shell')?.getAttribute('role')).toBeNull();
-    expect($('.pack-shell')?.hasAttribute('tabindex')).toBe(false);
+    // The pack is the one control: named for its set, a Tab stop, no other Open pack button.
+    expect(openButton()).toBe($('.pack-shell'));
+    expect(openButton()?.getAttribute('role')).toBe('button');
+    expect(openButton()?.getAttribute('aria-label')).toBe(`Open pack, ${SETS[0].name}`);
+    expect(openButton()?.tabIndex).toBe(0);
+    expect(document.querySelectorAll('button')).toHaveLength(0);
 
     act(() => openButton()!.click());
     expect(cutter.completeCut).toHaveBeenCalledOnce();
-    // Torn: a second press does nothing while the ticket is on its way.
+    // Torn: it says so, and a second press does nothing while the ticket is on its way.
     expect(openButton()?.getAttribute('aria-disabled')).toBe('true');
+    expect(openButton()?.getAttribute('aria-label')).toBe('Opening…');
     act(() => openButton()!.click());
     expect(cutter.completeCut).toHaveBeenCalledOnce();
 
@@ -202,21 +206,19 @@ describe('the controls under the pack (#312)', () => {
     await render(false);
     const shell = $('.pack-shell')!;
     const hint = () => $('.swipe-hint-text')?.textContent;
-    expect(hint()).toBe('Drag across to open');
+    expect(hint()).toBe('Drag across, or click');
     expect(shell.classList.contains('is-short')).toBe(false);
 
     act(() => cutter.shortSwipe());
     expect(shell.classList.contains('is-short')).toBe(true);
-    expect(hint()).toBe('Drag farther or tap Open');
-    expect(openButton()?.classList.contains('is-prompted')).toBe(true);
+    expect(hint()).toBe('Drag farther, or click the pack');
 
     // The feedback lasts a moment, then the usual cue is back.
     await act(async () => { vi.advanceTimersByTime(1900); });
     expect(shell.classList.contains('is-short')).toBe(false);
-    expect(hint()).toBe('Drag across to open');
-    expect(openButton()?.classList.contains('is-prompted')).toBe(false);
+    expect(hint()).toBe('Drag across, or click');
 
-    // And the button the hint names opens the pack.
+    // And the tap the hint names opens the pack.
     act(() => cutter.shortSwipe());
     act(() => openButton()!.click());
     expect(cutter.completeCut).toHaveBeenCalledOnce();
@@ -233,15 +235,14 @@ describe('the controls under the pack (#312)', () => {
     expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.failed.message);
     expect(announced()).toBe(REFUSAL_COPY.failed.message);
     expect(retryButton()?.textContent).toBe('Try again');
-    expect(openButton()).toBeNull();
-    // The button the player pressed went: focus moved to Try again, not the page.
+    // The pack stays tappable too, but the player's place moved to Try again, not the page.
     expect(document.activeElement).toBe(retryButton());
 
     act(() => retryButton()!.click());
     expect(cutter.completeCut).toHaveBeenCalledTimes(2);
     expect($('.pack-refusal-text')).toBeNull();
     expect(announced()).toBe('');
-    // Try again went with the refusal: focus is on the Open pack button that came back, not the page.
+    // Try again went with the refusal: focus is on the pack, torn again, not the page.
     expect(retryButton()).toBeNull();
     expect(document.activeElement).toBe(openButton());
     await pastTheTear();
@@ -327,7 +328,7 @@ describe('the reveal sounds on a first pack', () => {
     } as unknown as Awaited<ReturnType<typeof openPack>>);
     try {
       await render(false, false, settings);
-      act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+      act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
       await act(async () => { vi.advanceTimersByTime(500); });
       await act(async () => {});
       // Dealt, and the reveal is drawn while the torn pack is still leaving, with no empty stage between.
@@ -382,7 +383,7 @@ describe('the sealed pack stage on a desktop window', () => {
       stage.scrollTop = 420;
       expect(stage.scrollTop).toBe(420);
 
-      act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+      act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
       // Tearing and waiting on the ticket leave the stage where the player scrolled it.
       expect(stage.scrollTop).toBe(420);
       await act(async () => { vi.advanceTimersByTime(500); });
@@ -414,7 +415,7 @@ describe('the random effect after a flip', () => {
       setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
     } as unknown as Awaited<ReturnType<typeof openPack>>);
     await render(false);
-    act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+    act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
     await act(async () => { vi.advanceTimersByTime(500); });
     await act(async () => {});
     return { plays, pause, play };
@@ -469,5 +470,151 @@ describe('the random effect after a flip', () => {
     act(() => root.unmount());
     await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
     expect(plays).toEqual([CARD_FLIP_SRC]);
+  });
+});
+
+describe('one record per pack, whatever order the player and the ticket arrive in', () => {
+  const set = SETS[0];
+  const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+  const dealt = { setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0 } as unknown as Awaited<ReturnType<typeof openPack>>;
+  const onOpen = vi.fn();
+  const onLeaveEarly = vi.fn();
+  const show = () => act(() => root.render(
+    <PackOpener onOpen={onOpen} onShare={() => {}} onLeaveEarly={onLeaveEarly} set={set} settings={DEFAULT_SETTINGS} mountedSave={MOUNTED_SAVE} />,
+  ));
+  const press = (code: string, key: string) => document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key, bubbles: true }));
+  /** Tears the pack and lets the 460ms pause pass, so the ticket is being asked for. */
+  const tear = async () => {
+    act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
+    await act(async () => { vi.advanceTimersByTime(500); });
+  };
+  /** The ticket lands when the test says so: `land()` resolves it, outside act. */
+  const holdTicketUntil = () => {
+    let land = () => {};
+    vi.mocked(openPack).mockImplementation(() => new Promise((resolve) => { land = () => resolve(dealt); }));
+    return () => land();
+  };
+  /** The same, landing inside act. */
+  const holdTicket = () => {
+    const land = holdTicketUntil();
+    return () => act(async () => { land(); });
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.stubGlobal('requestIdleCallback', () => 0);
+    vi.stubGlobal('cancelIdleCallback', () => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    onOpen.mockReset();
+    onLeaveEarly.mockReset();
+  });
+  afterEach(() => {
+    // jsdom queues a history step on the faked timers, in more than one turn: run them all before the real ones come back.
+    vi.runAllTimers();
+    vi.useRealTimers();
+  });
+
+  it('records a pack left mid-reveal once, even when two leaves arrive before React renders', async () => {
+    vi.mocked(openPack).mockResolvedValue(dealt);
+    await show();
+    await tear();
+    await act(async () => {});
+    expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
+
+    act(() => {
+      press('Escape', 'Escape');
+      press('Escape', 'Escape');
+    });
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen.mock.calls[0][0].cards.every((card: { isRevealed: boolean }) => card.isRevealed)).toBe(true);
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+  });
+
+  /** The ticket lands and `during` runs before React renders what the landing queued. */
+  const landThen = (land: () => Promise<void> | void, during: () => void) => act(async () => {
+    land();
+    // The opener has dealt the pack once its await continues; nothing has rendered, as act holds the render back.
+    for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+    during();
+  });
+  it('records a pack the player leaves in the gap between its ticket landing and the reveal rendering', async () => {
+    const made: HTMLAudioElement[] = [];
+    const RealAudio = window.Audio;
+    vi.stubGlobal('Audio', class extends RealAudio {
+      constructor(src?: string) {
+        super(src);
+        made.push(this);
+      }
+    });
+    const land = holdTicketUntil();
+    await show();
+    await tear();
+    let madeInGap = 0;
+    let readyInGap = false;
+    await landThen(land, () => {
+      // The sounds were fetched when the pack was dealt, before anything rendered: this is the gap.
+      madeInGap = made.length;
+      readyInGap = made.every((audio) => audio.getAttribute('src'));
+      press('Escape', 'Escape');
+    });
+
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen.mock.calls[0][0].cards.every((card: { isRevealed: boolean }) => card.isRevealed)).toBe(true);
+    // Nothing was turned over yet: it is kept, with the notice saying where its cards went.
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+    // The sounds loaded for the reveal that never showed are released, not left fetching.
+    expect(madeInGap).toBeGreaterThan(0);
+    expect(readyInGap).toBe(true);
+    expect(made.every((audio) => audio.getAttribute('src') === '')).toBe(true);
+  });
+
+  it('records a pack whose opener unmounts in the gap between its ticket landing and the reveal rendering', async () => {
+    const land = holdTicketUntil();
+    await show();
+    await tear();
+    await landThen(land, () => root.unmount());
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a pack whose ticket lands after the player left, once', async () => {
+    const land = holdTicket();
+    await show();
+    await tear();
+    act(() => {
+      press('Escape', 'Escape');
+      press('Escape', 'Escape');
+    });
+    // Back on the packs screen, nothing dealt yet.
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    await land();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+  });
+
+  it('keeps a pack whose ticket lands after the opener unmounted', async () => {
+    const land = holdTicket();
+    await show();
+    await tear();
+    act(() => root.unmount());
+    expect(onOpen).not.toHaveBeenCalled();
+
+    await land();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen.mock.calls[0][0].nonce).toBe(0);
+  });
+
+  it('records a pack still being revealed when the opener unmounts, once', async () => {
+    vi.mocked(openPack).mockResolvedValue(dealt);
+    await show();
+    await tear();
+    await act(async () => {});
+    act(() => root.unmount());
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 });

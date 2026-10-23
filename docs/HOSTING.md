@@ -317,6 +317,36 @@ old UI. The GitHub redirect's copy may differ until refreshed; record that expli
 
 ## Read-only checks after deployment or recovery
 
+Every deploy ends with these checks in its `smoke` job (bounded to 15 minutes, no secrets, a
+read-only token), once publish and deploy are done. `scripts/production-smoke.ts` makes the GETs
+below. On Cloudflare it first asks for the marker until it names this run's own `sha` and `run_id`
+(every 6 seconds, at most 10 times, while the edge still serves an older run or doesn't answer),
+and fails at once on a newer run or another address; nothing else is read before that, so no check
+reads an older release. GitHub Pages has no marker, so its checks start once `deploy-pages` returns.
+Then, once each with no retries, it checks each script and stylesheet the page names (JavaScript or
+CSS, never HTML), that every ranking proof decodes and that the preview image decodes at its stated
+size. If those pass, on Cloudflare it checks that the old address forwards (its page and an unknown
+link both forward here, keeping the path and hash), serves the same Hall of Fame list, and that its
+copy of a set page keeps production's link preview (`og:image` and its size), also once:
+`deploy-pages` has returned by then, so a wrong answer is a fault, not lag. Then
+`playwright.production.config.ts` runs the shared-pull smoke specs against production in a fresh
+browser context: public proof fixtures, card and share pages, malformed links and every lazy
+screen, with every write and every request to another origin refused, so nothing reaches a relay,
+the Hall of Fame or analytics. A failure turns the deploy run red. A last step always runs
+(`production-smoke.ts --status`): it calls the release known-good only when both the HTTP and the
+browser checks passed, and when one of them failed names the newest deploy run on `main` that
+passed on an earlier commit as the rollback target, or says to fix forward when there is none. It
+gives no verdict, and names no rollback target, when a check didn't finish (cancelled, since a newer
+push to `main` cancels the run, or skipped after an earlier step failed), when `main` has moved past
+this run's commit (read with `git ls-remote`, as the deploy's tip-of-main steps do), or when a check
+failed while production's `deployment-id.json` names a newer run (a later deploy, perhaps of the
+same commit), since production may then serve a newer release; re-running an old run's `smoke` job
+can't mark an older commit known-good. A named rollback run may
+predate these checks or have been a GitHub Pages run, so check its `smoke` job before trusting it
+(see [Recover on the same origin](#recover-on-the-same-origin); otherwise fix forward on `main`).
+Nothing is uploaded: traces stay on the discarded runner. Use the steps below after a dashboard rollback or
+other recovery, which starts no deploy run.
+
 Smoke check, GETs only (`curl -fsS`), each with a fresh `?run=<anything>` so no cache answers (as
 the publish job does). Paths are relative to the site address: <https://brainrottcg.pages.dev/> (or
 the recorded URL) on Cloudflare, <https://evanlin23.github.io/BrainrotTCG/> when GitHub Pages hosts

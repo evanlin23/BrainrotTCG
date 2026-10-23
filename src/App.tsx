@@ -504,9 +504,10 @@ function App() {
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
           onLeaveEarly={noticeKeptPack}
+          openCue={!showNav}
         />
-        {/* A quiet way into the card guide before any pack, a new player's first included; it steps aside with the chrome once a pack is torn. */}
-        {!packFocus && !packBusy && (
+        {/* A quiet way into the card guide once a first pack is saved (a new player sees only the pack); it steps aside with the chrome once a pack is torn. */}
+        {showNav && !packFocus && !packBusy && (
           <div className="card-guide-entry">
             <CardGuideButton set={selectedSet} />
           </div>
@@ -535,6 +536,7 @@ function App() {
               cards,
               score: scoreCards(cards),
             }),
+          onSharePack: (ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) }),
           onShareAchievementPull: (ref, cards) => setShareTarget({ ref, cards, score: scoreCards(cards) }),
           onOpenSave: () => openPage('settings', 'save-backup'),
           onOpenPacks: () => openPage('open'),

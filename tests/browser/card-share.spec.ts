@@ -3,7 +3,7 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { monitor } from './support';
 
 // Sharing one card from the packs this player owns (#185): from My pulls (the profile's pack list)
-// and from the profile's Best pulls highlights. The fixture's ticket #0 is its real pack, so the card
+// and from the profile's verified Best pack highlight. The fixture's ticket #0 is its real pack, so the card
 // link must name that ticket. The clipboard is stubbed: headless Chromium has no clipboard to grant,
 // and a stub records exactly what each button put on it.
 
@@ -94,12 +94,24 @@ test('shares a card from My pulls, with its link, image and ticket', async ({ pa
   expect(errors).toEqual([]);
 });
 
-test('shares a card from the profile highlights', async ({ page, baseURL }) => {
+test('shares a card from the verified Best pack highlight', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
+  // The fixture's ticket #0 kept as the best pack the way older saves kept it: by reference and score,
+  // no cards. The highlight opens that ticket again in this browser and shows only what the engine opened.
+  await page.addInitScript((key) => {
+    if (sessionStorage.getItem('best-pack-seeded')) return;
+    sessionStorage.setItem('best-pack-seeded', '1');
+    localStorage.setItem(key, JSON.stringify({
+      packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [],
+      highestPackRef: { setId: 'right-now', setVersion: 2, nonce: 0 }, highestPackFlexValue: 1020,
+    }));
+  }, STORAGE_KEYS.STATS);
   const main = await profile(page);
-  const best = main.getByRole('region', { name: 'Best pulls', exact: true });
-  await best.locator('.pull-row').first().click();
+  const best = main.getByRole('region', { name: 'Best pack', exact: true });
+  await expect(best.locator('.profile-verified')).toHaveText(/Verified/, { timeout: 15000 });
+  await expect(best.locator('.pull-row-meta')).toContainText('ticket #0');
+  await best.locator('.pull-row').click();
   const { sheet, shareButton, viewer } = await shareCardFromPull(page);
   await expectCopies(page, sheet);
   await expectEscapeCloses(page, sheet, shareButton, viewer);

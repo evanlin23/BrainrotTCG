@@ -7,8 +7,9 @@ import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../..
 import { holdLive } from '../../game/admission';
 import { reloadPage } from '../../game/reload';
 import { whenIdle } from '../../game/idle';
-import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
+import { triggerRarityConfetti, triggerHoloSparkles } from './confettiEffects';
 import { buzz } from '../../utils/motion';
+import { useOpenCue } from '../../hooks/useOpenCue';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
@@ -21,7 +22,8 @@ import PackSummaryUI from './PackSummaryUI';
 import PackTopBar from './PackTopBar';
 import ShowcaseRibbon from './ShowcaseRibbon';
 import { revealAnnouncement } from '../cards/cardLabel';
-import { REFUSAL_COPY, type PackRefusal } from './refusal';
+import { REFUSAL_COPY } from './refusal';
+import { usePackLifecycle } from './usePackLifecycle';
 import { packImageUrl } from '../../content/art';
 import { PlayerUnreadableError, StaleSaveError, type SaveMark } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
@@ -38,6 +40,9 @@ const focusIfFree = (el: HTMLElement | null) => {
   const active = document.activeElement;
   if (!active || active === document.body || active.closest('.pack-opener-container')) el.focus({ preventScroll: true });
 };
+
+/** The pack as the engine dealt it, face up: what's recorded and shared (the reveal order is only for show). */
+const faceUp = (pack: OpenedPack): OpenedPack => ({ ...pack, cards: pack.cards.map((card) => ({ ...card, isRevealed: true })) });
 
 interface PreloadedAssets {
   brainrotVoices: HTMLAudioElement[];
@@ -71,20 +76,27 @@ interface PackOpenerProps {
   isOwned?: (cardKey: string) => boolean;
   /** The player closed a reveal with cards still face down; they're recorded anyway, so say so (unless the save failed). */
   onLeaveEarly?: (pack: OpenedPack) => void;
+  /** No pack is saved yet: the sealed pack plays its opening cue (a finger tearing along the seam) a couple of times. */
+  openCue?: boolean;
   /** Go to Settings, Save & backup: where an unreadable player record's refusal sends the player. */
   onOpenSave?: () => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, onOpenSave }: PackOpenerProps) => {
-  const [isOpening, setIsOpening] = useState(false);
-  const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, onOpenSave }: PackOpenerProps) => {
+  // Where the pack is, from the tear to the packs screen (packLifecycle.ts). What the stage doesn't say is
+  // the reveal's own state below: which card is up, what is locked, what is being celebrated.
+  const [stage, send] = usePackLifecycle();
+  const isPackCut = stage.kind !== 'sealed';
+  const isOpening = stage.kind === 'revealing' || stage.kind === 'summary';
+  const showSummary = stage.kind === 'summary';
   /** Why the last tear didn't open a pack, shown under it with a way to try again. */
-  const [refusal, setRefusal] = useState<PackRefusal | null>(null);
+  const refusal = stage.kind === 'sealed' ? stage.refusal : null;
+  /** The player left a torn pack while its ticket was still being worked out: keep it, don't show it. */
+  const leavingOpen = stage.kind === 'waiting' && stage.leaving !== false;
+  const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   const [openedCards, setOpenedCards] = useState<CardWithMeta[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPackCut, setIsPackCut] = useState(false);
   const [preloadedAssets, setPreloadedAssets] = useState<PreloadedAssets | null>(null);
-  const [showSummary, setShowSummary] = useState(false);
   const [revealLocked, setRevealLocked] = useState(false);
   const [celebratingCardId, setCelebratingCardId] = useState<CardWithMeta['uniqueId'] | null>(null);
   const [skipping, setSkipping] = useState(false);
@@ -102,12 +114,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const celebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const effectTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const skippingRef = useRef(false);
-  /** Whether this pack has been handed to onOpen; a pack is recorded once, however it's finished. */
-  const recordedRef = useRef(false);
-  /** The player left a torn pack while its ticket was still being worked out: keep it, don't show it. */
-  const leaveOpeningRef = useRef(false);
-  const [leavingOpen, setLeavingOpen] = useState(false);
   /** What a ticket that lands after the player left needs, as of the latest render. */
+  const preloadedRef = useRef<PreloadedAssets | null>(null);
   const landingRef = useRef({ onOpen, onLeaveEarly, resetCutState: () => {} });
   /** Whether a tear may still spend its ticket, as of the latest render (see handleCutComplete). */
   const openBlockedRef = useRef(openBlocked);
@@ -119,44 +127,40 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       pack = await openPack(set, mountedSave);
     } catch (error) {
       console.error('Could not open pack', error);
-      setIsPackCut(false);
-      if (leaveOpeningRef.current) {
-        // Already back on the packs screen: nothing was dealt, so there's nothing to say.
-        leaveOpeningRef.current = false;
-        setLeavingOpen(false);
-        landingRef.current.resetCutState();
-      } else {
-        setRefusal(error instanceof PlayerUnreadableError ? 'unreadable' : error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed');
+      const { from } = send({ type: 'failed', refusal: error instanceof PlayerUnreadableError ? 'unreadable' : error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed' });
+      // Already back on the packs screen: nothing was dealt, so there's nothing to say.
+      if (from.kind === 'waiting' && from.leaving === 'left') landingRef.current.resetCutState();
+      return;
+    }
+    const landed = send({ type: 'landed', pack });
+    if (landed.record) {
+      // The player left while it was on its way: the pack is recorded face up, as leaving a reveal
+      // early does, and the "Pack kept" notice says where its cards went. An opener that unmounted
+      // has no packs screen to go back to or notice to show: only the record is left.
+      const { onOpen: record, onLeaveEarly: kept, resetCutState: reset } = landingRef.current;
+      const dealt = faceUp(landed.record);
+      record(dealt);
+      if (landed.from.kind === 'waiting' && landed.from.leaving === 'left') {
+        kept?.(dealt);
+        reset();
       }
       return;
     }
-    if (leaveOpeningRef.current) {
-      // The player left while it was on its way: the pack is recorded face up, as leaving a reveal
-      // early does, and the "Pack kept" notice says where its cards went.
-      leaveOpeningRef.current = false;
-      setLeavingOpen(false);
-      const { onOpen: record, onLeaveEarly: kept, resetCutState: reset } = landingRef.current;
-      const dealt: OpenedPack = { ...pack, cards: pack.cards.map((card) => ({ ...card, isRevealed: true })) };
-      record(dealt);
-      kept?.(dealt);
-      setIsPackCut(false);
-      reset();
-      return;
-    }
+    if (landed.stage === landed.from) return;
     // Fetched once the reveal is on screen (below), so they don't hold up its card backs.
     const brainrotVoices = preloadAudio(BRAINROT_VOICES, { defer: true });
     const cardFlip = preloadAudio([CARD_FLIP_SRC], { defer: true })[0];
     const effects = preloadAudio(EFFECT_SOUNDS, { defer: true });
 
-    setPreloadedAssets({ brainrotVoices, cardFlip, effects });
-    recordedRef.current = false;
+    // Also kept in a ref: a leave before React renders this still cleans them up (finishPack).
+    preloadedRef.current = { brainrotVoices, cardFlip, effects };
+    setPreloadedAssets(preloadedRef.current);
     setOpenedPack(pack);
     // Shown rarest last, with NEW on cards the collection didn't have yet. The pack itself (and its
     // proof and history) keeps the engine's order.
     setOpenedCards(markNew(revealOrder(pack.cards), (key) => isOwned?.(key) ?? true));
     setCurrentIndex(0);
-    setIsOpening(true);
-  }, [set, mountedSave, preloadAudio, isOwned]);
+  }, [set, mountedSave, preloadAudio, isOwned, send]);
 
   // The reveal's sounds download once it has been drawn and the page is idle, and not at all while
   // effects are muted (each one only plays when effectsVolume > 0).
@@ -181,19 +185,17 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Mining taking a while: say so, rather than leave a torn pack sitting still.
   const [slowOpen, setSlowOpen] = useState(false);
   /**
-   * A press on the pack landed below the band a swipe can start in ('miss'), or tapped in that band
-   * without swiping ('tap'), or a swipe was let go too short to open ('short'), so it shows where, or
-   * how, to swipe for a moment.
+   * A press on the pack landed below the band a swipe can start in ('miss'), or a swipe was let go too
+   * short to open ('short'), so it shows where, or how, to swipe for a moment. A tap opens the pack.
    */
-  const [nudging, setNudging] = useState<false | 'miss' | 'tap' | 'short'>(false);
+  const [nudging, setNudging] = useState<false | 'miss' | 'short'>(false);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nudge = useCallback((kind: 'miss' | 'tap' | 'short') => {
+  const nudge = useCallback((kind: 'miss' | 'short') => {
     setNudging(kind);
     if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     nudgeTimerRef.current = setTimeout(() => setNudging(false), 1800);
   }, []);
   const nudgeMiss = useCallback(() => nudge('miss'), [nudge]);
-  const nudgeTap = useCallback(() => nudge('tap'), [nudge]);
   const nudgeShort = useCallback(() => nudge('short'), [nudge]);
   useEffect(() => {
     if (!isPackCut || isOpening) return;
@@ -205,25 +207,21 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   }, [isPackCut, isOpening]);
 
   const handleCutComplete = useCallback(() => {
-    setIsPackCut(true);
+    const torn = send({ type: 'tear' });
+    if (torn.stage === torn.from) return;
     if (openTimeoutRef.current) {
       window.clearTimeout(openTimeoutRef.current);
     }
-    setRefusal(null);
     openTimeoutRef.current = window.setTimeout(() => {
       openTimeoutRef.current = null;
-      if (openBlockedRef.current) {
-        // Another tab changed the save since the tear: put the pack back sealed rather than spend a
-        // ticket this tab can't store, and say why.
-        setIsPackCut(false);
-        landingRef.current.resetCutState();
-        setRefusal('blocked');
-        return;
-      }
+      // Another tab may have changed the save since the tear: then the pack goes back sealed rather than
+      // spend a ticket this tab can't store, and says why.
+      const spent = send({ type: 'spend', blocked: openBlockedRef.current });
+      if (spent.stage.kind === 'sealed') landingRef.current.resetCutState();
       // Started: from here the ticket is spent, so leaving keeps the pack rather than cancelling it.
-      void startOpening();
+      else if (spent.stage !== spent.from) void startOpening();
     }, 460);
-  }, [startOpening]);
+  }, [startOpening, send]);
 
   const {
     packRef,
@@ -246,7 +244,6 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     particlesEnabled: settings.particlesEnabled,
     disabled: disabled || openBlocked,
     onMiss: nudgeMiss,
-    onSeamTap: nudgeTap,
     onShortSwipe: nudgeShort,
   });
 
@@ -272,19 +269,21 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   }, [refusal, resetCutState]);
 
   /**
-   * The Open pack button (and Space or Enter with focus nowhere in particular): exactly a finished
-   * swipe, through the same cut, tear and ticket. A save another tab changed opens nothing, and says so.
+   * A tap, a click, or Space or Enter with focus on the pack: exactly a finished swipe, through the
+   * same cut, tear and ticket. A save another tab changed opens nothing, and says so.
    */
+  const { cue, end: endCue, touch: touchPack } = useOpenCue(openCue);
   const handleOpen = useCallback(() => {
     if (disabled || isPackCut || isOpening) return;
+    touchPack();
     if (openBlocked) {
-      setRefusal('blocked');
+      send({ type: 'refuse', refusal: 'blocked' });
       return;
     }
     completeCut();
-  }, [disabled, isPackCut, isOpening, openBlocked, completeCut]);
+  }, [disabled, isPackCut, isOpening, openBlocked, completeCut, touchPack, send]);
 
-  /** Set when the player goes back to the sealed pack, so the Open pack button takes focus once it's there. */
+  /** Set when the player goes back to the sealed pack, so the pack takes focus once it's there. */
   const focusOpenRef = useRef(false);
 
   const retryOpen = useCallback(() => {
@@ -296,11 +295,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       onOpenSave();
       return;
     }
-    // Try again goes as the Open pack button comes back (disabled while the ticket is on its way):
-    // focus moves to it rather than falling to the page for the whole wait.
-    focusOpenRef.current = true;
+    // Try again goes as the pack is torn again (busy while the ticket is on its way): focus moves to
+    // the pack rather than falling to the page for the whole wait.
+    focusIfFree(packRef.current);
     handleOpen();
-  }, [refusal, handleOpen, onOpenSave]);
+  }, [refusal, handleOpen, packRef, onOpenSave]);
   /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
   const stageRef = useRef<HTMLDivElement>(null);
   // The stage is on its way out when the cards come in, and the reveal must not inherit anything it
@@ -308,14 +307,6 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   useLayoutEffect(() => {
     if (isOpening && stageRef.current) stageRef.current.scrollTop = 0;
   }, [isOpening]);
-  const openButtonEl = useRef<HTMLButtonElement | null>(null);
-  const openButtonRef = useCallback((el: HTMLButtonElement | null) => {
-    openButtonEl.current = el;
-    if (el && focusOpenRef.current) {
-      focusOpenRef.current = false;
-      focusIfFree(el);
-    }
-  }, []);
   // A refusal replaces the button the player was on: its Try again takes focus.
   const retryButtonRef = useCallback((el: HTMLButtonElement | null) => focusIfFree(el), []);
 
@@ -334,63 +325,58 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setRevealLocked(false);
     setCelebratingCardId(null);
     stopAll();
-    if (preloadedAssets) {
-      cleanupAudio(preloadedAssets.brainrotVoices);
-      cleanupAudio([preloadedAssets.cardFlip]);
-      cleanupAudio(preloadedAssets.effects);
+    const assets = preloadedRef.current;
+    preloadedRef.current = null;
+    if (assets) {
+      cleanupAudio(assets.brainrotVoices);
+      cleanupAudio([assets.cardFlip]);
+      cleanupAudio(assets.effects);
     }
     setPreloadedAssets(null);
-    setIsOpening(false);
     setOpenedPack(null);
     setOpenedCards([]);
     setCurrentIndex(0);
-    setIsPackCut(false);
-    setShowSummary(false);
     setHasMovedMouse(false);
     resetCutState();
     focusOpenRef.current = true;
-  }, [resetCutState, preloadedAssets, cleanupAudio, stopAll, clearEffectTimers]);
+  }, [resetCutState, cleanupAudio, stopAll, clearEffectTimers]);
 
   // What a card shared from the summary links to: this pull (one object, so its proof is signed once).
   const pullRef = useMemo((): PullRef | undefined => openedPack
     ? { setId: openedPack.setId, setVersion: openedPack.setVersion, nonce: openedPack.nonce, publicKeyHex: openedPack.publicKeyHex }
     : undefined, [openedPack]);
-  /** The pack as the engine dealt it, face up: what's recorded and shared (the reveal order is only for show). */
-  const dealtPack = useCallback((): OpenedPack | null => (openedPack ? { ...openedPack, cards: openedPack.cards.map((card) => ({ ...card, isRevealed: true })) } : null), [openedPack]);
+  /** The shown pack, face up (see faceUp). */
+  const dealtPack = useCallback((): OpenedPack | null => (openedPack ? faceUp(openedPack) : null), [openedPack]);
 
-  const recordPack = useCallback(() => {
-    const pack = dealtPack();
-    if (!pack || recordedRef.current) return;
-    recordedRef.current = true;
-    onOpen(pack);
-  }, [dealtPack, onOpen]);
+  /** Hands the pack a transition gave to the collection (packLifecycle gives it once, from the stage, not from what React last rendered). */
+  const recordPack = useCallback((pack: OpenedPack) => onOpen(faceUp(pack)), [onOpen]);
 
   const nextCard = useCallback(() => {
     if (pauseBigPulls && performance.now() < revealLockedUntilRef.current) return;
     if (currentIndex < openedCards.length - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
-      recordPack();
-      setShowSummary(true);
+      const { record } = send({ type: 'finish' });
+      if (record) recordPack(record);
     }
-  }, [currentIndex, openedCards, recordPack, pauseBigPulls]);
+  }, [currentIndex, openedCards, recordPack, pauseBigPulls, send]);
 
   /** With the pause enabled, Skip still gives each valuable card its full reveal. */
   const skipAll = useCallback(() => {
     if (disabled || skippingRef.current || (pauseBigPulls && performance.now() < revealLockedUntilRef.current)) return;
     if (!pauseBigPulls) {
       setOpenedCards(openedCards.map((card) => ({ ...card, isRevealed: true })));
-      recordPack();
-      setShowSummary(true);
+      const { record } = send({ type: 'finish' });
+      if (record) recordPack(record);
       return;
     }
     skippingRef.current = true;
     setSkipping(true);
-  }, [disabled, pauseBigPulls, openedCards, recordPack]);
+  }, [disabled, pauseBigPulls, openedCards, recordPack, send]);
 
   const closeSummary = useCallback(() => {
-    finishPack();
-  }, [finishPack]);
+    if (send({ type: 'close' }).from.kind === 'summary') finishPack();
+  }, [finishPack, send]);
 
   /**
    * Any stage of a pack, from the tear to the summary: the pack's X, Escape and browser Back. A torn
@@ -460,44 +446,50 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
    * a big pull's pause too (ending its celebration): the pause holds the cards, not the player.
    */
   const leavePack = useCallback(() => {
-    if (isOpening && !showSummary) {
-      // Mid-reveal: the pack is recorded with every card, as finishing it would.
-      const leftEarly = openedCards.some((card) => !card.isRevealed);
-      const pack = dealtPack();
-      recordPack();
-      finishPack();
-      if (leftEarly && pack) onLeaveEarly?.(pack);
-    } else if (isOpening) {
-      // The summary: already recorded.
-      finishPack();
-    } else if (isPackCut) {
-      if (openTimeoutRef.current) {
-        // Torn, but its ticket isn't spent yet: put the pack back sealed.
-        window.clearTimeout(openTimeoutRef.current);
-        openTimeoutRef.current = null;
-        setIsPackCut(false);
-        resetCutState();
-        focusOpenRef.current = true;
-      } else if (!leaveOpeningRef.current) {
-        // Its ticket is spent and still on its way: startOpening records it when it lands.
-        leaveOpeningRef.current = true;
-        setLeavingOpen(true);
-        resetCutState();
-        focusOpenRef.current = true;
+    // A second leave before React renders (a held key, a double tap) finds the first one's stage.
+    const left = send({ type: 'leave' });
+    if (left.stage === left.from) return;
+    switch (left.from.kind) {
+      case 'revealing': {
+        // Mid-reveal: the pack is recorded with every card, as finishing it would.
+        // Before React has rendered the reveal there are no cards shown yet: that is leaving early too.
+        const leftEarly = openedCards.length === 0 || openedCards.some((card) => !card.isRevealed);
+        const pack = faceUp(left.record!);
+        recordPack(left.record!);
+        finishPack();
+        if (leftEarly) onLeaveEarly?.(pack);
+        break;
       }
-    } else if (refusal) {
-      setRefusal(null);
-      resetCutState();
-      focusOpenRef.current = true;
+      case 'summary':
+        // Already recorded.
+        finishPack();
+        break;
+      case 'tearing':
+        // Torn, but its ticket isn't spent yet: put the pack back sealed.
+        if (openTimeoutRef.current) window.clearTimeout(openTimeoutRef.current);
+        openTimeoutRef.current = null;
+        resetCutState();
+        focusOpenRef.current = true;
+        break;
+      case 'waiting':
+        // Its ticket is spent and still on its way: startOpening records it when it lands.
+        resetCutState();
+        focusOpenRef.current = true;
+        break;
+      case 'sealed':
+        // A refusal dismissed.
+        resetCutState();
+        focusOpenRef.current = true;
+        break;
     }
-  }, [isOpening, showSummary, isPackCut, refusal, openedCards, dealtPack, recordPack, finishPack, onLeaveEarly, resetCutState]);
+  }, [send, openedCards, recordPack, finishPack, onLeaveEarly, resetCutState]);
 
-  // Back on the sealed pack with its button already there (a torn pack put back, a refusal dismissed):
-  // the X the player left by has gone, so focus goes to Open pack rather than the page.
+  // Back on the sealed pack (a torn pack put back, a refusal dismissed, Try again): the X the player
+  // left by has gone, so focus goes to the pack rather than the page.
   useEffect(() => {
-    if (!focusOpenRef.current || stageInPack || !openButtonEl.current) return;
+    if (!focusOpenRef.current || stageInPack || !packRef.current) return;
     focusOpenRef.current = false;
-    focusIfFree(openButtonEl.current);
+    focusIfFree(packRef.current);
   });
 
   // Like skipAll: an open sheet disables the opener, so a stray press or key behind it does nothing.
@@ -561,8 +553,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       const nextIndex = pauseBigPulls ? nextSpecialRevealIndex(openedCards) : -1;
       if (nextIndex === -1) {
         setOpenedCards(openedCards.map((card) => ({ ...card, isRevealed: true })));
-        recordPack();
-        setShowSummary(true);
+        const { record } = send({ type: 'finish' });
+        if (record) recordPack(record);
         skippingRef.current = false;
         setSkipping(false);
       } else if (currentIndex !== nextIndex) {
@@ -573,7 +565,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [skipping, revealLocked, pauseBigPulls, isOpening, showSummary, disabled, openedCards, currentIndex, handleFlip, recordPack]);
+  }, [skipping, revealLocked, pauseBigPulls, isOpening, showSummary, disabled, openedCards, currentIndex, handleFlip, recordPack, send]);
 
   const handleInteraction = useCallback(() => {
     if (!isOpening || showSummary || disabled || skippingRef.current || (pauseBigPulls && performance.now() < revealLockedUntilRef.current)) return;
@@ -644,13 +636,20 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     };
   }, [handlePointerDown, handlePointerMove, handlePointerEnd, endCutAttempt]);
 
-  // Unmounted mid-reveal (the set list changed under it): the pack still goes to the collection.
+  // Unmounted mid-reveal (the set list changed under it): the pack still goes to the collection. One
+  // still waiting for its ticket is kept when the ticket lands (startOpening).
+  // It records through the onOpen of its last render. App's handlePackOpened then has a stale default
+  // progress, but the App can't unmount an opener holding a pack: the opener is keyed by set, and
+  // switching sets, set links and Settings are disabled while a pack is busy.
   const recordOnUnmountRef = useRef(recordPack);
   useEffect(() => {
     recordOnUnmountRef.current = recordPack;
   }, [recordPack]);
 
-  useEffect(() => () => recordOnUnmountRef.current(), []);
+  useEffect(() => () => {
+    const { record } = send({ type: 'unmount' });
+    if (record) recordOnUnmountRef.current(record);
+  }, [send]);
 
   // Cleanup on unmount
   useEffect(() => () => {
@@ -729,13 +728,14 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               refusal={refusal}
               onOpen={handleOpen}
               onRetry={retryOpen}
-              openButtonRef={openButtonRef}
               retryButtonRef={retryButtonRef}
               nudging={nudging === 'miss'}
-              tapped={nudging === 'tap'}
               fellShort={nudging === 'short'}
               cutPoints={cutPoints}
               sparks={sparks}
+              cue={cue}
+              onCueEnd={endCue}
+              onTouch={touchPack}
             />
           </Motion.div>
         ) : (
