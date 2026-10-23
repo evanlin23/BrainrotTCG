@@ -414,7 +414,9 @@ for (const mode of MOTION_MODES) {
         expect(log.length, 'the probe saw the fades').toBeGreaterThan(0);
       } else {
         expect(log.some((entry) => entry.kind === 'transitionrun' && entry.what === 'transform' && entry.target === 'pack-half'), 'the tear slid').toBe(true);
-        expect(log.some((entry) => entry.kind === 'transitionrun' && entry.what === 'transform' && entry.target === 'card-inner'), 'the cards flipped').toBe(true);
+        // framer-motion 14 runs the flip's rotateY spring as one Web Animation per flip (#673), not as
+        // per-frame style writes that the stylesheet's transition picked up.
+        expect(log.filter((entry) => entry.kind === 'waapi' && entry.what === 'transform' && entry.target === 'card-inner').length, 'the cards flipped').toBe(5);
         expect(log.some((entry) => entry.iterations === Infinity), 'nothing looped').toBe(true);
       }
       expect(errors).toEqual([]);

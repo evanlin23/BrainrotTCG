@@ -712,10 +712,22 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
   describe('with the torn pack still flying off', () => {
     const sizes: MockInstance[] = [];
     beforeEach(() => {
-      // jsdom has no layout, and without a size framer-motion never marks a leaving element.
+      // jsdom has no layout, and without a size framer-motion never marks a leaving element. It reads
+      // the element's computed width and height, and its parent's offset size. Laid out, the held stage
+      // also follows its room, which jsdom has no ResizeObserver to watch.
+      vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+      const computed = window.getComputedStyle.bind(window);
+      const sized = { width: '200px', height: '300px' } as Record<PropertyKey, string>;
       sizes.push(
         vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200),
         vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300),
+        vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => new Proxy(computed(el, pseudo), {
+          get: (style, key) => {
+            if (key in sized) return sized[key];
+            const value: unknown = Reflect.get(style, key, style);
+            return typeof value === 'function' ? value.bind(style) : value;
+          },
+        })),
       );
       // Framer's clock stops, so the 250ms exit cannot finish before the player returns.
       MotionGlobalConfig.useManualTiming = true;
