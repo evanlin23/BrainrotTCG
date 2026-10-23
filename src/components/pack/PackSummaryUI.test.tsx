@@ -28,6 +28,8 @@ let container: HTMLElement;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // Before the first render, so the summary's click guard runs on the fake clock.
+  vi.useFakeTimers();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
   act(() => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} />));
@@ -41,8 +43,11 @@ afterEach(() => {
 });
 
 const text = () => container.textContent ?? '';
-/** The summary's first moments ignore clicks on its cards and Share (#627): wait for it to settle. */
-const settled = () => vi.waitFor(() => expect(container.querySelector('.summary-cards')!.hasAttribute('data-settling')).toBe(false));
+/** The summary's first moments ignore clicks on its cards and Share (#627): run the clock past them. */
+const settled = () => {
+  act(() => vi.advanceTimersByTime(STAGE_CLICK_GUARD_MS));
+  expect(container.querySelector('.summary-cards')!.hasAttribute('data-settling')).toBe(false);
+};
 
 describe('special and new cards', () => {
   it('marks them on their tiles instead of in a line of text', () => {
@@ -59,7 +64,6 @@ describe('the first moments (#627)', () => {
     // The up-close viewer measures itself and reads motion preferences.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
-    vi.useFakeTimers();
     const onShare = vi.fn();
     const onClose = vi.fn();
     act(() => root.unmount());
@@ -121,7 +125,7 @@ describe('result first', () => {
     }
   });
 
-  it('hints that a card opens up close until one is opened', async () => {
+  it('hints that a card opens up close until one is opened', () => {
     // The up-close viewer measures itself and reads motion preferences.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
@@ -129,7 +133,7 @@ describe('result first', () => {
     expect(caption()).toBe('Select a card to view');
     const first = container.querySelector<HTMLButtonElement>('.summary-card')!;
     expect(first.getAttribute('aria-label')).toMatch(/^View .+ up close, /);
-    await settled();
+    settled();
     act(() => first.click());
     expect(caption()).toBeUndefined();
   });
@@ -152,14 +156,14 @@ describe('card order', () => {
 });
 
 describe('card guide', () => {
-  it('shows the odds of the set version the pack came from, not the latest one (#486)', async () => {
+  it('shows the odds of the set version the pack came from, not the latest one (#486)', () => {
     // Web Ancients v1 is from before card modifiers; its latest version has them.
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
     const first = getSet('web-ancients', 1)!;
     const firstCards = getSetCards(first.id).slice(0, 5).map((card, i) => ({ ...card, uniqueId: i + 1, isRevealed: true, isHolo: false }) as CardWithMeta);
     act(() => root.render(<PackSummaryUI openedCards={firstCards} set={first} onClose={() => {}} />));
     const guide = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Card guide')!;
-    await settled();
+    settled();
     act(() => guide.click());
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain(`${first.name} has no finishes or misprints`);
   });
@@ -191,7 +195,7 @@ describe('sharing a card', () => {
 
   it('opens a tapped card up close, whose Share makes that version\'s image, linked to this pack', async () => {
     const gold = tile(pulled[3].name);
-    await settled();
+    settled();
     gold.focus();
     act(() => gold.click());
     const share = shareCard()!;

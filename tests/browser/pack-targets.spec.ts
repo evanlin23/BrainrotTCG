@@ -3,13 +3,14 @@ import { expectDecoded, expectStill, fingerFor, monitor } from './support';
 
 /**
  * Motor access (#803). A swipe let go short of opening answers: the pack springs back, the hint says
- * to go farther or tap, and the Open pack button lights up; the button and Space still open it. The
+ * to go farther or tap the pack, and the click the swipe ends in opens nothing; a tap and Space on the
+ * pack still open it. The
  * small controls the issue measured keep at least 44 CSS px of hit area at 390px wide and at 200% zoom
  * (a 195px-wide viewport) and with the text doubled, and nothing runs off the side.
  */
 
 const TARGET = 44;
-const openPack = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
+const openPack = (page: Page) => page.getByRole('button', { name: /^Open pack/ });
 const settingsButton = (page: Page) => page.getByRole('button', { name: 'Settings', exact: true });
 
 /** The width x height of every element matching each selector, as the page lays it out. */
@@ -34,7 +35,7 @@ function expectTargets(found: { selector: string; width: number; height: number 
   }
 }
 
-test('a swipe let go short springs back with a hint, and the pack still opens by button and key', async ({ page, baseURL, hasTouch }) => {
+test('a swipe let go short springs back with a hint, and the pack still opens by tap and key', async ({ page, baseURL, hasTouch }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
@@ -47,12 +48,13 @@ test('a swipe let go short springs back with a hint, and the pack still opens by
 
   // The answer lasts under two seconds, so record it as it appears instead of racing the timer.
   await page.evaluate(() => {
-    const seen: { hint: string | null; prompted: boolean } = { hint: null, prompted: false };
+    const seen: { hint: string | null; clicked: boolean } = { hint: null, clicked: false };
     (window as unknown as { __short: typeof seen }).__short = seen;
+    // The release ends in a click on the pack too: it must not count as a tap.
+    document.addEventListener('click', () => { seen.clicked = true; }, { capture: true });
     const note = () => {
       if (seen.hint || !document.querySelector('.pack-shell.is-short')) return;
       seen.hint = document.querySelector('.swipe-hint-text')?.textContent ?? '';
-      seen.prompted = !!document.querySelector('.pack-open-button.is-prompted');
     };
     new MutationObserver(note).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
   });
@@ -65,10 +67,13 @@ test('a swipe let go short springs back with a hint, and the pack still opens by
   for (let step = 1; step <= 6; step++) await finger.move(box.x + box.width * (0.4 + (0.09 * step) / 6), y);
   await finger.release();
 
-  await page.waitForFunction(() => !!(window as unknown as { __short: { hint: string | null } }).__short.hint);
-  const seen = await page.evaluate(() => (window as unknown as { __short: { hint: string; prompted: boolean } }).__short);
-  expect(seen.hint).toMatch(/^(Swipe|Drag) farther or tap Open$/);
-  expect(seen.prompted, 'the Open pack button is lit while the hint shows').toBe(true);
+  // A touch drag ends in no click; a mouse one does, and the pack must not take it as a tap.
+  await page.waitForFunction((clickToo) => {
+    const seen = (window as unknown as { __short: { hint: string | null; clicked: boolean } }).__short;
+    return !!seen.hint && (seen.clicked || !clickToo);
+  }, !hasTouch);
+  const seen = await page.evaluate(() => (window as unknown as { __short: { hint: string } }).__short);
+  expect(seen.hint).toMatch(/^(Swipe farther, or tap the pack|Drag farther, or click the pack)$/);
   await expect(shell).not.toHaveClass(/\bis-cut\b/);
 
   await openPack(page).focus();
@@ -97,7 +102,7 @@ for (const [name, width, height, bigText] of [
     }), { message: 'the pack has finished dropping in' }).toBe(true);
     if (bigText) await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
 
-    const home = ['.app-utilities button[aria-label="Settings"]', '.set-step', '.card-guide-link', '.pack-open-button'];
+    const home = ['.app-utilities button[aria-label="Settings"]', '.set-step', '.card-guide-link', '[data-pack-open]'];
     expectTargets(await sizes(page, home), home);
 
     await settingsButton(page).click();

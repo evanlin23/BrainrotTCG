@@ -7,7 +7,7 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
   const packShell = page.locator('.pack-shell');
-  const openButton = page.getByRole('button', { name: 'Open pack', exact: true });
+  const openButton = page.getByRole('button', { name: /^Open pack/ });
   await expect(packShell).toBeVisible();
   await expectDecoded(packShell.locator('img'), 2);
   // A new player sees only the pack; the set picker comes once their first pack is saved.
