@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { memo, useCallback, useId, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import CardViewerModal from '../cards/CardViewerModal';
 import CardImage from '../cards/CardImage';
@@ -8,7 +8,7 @@ import { isOpenable, SETS } from '../../content/sets';
 import { FINISH_INFO, bestFinish } from '../../game/modifiers';
 import { setProgress } from '../../game/progression';
 import { isCardOwned, ownedVersions } from '../../game/versions';
-import type { Finish } from '../../engine';
+import type { Finish, SetDefinition } from '../../engine';
 import type { CollectionItem } from '../../types';
 import '../../styles/Collection.css';
 import '../../styles/CollectionLabel.css';
@@ -43,6 +43,116 @@ const initiallyOpen = (started: { set: { id: string }; pockets: number }[], rece
   }));
 };
 
+interface EraSectionProps {
+  set: SetDefinition;
+  cards: Card[];
+  have: number;
+  done: ReturnType<typeof setProgress>;
+  expanded: boolean;
+  gridId: string;
+  owned: Map<string, Owned>;
+  onToggle: (setId: string) => void;
+  onSelect: (card: Card, counts: Owned) => void;
+}
+
+/**
+ * One started era: its header toggle and, while open, its grid. Memoized, with stable props, so
+ * opening one era or tapping a card re-renders only what changed, not every open era's tiles.
+ */
+const EraSection = memo(({ set, cards, have, done, expanded, gridId, owned, onToggle, onSelect }: EraSectionProps) => {
+  const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
+  return (
+    <section className="collection-set" style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}>
+      <header className="collection-set-header">
+        <h3>
+          <button
+            type="button"
+            className="collection-set-toggle"
+            aria-expanded={expanded}
+            aria-controls={expanded ? gridId : undefined}
+            onClick={() => onToggle(set.id)}
+          >
+            <span className="collection-set-name">{set.name}</span>
+            <span className="collection-set-era">
+              {set.era}
+              {set.archivedAt && <span className="collection-set-archived">Archived</span>}
+              {done && (
+                <>
+                  <SetBadge done={done} />
+                  <span className="sr-only">{done === 'master' ? ': every card as a holo' : ': every card collected'}</span>
+                </>
+              )}
+            </span>
+            <span className="collection-set-count tabular">
+              {have}/{cards.length}
+              <span className="sr-only"> collected</span>
+            </span>
+            <ChevronDown className="collection-set-chevron" aria-hidden="true" />
+          </button>
+        </h3>
+        <span className="collection-set-bar" aria-hidden="true">
+          <span style={{ width: `${(have / cards.length) * 100}%` }} />
+        </span>
+      </header>
+      {expanded && (
+        <ul className="collection-grid" id={gridId}>
+          {cards
+            .map((card, index) => ({ card, number: `${String(index + 1).padStart(3, '0')}/${String(cards.length).padStart(3, '0')}` }))
+            .filter(({ card }) => owned.has(card.key) || isOpenable(set))
+            .map(({ card, number }) => {
+              const counts = owned.get(card.key);
+              // Under every pocket, owned or not: its collector number and rarity, like a sleeve label.
+              const label = (
+                <span className="collection-label tabular" aria-hidden="true">
+                  {number} <span className={`collection-label-rarity ${card.rarity.toLowerCase()}`}>{CARD_RARITIES[card.rarity].symbol}</span>
+                </span>
+              );
+              if (!counts) {
+                return (
+                  <li key={card.key} aria-label={`${number}, ${CARD_RARITIES[card.rarity].name}, not collected yet`}>
+                    <span className="collection-slot" />
+                    {label}
+                  </li>
+                );
+              }
+              const total = counts.normalCount + counts.holoCount;
+              // The rarest finish owned recolours the tile's printed frame; misprints get a mark.
+              const finish = bestFinish(counts.finishes);
+              const extras = [finish && `best finish ${FINISH_INFO[finish].name}`, counts.misprints && `${counts.misprints} misprint${counts.misprints === 1 ? '' : 's'}`].filter(Boolean).join(', ');
+              return (
+                <li key={card.key}>
+                  <button
+                    type="button"
+                    className={`collection-item ${card.rarity.toLowerCase()} ${counts.holoCount > 0 ? 'holo' : ''} ${finish ? `has-finish finish-${finish.toLowerCase()}` : ''}`}
+                    style={finish ? ({ '--finish': FINISH_INFO[finish].color } as React.CSSProperties) : undefined}
+                    onClick={() => onSelect(card, counts)}
+                    aria-label={`${card.name}, ${number}, ${CARD_RARITIES[card.rarity].name}, ${total} owned${counts.holoCount ? `, ${counts.holoCount} holo` : ''}${extras ? `, ${extras}` : ''}`}
+                  >
+                    <CardImage src={card.image} finish={finish} thumbnail alt="" loading="lazy" decoding="async" />
+                    {(finish || (counts.misprints ?? 0) > 0) && (
+                      <span className="collection-mods" aria-hidden="true">
+                        {finish && FINISH_INFO[finish].name}
+                        {finish && counts.misprints ? ' · ' : ''}
+                        {counts.misprints ? 'Misprint' : ''}
+                      </span>
+                    )}
+                    {(total > 1 || counts.holoCount > 0) && (
+                      <span className="collection-count tabular">
+                        ×{total}
+                      </span>
+                    )}
+                  </button>
+                  {label}
+                </li>
+              );
+            })}
+        </ul>
+      )}
+    </section>
+  );
+});
+EraSection.displayName = 'EraSection';
+
 /**
  * Eras you've started, in timeline order, with every card (the missing ones as empty slots), each
  * header a button that shows or hides its grid; then the eras you haven't started, one line each.
@@ -76,13 +186,15 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
     [collection],
   );
 
-  const sections = SETS.map((set) => {
+  // Memoized with the ownership map, so each era keeps the same `cards` array between renders and
+  // its memoized section can skip a render that isn't about it.
+  const sections = useMemo(() => SETS.map((set) => {
     const cards = getSetCards(set.id);
     const have = cards.filter((c) => owned.has(c.key)).length;
     // An openable set shows a pocket for every card; an archived or draft one only the cards you own.
     const holo = cards.filter((c) => (owned.get(c.key)?.holoCount ?? 0) > 0).length;
     return { set, cards, have, done: setProgress(have, holo, cards.length), pockets: isOpenable(set) ? cards.length : have };
-  }).filter((s) => s.have > 0 || isOpenable(s.set));
+  }).filter((s) => s.have > 0 || isOpenable(s.set)), [owned]);
   // What you own first (in timeline order), then the eras you haven't opened yet as one short list.
   const started = sections.filter((s) => s.have > 0);
   const notStarted = sections.filter((s) => s.have === 0);
@@ -91,6 +203,9 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
   // open shows open. Collapsing unmounts the grid, so hidden cards cost nothing.
   const [open, setOpen] = useState<Record<string, boolean>>(() => initiallyOpen(started, recentSetId));
   const gridIds = useId();
+  // Stable, so toggling or tapping doesn't hand every era new props.
+  const toggleEra = useCallback((setId: string) => setOpen((current) => ({ ...current, [setId]: !(current[setId] ?? true) })), []);
+  const selectCard = useCallback((card: Card, counts: Owned) => setSelected({ card, ...counts }), []);
 
   const uniqueOwned = COLLECTIBLE_CARDS.filter((c) => owned.has(c.key)).length;
 
@@ -100,100 +215,20 @@ const CollectionBrowser = ({ collection, recentSetId }: CollectionBrowserProps) 
         <p className="page-subtitle tabular">
           {uniqueOwned}/{COLLECTIBLE_CARDS.length} cards · {score.toLocaleString()} total card points
         </p>
-        {started.map(({ set, cards, have, done }) => {
-          const [a = '#ff3df2', b = '#29f0ff'] = set.palette ?? [];
-          const expanded = open[set.id] ?? true;
-          const gridId = `${gridIds}-${set.id}`;
-          return (
-            <section key={set.id} className="collection-set" style={{ '--set-a': a, '--set-b': b } as React.CSSProperties}>
-              <header className="collection-set-header">
-                <h3>
-                  <button
-                    type="button"
-                    className="collection-set-toggle"
-                    aria-expanded={expanded}
-                    aria-controls={expanded ? gridId : undefined}
-                    onClick={() => setOpen((current) => ({ ...current, [set.id]: !expanded }))}
-                  >
-                    <span className="collection-set-name">{set.name}</span>
-                    <span className="collection-set-era">
-                      {set.era}
-                      {set.archivedAt && <span className="collection-set-archived">Archived</span>}
-                      {done && (
-                        <>
-                          <SetBadge done={done} />
-                          <span className="sr-only">{done === 'master' ? ': every card as a holo' : ': every card collected'}</span>
-                        </>
-                      )}
-                    </span>
-                    <span className="collection-set-count tabular">
-                      {have}/{cards.length}
-                      <span className="sr-only"> collected</span>
-                    </span>
-                    <ChevronDown className="collection-set-chevron" aria-hidden="true" />
-                  </button>
-                </h3>
-                <span className="collection-set-bar" aria-hidden="true">
-                  <span style={{ width: `${(have / cards.length) * 100}%` }} />
-                </span>
-              </header>
-              {expanded && (
-                <ul className="collection-grid" id={gridId}>
-                  {cards
-                    .map((card, index) => ({ card, number: `${String(index + 1).padStart(3, '0')}/${String(cards.length).padStart(3, '0')}` }))
-                    .filter(({ card }) => owned.has(card.key) || isOpenable(set))
-                    .map(({ card, number }) => {
-                      const counts = owned.get(card.key);
-                      // Under every pocket, owned or not: its collector number and rarity, like a sleeve label.
-                      const label = (
-                        <span className="collection-label tabular" aria-hidden="true">
-                          {number} <span className={`collection-label-rarity ${card.rarity.toLowerCase()}`}>{CARD_RARITIES[card.rarity].symbol}</span>
-                        </span>
-                      );
-                      if (!counts) {
-                        return (
-                          <li key={card.key} aria-label={`${number}, ${CARD_RARITIES[card.rarity].name}, not collected yet`}>
-                            <span className="collection-slot" />
-                            {label}
-                          </li>
-                        );
-                      }
-                      const total = counts.normalCount + counts.holoCount;
-                      // The rarest finish owned recolours the tile's printed frame; misprints get a mark.
-                      const finish = bestFinish(counts.finishes);
-                      const extras = [finish && `best finish ${FINISH_INFO[finish].name}`, counts.misprints && `${counts.misprints} misprint${counts.misprints === 1 ? '' : 's'}`].filter(Boolean).join(', ');
-                      return (
-                        <li key={card.key}>
-                          <button
-                            type="button"
-                            className={`collection-item ${card.rarity.toLowerCase()} ${counts.holoCount > 0 ? 'holo' : ''} ${finish ? `has-finish finish-${finish.toLowerCase()}` : ''}`}
-                            style={finish ? ({ '--finish': FINISH_INFO[finish].color } as React.CSSProperties) : undefined}
-                            onClick={() => setSelected({ card, ...counts })}
-                            aria-label={`${card.name}, ${number}, ${CARD_RARITIES[card.rarity].name}, ${total} owned${counts.holoCount ? `, ${counts.holoCount} holo` : ''}${extras ? `, ${extras}` : ''}`}
-                          >
-                            <CardImage src={card.image} finish={finish} thumbnail alt="" loading="lazy" decoding="async" />
-                            {(finish || (counts.misprints ?? 0) > 0) && (
-                              <span className="collection-mods" aria-hidden="true">
-                                {finish && FINISH_INFO[finish].name}
-                                {finish && counts.misprints ? ' · ' : ''}
-                                {counts.misprints ? 'Misprint' : ''}
-                              </span>
-                            )}
-                            {(total > 1 || counts.holoCount > 0) && (
-                              <span className="collection-count tabular">
-                                ×{total}
-                              </span>
-                            )}
-                          </button>
-                          {label}
-                        </li>
-                      );
-                    })}
-                </ul>
-              )}
-            </section>
-          );
-        })}
+        {started.map(({ set, cards, have, done }) => (
+          <EraSection
+            key={set.id}
+            set={set}
+            cards={cards}
+            have={have}
+            done={done}
+            expanded={open[set.id] ?? true}
+            gridId={`${gridIds}-${set.id}`}
+            owned={owned}
+            onToggle={toggleEra}
+            onSelect={selectCard}
+          />
+        ))}
 
         {notStarted.length > 0 && (
           <section className="collection-later">
