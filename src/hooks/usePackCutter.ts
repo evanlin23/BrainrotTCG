@@ -110,13 +110,11 @@ interface UsePackCutterOptions {
   disabled?: boolean;
   /** A press on the pack below the start band (a tap, or a swipe across the art): time for a nudge. */
   onMiss?: () => void;
-  /** A press in the start band let go without swiping across (a tap): time to show the swipe. */
-  onSeamTap?: () => void;
   /** A swipe went across but was let go too short (or too steep) to open: time to spring back and say so (#803). */
   onShortSwipe?: () => void;
 }
 
-export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss, onSeamTap, onShortSwipe }: UsePackCutterOptions) => {
+export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1, particlesEnabled = true, disabled = false, onMiss, onShortSwipe }: UsePackCutterOptions) => {
   const [isCutting, setIsCutting] = useState(false);
   /** A press landed on the seam and hasn't been released or ruled out: the seam lights up under it. */
   const [isPressing, setIsPressing] = useState(false);
@@ -442,14 +440,12 @@ export const usePackCutter = ({ onCutComplete, isOpening, isPackCut, volume = 1,
       const width = measurePack()?.rect.width;
       const stroke = strokeRef.current;
       if (width !== undefined && stroke && strokeCuts(stroke, width, RELEASE_CUT_RATIO)) completeCut();
-      // A tap in the band (it never went across, nor up or down far enough to be a scroll) cuts
-      // nothing, so the pack shows the swipe instead (#485).
-      else if (stroke && !stroke.across) onSeamTap?.();
-      // A swipe that went across but let go short of opening never fails silently (#803).
-      else if (stroke) onShortSwipe?.();
+      // A swipe that went across but let go short of opening never fails silently (#803). A tap in the
+      // band (it never went across) cuts nothing here; the pack's own click opens it.
+      else if (stroke?.across) onShortSwipe?.();
     }
     endCutAttempt();
-  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onSeamTap, onShortSwipe]);
+  }, [disabled, isOpening, isPackCut, trackPoint, measurePack, completeCut, endCutAttempt, onShortSwipe]);
 
   const cleanup = useCallback(() => {
     if (fairyDustRef.current) {

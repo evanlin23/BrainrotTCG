@@ -22,10 +22,10 @@ const SEED = {
 
 /** Opens the pack on the shell and skips its reveal, through to the summary. */
 const openAPack = async () => {
-  await app!.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await app!.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await app!.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();
@@ -122,10 +122,10 @@ it("keeps achievements a pack unlocks in a tab another player's save replaced ou
   app = await mountedApp(SEED, { hallOfFame: [] });
   await app.mount();
   // This tab tears its first pack, claimed for its own save (a tear after the swap is refused: #811).
-  await app.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await app.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await app.interact(() => {
-    document.querySelector<HTMLButtonElement>('.pack-open-button')!.focus();
-    document.querySelector<HTMLButtonElement>('.pack-open-button')!.click();
+    document.querySelector<HTMLElement>('[data-pack-open]')!.focus();
+    document.querySelector<HTMLElement>('[data-pack-open]')!.click();
   });
   await app.until('the pack reveals', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   // Mid-reveal, another tab switches to a different player, whose save has an achievement this tab's doesn't.

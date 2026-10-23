@@ -2,7 +2,6 @@
  * How card modifiers (spec section 5.4) look in the game: names, colours and labels. The odds and
  * points live in the engine; a set opts in with `"modifiers": 1`.
  */
-import type React from 'react';
 import { FINISHES_RAREST_FIRST, type Finish } from '../engine';
 import { FINISH_COLORS } from '../styles/palette';
 import '../styles/Modifiers.css';
@@ -32,8 +31,11 @@ export const bestFinish = (finishes?: Partial<Record<Finish, number>>): Finish |
 export const modifierClasses = (card: { finish?: Finish | null; misprint?: boolean }): string =>
   [card.finish && `finish-${card.finish.toLowerCase()}`, card.misprint && 'misprint'].filter(Boolean).join(' ');
 
+/** Inline style values with no UI-library types: a plain map a component passes to `style`. */
+export type StyleVars = Record<string, string | number>;
+
 /** Props for a thumbnail's wrapper: the modifier classes plus the finish colour as `--finish`. */
 export const modifierThumb = (card: { finish?: Finish | null; misprint?: boolean }) => ({
   className: `mod-thumb ${modifierClasses(card)}`,
-  style: (card.finish ? { '--finish': FINISH_INFO[card.finish].color } : undefined) as React.CSSProperties | undefined,
+  style: (card.finish ? { '--finish': FINISH_INFO[card.finish].color } : undefined) as StyleVars | undefined,
 });

@@ -39,10 +39,10 @@ const ownedTotal = () => [...document.querySelectorAll('.collection [aria-label$
   .reduce((sum, el) => sum + Number(/, (\d+) owned/.exec(el.getAttribute('aria-label')!)![1]), 0);
 
 async function openPack(current: NonNullable<typeof app>) {
-  await current.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await current.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await current.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();
@@ -254,5 +254,5 @@ it('starts on the default set when reading the remembered set throws SecurityErr
   });
   await app.mount();
   expectAppShown();
-  expect(document.querySelector('.pack-open-button')).not.toBeNull();
+  expect(document.querySelector('[data-pack-open]')).not.toBeNull();
 });

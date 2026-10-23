@@ -14,6 +14,49 @@
   margin-top: calc(var(--space-6) - var(--space-5));
 }
 
+/* Best pack and Best card (BestHighlights.tsx): first after the player, a section's space from the stats. */
+.profile-highlights {
+  display: grid;
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.profile-highlight-note {
+  margin: 0;
+}
+
+.profile-highlight-note .btn {
+  margin-left: var(--space-1);
+}
+
+/* The place held for a row whose check is still out: the row's own layout (BestHighlights.tsx), so the verdict moves nothing below. */
+.profile-highlight-pending .pull-row-hand {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.best-card-row .pull-row-blank {
+  width: 36px;
+}
+
+/* Shaped like the submitted badge it sits beside, in the success colour: only the engine's result earns it. */
+.profile-verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--space-2);
+  color: var(--success);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+}
+
+.profile-verified svg {
+  width: 12px;
+  height: 12px;
+}
+
 /* Row lists bleed into the gutter by their own padding, so their content lines up with the headings. */
 .profile-summary .pulls-list,
 .profile-page .pulls-list {
@@ -273,6 +316,11 @@
   margin-top: calc(-1 * var(--space-3));
   color: var(--text-subtle);
   font-size: var(--text-xs);
+}
+
+/* Held while a check is out: its space is kept, so the verdict moves nothing below. */
+.profile-footnote--held {
+  visibility: hidden;
 }
 
 .profile-verify-sub {
