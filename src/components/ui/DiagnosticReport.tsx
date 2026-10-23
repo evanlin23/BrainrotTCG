@@ -66,7 +66,7 @@ export default function DiagnosticReport({ onClose }: Props) {
               setNote('Your edited text was kept, but it is no longer valid report JSON, so capture details in it were not updated. Refresh details replaces it with a new report.');
             } else {
               setDraft(restated);
-              setNote(next ? 'Your edits were kept. Capture is on, so new steps appear after you refresh details.' : 'Your edits were kept. Capture is off and recorded steps were removed from the report.');
+              setNote(next ? 'Your edits were kept. Capture is on. Refresh details builds a new report with the steps it records, and replaces your edits.' : 'Your edits were kept. Capture is off and recorded steps were removed from the report.');
             }
           }} />
           Record navigation and browser-error categories in this tab until reload
@@ -75,8 +75,21 @@ export default function DiagnosticReport({ onClose }: Props) {
         <div className="diagnostic-actions">
           <button className="btn btn--secondary btn--sm" type="button" onClick={() => {
             clearDiagnostics();
-            regenerate();
-            setNote('Recorded steps cleared from this tab.');
+            if (draft === generated) {
+              regenerate();
+              setNote('Recorded steps cleared from this tab.');
+              return;
+            }
+            // Edited text stays; only its recorded steps are emptied.
+            const restated = restateCapture(draft);
+            if (restated === undefined) {
+              setNote('Recorded steps cleared from this tab. Your edited text was kept but is no longer valid report JSON, so steps in it were not removed. Refresh details replaces it with a new report.');
+            } else {
+              setDraft(restated);
+              setNote(hasRecordedSteps(restated)
+                ? 'Recorded steps cleared from this tab. Your edits were kept, and steps you moved elsewhere in the text are still in it.'
+                : 'Recorded steps cleared from this tab and from your edited text.');
+            }
           }}>Clear recorded steps</button>
         </div>
       </details>

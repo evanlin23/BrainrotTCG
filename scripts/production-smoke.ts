@@ -163,7 +163,8 @@ export const readMarker = async (target: Target, get: Get): Promise<{ check: Che
  * same commit), or null, also when the marker can't be read: then a failed check is this run's own. */
 export const newerRun = async (target: Target, get: Get): Promise<string | null> => {
   if (target.host !== 'cloudflare') return null;
-  const got = await fetched(get, tagged(target, `${target.url}deployment-id.json`));
+  // Its own query, so the answer isn't one the marker polls left in a cache.
+  const got = await fetched(get, tagged({ ...target, tag: `${target.tag}-later` }, `${target.url}deployment-id.json`));
   if (typeof got === 'string' || notOk(got)) return null;
   let marker: unknown;
   try {

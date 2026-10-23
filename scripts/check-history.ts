@@ -141,7 +141,6 @@ export const parseCorpus = (text: string, where: string): unknown => {
   }
 };
 
-
 /** Compares each history file at `base` with the working tree under `root`. */
 export const checkHistory = (root: string, base: string, files: readonly string[] = HISTORY_FILES): string[] => {
   const commit = resolveBase(root, base);

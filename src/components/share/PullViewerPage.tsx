@@ -47,7 +47,7 @@ const PullViewerPage = ({ proof, onClose, canOpenSet, onOpenSet }: PullViewerPag
     checkPull(proof, stop.signal)
       .then((pull) => !cancelled && setState({ status: 'ok', pull }))
       .catch((error: unknown) => {
-        if (cancelled || stop.signal.aborted) return;
+        if (cancelled) return;
         if (error instanceof ProofError) {
           if (error.rule === 'set') {
             setState({ status: 'unknown_set', reason: error.message });

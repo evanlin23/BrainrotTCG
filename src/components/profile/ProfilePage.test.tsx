@@ -601,6 +601,7 @@ describe('Best card place while the Best cards are weighed', () => {
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
     myPackCacheState.mockReturnValue('loading');
     await act(async () => render());
+    expect(expectingSeen).toHaveBeenCalled();
     expect(expectingSeen.mock.calls.every(([value]) => value === false)).toBe(true);
     expect(rebuildBestCards).not.toHaveBeenCalled();
   });

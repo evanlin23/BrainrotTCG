@@ -254,6 +254,9 @@ const PROFILE_EDITS = {
   'one highlight too few': false,
   'short signature': false,
   'long signature': false,
+  'set id past 64 bytes': false,
+  'set listed twice': false,
+  'sets out of order': false,
 } as const;
 type ProfileEdit = keyof typeof PROFILE_EDITS;
 const PROFILE_EDIT_NAMES = Object.keys(PROFILE_EDITS) as ProfileEdit[];
@@ -269,9 +272,13 @@ const RUN_LENGTHS = [1, 2, 3, 5, 40, 1000, 20_000];
  */
 const generatedProfile = (rng: Rng) => {
   const edit = rng.pick(PROFILE_EDIT_DRAW);
-  const needsTwoSets = edit === 'next run in another set' || edit === 'empty run' || edit === 'highlight listed twice';
-  const table = TABLE_SETS.slice(0, rng.int(needsTwoSets ? 2 : 1, TABLE_SETS.length));
+  const needsTwoSets = ['next run in another set', 'empty run', 'highlight listed twice', 'set listed twice', 'sets out of order'].includes(edit);
+  const table: [string, number][] = TABLE_SETS.slice(0, rng.int(needsTwoSets ? 2 : 1, TABLE_SETS.length)).map(([id, version]) => [id, version]);
+  if (edit === 'set id past 64 bytes') table[rng.int(0, table.length - 1)] = ['x'.repeat(65), 1];
+  if (edit === 'set listed twice') table.push([...table[rng.int(0, table.length - 1)]]);
   const indices = table.map((_, i) => i);
+  // The second set comes first, then every set is still reached, so only the order is wrong.
+  if (edit === 'sets out of order') indices.splice(0, indices.length, 1, 0, ...indices.slice(1));
   if (edit === 'next run in another set') indices.push(rng.int(0, table.length - 2));
   if (edit === 'next run in the same set') indices.push(table.length - 1);
   const counts = indices.map(() => rng.pick(RUN_LENGTHS));
