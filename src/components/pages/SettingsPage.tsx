@@ -11,6 +11,7 @@ import type { SetDefinition } from '../../engine';
 import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import KeptAsideActions from '../ui/KeptAsideActions';
+import UnreadablePlayerRow from './UnreadablePlayerRow';
 import '../../styles/Settings.css';
 import { downloadSaveFile, EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
 import { sameSave, saveMark, type SaveMark } from '../../game/player';
@@ -29,6 +30,10 @@ interface SettingsPageProps {
     recoveryAllowed?: () => boolean;
     /** What's kept aside changed (discarded here, or more kept aside meanwhile); the app refreshes what it shows. */
     onRecoveryChanged?: () => void;
+    /** This browser's player record can't be read (#1052): Save & backup shows its row first, with Restore, Download and Start a new player. */
+    playerUnreadable?: boolean;
+    /** Starts a new player in place of that record. Returns an error to show, or null (the page then reloads). */
+    onStartNewPlayer?: () => string | null;
     /** The pack being opened: Help's card guide shows its odds. */
     guideSet?: SetDefinition;
     /** The tabs and pack picker already show on their own (a saved pack or a collected card): "Show every page" would change nothing, so it is left out. */
@@ -36,7 +41,7 @@ interface SettingsPageProps {
 }
 
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, playerUnreadable = false, onStartNewPlayer, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
     const [exportNote, setExportNote] = useState(EXPORT_KEY_NOTE);
     // Counts successful exports; it keys the note's text so a repeat Export is announced again.
@@ -357,6 +362,9 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             <section id="save-backup" className="settings-group" aria-labelledby="settings-save">
                 <h2 id="settings-save" ref={saveHeadingRef} className="section-title" tabIndex={-1}>Save &amp; backup</h2>
                 <div className="settings-panel">
+                    {playerUnreadable && onStartNewPlayer && (
+                        <UnreadablePlayerRow onRestore={handleImportClick} onStartNewPlayer={onStartNewPlayer} />
+                    )}
                     {recoveryNote && recoveryAllowed && (
                         <div className="settings-row settings-row--wrap">
                             <span className="settings-text">

@@ -16,7 +16,7 @@ import {
   type VerifiedPull,
 } from '../engine';
 import { ALL_SET_VERSIONS, getSet } from '../content/sets';
-import { claimNonce, getPlayer, peekNonce, sameSave, saveMark, StaleSaveError, type SaveMark } from './player';
+import { claimNonce, getPlayer, peekNonce, PlayerUnreadableError, playerUnreadable, sameSave, saveMark, StaleSaveError, type SaveMark } from './player';
 import { recordPack, recordTicket } from './history';
 import { recordBestCards } from './bestCards';
 import { decodeCard, encodeCard, toPulled } from './cardCode';
@@ -83,6 +83,8 @@ export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefi
 
 /** Mine the next pack's ticket in the background. */
 export const prefetchNextPack = (set: SetDefinition) => {
+  // No pack opens while the player record can't be read, so mine nothing for this tab's stand-in key.
+  if (playerUnreadable()) return;
   void getTicket(setKey(set), getPlayer().publicKey, peekNonce())
     .then((ticket) => {
       // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
@@ -106,6 +108,7 @@ export const openPack = async (set: SetDefinition, expectedSave?: SaveMark): Pro
   const initiatingSave = expectedSave ?? saveMark();
   // The tab's save was already replaced: mine nothing for (and never claim from) the other player.
   if (!sameSave(initiatingSave, saveMark())) throw new StaleSaveError();
+  if (playerUnreadable()) throw new PlayerUnreadableError();
   const owner = getPlayer();
   const next = peekNonce();
   let ticket = await getTicket(setKey(set), owner.publicKey, next);

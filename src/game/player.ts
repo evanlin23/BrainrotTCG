@@ -3,6 +3,8 @@
  * name, and the next ticket number. Stored in localStorage; exported with saves.
  */
 import { fingerprint, fromHex, generateKeypair, isNameAllowed, normalizeName, publicKeyFromSecret, toHex } from '../engine';
+import { STORAGE_KEYS } from '../constants';
+import { keepUnreadableAside } from './collectionRecovery';
 import { ticketsRecorded } from './history';
 
 const STORAGE_KEY = 'brainrot-player-v1';
@@ -43,21 +45,71 @@ const importedName = (name: string, kept?: string): string => {
   return own && isNameAllowed(own) ? own : randomName();
 };
 
-const read = (): StoredPlayer | null => {
+const isKey = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+
+/**
+ * What storage holds for the player: nothing (a new browser, or storage that can't be read), a record
+ * this code reads, a damaged one whose key can still be read (`fields`, to repair), or bytes with no
+ * key that can be read.
+ */
+type StoredRecord =
+  | { kind: 'none' }
+  | { kind: 'readable'; record: StoredPlayer }
+  | { kind: 'damaged'; raw: string; fields: Record<string, unknown> & { secretKey: string } }
+  | { kind: 'unreadable'; raw: string };
+
+const classify = (raw: string): StoredRecord => {
+  let value: unknown;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredPlayer;
-    if (!/^[0-9a-f]{64}$/.test(parsed.secretKey) || !Number.isSafeInteger(parsed.nextNonce)) return null;
-    return parsed;
+    value = JSON.parse(raw);
   } catch {
-    return null;
+    return { kind: 'unreadable', raw };
   }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { kind: 'unreadable', raw };
+  const fields = value as Record<string, unknown>;
+  if (!isKey(fields.secretKey)) return { kind: 'unreadable', raw };
+  if (Number.isSafeInteger(fields.nextNonce)) return { kind: 'readable', record: value as StoredPlayer };
+  return { kind: 'damaged', raw, fields: fields as Record<string, unknown> & { secretKey: string } };
 };
 
-const write = (stored: StoredPlayer, onError?: (error: unknown) => void) => {
+const stored = (): StoredRecord => {
+  let raw: string | null;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return { kind: 'none' };
+  }
+  return raw ? classify(raw) : { kind: 'none' };
+};
+
+const read = (): StoredPlayer | null => {
+  const record = stored();
+  return record.kind === 'readable' ? record.record : null;
+};
+
+/** Whether a stored player record's bytes are kept aside before they are replaced: anything this code can't read as is. */
+const unreadable = (raw: string) => classify(raw).kind !== 'readable';
+
+/**
+ * Refusal while the stored player record has no key that can be read (#1052): no ticket is claimed and
+ * no new key is stored over it, until the player restores a backup or starts a new player.
+ */
+export class PlayerUnreadableError extends Error {
+  constructor(message = "The player record can't be read, so no ticket can be claimed") {
+    super(message);
+    this.name = 'PlayerUnreadableError';
+  }
+}
+
+/** Whether the stored player record has no key that can be read (see PlayerUnreadableError). */
+export const playerUnreadable = (): boolean => stored().kind === 'unreadable';
+
+const write = (record: StoredPlayer, onError?: (error: unknown) => void) => {
+  try {
+    // Bytes this code can't read are kept aside (game/collectionRecovery.ts) before anything replaces them.
+    // When storage refuses even to read the record, nothing could be read from it, and the write goes ahead as before.
+    keepUnreadableAside(STORAGE_KEY, unreadable);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(record));
     return true;
   } catch (error) {
     console.error('Could not save player identity', error);
@@ -73,12 +125,78 @@ const write = (stored: StoredPlayer, onError?: (error: unknown) => void) => {
  */
 let memory: StoredPlayer | null = null;
 
+/** The damaged record (its raw value) this tab last repaired. */
+let repaired: string | null = null;
+
+/** The highest ticket number, plus one, that a pack stored or still owed under `publicKeyHex` used; 0 for none. */
+const pastStoredPacks = (publicKeyHex: string): number => {
+  let next = 0;
+  const past = (nonce: unknown) => {
+    if (Number.isSafeInteger(nonce) && (nonce as number) >= 0) next = Math.max(next, Math.min((nonce as number) + 1, Number.MAX_SAFE_INTEGER));
+  };
+  const parse = (raw: string | null): unknown => {
+    try {
+      return JSON.parse(raw ?? 'null');
+    } catch {
+      return null;
+    }
+  };
+  try {
+    const packs = parse(localStorage.getItem(STORAGE_KEYS.STORED_PACKS)) as { k?: unknown; n?: unknown } | null;
+    if (packs?.k === publicKeyHex && Array.isArray(packs.n)) for (const range of packs.n) if (Array.isArray(range)) past(range[1]);
+    for (const key of [STORAGE_KEYS.PENDING_PACKS, STORAGE_KEYS.PENDING_PACK]) {
+      const shelf = parse(localStorage.getItem(key));
+      for (const pack of Array.isArray(shelf) ? shelf : [shelf]) {
+        const { k, n } = (pack ?? {}) as { k?: unknown; n?: unknown };
+        if (k === undefined || k === publicKeyHex) past(n);
+      }
+    }
+    const prefix = `${STORAGE_KEYS.PENDING_PACK_PREFIX}${publicKeyHex}:`;
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(prefix)) past(Number(key.slice(prefix.length)));
+    }
+  } catch { /* Storage that can't be read holds no packs to count. */ }
+  return next;
+};
+
+/**
+ * A damaged record whose key can be read (#1052): the key stays, and only the broken fields are
+ * repaired. The ticket count goes past every ticket the history, the stored collection's packs and the
+ * owed packs show that key used, so no number is handed out twice. The original bytes are kept aside
+ * before the repaired record replaces them (see write); if they can't be, the repair lives in this tab only.
+ */
+const repair = ({ raw, fields }: { raw: string; fields: Record<string, unknown> & { secretKey: string } }): StoredPlayer => {
+  // Repaired once per damaged value: when storage refused the repaired record, this tab plays on from memory.
+  if (memory && repaired === raw && memory.secretKey === fields.secretKey) return memory;
+  repaired = raw;
+  const count = typeof fields.nextNonce === 'number' ? fields.nextNonce
+    : typeof fields.nextNonce === 'string' && fields.nextNonce.trim() !== '' ? Number(fields.nextNonce) : NaN;
+  const record: StoredPlayer = {
+    secretKey: fields.secretKey,
+    name: typeof fields.name === 'string' ? fields.name : randomName(),
+    nextNonce: Number.isFinite(count) && count > 0 ? Math.min(Math.ceil(count), Number.MAX_SAFE_INTEGER) : 0,
+    createdAt: typeof fields.createdAt === 'number' && Number.isFinite(fields.createdAt) && fields.createdAt >= 0 ? fields.createdAt : Date.now(),
+  };
+  const publicKeyHex = toHex(publicKeyFromSecret(fromHex(record.secretKey)));
+  record.nextNonce = Math.max(record.nextNonce, ticketsRecorded(publicKeyHex), pastStoredPacks(publicKeyHex),
+    memory?.secretKey === record.secretKey ? memory.nextNonce : 0);
+  memory = record;
+  write(record);
+  return record;
+};
+
 const current = (): StoredPlayer => {
-  const fresh = read();
-  if (fresh) return (memory = fresh);
+  const fresh = stored();
+  if (fresh.kind === 'readable') return (memory = fresh.record);
+  if (fresh.kind === 'damaged') return repair(fresh);
   if (memory) return memory;
   memory = { secretKey: toHex(generateKeypair().secretKey), name: randomName(), nextNonce: 0, createdAt: Date.now() };
-  write(memory);
+  if (fresh.kind === 'none') write(memory);
+  // Unreadable bytes stay where they are, and a copy is kept aside for Download and backups. This key is
+  // only this tab's stand-in, never stored: claims refuse (PlayerUnreadableError) until the player
+  // restores a backup or starts a new player (saveFile's startNewPlayer).
+  else keepUnreadableAside(STORAGE_KEY, unreadable);
   return memory;
 };
 
@@ -181,6 +299,7 @@ export interface NonceClaim {
 export const COUNTER_EXHAUSTED = 'Ticket counter exhausted: this player has no ticket number with a safe successor left';
 
 const take = (record: StoredPlayer, nonce: number): NonceClaim => {
+  if (playerUnreadable()) throw new PlayerUnreadableError();
   // Checked before anything is written: a count past Number.MAX_SAFE_INTEGER would make the next read
   // reject the record and make a new key in its place.
   if (!Number.isSafeInteger(nonce + 1)) throw new RangeError('This player has no ticket numbers left');
@@ -193,6 +312,7 @@ const take = (record: StoredPlayer, nonce: number): NonceClaim => {
 /** Consume the next ticket number from this tab's view of storage. Prefer claimNonce(). */
 export const allocateNonce = (expectedSave?: SaveMark): NonceClaim => {
   if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
+  if (playerUnreadable()) throw new PlayerUnreadableError();
   const record = forTickets();
   if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
   return take(record, record.nextNonce);
@@ -299,6 +419,7 @@ const takeFrom = (record: StoredPlayer, nonce: number, expectedSave?: SaveMark):
  */
 export const claimNonce = async (expectedSave?: SaveMark): Promise<NonceClaim> => {
   if (expectedSave && !sameSave(expectedSave, saveMark())) throw new StaleSaveError();
+  if (playerUnreadable()) throw new PlayerUnreadableError();
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (typeof locks?.request !== 'function') return allocateNonce(expectedSave);
   let record = forTickets();
@@ -309,7 +430,7 @@ export const claimNonce = async (expectedSave?: SaveMark): Promise<NonceClaim> =
     try {
       result = await attempt(locks, record, at, expectedSave);
     } catch (error) {
-      if (error instanceof StaleSaveError) throw error;
+      if (error instanceof StaleSaveError || error instanceof PlayerUnreadableError) throw error;
       // take() refuses a number with no safe successor with a RangeError: the counter has run out, and
       // the unlocked fallback refuses it the same way, so say that rather than blame the lock.
       console.error(error instanceof RangeError ? COUNTER_EXHAUSTED : 'Could not hold a ticket number', error);
@@ -347,6 +468,8 @@ export const renamePlayer = (name: string, expectedKey: string): RenameResult =>
   const player = toPlayer(record);
   if (player.publicKeyHex !== expectedKey) return { status: 'stale' };
   if (!clean) return { status: 'blank', player };
+  // This tab's stand-in key is never stored, and neither is a name for it.
+  if (playerUnreadable()) return { status: 'failed', player };
   if (!isNameAllowed(clean)) return { status: 'blocked', player };
   if (clean === record.name) return { status: 'unchanged', player };
   const next = { ...record, name: clean };
@@ -356,8 +479,19 @@ export const renamePlayer = (name: string, expectedKey: string): RenameResult =>
   return { status: 'saved', player: toPlayer(next) };
 };
 
-/** For save export/import. The secret key is what makes pulls yours, so treat the export as private. */
-export const exportPlayer = (): string => JSON.stringify(forTickets());
+/**
+ * For save export/import. The secret key is what makes pulls yours, so treat the export as private.
+ * A stored record with no key that can be read is exported as its exact bytes, never as this tab's
+ * stand-in key: the backup keeps it, and importing it is refused rather than pairing the save with a new key.
+ */
+export const exportPlayer = (): string => {
+  const record = stored();
+  return record.kind === 'unreadable' ? record.raw : JSON.stringify(forTickets());
+};
+
+/** A new player's record (its raw value), for starting over in place of an unreadable one (see saveFile's startNewPlayer). */
+export const newPlayerRecord = (): string =>
+  JSON.stringify({ secretKey: toHex(generateKeypair().secretKey), name: randomName(), nextNonce: 0, createdAt: Date.now() } satisfies StoredPlayer);
 
 /**
  * How many ticket numbers a stored player record (its raw value) has used, counting past every ticket

@@ -23,7 +23,7 @@ import ShowcaseRibbon from './ShowcaseRibbon';
 import { revealAnnouncement } from '../cards/cardLabel';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 import { packImageUrl } from '../../content/art';
-import { StaleSaveError, type SaveMark } from '../../game/player';
+import { PlayerUnreadableError, StaleSaveError, type SaveMark } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
 
@@ -71,9 +71,11 @@ interface PackOpenerProps {
   isOwned?: (cardKey: string) => boolean;
   /** The player closed a reveal with cards still face down; they're recorded anyway, so say so (unless the save failed). */
   onLeaveEarly?: (pack: OpenedPack) => void;
+  /** Go to Settings, Save & backup: where an unreadable player record's refusal sends the player. */
+  onOpenSave?: () => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, onOpenSave }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   /** Why the last tear didn't open a pack, shown under it with a way to try again. */
@@ -124,7 +126,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         setLeavingOpen(false);
         landingRef.current.resetCutState();
       } else {
-        setRefusal(error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed');
+        setRefusal(error instanceof PlayerUnreadableError ? 'unreadable' : error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed');
       }
       return;
     }
@@ -290,11 +292,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       reloadPage();
       return;
     }
+    if (refusal === 'unreadable' && onOpenSave) {
+      onOpenSave();
+      return;
+    }
     // Try again goes as the Open pack button comes back (disabled while the ticket is on its way):
     // focus moves to it rather than falling to the page for the whole wait.
     focusOpenRef.current = true;
     handleOpen();
-  }, [refusal, handleOpen]);
+  }, [refusal, handleOpen, onOpenSave]);
   /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
   const stageRef = useRef<HTMLDivElement>(null);
   // The stage is on its way out when the cards come in, and the reveal must not inherit anything it

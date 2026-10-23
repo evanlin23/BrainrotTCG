@@ -6,7 +6,7 @@ import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrat
 import { isArchive } from './collectionRecovery';
 import { isBestCardsStore, resetBestCards } from './bestCards';
 import { isLegacyPull, isStored, withReadableCache } from './history';
-import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY, sameSave, saveMark, type SaveMark } from './player';
+import { exportPlayer, importPlayer, isCurrentPlayer, newPlayerRecord, newSaveStamp, parsePlayer, playerUnreadable, SAVE_STAMP_KEY, sameSave, saveMark, type SaveMark } from './player';
 
 export const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
 
@@ -328,5 +328,97 @@ export const importSaveFile = (raw: string, { keepCopy = true, expectedSave }: {
     return null;
   } catch {
     return "Couldn't read or store that file. Is it a save exported from Save & backup?";
+  }
+};
+
+/** player.ts keeps its key private; starting a new player only watches it, to put it back. */
+const PLAYER_KEY = 'brainrot-player-v1';
+
+/** The whole save from before a new player was started in place of an unreadable record (see startNewPlayer). */
+const NEW_PLAYER_BACKUP_KEY = 'brainrot-before-new-player-v1';
+
+/**
+ * What starting a new player moves aside: everything the old player's packs made. The kept-aside data
+ * stays (it holds the damaged record, for Download), and so do this device's settings and the packs
+ * still owed to the old key (they are filed under it, so the new player never takes them).
+ */
+const NEW_PLAYER_MOVES = [
+  STORAGE_KEYS.COLLECTION, STORAGE_KEYS.STATS, STORAGE_KEYS.HISTORY, STORAGE_KEYS.BEST_CARDS, STORAGE_KEYS.ACHIEVEMENTS,
+  STORAGE_KEYS.HALL_OF_FAME, STORAGE_KEYS.PULLS, STORAGE_KEYS.STORED_PACKS,
+] as const;
+
+/** startNewPlayer's answers when nothing changed. Each offers what's still there: the download and Restore. */
+export const NEW_PLAYER_NO_ROOM_NOTE = "This browser's storage has no room to keep a copy of your old progress, so no new player was started and nothing changed."
+  + ' Download the damaged record, or restore a backup, instead.';
+export const NEW_PLAYER_FAILED_NOTE = "Couldn't start a new player, so nothing changed: your progress and the damaged record are as they were."
+  + ' Download the damaged record, or restore a backup, instead.';
+/** startNewPlayer's answer when it stopped partway and couldn't put everything back (the page then reloads). */
+export const NEW_PLAYER_PARTIAL_NOTE = "Starting a new player failed partway and couldn't be fully undone. A copy of your save from before is kept in this browser.";
+
+/**
+ * Start a new player in place of a stored record with no key that can be read (#1052), once the player
+ * confirms: a copy of the whole save goes to NEW_PLAYER_BACKUP_KEY first (the damaged bytes included),
+ * then the save stamp changes, so another tab still on the old save stops writing it, then the old
+ * player's progress (NEW_PLAYER_MOVES) is removed, so the new key never inherits another key's
+ * collection, and the new record is written last. If any step fails (full storage, or anything else),
+ * every step is undone and no key is created. Returns an error to show, or null (the caller reloads).
+ */
+export const startNewPlayer = ({ expectedSave }: { expectedSave?: SaveMark } = {}): string | null => {
+  if ((expectedSave && !sameSave(expectedSave, saveMark())) || !playerUnreadable()) return STALE_SAVE_WARNING;
+  let earlierCopy: string | null;
+  try {
+    earlierCopy = localStorage.getItem(NEW_PLAYER_BACKUP_KEY);
+    const copy = saveCopy();
+    if (copy === null) return NEW_PLAYER_FAILED_NOTE;
+    localStorage.setItem(NEW_PLAYER_BACKUP_KEY, copy);
+  } catch (error) {
+    return isQuotaError(error) ? NEW_PLAYER_NO_ROOM_NOTE : NEW_PLAYER_FAILED_NOTE;
+  }
+  const staged: [string, string | null][] = [[SAVE_STAMP_KEY, newSaveStamp()], ...NEW_PLAYER_MOVES.map((key): [string, null] => [key, null])];
+  // The record and the kept-aside data are written by importPlayer (which keeps the damaged bytes aside first): watched, to put back.
+  const watched = [PLAYER_KEY, STORAGE_KEYS.COLLECTION_RECOVERY];
+  const changed: string[] = [];
+  let previous: Map<string, string | null>;
+  try {
+    previous = new Map([...staged.map(([key]) => key), ...watched].map((key) => [key, localStorage.getItem(key)]));
+  } catch {
+    putBack(NEW_PLAYER_BACKUP_KEY, earlierCopy);
+    return NEW_PLAYER_FAILED_NOTE;
+  }
+  try {
+    for (const [key, value] of staged) {
+      if (value === null) {
+        if (previous.get(key) === null) continue;
+        localStorage.removeItem(key);
+      } else localStorage.setItem(key, value);
+      changed.push(key);
+    }
+    let identityError: unknown = new Error('Identity write failed');
+    if (!importPlayer(newPlayerRecord(), (error) => { identityError = error; })) throw identityError;
+  } catch (error) {
+    for (const key of watched) {
+      try {
+        if (localStorage.getItem(key) !== previous.get(key)) changed.push(key);
+      } catch {
+        changed.push(key);
+      }
+    }
+    if (!restoreFields(changed, previous)) return NEW_PLAYER_PARTIAL_NOTE;
+    putBack(NEW_PLAYER_BACKUP_KEY, earlierCopy);
+    return isQuotaError(error) ? NEW_PLAYER_NO_ROOM_NOTE : NEW_PLAYER_FAILED_NOTE;
+  }
+  // A list this tab couldn't store belongs to the old player: never write it into the new one.
+  resetBestCards();
+  return null;
+};
+
+/** Store `value` under `key` again (remove it when null); false when storage refused. */
+const putBack = (key: string, value: string | null): boolean => {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
   }
 };

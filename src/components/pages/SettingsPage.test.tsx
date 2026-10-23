@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLatestSet } from '../../content/sets';
 import { ALL_CARDS } from '../../data/cards';
 import { FULL_MOVE_NOTE, PARTIAL_MOVE_NOTE } from '../../game/move';
-import { EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, importSaveFile, NO_ROOM_FOR_COPY_NOTE, NO_ROOM_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, importSaveFile, NEW_PLAYER_NO_ROOM_NOTE, NO_ROOM_FOR_COPY_NOTE, NO_ROOM_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
 import { SAVE_STAMP_KEY, type SaveMark } from '../../game/player';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundGain } from '../../constants/audio';
 import { DEFAULT_SETTINGS, effectsLevel } from '../../utils/settings';
 import SettingsPage from './SettingsPage';
+import { START_NEW_PLAYER_QUESTION, UNREADABLE_PLAYER_NOTE } from './UnreadablePlayerRow';
 
 // The old address answers with this save; importSave and storage are the real ones.
 const fetchOldSave = vi.hoisted(() => vi.fn());
@@ -766,5 +767,60 @@ describe('Settings: Show every page', () => {
     // And it comes back with the state: a different save here is not a stale flag from when the page mounted.
     act(() => root.render(<SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} pagesUnlocked={false} />));
     expect(switchLabels()).toContain('Show every page');
+  });
+});
+
+describe('Settings: a player record that cannot be read (#1052)', () => {
+  const rowNote = () => [...document.body.querySelectorAll('[role="status"]')].find((el) => el.previousElementSibling?.textContent === 'Player record')!;
+  const DAMAGED = '{"secretKey":"not a key"';
+  const renderUnreadable = (onStartNewPlayer: () => string | null) => act(() => root.render(
+    <SettingsPage settings={DEFAULT_SETTINGS} onSettingsChange={() => {}} onImportSave={() => null} playerUnreadable onStartNewPlayer={onStartNewPlayer} />,
+  ));
+
+  it('is left out while the record can be read', () => {
+    expect(rowNote()).toBeUndefined();
+  });
+
+  it('says why packs are paused and offers Restore, Download and Start a new player', async () => {
+    localStorage.setItem('brainrot-player-v1', DAMAGED);
+    renderUnreadable(() => null);
+    expect(rowNote().textContent).toBe(UNREADABLE_PLAYER_NOTE);
+    // Restore is the backup file's Import.
+    const pick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    await click('Restore a backup');
+    expect(pick).toHaveBeenCalledTimes(1);
+    // Download is the backup file, with the damaged bytes as they are.
+    const blobs: Blob[] = [];
+    vi.stubGlobal('URL', { createObjectURL: vi.fn((blob: Blob) => { blobs.push(blob); return 'blob:mock'; }), revokeObjectURL: vi.fn() });
+    const save = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    await click('Download the damaged record');
+    expect(save).toHaveBeenCalledTimes(1);
+    const file = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsText(blobs[0]);
+    });
+    expect(JSON.parse(file).player).toBe(DAMAGED);
+    expect(rowNote().textContent).toMatch(/^Downloaded the damaged record/);
+  });
+
+  it('asks before starting a new player, and shows why when it could not', async () => {
+    const start = vi.fn(() => NEW_PLAYER_NO_ROOM_NOTE);
+    renderUnreadable(start);
+    await click('Start a new player');
+    expect(rowNote().textContent).toBe(START_NEW_PLAYER_QUESTION);
+    expect(document.activeElement).toBe(button('Keep my record'));
+    await click('Keep my record');
+    expect(start).not.toHaveBeenCalled();
+    expect(rowNote().textContent).toBe(UNREADABLE_PLAYER_NOTE);
+    expect(document.activeElement).toBe(button('Start a new player'));
+
+    await click('Start a new player');
+    await click('Start a new player');
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(rowNote().textContent).toBe(NEW_PLAYER_NO_ROOM_NOTE);
+    // Nothing changed, so every choice is still offered.
+    expect(button('Restore a backup')).toBeDefined();
+    expect(button('Download the damaged record')).toBeDefined();
   });
 });
