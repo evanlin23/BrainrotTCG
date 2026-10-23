@@ -32,7 +32,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const wrapper = () => container.querySelector('img[alt="Brainrot TCG booster pack wrapper"]')!;
+const wrapper = () => container.querySelector('.pack-half-bottom > img')!;
 
 describe("the sealed pack's art", () => {
   it.each(['load', 'error'])('lets the deferred downloads start once it %ss, not before (#776)', (event) => {
