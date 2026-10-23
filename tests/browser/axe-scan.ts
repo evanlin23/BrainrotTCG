@@ -30,7 +30,7 @@ export const AXE_RULES = [
 ] as const;
 
 /** The screens scanned. A scan or an exception for any other name is a typo, not a state. */
-export const AXE_STATES = ['first-pack', 'summary', 'settings', 'card-share'] as const;
+export const AXE_STATES = ['first-pack', 'summary', 'settings', 'card-share', 'mid-reveal', 'cards', 'rankings', 'profile', 'shared-pull'] as const;
 
 /** Rules a scan must have reached on every screen, so a scan of an empty or wrong page cannot pass. */
 const ALWAYS_APPLICABLE = ['color-contrast', 'document-title', 'html-has-lang'] as const;
