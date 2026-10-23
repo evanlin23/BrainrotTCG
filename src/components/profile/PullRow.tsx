@@ -32,7 +32,7 @@ const PullRow = ({ cards, set, setId, hand, score, meta, worthy, badge, onClick 
       <button type="button" className="pull-row quiet-focus" style={{ '--set-a': a, '--set-b': b } as CSSProperties} onClick={onClick} disabled={!cards}>
         <span className="pull-row-thumbs" aria-hidden="true">
           {cards
-            ? cards.map((c, i) => <CardImage key={i} src={c.image} finish={c.finish} alt="" loading="lazy" className={`${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} />)
+            ? cards.map((c, i) => <CardImage key={i} src={c.image} finish={c.finish} thumbnail alt="" loading="lazy" className={`${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} />)
             : Array.from({ length: 5 }, (_, i) => <span key={i} className="pull-row-blank" />)}
         </span>
         <span className="pull-row-main">

@@ -67,22 +67,7 @@ export interface BoundaryException {
   removeWhen: string;
 }
 
-const CARD_WITH_META = {
-  to: 'src/components/cards/Card',
-  typeOnly: true,
-  reason: 'CardWithMeta (card data plus reveal-only UI state) is defined in the Card component, so this type-only import points the wrong way.',
-  issue: '#700',
-  removeWhen: 'CardWithMeta and its card-instance types live in a neutral module that this file imports instead of the component.',
-} as const;
-
-export const EXCEPTIONS: readonly BoundaryException[] = [
-  { from: 'src/game/bestSources.ts', ...CARD_WITH_META },
-  { from: 'src/game/history.ts', ...CARD_WITH_META },
-  { from: 'src/game/pulls.ts', ...CARD_WITH_META },
-  { from: 'src/hooks/useAchievementReconciler.ts', ...CARD_WITH_META },
-  { from: 'src/types/index.ts', ...CARD_WITH_META },
-  { from: 'src/utils/achievementChecks.ts', ...CARD_WITH_META },
-];
+export const EXCEPTIONS: readonly BoundaryException[] = [];
 
 const SOURCE_EXTENSIONS = /\.(?:[cm]?[jt]sx?)$/;
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;

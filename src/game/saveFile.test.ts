@@ -329,6 +329,19 @@ describe('private collection recovery archive portability', () => {
     expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
   });
 
+  it('carries kept-aside player records and stats through an export and an import (#1052, #1053)', () => {
+    const archive = JSON.stringify({
+      raw: '{"secretKey":"not a key"', player: '{"secretKey":"not a key"', key: 'brainrot-player-v1',
+      later: [{ raw: 'garbage', player: store.get('brainrot-player-v1'), key: STORAGE_KEYS.STATS }],
+    });
+    store.set(STORAGE_KEYS.COLLECTION_RECOVERY, archive);
+    const file = exportSaveFile();
+    expect((JSON.parse(file) as { collectionRecovery: string }).collectionRecovery).toBe(archive);
+    store.clear();
+    expect(importSaveFile(file)).toBeNull();
+    expect(store.get(STORAGE_KEYS.COLLECTION_RECOVERY)).toBe(archive);
+  });
+
   it('backs up an existing archive before importing a different one', () => {
     const previous = JSON.stringify({ raw: '{old}', player: player('bb'.repeat(32), 12) });
     store.set(STORAGE_KEYS.COLLECTION_RECOVERY, previous);

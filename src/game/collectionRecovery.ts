@@ -11,8 +11,11 @@ export type CollectionSaveResult = 'saved' | 'recovered' | 'blocked';
 /** Stats kept aside are marked with their storage key (game/statsRecovery.ts); an entry without one is a collection. */
 const STATS_KEY = STORAGE_KEYS.STATS;
 
-/** One kept-aside collection (or stats): its exact bytes and the identity snapshot they belonged to. */
-type Entry = { raw: string; player: string | null; key?: typeof STATS_KEY };
+/** Player records (game/player.ts) and stats kept aside are marked with their storage key; an entry without one is a collection. */
+type KeptKey = typeof PLAYER_KEY | typeof STATS_KEY;
+
+/** One kept-aside collection (or player record, or stats): its exact bytes and the identity snapshot they belonged to. */
+type Entry = { raw: string; player: string | null; key?: KeptKey };
 /**
  * The first payload kept, then the newest ones under `later`; `dropped` counts later payloads let go
  * to stay within the limits. `kind` marks a first entry that is an archive this code couldn't read.
@@ -36,7 +39,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const isEntry = (value: unknown): value is Entry => isRecord(value) && typeof value.raw === 'string'
-  && (value.player === null || typeof value.player === 'string') && (value.key === undefined || value.key === STATS_KEY);
+  && (value.player === null || typeof value.player === 'string')
+  && (value.key === undefined || value.key === PLAYER_KEY || value.key === STATS_KEY);
 
 const sameEntry = (a: Entry, b: Entry) => a.raw === b.raw && a.key === b.key;
 
@@ -60,7 +64,12 @@ const readArchive = (stored: string): Archive => {
 
 const entriesOf = (archive: Archive | null): Entry[] => (archive ? [archive, ...(archive.later ?? [])] : []);
 
-const withKey = (entry: Entry, storageKey: string): Entry => (storageKey === STATS_KEY ? { ...entry, key: STATS_KEY } : entry);
+const withKey = (entry: Entry, storageKey: string): Entry =>
+  (storageKey === PLAYER_KEY || storageKey === STATS_KEY ? { ...entry, key: storageKey } : entry);
+
+const WHAT: Record<KeptKey | 'collection', string> = {
+  collection: 'collection data is', [PLAYER_KEY]: 'player data is', [STATS_KEY]: 'stats are',
+};
 
 const withLater = (first: Archive, later: Entry[], dropped: number): Archive => {
   const archive: Archive = { ...first, later, dropped };
@@ -79,18 +88,18 @@ const keepForThisVisit = (entry: Entry, why: unknown): 'archived' => {
       droppedThisVisit++;
     }
   }
-  console.warn(`Unreadable ${entry.key === STATS_KEY ? 'stats' : 'collection data'} ${entry.key === STATS_KEY ? 'are' : 'is'} kept in this tab only, because this browser had no room for it; download it before this tab closes or reloads.`, why);
+  console.warn(`Unreadable ${WHAT[entry.key ?? 'collection']} kept in this tab only, because this browser had no room for it; download it before this tab closes or reloads.`, why);
   return 'archived';
 };
 
 /**
- * Before the stored collection (or stats) is replaced: if `unreadable` says this build can't read all of
+ * Before the stored collection (or player record, or stats) is replaced: if `unreadable` says this build can't read all of
  * it, keep its exact bytes (with the identity they belonged to) aside. The archive never blocks the save:
  * past its limits it lets the oldest later payloads go, and when even the first and newest won't fit, it
  * keeps the newest for this visit. 'blocked' only means the stored value couldn't be read, so it must stay.
  */
 export const keepUnreadableAside = (
-  storageKey: typeof STORAGE_KEYS.COLLECTION | typeof STATS_KEY,
+  storageKey: typeof STORAGE_KEYS.COLLECTION | KeptKey,
   unreadable: (raw: string) => boolean,
 ): 'clean' | 'archived' | 'blocked' => {
   let raw: string | null;
@@ -148,7 +157,7 @@ export const keepUnreadableAside = (
 };
 
 /** True when the bytes stored under this key are in the stored archive, not only kept for this visit. */
-export const keptInStorage = (storageKey: typeof STORAGE_KEYS.COLLECTION | typeof STATS_KEY): boolean => {
+export const keptInStorage = (storageKey: typeof STORAGE_KEYS.COLLECTION | KeptKey): boolean => {
   try {
     const raw = localStorage.getItem(storageKey);
     const stored = localStorage.getItem(ARCHIVE_KEY);
@@ -222,18 +231,54 @@ export const COLLECTION_RECOVERY_NOTES: Record<KeptState, string> = {
 /** Added to the note while stats are kept aside: the ones in use were rebuilt (game/statsRecovery.ts), not started over. */
 export const STATS_REBUILT_NOTE = 'Your stats were rebuilt from your pack history and collection.';
 
+/** Added while a damaged player record is kept aside and the one stored now has its key: only the broken fields were repaired (game/player.ts). */
+export const PLAYER_REPAIRED_NOTE = 'Your player key was kept, and its ticket count was repaired.';
+
+/** Added while the stored player record is a kept-aside one with no key that can be read: packs stay sealed (game/player.ts). */
+export const PLAYER_PAUSED_NOTE = "Packs are paused until you restore a backup or start a new player in Settings > Save & backup.";
+
 /** Which kinds of data are kept aside, stored or for this visit (none of the stored ones when storage can't be read). */
-const keptKinds = (): { collection: boolean; stats: boolean } => {
+const keptEntries = (): Entry[] => {
   const stored = getStoredArchive();
-  const entries = [...(stored.status === 'found' ? entriesOf(readArchive(stored.raw)) : []), ...unsaved];
-  return { collection: entries.some((entry) => entry.key === undefined), stats: entries.some((entry) => entry.key === STATS_KEY) };
+  return [...(stored.status === 'found' ? entriesOf(readArchive(stored.raw)) : []), ...unsaved];
+};
+
+/** The secret key a raw player record names, when it names one that can be read. */
+const keyOf = (raw: string | null): string | undefined => {
+  try {
+    const value: unknown = JSON.parse(raw ?? 'null');
+    return isRecord(value) && typeof value.secretKey === 'string' && /^[0-9a-f]{64}$/.test(value.secretKey) ? value.secretKey : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** What the note adds about kept-aside player records: their key kept in a repaired record, or packs paused. */
+const playerNote = (kept: Entry[]): string | undefined => {
+  if (kept.length === 0) return undefined;
+  let now: string | null;
+  try {
+    now = localStorage.getItem(PLAYER_KEY);
+  } catch {
+    return undefined;
+  }
+  const key = keyOf(now);
+  if (key === undefined) return kept.some((entry) => entry.raw === now) ? PLAYER_PAUSED_NOTE : undefined;
+  return kept.some((entry) => entry.raw !== now && keyOf(entry.raw) === key) ? PLAYER_REPAIRED_NOTE : undefined;
 };
 
 const noteFor = (state: KeptState): string => {
-  const kinds = keptKinds();
-  if (!kinds.stats) return COLLECTION_RECOVERY_NOTES[state];
-  const what = kinds.collection ? 'Unreadable collection and stats data' : 'Unreadable stats data';
-  return `${what} ${KEPT[state]} ${STATS_REBUILT_NOTE} ${PRIVATE}`;
+  const entries = keptEntries();
+  const players = entries.filter((entry) => entry.key === PLAYER_KEY);
+  const kinds = [
+    entries.some((entry) => entry.key === undefined) && 'collection',
+    players.length > 0 && 'player',
+    entries.some((entry) => entry.key === STATS_KEY) && 'stats',
+  ].filter((kind): kind is string => !!kind);
+  if (kinds.length === 0 || (kinds.length === 1 && kinds[0] === 'collection')) return COLLECTION_RECOVERY_NOTES[state];
+  const what = `Unreadable ${kinds.length === 1 ? kinds[0] : `${kinds.slice(0, -1).join(', ')} and ${kinds[kinds.length - 1]}`} data`;
+  const added = [playerNote(players), kinds.includes('stats') && STATS_REBUILT_NOTE].filter((note): note is string => !!note);
+  return `${what} ${KEPT[state]}${added.map((note) => ` ${note}`).join('')} ${PRIVATE}`;
 };
 
 /** Older payloads let go to stay within the limits: the stored archive's count plus this visit's. */
@@ -335,16 +380,6 @@ const keptArchive = (ours: (entry: Entry) => boolean = () => true): { file: Arch
   if (archive) return { file: withLater(archive, [...(archive.later ?? []), ...extra], dropped), added: true };
   if (extra.length > 0) return { file: withLater(extra[0], extra.slice(1), dropped), added: true };
   return null;
-};
-
-/** The secret key a stored player record holds, if it can be read. */
-const keyOf = (raw: string | null): string | undefined => {
-  try {
-    const value: unknown = JSON.parse(raw ?? 'null');
-    return isRecord(value) && typeof value.secretKey === 'string' && /^[0-9a-f]{64}$/.test(value.secretKey) ? value.secretKey : undefined;
-  } catch {
-    return undefined;
-  }
 };
 
 /**

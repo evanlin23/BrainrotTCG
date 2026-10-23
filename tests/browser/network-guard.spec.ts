@@ -41,6 +41,11 @@ test.beforeAll(async () => {
       res.end('pong');
       return;
     }
+    if (url.pathname === '/hang-up') {
+      // Drops the connection without answering, so the guard's fetch fails.
+      req.socket.destroy();
+      return;
+    }
     if (url.pathname === '/write' && req.method === 'POST') {
       primaryWriteHits++;
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -130,6 +135,19 @@ test('legitimate local read asset loads with 200, zero errors and zero blocked a
 // missing_scenario (#1025): monitor() fetched through Playwright's keep-alive pool, so a request could reuse a
 // socket the server was closing and fail with ECONNRESET, which the guard turned into an aborted chunk or favicon.
 // Reusing no socket is what a test can pin; the reset itself needs a server that closes at a moment the test can't pick.
+// missing_scenario (#1046): a monitored request whose fetch failed reached the page as a bare net::ERR_FAILED,
+// so the test timed out later on whatever never appeared, and nothing said which request failed or why.
+// Its teardown twin is below.
+test('a monitored request whose fetch fails is recorded with its method, URL and reason', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
+  await page.goto(primaryUrl);
+  const result = await page.evaluate(() => fetch('/hang-up?key=not-for-logs').then(() => 'loaded', (error: Error) => error.name));
+
+  expect(result).toBe('TypeError');
+  expect(errors.failed).toEqual([`[fetch failed: socket hang up (ECONNRESET)] GET ${primaryOrigin}/hang-up`]);
+  expect(errors.blocked).toEqual([]);
+});
+
 test('each monitored request asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
   const errors = await monitor(page, primaryUrl);
   await page.goto(primaryUrl);
@@ -389,6 +407,13 @@ test('allowWebSocket function: allowed unless it returns false or throws', async
 // Teardown failure is the core acceptance: test.fail() passes only if the guard fails the test
 // once the page closes. Each scenario has a recording twin above (failOnUnexpected: false).
 test.describe('teardown fails on unexpected attempts', () => {
+  test('a monitored request whose fetch fails fails the test at teardown', async ({ page }) => {
+    test.fail();
+    await monitor(page, primaryUrl);
+    await page.goto(primaryUrl);
+    await page.evaluate(() => fetch('/hang-up').catch(() => undefined));
+  });
+
   test('blocked HTTP attempt fails the test at teardown', async ({ page }) => {
     test.fail();
     await monitor(page, primaryUrl);

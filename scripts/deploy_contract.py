@@ -5,11 +5,14 @@
   verify DIR        (publish) the downloaded files are exactly the ones build sealed in this run
   served DIR URL    (stage, publish) verify, then check URL serves every sealed file with its sealed
                               hash; prints the release's identity as Markdown for $GITHUB_STEP_SUMMARY
+  deployed DIR URL [--once]  (stage, staging-checks) wait until URL serves this run's
+                              DIR/dist/deployment-id.json (--once: check once, before the browser checks)
   check-workflows   (CI) .github/workflows do what docs/HOSTING.md says, read from the YAML
 
 Standard library only, so the jobs that run it install nothing. Run it with `python3 -I`.
 """
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import hashlib
 import json
 import os
@@ -131,18 +134,94 @@ class SameOrigin(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def fetch(url):
-    """The body url serves, uncompressed (the bytes as sealed), or raises."""
-    request = urllib.request.Request(url, headers={'Accept-Encoding': 'identity', 'User-Agent': 'brainrottcg-deploy-check'})
+def fetch(url, headers=None):
+    """The body url serves, uncompressed (the bytes as sealed), or raises. headers go to url's origin
+    only: SameOrigin refuses a redirect anywhere else before following it."""
+    request = urllib.request.Request(url, headers={'Accept-Encoding': 'identity', 'User-Agent': 'brainrottcg-deploy-check',
+                                                   **(headers or {})})
     with urllib.request.build_opener(SameOrigin).open(request, timeout=30) as response:
         return response.read()
 
 
-def served(release, env, digest, url, get=fetch, tries=3, pause=5.0):
+# --- Cloudflare Access on staging ----------------------------------------------------------------
+# The project's Access app covers its preview deployments, staging included (docs/HOSTING.md#staging).
+# The steps that fetch staging name the repository secrets CF_ACCESS_CLIENT_ID and
+# CF_ACCESS_CLIENT_SECRET in their env (empty when unset), and only those send the service token, to
+# the address they check. Access in strict mode returns no CF_Authorization cookie, so every request
+# sends the headers (https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/).
+
+ACCESS_HELP = 'docs/HOSTING.md#staging'
+REDIRECTS = {301, 302, 303, 307, 308}
+
+
+class AccessRefused(Rejected):
+    pass
+
+
+def access_headers(env):
+    """The service token's headers; {} with both secrets empty; None in a step that doesn't name them."""
+    if 'CF_ACCESS_CLIENT_ID' not in env and 'CF_ACCESS_CLIENT_SECRET' not in env:
+        return None
+    client_id, secret = env.get('CF_ACCESS_CLIENT_ID', ''), env.get('CF_ACCESS_CLIENT_SECRET', '')
+    if not client_id and not secret:
+        return {}
+    if not (client_id and secret):
+        raise AccessRefused(f"Only {'CF_ACCESS_CLIENT_ID' if client_id else 'CF_ACCESS_CLIENT_SECRET'} is set: the Access service "
+                            f'token needs both CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET ({ACCESS_HELP}).')
+    return {'CF-Access-Client-Id': client_id, 'CF-Access-Client-Secret': secret}
+
+
+def access_refusal(error):
+    """Why Access refused a fetch, from its HTTPError: a 401, a 403 or a redirect to its login. None if not."""
+    if error.code in (401, 403):
+        return f'HTTP {error.code}'
+    target = urlsplit(error.filename or '')
+    if error.code in REDIRECTS and ((target.hostname or '').endswith('.cloudflareaccess.com') or target.path.startswith('/cdn-cgi/access/')):
+        return f'HTTP {error.code} to the Access login at {target.scheme}://{target.netloc}'
+    return None
+
+
+def check_access(error, base, token):
+    """Fails closed, naming the token, when error is Access refusing a step that may meet it."""
+    why = access_refusal(error) if token is not None else None
+    if why and token:
+        raise AccessRefused(f'Cloudflare Access rejected the service token in CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET at {base} '
+                            f"({why}). Check the token hasn't expired or been revoked, and that the project's Access app has a "
+                            f'Service Auth policy that includes it ({ACCESS_HELP}).')
+    if why:
+        raise AccessRefused(f'{base} is behind Cloudflare Access ({why}) and no Access service token is set. Add the repository '
+                            'secrets CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET for a token with a Service Auth policy on '
+                            f"the project's Access app ({ACCESS_HELP}).")
+
+
+def deployed(release, env, url, once=False, get=None, tries=30, pause=10.0):
+    """Waits until url serves this run's dist/deployment-id.json (once: checks it once)."""
+    base = address(url, 'The address to check')
+    token = access_headers(env)
+    get = get or partial(fetch, headers=token)
+    want = (Path(release) / 'dist/deployment-id.json').read_bytes()
+    target = f"{base}deployment-id.json?run={env.get('GITHUB_RUN_ID', '')}-{env.get('GITHUB_RUN_ATTEMPT', '')}"
+    for attempt in range(1 if once else tries):
+        if attempt:
+            time.sleep(pause)  # a new deployment can take a while to reach every edge
+        try:
+            if get(target) == want:
+                return
+        except HTTPError as error:
+            check_access(error, base, token)
+        except OSError:
+            pass
+    require(False, f'{base} no longer serves this build, so its checks would test other files. Start a new deploy on main '
+                   'instead of re-running this one.' if once else f"{base} isn't serving this build")
+
+
+def served(release, env, digest, url, get=None, tries=3, pause=5.0):
     """verify, then check url serves every sealed file with its sealed hash. Returns the release's
     identity as Markdown, for the step summary."""
     sealed = verify(release, env, digest)
     base = address(url, 'The address to check')
+    token = access_headers(env)
+    get = get or partial(fetch, headers=token)
     files = sealed['files']
 
     def problem(name):
@@ -155,6 +234,7 @@ def served(release, env, digest, url, get=fetch, tries=3, pause=5.0):
                     return None
                 why = 'different content'
             except HTTPError as error:
+                check_access(error, base, token)
                 why = f'HTTP {error.code}'
             except OSError as error:
                 why = str(error) or type(error).__name__
@@ -379,6 +459,12 @@ NEEDS = {'site': {'independent-verifier'}, 'build': {'site'}, 'stage': {'site', 
 # The production smoke checks are bounded: no other job sets a timeout.
 TIMEOUTS = {'smoke': 15}
 SECRET_STEPS = {('site', 'site'), ('stage', 'Deploy to Cloudflare Pages staging'), ('publish', 'Deploy to Cloudflare Pages')}
+# The Access service token (docs/HOSTING.md#staging), and the steps that fetch staging, the only ones
+# that may hold it: never a production step, never another secret.
+ACCESS_ENV = {'CF_ACCESS_CLIENT_ID': '${{ secrets.CF_ACCESS_CLIENT_ID }}',
+              'CF_ACCESS_CLIENT_SECRET': '${{ secrets.CF_ACCESS_CLIENT_SECRET }}'}
+ACCESS_STEPS = {('stage', 'Check staging serves this build'), ('stage', 'Check staging serves every sealed file'),
+                ('staging-checks', 'Check staging still serves this build'), ('staging-checks', 'Browser checks on staging')}
 # The jobs that hold the Cloudflare secrets run in this environment, so its secrets and branch rule
 # (docs/HOSTING.md) cover them. No other job names an environment but deploy (github-pages).
 CLOUDFLARE_ENVIRONMENT = 'cloudflare-production'
@@ -441,21 +527,19 @@ def wrangler(branch):
             f'--branch={branch} --commit-hash="$GITHUB_SHA" --commit-dirty=true')
 
 
+def deployed_run(*flags):
+    """Waits until (--once: checks once that) the address serves this run's dist/deployment-id.json."""
+    return ' '.join(['python3 -I scripts/deploy_contract.py deployed release "$URL"', *flags])
+
+
 def waits(run):
     """Polls until the address serves this run's dist/deployment-id.json."""
     return isinstance(run, str) and '| cmp -s release/dist/deployment-id.json - && exit 0' in run and '"${URL%/}/deployment-id.json?run=' in run
 
 
-def still_serves(run):
-    """Fetches this run's dist/deployment-id.json from the address once, and fails unless it matches."""
-    return (isinstance(run, str) and run.startswith('curl -fsS --max-time 15 "${URL%/}/deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" '
-                                                    '| cmp -s release/dist/deployment-id.json - && exit 0\n')
-            and run.rstrip('\n').endswith('exit 1') and run.count('\n') == 2)
-
-
-def served_step(url):
+def served_step(url, **env):
     return {'env': {'MANIFEST_SHA256': '${{ needs.build.outputs.manifest_sha256 }}', 'SITE_URL': '${{ needs.site.outputs.url }}',
-                    'URL': url},
+                    'URL': url, **env},
             'run': 'python3 -I scripts/deploy_contract.py served release "$URL" >> "$GITHUB_STEP_SUMMARY"'}
 
 
@@ -472,10 +556,11 @@ STAGE = [
     staging(TIP),
     *map(staging, SEALED),
     staging({'env': {**WRANGLER_ENV, 'BRANCH': '${{ needs.site.outputs.staging_branch }}'}, 'run': wrangler('"$BRANCH"')}),
-    staging({'env': {'URL': '${{ needs.site.outputs.staging_url }}'}, 'run': waits}),
-    staging(served_step('${{ needs.site.outputs.staging_url }}')),
+    staging({'env': {'URL': '${{ needs.site.outputs.staging_url }}', **ACCESS_ENV}, 'run': deployed_run()}),
+    staging(served_step('${{ needs.site.outputs.staging_url }}', **ACCESS_ENV)),
 ]
-# The browser checks run the app's dependencies, so they get no secrets, against the staging address.
+# The browser checks run the app's dependencies, so they get no secret but the Access token (which
+# only reads previews), against the staging address.
 # The specs that read ./dist get the sealed files (checked here too), not a new build.
 STAGING_CHECKS = [
     staging({'uses': 'actions/checkout', 'with': {'persist-credentials': False}}),
@@ -486,8 +571,9 @@ STAGING_CHECKS = [
     staging(SEALED[2]),
     staging({'run': 'cp -R release/dist dist'}),
     # stage saw these files on staging, but a later run on the same commit may have replaced them.
-    staging({'env': {'URL': '${{ needs.site.outputs.staging_url }}'}, 'run': still_serves}),
-    staging({'env': {'STAGING_URL': '${{ needs.site.outputs.staging_url }}'}, 'run': 'npx playwright test -c playwright.staging.config.ts'}),
+    staging({'env': {'URL': '${{ needs.site.outputs.staging_url }}', **ACCESS_ENV}, 'run': deployed_run('--once')}),
+    staging({'env': {'STAGING_URL': '${{ needs.site.outputs.staging_url }}', **ACCESS_ENV},
+             'run': 'npx playwright test -c playwright.staging.config.ts'}),
 ]
 DEPLOY = [TIP, {'uses': 'actions/deploy-pages'}]
 # Read-only checks of production once publish and deploy are done (scripts/production-smoke.ts): no
@@ -566,11 +652,14 @@ def check_deploy(workflow):
         if re.search(r'\b(?:always|cancelled|failure)\(\)', text) and not status:
             problems.append(f'deploy.yml: {"/".join(map(str, path))} runs after a failure or cancel')
         if re.search(r'\bsecrets\b', text):
-            # Only as a value in the env of the site lookup or a Wrangler deploy: jobs/J/steps/N/env/KEY.
+            # Only as a value in the env of the site lookup or a Wrangler deploy: jobs/J/steps/N/env/KEY;
+            # or the Access token, as itself, in a step that fetches staging.
             in_env = len(path) == 6 and path[0] == 'jobs' and path[2] == 'steps' and path[4] == 'env'
             step = jobs[path[1]]['steps'][path[3]] if in_env else {}
-            if not any(in_env and path[1] == job and label in (step.get('id'), step.get('name')) for job, label in SECRET_STEPS):
-                problems.append(f'deploy.yml: {"/".join(map(str, path))} uses a secret outside the site lookup and the Wrangler deploys')
+            labels = {(path[1], step.get('id')), (path[1], step.get('name'))} if in_env else set()
+            if not (labels & SECRET_STEPS or (labels & ACCESS_STEPS and ACCESS_ENV.get(path[5]) == text)):
+                problems.append(f'deploy.yml: {"/".join(map(str, path))} uses a secret outside the site lookup, the Wrangler deploys '
+                                'and the staging fetches (the Access token)')
 
     site, build, publish, deploy = (jobs[name].get('steps') or [] for name in ('site', 'build', 'publish', 'deploy'))
     verifier = jobs['independent-verifier'].get('steps') or []
@@ -613,10 +702,10 @@ def check_deploy(workflow):
     stage, checks = (jobs[name].get('steps') or [] for name in ('stage', 'staging-checks'))
     if len(stage) != len(STAGE) or not all(match(step, spec) for step, spec in zip(stage, STAGE)):
         problems.append('deploy.yml: stage must, with staging on, do what publish does but deploy to the staging branch, '
-                        'then check staging serves every sealed file')
+                        'then check staging serves every sealed file, sending staging alone the Access token')
     if len(checks) != len(STAGING_CHECKS) or not all(match(step, spec) for step, spec in zip(checks, STAGING_CHECKS)):
         problems.append('deploy.yml: staging-checks must, with staging on, check staging still serves this build, then run '
-                        'playwright.staging.config.ts against staging with the sealed files as ./dist')
+                        'playwright.staging.config.ts against staging with the sealed files as ./dist, each with the Access token')
     if len(deploy) != len(DEPLOY) or not all(match(step, spec) for step, spec in zip(deploy, DEPLOY)):
         problems.append('deploy.yml: deploy must only require the tip of main, then deploy Pages')
     smoke = jobs['smoke'].get('steps') or []
@@ -662,17 +751,20 @@ def main(argv, env):
         verify(Path(args[0]), env, env.get('MANIFEST_SHA256', ''))
     elif command == 'served' and len(args) == 2:
         print(served(Path(args[0]), env, env.get('MANIFEST_SHA256', ''), args[1]))
+    elif command == 'deployed' and len(args) in (2, 3) and args[2:] in ([], ['--once']):
+        deployed(Path(args[0]), env, args[1], once=args[2:] == ['--once'])
     elif command == 'check-workflows' and len(args) <= 1:
         problems = check_workflows(*map(Path, args))
         require(not problems, '\n  '.join(['the workflows break the deploy contract:'] + problems))
         print('Workflows keep the deploy contract.')
     else:
-        raise Rejected('usage: deploy_contract.py seal DIR | verify DIR | served DIR URL | check-workflows [DIR]')
+        raise Rejected('usage: deploy_contract.py seal DIR | verify DIR | served DIR URL | deployed DIR URL [--once] | check-workflows [DIR]')
 
 
 if __name__ == '__main__':
     try:
         main(sys.argv[1:], os.environ)
     except (Rejected, OSError, KeyError, ValueError) as error:
-        print(f'Deployment rejected: {error}', file=sys.stderr)
+        # An error annotation on the run, whichever step this is.
+        print(f'::error::Deployment rejected: {error}', file=sys.stderr)
         sys.exit(1)
