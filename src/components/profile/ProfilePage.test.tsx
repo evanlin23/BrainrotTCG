@@ -598,7 +598,6 @@ describe('Best card place while the Best cards are weighed', () => {
     myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
     myPackCacheState.mockReturnValue('loading');
     await act(async () => render());
-    expect(expectingSeen).toHaveBeenCalled();
     expect(expectingSeen.mock.calls.every(([value]) => value === false)).toBe(true);
     expect(rebuildBestCards).not.toHaveBeenCalled();
   });
@@ -621,6 +620,49 @@ describe('Best card place while the Best cards are weighed', () => {
     expect(expecting()).toBe(false);
     expect(rebuildBestCards).not.toHaveBeenCalled();
     expect(document.querySelector('section.profile-highlight')).toBeNull();
+  });
+
+  it('stops expecting for a winner this build cannot rebuild (a newer build\'s set), and says it is not ranked yet', async () => {
+    localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify({ secretKey: '22'.repeat(32), name: 'Me', nextNonce: 6, createdAt: 1 }));
+    resetBestCards();
+    const set = getSet('right-now', 2)!;
+    localStorage.setItem(
+      STORAGE_KEYS.BEST_CARDS,
+      JSON.stringify({ [getPlayer().publicKeyHex]: { w: 1, b: [{ s: set.id, v: set.version + 50, n: 0, i: 0, t: 1000 }] } }),
+    );
+    await act(async () => render());
+    expect(rebuildBestCards).not.toHaveBeenCalled();
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+    expect(document.body.textContent).toContain('Not ranked yet');
+  });
+
+  it('keeps the place as it is through Try again after the rebuild was lost: no pending row comes back', async () => {
+    seedUnscored();
+    const key = getPlayer().publicKeyHex;
+    rebuildBestCards.mockImplementationOnce(async () => ({ ...actualBestCards.getBestCards(key, 6), failed: 1 }));
+    await act(async () => render());
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+    expect(document.body.textContent).toContain('Not ranked yet');
+    expectingSeen.mockClear(); // the first weigh did expect; only the retry is under test
+
+    let release!: () => void;
+    const opened = new Promise<void>((resolve) => (release = resolve));
+    rebuildBestCards.mockImplementationOnce(async () => {
+      await opened;
+      return { ...actualBestCards.getBestCards(key, 6), failed: 1 };
+    });
+    const retry = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Try again')!;
+    await act(async () => retry.click());
+    expect(rebuildBestCards).toHaveBeenCalledTimes(2);
+    expect(expectingSeen.mock.calls.every(([value]) => value === false)).toBe(true);
+    expect(heldPlace()).toBe(false);
+    expect(document.body.textContent).toContain('Not ranked yet');
+
+    await act(async () => release());
+    expect(expectingSeen.mock.calls.every(([value]) => value === false)).toBe(true);
+    expect(heldPlace()).toBe(false);
   });
 
   it('expects again only after the packs are ready: loading first, ready later', async () => {

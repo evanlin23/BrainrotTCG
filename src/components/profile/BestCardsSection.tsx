@@ -4,7 +4,7 @@ import CardImage from '../cards/CardImage';
 import CardViewerModal from '../cards/CardViewerModal';
 import { getLatestSet, setCode } from '../../content/sets';
 import { getCard, type Card } from '../../data/cards';
-import { getBestCards, rebuildBestCards, type BestCard, type BestCards } from '../../game/bestCards';
+import { awaitsRebuild, getBestCards, rebuildBestCards, type BestCard, type BestCards } from '../../game/bestCards';
 import { modifierClasses, modifierLabel } from '../../game/modifiers';
 import { getPlayerTickets } from '../../game/player';
 import { syncMyBestCards } from '../../game/profiles';
@@ -105,7 +105,7 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChang
     const skip = () => {
       if (retried.current === 'asked') retried.current = null;
     };
-    if (!cacheReady || !list.cards.some((c) => !c.card)) return skip();
+    if (!cacheReady || !list.cards.some(awaitsRebuild)) return skip();
     const { player, nextNonce } = getPlayerTickets();
     if (rebuilt.current.has(player.publicKeyHex)) return skip();
     rebuilt.current.add(player.publicKeyHex);
@@ -136,9 +136,12 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChang
 
   const rows = useMemo(() => list.cards.map(toRow).filter((r): r is Row => r !== null), [list]);
   // No heading over a list that is still on its way in.
+  // Only winners the rebuild will try count (awaitsRebuild): one this build can't rebuild is never coming.
+  const awaiting = list.cards.some(awaitsRebuild);
   // Only while winners are still unscored: packs read in later may have settled them.
-  const lost = unavailable && list.cards.some((c) => !c.card);
-  const settled = cacheReady && !rebuilding && (lost || !list.cards.some((c) => !c.card));
+  const lost = unavailable && awaiting;
+  // Try again after `lost` keeps it settled: the note stays in place while the rebuild runs, so nothing below shifts.
+  const settled = cacheReady && (lost || !awaiting);
   const settledChanged = useRef(onSettledChange);
   useEffect(() => {
     settledChanged.current = onSettledChange;
