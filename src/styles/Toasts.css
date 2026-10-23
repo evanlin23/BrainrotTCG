@@ -78,12 +78,43 @@
 
 /* Outside focus mode the screen under the header is full of controls (the set picker's chevrons, the
    pack, the guide link) and has no free band at 360x640, so a toast that overlays it covers one and
-   is a moving target in the tap path (#803). There it takes its own row: the page below shifts down
-   for as long as the toast is up and the pack stage, which flexes, gives the room back. */
+   is a moving target in the tap path (#803). There it takes its own row: the page below shifts down as
+   the toast arrives (with the page change that brought it) and the pack stage, which flexes, gives the
+   room back. The row stays after the toast expires (--toast-slot, set while the screen is the same), so
+   nothing a finger is heading for moves at that moment. */
+.app:not(.is-focus) .toast-region {
+  min-height: var(--toast-slot, 0px);
+}
+
 .app:not(.is-focus) .toast-region:has(.toast) {
   top: 0;
   height: auto;
   padding-block: var(--space-1);
+}
+
+/* The row comes out of the pack's room, so it is kept short: at doubled text the toast would otherwise
+   squeeze the pack and the set steps under a touch target. Tight padding and line height, one line for
+   the kicker, two for a level-up's line (the full text is still the button's name, only its look is
+   clipped). */
+.app:not(.is-focus) .toast {
+  gap: var(--space-2);
+  padding-block: var(--space-1);
+}
+
+.toast-kicker {
+  overflow: hidden;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toast--detail .toast-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 /* Focus mode on a phone hides the header, so the region would sit at the very top, over the pack's X

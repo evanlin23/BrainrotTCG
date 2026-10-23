@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Award, ChevronsUp, Layers } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
@@ -32,6 +32,12 @@ interface AchievementToastsProps {
    * already up leaves at once, with no fade over the card.
    */
   held?: boolean;
+  /**
+   * Names the screen the page is laid out for (the route, whether a pack is in hand). The row a toast
+   * takes on the home screen stays reserved after it leaves, so the pack and the set picker never move
+   * under a finger as it expires, until this changes (a navigation) or the window is resized.
+   */
+  layoutKey?: string;
 }
 
 /** At this many waiting unlocks, show one grouped toast instead of a long run of single ones. */
@@ -47,7 +53,7 @@ export { GROUPED_TOAST_MS, TOAST_MS };
  * Achievement unlocks, one small toast at a time at the top of the screen. A burst (one lucky pack
  * can unlock seven) becomes a single "N achievements" toast rather than a wall over the game.
  */
-const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = false }: AchievementToastsProps) => {
+const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = false, layoutKey = '' }: AchievementToastsProps) => {
   // Level-ups and the like go one at a time; a run of achievements at the front can be grouped.
   const leadingAchievements = queue.findIndex((t) => t.kicker) === -1 ? queue : queue.slice(0, queue.findIndex((t) => t.kicker));
   const grouped = leadingAchievements.length >= GROUP_AT;
@@ -66,6 +72,30 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
     liveKey.current = key;
   }, [key]);
 
+  // The tallest the region has been on this screen, in px (#803). A toast puts a row on the home screen
+  // (Toasts.css); when it goes, that row stays, so nothing under the finger moves at expiry. It is
+  // forgotten with the screen it was measured for, and on a resize, which re-lays the page out anyway.
+  const regionRef = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState({ for: layoutKey, height: 0 });
+  useEffect(() => {
+    const region = regionRef.current;
+    if (!region) return;
+    const measure = () => {
+      const height = Math.ceil(region.getBoundingClientRect().height);
+      if (height <= 0) return;
+      setSlot((was) => (was.for === layoutKey && was.height >= height ? was : { for: layoutKey, height }));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(region);
+    const forget = () => setSlot({ for: layoutKey, height: 0 });
+    window.addEventListener('resize', forget);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', forget);
+    };
+  }, [layoutKey]);
+  const reserved = slot.for === layoutKey ? slot.height : 0;
+
   useEffect(() => {
     if (!key || holding) return;
     const timer = window.setTimeout(() => onDismiss(key.split('|')), grouped ? GROUPED_TOAST_MS : TOAST_MS);
@@ -73,7 +103,13 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   }, [key, grouped, holding, onDismiss]);
 
   return (
-    <div className="toast-region" role="status" aria-live="polite">
+    <div
+      ref={regionRef}
+      className="toast-region"
+      role="status"
+      aria-live="polite"
+      style={reserved ? ({ '--toast-slot': `${reserved}px` } as CSSProperties) : undefined}
+    >
       {/* Unmounted while held, so a toast on screen goes at once instead of fading over the showcase. */}
       {!held && (
         <AnimatePresence mode="wait">

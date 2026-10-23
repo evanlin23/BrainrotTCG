@@ -336,9 +336,14 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
 - **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss after 8 s (10 s for a grouped toast); hovering or focusing
   a toast holds it, and it gets its full time again when the pointer or focus leaves. On the home
   screen the toast is a row of its own under the header and the pack stage gives up that height, so it
-  never covers the set picker, the pack, the guide link or a tab (#803); in pack focus mode it still
-  overlays, under the pack's X. `tests/browser/toast-home.spec.ts` checks every home control at 360,
-  390 and 1280.
+  never covers the set picker, the pack, the guide link or a tab (#803). The row is kept short (tight
+  padding, a one-line kicker, a two-line clamp on a level-up's line, the full text still the button's
+  name) so at 200% text the pack and set steps stay at least 44 px. The row stays reserved after the
+  toast expires, until the route or pack focus changes or the window resizes, so nothing moves under a
+  finger at expiry (a shift as it first appears is fine). A card close-up or any other sheet holds
+  the toast until it closes. In pack focus mode it still overlays, under the pack's X.
+  `tests/browser/toast-home.spec.ts` checks every home control at 360, 390 and 1280, 200% text at 360,
+  expiry, and the sheet hold.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload

@@ -26,6 +26,7 @@ let container: HTMLElement;
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   dismissed.length = 0;
   opened.length = 0;
   container = document.body.appendChild(document.createElement('div'));
