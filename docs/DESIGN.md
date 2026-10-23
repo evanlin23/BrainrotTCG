@@ -219,8 +219,10 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   sets `data-motion="reduced"` on `<html>` (main.tsx before the first render, App on every change) and
   `prefersReducedMotion()` in `utils/motion.ts` reads it, so scripts and framer-motion (`MotionProvider`) follow the
   same signal. Write `@media (prefers-reduced-motion: reduce)` blocks as always: the build (`scripts/reduced-motion-css.ts`)
-  repeats each under `:root[data-motion="reduced"]` and keeps `no-preference` blocks off while Reduced is on, so there is
-  no second set of rules to keep in step. It stops the build on a query it cannot mirror (a combined or nested one).
+  repeats each under `:root[data-motion="reduced"]` (through `:where()`, so a copy has the specificity of its original)
+  and keeps `no-preference` blocks off while Reduced is on, so there is no second set of rules to keep in step. It stops
+  the build on a query or selector it cannot mirror: a combined or nested query, or a selector led by `html` (lead it with `:root`).
+  The two choices are a radio group (one Tab stop, arrow keys move the choice), like the reward pickers.
   Reduced changes presentation only: scoring, saving and proofs are untouched, and the Particles and big-pull pause settings keep their own meaning.
 - **Layers.** Inside a component, stack with 1-3 under `isolation: isolate` (DOM order breaks ties).
   Anything that must clear its siblings takes a `--z-*` token. `tests/style-scan.test.ts` fails on a

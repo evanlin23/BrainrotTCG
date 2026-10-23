@@ -123,7 +123,6 @@ describe('Save & backup preflight', () => {
     ['settings array', { settings: '[]' }],
     ['invalid settings flag', { settings: '{"particlesEnabled":"yes"}' }],
     ['invalid show-every-page flag', { settings: '{"showAllPages":"yes"}' }],
-    ['unknown motion choice', { settings: '{"motion":"wobbly"}' }],
     ['non-text motion choice', { settings: '{"motion":true}' }],
     ['non-numeric volume', { settings: '{"effectsVolume":"loud"}' }],
     ['non-numeric legacy music volume', { settings: '{"musicVolume":"loud"}' }],
@@ -142,6 +141,17 @@ describe('Save & backup preflight', () => {
     store.set(STORAGE_KEYS.SETTINGS, '{}');
     expect(importSaveFile(saved)).toBeNull();
     expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).motion).toBe(motion);
+  });
+
+  it('accepts a Motion choice this build does not know, reads it as Auto, and round-trips it', () => {
+    const settings = '{"particlesEnabled":false,"motion":"wobbly"}';
+    expect(importSaveFile(JSON.stringify({ ...fixture(), settings }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
+    expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).motion).toBe('auto');
+    const saved = exportSaveFile();
+    store.set(STORAGE_KEYS.SETTINGS, '{}');
+    expect(importSaveFile(saved)).toBeNull();
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
   });
 
   it('keeps the show-every-page flag through an export and import', () => {

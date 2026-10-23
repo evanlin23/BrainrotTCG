@@ -405,10 +405,13 @@ for (const mode of MOTION_MODES) {
         expect(log.some((entry) => entry.iterations === Infinity), 'nothing looped').toBe(true);
       }
 
-      // Settled: let what is finite finish; then nothing loops or runs on.
+      // Settled: let what is finite finish, including a fade that only starts while another ends (the achievement
+      // toast arrives after the save); then nothing loops or runs on. The last look follows the check that found
+      // no finite animation in the same task, so nothing can start between them.
       const left = await page.evaluate(async () => {
         const timing = (a: Animation) => a.effect!.getComputedTiming();
-        await Promise.all(document.getAnimations().filter((a) => timing(a).iterations !== Infinity).map((a) => a.finished.catch(() => undefined)));
+        const finite = () => document.getAnimations().filter((a) => timing(a).iterations !== Infinity && a.playState === 'running');
+        for (let pending = finite(); pending.length > 0; pending = finite()) await Promise.all(pending.map((a) => a.finished.catch(() => undefined)));
         return document.getAnimations().filter((a) => a.playState === 'running').map((a) => `${(a as CSSAnimation).animationName ?? (a as CSSTransition).transitionProperty ?? 'animate'} x${timing(a).iterations}`);
       });
       if (mode.calm) expect(left, 'the summary left animations running').toEqual([]);

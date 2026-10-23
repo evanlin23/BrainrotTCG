@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import postcss from 'postcss';
 import { describe, expect, it } from 'vitest';
-import { reducedMotionCss, scopeSelectors, splitSelectors } from './reduced-motion-css.ts';
+import { CALM, REDUCED, reducedMotionCss, scopeSelectors, splitSelectors, underRoot } from './reduced-motion-css.ts';
 
 const run = async (css: string) => (await postcss([reducedMotionCss()]).process(css, { from: undefined })).css.replace(/\s+/g, ' ').trim();
 
@@ -10,18 +10,37 @@ describe('reduced-motion-css', () => {
     expect(splitSelectors('.a, .b:is(.c, .d), [data-x="1,2"]')).toEqual(['.a', '.b:is(.c, .d)', '[data-x="1,2"]']);
   });
 
-  it('puts :root rules on the root and everything else below it at no extra specificity', () => {
-    expect(scopeSelectors(':root, .a > .b::before, *', ':root[data-motion="reduced"]')).toBe(
-      ':root[data-motion="reduced"], :where(:root[data-motion="reduced"]) .a > .b::before, :where(:root[data-motion="reduced"]) *',
+  it('puts :root rules on the root and everything else below it, with no specificity added', () => {
+    expect(scopeSelectors(':root, .a > .b::before, #c .d', REDUCED)).toBe(
+      ':root:where([data-motion="reduced"]), :where(:root[data-motion="reduced"]) .a > .b::before, :where(:root[data-motion="reduced"]) #c .d',
     );
+    expect(scopeSelectors(':root.big .a', CALM)).toBe(':root:where(:not([data-motion="reduced"])).big .a');
+  });
+
+  it('lets a universal selector reach the root too', () => {
+    expect(scopeSelectors('*, *::before', REDUCED)).toBe(
+      ':root:where([data-motion="reduced"]), :where(:root[data-motion="reduced"]) *, :root:where([data-motion="reduced"])::before, :where(:root[data-motion="reduced"]) *::before',
+    );
+  });
+
+  it('gives the copy the specificity of the selector it mirrors', () => {
+    // Weights as (ids, classes/attributes/pseudo-classes, types): :where() counts for nothing.
+    const weight = (selector: string) => {
+      const bare = selector.replace(/:where\((?:[^()]|\([^()]*\))*\)/g, '');
+      return [(bare.match(/#[\w-]+/g) ?? []).length, (bare.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+/g) ?? []).length, (bare.match(/(?:^|[\s>+~])[a-z][\w-]*/gi) ?? []).length];
+    };
+    for (const selector of [':root', ':root.big', '.a', '.a > .b', '#c .d:hover', 'button']) {
+      expect(weight(underRoot(selector, REDUCED)), selector).toEqual(weight(selector));
+      expect(weight(underRoot(selector, CALM)), selector).toEqual(weight(selector));
+    }
   });
 
   it('copies a reduce block after itself as plain rules, in order, keeping !important', async () => {
     const out = await run('.a { x: 1 } @media (prefers-reduced-motion: reduce) { .a { x: 2 } :root { --d: 0ms } *, *::before { y: 1 !important } } .b { z: 1 }');
     expect(out).toBe(
       '.a { x: 1 } @media (prefers-reduced-motion: reduce) { .a { x: 2 } :root { --d: 0ms } *, *::before { y: 1 !important } } '
-      + ':where(:root[data-motion="reduced"]) .a { x: 2 } :root[data-motion="reduced"] { --d: 0ms } '
-      + ':where(:root[data-motion="reduced"]) *, :where(:root[data-motion="reduced"]) *::before { y: 1 !important } .b { z: 1 }',
+      + ':where(:root[data-motion="reduced"]) .a { x: 2 } :root:where([data-motion="reduced"]) { --d: 0ms } '
+      + ':root:where([data-motion="reduced"]), :where(:root[data-motion="reduced"]) *, :root:where([data-motion="reduced"])::before, :where(:root[data-motion="reduced"]) *::before { y: 1 !important } .b { z: 1 }',
     );
   });
 
@@ -40,8 +59,21 @@ describe('reduced-motion-css', () => {
     ['a reduce query beside another condition', '@media (hover: none) and (prefers-reduced-motion: reduce) { .a { x: 1 } }'],
     ['a nested at-rule', '@media (prefers-reduced-motion: reduce) { @keyframes k { to { x: 1 } } }'],
     ['a bare query', '@media (prefers-reduced-motion) { .a { x: 1 } }'],
+    // html is the root itself: `:where(:root[…]) html` could never match, so a copy would silently do nothing.
+    ['a reduce rule led by html', '@media (prefers-reduced-motion: reduce) { html { x: 1 } }'],
+    ['a reduce rule led by html with a class', '@media (prefers-reduced-motion: reduce) { html.big .a { x: 1 } }'],
+    ['a no-preference rule led by html', '@media (prefers-reduced-motion: no-preference) { html .a { x: 1 } }'],
+    ['a reduce rule with :root below its start', '@media (prefers-reduced-motion: reduce) { .a :root { x: 1 } }'],
+    ['a reduce rule led by a pseudo-class', '@media (prefers-reduced-motion: reduce) { :not(.a) { x: 1 } }'],
+    ['a reduce rule led by a combinator', '@media (prefers-reduced-motion: reduce) { > .a { x: 1 } }'],
+    ['a reduce rule led by an attribute', '@media (prefers-reduced-motion: reduce) { [data-x] .a { x: 1 } }'],
   ])('fails the build on %s', async (_name, css) => {
     await expect(run(css)).rejects.toThrow(/reduced-motion-css/);
+  });
+
+  it('names the selector it cannot scope, and does not mistake html inside an attribute value for the root', async () => {
+    await expect(run('@media (prefers-reduced-motion: reduce) { .ok, html.big { x: 1 } }')).rejects.toThrow(/"html\.big" is led by html/);
+    await expect(run('@media (prefers-reduced-motion: reduce) { a[href$=".html"] { x: 1 } }')).resolves.toContain(':where(:root[data-motion="reduced"]) a[href$=".html"]');
   });
 
   it('mirrors every reduce rule and guards every no-preference rule in the real stylesheets', async () => {

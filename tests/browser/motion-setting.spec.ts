@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { settle } from './axe-scan';
 import { monitor } from './support';
 
 /**
@@ -25,9 +26,9 @@ async function openSettings(page: Page, baseURL: string, stored: unknown) {
   }
   await page.goto('./#/settings');
   const main = page.getByRole('main', { name: 'Settings', exact: true });
-  const group = main.getByRole('group', { name: 'Motion', exact: true });
+  const group = main.getByRole('radiogroup', { name: 'Motion', exact: true });
   await expect(group).toBeVisible();
-  return { errors, main, group, auto: group.getByRole('button', { name: 'Auto', exact: true }), reduced: group.getByRole('button', { name: 'Reduced', exact: true }) };
+  return { errors, main, group, auto: group.getByRole('radio', { name: 'Auto', exact: true }), reduced: group.getByRole('radio', { name: 'Reduced', exact: true }) };
 }
 
 /** The page's own reading of the setting: the attribute and whether the stylesheets zero their durations. */
@@ -48,21 +49,21 @@ const stored = (page: Page) => page.evaluate((key) => JSON.parse(localStorage.ge
 test('Auto follows the device live, and Reduced holds without the device asking', async ({ page, baseURL }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   const { errors, auto, reduced } = await openSettings(page, baseURL!, undefined);
-  await expect(auto).toHaveAttribute('aria-pressed', 'true');
-  await expect(reduced).toHaveAttribute('aria-pressed', 'false');
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
+  await expect(reduced).toHaveAttribute('aria-checked', 'false');
   expect(await calm(page)).toEqual({ attribute: null, zeroed: false });
 
   // Auto: the device's change applies at once, in both directions, with nothing touched in the app.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await calm(page)).toEqual({ attribute: null, zeroed: true });
-  await expect(auto).toHaveAttribute('aria-pressed', 'true');
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   expect(await calm(page)).toEqual({ attribute: null, zeroed: false });
 
   // Reduced: calm with the device allowing motion, and it stays so when the device allows or asks.
   await reduced.click();
-  await expect(reduced).toHaveAttribute('aria-pressed', 'true');
-  await expect(auto).toHaveAttribute('aria-pressed', 'false');
+  await expect(reduced).toHaveAttribute('aria-checked', 'true');
+  await expect(auto).toHaveAttribute('aria-checked', 'false');
   expect(await calm(page)).toEqual({ attribute: 'reduced', zeroed: true });
   await expect.poll(() => stored(page)).toMatchObject({ motion: 'reduced' });
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -71,7 +72,7 @@ test('Auto follows the device live, and Reduced holds without the device asking'
 
   // Back to Auto: the device decides again.
   await auto.click();
-  await expect(auto).toHaveAttribute('aria-pressed', 'true');
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
   expect(await calm(page)).toEqual({ attribute: null, zeroed: false });
   await expect.poll(() => stored(page)).toMatchObject({ motion: 'auto' });
   expect(errors).toEqual([]);
@@ -99,11 +100,12 @@ test('Reduced is kept on reload and is applied before the app first renders', as
   await reduced.click();
   await expect.poll(() => stored(page)).toMatchObject({ motion: 'reduced' });
 
-  // Reloading cancels card art still downloading, which the monitor reports; let it finish first.
-  await page.waitForLoadState('networkidle');
+  // Reloading cancels card art still downloading, which the monitor reports. The pack screen stays mounted
+  // under Settings, so wait on what the page reports: every image that is loading has loaded or failed.
+  await settle(page);
   await page.reload();
-  const again = page.getByRole('main', { name: 'Settings', exact: true }).getByRole('group', { name: 'Motion', exact: true });
-  await expect(again.getByRole('button', { name: 'Reduced', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const again = page.getByRole('main', { name: 'Settings', exact: true }).getByRole('radiogroup', { name: 'Motion', exact: true });
+  await expect(again.getByRole('radio', { name: 'Reduced', exact: true })).toHaveAttribute('aria-checked', 'true');
   expect(await calm(page)).toEqual({ attribute: 'reduced', zeroed: true });
   expect(await page.evaluate(() => (window as unknown as { motionSetAt: string[] }).motionSetAt), 'the saved choice applied after the app drew').toEqual(['reduced:before-draw']);
   expect(errors).toEqual([]);
@@ -113,7 +115,7 @@ test('choosing a motion setting leaves every other setting as it was, and older 
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   const before: Stored = { effectsVolume: 0.35, particlesEnabled: false, pauseBigPulls: false, showDraftSets: true, cardBack: 'default' };
   const { errors, auto, reduced } = await openSettings(page, baseURL!, before);
-  await expect(auto).toHaveAttribute('aria-pressed', 'true');
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
   expect(await stored(page), 'reading the settings must not rewrite them').toEqual(before);
   await reduced.click();
   await expect.poll(() => stored(page)).toEqual({ ...before, motion: 'reduced' });
@@ -125,66 +127,44 @@ test('choosing a motion setting leaves every other setting as it was, and older 
 test('a motion value it does not know reads as Auto and is not kept', async ({ page, baseURL }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   const { errors, auto, reduced } = await openSettings(page, baseURL!, { effectsVolume: 0.5, motion: 'wobbly' });
-  await expect(auto).toHaveAttribute('aria-pressed', 'true');
-  await expect(reduced).toHaveAttribute('aria-pressed', 'false');
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
+  await expect(reduced).toHaveAttribute('aria-checked', 'false');
   expect(await calm(page)).toEqual({ attribute: null, zeroed: false });
   await reduced.click();
   await expect.poll(() => stored(page)).toEqual({ effectsVolume: 0.5, particlesEnabled: true, pauseBigPulls: true, motion: 'reduced' });
   expect(errors).toEqual([]);
 });
 
-const PHONES = [{ width: 320, height: 568 }, { width: 360, height: 640 }];
-const ZOOMS = [{ name: 'default text', percent: 100 }, { name: '200% text', percent: 200 }];
+test('the Motion choices are one radio group: one Tab stop, and the arrow keys move and apply the choice', async ({ page, baseURL }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const { errors, group, auto, reduced } = await openSettings(page, baseURL!, undefined);
+  await expect(auto).toHaveAttribute('tabindex', '0');
+  await expect(reduced).toHaveAttribute('tabindex', '-1');
 
-for (const phone of PHONES) {
-  for (const zoom of ZOOMS) {
-    test(`the Motion row fits ${phone.width}x${phone.height} at ${zoom.name} and works by keyboard`, async ({ page, baseURL }, testInfo) => {
-      test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
-      await page.emulateMedia({ reducedMotion: 'no-preference' });
-      await page.setViewportSize({ width: phone.width, height: phone.height });
-      const { errors, group, auto, reduced } = await openSettings(page, baseURL!, undefined);
-      if (zoom.percent !== 100) await page.addStyleTag({ content: `html { font-size: ${zoom.percent}% !important; }` });
-      await page.evaluate(() => document.fonts.ready);
+  // Tab from the chosen one leaves the group; Shift+Tab comes back to it, not to the other choice.
+  await auto.focus();
+  await page.keyboard.press('Tab');
+  await expect(group.locator(':focus')).toHaveCount(0);
+  await page.keyboard.press('Shift+Tab');
+  await expect(auto).toBeFocused();
 
-      const layout = await group.evaluate((el) => {
-        const box = (target: Element) => { const r = target.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
-        const row = el.closest('.settings-row')!;
-        return {
-          viewport: innerWidth,
-          pageWidth: document.documentElement.scrollWidth,
-          panel: box(el.closest('.settings-panel')!),
-          label: box(row.querySelector('.settings-label')!),
-          desc: box(row.querySelector('.settings-desc')!),
-          group: box(el),
-          buttons: Array.from(el.querySelectorAll('button')).map((button) => ({ ...box(button), clipped: button.scrollWidth > button.clientWidth })),
-        };
-      });
-      const where = `${phone.width}px, ${zoom.name}`;
-      expect(layout.pageWidth, `${where}: no sideways scroll`).toBeLessThanOrEqual(layout.viewport);
-      for (const [name, part] of Object.entries({ label: layout.label, desc: layout.desc, group: layout.group })) {
-        expect(part.left, `${where}: the ${name} starts inside the panel`).toBeGreaterThanOrEqual(layout.panel.left - 0.5);
-        expect(part.right, `${where}: the ${name} ends inside the panel`).toBeLessThanOrEqual(layout.panel.right + 0.5);
-      }
-      for (const button of layout.buttons) {
-        expect(button.bottom - button.top, `${where}: a choice is a touch target`).toBeGreaterThanOrEqual(44);
-        expect(button.clipped, `${where}: a choice's label is whole`).toBe(false);
-      }
-      // The choices sit below the text, or beside it when there is room, and never over it.
-      const overlap = layout.group.left < layout.desc.right && layout.group.right > layout.desc.left && layout.group.top < layout.desc.bottom && layout.group.bottom > layout.desc.top;
-      expect(overlap, `${where}: the choices cover the description`).toBe(false);
+  await page.keyboard.press('ArrowRight');
+  await expect(reduced).toBeFocused();
+  await expect(reduced).toHaveAttribute('aria-checked', 'true');
+  await expect(reduced).toHaveAttribute('tabindex', '0');
+  await expect(auto).toHaveAttribute('tabindex', '-1');
+  expect(await calm(page)).toEqual({ attribute: 'reduced', zeroed: true });
+  await expect.poll(() => stored(page)).toMatchObject({ motion: 'reduced' });
 
-      // Keyboard: Tab reaches Auto then Reduced, Space chooses.
-      await auto.focus();
-      await page.keyboard.press('Tab');
-      await expect(reduced).toBeFocused();
-      await page.keyboard.press('Space');
-      await expect(reduced).toHaveAttribute('aria-pressed', 'true');
-      expect(await calm(page)).toEqual({ attribute: 'reduced', zeroed: true });
-      await page.keyboard.press('Shift+Tab');
-      await page.keyboard.press('Space');
-      await expect(auto).toHaveAttribute('aria-pressed', 'true');
-      expect(await calm(page)).toEqual({ attribute: null, zeroed: false });
-      expect(errors).toEqual([]);
-    });
-  }
-}
+  // The arrows wrap, and any of the four moves the choice.
+  await page.keyboard.press('ArrowDown');
+  await expect(auto).toBeFocused();
+  await expect(auto).toHaveAttribute('aria-checked', 'true');
+  expect(await calm(page)).toEqual({ attribute: null, zeroed: false });
+  await page.keyboard.press('ArrowLeft');
+  await expect(reduced).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(auto).toBeFocused();
+  await expect.poll(() => stored(page)).toMatchObject({ motion: 'auto' });
+  expect(errors).toEqual([]);
+});

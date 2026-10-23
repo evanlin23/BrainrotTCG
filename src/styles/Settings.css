@@ -77,14 +77,14 @@
   cursor: pointer;
 }
 
-.settings-choice button[aria-pressed='true'] {
+.settings-choice button[aria-checked='true'] {
   border-color: transparent;
   background: var(--brand);
   color: var(--brand-ink);
 }
 
 @media (forced-colors: active) {
-  .settings-choice button[aria-pressed='true'] {
+  .settings-choice button[aria-checked='true'] {
     background: Highlight;
     color: HighlightText;
   }

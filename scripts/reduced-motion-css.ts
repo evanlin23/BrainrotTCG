@@ -4,16 +4,27 @@
  *  - copies every `@media (prefers-reduced-motion: reduce)` block right after itself as plain rules
  *    under :root[data-motion="reduced"], so the copy wins exactly where the original does;
  *  - limits every `prefers-reduced-motion: no-preference` block to :root:not([data-motion="reduced"]).
- * The stylesheets stay the one place motion is written. The prefix is wrapped in :where() where it
- * doesn't start the selector, so no copy outranks the rule it mirrors. Anything it can't mirror
- * faithfully fails the build rather than leaving "Reduced" half-applied.
+ * The stylesheets stay the one place motion is written. No copy outranks the rule it mirrors: the
+ * condition is wrapped in :where() (zero specificity), so a selector led by :root becomes
+ * `:root:where([data-motion="reduced"])` and any other becomes `:where(:root[data-motion="reduced"]) <selector>`,
+ * and each keeps the specificity of the selector it came from. A selector that can't be placed that way fails
+ * the build rather than leaving "Reduced" half-applied: one led by `html` (it IS the root, so it can't sit below
+ * it), one with :root anywhere but first, one led by a combinator, `&`, a bare pseudo-class or an attribute
+ * (it could be the root itself), and any rule that isn't plain.
  */
 import type { AtRule, Plugin, Root, Rule } from 'postcss';
 
 const REDUCE = /^\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)$/i;
 const NO_PREFERENCE = /\(\s*prefers-reduced-motion\s*:\s*no-preference\s*\)/i;
-const ROOT = ':root[data-motion="reduced"]';
-const NOT_ROOT = ':root:not([data-motion="reduced"])';
+/** A root condition in the two shapes a selector needs it in. Both add no specificity. */
+export interface Scope {
+  /** For a selector led by :root: the condition joins it. */
+  self: string;
+  /** For any other selector: the condition sits above it. */
+  below: string;
+}
+export const REDUCED: Scope = { self: ':root:where([data-motion="reduced"])', below: ':where(:root[data-motion="reduced"])' };
+export const CALM: Scope = { self: ':root:where(:not([data-motion="reduced"]))', below: ':where(:root:not([data-motion="reduced"]))' };
 
 /** Splits a selector list at its top-level commas (not inside brackets, parentheses or strings). */
 export const splitSelectors = (list: string): string[] => {
@@ -38,18 +49,34 @@ export const splitSelectors = (list: string): string[] => {
   return parts;
 };
 
-/** One selector under the root condition: `:root` itself takes it, anything else sits below it. */
-export const underRoot = (selector: string, root: string): string => {
+/** One selector under the root condition, or an error naming why it can't be. */
+export const underRoot = (selector: string, scope: Scope): string => {
   const rootMatch = /^:root(?![\w-])/.exec(selector);
-  if (rootMatch) return root + selector.slice(rootMatch[0].length);
-  return `:where(${root}) ${selector}`;
+  const rest = rootMatch ? selector.slice(rootMatch[0].length) : selector;
+  if (/^html(?![\w-])/i.test(selector)) throw new Error(`"${selector}" is led by html, which is the root and can't sit below it; lead it with :root`);
+  // Quoted text and attribute values aren't selectors.
+  const bare = rest.replace(/\[[^\]]*\]|"[^"]*"|'[^']*'/g, '');
+  if (/(?:^|[^\w-])(?:html|:root)(?![\w-])/i.test(bare)) throw new Error(`"${selector}" names the root element somewhere other than its start`);
+  if (rootMatch) return scope.self + rest;
+  if (/^[>+~&:[]/.test(selector)) throw new Error(`"${selector}" starts with a combinator, &, a pseudo-class or an attribute, which could be the root itself`);
+  // A universal selector reaches the root too; the mirror must as well.
+  if (/^\*(?![\w-])/.test(selector)) return `${scope.self}${selector.slice(1)}, ${scope.below} ${selector}`;
+  return `${scope.below} ${selector}`;
 };
 
-export const scopeSelectors = (list: string, root: string): string =>
-  splitSelectors(list).map((selector) => underRoot(selector, root)).join(', ');
+export const scopeSelectors = (list: string, scope: Scope): string =>
+  splitSelectors(list).map((selector) => underRoot(selector, scope)).join(', ');
 
 const failure = (at: AtRule, why: string) =>
   new Error(`reduced-motion-css: ${why}: @media ${at.params}. Mirror it by hand or simplify it (scripts/reduced-motion-css.ts).`);
+
+const scoped = (at: AtRule, rule: Rule, scope: Scope): string => {
+  try {
+    return scopeSelectors(rule.selector, scope);
+  } catch (error) {
+    throw failure(at, (error as Error).message);
+  }
+};
 
 /** The plugin, as a PostCSS plugin object. */
 export const reducedMotionCss = (): Plugin => ({
@@ -66,11 +93,11 @@ export const reducedMotionCss = (): Plugin => ({
         if (at.parent?.type !== 'root') throw failure(at, 'a reduce block must be top-level');
         for (const rule of [...rules].reverse()) {
           const copy = rule.clone();
-          copy.selector = scopeSelectors(rule.selector, ROOT);
+          copy.selector = scoped(at, rule, REDUCED);
           at.after(copy);
         }
       } else if (NO_PREFERENCE.test(params)) {
-        for (const rule of rules) rule.selector = scopeSelectors(rule.selector, NOT_ROOT);
+        for (const rule of rules) rule.selector = scoped(at, rule, CALM);
       } else throw failure(at, 'unsupported reduced-motion query');
     }
   },

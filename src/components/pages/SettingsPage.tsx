@@ -516,15 +516,33 @@ const SliderRow = ({ label, desc, value, onChange, onRelease }: { label: string;
 
 const ChoiceRow = <T extends string>({ label, desc, value, options, onChange }: { label: string; desc: string; value: T; options: { value: T; label: string }[]; onChange: (value: T) => void }) => {
     const id = useId();
+    // A radio group, as in the rewards pickers: one Tab stop (the chosen one), arrow keys move the choice.
+    const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+        if (!step) return;
+        event.preventDefault();
+        const at = Math.max(0, options.findIndex((option) => option.value === value));
+        const next = options[(at + step + options.length) % options.length];
+        onChange(next.value);
+        event.currentTarget.querySelector<HTMLElement>(`[data-choice="${next.value}"]`)?.focus();
+    };
     return (
         <div className="settings-row settings-row--choice">
             <span className="settings-text">
                 <span className="settings-label" id={`${id}-label`}>{label}</span>
                 <span className="settings-desc" id={`${id}-desc`}>{desc}</span>
             </span>
-            <span className="settings-choice" role="group" aria-labelledby={`${id}-label`} aria-describedby={`${id}-desc`}>
+            <span className="settings-choice" role="radiogroup" aria-labelledby={`${id}-label`} aria-describedby={`${id}-desc`} onKeyDown={onKeyDown}>
                 {options.map((option) => (
-                    <button key={option.value} type="button" aria-pressed={option.value === value} onClick={() => onChange(option.value)}>{option.label}</button>
+                    <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        data-choice={option.value}
+                        aria-checked={option.value === value}
+                        tabIndex={option.value === value ? 0 : -1}
+                        onClick={() => onChange(option.value)}
+                    >{option.label}</button>
                 ))}
             </span>
         </div>
