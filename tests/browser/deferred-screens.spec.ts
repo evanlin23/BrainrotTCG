@@ -225,9 +225,14 @@ test.describe('sheets', () => {
       if (opener) await expect(opener).toBeFocused();
       const arrived = page.waitForResponse(chunkOf(chunkName));
       release();
-      // Long enough for the chunk to arrive and evaluate: closing retired it.
-      await arrived;
-      await page.waitForTimeout(500);
+      // Closing retired the load, so the chunk's arrival is the last thing that could open the sheet. Import
+      // the same module again: that settles once the first import has evaluated, then wait for an idle
+      // main thread so the render it could have caused has run.
+      const chunkUrl = (await arrived).url();
+      await page.evaluate(async (href) => {
+        await import(/* @vite-ignore */ href);
+        await new Promise<void>((done) => requestIdleCallback(() => done()));
+      }, chunkUrl);
       await expect(page.getByRole('dialog')).toHaveCount(dialogsUnder);
       expect(errors).toEqual([]);
     });

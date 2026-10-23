@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectDecoded, expectStill, fingerFor, monitor } from './support';
+import { expectDecoded, expectPackDropped, expectStill, fingerFor, monitor } from './support';
 
 /**
  * Motor access (#803). A swipe let go short of opening answers: the pack springs back, the hint says
@@ -96,10 +96,7 @@ for (const [name, width, height, bigText] of [
     // The pack stage drops in from above the header on a spring and, while it falls, passes over the Settings
     // gear. A click that presses on the exposed gear and releases under the stage lands on neither, so the
     // route never opens. Wait for the stage to rest before the first tap, as a player does.
-    await expect.poll(() => page.locator('.pack-display').evaluate((el) => {
-      const { transform, opacity } = getComputedStyle(el);
-      return transform === 'none' && opacity === '1';
-    }), { message: 'the pack has finished dropping in' }).toBe(true);
+    await expectPackDropped(page);
     if (bigText) await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
 
     const home = ['.app-utilities button[aria-label="Settings"]', '.set-step', '.card-guide-link', '[data-pack-open]'];
