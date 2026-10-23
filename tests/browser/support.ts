@@ -574,13 +574,20 @@ export async function releaseTickets(page: Page) {
   await page.evaluate(() => (window as unknown as { __releaseTickets: () => void }).__releaseTickets());
 }
 
-/** Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. */
+/**
+ * Card art counts once CardImage marks it ready, not when its 1px placeholder has loaded. A wait that
+ * runs out names what the image last showed: its state, whether it had loaded, its size and its address.
+ */
 export async function expectDecoded(images: Locator, count: number) {
   await expect(images).toHaveCount(count);
   for (const image of await images.all()) {
-    await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
-      (element.dataset.state ?? 'ready') === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0,
-    )).toBe(true);
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => {
+      const state = element.dataset.state ?? 'ready';
+      if (state === 'ready' && element.complete && element.naturalWidth > 0 && element.naturalHeight > 0) return 'ready';
+      const src = element.getAttribute('src') ?? '';
+      const address = src.startsWith('data:') ? 'data: placeholder' : src.startsWith('blob:') ? 'blob: render' : new URL(src, document.baseURI).pathname;
+      return `${state}, ${element.complete ? 'complete' : 'not complete'}, ${element.naturalWidth}x${element.naturalHeight}, ${address}`;
+    })).toBe('ready');
     await image.evaluate((element: HTMLImageElement) => element.decode());
   }
 }

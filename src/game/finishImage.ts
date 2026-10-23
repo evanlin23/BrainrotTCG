@@ -6,7 +6,6 @@ export { recolorFrame } from './frameRecolor';
 
 // Allow slow mobile loads without leaving a finish hidden indefinitely after a stalled request.
 const IMAGE_LOAD_TIMEOUT_MS = 15_000;
-const IMAGE_ENCODE_TIMEOUT_MS = 15_000;
 
 const loadImage = (src: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
   const img = new Image();
@@ -39,7 +38,7 @@ const getFrameMask = (): Promise<ImageData> => frameMask ??= loadImage(frameMask
   throw error;
 });
 
-// Keep the 16 most recent full-size renders (a lossless PNG each) for reuse; held ones never count as spare.
+// Keep the 16 most recent full-size renders (a lossless bitmap each) for reuse; held ones never count as spare.
 export const MAX_CACHED_FINISHES = 16;
 
 interface CachedFinish {
@@ -61,7 +60,7 @@ const trimCache = () => {
   }
 };
 
-// Each render holds a full-size canvas, a copy of its pixels and a PNG encode at once; a phone opening a
+// Each render holds a full-size canvas, a copy of its pixels and their bitmap at once; a phone opening a
 // screen of finished cards must not start them all together (#226). Queued renders wait their turn
 // in order, and their load deadline starts only once they run.
 export const MAX_CONCURRENT_RENDERS = 2;
@@ -96,8 +95,37 @@ const limitRenders = <T>(render: () => Promise<T>, wanted: () => boolean): Promi
   });
 };
 
+/** BITMAPFILEHEADER (14 bytes) plus BITMAPV4HEADER (108 bytes), the first header with an alpha mask. */
+const BITMAP_HEADER_BYTES = 14 + 108;
+
+/**
+ * Wraps canvas pixels in a 32-bit BMP, which every browser decodes with its alpha. Unlike a PNG it needs
+ * no compression: the header's channel masks match ImageData's RGBA byte order and its negative height
+ * keeps the rows top-down, so the pixels go in exactly as they are. A PNG encode of full-size art took
+ * from a third of a second to several seconds of main-thread work on a busy machine; this is a copy.
+ */
+export const encodeBitmap = ({ width, height, data }: ImageData): Blob => {
+  const header = new DataView(new ArrayBuffer(BITMAP_HEADER_BYTES));
+  header.setUint16(0, 0x4d42, true); // "BM"
+  header.setUint32(2, BITMAP_HEADER_BYTES + data.byteLength, true);
+  header.setUint32(10, BITMAP_HEADER_BYTES, true); // where the pixels start
+  header.setUint32(14, 108, true);
+  header.setInt32(18, width, true);
+  header.setInt32(22, -height, true);
+  header.setUint16(26, 1, true); // planes
+  header.setUint16(28, 32, true); // bits per pixel
+  header.setUint32(30, 3, true); // BI_BITFIELDS
+  header.setUint32(34, data.byteLength, true);
+  header.setUint32(54, 0x000000ff, true); // red: first byte
+  header.setUint32(58, 0x0000ff00, true); // green
+  header.setUint32(62, 0x00ff0000, true); // blue
+  header.setUint32(66, 0xff000000, true); // alpha: fourth byte
+  header.setUint32(70, 0x73524742, true); // "sRGB" colour space
+  return new Blob([header.buffer, data], { type: 'image/bmp' });
+};
+
 const renderFinish = (src: string, finish: Finish): Promise<string> =>
-  Promise.all([loadImage(src), getFrameMask()]).then(async ([image, mask]) => {
+  Promise.all([loadImage(src), getFrameMask()]).then(([image, mask]) => {
     const canvas = document.createElement('canvas');
     canvas.width = mask.width;
     canvas.height = mask.height;
@@ -105,21 +133,7 @@ const renderFinish = (src: string, finish: Finish): Promise<string> =>
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
     recolorFrame(pixels.data, mask.data, finish);
-    ctx.putImageData(pixels, 0, 0);
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Finish encoding timed out: ${src}`)), IMAGE_ENCODE_TIMEOUT_MS);
-      try {
-        canvas.toBlob((png) => {
-          clearTimeout(timeout);
-          if (png) resolve(png);
-          else reject(new Error('Finish render failed'));
-        }, 'image/png');
-      } catch (error) {
-        clearTimeout(timeout);
-        reject(error);
-      }
-    });
-    return URL.createObjectURL(blob);
+    return URL.createObjectURL(encodeBitmap(pixels));
   });
 
 export interface FinishedCardImageHold {

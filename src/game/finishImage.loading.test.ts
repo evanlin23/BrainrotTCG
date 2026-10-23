@@ -18,24 +18,22 @@ class ControlledImage {
 let images: ControlledImage[];
 let createObjectURL: ReturnType<typeof vi.spyOn>;
 let createElement: ReturnType<typeof vi.fn>;
-let encode: (callback: BlobCallback) => void;
+let readPixels: () => { width: number; height: number; data: Uint8ClampedArray };
 
 beforeEach(() => {
   vi.resetModules();
   vi.useFakeTimers();
   images = [];
-  encode = (callback) => callback(new Blob());
+  readPixels = () => ({ width: 1, height: 1, data: new Uint8ClampedArray([128, 128, 128, 255]) });
   vi.stubGlobal('Image', ControlledImage);
   const context = {
     drawImage: vi.fn(),
-    getImageData: () => ({ width: 1, height: 1, data: new Uint8ClampedArray([128, 128, 128, 255]) }),
-    putImageData: vi.fn(),
+    getImageData: () => readPixels(),
   };
   createElement = vi.fn(() => ({
     width: 0,
     height: 0,
     getContext: () => context,
-    toBlob: (callback: BlobCallback) => encode(callback),
   }));
   vi.stubGlobal('document', { createElement });
   createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:finished-card');
@@ -170,70 +168,60 @@ describe('finish image request deadlines', () => {
   });
 });
 
-describe('finish image encoding deadlines', () => {
-  it('rejects a stalled encoding, ignores its late callback, and preserves a fresh retry', async () => {
-    const callbacks: BlobCallback[] = [];
-    encode = (callback) => { callbacks.push(callback); };
+describe('finish image encoding', () => {
+  it('wraps the recoloured pixels, unchanged, in a top-down 32-bit RGBA bitmap', async () => {
+    const { encodeBitmap } = await import('./finishImage');
+    // Two pixels: opaque red, then half-transparent blue.
+    const data = new Uint8ClampedArray([255, 0, 0, 255, 0, 0, 255, 128]);
+    const blob = encodeBitmap({ width: 2, height: 1, data } as unknown as ImageData);
+    expect(blob.type).toBe('image/bmp');
+    const bytes = new DataView(await blob.arrayBuffer());
+    expect(bytes.byteLength).toBe(122 + 8);
+    expect(String.fromCharCode(bytes.getUint8(0), bytes.getUint8(1))).toBe('BM');
+    expect(bytes.getUint32(2, true)).toBe(130);
+    expect(bytes.getUint32(10, true)).toBe(122);
+    expect(bytes.getUint32(14, true)).toBe(108);
+    expect(bytes.getInt32(18, true)).toBe(2);
+    expect(bytes.getInt32(22, true)).toBe(-1);
+    expect(bytes.getUint16(26, true)).toBe(1);
+    expect(bytes.getUint16(28, true)).toBe(32);
+    expect(bytes.getUint32(30, true)).toBe(3);
+    expect(bytes.getUint32(34, true)).toBe(8);
+    expect([54, 58, 62, 66].map((offset) => bytes.getUint32(offset, true))).toEqual([0xff, 0xff00, 0xff0000, 0xff000000]);
+    expect(String.fromCharCode(...[73, 72, 71, 70].map((offset) => bytes.getUint8(offset)))).toBe('sRGB');
+    expect([...new Uint8Array(bytes.buffer, 122)]).toEqual([...data]);
+  });
+
+  it('encodes the render it shows without waiting on an asynchronous encoder', async () => {
     const finishedCardImage = await importFinishedCardImage();
-    const first = finishedCardImage('/card.webp', 'GOLD');
-    let failure: unknown;
-    void first.catch((error: unknown) => { failure = error; });
+    const image = finishedCardImage('/card.webp', 'GOLD');
     images[0].load();
     images[1].load();
-    await vi.advanceTimersByTimeAsync(14_999);
-    expect(failure).toBeUndefined();
-    expect(callbacks).toHaveLength(1);
-    expect(createObjectURL).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(1);
-    expect(failure).toEqual(new Error('Finish encoding timed out: /card.webp'));
-    expect(vi.getTimerCount()).toBe(0);
-    const retry = finishedCardImage('/card.webp', 'GOLD');
-    expect(retry).not.toBe(first);
-    images[2].load();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(callbacks).toHaveLength(2);
-
-    callbacks[0](new Blob());
-    await vi.advanceTimersByTimeAsync(0);
-    expect(createObjectURL).not.toHaveBeenCalled();
-    expect(finishedCardImage('/card.webp', 'GOLD')).toBe(retry);
-    callbacks[1](new Blob());
-    await expect(retry).resolves.toBe('blob:finished-card');
-    expect(finishedCardImage('/card.webp', 'GOLD')).toBe(retry);
-    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    await expect(image).resolves.toBe('blob:finished-card');
+    const [blob] = createObjectURL.mock.calls[0] as [Blob];
+    expect(blob.type).toBe('image/bmp');
+    expect(blob.size).toBe(122 + 4);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('clears the encoding deadline on a null result and allows retry', async () => {
-    encode = (callback) => callback(null);
-    const finishedCardImage = await importFinishedCardImage();
-    const first = finishedCardImage('/card.webp', 'SILVER');
-    const failure = first.catch((error: unknown) => error);
-    images[0].load();
-    images[1].load();
-    expect(await failure).toEqual(new Error('Finish render failed'));
-    expect(vi.getTimerCount()).toBe(0);
-    encode = (callback) => callback(new Blob());
-    const retry = finishedCardImage('/card.webp', 'SILVER');
-    expect(retry).not.toBe(first);
-    images[2].load();
-    await expect(retry).resolves.toBe('blob:finished-card');
-    expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('clears the encoding deadline on a synchronous exception and allows retry', async () => {
-    const encoderError = new Error('Encoder rejected the canvas');
-    encode = () => { throw encoderError; };
+  it('rejects a render whose pixels cannot be read and allows retry', async () => {
+    const readError = new Error('The canvas has been tainted by cross-origin data.');
+    // The frame mask's read (the first) succeeds; the card's own render read is the one that fails.
+    let reads = 0;
+    readPixels = () => {
+      reads += 1;
+      if (reads > 1) throw readError;
+      return { width: 1, height: 1, data: new Uint8ClampedArray([128, 128, 128, 255]) };
+    };
     const finishedCardImage = await importFinishedCardImage();
     const first = finishedCardImage('/card.webp', 'DIAMOND');
     const failure = first.catch((error: unknown) => error);
     images[0].load();
     images[1].load();
-    expect(await failure).toBe(encoderError);
+    expect(await failure).toBe(readError);
+    expect(createObjectURL).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
-    encode = (callback) => callback(new Blob());
+    readPixels = () => ({ width: 1, height: 1, data: new Uint8ClampedArray([128, 128, 128, 255]) });
     const retry = finishedCardImage('/card.webp', 'DIAMOND');
     expect(retry).not.toBe(first);
     images[2].load();

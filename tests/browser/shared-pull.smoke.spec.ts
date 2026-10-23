@@ -49,6 +49,9 @@ const VIEWER_TIMEOUT = 20000;
 // Built-browser journeys verify Argon2id tickets and walk every card, so each gets the same budget.
 const JOURNEY_TIMEOUT = 60000;
 
+// Rankings' status once its check of recent pulls has ended with no relay reached.
+const FEED_DOWN = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
+
 /**
  * Every pack picture on the page has downloaded, the sealed pack's two halves among them. Leaving the screen
  * or the document while one is still on its way cancels the request (net::ERR_ABORTED): a real CDN's
@@ -202,6 +205,11 @@ async function walkDestinations(page: Page, baseURL: string, settle: () => Promi
   await arrive('Rankings', '#/rankings');
   await expect(pageNamed('Rankings').locator('.hall-of-fame')).toBeVisible();
   await expect(navItem('Rankings')).toHaveAttribute('aria-current', 'page');
+  // Rankings checks recent pulls after its list loads: it imports the relay code, then reads the
+  // withdrawn list. Between those requests none is in flight, so settle() can pass in the gap, and
+  // leaving then rightly aborts the withdrawn read (net::ERR_ABORTED). The status names the check's
+  // end: the guard closes every relay socket, so it ends with the live feed down.
+  await expect(pageNamed('Rankings').getByRole('status')).toHaveText(FEED_DOWN);
   await page.goBack();
   await backToOpening();
 
