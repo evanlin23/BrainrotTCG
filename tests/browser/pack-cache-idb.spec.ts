@@ -185,7 +185,7 @@ async function harnessed(page: Page, baseURL: string) {
 /** A pack written natively, read back on a fresh load: absent stays absent, never a failure. */
 const readFresh = (page: Page, refs: object[]) => page.evaluate((refs) => window.__storeHealthy.readStoredPacks(refs as PackStore.StoredPackRef[]), refs);
 
-test('a committed pack survives a reload and a relaunched profile, with its exact key and cards', async ({ playwright, browserName, launchOptions, headless, baseURL }) => {
+test('a committed pack survives a reload and a relaunched profile, with its exact key and cards', async ({ playwright, browserName, launchOptions, headless, baseURL }, testInfo) => {
   test.setTimeout(60000);
   // One disposable profile, launched twice: the second browser only has what the first left on disk.
   const profile = await mkdtemp(join(tmpdir(), 'brainrot-idb-'));
@@ -193,7 +193,16 @@ test('a committed pack survives a reload and a relaunched profile, with its exac
     const launch = async () => {
       const context = await playwright[browserName].launchPersistentContext(profile, { ...launchOptions, headless, baseURL, serviceWorkers: 'block' });
       const page = context.pages()[0] ?? await context.newPage();
-      return { context, page, errors: await harnessed(page, baseURL!) };
+      const errors = await harnessed(page, baseURL!);
+      // Playwright applies the project's device settings (and its trace and screenshot policy) to a
+      // persistent context too; assert it, so a "mobile" run can never silently be a desktop copy.
+      // Measured on the loaded site: a blank page reports the 980px default layout width on mobile.
+      const { viewport, hasTouch, userAgent } = testInfo.project.use;
+      expect(page.viewportSize()).toEqual(viewport);
+      const seen = await page.evaluate(() => ({ width: innerWidth, touch: navigator.maxTouchPoints > 0, userAgent: navigator.userAgent }));
+      expect(seen).toMatchObject({ width: viewport!.width, touch: !!hasTouch });
+      if (userAgent) expect(seen.userAgent).toBe(userAgent);
+      return { context, page, errors };
     };
     const pack = fixture(PLAYER_A, 7);
     const missing = { setKey: SET, publicKeyHex: PLAYER_A, nonce: 8 };
@@ -319,7 +328,7 @@ for (const store of ['Healthy', 'EarlySuccess'] as const) {
     } else {
       expect(committed).toEqual({ saved: true, onDisk: true, order: ['complete', 'resolved true'] });
       expect(aborted).toMatchObject({ saved: false, onDisk: false });
-      expect(aborted.order).toContain('abort');
+      expect(aborted.order).toEqual(['resolved false', 'abort']);
       expect(holds).toBe(true);
     }
     expect(unexpectedArtErrors(errors)).toEqual([]);
