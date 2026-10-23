@@ -93,6 +93,7 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
   const rankingsRequested: string[] = [];
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith('hall-of-fame-withdrawn.json')) return Promise.resolve(Response.json([]));
     if (url.endsWith('rankings.json')) {
       rankingsRequested.push(url);
       return Promise.resolve(new Response('Not found', { status: 404 }));

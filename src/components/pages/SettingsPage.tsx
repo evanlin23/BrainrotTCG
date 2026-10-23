@@ -164,15 +164,27 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const activeWithoutCopy = isStale ? false : withoutCopy;
     const activeReplacing = isStale ? null : replacing;
 
-    /** "Name, 14 packs" for a save's player and stats (as stored, or as in a backup file). */
+    /**
+     * "Name, 14 packs" for a save's player and stats (as stored, or as in a backup file). Each record is read on its own, so a
+     * damaged one leaves out only its part ("14 packs" when the player can't be read); "unknown" when neither part reads.
+     */
     const describe = (player: string | null | undefined, stats: string | null | undefined) => {
-        try {
-            const name = (JSON.parse(player ?? 'null') as { name?: string } | null)?.name;
-            const packs = (JSON.parse(stats ?? 'null') as { packsOpened?: number } | null)?.packsOpened ?? 0;
-            return `${name ? `${name}, ` : ''}${packs.toLocaleString()} pack${packs === 1 ? '' : 's'}`;
-        } catch {
-            return 'unknown';
-        }
+        const read = <T,>(record: string | null | undefined) => {
+            try {
+                return { ok: true as const, value: JSON.parse(record ?? 'null') as T | null };
+            } catch {
+                return { ok: false as const };
+            }
+        };
+        const who = read<{ name?: unknown }>(player);
+        const name = who.ok && typeof who.value?.name === 'string' && who.value.name ? who.value.name : null;
+        const count = read<{ packsOpened?: unknown }>(stats);
+        const packs = count.ok ? (count.value?.packsOpened ?? 0) : null;
+        const packText = typeof packs === 'number' && Number.isSafeInteger(packs) && packs >= 0
+            ? `${packs.toLocaleString()} pack${packs === 1 ? '' : 's'}`
+            : null;
+        if (!packText) return name ?? 'unknown';
+        return name ? `${name}, ${packText}` : packText;
     };
 
     /** Import leaves with the question that replaces it: its focus, or the page's after a file pick, moves to Keep mine. A focus the player has moved elsewhere stays there. */

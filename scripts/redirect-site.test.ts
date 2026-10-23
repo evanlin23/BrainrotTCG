@@ -213,7 +213,7 @@ describe('redirectPage', () => {
 });
 
 describe('copyHallOfFame', () => {
-  it('copies the list and the rankings the Hall of Fame scripts read from the old address, and nothing else', () => {
+  it('copies the list, the pulls of rejected issues and the rankings the Hall of Fame scripts read from the old address, and nothing else', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'redirect-site-'));
     try {
       const dist = path.join(dir, 'dist');
@@ -221,17 +221,21 @@ describe('copyHallOfFame', () => {
       mkdirSync(path.join(dist, 'rankings'), { recursive: true });
       mkdirSync(out);
       writeFileSync(path.join(dist, 'hall-of-fame.json'), '[]\n');
+      writeFileSync(path.join(dist, 'hall-of-fame-withdrawn.json'), '["a-pull"]\n');
       writeFileSync(path.join(dist, 'rankings.json'), '{"index":1}\n');
       writeFileSync(path.join(dist, 'rankings', 'daily-2026-10.json'), '{"month":1}\n');
       writeFileSync(path.join(dist, 'index.html'), 'the game');
       copyHallOfFame(dist, out);
-      expect(readdirSync(out, { recursive: true }).map(String).sort()).toEqual(['hall-of-fame.json', 'rankings', 'rankings.json', path.join('rankings', 'daily-2026-10.json')]);
+      expect(readdirSync(out, { recursive: true }).map(String).sort()).toEqual(['hall-of-fame-withdrawn.json', 'hall-of-fame.json', 'rankings', 'rankings.json', path.join('rankings', 'daily-2026-10.json')]);
+      expect(readFileSync(path.join(out, 'hall-of-fame-withdrawn.json'), 'utf8')).toBe('["a-pull"]\n');
       expect(readFileSync(path.join(out, 'rankings', 'daily-2026-10.json'), 'utf8')).toBe('{"month":1}\n');
-      // A build without rankings (no token) copies just the list.
+      // A build without rankings (no token) or a withdrawn list (GitHub down, nothing deployed)
+      // copies just the list, so the old address never serves an empty withdrawn list.
       rmSync(out, { recursive: true });
       mkdirSync(out);
       rmSync(path.join(dist, 'rankings'), { recursive: true });
       rmSync(path.join(dist, 'rankings.json'));
+      rmSync(path.join(dist, 'hall-of-fame-withdrawn.json'));
       copyHallOfFame(dist, out);
       expect(readdirSync(out)).toEqual(['hall-of-fame.json']);
     } finally {
