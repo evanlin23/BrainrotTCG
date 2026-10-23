@@ -851,20 +851,26 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
     expect(onArrive).toHaveBeenCalledOnce();
   });
 
-  it('takes no presses on the first fall until it reaches its place, and takes them at once on a return', async () => {
+  it('takes no presses on the first fall until it reaches its place', async () => {
     // Framer finishes each animation in its first frame, so the fall's completion needs no clock.
     MotionGlobalConfig.skipAnimations = true;
     try {
       show();
       expect(stage().hasAttribute('data-falling')).toBe(true);
       await vi.waitFor(() => expect(stage().hasAttribute('data-falling')).toBe(false));
-
-      await tearIntoReveal();
-      escape();
-      expect(stage().hasAttribute('data-falling')).toBe(false);
     } finally {
       MotionGlobalConfig.skipAnimations = false;
     }
+  });
+
+  it('takes presses at once on a return when the pack was torn mid-fall', async () => {
+    show();
+    expect(stage().hasAttribute('data-falling')).toBe(true);
+    // Torn before the fall ends, the fall never completes: its stage flies off instead.
+    await tearIntoReveal();
+    escape();
+    expect(stage().hasAttribute('data-falling')).toBe(false);
+    expect(stage().style.transform).toBe('translateY(24px)');
   });
 
   it('takes presses from the first frame when the device asks for less motion, as it is in its place at once', () => {
@@ -877,6 +883,7 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
     const onArrive = vi.fn();
     show({ arrived: true, onArrive });
     expect(stage().style.transform).toBe('translateY(24px)');
+    expect(stage().hasAttribute('data-falling')).toBe(false);
     expect(onArrive).not.toHaveBeenCalled();
   });
 

@@ -117,7 +117,10 @@ for (const variant of VARIANTS) {
 // The sealed pack's first fall comes from above the screen, over the banner and the Settings gear. A tap on
 // Download in that second once landed on the falling stage and downloaded nothing (#1133).
 // Every frame of the fall, from the first, is checked: a tap at either control's centre must reach it.
-test('a tap on the banner Download or the gear reaches it while the pack falls past (#1133)', async ({ page, baseURL }) => {
+test('a tap on the banner Download or the gear reaches it while the pack falls past (#1133)', async ({ page, baseURL }, testInfo) => {
+  // A phone's tap: on the desktop project the fall passes over the controls in about one frame, so only
+  // the emulated phone shows the many frames a tap could be lost in.
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone tap check; one emulated phone is enough.');
   await page.setViewportSize({ width: 320, height: 568 });
   await page.addInitScript(() => {
     const seen = { frames: 0, missed: [] as string[], landed: false };
