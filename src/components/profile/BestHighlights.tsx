@@ -84,6 +84,32 @@ const stateText = <S, V>(state: BestSourceState<S, V>, what: string): string => 
   return `Couldn't check ${what} just now.`;
 };
 
+/**
+ * What stands where a verified row will be while its check is still on the way. It is the row's own
+ * layout (same thumbnails, lines and score), so the verdict arriving never moves the packs listed below.
+ */
+const PendingRow = ({ card, text }: { card?: boolean; text: string }) => (
+  <ul className="pulls-list" aria-hidden="true">
+    <li>
+      <div className={`pull-row profile-highlight-pending${card ? ' best-card-row' : ''}`}>
+        <span className="pull-row-thumbs">
+          {Array.from({ length: card ? 1 : 5 }, (_, i) => (
+            <span key={i} className="pull-row-blank" />
+          ))}
+        </span>
+        <span className="pull-row-main">
+          <span className="pull-row-hand">{text}</span>
+          <span className="pull-row-meta">
+            <span className="set-code">&nbsp;</span>
+          </span>
+        </span>
+        <span className="pull-row-score tabular">&nbsp;</span>
+        <ChevronRight className="pull-row-chevron" aria-hidden="true" />
+      </div>
+    </li>
+  </ul>
+);
+
 interface HighlightProps<S, V> {
   title: string;
   titleRef: RefObject<HTMLHeadingElement | null>;
@@ -91,28 +117,33 @@ interface HighlightProps<S, V> {
   what: string;
   /** Try again, after an error that checking again can fix. */
   onRetry: () => void;
+  /** The row's place is held (checking, or a check that is about to start) so that its verdict moves nothing. */
+  waiting: boolean;
+  /** A best card's row is taller than a best pack's. */
+  card?: boolean;
   /** The verified row, once there is one. */
   children?: ReactNode;
 }
 
-const Highlight = <S, V>({ title, titleRef, state, what, onRetry, children }: HighlightProps<S, V>) => {
+const Highlight = <S, V>({ title, titleRef, state, what, onRetry, waiting, card, children }: HighlightProps<S, V>) => {
   const id = useId();
-  const verified = state.status === 'available';
+  // The row (or the place held for it) says what is happening, so the live region alone carries the words.
+  const quiet = state.status === 'available' || waiting;
   return (
     <section aria-labelledby={id} className="profile-highlight">
       <h2 id={id} ref={titleRef} tabIndex={-1} className="section-title profile-heading">
         {title}
       </h2>
       {/* Only the state is live (checking, then verified or why not), so a settled check doesn't read out the whole row. */}
-      <p className={verified ? 'sr-only' : 'pulls-note profile-highlight-note'}>
-        <span role="status">{stateText(state, what)}</span>
+      <p className={quiet ? 'sr-only' : 'pulls-note profile-highlight-note'}>
+        <span role="status">{waiting ? `Checking ${what} against its ticket…` : stateText(state, what)}</span>
         {state.status === 'failed' && state.reason !== 'mismatch' && (
           <button type="button" className="btn btn--secondary btn--sm" onClick={onRetry}>
             Try again
           </button>
         )}
       </p>
-      {children}
+      {waiting ? <PendingRow card={card} text="Checking…" /> : children}
     </section>
   );
 };
@@ -125,6 +156,11 @@ interface BestHighlightsProps {
   onSharePack: (ref: OwnedPullRef, cards: CardWithMeta[]) => void;
   /** After the Verified mark, e.g. whether this device sent the pack to the Hall of Fame. */
   packBadge?: (ref: OwnedPullRef) => ReactNode;
+  /**
+   * This device has saved packs whose best card is still being weighed (BestCardsSection), so one is on
+   * its way: its place is held now, and a best card found later moves nothing below.
+   */
+  expecting?: boolean;
 }
 
 /**
@@ -133,7 +169,7 @@ interface BestHighlightsProps {
  * or failing never holds back the other. Only the engine's cards and score are shown as verified; the
  * badge covers that pack, never the whole profile. Each shares through its pack's ordinary pull proof.
  */
-const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge }: BestHighlightsProps) => {
+const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge, expecting = false }: BestHighlightsProps) => {
   // Another tab switching or importing a player, or recording a pack: find both again.
   const [run, setRun] = useState(0);
   useEffect(() => {
@@ -169,8 +205,10 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge }: BestHighl
 
   const nothing = (s: BestSourceState<unknown, unknown>) => s.status === 'unavailable' && s.reason === 'none';
   // The empty profile keeps its own first-pack prompt.
-  if (nothing(pack.state) && nothing(card.state)) return null;
+  if (nothing(pack.state) && nothing(card.state) && !expecting) return null;
   const anyVerified = pack.state.status === 'available' || card.state.status === 'available';
+  const cardWaiting = card.state.status === 'checking' || (expecting && nothing(card.state));
+  const anyWaiting = cardWaiting || pack.state.status === 'checking';
 
   const shownCard = card.state.status === 'available' ? card.state : null;
   const cardSet = shownCard && getSet(shownCard.source.ref.setId, shownCard.source.ref.setVersion);
@@ -180,7 +218,14 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge }: BestHighl
 
   return (
     <div className="profile-highlights">
-      <Highlight title="Best pack" titleRef={packTitle} state={pack.state} what="your best pack" onRetry={() => retry(pack.retry, packTitle)}>
+      <Highlight
+        title="Best pack"
+        titleRef={packTitle}
+        state={pack.state}
+        what="your best pack"
+        onRetry={() => retry(pack.retry, packTitle)}
+        waiting={pack.state.status === 'checking'}
+      >
         {pack.state.status === 'available' && (
           <ul className="pulls-list">
             {(() => {
@@ -208,7 +253,15 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge }: BestHighl
         )}
       </Highlight>
 
-      <Highlight title="Best card" titleRef={cardTitle} state={card.state} what="your best card" onRetry={() => retry(card.retry, cardTitle)}>
+      <Highlight
+        title="Best card"
+        titleRef={cardTitle}
+        state={card.state}
+        what="your best card"
+        onRetry={() => retry(card.retry, cardTitle)}
+        waiting={cardWaiting}
+        card
+      >
         {shownCard && cardVersion && (
           <>
             <ul className="pulls-list">
@@ -258,8 +311,9 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge }: BestHighl
         )}
       </Highlight>
 
-      {anyVerified && (
-        <p className="profile-footnote">
+      {/* While a check is out, the footnote's place is held, so a verdict moves nothing below it. */}
+      {(anyVerified || anyWaiting) && (
+        <p className={anyVerified ? 'profile-footnote' : 'profile-footnote profile-footnote--held'} aria-hidden={anyVerified ? undefined : true}>
           Verified means its pack was opened again from its ticket with your key. It covers that pack only: your level and totals
           below are this device's progress.
         </p>

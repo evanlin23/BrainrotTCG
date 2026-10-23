@@ -29,6 +29,16 @@
   margin-left: var(--space-1);
 }
 
+/* The place held for a row whose check is still out: the row's own layout (BestHighlights.tsx), so the verdict moves nothing below. */
+.profile-highlight-pending .pull-row-hand {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.best-card-row .pull-row-blank {
+  width: 36px;
+}
+
 /* Shaped like the submitted badge it sits beside, in the success colour: only the engine's result earns it. */
 .profile-verified {
   display: inline-flex;
@@ -306,6 +316,11 @@
   margin-top: calc(-1 * var(--space-3));
   color: var(--text-subtle);
   font-size: var(--text-xs);
+}
+
+/* Held while a check is out: its space is kept, so the verdict moves nothing below. */
+.profile-footnote--held {
+  visibility: hidden;
 }
 
 .profile-verify-sub {

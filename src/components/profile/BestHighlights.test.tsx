@@ -88,8 +88,8 @@ afterEach(() => {
 });
 
 const onSharePack = vi.fn();
-const render = async (stats: BestPackStats = statsFor(getPlayer().publicKeyHex)) => {
-  await act(async () => root.render(<BestHighlights stats={stats} refreshKey="a" onSharePack={onSharePack} />));
+const render = async (stats: BestPackStats = statsFor(getPlayer().publicKeyHex), expecting = false) => {
+  await act(async () => root.render(<BestHighlights stats={stats} refreshKey="a" expecting={expecting} onSharePack={onSharePack} />));
 };
 const highlight = (name: string) =>
   [...container.querySelectorAll('section.profile-highlight')].find((s) => s.querySelector('h2')?.textContent === name)!;
@@ -181,13 +181,32 @@ describe('states', () => {
     expect(text('Best card')).toContain('Checking your best card against its ticket');
     expect(container.querySelector('.profile-verified')).toBeNull();
     expect(container.textContent).not.toContain('999');
-    expect(container.querySelector('.pull-row')).toBeNull();
+    // Only a held place for each row (same markup, so the page does not move when the real row arrives).
+    const held = [...container.querySelectorAll('.pull-row')];
+    expect(held).toHaveLength(2);
+    for (const row of held) {
+      expect(row.classList.contains('profile-highlight-pending')).toBe(true);
+      expect(row.closest('[aria-hidden="true"]')).not.toBeNull();
+      expect(row.tagName).not.toBe('BUTTON');
+    }
+    expect(container.querySelector('.best-card-row')).not.toBeNull();
 
     await act(async () => card.resolve(verifiedCard(checkBestCard.mock.calls[0][0])));
     expect(verified('Best card')).toBe(true);
     expect(text('Best pack')).toContain('Checking');
     await act(async () => pack.resolve(verifiedPack(checkBestPack.mock.calls[0][0])));
     expect(verified('Best pack')).toBe(true);
+  });
+
+  it('holds the best card place while its source is still being resolved, so the history below does not move', async () => {
+    // No best card source yet (the cache is still filling), but the profile expects one.
+    await render({}, true);
+    expect(container.querySelector('section.profile-highlight')).not.toBeNull();
+    expect(container.querySelector('.pull-row.profile-highlight-pending.best-card-row')).not.toBeNull();
+    expect(container.querySelector('.profile-verified')).toBeNull();
+    // Without the expectation there is nothing to hold.
+    await render({}, false);
+    expect(container.innerHTML).toBe('');
   });
 
   it('a failed check leaves the other usable and retries on request', async () => {

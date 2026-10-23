@@ -118,6 +118,8 @@ const ProfilePage = ({
   }, []);
   // Best cards weighed or rebuilt (BestCardsSection): the Best card highlight may have changed.
   const [bestCardsRuns, setBestCardsRuns] = useState(0);
+  // Saved packs are read in but their best cards are still being weighed: the Best card highlight holds its place.
+  const [bestCardsSettled, setBestCardsSettled] = useState(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const summary = useMemo(() => myStats(), [reopenRuns, packCache]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -219,6 +221,7 @@ const ProfilePage = ({
         <BestHighlights
           stats={stats}
           refreshKey={`${packCache}:${reopenRuns}:${bestCardsRuns}`}
+          expecting={mine?.cache === 'ready' && !bestCardsSettled}
           onSharePack={onSharePack}
           packBadge={(ref) => {
             const entry = entryOf(ref);
@@ -377,6 +380,7 @@ const ProfilePage = ({
             refreshKey={`${packCache}:${reopenRuns}`}
             cacheReady={mine.cache === 'ready'}
             onListChange={() => setBestCardsRuns((n) => n + 1)}
+            onSettledChange={setBestCardsSettled}
           />
         )}
 

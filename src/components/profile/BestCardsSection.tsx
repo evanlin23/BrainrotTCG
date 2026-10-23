@@ -46,13 +46,15 @@ interface BestCardsSectionProps {
   cacheReady: boolean;
   /** The stored list was weighed or rebuilt (the Best card highlight finds its winner again). */
   onListChange?: () => void;
+  /** Whether every winner has its card, or the last rebuild gave up on some: no best card is still on its way. */
+  onSettledChange?: (settled: boolean) => void;
 }
 
 /**
  * The player's best individual cards (game/bestCards.ts), best first, each opening the card viewer with
  * its Share card action for that exact version. Only the current key's list is ever read.
  */
-const BestCardsSection = ({ refreshKey, cacheReady, onListChange }: BestCardsSectionProps) => {
+const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChange }: BestCardsSectionProps) => {
   const [list, setList] = useState(readList);
   const [rebuilding, setRebuilding] = useState(false);
   /** The last rebuild lost some winners' cards (a pack that wouldn't derive, or the rebuild itself): not an empty collection. */
@@ -136,6 +138,14 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange }: BestCardsSec
   // No heading over a list that is still on its way in.
   // Only while winners are still unscored: packs read in later may have settled them.
   const lost = unavailable && list.cards.some((c) => !c.card);
+  const settled = cacheReady && !rebuilding && (lost || !list.cards.some((c) => !c.card));
+  const settledChanged = useRef(onSettledChange);
+  useEffect(() => {
+    settledChanged.current = onSettledChange;
+  });
+  useEffect(() => {
+    settledChanged.current?.(settled);
+  }, [settled]);
   // A retry that settles it removes the status and its button, which had focus: land on the first row, else the heading.
   useEffect(() => {
     if (rebuilding || retried.current !== 'running') return;
