@@ -10,6 +10,7 @@ import { CARD_RARITIES, cardNumber, scoreCards } from '../../data/cards';
 import type { SetDefinition } from '../../engine';
 import type { PullRef } from '../../game/pulls';
 import { useHoldUntilDecoded } from '../../hooks/useHoldUntilDecoded';
+import { STAGE_PRIMARY_ATTR, useStageClickGuard } from '../../hooks/useStageClickGuard';
 import PackHeadline from './PackHeadline';
 import SummaryHallOfFame from './SummaryHallOfFame';
 import '../../styles/CollectionLabel.css';
@@ -45,6 +46,10 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
   const headingRef = useRef<HTMLHeadingElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   useHoldUntilDecoded(cardsRef, holdOptional);
+  // A click that was meant for the last card (the player is clicking in one spot, #627) lands here as the
+  // summary appears: it must not open a card up close, the Card guide, the share sheet or send a Hall of
+  // Fame entry. Next pack is the one deliberate move.
+  const { blockClicks, settling } = useStageClickGuard();
   // The keyboard starts at the result, not on an action: the heading, so the cards come next.
   useEffect(() => {
     if (holdOptional) headingRef.current?.focus({ preventScroll: true });
@@ -67,7 +72,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
 
   return (
     <Motion.div className="pack-summary" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
-      <div className="summary-content" onFocus={clearActions}>
+      <div className="summary-content" onFocus={clearActions} onClickCapture={blockClicks}>
         <div className="summary-details">
           <PackHeadline cards={openedCards} headingRef={headingRef}>
             {pack && <SummaryHallOfFame pack={pack} score={packScore} />}
@@ -76,7 +81,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
             {!viewed && <p className="summary-caption">Select a card to view</p>}
             <CardGuideButton set={set} />
           </div>
-          <ul className="summary-cards" ref={cardsRef}>
+          <ul className="summary-cards" ref={cardsRef} data-settling={settling || undefined}>
             {openedCards.map((card) => (
               <li key={card.uniqueId}>
                 <button
@@ -109,7 +114,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
                 <Share2 aria-hidden="true" /> Share
               </button>
             )}
-            <button type="button" className="btn btn--primary btn--lg" onClick={onClose}>
+            <button type="button" className="btn btn--primary btn--lg" onClick={onClose} {...{ [STAGE_PRIMARY_ATTR]: true }}>
               <RotateCcw aria-hidden="true" /> Next pack
             </button>
           </div>

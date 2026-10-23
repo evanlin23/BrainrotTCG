@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { monitor, expectSummaryTakesClicks } from './support';
 
 /**
  * Two accessibility preferences the page cannot see in its own colours:
@@ -21,6 +21,7 @@ test('the card close-up levels, and stops tilting, when reduced motion turns on 
   await page.keyboard.press('Space');
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
+  await expectSummaryTakesClicks(page);
   await page.locator('.summary-card').first().click();
   const card = page.locator('.card-viewer .card-viewer-card');
   await expect(card).toBeVisible();

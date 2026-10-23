@@ -99,7 +99,8 @@ Examples from merged fixes:
 CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
 deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
 to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
-deploying main. CI uploads files only from failed runs, kept for 7 days.
+deploying main. CI uploads files only from failed runs, kept for 7 days. A nightly workflow, not
+part of PR CI, runs the unit suite in shuffled order twice (see Shuffled and repeat runs).
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
@@ -208,6 +209,29 @@ Browser tests have no retries, so a test that fails once fails CI: fix its cause
 Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
 close-up sets `data-tilt="live"` once it follows the mouse.
 
+### Automated axe checks
+
+`tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
+browser spec. `axe-critical-states.spec.ts` calls it for four loaded states: the first pack, the pack
+summary, Settings and a card's share sheet over its viewer, in both projects. A scan runs a fixed list of
+rules (names, roles and relationships, the document, and `color-contrast`) after fonts, images and finite
+running animations have settled, with reduced motion emulated for the scan so looping pulses cannot make
+contrast depend on their phase; it is not a tag or the whole rule set, and no rule is disabled. Add a state by
+calling `expectAxeClean(page, testInfo, '<state>')` once its screen is loaded, after listing the state in
+`AXE_STATES`; do not add another scanner.
+
+- A scan fails on any violation, on a scan that passed no nodes, and on a page where contrast or the
+  document checks found nothing to check, so an empty or wrong page cannot pass.
+- Axe cannot judge text on art, gradients, overlapping layers, partly transparent backgrounds or
+  pseudo-element backgrounds, canvas contents or images. It lists those as "needs review"; each scan attaches
+  them to the test report, adds an `axe-needs-review` annotation and prints one line per scan, so the list
+  shows in CI logs. Treat them as unchecked, not as passing.
+- An accepted violation goes in `AXE_EXCEPTIONS` with its state, exact rule and selector, the reason, an
+  owner and what removes it (a test rejects an entry with a blank field or an unknown rule or state). An entry
+  that stops matching fails the scan, so the list only shrinks. It is empty today; use it only with a linked follow-up.
+- A green scan is not a full accessibility audit or a physical-phone check. Keyboard order, focus rings,
+  reduced motion, target sizes and screen-reader wording stay with the specs that own them.
+
 The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
 adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes, in both
 projects:
@@ -276,6 +300,55 @@ Using the results:
    reproduced findings go into an issue or PR.
 3. The write-up gives the revision, conditions, task outcomes and what could not be checked. One
    agent's result is an observation, not a rate.
+
+## Quality review cadence
+
+The trusted `/work` lifecycle (`.claude/skills/work/SKILL.md`) runs `npx tsx scripts/quality-review.ts
+check` at setup and at checkpoints (#713), only between tasks (never to wake an implementer or start a
+workflow). Not due, it prints the one due line plus any flow-change line and nothing else. It reads the one `quality review:` ledger line and decides
+due or not due: due when the next-due day (default 7 days after a finished review, 1 day after a
+blocked or unrun one) has come and `main` changed since the last passed review. It never runs the
+suite or an audit, makes no network calls and wakes no one. When due it names one slice and its
+budget (default 3 tasks, 45 minutes, 2 provider runs):
+
+- one player journey, rotating through opening, collection and detail, sharing, own and shared
+  Profile, Rankings, Settings and help, and recovery, with a journey whose code changed since the
+  last review first. Opening, sharing and recovery use the task audit above (Claude only, a fresh
+  task-only reviewer, no coaching); the rest use fixture-based browser checks. Judge it with the
+  player job, primary fact, next action check (#712). Separate same-scope duplication from necessary
+  repeated context, accessible text and exported artifacts. A screenshot baseline (#745) never
+  stands in for that review.
+- one recently changed code hotspot (commits times lines from `git log`), rotating away from the last pick;
+- the status and age of existing signals: CI and review failures, test runtime and performance
+  (#702, report-only), capacity (#708/#709/#242), compatibility (#658), release blockers
+  (the #759 record only: pass needs the current record version and every entry valid and `resolved`
+  by the `release-blockers.ts` rules, its fix commit and regression test on `origin/main`; anything
+  else is open or invalid. Dated by its last commit on `origin/main`, or undated in a shallow clone
+  when that commit is the shallow boundary), dependency advisories, branch hygiene (#710) and the last task audit. Each is
+  pass, fail, blocked or unrun. A missing report is unrun, and a physical device, a screen reader
+  and native sharing stay unrun until a person records a result. Only a date the report states
+  counts: a file mtime is shown as `date: unknown (mtime only: ...)` and never reads as fresh.
+  Performance shows its measured commit and is a pass only for a clean run (`trackedSourceDirty:
+  false`) of a commit that is an ancestor of `origin/main`.
+
+When due, spend at most the budget on that slice with the existing tools, search issues and PRs
+first, comment evidence on the canonical issue, and open one bounded task only for a reproduced,
+non-duplicate gap. Then run `record --status=<pass|fail|blocked|unrun> --journey=<id> --hotspot=<file>
+--issues=#n` (journey is an id above, hotspot a repo path of at most 60 characters) and replace the
+ledger's one `quality review:` line with its output. A hotspot with no changed code is `n/a`, not
+blocked, and is left out of the status. History is read from `origin/main` only.
+
+Reports come from their own tools (`test-results/...`) or a compact `{status, date, detail}` JSON in
+`test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
+saves or secrets). The coordinator writes `ci-review`, `test-runtime`, `dependency-advisories` and
+`branch-hygiene` itself during a due review, from what it already read (PR checks, last CI timings,
+advisory and branch lists), before `record`; a person writes `physical-device`, `screen-reader`,
+`native-share` and `compatibility` when they have a result. The cadence never opens a recurring
+"audit" issue. `record` prints the new ledger line (default cadence, budget and next-due day are omitted and revisions are always 7 characters, to keep it short; it refuses a line over 215 characters and names the optional fields to reset). Only a pass moves the passed date. A fail is a finished review: it
+rotates to the next journey and hotspot and is next due after a full cadence. A blocked or unrun review keeps its slice
+and is retried the next day. The cadence adds to per-PR checks (flow changes still get their reviews at once) and
+does not replace them. `scripts/quality-review.test.ts` holds the dry runs: not due, due success,
+missing tools or exhausted budget, and the evidence, size and argument checks.
 
 ## Mounted integration tests
 
@@ -347,6 +420,33 @@ times on an up-to-date branch, set each floor a few points below the lowest figu
 budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor
 only for removed or unreachable code, never to land untested code. When the runtime budget trips,
 look for a slow or hanging test before raising it.
+
+## Shuffled and repeat runs
+
+`.github/workflows/test-order.yml` runs the unit suite on a schedule (06:41 UTC) or by hand from the
+Actions tab, never for a pull request. It runs `vitest run` with files and tests shuffled by one
+seed, then again with the same seed in the same job. A test that fails only shuffled depends on what
+another test left behind; one that fails in only one of the two runs depends on the clock,
+`Math.random` or load. Both runs leave out coverage and the runtime budget, which per-PR CI owns,
+and nothing is retried. The runs sample orders: a green night doesn't prove the suite
+order-independent, and GitHub's schedule is best effort (it has never fired the Hall of Fame inbox
+here), so a night without a run is not a pass.
+
+The seed is the run id modulo 10^9, or the `seed` input of a manual run. The job log
+(`Shuffle seed: ...`) and the run summary record it with the revision. To replay a failure exactly:
+
+```sh
+git checkout <revision> && npm ci
+npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=<seed>
+```
+
+Adding the failing file's path to that command keeps the order of the tests within the file but
+not the order of files, so if the file alone passes, replay the whole suite.
+A failure, timeout or cancel comments on the open `test-order` issue that the workflow opened, or opens one, with the
+seed, revision, run link and replay command. File each root cause as its own issue and link it
+there. Fix the test, never loosen or skip it, and close the issue once a run passes again.
+`scripts/hof-workflows.test.ts` checks the workflow's permissions and runs its seed and report steps,
+in the shell each declares, against a fake `gh`.
 
 ## Performance baseline
 

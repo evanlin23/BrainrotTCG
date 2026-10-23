@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link2, Loader2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
-import { levelForXp, profileStats, publicName } from '../../engine';
+import { levelForXp, profileStats, visitorName } from '../../engine';
 import { profileUrl, verifyProfileLive, type ProfileProgress } from '../../game/profiles';
 import ProfileSummary from './ProfileSummary';
 import Sheet from '../ui/Sheet';
@@ -98,7 +98,7 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
       {reopened.toLocaleString()}/{total.toLocaleString()}
     </span>
   );
-  const name = publicName(checked.profile.name);
+  const name = visitorName(checked.profile.name);
   return (
     <Sheet
       title={name}
@@ -125,18 +125,18 @@ const ProfileViewerPage = ({ proof, onClose }: ProfileViewerPageProps) => {
             <>
               <ShieldAlert aria-hidden="true" />
               <span>
-                {unfinished ? <>Check interrupted: only {counts} packs re-opened on this device</> : 'Check interrupted before it finished'}
+                {unfinished ? <>Check interrupted: only {counts} packs re-opened in your browser</> : 'Check interrupted before it finished'}
               </span>
             </>
           ) : done ? (
             <>
-              <ShieldCheck aria-hidden="true" /> Verified on this device: every pack re-opened
+              <ShieldCheck aria-hidden="true" /> This profile checks out: every pack re-opened in your browser
             </>
           ) : (
             <>
               <Loader2 aria-hidden="true" className="spin" />
               <span>
-                Checking: packs re-opened on this device {counts}
+                Checking: packs re-opened in your browser {counts}
               </span>
             </>
           )}

@@ -1,7 +1,9 @@
 /**
  * Display-name moderation. A name is signed into every proof, and proofs are permanent, so this
  * never decides what verifies: it decides whether a name is saved, published to the Hall of Fame, or
- * shown to other players. A blocked name shows as NAME_PLACEHOLDER beside the key fingerprint.
+ * shown to other players. On shared pages (pulls, profiles, the Hall of Fame) `visitorName` shows a
+ * blank or blocked name as SOMEONE_NAME beside the key fingerprint; `publicName` (ANONYMOUS_NAME,
+ * NAME_PLACEHOLDER) keeps its other uses, such as Hall of Fame issue titles.
  *
  * The check folds a name the ways people dodge filters (accents, full-width, small-caps and
  * look-alike letters, leetspeak, punctuation or spaces between letters, repeated letters, camelCase
@@ -28,6 +30,8 @@ import { normalizeName } from './identity';
 export const NAME_PLACEHOLDER = 'Player';
 /** What other players see for a blank name. */
 export const ANONYMOUS_NAME = 'Anonymous';
+/** What a visitor reading someone else's pull, profile or ranking row sees for a blank or blocked name. */
+export const SOMEONE_NAME = 'Someone';
 
 /** Words blocked anywhere inside a word. */
 const STRONG = [
@@ -207,4 +211,14 @@ export const publicName = (name: string): string => {
   const clean = normalizeName(name);
   if (!clean) return ANONYMOUS_NAME;
   return isNameAllowed(clean) ? clean : NAME_PLACEHOLDER;
+};
+
+/**
+ * The name a visitor sees for another player on shared pages (pulls, profiles, the Hall of Fame): the
+ * normalized name as publicName shows it, except that a blank or blocked one reads SOMEONE_NAME. A
+ * player who chose "Player" or "Anonymous" keeps it. Display only: proof verification never calls it.
+ */
+export const visitorName = (name: string): string => {
+  const clean = normalizeName(name);
+  return clean && isNameAllowed(clean) ? clean : SOMEONE_NAME;
 };

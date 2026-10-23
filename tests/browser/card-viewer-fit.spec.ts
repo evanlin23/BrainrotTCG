@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded } from './support';
+import { monitor, expectDecoded, expectSummaryTakesClicks } from './support';
 
 /**
  * The card viewer's card keeps its shape (#531): on short, landscape and large-text screens it scales
@@ -26,6 +26,7 @@ async function openViewer(page: Page, baseURL: string) {
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
   await expectDecoded(page.locator('.summary-cards img'), 5);
+  await expectSummaryTakesClicks(page);
   await page.locator('.summary-card').first().click();
   await expect(page.locator('.card-viewer .card-viewer-card')).toBeVisible();
   return errors;

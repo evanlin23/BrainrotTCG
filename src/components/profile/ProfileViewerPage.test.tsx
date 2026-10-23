@@ -70,10 +70,28 @@ describe('ProfileViewerPage', () => {
     expect(retry()).toBeUndefined();
   });
 
+  it('names an unnamed or blocked player Someone, beside the fingerprint', () => {
+    for (const name of ['', '  ', 'xXfuckXx']) {
+      const profile = { ...checked.profile, name };
+      verifyProfileLive.mockImplementationOnce((_text: string, onProgress: (p: ProfileProgress) => void) => {
+        onProgress({ checked: { ...checked, profile } as CheckedProfile, packs: [], highlights: null, done: false });
+        return checked;
+      });
+      act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
+      const sheet = document.querySelector('.profile-viewer')!;
+      expect(sheet.textContent).toContain('Someone');
+      expect(sheet.textContent).toContain('#abcd1234');
+      expect(document.body.textContent).not.toMatch(/Anonymous|Player/);
+      act(() => root.render(null));
+    }
+  });
+
   it('while checking, never says the packs were re-opened and keeps the level as claimed', () => {
     act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
     expect(status().textContent).toContain('Checking');
     expect(status().textContent).toContain('0/2');
+    expect(status().textContent).toContain('Checking: packs re-opened in your browser');
+    expect(status().textContent).not.toContain('this device');
     expect(status().textContent).toContain('Not verified yet');
     expect(status().textContent).not.toContain('Verified');
     expect(document.body.textContent).toContain('claimed');
@@ -99,7 +117,7 @@ describe('ProfileViewerPage', () => {
     // One text run in the flex line (icon + label), so it wraps as a sentence, not in columns.
     const line = status().querySelector('.profile-verify-line')!;
     expect(line.children).toHaveLength(2);
-    expect(line.children[1].textContent).toBe('Check interrupted: only 1/2 packs re-opened on this device');
+    expect(line.children[1].textContent).toBe('Check interrupted: only 1/2 packs re-opened in your browser');
     expect(text).toContain('the rest are unchecked');
     expect(text).toContain('from re-opened packs only');
     expect(text).not.toContain('claimed');
@@ -133,7 +151,8 @@ describe('ProfileViewerPage', () => {
   it('claims completed verification, with complete totals, only when every pack is in', () => {
     act(() => root.render(<ProfileViewerPage proof="proof" onClose={() => {}} />));
     act(() => reports[0]({ checked, packs: [pack(0), pack(1)], highlights: [pack(0)], done: true }));
-    expect(status().textContent).toContain('Verified on this device: every pack re-opened');
+    expect(status().textContent).toContain('This profile checks out: every pack re-opened in your browser');
+    expect(status().textContent).not.toContain('this device');
     expect(status().textContent).not.toMatch(/\d/);
     const text = document.body.textContent!;
     expect(text).toContain('actually hold');

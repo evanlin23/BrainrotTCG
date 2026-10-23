@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { monitor } from './support';
+import { monitor, expectSummaryTakesClicks } from './support';
 
 // A lazy page or sheet gets only the CSS its own chunk imports. These journeys open each one first on a
 // cold load, before any other screen could have pulled a shared stylesheet in, and check that the
@@ -62,6 +62,7 @@ test('the pack summary labels and its card viewer are styled on a cold load', as
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('.pack-summary .collection-label').first()).toHaveCSS('font-weight', '700');
   // The close-up is the first sheet this load opens, so only the main bundle's CSS is in place.
+  await expectSummaryTakesClicks(page);
   await page.locator('.summary-card').first().click();
   const card = page.locator('.card-viewer .card-viewer-card');
   await expect(card).toBeVisible();

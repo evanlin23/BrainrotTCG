@@ -126,7 +126,10 @@
 }
 
 /* The leaving pack is lifted out of the flow (AnimatePresence popLayout) and fades over the reveal for a
-   quarter second; it must not take a tap meant for the reveal's Skip or its first card. */
+   quarter second; it must not take a tap meant for the reveal's Skip or its first card. The attribute is
+   set on the leaving element by framer-motion's PopChild (popLayout) in the version the lockfile pins; if
+   a framer upgrade (#673) stops setting it, this rule goes quiet and the "pack leaving" frame-sampling
+   test in summary-actions.spec.ts fails. */
 .pack-display[data-motion-pop-id] {
     pointer-events: none;
 }

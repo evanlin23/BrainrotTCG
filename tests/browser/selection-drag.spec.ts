@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectRecordedPack, expectStill, fingerFor, type Finger } from './support';
+import { monitor, expectDecoded, expectRecordedPack, expectStill, expectSummaryTakesClicks, fingerFor, type Finger } from './support';
 
 // Rapid presses on game controls must not highlight text or start a native image drag, while
 // inputs, copyable text and links keep their normal behaviour (#264).
@@ -155,7 +155,8 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   await expect(page.locator('.summary-card')).toHaveCount(5);
   await expectRecordedPack(page);
   // Short enough to end on the same compact card (#339), so the press is also a click, which opens the
-  // card viewer over the summary.
+  // card viewer over the summary (once the summary's settling window has passed, #627).
+  await expectSummaryTakesClicks(page);
   await tryDrag(page, page.locator('.summary-cards img').first(), 12, 12);
   expect(await dragStarts()).toBe(0);
   await expect(page.getByRole('dialog')).toBeVisible();
