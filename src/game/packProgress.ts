@@ -20,15 +20,15 @@ export interface PackRecorded {
   unlocks: string[];
 }
 
+/** Whether a pack scoring `score` beats the best pack these stats hold. */
+export const beatsBestPack = (score: number, stats: Stats): boolean =>
+  score > (stats.highestPackFlexValue || stats.highestPackValue || 0);
+
 /**
  * A pack being recorded, as an event: the progress after it and the achievements it unlocks. Pure, so
  * App only applies the result. A pack put back on the shelf (`counted`) counted when it opened (stats,
  * pack milestones): it only adds its cards.
  */
-/** Whether a pack scoring `score` beats the best pack these stats hold. */
-export const beatsBestPack = (score: number, stats: Stats): boolean =>
-  score > (stats.highestPackFlexValue || stats.highestPackValue || 0);
-
 export const recordPack = (
   from: PackProgress,
   pack: Pick<OpenedPack, 'cards' | 'counted' | 'setId' | 'setVersion' | 'nonce' | 'publicKeyHex'>,
