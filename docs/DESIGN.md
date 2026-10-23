@@ -100,7 +100,11 @@ results line (`PackSummaryUI.tsx`) that goes.
    swipe ends in is swallowed; keys are scoped to the focused pack, never the page). No separate
    Open pack button. Focus is a visible ring on the wrapper; while the ticket works it reads
    "Opening..." and further input is ignored. A finger and a partial tear play along the seam, at
-   most twice (counted per device, never part of a save), and stop at the first touch. A press that
+   most twice (counted per device, never part of a save), and stop at the first touch. After that, and
+   for every player, a sealed pack left untouched keeps one quiet cue that never retires: its top
+   strip lifts a few px along the seam every few seconds and settles back. It stops at a press and
+   after the cut, and returns once a short swipe's hint has gone. Only the picture moves; the tear
+   line and the pack's box stay put. Reduced motion holds the strip slightly lifted instead. A press that
    wanders more than a tap's slop (10px) is a drag and never opens the pack, even back where it began.
    The focus ring is drawn inside the pack's edge so the stage never clips it. Reduced motion shows the arrowheads and a caption
    ("Swipe across to open"; desktop "Drag across, or click") with no motion. Swiping the pack body

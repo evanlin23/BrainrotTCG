@@ -50,11 +50,37 @@ describe('the opening cue', () => {
   });
 });
 
+describe('the idle cue', () => {
+  it('lifts the top strip on a sealed pack that sits untouched, with nothing else going on', () => {
+    expect(shellClasses(render([]))).toEqual(['pack-shell', 'is-idle']);
+  });
+
+  it('waits for the new player\'s finger, and is there once it has retired or was never due', () => {
+    expect(shellClasses(render([], { cue: 'play' }))).toEqual(['pack-shell']);
+    expect(shellClasses(render([], { cue: 'still' }))).toEqual(['pack-shell']);
+    expect(shellClasses(render([], { cue: null }))).toEqual(['pack-shell', 'is-idle']);
+  });
+
+  it('is down while the pack is pressed, being cut, torn, refused or showing a hint, and gone for good after the cut', () => {
+    expect(shellClasses(render([], { pressing: true }))).not.toContain('is-idle');
+    expect(shellClasses(render([20, 30]))).not.toContain('is-idle');
+    expect(shellClasses(render([], { isPackCut: true }))).not.toContain('is-idle');
+    expect(shellClasses(render([], { isPackCut: true, waiting: true }))).not.toContain('is-idle');
+    expect(shellClasses(render([], { nudging: true }))).not.toContain('is-idle');
+    expect(shellClasses(render([], { refusal: 'failed' }))).not.toContain('is-idle');
+  });
+
+  it('comes back after a short swipe, once the hint has gone', () => {
+    expect(shellClasses(render([], { fellShort: true }))).toEqual(['pack-shell', 'is-short']);
+    expect(shellClasses(render([], { fellShort: false }))).toEqual(['pack-shell', 'is-idle']);
+  });
+});
+
 describe('the tear line under a press', () => {
   it('lights up for a press on it before the swipe has a direction, in place of a nudge', () => {
     expect(shellClasses(render([], { pressing: true, nudging: true }))).toEqual(['pack-shell', 'is-pressed']);
     expect(shellClasses(render([], { nudging: true }))).toEqual(['pack-shell', 'is-nudged']);
-    expect(shellClasses(render([]))).toEqual(['pack-shell']);
+    expect(shellClasses(render([]))).toEqual(['pack-shell', 'is-idle']);
   });
 
   it('springs back and says to go farther after a swipe let go short, until the next press (#803)', () => {

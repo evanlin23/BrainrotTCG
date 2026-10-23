@@ -103,6 +103,10 @@ const PackCuttingUI = ({
     if (start && Math.max(start.farthest, Math.hypot(event.clientX - start.x, event.clientY - start.y)) > TAP_SLOP_PX) return;
     onOpen();
   };
+  // Sealed and untouched (DESIGN.md Flow 2): the top strip lifts every few seconds and settles back, for as
+  // long as the pack waits. The new player's finger plays first (cue), and a press, a tear, a short swipe or a
+  // missed press each put the strip down until the pack is idle again.
+  const idle = !cue && !isPackCut && !isCutting && !pressing && !nudging && !fellShort && !refusal && !leaving;
   const onCueAnimationEnd = (event: AnimationEvent) => {
     if (event.target === event.currentTarget) onCueEnd?.();
   };
@@ -122,7 +126,7 @@ const PackCuttingUI = ({
           data-open-cue={cue && !isPackCut ? cue : undefined}
           onPointerDown={onPressStart}
           onClick={onPackClick}
-          className={`pack-shell quiet-focus ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${fellShort && !isPackCut && !isCutting && !pressing ? 'is-short' : ''}`}
+          className={`pack-shell quiet-focus ${isCutting ? 'is-cutting' : ''} ${pressing && !isCutting ? 'is-pressed' : ''} ${isPackCut ? 'is-cut' : ''} ${nudging && !isCutting && !pressing ? 'is-nudged' : ''} ${fellShort && !isPackCut && !isCutting && !pressing ? 'is-short' : ''} ${idle ? 'is-idle' : ''}`}
           style={{ '--pack-mask': `url("${packDesign}")` } as React.CSSProperties}
         >
           {/* Each half carries its foil with it when the wrapper tears. */}

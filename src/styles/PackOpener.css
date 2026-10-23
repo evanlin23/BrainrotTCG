@@ -793,6 +793,120 @@
     }
 }
 
+/*
+ * The idle cue (DESIGN.md Flow 2): while a sealed pack sits untouched, its top strip lifts a few px and
+ * settles back, every few seconds, for as long as the pack waits (the finger cue above retires; this
+ * one never does). .is-idle is on only when nothing else is going on (PackCuttingUI), so a press, a tear,
+ * a short swipe or a missed press each put the strip down and it starts again when the pack is idle.
+ * Only the picture moves: the tear line, the hit area and the gesture geometry stay where they are.
+ * The strip shows over the bottom half only while it is lifted (the bottom half is clipped to the seam for
+ * that stretch), so the pack at rest is the one picture. The lift is a share of the pack's height, so it
+ * scales with the pack, and it stays inside the clear space above the crimp. Reduced motion holds the
+ * strip a hair open instead: a seam along the tear line.
+ */
+.pack-shell {
+    --idle-lift: 0.9%;
+    --idle-seat: calc(var(--tear-y) + 0.45%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .pack-shell.is-idle .pack-half-top {
+        animation: pack-idle-strip var(--dur-idle) ease-in-out infinite;
+    }
+
+    .pack-shell.is-idle .pack-top-piece {
+        animation: pack-idle-piece var(--dur-idle) ease-in-out infinite;
+    }
+
+    .pack-shell.is-idle .pack-half-bottom {
+        animation: pack-idle-seat var(--dur-idle) steps(1, end) infinite;
+    }
+}
+
+@keyframes pack-idle-strip {
+    0%,
+    55% {
+        opacity: 0;
+        transform: none;
+    }
+
+    55.1% {
+        opacity: 1;
+        transform: none;
+    }
+
+    63% {
+        opacity: 1;
+        transform: translateY(calc(var(--idle-lift) * -1));
+    }
+
+    72% {
+        opacity: 1;
+        transform: translateY(calc(var(--idle-lift) * -1));
+    }
+
+    84% {
+        opacity: 1;
+        transform: none;
+    }
+
+    84.1%,
+    100% {
+        opacity: 0;
+        transform: none;
+    }
+}
+
+@keyframes pack-idle-piece {
+    0%,
+    55% {
+        transform: none;
+    }
+
+    63%,
+    72% {
+        transform: translateY(calc(var(--idle-lift) * -1));
+    }
+
+    84%,
+    100% {
+        transform: none;
+    }
+}
+
+/* The bottom half gives up the strip's rows for the stretch the strip is showing. */
+@keyframes pack-idle-seat {
+    0%,
+    55% {
+        clip-path: inset(0 0 0 0);
+    }
+
+    55.1%,
+    84% {
+        clip-path: inset(var(--idle-seat) 0 0 0);
+    }
+
+    84.1%,
+    100% {
+        clip-path: inset(0 0 0 0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pack-shell.is-idle .pack-half-top {
+        opacity: 1;
+        transform: translateY(-0.4%);
+    }
+
+    .pack-shell.is-idle .pack-top-piece {
+        transform: translateY(-0.4%);
+    }
+
+    .pack-shell.is-idle .pack-half-bottom {
+        clip-path: inset(var(--idle-seat) 0 0 0);
+    }
+}
+
 .pack-shell.is-cutting .swipe-hint {
     opacity: 0;
     transition: opacity var(--dur-slow) ease;
