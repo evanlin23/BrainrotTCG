@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded, fingerFor, snapshot } from './support';
+import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot } from './support';
 
 /**
  * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
@@ -37,6 +37,7 @@ async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewpo
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
   await expectDecoded(page.locator('.summary-cards img'), 5);
   await expect(page.locator('.summary-title')).toBeFocused();
+  await expectSummaryTakesClicks(page);
   await settled(page);
   return { errors, packShell };
 }
@@ -397,6 +398,7 @@ test('the Hall of Fame line never moves the cards below it', async ({ page, base
   const submit = line.getByRole('button', { name: 'Submit to the Hall of Fame' });
   await expect(submit).toBeVisible();
   tops.offered = await cardsTop();
+  await expectSummaryTakesClicks(page);
   await submit.click();
   await expect(line).toContainText("Couldn't submit");
   tops.failed = await cardsTop();

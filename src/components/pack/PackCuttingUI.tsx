@@ -5,6 +5,7 @@ import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
 import { SPARK_LIFETIME_MS, type Spark } from '../../hooks/useSparks';
 import type { SetDefinition } from '../../engine';
+import { packArtSettled } from '../../game/packArt';
 import { seamBands } from './seamTrail';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 
@@ -72,7 +73,7 @@ const PackCuttingUI = ({
         >
           {/* Each half carries its foil with it when the wrapper tears. */}
           <div className="pack-half pack-half-bottom">
-            <img src={packDesign} alt="Brainrot TCG booster pack wrapper" draggable="false" />
+            <img src={packDesign} alt="Brainrot TCG booster pack wrapper" draggable="false" onLoad={packArtSettled} onError={packArtSettled} />
           </div>
           <div className="pack-half pack-half-top" aria-hidden="true">
             <img src={packDesign} alt="" draggable="false" />
