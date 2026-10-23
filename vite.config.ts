@@ -84,6 +84,17 @@ export default defineConfig({
       'dist/**',
       '.claude/worktrees/**',
     ],
+    // Every git call a test makes inherits these (command-scope config, which GIT_CONFIG_GLOBAL and
+    // GIT_CONFIG_NOSYSTEM leave alone). They stop `git commit` from leaving a detached
+    // `git maintenance run --auto --detach` behind (CI's git 2.55 does), which can still be writing
+    // in a scratch repo's .git while the test's rmSync deletes it, failing with ENOTEMPTY.
+    env: {
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'maintenance.auto',
+      GIT_CONFIG_VALUE_0: 'false',
+      GIT_CONFIG_KEY_1: 'gc.auto',
+      GIT_CONFIG_VALUE_1: '0',
+    },
     // `npm test` turns coverage on for app code only, and the budget reporter (added by testBudget(),
     // after any --reporter flag) checks the run's wall time. Both budgets sit below the measured
     // baseline: docs/DEVELOPMENT.md, Test budgets.
