@@ -447,6 +447,14 @@ describe('the settled signal', () => {
     expect(getBestCards(KEY, 1).cards.some((c) => !c.card)).toBe(true); // still unscored, yet settled
   });
 
+  it('is true when a rebuild reports no failure yet leaves a rebuildable winner unscored', async () => {
+    unscored();
+    rebuild.mockImplementationOnce(async () => ({ cards: getBestCards(KEY, 1).cards, complete: false, unsaved: false, failed: 0 }));
+    await renderWith(true);
+    expect(getBestCards(KEY, 1).cards.some((c) => !c.card)).toBe(true);
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+  });
+
   it('is true when the rebuild rejects', async () => {
     unscored();
     rebuild.mockRejectedValueOnce(new Error('Argon2 unavailable'));

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { settle } from './axe-scan';
-import { monitor } from './support';
+import { holdTickets, monitor } from './support';
 
 /**
  * The Motion setting in Settings (#765): Auto follows the device's reduced-motion setting, live, and
@@ -80,6 +80,11 @@ test('Auto follows the device live, and Reduced holds without the device asking'
 
 test('Reduced is kept on reload and is applied before the app first renders', async ({ page, baseURL }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The pack screen under Settings mines the next pack's ticket and then preloads its cards' art with detached
+  // `new Image()`s, which settle() and document.images can't see. When mining ends within a few ms of the reload
+  // those requests start in the old document and the reload cancels them, so the monitor reports ERR_ABORTED.
+  // Holding the ticket worker means that preload never starts, whatever the timing; this spec doesn't mine.
+  await holdTickets(page);
   // Mutation records arrive in the order they happened, so each attribute write can be placed
   // before or after the first thing React draws into #root.
   await page.addInitScript(() => {
@@ -101,7 +106,7 @@ test('Reduced is kept on reload and is applied before the app first renders', as
   await expect.poll(() => stored(page)).toMatchObject({ motion: 'reduced' });
 
   // Reloading cancels card art still downloading, which the monitor reports. The pack screen stays mounted
-  // under Settings, so wait on what the page reports: every image that is loading has loaded or failed.
+  // under Settings, so wait on what the page reports: every image in the page that is loading has loaded or failed.
   await settle(page);
   // settle() leaves lazy images alone, since an unstarted one never loads; one in view has started, so wait for it.
   await page.evaluate(() => Promise.all(Array.from(document.images)

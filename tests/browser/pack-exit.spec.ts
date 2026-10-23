@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { monitor, snapshot } from './support';
+import { monitor, snapshot, untilIdle } from './support';
 
 test('browser Back mid-reveal returns to the packs screen, keeps the pack and stays on the site', async ({ page, baseURL }) => {
   test.setTimeout(60000);
@@ -32,7 +32,7 @@ test('browser Back mid-reveal returns to the packs screen, keeps the pack and st
 
   // Forward onto the old entry reopens nothing.
   await page.goForward();
-  await page.waitForTimeout(500);
+  await untilIdle(page);
   await expect(packShell).toBeVisible();
   await expect(page.locator('.card-reveal-area')).toHaveCount(0);
   expect((await snapshot(page)).stats.packsOpened).toBe(2);
@@ -74,7 +74,7 @@ test('browser Back from the summary lands on a fully drawn packs screen, keeps t
 
   // Forward onto the old entry reopens nothing; Back again lands on the same screen. Nothing is counted twice.
   await page.goForward();
-  await page.waitForTimeout(500);
+  await untilIdle(page);
   await drawn();
   await page.goBack();
   await drawn();

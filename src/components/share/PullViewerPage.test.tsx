@@ -9,7 +9,10 @@ import PullViewerPage from './PullViewerPage';
 
 // The pull is a stand-in: this checks only how the player's name is shown.
 vi.mock('../../game/pulls', () => ({
-  UnknownCardError: class UnknownCardError extends Error {},
+  // As the real class: it adds the "Unknown card" prefix itself.
+  UnknownCardError: class UnknownCardError extends Error {
+    constructor(cardId: string) { super(`Unknown card ${cardId}`); }
+  },
   checkPull: vi.fn(),
   previewFor: vi.fn(),
   pullUrl: vi.fn((proof: string, preview?: string) => preview ? `https://example.invalid/#/pull/${proof}?p=${preview}` : `https://example.invalid/#/pull/${proof}`),
@@ -354,7 +357,7 @@ describe('PullViewerPage', () => {
   });
 
   it('shows a card the app does not have as not valid, with no retry, since it fails the same way everywhere', async () => {
-    vi.mocked(checkPull).mockReset().mockRejectedValueOnce(new UnknownCardError('Unknown card og/missing'));
+    vi.mocked(checkPull).mockReset().mockRejectedValueOnce(new UnknownCardError('og/missing'));
     await act(async () => root.render(<PullViewerPage proof="proof" onClose={() => {}} />));
     const text = document.body.textContent ?? '';
     expect(text).toContain('Not a valid pull');

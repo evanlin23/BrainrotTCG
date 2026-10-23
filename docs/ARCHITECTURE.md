@@ -355,8 +355,9 @@ the `rejected` label to its issue. What a submission makes public, and for whom,
 
 ### Ranking boards (`src/engine/rankings.ts`)
 
-The deploy publishes Best packs boards (#223, "Published rankings" below), but nothing shows them
-yet: the Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with these fields:
+The deploy publishes Best packs boards (#223, "Published rankings" below). The Rankings page's Today
+and All-time lists still read `topPulls`; from the published files it shows only when they were last
+updated and the past days' tops. Every board is a `RankingSnapshot` with these fields:
 
 - the schema version, scope and capacity;
 - the `SCORING_ERA` its scores came from;
@@ -375,7 +376,7 @@ order; the shared-pull page keeps engine order.
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
-| Best packs (#223) | pulls by Brainrot Score | pull id | 100 (10 published) | `rankings.json`; planned: Rankings page |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 (10 published) | `rankings.json` and daily archives; Rankings page: past days only |
 | Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | planned: Rankings page |
 | Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
@@ -471,6 +472,37 @@ matters. A Cloudflare rollback serves its older archives only until the next dep
 revert the GitHub Pages redirect's copy, which the build reads, so that build carries the current
 archives forward, not the rolled-back ones. GitHub Pages has no rollback in this workflow
 (docs/HOSTING.md).
+
+How long archives and evidence are kept, and how a later change replays them:
+
+- **Archives.** A month's archive is kept for as long as each deploy carries it forward: no code drops
+  a month or a day by age. A day leaves only when removals empty it, and a month leaves the list only
+  when none of its days is left. Each day holds its top 10 and nothing else: the runners-up were never
+  kept.
+- **Evidence.** The archive holds no proofs. Each entry names its GitHub issue, whose body holds the
+  pull link; it is checkable for as long as that issue stays up.
+- **Moderation and name policy.** Every deploy that can list the issues applies `keep` to every
+  archived day of every month: an entry leaves if its issue now has the `rejected` label or its display
+  name fails the current `isNameAllowed`. So a new label, or a stricter name rule, reaches closed days at
+  the next such deploy. While GitHub is down the deployed files are kept as they are, so removals wait
+  for a deploy that can list the issues. A removal can't be undone on a closed day: its place isn't
+  refilled, and lifting a label or relaxing the rule doesn't bring the entry back.
+- **Scoring, order and board size.** Closed days are copied, never re-ranked or re-scored, so a change
+  to scoring, the ranking order or `RANKINGS_BOARD_SIZE` reaches only days still open; older days keep
+  the ranking they closed with. The strict check (`parseDailyArchive`) uses the board size and the
+  ranking order as they are now, so a cut to the size, or an order that sorts a closed day's stored
+  entries differently, makes that day fail the check, and the build with it.
+
+The Rankings page (`src/game/publishedRankings.ts`, `PastDaysSheet`) reads the same files, with the
+same strict checks the build uses (`parseRankingsFile`, then `parseDailyArchive` for a month it opens):
+
+- "Lists last updated" is `rankings.json`'s own `generatedAt`, shown in UTC, never the device's clock.
+  The Today and All-time lists come from `hall-of-fame.json`, which the same build writes.
+- Past days shows only days closed when the build ran (before the day before its UTC day), from the
+  months `rankings.json` lists. Each row opens its issue, where the proof is.
+- A missing, unreachable or malformed file, or the app's page served in its place, reads as no
+  archive: the page shows no update time, and Past days says it isn't available right now. A failed
+  file is fetched again the next time it's needed.
 
 ## Sharing and link previews
 
@@ -835,9 +867,10 @@ only after its last holder lets go, so no mounted `<img>` loses its source.
 Every small card view (collection tiles, the pull dialog and pack summary slots, Rankings and pull-row
 thumbnails) loads pre-rendered 344px WebP finishes directly, with no canvas recolouring or PNG
 encoding on first load, so a finished card waits on one small request like a plain one (#762). Only
-the full-size viewer, the reveal and exports render finishes from full art. They use the same recolouring function before
-resizing. `npm run cards` rebuilds these thumbnails and the small lossless mask
-(`src/assets/images/card-frame-mask.webp`); `npm run cards:finish-thumbs` refreshes just the thumbnails.
+the full-size viewer, the reveal and exports render finishes from full art. Those renders and the
+thumbnails use the same recolouring function; the thumbnails run it before resizing. `npm run cards`
+rebuilds these thumbnails and the small lossless mask (`src/assets/images/card-frame-mask.webp`);
+`npm run cards:finish-thumbs` refreshes just the thumbnails.
 Input hashes include the source image, mask, recolouring code and output settings, so changed cards
 or finishes regenerate their thumbnails while unchanged assets are skipped.
 

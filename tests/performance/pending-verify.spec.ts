@@ -11,7 +11,21 @@ import { PROFILE, REPETITIONS } from './report';
  * verifies adds a row. Nothing leaves the browser.
  */
 const PENDING_FIXTURE = process.env.PENDING_FIXTURE || 'test-results/pending-verify-fixture.json';
-const { set, events, keys } = JSON.parse(readFileSync(PENDING_FIXTURE, 'utf8')) as { set: { id: string; name: string }; events: unknown[]; keys: string[] };
+const WEEK_SECONDS = 7 * 24 * 60 * 60;
+const readFixture = () => {
+  let text: string;
+  try {
+    text = readFileSync(PENDING_FIXTURE, 'utf8');
+  } catch (error) {
+    throw new Error(`No pending-verify fixture at ${PENDING_FIXTURE}: \`npm run test:performance:pending-verify\` writes it first, or run scripts/pending-verify-fixture.ts (${String(error)})`, { cause: error });
+  }
+  const fixture = JSON.parse(text) as { set: { id: string; name: string }; events: { created_at: number }[]; keys: string[] };
+  // The page asks relays only for the last week, so older pulls would never be listed and the wait below would time out.
+  const oldest = Math.min(...fixture.events.map((e) => e.created_at));
+  if (oldest < Date.now() / 1000 - WEEK_SECONDS) throw new Error(`The pending-verify fixture at ${PENDING_FIXTURE} is older than a week: the page ignores its pulls. Write it again with scripts/pending-verify-fixture.ts`);
+  return fixture;
+};
+const { set, events, keys } = readFixture();
 const PUBLISHED = 3;
 type PendingTicket = { t: number; kind: 'start' | 'done'; worker: number; key: string };
 type Rows = { t: number; count: number };
@@ -94,7 +108,7 @@ for (let repetition = 1; repetition <= REPETITIONS; repetition++) {
       await page.goto('./');
       await page.getByRole('navigation', { name: 'Main', exact: true }).getByRole('button', { name: 'Rankings', exact: true }).click();
       // Every pending pull has been mined once as many pending tickets are done, and shown once every row is.
-      await page.waitForFunction((keys) => window.pendingVerify.tickets.filter((e) => e.kind === 'done' && keys.includes(e.key.split('/')[0])).length >= keys.length, keys, { timeout: 120_000 });
+      await page.waitForFunction((keys) => window.pendingVerify.tickets.filter((e) => e.kind === 'done' && keys.includes(e.key.split('/')[0])).length >= keys.length, keys, { timeout: 45_000 });
       await page.waitForFunction((n) => (window.pendingVerify.rows.at(-1)?.count ?? 0) >= n, PUBLISHED + events.length, { timeout: 10_000, polling: 'raf' });
       const { clickedAt, ticketEvents, rows, frames, longTasks } = await page.evaluate(() => { const s = window.pendingVerify; return { clickedAt: s.clickedAt!, ticketEvents: s.tickets, rows: s.rows, frames: s.frameTimes, longTasks: s.longTasks }; });
       const starts = ticketEvents.filter((e) => isPending(e) && e.kind === 'start');

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { expectDecoded, expectPackDropped, fingerFor, monitor, snapshot } from './support';
+import { expectDecoded, expectPackDropped, fingerFor, monitor, snapshot, untilIdle } from './support';
 
 // Cards, Rankings, Profile and Settings are hash-routed pages over the packs screen (#312). Each one
 // is reached by its address, by its tab and by Back, at a phone and a desktop size; packs and shared
@@ -107,7 +107,7 @@ test('tabs and the gear open each page in turn, and Back walks them back to Open
   await expectPackDropped(page);
   const openTitle = await page.title();
   // No page chunk at startup: each loads when its tab is pointed at or pressed.
-  await page.waitForTimeout(300);
+  await untilIdle(page);
   expect(chunks).toEqual([]);
   expect(await noSideScroll(page)).toEqual([]);
 

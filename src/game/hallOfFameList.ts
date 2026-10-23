@@ -54,7 +54,7 @@ let loadedAt = 0;
 let lastLoaded: HallOfFameEntry[] | null = null;
 
 /** A load that hasn't finished by then counts as failed, so the page can offer Retry again. */
-const LOAD_TIMEOUT_MS = 15_000;
+export const LOAD_TIMEOUT_MS = 15_000;
 
 /**
  * How long a loaded list is reused. After that the next caller fetches it again, so a tab left open
