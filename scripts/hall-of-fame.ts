@@ -504,8 +504,9 @@ export const INBOX_MAX_FILED = 20;
 export const INBOX_PAGE_SIZE = 100;
 /**
  * Requests per relay for older events, so a burst of junk can't push real submissions out of reach.
- * Each run reads this many pages from the newest down, and as many again from the newest range it
- * hasn't read through (READ_PATH), so a backlog bigger than the cap is read over several runs.
+ * Each run reads this many pages from the newest down, and as many again from one range it hasn't
+ * read through (READ_PATH): the newest in even UTC hours, the oldest in odd ones. A read that fails
+ * keeps the pages it finished, so a backlog bigger than the cap is read over several runs.
  */
 export const INBOX_PAGES = 50;
 /** Event ids remembered between runs; the newest are kept. */

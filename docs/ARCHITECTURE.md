@@ -182,8 +182,9 @@ else, and files the ones that qualify as issues in the same verified state the G
 Each run re-derives at most 300 pulls and files at most 20. It remembers handled event IDs in an
 Actions cache (latest 20,000) and skips already verified pulls. Fetching requests up to 50 pages of
 100 events per relay within a 60-second connection deadline, over a seven-day window, then as many
-again from the newest older range that relay hasn't been read through; the ranges read and handled
-are kept per relay in a second Actions cache, so a backlog past the page cap is read over later runs.
+again from one older range that relay hasn't been read through (the newest in even UTC hours, the
+oldest in odd ones); the ranges read and handled, including the pages a failed read finished, are
+kept per relay in a second Actions cache, so a backlog past the page cap is read over later runs.
 These are client request limits, not guarantees that relays return or retain every event or obey the limits.
 Only valid event signatures are retained, and the exact proof text in the link is accepted. A filing
 that stops after opening an issue can reuse that issue on retry. Deferred submissions are eligible

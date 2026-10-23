@@ -776,17 +776,26 @@ describe('inbox (scheduled workflow)', () => {
       expect(JSON.parse(readFileSync('hof-inbox-read.json', 'utf8'))).toEqual({ 'wss://a': before['wss://a'], 'wss://b': [[since, since + 7 * 86_400]] });
     });
 
-    it('in odd hours reads the oldest range not read through, so an older one is not left behind', async () => {
-      fakeGitHub({ issues: [], published: [] });
+    describe('with a gap above a stretch read through and one below it', () => {
       const events = junk(9);
-      cappedRelay(events, 3);
-      // Read through: the newest three and a middle stretch, with a gap above it and one below.
-      writeFileSync('hof-inbox-read.json', JSON.stringify({ 'wss://a': [[at(events[1]), at(events[3])], [at(events[6]), since + 7 * 86_400]] }));
-      clockAt('2026-10-16T13:00:00Z');
-      await inbox();
-      // The window moved up an hour. The head read stops at the cap; of the two gaps left, the oldest
-      // is read, not the newest one an even hour would take.
-      expect(filters()).toEqual([{ since: since + 3600, until: undefined }, { since: since + 3600, until: at(events[1]) - 1 }]);
+      beforeEach(() => {
+        fakeGitHub({ issues: [], published: [] });
+        cappedRelay(events, 3);
+        writeFileSync('hof-inbox-read.json', JSON.stringify({ 'wss://a': [[at(events[1]), at(events[3])], [at(events[6]), since + 7 * 86_400]] }));
+      });
+
+      it('in even hours reads the newest', async () => {
+        await inbox();
+        // The head read stops at the cap, at the newest three.
+        expect(filters()).toEqual([{ since, until: undefined }, { since: at(events[3]) + 1, until: at(events[6]) - 1 }]);
+      });
+
+      it('in odd hours reads the oldest, so an older one is not left behind', async () => {
+        clockAt('2026-10-16T13:00:00Z');
+        await inbox();
+        // The window moved up an hour.
+        expect(filters()).toEqual([{ since: since + 3600, until: undefined }, { since: since + 3600, until: at(events[1]) - 1 }]);
+      });
     });
 
     it('files a qualifying pull from past the cap, and reads it again after a run that had to leave it', async () => {
