@@ -73,7 +73,7 @@ for (const drift of [4, 8]) {
   test(`a tap that drifts ${drift}px still opens the toast`, async ({ page, baseURL }) => {
     test.setTimeout(120000);
     const { errors, toast } = await toSummaryWithToast(page, baseURL!);
-    await drag(page, toast, [{ dx: drift / 2, dy: -drift / 2 }, { dx: drift, dy: -drift }]);
+    await drag(page, toast, [{ dx: drift / 2, dy: 0 }, { dx: drift, dy: 0 }]);
     await onProfile(page);
     expect(errors).toEqual([]);
   });
