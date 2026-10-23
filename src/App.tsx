@@ -27,7 +27,8 @@ import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecovery
 import { setMotionSetting } from './utils/motion';
 import { readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression';
-import { historyAchievementsReady, myStats, watchMyPacks } from './game/profiles';
+import { myStats } from './game/profiles';
+import { historyAchievementsReady, watchMyPacks } from './game/packCache';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { playerUnreadable, sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';

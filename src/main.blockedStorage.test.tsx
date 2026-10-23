@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 // main.tsx with the real runMigrations: only the steps that need more than storage are left out.
 vi.mock('./game/move', () => ({ receiveSave: () => Promise.resolve(false) }));
 vi.mock('./game/history', () => ({ migratePullLog: vi.fn() }));
-vi.mock('./game/profiles', () => ({ resumeReopening: vi.fn() }));
+vi.mock('./game/reopenJob', () => ({ resumeReopening: vi.fn() }));
 vi.mock('./game/warmUp', () => ({ warmUpFirstPack: vi.fn() }));
 vi.mock('./App', () => ({ default: () => <p data-testid="app">The game</p> }));
 
