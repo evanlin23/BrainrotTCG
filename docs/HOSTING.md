@@ -63,8 +63,8 @@ What keeps working:
   moved (`brainrot-moved-v1`) once the new address reports that it stored the save or already had
   that player's save; after that, old links go straight to the new address without offering the
   move. Sending the save to Save & backup marks nothing, since that window is closed before the new
-  address stores it, so old links still offer the move afterwards. **Go without it** marks nothing, so the
-  next old link offers it again.
+  address stores it, so old links still offer the move afterwards. **Go without it** marks nothing,
+  so the next old link offers it again.
 - **The Hall of Fame.** The old address keeps serving `hall-of-fame.json` for the scripts, and the
   issue links it files redirect like any other link.
 

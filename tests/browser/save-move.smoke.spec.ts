@@ -194,10 +194,13 @@ test.describe('bringing a save from the old address', () => {
       const popupOpened = page.waitForEvent('popup');
       await row.getByRole('button', { name: 'Bring it', exact: true }).click();
       const popup = await popupOpened;
+      // The page closes the window before it shows the note, but Playwright hears of the close on its
+      // own channel, so it may come after the note: wait for the event rather than read isClosed().
+      const closed = popup.isClosed() ? Promise.resolve() : new Promise<void>((resolve) => popup.once('close', () => resolve()));
       expect(popup.url()).toBe(`${OLD_URL}#/send`);
       // The note comes after the old address's window answered and was closed.
       await expect(row.locator('.settings-desc')).toHaveText(failure === 'full' ? FULL_NOTE : "Couldn't bring that save over, so nothing changed.", { timeout: 20000 });
-      expect(popup.isClosed()).toBe(true);
+      await closed;
 
       expect(await seed.evaluate(() => [localStorage.getItem('brainrot-player-v1'), localStorage.getItem('brainrot-moved-v1')])).toEqual([sent, null]);
       // An old link still offers the save rather than going straight through.
