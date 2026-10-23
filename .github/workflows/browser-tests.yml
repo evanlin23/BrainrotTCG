@@ -131,21 +131,57 @@ jobs:
           path: test-results/
           retention-days: 7
 
-  # The check that branch protection and reviews look for. It passes only when every shard passed,
-  # the burn-in plan ran, and the burn-in either passed or was skipped because the plan found no spec.
+  # Reviewed screenshots of the core screens (#745). Pixels depend on the browser build and the
+  # font rasteriser, so this runs in the pinned Playwright image (tag matching the lockfile's
+  # @playwright/test, pinned by digest), the same one docs/DEVELOPMENT.md runs locally to update a
+  # baseline. CI never writes a baseline: a mismatch fails and uploads the expected, actual and diff
+  # images, and a reviewer looks at the new image on the PR before it lands.
+  visual-baselines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: npm ci
+      - id: previews
+        run: |
+          contract=$(npx tsx scripts/preview-pages.ts --cache-contract)
+          echo "contract=$contract" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/previews
+          key: previews-${{ steps.previews.outputs.contract }}-${{ hashFiles('scripts/preview-pages.ts', 'src/game/previewLinks.ts', 'src/engine/**', 'src/content/sets/index.ts', 'src/content/sets/*/*.json', 'src/content/sets/*/cards/*', 'src/assets/images/card_back.webp', 'package-lock.json') }}
+          restore-keys: previews-${{ steps.previews.outputs.contract }}-
+      # Never writes a baseline, even a missing one: a new screen fails until its reviewed image lands.
+      - run: npm run test:visual -- --update-snapshots=none
+      # Only the images: the expected, actual and diff PNG of each mismatched screen, a few MB at most.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: visual-baselines-diff
+          path: test-results/visual/**/*.png
+          retention-days: 7
+
+  # The check that branch protection and reviews look for. It passes only when every shard and the
+  # visual baselines passed, the burn-in plan ran, and the burn-in either passed or was skipped
+  # because the plan found no spec.
   browser-tests:
-    needs: [browser-shard, browser-burn-in-plan, browser-burn-in]
+    needs: [browser-shard, visual-baselines, browser-burn-in-plan, browser-burn-in]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Require every shard and the burn-in to pass
         env:
           RESULT: ${{ needs.browser-shard.result }}
+          VISUAL: ${{ needs.visual-baselines.result }}
           PLAN: ${{ needs.browser-burn-in-plan.result }}
           SPECS: ${{ needs.browser-burn-in-plan.outputs.specs }}
           BURN_IN: ${{ needs.browser-burn-in.result }}
         run: |
-          echo "Shards: $RESULT. Burn-in plan: $PLAN. Burn-in: $BURN_IN"
+          echo "Shards: $RESULT. Visual baselines: $VISUAL. Burn-in plan: $PLAN. Burn-in: $BURN_IN"
           test "$RESULT" = success
+          test "$VISUAL" = success
           test "$PLAN" = success
           test "$BURN_IN" = success || { test "$BURN_IN" = skipped && test -z "$SPECS"; }

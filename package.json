@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test": "vitest run --coverage --testTimeout=15000",
     "test:browser": "playwright test",
+    "test:visual": "playwright test -c playwright.visual.config.ts",
     "cards": "tsx scripts/cards/build.ts",
     "cards:finish-thumbs": "tsx scripts/cards/build-finish-thumbs.ts",
     "check:card-assets": "tsx scripts/check-card-assets.ts",
