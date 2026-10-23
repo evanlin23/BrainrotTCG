@@ -6,6 +6,7 @@
  * null, "no archive", never as an error.
  */
 import { parseDailyArchive, parseRankingsFile, previousUtcDay, utcDay, type ArchivedPull } from '../engine';
+import { LOAD_TIMEOUT_MS } from './hallOfFameList';
 
 export interface PublishedRankings {
   /** When the build wrote the rankings (and hall-of-fame.json with them), from the file itself. */
@@ -21,9 +22,6 @@ export interface PastDay {
   day: string;
   entries: ArchivedPull[];
 }
-
-/** A load that hasn't finished by then counts as failed (no archive). */
-const LOAD_TIMEOUT_MS = 15_000;
 
 const fetchText = async (path: string): Promise<string | null> => {
   const controller = new AbortController();

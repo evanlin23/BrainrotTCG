@@ -26,7 +26,12 @@ const PastDaysSheet = ({ rankings, onClose }: PastDaysSheetProps) => {
   const id = useId();
   const months = rankings?.months ?? [];
   const [chosenMonth, setChosenMonth] = useState<string | null>(null);
-  const month = chosenMonth ?? months[0] ?? null;
+  // Until a month is chosen, the sheet opens on the newest month with a closed day: the newest listed
+  // month can have none yet, when only its open days have pulls. If no month has one, it opens on the
+  // newest.
+  const [opening, setOpening] = useState({ index: 0, done: false });
+  const searching = chosenMonth === null && !opening.done;
+  const month = chosenMonth ?? months[searching ? opening.index : 0] ?? null;
   const [loaded, setLoaded] = useState<{ month: string; days: PastDay[] | null } | null>(null);
   const [chosenDay, setChosenDay] = useState<string | null>(null);
 
@@ -34,12 +39,17 @@ const PastDaysSheet = ({ rankings, onClose }: PastDaysSheetProps) => {
     if (!rankings || !month) return;
     let live = true;
     loadPastMonth(rankings, month).then((days) => {
-      if (live) setLoaded({ month, days });
+      if (!live) return;
+      if (searching && days?.length === 0) {
+        setOpening(({ index }) => (index + 1 < rankings.months.length ? { index: index + 1, done: false } : { index: 0, done: true }));
+        return;
+      }
+      setLoaded({ month, days });
     });
     return () => {
       live = false;
     };
-  }, [rankings, month]);
+  }, [rankings, month, searching]);
 
   // undefined while the month loads, null when it couldn't be read.
   const days = month && loaded?.month === month ? loaded.days : undefined;
@@ -125,7 +135,8 @@ const PastDaysSheet = ({ rankings, onClose }: PastDaysSheetProps) => {
             {shown.entries.map((e, i) => renderEntry(e, i))}
           </ol>
           <p className="hof-past-note">
-            Ranked by the last update before the day ended (UTC). A pull removed since is left out, and its place isn&apos;t refilled.
+            Ranked by when each pull was received (UTC), as of the last update before the next day ended. A pull removed since is
+            left out, and its place isn&apos;t refilled.
             Each row opens the GitHub issue holding its proof.
           </p>
         </>

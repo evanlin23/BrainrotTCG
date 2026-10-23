@@ -876,6 +876,8 @@ describe('Past days and the last update', () => {
     expect(pastRows()[0].getAttribute('href')).toBe('https://github.com/evanlin23/BrainrotTCG/issues/101');
     expect(pastRows()[0].target).toBe('_blank');
     expect(pastRows()[0].rel).toBe('noopener noreferrer');
+    // A day stays open through the next UTC day, so a pull filed just after midnight still counts.
+    expect(sheet.textContent).toContain('Ranked by when each pull was received (UTC), as of the last update before the next day ended.');
     expect(sheet.textContent).toContain("A pull removed since is left out, and its place isn't refilled.");
     // The archive's rows stay in the sheet: the Today and All-time lists don't take them.
     expect(rows().filter((a) => !sheet.contains(a))).toHaveLength(0);
@@ -917,6 +919,26 @@ describe('Past days and the last update', () => {
     expect(pastRows()).toHaveLength(1);
   });
 
+  it('opens on the newest month with a closed day when the newest month has none yet', async () => {
+    // Built on 3 November with nothing filed on the 1st or 2nd: November is listed (its open days have
+    // pulls), but its closed days are empty while October has some.
+    const NOVEMBER_BUILD: PublishedRankings = { generatedAt: '2026-11-03T08:00:00.000Z', openFrom: '2026-11-02', months: ['2026-11', '2026-10', '2026-09'] };
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    loadPublishedRankings.mockResolvedValue(NOVEMBER_BUILD);
+    loadPastMonth.mockImplementation((_: PublishedRankings, month: string) => Promise.resolve(month === '2026-11' ? [] : month === '2026-10' ? OCTOBER : SEPTEMBER));
+    await act(async () => root.render(<HallOfFamePage />));
+    await open();
+    expect(loadPastMonth.mock.calls.map(([, month]) => month)).toEqual(['2026-11', '2026-10']);
+    expect(picker('Month')!.value).toBe('2026-10');
+    expect([...picker('Month')!.options].map((o) => o.value)).toEqual(['2026-11', '2026-10', '2026-09']);
+    expect(picker('Day')!.value).toBe('2026-10-14');
+    expect(pastRows()).toHaveLength(2);
+    // Choosing the empty month still shows it as it is.
+    await pick('Month', '2026-11');
+    expect(pastStatus().textContent).toBe('No past days for this month.');
+    expect(picker('Month')!.value).toBe('2026-11');
+  });
+
   it('says when nothing has closed yet, or a month kept no day', async () => {
     loadHallOfFame.mockResolvedValueOnce([ENTRY]);
     loadPublishedRankings.mockResolvedValue({ ...RANKINGS, months: [] });
@@ -932,8 +954,9 @@ describe('Past days and the last update', () => {
     root = createRoot(container);
     await act(async () => root.render(<HallOfFamePage />));
     await open();
+    // With no closed day in any month, it opens on the newest month, as it would anyway.
     expect(pastStatus().textContent).toBe('No past days for this month.');
-    expect(picker('Month')).not.toBeNull();
+    expect(picker('Month')!.value).toBe('2026-10');
   });
 
   it('says it is loading until rankings.json and the month arrive', async () => {
