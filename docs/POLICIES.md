@@ -121,6 +121,10 @@ for themselves.
   covered by the notice below, not by MIT.
 - Takedown and removal requests go through GitHub Issues (see the notice below). The owner chose
   this as the only public contact; there is no email address.
+- Conduct reports, name reviews and Hall of Fame removals use the same route: the "Conduct report or
+  removal request" issue form, described in [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md). A maintainer
+  hides an entry with the `rejected` label and handles appeals as set out under "Display names" in
+  [docs/ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Art and assets notice
 
