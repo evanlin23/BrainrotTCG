@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } fr
 import { Settings2 } from 'lucide-react';
 import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
+import { useAnySheetOpen } from './components/ui/openSheets';
 import AchievementToasts, { type ToastItem } from './components/achievements/AchievementToasts';
 import AppNav from './components/ui/AppNav';
 import KeptAsideActions from './components/ui/KeptAsideActions';
@@ -406,6 +407,8 @@ function App() {
     [saveFailed, staleSave, notificationQueue],
   );
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
+  // Any sheet at all (the summary's card close-up too): a toast over one covers its title or takes a tap meant for it (#803).
+  const anySheetOpen = useAnySheetOpen();
   // A sheet (Share, or a shared link) leaves no tab current; Settings is none of the tabs either.
   const activeTab = shareTarget || viewProof || viewProfile || brokenLink ? null : route;
   // A new player sees only the logo and the pack until their first pack is saved (#222, #312): no tabs,
@@ -495,12 +498,12 @@ function App() {
         </div>
       </header>
 
-      {/* Right under the header, and the save warning when it shows: a toast never covers either. */}
+      {/* Right under the header, and the save warning when it shows: a toast takes no room, and on the home screen lies over the header's wordmark. Held while a pack is torn and revealed, so it is never over the pack. */}
       <AchievementToasts
         queue={visibleNotifications}
         onDismiss={dismissNotifications}
         onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
-        paused={isAnyModalOpen || onPage}
+        paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
         held={packShowcase}
       />
 

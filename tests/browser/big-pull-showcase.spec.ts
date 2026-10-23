@@ -1,5 +1,4 @@
 import { test, expect, type Page } from '@playwright/test';
-import { TOAST_MS } from '../../src/constants/config';
 import { monitor } from './support';
 
 /**
@@ -120,7 +119,7 @@ test('shows a big pull with its ribbon clear of the card, and holds notices unti
   for (const px of shot.fonts) expect(px, 'ribbon text is under 12px').toBeGreaterThanOrEqual(12);
   expect(shot.toasts, 'a notice showed over the showcase').toBe(0);
 
-  // No notice showed at any moment of the showcase, and the one it held comes back first afterwards.
+  // No notice showed at any moment of the showcase.
   await expect(page.locator('.showcase-ribbon')).toHaveCount(0, { timeout: 10000 });
   const frames = () => page.evaluate(() => (window as unknown as { showcaseFrames: Frame[] }).showcaseFrames);
   const recorded = await frames();
@@ -128,16 +127,8 @@ test('shows a big pull with its ribbon clear of the card, and holds notices unti
   const end = recorded.length - 1 - [...recorded].reverse().findIndex((f) => f.ribbon);
   expect(start, 'the showcase was never recorded').toBeGreaterThan(0);
   expect(recorded.slice(start, end + 1).filter((f) => f.toast), 'a notice showed over the showcase').toEqual([]);
-  // The hold begins at the skip, a few frames before the ribbon (#460), so the notice it held is the
-  // last one up before the showcase, and it left in the frame after.
-  const before = recorded.slice(0, start);
-  const heldIndex = before.length - 1 - [...before].reverse().findIndex((f) => f.toast);
-  expect(heldIndex, 'no notice was up when the skip began').toBeLessThan(before.length);
-  const held = recorded[heldIndex];
-  // A notice still on its own time was held; one already timing out may have left first.
-  const stillUp = recorded[heldIndex + 1].at - held.at < TOAST_MS - 100;
-  await expect.poll(async () => (await frames()).slice(end + 1).find((f) => f.toast)?.toast ?? null, { timeout: 5000 })
-    .toEqual(stillUp ? held.toast : expect.any(String));
+  // That a notice held for the pack comes back afterwards, or is let go if it was seen, depends on how long
+  // it was up: the unit tests (AchievementToasts.test) and manualPackControls.integration hold it to that.
   expect(errors).toEqual([]);
 });
 

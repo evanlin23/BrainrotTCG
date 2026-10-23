@@ -2,6 +2,7 @@
 import { act, useCallback, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TOAST_SEEN_MS } from '../../constants/config';
 import AchievementToasts, { GROUPED_TOAST_MS, TOAST_MS, type ToastItem } from './AchievementToasts';
 
 // The app's own queue: dismissing removes ids, and re-rendering with `held` holds it as a big pull's
@@ -26,6 +27,7 @@ let container: HTMLElement;
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   dismissed.length = 0;
   opened.length = 0;
   container = document.body.appendChild(document.createElement('div'));
@@ -38,6 +40,7 @@ afterEach(() => {
   container.remove();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('notices during a big pull\'s showcase', () => {
@@ -72,35 +75,78 @@ describe('notices during a big pull\'s showcase', () => {
   });
 });
 
-describe('notices while a sheet or page is open', () => {
-  it('fades the toast on screen out instead of cutting it, and brings it back in full afterwards', async () => {
+describe('notices while a sheet, page or pack is open', () => {
+  it('lets a toast the player has seen go, and shows the next one in full afterwards', async () => {
     act(() => root.render(<Harness initial={[kept, levelUp]} />));
-    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 500));
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_SEEN_MS + 100));
     act(() => root.render(<Harness initial={[kept, levelUp]} paused />));
-    // Still there as it fades, but a tap on it no longer counts: it's back in the queue.
+    // Still there as it fades, but a tap on it no longer counts: it has gone back to the queue or out.
     expect(toasts()).toEqual(['Pack kept']);
     act(() => document.querySelector<HTMLElement>('.toast')!.click());
     expect(opened).toEqual([]);
     await act(() => vi.advanceTimersByTimeAsync(300));
     expect(document.querySelectorAll('.toast')).toHaveLength(0);
     await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(dismissed).toEqual([['pack-kept-1']]);
+
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    expect(toasts()).toEqual(['Level 2']);
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 400));
+    expect(toasts()).toEqual(['Level 2']);
+  });
+
+  it('brings back, in full, a toast the player had barely seen', async () => {
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_SEEN_MS - 500));
+    act(() => root.render(<Harness initial={[kept, levelUp]} paused />));
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(document.querySelectorAll('.toast')).toHaveLength(0);
     expect(dismissed).toEqual([]);
 
     act(() => root.render(<Harness initial={[kept, levelUp]} />));
     await act(() => vi.advanceTimersByTimeAsync(300));
     expect(toasts()).toEqual(['Pack kept']);
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 400));
+    expect(toasts()).toEqual(['Pack kept']);
     act(() => document.querySelector<HTMLElement>('.toast')!.click());
     expect(opened).toEqual(['collection']);
     expect(dismissed).toEqual([['pack-kept-1']]);
+  });
+
+  it('lets a seen grouped toast go as one, with all its ids', async () => {
+    const run = [1, 2, 3].map((n): ToastItem => ({ id: `a${n}`, name: `Achievement ${n}`, description: 'Done' }));
+    act(() => root.render(<Harness initial={run} />));
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_SEEN_MS + 100));
+    act(() => root.render(<Harness initial={run} paused />));
+    expect(dismissed).toEqual([['a1', 'a2', 'a3']]);
+  });
+});
+
+describe('dismissing a toast with the keyboard', () => {
+  it('lets Escape on the focused toast send it away without opening it, and leaves the next', async () => {
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    const toast = document.querySelector<HTMLElement>('.toast')!;
+    act(() => toast.focus());
+    const key = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    act(() => toast.dispatchEvent(key));
+    expect(dismissed).toEqual([['pack-kept-1']]);
+    expect(opened).toEqual([]);
+    // The pack's own Escape sees it was taken.
+    expect(key.defaultPrevented).toBe(true);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(toasts()).toEqual(['Level 2']);
   });
 });
 
 describe('how long a toast stays up (#718)', () => {
   const achievement = (n: number): ToastItem => ({ id: `a${n}`, name: `Achievement ${n}`, description: 'Done' });
 
-  it('gives a single toast time to read and tap: at least 5 seconds, and it is still tappable late', async () => {
-    expect(TOAST_MS).toBeGreaterThanOrEqual(5000);
-    expect(GROUPED_TOAST_MS).toBeGreaterThan(TOAST_MS);
+  it('gives a single toast time to read and tap: 5 seconds, and it is still tappable late', async () => {
+    // Pinned: the owner found 8 and 10 seconds too long on a phone.
+    expect(TOAST_MS).toBe(5000);
+    expect(GROUPED_TOAST_MS).toBe(6000);
+    expect(TOAST_SEEN_MS).toBeLessThan(TOAST_MS);
     act(() => root.render(<Harness initial={[levelUp]} />));
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 100));
     expect(dismissed).toEqual([]);
@@ -137,6 +183,18 @@ describe('how long a toast stays up (#718)', () => {
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS * 3));
     expect(dismissed).toEqual([]);
     act(() => document.querySelector<HTMLElement>('.toast')!.blur());
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
+    expect(dismissed).toEqual([['level-2']]);
+  });
+
+  it('is not held by focus a tap or swipe left on it, only by focus from the keyboard', async () => {
+    // Focus a pointer gives the button does not match :focus-visible.
+    const matches = HTMLElement.prototype.matches;
+    vi.spyOn(HTMLElement.prototype, 'matches').mockImplementation(function (this: HTMLElement, selector: string) {
+      return selector === ':focus-visible' ? false : matches.call(this, selector);
+    });
+    act(() => root.render(<Harness initial={[levelUp]} />));
+    act(() => document.querySelector<HTMLElement>('.toast')!.focus());
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
     expect(dismissed).toEqual([['level-2']]);
   });
