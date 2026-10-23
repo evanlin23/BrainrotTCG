@@ -1,0 +1,29 @@
+name: Conduct report or removal request
+description: Report a name or content, ask for a Hall of Fame entry to be removed, or request an art takedown.
+title: "[Report] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public and GitHub Issues is the only contact (see the [Code of Conduct](https://github.com/evanlin23/BrainrotTCG/blob/main/CODE_OF_CONDUCT.md)).
+        Link or name the entry or item, and don't paste anything private: no save files, identity keys or personal details.
+        A maintainer can hide a Hall of Fame entry, but proofs are permanent and copies on relays can't be recalled.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is this about?
+      options:
+        - A display name that should be blocked
+        - Remove my Hall of Fame entry
+        - Appeal a removal or a blocked name
+        - Art or other content takedown
+        - Something else that breaks the Code of Conduct
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Which entry or item, and what is wrong
+      description: The issue number or pull link, or the card or page. For a name, say what it reads as and why it should go.
+    validations:
+      required: true

@@ -9,6 +9,7 @@ import type { Settings } from '../types';
 export const DEFAULT_SETTINGS: Settings = {
   effectsVolume: 1,
   particlesEnabled: true,
+  motion: 'auto',
   pauseBigPulls: true,
 };
 
@@ -25,6 +26,7 @@ export const readSettings = (stored: unknown): Settings => {
     ...DEFAULT_SETTINGS,
     ...rest,
     effectsVolume: slider(rest.effectsVolume, muted ? 0 : DEFAULT_SETTINGS.effectsVolume),
+    motion: rest.motion === 'reduced' ? 'reduced' : DEFAULT_SETTINGS.motion,
     pauseBigPulls: typeof rest.pauseBigPulls === 'boolean' ? rest.pauseBigPulls : DEFAULT_SETTINGS.pauseBigPulls,
   };
 };

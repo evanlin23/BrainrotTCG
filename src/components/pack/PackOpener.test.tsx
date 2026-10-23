@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { MotionGlobalConfig } from 'framer-motion';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack } from '../../game/pulls';
-import { StaleSaveError } from '../../game/player';
+import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 import { REFUSAL_COPY } from './refusal';
@@ -260,6 +261,30 @@ describe('the controls under the pack (#312)', () => {
     expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
     expect(announced()).toBe(REFUSAL_COPY.blocked.message);
     expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    await act(async () => { vi.advanceTimersByTime(100); });
+  });
+
+  it('names the damaged player record and its three choices, and opens Save & backup (#1052)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(openPack).mockRejectedValueOnce(new PlayerUnreadableError());
+    const onOpenSave = vi.fn();
+    await act(() => root.render(
+      <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={DEFAULT_SETTINGS} disabled={false} mountedSave={MOUNTED_SAVE} onOpenSave={onOpenSave} />,
+    ));
+    act(() => openButton()!.click());
+    await pastTheTear();
+
+    const message = REFUSAL_COPY.unreadable.message;
+    expect($('.pack-refusal-text')?.textContent).toBe(message);
+    expect(announced()).toBe(message);
+    expect(message).toContain("damaged and can't be read");
+    expect(message).toContain('restore a backup, download the save with the damaged record, or start a new player');
+    expect(retryButton()?.textContent).toBe('Open Save & backup');
+    act(() => retryButton()!.click());
+    expect(onOpenSave).toHaveBeenCalledTimes(1);
+    // Nothing is torn again: the record stays as it is until the player chooses in Settings.
+    expect(cutter.completeCut).toHaveBeenCalledTimes(1);
+    expect(openPack).toHaveBeenCalledTimes(1);
     await act(async () => { vi.advanceTimersByTime(100); });
   });
 
@@ -592,5 +617,123 @@ describe('one record per pack, whatever order the player and the ticket arrive i
     await act(async () => {});
     act(() => root.unmount());
     expect(onOpen).toHaveBeenCalledOnce();
+  });
+});
+
+describe('how the sealed pack comes into the packs screen (#720)', () => {
+  const set = SETS[0];
+  const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+  const dealt = { setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0 } as unknown as Awaited<ReturnType<typeof openPack>>;
+  // These read the stage's style in the same turn as the render that made it, before any animation frame
+  // can move it, so they use real timers and never wait on the clock for a value.
+  const show = (extra: { arrived?: boolean; onArrive?: () => void; shown?: boolean } = {}) => act(() => root.render(
+    <PackOpener onOpen={() => {}} onShare={() => {}} set={set} settings={DEFAULT_SETTINGS} mountedSave={MOUNTED_SAVE} {...extra} />,
+  ));
+  const stage = () => document.querySelector<HTMLElement>('.pack-display')!;
+  const tear = async () => {
+    vi.mocked(openPack).mockResolvedValue(dealt);
+    act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
+    await vi.waitFor(() => expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull());
+  };
+  /**
+   * Tears the pack and waits for the torn one to finish flying off: a stage that comes back while its exit
+   * is still running is the same element, not a new entrance.
+   */
+  const tearIntoReveal = async () => {
+    await tear();
+    await vi.waitFor(() => expect(document.querySelector('.pack-display')).toBeNull());
+  };
+  const escape = () => act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })); });
+
+  const media: MockInstance[] = [];
+  beforeEach(() => {
+    vi.stubGlobal('requestIdleCallback', () => 0);
+    vi.stubGlobal('cancelIdleCallback', () => {});
+    media.push(
+      vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {}),
+      vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {}),
+    );
+  });
+  afterEach(() => {
+    for (const spy of media.splice(0)) spy.mockRestore();
+  });
+
+  it('falls in from above on the first arrival, then only rises in on every return', async () => {
+    const onArrive = vi.fn();
+    show({ onArrive });
+    expect(stage().style.transform).toContain('-100vh');
+    expect(stage().style.transform).toContain('rotate(-10deg)');
+    expect(stage().style.opacity).toBe('0');
+    await vi.waitFor(() => expect(onArrive).toHaveBeenCalledOnce());
+
+    await tearIntoReveal();
+    escape();
+    // Back on the packs screen: a short rise from just below its place, never from above or turned.
+    expect(stage().style.transform).toBe('translateY(24px)');
+    expect(stage().style.opacity).toBe('0');
+
+    await tearIntoReveal();
+    escape();
+    expect(stage().style.transform).toBe('translateY(24px)');
+    expect(onArrive).toHaveBeenCalledOnce();
+  });
+
+  it('rises in from the first stage of an opener the page has already seen the pack arrive in', () => {
+    const onArrive = vi.fn();
+    show({ arrived: true, onArrive });
+    expect(stage().style.transform).toBe('translateY(24px)');
+    expect(onArrive).not.toHaveBeenCalled();
+  });
+
+  it('keeps the first fall for when the packs screen is on screen, not while it is hidden under a page', async () => {
+    const onArrive = vi.fn();
+    show({ onArrive, shown: false });
+    expect(stage().style.transform).toContain('-100vh');
+    await act(async () => {});
+    expect(onArrive).not.toHaveBeenCalled();
+    expect(stage().style.transform).toContain('-100vh');
+
+    show({ onArrive, shown: true });
+    await vi.waitFor(() => expect(onArrive).toHaveBeenCalledOnce());
+  });
+
+  it('shows the pack at once on a return when the device asks for less motion, and still falls on the first load', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)', addEventListener() {}, removeEventListener() {} }));
+    show();
+    // The first arrival is left to the motion setting (framer drops the movement under "user"), as it was.
+    expect(stage().style.transform).toContain('-100vh');
+
+    await tearIntoReveal();
+    escape();
+    expect(stage().style.opacity).toBe('1');
+    expect(stage().style.transform).toBe('none');
+  });
+
+  describe('with the torn pack still flying off', () => {
+    const sizes: MockInstance[] = [];
+    beforeEach(() => {
+      // jsdom has no layout, and without a size framer-motion never marks a leaving element.
+      sizes.push(
+        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200),
+        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300),
+      );
+      // Framer's clock stops, so the 250ms exit cannot finish before the player returns.
+      MotionGlobalConfig.useManualTiming = true;
+    });
+    afterEach(() => {
+      MotionGlobalConfig.useManualTiming = false;
+      for (const spy of sizes.splice(0)) spy.mockRestore();
+    });
+
+    it('takes taps on a pack that comes back while the torn one is still flying off', async () => {
+      show();
+      await tear();
+      const leaving = stage();
+      expect(leaving.getAttribute('data-motion-pop-id')).not.toBeNull();
+      escape();
+      // The same element as the one that left, so it must not keep the mark that makes a leaving pack ignore taps.
+      expect(stage()).toBe(leaving);
+      expect(stage().getAttribute('data-motion-pop-id')).toBeNull();
+    });
   });
 });

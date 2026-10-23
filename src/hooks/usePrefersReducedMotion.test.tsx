@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setMotionSetting } from '../utils/motion';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -32,6 +33,7 @@ beforeEach(() => {
   root = createRoot(document.createElement('div'));
 });
 afterEach(() => {
+  act(() => setMotionSetting('auto'));
   act(() => root.unmount());
   vi.unstubAllGlobals();
 });
@@ -54,5 +56,20 @@ describe('usePrefersReducedMotion', () => {
     act(() => root.unmount());
     expect(listeners.size).toBe(0);
     root = createRoot(document.createElement('div'));
+  });
+
+  it('follows the Motion setting as well as the device, live', () => {
+    act(() => root.render(<Probe />));
+    expect(seen[seen.length - 1]).toBe(false);
+    act(() => setMotionSetting('reduced'));
+    expect(seen[seen.length - 1]).toBe(true);
+    // Reduced holds whatever the device says.
+    setReduce(true);
+    setReduce(false);
+    expect(seen[seen.length - 1]).toBe(true);
+    act(() => setMotionSetting('auto'));
+    expect(seen[seen.length - 1]).toBe(false);
+    setReduce(true);
+    expect(seen[seen.length - 1]).toBe(true);
   });
 });

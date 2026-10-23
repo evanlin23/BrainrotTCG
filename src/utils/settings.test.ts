@@ -30,7 +30,7 @@ describe('settings', () => {
       cardBack: 'midnight', packFoil: 'gold', showDraftSets: true, showAllPages: true,
     };
     const { musicVolume: _music, soundEnabled: _sound, ...kept } = stored;
-    expect(readSettings(stored)).toEqual(kept);
+    expect(readSettings(stored)).toEqual({ ...kept, motion: 'auto' });
     // Any value an older build stored, valid or not, is dropped rather than carried forward.
     for (const musicVolume of [0, 1, 3, 'loud', null]) expect(readSettings({ musicVolume })).toEqual(DEFAULT_SETTINGS);
   });
@@ -41,6 +41,18 @@ describe('settings', () => {
     expect(readSettings({ pauseBigPulls: true }).pauseBigPulls).toBe(true);
     expect(readSettings({ pauseBigPulls: 'false' }).pauseBigPulls).toBe(true);
     expect(readSettings({ pauseBigPulls: null }).pauseBigPulls).toBe(true);
+  });
+
+  it('reads Motion as Auto unless the player chose Reduced, and keeps the choice', () => {
+    expect(DEFAULT_SETTINGS.motion).toBe('auto');
+    expect(readSettings(null).motion).toBe('auto');
+    expect(readSettings({ effectsVolume: 0.2 }).motion).toBe('auto'); // a save from before the setting
+    expect(readSettings({ motion: 'reduced' }).motion).toBe('reduced');
+    expect(readSettings({ motion: 'auto' }).motion).toBe('auto');
+    for (const motion of ['none', 'REDUCED', true, 1, null, {}]) expect(readSettings({ motion }).motion).toBe('auto');
+    // Choosing Reduced changes nothing else that was saved.
+    expect(readSettings({ effectsVolume: 0.3, particlesEnabled: false, pauseBigPulls: false, motion: 'reduced' }))
+      .toEqual({ ...DEFAULT_SETTINGS, effectsVolume: 0.3, particlesEnabled: false, pauseBigPulls: false, motion: 'reduced' });
   });
 
   it('keeps the slider in range', () => {

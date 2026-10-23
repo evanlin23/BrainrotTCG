@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { AXE_EXCEPTIONS, AXE_RULES, type AxeException, expectAxeClean, invalidExceptions, problems, scanPage, settle } from './axe-scan';
-import { expectDecoded, monitor } from './support';
+import { expectDecoded, expectPackDropped, monitor } from './support';
 
 /**
  * Automated axe checks (names, roles, relationships, document, rendered colour contrast) for four loaded
@@ -42,6 +42,7 @@ test.describe('critical states', () => {
     const errors = await monitor(page, baseURL!, 0, { returning: true });
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
+    await expectPackDropped(page);
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await expect(page.getByRole('switch', { name: 'Particles', exact: true })).toBeVisible();
     await expectAxeClean(page, testInfo, 'settings');
