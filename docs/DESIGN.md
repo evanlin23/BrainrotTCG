@@ -70,10 +70,9 @@ from a 390 px wide screen.
 10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading. Card art shows a
     placeholder while it loads: a shimmer only when motion is allowed, and a lighter wash on the
     26-30px thumbs in Rankings and pull rows so they don't read as dark boxes. A finish caption waits
-    for the art. The placeholder gives way once the art is decoded, or a second after the load if
-    decoding never settles (#762). Art that fails becomes a hatched slot. The faces a screen shows
-    first are fetched at high priority, and the next pack's art waits until the app shows the Open
-    screen. The card viewer offers Retry, and failed art also retries when the device comes back
+    for the art. The placeholder gives way once the art has loaded. Art that fails becomes a hatched
+    slot. The faces a screen shows first are fetched at high priority (#762). The next pack's art
+    waits while a page, a shared pull, a profile or a share sheet covers the Open screen. The card viewer offers Retry, and failed art also retries when the device comes back
     online. Standard UI transitions are 120–320 ms (rare pull celebrations and card shimmers run
     longer, and specific card/reveal effects animate properties like box-shadow or clip-path).
 

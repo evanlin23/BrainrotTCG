@@ -108,6 +108,8 @@ for (let repetition = 1; repetition <= REPETITIONS; repetition++) {
     test.setTimeout(120_000);
     const errors = await monitor(page, baseURL!, 0, { returning: true, routeHttp: false });
     await page.route('**/hall-of-fame.json', (route) => route.fulfill({ json: board }));
+    // No rejected pulls. Served like the board, so it isn't queued behind the throttled thumbs.
+    await page.route('**/hall-of-fame-withdrawn.json', (route) => route.fulfill({ json: [] }));
     // Relays that store nothing, so the board is the published list alone.
     await page.routeWebSocket(/.*/, (socket) => socket.onMessage((message) => {
       const [type, subscription] = JSON.parse(String(message)) as [string, string];

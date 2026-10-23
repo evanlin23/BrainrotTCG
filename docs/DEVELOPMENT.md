@@ -814,26 +814,26 @@ aborts the check, so a pack opening never waits behind more than the one ticket 
 check or CI job) times how long card art stays a placeholder (#762) on a cold load at 360x640 with
 touch, 120 ms per response, 1.6 Mbps down and the main thread slowed 4x. It opens two shared pulls
 from `spec/vectors-python.json` (one with finishes, one plain) and a 20-row Rankings board, and
-records when the pull shows as verified, when each slot is drawn (decoded, `data-state="ready"`),
+records when the pull shows as verified, when each slot is drawn (loaded, `data-state="ready"`),
 when the first Rankings row and every row on screen have their thumbnails, and the card art's
 requests and bytes. It prints one JSON line per run (`PERF_REPETITIONS`, default 3). Set
 `CHROMIUM_PATH` when Playwright's own browser build isn't installed. Same emulation limits as above
 (#8): the CPU slowdown doesn't reach the worker that re-derives a shared pull.
 
 Before and after #762's changes, n=3 each, ranges, on a 4-vCPU 2.1 GHz Xeon host with Chromium 141
-headless (emulation, not a device). The changes: a slot is ready once decoded (or a second after a
-decode that never settles), the faces a screen shows first are fetched at high priority, Rankings rows
-below the first screen load lazily, and the next pack's art waits until the route shows the Open screen.
+headless (emulation, not a device). The changes: the faces a screen shows first are fetched at high
+priority, Rankings rows below the first screen load lazily, and the next pack's art waits while a page,
+a shared pull, a profile or a share sheet covers the Open screen.
 
-| | Before (`8674c13`) | After (`87b044a`) |
+| | Before (`8674c13`) | After (`899d991`) |
 | --- | --- | --- |
-| Finished pull: verified | 3950 to 3983 ms | 3661 to 4028 ms |
-| Finished pull: last slot drawn after verified | 4849 to 4883 ms | 2467 to 2616 ms |
+| Finished pull: verified | 3950 to 3983 ms | 3987 to 4346 ms |
+| Finished pull: last slot drawn after verified | 4849 to 4883 ms | 2400 to 2433 ms |
 | Finished pull: art requests, bytes | 6 to 7, 494 to 657 KB | 5, 442 KB |
-| Plain pull: last slot drawn after verified | 3683 to 3884 ms | 1583 to 1667 ms |
+| Plain pull: last slot drawn after verified | 3683 to 3884 ms | 1533 to 1600 ms |
 | Plain pull: art requests, bytes | 3, 317 KB | 2, 264 KB |
-| Rankings: first row's thumbs | 8542 to 8856 ms | 8697 to 8946 ms |
-| Rankings: every on-screen thumb | 13142 to 13339 ms | 12997 to 13046 ms |
+| Rankings: first row's thumbs | 8542 to 8856 ms | 8659 to 8899 ms |
+| Rankings: every on-screen thumb | 13142 to 13339 ms | 12909 to 13166 ms |
 
 Most of the pull saving is bandwidth the next pack's art no longer takes. Rankings is bound by
 bytes: each 30 px thumb downloads the full-size art (about 144 KB), and 12 of them (1.73 MB) are
