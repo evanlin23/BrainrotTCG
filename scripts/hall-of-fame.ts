@@ -34,7 +34,11 @@
  *     public/hall-of-fame.json. Results are kept in hof-build-cache.json (cached
  *     between deploys): an issue unchanged since the last deploy isn't checked
  *     again, so a deploy's cost grows with new submissions, not with all of them.
- *     Without a token, or if GitHub is down, it keeps the existing file.
+ *     Next to it, it writes the rankings (src/engine/rankingsArchive.ts):
+ *     rankings.json, and rankings/daily-YYYY-MM.json with each UTC day's top,
+ *     carried forward from the deployed site (`deployedRankings`).
+ *     Without a token it keeps the existing list and writes no rankings; if
+ *     GitHub is down, it keeps the existing list and the deployed rankings.
  *
  * The inbox and the issue verifier only add a pull that would join the list, so
  * the number of entries stays about the same however many people play.
@@ -65,7 +69,8 @@
  * Security: issue bodies are untrusted input. They are only ever parsed here,
  * never interpolated into a shell command, and echoed only through safe().
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getSet } from '../src/content/sets/index.ts';
 import {
@@ -81,13 +86,20 @@ import {
   hallOfFameJoin,
   hallOfFameList,
   isNameAllowed,
+  mergeDailyArchive,
+  parseDailyArchive,
+  parseRankingsFile,
   previousUtcDay,
   publicName,
   pullId,
   qualifiesForHallOfFame,
+  rankingsFile,
   receiptTime,
+  serializeDailyArchive,
   utcDay,
   verifyProof,
+  type ArchivedPull,
+  type DailyArchive,
   type RankableEntry,
   type TicketFn,
   type VerifiedPull,
@@ -299,6 +311,93 @@ const publishedList = async (): Promise<(RankableEntry & { issue?: number })[] |
     });
   } catch {
     return null;
+  }
+};
+
+export const RANKINGS_INDEX = 'rankings.json';
+export const archivePath = (month: string) => `rankings/daily-${month}.json`;
+
+/** A file as the deployed site serves it now: its text, or null for a 404. Any other answer throws. */
+const deployedText = async (file: string, get: typeof fetch): Promise<string | null> => {
+  const res = await get(`${pagesUrl()}${file}`, { cache: 'no-store' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`The deployed ${file} answered ${res.status}`);
+  return res.text();
+};
+
+export interface DeployedRankings {
+  /** The deployed rankings.json, or null before rankings were first deployed. */
+  index: string | null;
+  archives: Map<string, { text: string; archive: DailyArchive }>;
+}
+
+/**
+ * The rankings the deployed site carries, which `build` carries forward. hall-of-fame.json is always
+ * deployed, so a failure to read it (or a body that isn't a JSON list) throws: the site can't be read.
+ * If it can, only a 404 for rankings.json means the site is from before rankings were deployed, with
+ * nothing to carry forward, and the log says so. Every deploy writes rankings.json with the list (or
+ * keeps both, or neither), so once it is deployed, it and every archive it lists must read and check
+ * out in full (parseRankingsFile, parseDailyArchive), and anything else throws (an error status, a
+ * network error, a page that isn't the file, a 404 for an archive) rather than drop a day.
+ */
+export const deployedRankings = async (get: typeof fetch = fetch): Promise<DeployedRankings> => {
+  const list = await deployedText('hall-of-fame.json', get);
+  if (list === null) throw new Error('The deployed site has no hall-of-fame.json');
+  let listed: unknown;
+  try {
+    listed = JSON.parse(list);
+  } catch {
+    listed = null;
+  }
+  if (!Array.isArray(listed)) throw new Error("The deployed hall-of-fame.json isn't a JSON list");
+  const index = await deployedText(RANKINGS_INDEX, get);
+  const archives: DeployedRankings['archives'] = new Map();
+  if (index === null) {
+    console.log(`No ${RANKINGS_INDEX} deployed: starting the rankings history`);
+    return { index, archives };
+  }
+  for (const month of parseRankingsFile(index)) {
+    const text = await deployedText(archivePath(month), get);
+    if (text === null) throw new Error(`The deployed ${RANKINGS_INDEX} lists ${archivePath(month)}, which isn't deployed`);
+    archives.set(month, { text, archive: parseDailyArchive(text, month) });
+  }
+  return { index, archives };
+};
+
+/** The deployed rankings files as they are (path, text). */
+const deployedFiles = (deployed: DeployedRankings): [string, string][] =>
+  deployed.index === null ? [] : [[RANKINGS_INDEX, deployed.index], ...[...deployed.archives].map(([month, a]): [string, string] => [archivePath(month), a.text])];
+
+/**
+ * The rankings files for the published list: the open days (`days`) ranked again, and every other
+ * archived day copied from the deployed archive less the entries `keep` turns down.
+ */
+export const rankingsFiles = (
+  published: readonly HallOfFameEntry[],
+  deployed: DeployedRankings,
+  { generatedAt, days, keep }: { generatedAt: string; days: readonly string[]; keep: (e: ArchivedPull) => boolean },
+): [string, string][] => {
+  const file = rankingsFile(published, { generatedAt, days, archive: [] });
+  const open = Object.fromEntries(file.days.map((d) => [d.day, d.board.entries]));
+  const months = [...new Set([...deployed.archives.keys(), ...days.map((d) => d.slice(0, 7))])].sort();
+  const files: [string, string][] = [];
+  const archive: string[] = [];
+  for (const month of months) {
+    const merged = mergeDailyArchive(deployed.archives.get(month)?.archive ?? null, month, open, keep);
+    if (!merged) continue;
+    archive.push(month);
+    files.push([archivePath(month), serializeDailyArchive(merged)]);
+  }
+  return [[RANKINGS_INDEX, JSON.stringify({ ...file, archive }, null, 1) + '\n'], ...files];
+};
+
+/** Writes the rankings files into `dir`, replacing any written before. */
+const writeRankings = (dir: string, files: readonly [string, string][]) => {
+  rmSync(join(dir, RANKINGS_INDEX), { force: true });
+  rmSync(join(dir, 'rankings'), { recursive: true, force: true });
+  for (const [file, text] of files) {
+    mkdirSync(dirname(join(dir, file)), { recursive: true });
+    writeFileSync(join(dir, file), text);
   }
 };
 
@@ -532,14 +631,20 @@ export const build = async (output = OUTPUT) => {
     console.log('No GITHUB_TOKEN; keeping the existing hall-of-fame.json');
     return;
   }
+  // Before anything else: a site that can't be read fails the deploy rather than drop past days.
+  const deployed = await deployedRankings();
   let issues: Issue[];
+  let rejected: Set<number>;
   try {
     issues = (await listVerifiedIssues(token, day)).filter((i) => !labelNames(i).includes('rejected'));
+    // Every `rejected` issue, also those no longer listed, so their entries leave the archived days.
+    rejected = new Set((await listIssues('labels=hall-of-fame,rejected', token)).map((i) => i.number));
   } catch (error) {
     if (error instanceof TooManyIssues) throw error; // fail the deploy rather than drop entries
     // Don't block a deploy on the Issues API: the committed file is still a verified snapshot.
     if (!existsSync(output)) writeFileSync(output, '[]\n');
-    console.warn(`Could not list Hall of Fame issues; keeping the existing hall-of-fame.json. ${error}`);
+    writeRankings(dirname(output), deployedFiles(deployed));
+    console.warn(`Could not list Hall of Fame issues; keeping the existing hall-of-fame.json and the deployed rankings. ${error}`);
     return;
   }
   // A pull's pack can't change, so an issue untouched since the last deploy (same updated_at: no
@@ -582,6 +687,10 @@ export const build = async (output = OUTPUT) => {
   const entries = listToPublish(counted, now);
   for (const e of entries) console.log(`#${e.issue}: ${e.hand} (${e.score}), received ${e.submittedAt}${e.receipt ? ' (when verified)' : ''}`);
   writeFileSync(output, JSON.stringify(entries, null, 1) + '\n');
+  const keep = (e: ArchivedPull) => !rejected.has(e.issue) && isNameAllowed(e.name);
+  const rankings = rankingsFiles(entries, deployed, { generatedAt: now.toISOString(), days, keep });
+  writeRankings(dirname(output), rankings);
+  console.log(`Rankings: ${rankings.map(([file]) => file).join(', ')}${deployed.index === null ? ' (the first; the deployed site had none)' : ''}`);
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);
 };
 

@@ -65,7 +65,8 @@ What keeps working:
   move. Sending the save to Save & backup marks nothing, since that window is closed before the new
   address stores it, so old links still offer the move afterwards. **Go without it** marks nothing,
   so the next old link offers it again.
-- **The Hall of Fame.** The old address keeps serving `hall-of-fame.json` for the scripts, and the
+- **The Hall of Fame.** The old address keeps serving `hall-of-fame.json`, `rankings.json` and
+  `rankings/` for the scripts (the build carries past days forward from them), and the
   issue links it files redirect like any other link.
 
 ## Your own domain later
@@ -352,7 +353,8 @@ Never upload that redirect artifact as the game. When GitHub Pages is the actual
 host, use the compatible feature-PR/forward-fix path above; there is no rollback command in this workflow.
 
 UI and ranking recovery are separate decisions. A provider rollback also restores its bundled
-`hall-of-fame.json`, which can omit newer winners or reintroduce moderated entries. Keep verified issue
+`hall-of-fame.json`, which can omit newer winners or reintroduce moderated entries, and its rankings
+archives, which the next build carries forward (docs/ARCHITECTURE.md, "Published rankings"). Keep verified issue
 records/moderation intact, retain the current snapshot for comparison, and rebuild ranking data from
 current trusted evidence with compatible code. Do not undo submissions or rejected labels to match an
 old UI. The GitHub redirect's copy may differ until refreshed; record that explicitly.
