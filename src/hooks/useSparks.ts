@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from 'react';
-import { REDUCED_MOTION_QUERY } from '../utils/motion';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 export interface Spark {
   id: number;
@@ -24,23 +24,13 @@ const SPARK_EXPIRY_BATCH_MS = 100;
 /** The one empty state, so a disabled or idle pack keeps the same array between renders. */
 const EMPTY_SPARKS: readonly Spark[] = [];
 
-const subscribeReducedMotion = (onChange: () => void) => {
-  const media = window.matchMedia(REDUCED_MOTION_QUERY);
-  media.addEventListener('change', onChange);
-  return () => media.removeEventListener('change', onChange);
-};
-
 /**
- * Spark work follows the particle setting and the device's current motion preference: with
- * particles off or `prefers-reduced-motion: reduce` (watched live), emitSpark does nothing, the
+ * Spark work follows the particle setting and the current motion preference: with
+ * particles off or motion reduced (the Motion setting or the device's, watched live), emitSpark does nothing, the
  * pending removal timer is cancelled and the hook returns EMPTY_SPARKS.
  */
 export const useSparks = (enabled = true) => {
-  const reducedMotion = useSyncExternalStore(
-    subscribeReducedMotion,
-    () => window.matchMedia(REDUCED_MOTION_QUERY).matches,
-    () => false,
-  );
+  const reducedMotion = usePrefersReducedMotion();
   const active = enabled && !reducedMotion;
   const [sparks, setSparks] = useState<readonly Spark[]>(EMPTY_SPARKS);
   const sparkIdRef = useRef(0);

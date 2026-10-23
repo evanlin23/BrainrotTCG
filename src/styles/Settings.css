@@ -45,6 +45,51 @@
   flex: 1 1 7rem;
 }
 
+/* The motion row: its choices drop below the text when text or screen leaves no room beside them. */
+.settings-row--choice {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.settings-row--choice .settings-text {
+  flex: 1 1 10rem;
+}
+
+.settings-choice {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.settings-choice button {
+  min-width: 4.5rem;
+  max-width: 100%;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-choice button[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+@media (forced-colors: active) {
+  .settings-choice button[aria-pressed='true'] {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
 /* Backup rows: the text keeps a readable column, and the buttons drop below it when text or screen leaves no room beside it. */
 .settings-row--reflow {
   flex-wrap: wrap;

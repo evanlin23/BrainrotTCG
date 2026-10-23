@@ -768,3 +768,43 @@ describe('Settings: Show every page', () => {
     expect(switchLabels()).toContain('Show every page');
   });
 });
+
+describe('Settings: Motion', () => {
+  const choices = () => ({
+    group: document.body.querySelector<HTMLElement>('[role="group"][aria-labelledby]')!,
+    auto: button('Auto'),
+    reduced: button('Reduced'),
+  });
+  const renderWith = (settings: typeof DEFAULT_SETTINGS) => {
+    const onSettingsChange = vi.fn();
+    act(() => root.render(<SettingsPage settings={settings} onSettingsChange={onSettingsChange} onImportSave={() => null} />));
+    return onSettingsChange;
+  };
+
+  it('offers Auto and Reduced as a named pair, Auto chosen for a save with no choice yet', () => {
+    const { group, auto, reduced } = choices();
+    expect(document.getElementById(group.getAttribute('aria-labelledby')!)?.textContent).toBe('Motion');
+    expect(document.getElementById(group.getAttribute('aria-describedby')!)?.textContent).toMatch(/device's reduced-motion setting/);
+    expect(group.contains(auto) && group.contains(reduced)).toBe(true);
+    expect(auto.getAttribute('aria-pressed')).toBe('true');
+    expect(reduced.getAttribute('aria-pressed')).toBe('false');
+    expect(auto.type).toBe('button');
+  });
+
+  it('shows a saved Reduced choice as chosen', () => {
+    renderWith({ ...DEFAULT_SETTINGS, motion: 'reduced' });
+    expect(choices().reduced.getAttribute('aria-pressed')).toBe('true');
+    expect(choices().auto.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('changes only Motion when a choice is pressed', async () => {
+    const saved = { ...DEFAULT_SETTINGS, effectsVolume: 0.4, particlesEnabled: false, pauseBigPulls: false };
+    const onSettingsChange = renderWith(saved);
+    await click('Reduced');
+    expect(onSettingsChange).toHaveBeenCalledExactlyOnceWith({ ...saved, motion: 'reduced' });
+    onSettingsChange.mockClear();
+    act(() => root.render(<SettingsPage settings={{ ...saved, motion: 'reduced' }} onSettingsChange={onSettingsChange} onImportSave={() => null} />));
+    await click('Auto');
+    expect(onSettingsChange).toHaveBeenCalledExactlyOnceWith({ ...saved, motion: 'auto' });
+  });
+});

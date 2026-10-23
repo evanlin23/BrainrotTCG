@@ -72,10 +72,14 @@ export interface CardsByRarity {
   BRAINROT: number;
 }
 
+export type MotionSetting = 'auto' | 'reduced';
+
 export interface Settings {
   /** Sound effects volume slider (cards, the pack, voices), 0 (off) to 1 (utils/settings.ts). */
   effectsVolume: number;
   particlesEnabled: boolean;
+  /** Motion: "auto" follows the device's reduced-motion setting, "reduced" keeps the game calm whatever it says (utils/motion.ts). */
+  motion?: MotionSetting;
   /** Hold good pulls for three seconds; defaults to on for older saves. Effects still play when off. */
   pauseBigPulls?: boolean;
   /** Chosen level rewards (game/progression.ts); a locked choice falls back to the first. */

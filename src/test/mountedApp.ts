@@ -139,7 +139,7 @@ export async function mountedApp(storage: Record<string, string>,
     const React = await import('react');
     act = React.act;
     const { createRoot } = await import('react-dom/client');
-    const { MotionConfig } = await import('framer-motion');
+    const { default: MotionProvider } = await import('../components/ui/MotionProvider');
     // The adapter cannot decode/rasterize images. Preserve src and finish props above this boundary.
     const images = await import('../game/finishImage');
     vi.spyOn(images, 'holdFinishedCardImage').mockImplementation((src) => ({ image: Promise.resolve(src), release: () => {} }));
@@ -160,7 +160,7 @@ export async function mountedApp(storage: Record<string, string>,
     document.body.append(container);
     root = createRoot(container);
     await act(async () => root!.render(React.createElement(React.StrictMode, null,
-      React.createElement(MotionConfig, { reducedMotion: 'user' }, React.createElement(App)))));
+      React.createElement(MotionProvider, null, React.createElement(App)))));
   }
 
   return {
