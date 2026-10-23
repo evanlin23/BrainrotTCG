@@ -5,6 +5,7 @@ import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import type { Finish, Rarity } from '../../src/engine/types';
+import { accessHeaders, stagingAccess, type StagingAccess } from './stagingAccess';
 
 // On-disk boundary shapes: importing UI Stats pulls TSX/Vite assets into the Node test project.
 interface RecordedCard {
@@ -51,9 +52,17 @@ export interface MonitorOptions {
    * Keep the original same-origin `route.continue()` (after the origin, method and path checks)
    * instead of fetching and fulfilling the response. Cold performance runs need it: fulfilled
    * responses skip CDP network throttling and change byte accounting. Redirects and CSP are then
-   * only observed, never enforced.
+   * only observed, never enforced. With a staging Access token (`access`) every request is still
+   * fetched: a continued request would send the token on to wherever a redirect leads, and Chromium
+   * stalls a continued cross-origin request from a page whose document was fulfilled.
    */
   continueAllowed?: boolean;
+  /**
+   * The Cloudflare Access service token for real staging (stagingAccess.ts): its headers go on every
+   * request to its origin, from the page and its workers, and to no other origin. Defaults to the
+   * one in the environment, which is null unless STAGING_URL and the token are set.
+   */
+  access?: StagingAccess | null;
 }
 
 export type MonitorErrors = string[] & {
@@ -123,6 +132,7 @@ export async function monitor(
     allowWebSocket,
     failOnUnexpected = true,
     continueAllowed = false,
+    access = stagingAccess(),
   } = options;
 
   const errors = [] as unknown as MonitorErrors;
@@ -272,6 +282,8 @@ export async function monitor(
   // responses are fetched; with continueAllowed the browser follows redirects itself, so the
   // hop is only observed here.
   const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+  // As many redirects as Chromium follows for one request.
+  const MAX_ACCESS_HOPS = 20;
   const redirectTarget = (from: string, location: string | undefined): URL | null => {
     if (!location) return null;
     try {
@@ -360,25 +372,37 @@ export async function monitor(
         return route.fulfill({ status: refusal.status, contentType: 'text/plain', body: refusal.body });
       }
 
-      if (continueAllowed) return route.continue();
+      if (continueAllowed && !access) return route.continue();
+      const token = accessHeaders(request.url(), access);
 
       let response;
+      let url = request.url();
       try {
-        response = await route.fetch({ maxRedirects: 0 });
+        const headers = token ? { headers: { ...request.headers(), ...token } } : {};
+        response = await route.fetch({ maxRedirects: 0, ...headers });
+        // The browser sends the hop after a fulfilled redirect itself, past this handler, so on
+        // staging it would go without the token: follow staging's redirects to its own origin here.
+        // The page then gets the last response at the URL it asked for.
+        for (let hop = 0; token && hop < MAX_ACCESS_HOPS && REDIRECTS.has(response.status()); hop++) {
+          const target = redirectTarget(url, response.headers()['location']);
+          if (!target || target.origin !== access?.origin || !isAllowedUrl(target)) break;
+          url = target.href;
+          response = await route.fetch({ url, maxRedirects: 0, ...headers });
+        }
       } catch {
         return route.abort();
       }
 
       if (REDIRECTS.has(response.status())) {
-        const target = redirectTarget(request.url(), response.headers()['location']);
+        const target = redirectTarget(url, response.headers()['location']);
         if (target && !isAllowedUrl(target)) {
-          noteBlocked(sanitizeAttempt(method, request.url(), `blocked redirect escape: ${sanitizeUrl(target.href)}`));
+          noteBlocked(sanitizeAttempt(method, url, `blocked redirect escape: ${sanitizeUrl(target.href)}`));
           return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Redirect blocked by network guard' });
         }
       }
 
       try {
-        await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': csp } });
+        await route.fulfill({ response, headers: continueAllowed ? response.headers() : { ...response.headers(), 'content-security-policy': csp } });
       } catch {
         // In-flight requests aborted by page navigation or close
       }

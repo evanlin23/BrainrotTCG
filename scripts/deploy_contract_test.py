@@ -177,15 +177,17 @@ class Workflows(unittest.TestCase):
 """, '', 'publish must')
 
     def test_readiness_check_removed(self):
-        self.assertBrokenIn(('stage', 'publish'), '| cmp -s release/dist/deployment-id.json - && exit 0', '&& exit 0')
+        self.assertBrokenIn(('publish',), '| cmp -s release/dist/deployment-id.json - && exit 0', '&& exit 0')
+        self.assertBrokenIn(('stage',), 'deployed release "$URL"\n', 'deployed release "$URL" || true\n')
+        self.assertBrokenIn(('stage',), 'deployed release "$URL"\n', 'deployed release "$URL" --once\n')
 
     def test_readiness_check_needs_one_slash(self):
-        self.assertBrokenIn(('stage', 'publish'), '"${URL%/}/deployment-id.json?run=', '"${URL}deployment-id.json?run=')
+        self.assertBrokenIn(('publish',), '"${URL%/}/deployment-id.json?run=', '"${URL}deployment-id.json?run=')
 
     def test_served_check_removed_or_aimed_elsewhere(self):
         self.assertBrokenIn(('stage', 'publish'), ' >> "$GITHUB_STEP_SUMMARY"', ' || true')
-        self.assertBrokenIn(('stage',), "          URL: ${{ needs.site.outputs.staging_url }}\n        run: python3",
-                            "          URL: ${{ needs.site.outputs.url }}\n        run: python3")
+        self.assertBrokenIn(('stage',), "SITE_URL: ${{ needs.site.outputs.url }}\n          URL: ${{ needs.site.outputs.staging_url }}\n",
+                            "SITE_URL: ${{ needs.site.outputs.url }}\n          URL: ${{ needs.site.outputs.url }}\n")
         self.assertBrokenIn(('publish',), "          URL: ${{ needs.site.outputs.url }}\n        run: python3",
                             "          URL: ${{ needs.site.outputs.staging_url }}\n        run: python3")
 
@@ -204,14 +206,44 @@ class Workflows(unittest.TestCase):
         drop = lambda jobs: jobs['staging-checks']['steps'].remove(
             step_named({'jobs': jobs}, 'staging-checks', 'Check staging still serves this build'))
         self.assertTrue(any('staging-checks must' in p for p in self.deploy_problems(drop)))
-        self.assertBrokenIn(('staging-checks',), '/deployment-id.json - && exit 0\n', '/deployment-id.json - || true\n')
-        self.assertBrokenIn(('staging-checks',), 'URL: ${{ needs.site.outputs.staging_url }}\n        run: |\n          curl',
-                            'URL: ${{ needs.site.outputs.url }}\n        run: |\n          curl')
+        self.assertBrokenIn(('staging-checks',), 'deployed release "$URL" --once\n', 'deployed release "$URL" --once || true\n')
+        self.assertBrokenIn(('staging-checks',), '\n          URL: ${{ needs.site.outputs.staging_url }}\n',
+                            '\n          URL: ${{ needs.site.outputs.url }}\n')
 
     def test_secret_in_staging_checks(self):
         self.assertBroken('deploy.yml', '        run: cp -R release/dist dist\n',
                           '        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n        run: cp -R release/dist dist\n',
                           'uses a secret outside')
+
+    def test_access_token_only_where_staging_is_fetched(self):
+        token = ('          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}\n'
+                 '          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}\n')
+        # Never a production step: publish's checks of production, or the smoke checks.
+        self.assertBroken('deploy.yml', '          URL: ${{ needs.site.outputs.url }}\n        run: python3',
+                          '          URL: ${{ needs.site.outputs.url }}\n' + token + '        run: python3', 'uses a secret outside', 'publish')
+        self.setUp()
+        self.assertBroken('deploy.yml', "          PRODUCTION_URL: ${{ needs.site.outputs.url }}\n",
+                          "          PRODUCTION_URL: ${{ needs.site.outputs.url }}\n" + token, 'uses a secret outside', 'smoke')
+        # Never a staging-checks step that only runs the app's dependencies.
+        self.setUp()
+        self.assertBroken('deploy.yml', '      - if: needs.site.outputs.staging_url != \'\'\n        run: npm ci\n',
+                          "      - if: needs.site.outputs.staging_url != ''\n        env:\n" + token + '        run: npm ci\n',
+                          'uses a secret outside', 'staging-checks')
+        # Never another secret in the steps that may hold the token, nor the token under another name.
+        for old, new in (('CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}\n        run: npx playwright',
+                          'CF_ACCESS_CLIENT_SECRET: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n        run: npx playwright'),
+                         ('CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}\n          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}\n        run: npx playwright',
+                          'CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}\n          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_ID }}\n        run: npx playwright')):
+            with self.subTest(new):
+                self.setUp()
+                self.assertBroken('deploy.yml', old, new, 'uses a secret outside', 'staging-checks')
+        # Each step that fetches staging sends it: the stage checks, the one before the browser checks,
+        # and the browser checks.
+        for name in sorted(dc.ACCESS_STEPS):
+            with self.subTest(name):
+                job, label = name
+                problems = self.deploy_problems(lambda jobs: step_named({'jobs': jobs}, job, label)['env'].pop('CF_ACCESS_CLIENT_SECRET'))
+                self.assertTrue(any(f'{job} must' in p for p in problems), problems)
 
     def test_secret_job_outside_environment(self):
         for job in ('site', 'stage', 'publish'):
@@ -740,38 +772,174 @@ class Handoff(unittest.TestCase):
                 self.assertNotEqual(check(marker.replace(b'123456', b'123455')), 0)
                 self.assertNotEqual(check(marker.rstrip(b'\n')), 0)
 
-    def test_staging_still_serves_this_build(self):
-        """staging-checks' check before the browser checks, with curl stubbed: one fetch, and it passes
-        only while staging serves this run's marker (a re-run after a later run on the same commit fails)."""
-        script = step_named(dc.load(WORKFLOWS / 'deploy.yml'), 'staging-checks', 'Check staging still serves this build')['run']
-        self.sealed()
-        bin_dir = self.tmp / 'bin'
-        bin_dir.mkdir()
-        served = self.tmp / 'served.json'
-        log = self.tmp / 'curl.log'
-        (bin_dir / 'curl').write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n[ -f "{served}" ] || exit 22\ncat "{served}"\n')
-        (bin_dir / 'curl').chmod(0o755)
-        marker = (self.dist / 'deployment-id.json').read_bytes()
-        env = {'PATH': f'{bin_dir}:{os.environ["PATH"]}', 'URL': 'https://staging.brainrottcg.pages.dev/',
-               'GITHUB_RUN_ID': ENV['GITHUB_RUN_ID'], 'GITHUB_RUN_ATTEMPT': '2'}
+class Deployed(unittest.TestCase):
+    """deployed in stage and staging-checks, against a local stand-in for staging behind Cloudflare
+    Access: it serves only with the service token, sends a request without one to the Access login,
+    and answers a wrong one with 403. The address checked is https://staging.brainrottcg.pages.dev/,
+    which fetch reaches at the stand-in."""
 
-        def check(content):
-            log.write_text('')
-            served.unlink(missing_ok=True)
-            if content is not None:
-                served.write_bytes(content)
-            result = subprocess.run(['bash', '-e', '-c', script], cwd=self.tmp, env=env, capture_output=True, text=True)
-            self.assertEqual(len(log.read_text().splitlines()), 1)
-            return result
+    BASE = 'https://staging.brainrottcg.pages.dev/'
+    TOKEN = {'CF_ACCESS_CLIENT_ID': 'id.access', 'CF_ACCESS_CLIENT_SECRET': 'not-for-logs'}
+    LOGIN = 'https://brainrottcg-pages.cloudflareaccess.com/cdn-cgi/access/login/staging.brainrottcg.pages.dev'
 
-        self.assertEqual(check(marker).returncode, 0)
-        self.assertIn('https://staging.brainrottcg.pages.dev/deployment-id.json?run=123456-2', log.read_text())
-        for name, content in (('another run', marker.replace(b'123456', b'123457')), ('changed', marker.rstrip(b'\n')),
+    def setUp(self):
+        import http.server
+        import threading
+        from unittest import mock
+
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.release = self.tmp / 'release'
+        (self.release / 'dist').mkdir(parents=True)
+        (self.release / 'dist/index.html').write_text('<!doctype html>')
+        dc.seal(self.release, ENV)
+        self.marker = (self.release / 'dist/deployment-id.json').read_bytes()
+        self.serving = self.marker
+        self.seen = []  # (server, path, the Access headers it was sent)
+        test = self
+
+        def handler(name):
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    sent = (self.headers.get('CF-Access-Client-Id'), self.headers.get('CF-Access-Client-Secret'))
+                    test.seen.append((name, self.path, sent))
+                    if name == 'elsewhere' or sent == (None, None):
+                        self.send_response(302)
+                        self.send_header('Location', test.LOGIN if name == 'staging' and self.path != '/away' else 'http://127.0.0.1:1/')
+                        self.end_headers()
+                    elif self.path == '/away':
+                        self.send_response(302)
+                        self.send_header('Location', test.elsewhere + '/collect')
+                        self.end_headers()
+                    elif sent != tuple(test.TOKEN.values()):
+                        self.send_error(403)
+                    elif test.serving is None:
+                        self.send_error(404)
+                    else:
+                        self.send_response(200)
+                        self.send_header('Content-Length', str(len(test.serving)))
+                        self.end_headers()
+                        self.wfile.write(test.serving)
+
+                def log_message(self, *args):
+                    pass
+            return Handler
+
+        servers = {}
+        for name in ('staging', 'elsewhere'):
+            servers[name] = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler(name))
+            threading.Thread(target=servers[name].serve_forever, kwargs={'poll_interval': 0.01}, daemon=True).start()
+            self.addCleanup(servers[name].server_close)
+            self.addCleanup(servers[name].shutdown)
+        self.local = f"http://127.0.0.1:{servers['staging'].server_address[1]}/"
+        self.elsewhere = f"http://127.0.0.1:{servers['elsewhere'].server_address[1]}"
+        # The real fetch, pointed at the stand-in.
+        real = dc.fetch
+        patch = mock.patch.object(dc, 'fetch', lambda url, headers=None: real(url.replace(self.BASE, self.local), headers))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def env(self, **extra):
+        return {**ENV, 'GITHUB_RUN_ATTEMPT': '2', **extra}
+
+    def deployed(self, env, **options):
+        return dc.deployed(self.release, env, self.BASE, pause=0, **options)
+
+    def refused(self, env, message, **options):
+        with self.assertRaisesRegex(dc.Rejected, message) as caught:
+            self.deployed(env, **options)
+        self.assertNotIn(self.TOKEN['CF_ACCESS_CLIENT_SECRET'], str(caught.exception))
+        return caught.exception
+
+    def test_serves_this_build_with_the_token(self):
+        for once in (False, True):
+            with self.subTest(once=once):
+                self.seen.clear()
+                self.deployed(self.env(**self.TOKEN), once=once)
+                self.assertEqual(self.seen, [('staging', '/deployment-id.json?run=123456-2', tuple(self.TOKEN.values()))])
+
+    def test_once_checks_once(self):
+        """Before the browser checks: one fetch, and it passes only while staging serves this run's
+        marker (a re-run after a later run on the same commit fails)."""
+        for name, content in (('another run', self.marker.replace(b'123456', b'123457')), ('changed', self.marker.rstrip(b'\n')),
                               ('unreachable', None)):
             with self.subTest(name):
-                result = check(content)
-                self.assertEqual(result.returncode, 1)
-                self.assertIn('no longer serves this build', result.stdout)
+                self.seen.clear()
+                self.serving = content
+                self.refused(self.env(**self.TOKEN), 'no longer serves this build', once=True)
+                self.assertEqual(len(self.seen), 1)
+
+    def test_waits_for_the_deployment(self):
+        calls = []
+
+        def get(url):
+            calls.append(url)
+            return self.marker if len(calls) == 3 else b'the previous build'
+        dc.deployed(self.release, self.env(), self.BASE.rstrip('/'), get=get, pause=0)
+        self.assertEqual(calls, [self.BASE + 'deployment-id.json?run=123456-2'] * 3)
+        calls.clear()
+        with self.assertRaisesRegex(dc.Rejected, "isn't serving this build"):
+            dc.deployed(self.release, self.env(), self.BASE, get=lambda url: calls.append(url) or b'old', pause=0, tries=4)
+        self.assertEqual(len(calls), 4)
+
+    def test_fails_closed_naming_a_missing_token(self):
+        # The steps name both secrets; unset, they are empty, and nothing is sent.
+        for once in (False, True):
+            with self.subTest(once=once):
+                self.seen.clear()
+                error = self.refused(self.env(CF_ACCESS_CLIENT_ID='', CF_ACCESS_CLIENT_SECRET=''),
+                                     r'behind Cloudflare Access \(HTTP 302 to the Access login at https://brainrottcg-pages\.cloudflareaccess\.com\) '
+                                     r'and no Access service token is set', once=once)
+                self.assertIsInstance(error, dc.AccessRefused)
+                self.assertIn('CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET', str(error))
+                self.assertIn('docs/HOSTING.md#staging', str(error))
+                self.assertEqual(self.seen, [('staging', '/deployment-id.json?run=123456-2', (None, None))])
+
+    def test_fails_closed_naming_a_rejected_token(self):
+        self.seen.clear()
+        error = self.refused(self.env(CF_ACCESS_CLIENT_ID='id.access', CF_ACCESS_CLIENT_SECRET='wrong-secret'),
+                             r'Cloudflare Access rejected the service token in CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET '
+                             r'at https://staging\.brainrottcg\.pages\.dev/ \(HTTP 403\)')
+        self.assertIn('docs/HOSTING.md#staging', str(error))
+        self.assertEqual(len(self.seen), 1)
+        self.assertNotIn('wrong-secret', str(error))
+
+    def test_half_a_token(self):
+        for set_, missing in (('CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_ID'), ('CF_ACCESS_CLIENT_SECRET', 'CF_ACCESS_CLIENT_SECRET')):
+            with self.subTest(set_):
+                self.seen.clear()
+                env = self.env(CF_ACCESS_CLIENT_ID='', CF_ACCESS_CLIENT_SECRET='')
+                env[set_] = self.TOKEN[set_]
+                self.refused(env, f'Only {missing} is set')
+                self.assertEqual(self.seen, [])
+
+    def test_a_step_without_the_token_is_unchanged(self):
+        # Production's checks name no secret: a 403 or a redirect there is no reason to ask for the token.
+        self.seen.clear()
+        error = self.refused(self.env(), "isn't serving this build", tries=2)
+        self.assertNotIsInstance(error, dc.AccessRefused)
+        self.assertEqual(len(self.seen), 2)
+
+    def test_token_goes_to_the_staging_origin_only(self):
+        token = dc.access_headers(self.TOKEN)
+        # A redirect to another origin is refused before it is followed, so the token never reaches it.
+        with self.assertRaises(dc.HTTPError) as caught:
+            dc.fetch(self.BASE + 'away', token)
+        self.assertEqual(caught.exception.code, 302)
+        self.assertEqual([s for s in self.seen if s[0] == 'elsewhere'], [])
+        self.assertEqual(self.seen, [('staging', '/away', tuple(self.TOKEN.values()))])
+
+    def test_cli(self):
+        run = lambda *args, **env: subprocess.run([sys.executable, '-I', str(SCRIPT), 'deployed', str(self.release), *args],
+                                                  env={**os.environ, **self.env(**env)}, capture_output=True, text=True)
+        usage = run(self.BASE, '--twice')
+        self.assertEqual(usage.returncode, 1)
+        self.assertIn('deployed DIR URL [--once]', usage.stderr)
+        # Half a token fails before anything is fetched, as a GitHub error annotation.
+        half = run(self.BASE, '--once', CF_ACCESS_CLIENT_ID='', CF_ACCESS_CLIENT_SECRET='not-for-logs')
+        self.assertEqual(half.returncode, 1)
+        self.assertTrue(half.stderr.startswith('::error::Deployment rejected: Only CF_ACCESS_CLIENT_SECRET is set'), half.stderr)
+        self.assertNotIn('not-for-logs', half.stderr + half.stdout)
 
 
 class Served(unittest.TestCase):

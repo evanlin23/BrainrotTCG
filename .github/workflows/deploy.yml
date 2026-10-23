@@ -304,28 +304,31 @@ jobs:
           PROJECT: ${{ vars.CLOUDFLARE_PROJECT || 'brainrottcg' }}
           BRANCH: ${{ needs.site.outputs.staging_branch }}
         run: tools/wrangler/node_modules/.bin/wrangler pages deploy release/dist --project-name="$PROJECT" --branch="$BRANCH" --commit-hash="$GITHUB_SHA" --commit-dirty=true
+      # Staging is a preview deployment, which the project's Cloudflare Access app may cover: the steps
+      # that fetch it send the Access service token, if set, to the staging address only, and fail
+      # naming the token when Access refuses them (docs/HOSTING.md#staging).
       - name: Check staging serves this build
         if: needs.site.outputs.staging_url != ''
         env:
           URL: ${{ needs.site.outputs.staging_url }}
-        run: |
-          for i in $(seq 1 30); do
-            curl -fsS --max-time 15 "${URL%/}/deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" | cmp -s release/dist/deployment-id.json - && exit 0
-            sleep 10
-          done
-          echo "::error::$URL isn't serving this build"; exit 1
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: python3 -I scripts/deploy_contract.py deployed release "$URL"
       - name: Check staging serves every sealed file
         if: needs.site.outputs.staging_url != ''
         env:
           MANIFEST_SHA256: ${{ needs.build.outputs.manifest_sha256 }}
           SITE_URL: ${{ needs.site.outputs.url }}
           URL: ${{ needs.site.outputs.staging_url }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: python3 -I scripts/deploy_contract.py served release "$URL" >> "$GITHUB_STEP_SUMMARY"
 
   staging-checks:
-    # Staging only. The browser checks run the app's dependencies, so this job gets no secrets and a
-    # read-only token. It tests the deployed staging address, with build's sealed files as ./dist for
-    # the checks that read it: nothing here is rebuilt.
+    # Staging only. The browser checks run the app's dependencies, so this job gets a read-only token
+    # and no secret but the Access service token, which only reads preview deployments, in the two
+    # steps that fetch staging. It tests the deployed staging address, with build's sealed files as
+    # ./dist for the checks that read it: nothing here is rebuilt.
     needs: [site, build, stage]
     runs-on: ubuntu-latest
     permissions:
@@ -364,13 +367,16 @@ jobs:
         if: needs.site.outputs.staging_url != ''
         env:
           URL: ${{ needs.site.outputs.staging_url }}
-        run: |
-          curl -fsS --max-time 15 "${URL%/}/deployment-id.json?run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" | cmp -s release/dist/deployment-id.json - && exit 0
-          echo "::error::$URL no longer serves this build, so its checks would test other files. Start a new deploy on main instead of re-running this one."; exit 1
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: python3 -I scripts/deploy_contract.py deployed release "$URL" --once
+      # The network guard sends the Access token to the staging origin only (playwright.staging.config.ts).
       - name: Browser checks on staging
         if: needs.site.outputs.staging_url != ''
         env:
           STAGING_URL: ${{ needs.site.outputs.staging_url }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: npx playwright test -c playwright.staging.config.ts
 
   publish:
