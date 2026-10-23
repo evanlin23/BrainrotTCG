@@ -12,7 +12,7 @@ import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
-import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
+import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
 import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
@@ -708,6 +708,66 @@ describe('inbox (scheduled workflow)', () => {
     expect(outputs()).toEqual({ added: '1' });
   });
 
+  describe('past the page cap (#999)', () => {
+    /** One relay serving `events`, at most `cap` a read, newest first, saying where it stopped as fetchEvents does at its page cap. */
+    const cappedRelay = (events: NostrEvent[], cap: number) =>
+      vi.mocked(fetchEvents).mockImplementation(async (filter, relays = ['wss://a']) => {
+        const fits = events.filter((e) => matchesFilter(e, filter)).sort((a, b) => b.created_at - a.created_at);
+        const read = fits.slice(0, cap);
+        return { events: read, perRelay: relays.map((relay) => ({ relay, count: read.length, ...(fits.length > cap ? { more: read.at(-1)!.created_at } : {}) })) };
+      });
+    const SENT = Date.parse('2026-10-16T11:00:00Z');
+    const since = Date.parse('2026-10-09T12:00:00Z') / 1000;
+    const junk = (n: number) => Array.from({ length: n }, (_, i) => hallOfFameEvent('not a proof', `junk${i}`, SENT + i * 1000));
+    const at = (e: NostrEvent) => e.created_at;
+    const seenIds = () => JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8')) as string[];
+    const filters = () => vi.mocked(fetchEvents).mock.calls.map(([f]) => ({ since: f.since, until: f.until }));
+    const logged = () => vi.mocked(console.log).mock.calls.map((c) => String(c[0]));
+
+    it('reads the events past the cap over the next runs, then only the newest pages again', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = junk(7);
+      cappedRelay(events, 3);
+      await inbox();
+      // The newest three, then the next three from where the cap stopped.
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[4]) }]);
+      expect(logged()).toContain('wss://a: 3 events, stopped at the page cap');
+      expect(logged()).toContain(`wss://a: 3 older events up to ${new Date(at(events[4]) * 1000).toISOString()}, stopped at the page cap`);
+      expect(seenIds().sort()).toEqual(events.slice(2).map((e) => e.id).sort());
+
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[2]) }]);
+      expect(seenIds().sort()).toEqual(events.map((e) => e.id).sort());
+
+      // All read through: only the newest pages from now on.
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }]);
+    });
+
+    it('files a qualifying pull from past the cap, and reads it again after a run that had to leave it', async () => {
+      const fixture: Fixture = { issues: [], published: [], fail: (r) => r.method === 'POST' && r.path === '/issues' };
+      const gh = fakeGitHub(fixture);
+      const pull = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT - 60_000);
+      const later = junk(4);
+      cappedRelay([pull, ...later], 3);
+      await inbox();
+      expect(gh.writes()).toEqual(['POST /issues']);
+      expect(logged().some((l) => l.startsWith(`${pull.id}: couldn't file it`))).toBe(true);
+      expect(seenIds()).not.toContain(pull.id);
+
+      fixture.fail = undefined;
+      gh.requests.length = 0;
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      // Read through below it; the rest of what the first run read is read again.
+      expect(filters()).toEqual([{ since, until: undefined }, { since: at(pull), until: at(later[1]) }]);
+      expect(gh.writes()).toEqual(FILED);
+      expect(outputs()).toEqual({ added: '1' });
+    });
+  });
+
   it("doesn't take over an unlabelled issue someone else opened", async () => {
     const gh = fakeGitHub({ issues: [issue(1, fourOfAKind, { labels: ['hall-of-fame'], login: 'mallory', updated: '2026-10-15T00:00:00Z' })], published: [] });
     relaysHold(fourOfAKind);
@@ -824,7 +884,7 @@ describe('retention and intake contracts (offline)', () => {
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-seen.json']);
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-read.json', 'hof-inbox-seen.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });

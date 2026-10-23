@@ -47,8 +47,76 @@ export const logSafeError = (error: unknown, max = 200): string => {
 };
 
 /** The inbox's line for one relay; a relay's reason for closing the request is its own text. */
-export const relayReadLine = (r: { relay: string; count: number; error?: string }): string =>
-  `${r.relay}: ${r.count} events${r.error ? ` (${logSafeError(r.error)})` : ''}`;
+export const relayReadLine = (r: { relay: string; count: number; error?: string; more?: number }): string =>
+  `${r.relay}: ${r.count} events${r.error ? ` (${logSafeError(r.error)})` : r.more !== undefined ? ', stopped at the page cap' : ''}`;
+
+/** The inbox's line for reading one relay's older events, up to `until` (unix seconds). */
+export const olderReadLine = (r: { relay: string; count: number; error?: string; more?: number }, until: number): string =>
+  `${r.relay}: ${r.count} older events up to ${new Date(until * 1000).toISOString()}${r.error ? ` (${logSafeError(r.error)})` : r.more !== undefined ? ', stopped at the page cap' : ''}`;
+
+/**
+ * Inclusive ranges of event times (`created_at`, unix seconds), sorted and apart. The inbox keeps,
+ * per relay, the ranges of its window it has read through and handled, so events past the page cap
+ * are read by a later run instead of never.
+ */
+export type Ranges = [number, number][];
+
+const mergeRanges = (ranges: Iterable<readonly [number, number]>): Ranges => {
+  const merged: Ranges = [];
+  for (const [lo, hi] of [...ranges].filter(([lo, hi]) => lo <= hi).sort((a, b) => a[0] - b[0])) {
+    const last = merged.at(-1);
+    if (last && lo <= last[1] + 1) last[1] = Math.max(last[1], hi);
+    else merged.push([lo, hi]);
+  }
+  return merged;
+};
+
+export const addRanges = (a: Ranges, b: Ranges): Ranges => mergeRanges([...a, ...b]);
+
+export const clipRanges = (ranges: Ranges, lo: number, hi: number): Ranges => mergeRanges(ranges.map(([a, b]) => [Math.max(a, lo), Math.min(b, hi)]));
+
+/** The newest part of [lo, hi] that `read` doesn't cover. */
+export const newestGap = (read: Ranges, lo: number, hi: number): [number, number] | undefined => {
+  let top = hi;
+  for (const [a, b] of [...clipRanges(read, lo, hi)].reverse()) {
+    if (b < top) return [b + 1, top];
+    top = a - 1;
+  }
+  return top >= lo ? [lo, top] : undefined;
+};
+
+/**
+ * What one read of a relay covered, given the range it asked for: all of it, or from just above
+ * where the page cap stopped it (`more`). A relay that failed counts as read nowhere.
+ */
+export const rangeRead = (r: { error?: string; more?: number }, lo: number, hi: number): Ranges =>
+  r.error !== undefined ? [] : clipRanges([[r.more === undefined ? lo : r.more + 1, hi]], lo, hi);
+
+/** The read ranges file: relay URL to ranges. Only the given relays and well-formed ranges are kept; anything else reads as nothing read. */
+export const parseReadRanges = (text: string, relays: readonly string[]): Map<string, Ranges> => {
+  const read = new Map<string, Ranges>();
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return read;
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return read;
+  for (const relay of relays) {
+    const ranges: unknown = (data as Record<string, unknown>)[relay];
+    if (!Array.isArray(ranges)) continue;
+    const ok = ranges.filter((r): r is [number, number] => Array.isArray(r) && r.length === 2 && r.every(Number.isSafeInteger));
+    read.set(relay, mergeRanges(ok));
+  }
+  return read;
+};
+
+/** The order processInbox handles events in: oldest first. */
+const handlingOrder = (events: readonly NostrEvent[]) => [...events].sort((a, b) => a.created_at - b.created_at);
+
+/** The time of the first event processInbox left for the next run (`deferred` of them), or Infinity if it left none. */
+export const deferredFrom = (events: readonly NostrEvent[], deferred: number): number =>
+  deferred > 0 ? handlingOrder(events)[events.length - deferred].created_at : Infinity;
 
 /** The probe's line for one relay; a relay's OK message and reason for closing are its own text. */
 export const probeLine = (relay: string, sent: PublishResult, read: { count: number; error?: string }): string =>
@@ -61,7 +129,7 @@ export const buildSkipLine = (issue: number, reason: string): string => `#${issu
 export const processInbox = async (events: readonly NostrEvent[], ctx: InboxContext): Promise<{ added: number; deferred: number }> => {
   let added = 0;
   let budget = ctx.budget;
-  const ordered = [...events].sort((a, b) => a.created_at - b.created_at);
+  const ordered = handlingOrder(events);
   for (const [i, event] of ordered.entries()) {
     if (ctx.seen.has(event.id)) continue;
     const proof = verifyEvent(event) ? proofFromEvent(event) : null;

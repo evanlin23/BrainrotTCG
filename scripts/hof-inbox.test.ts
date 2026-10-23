@@ -4,7 +4,7 @@ import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { decodeProof, encodeProof, pullId, signProof, utf8 } from '../src/engine/index.ts';
 import { hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, logSafeError, probeLine, processInbox, relayReadLine, type InboxContext } from './hof-inbox.ts';
+import { addRanges, buildSkipLine, clipRanges, deferredFrom, logSafeError, newestGap, olderReadLine, parseReadRanges, probeLine, processInbox, rangeRead, relayReadLine, type InboxContext } from './hof-inbox.ts';
 
 const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.proof;
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
@@ -236,5 +236,57 @@ describe('Hall of Fame log lines and the legacy ##[command] form', () => {
     expect(lines[2]).toBe("#42: skipped (This pull didn't verify: x## [error title=x]y)");
     expect(lines[3]).toMatch(/^[0-9a-f]{64}: didn't verify \(Unknown set x## \[error title=x\]y\)$/);
     for (const line of lines) inert(line);
+  });
+});
+
+describe('read ranges (#999)', () => {
+  it('merges ranges that overlap or touch, and clips them', () => {
+    expect(addRanges([[10, 20], [40, 50]], [[21, 25], [30, 45], [5, 3]])).toEqual([[10, 25], [30, 50]]);
+    expect(clipRanges([[10, 25], [30, 50]], 20, 35)).toEqual([[20, 25], [30, 35]]);
+    expect(clipRanges([[10, 25]], 30, 40)).toEqual([]);
+  });
+
+  it('finds the newest part of the window not read through', () => {
+    expect(newestGap([], 0, 100)).toEqual([0, 100]);
+    expect(newestGap([[60, 100]], 0, 100)).toEqual([0, 59]);
+    expect(newestGap([[0, 20], [60, 100]], 0, 100)).toEqual([21, 59]);
+    expect(newestGap([[0, 20], [60, 80]], 0, 100)).toEqual([81, 100]);
+    expect(newestGap([[-50, 150]], 0, 100)).toBeUndefined();
+  });
+
+  it('counts a read capped at `more` from just above it, a full read all the way, and a failed one nowhere', () => {
+    expect(rangeRead({}, 0, 100)).toEqual([[0, 100]]);
+    expect(rangeRead({ more: 60 }, 0, 100)).toEqual([[61, 100]]);
+    expect(rangeRead({ more: 100 }, 0, 100)).toEqual([]);
+    expect(rangeRead({ error: 'timed out' }, 0, 100)).toEqual([]);
+    expect(rangeRead({ error: 'timed out', more: 60 }, 0, 100)).toEqual([]);
+  });
+
+  it('reads the ranges file for the given relays only, and anything malformed as nothing read', () => {
+    const text = JSON.stringify({ 'wss://a': [[30, 40], [10, 20], [15, 25], ['1', 2], [3], [1.5, 2], [9, 4]], 'wss://gone': [[1, 2]], 'wss://b': 'x' });
+    expect([...parseReadRanges(text, ['wss://a', 'wss://b', 'wss://c'])]).toEqual([['wss://a', [[10, 25], [30, 40]]]]);
+    for (const bad of ['', 'not json', '[]', 'null', '7']) expect(parseReadRanges(bad, ['wss://a']).size).toBe(0);
+  });
+
+  it('places the first deferred event where processInbox stops: oldest first', async () => {
+    const events = [3, 1, 2].map((t) => hallOfFameEvent(fourOfAKind, `e${t}`, t * 1000));
+    expect(deferredFrom(events, 0)).toBe(Infinity);
+    expect(deferredFrom(events, 1)).toBe(3);
+    expect(deferredFrom(events, 3)).toBe(1);
+    // processInbox with budget for one: the oldest is handled, the other two wait.
+    const { ctx } = context({ budget: 1, accepts: () => false });
+    const { deferred } = await processInbox(events, ctx);
+    expect(deferred).toBe(2);
+    expect(deferredFrom(events, deferred)).toBe(2);
+    expect([...ctx.seen]).toEqual([events[1].id]);
+  });
+
+  it('says when the page cap stopped a read, in a line the harness does not count as a failure', () => {
+    expect(relayReadLine({ relay: 'wss://a', count: 4942, more: 60 })).toBe('wss://a: 4942 events, stopped at the page cap');
+    expect(olderReadLine({ relay: 'wss://a', count: 258 }, 60)).toBe('wss://a: 258 older events up to 1970-01-01T00:01:00.000Z');
+    expect(olderReadLine({ relay: 'wss://a', count: 5000, more: 50 }, 60)).toBe('wss://a: 5000 older events up to 1970-01-01T00:01:00.000Z, stopped at the page cap');
+    for (const line of [relayReadLine({ relay: 'wss://a', count: 1, more: 1 }), olderReadLine({ relay: 'wss://a', count: 0, error: 'timed out' }, 60)]) {
+      expect(line).not.toMatch(/^wss:\/\/\S+: \d+ events \(/);
+    }
   });
 });

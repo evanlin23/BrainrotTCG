@@ -248,6 +248,23 @@ describe('nostr inbox', () => {
     expect(all.events.map((e) => e.id).sort()).toEqual([old, ...burst].map((e) => e.id).sort());
     expect(requests.length).toBeLessThan(10); // 1 + 4 pages, not 20
   });
+
+  it('says where the page cap stopped a relay, so a later read can go on from there (#999)', async () => {
+    const events = Array.from({ length: 9 }, (_, i) => hallOfFameEvent(PROOF, `e${i}`, 1_000_000 + i * 1000));
+    const relays = fakeRelays({ 'wss://a': 'accept', 'wss://b': 'accept' }, { 'wss://a': events, 'wss://b': events.slice(6) });
+    const capped = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a', 'wss://b'], 500, relays, 2);
+    // Event times 1000..1008. a: two pages of three, the second from `until` 1006 (inclusive), so
+    // 1004..1008 were read and 1004 is where to go on; b's second page brought nothing new.
+    expect(capped.perRelay).toEqual([
+      { relay: 'wss://a', count: 6, error: undefined, more: 1004 },
+      { relay: 'wss://b', count: 4, error: undefined },
+    ]);
+    expect(capped.events.map((e) => e.created_at).sort()).toEqual([1004, 1005, 1006, 1007, 1008]);
+    const rest = await fetchEvents({ kinds: [HOF_KIND], limit: 3, until: 1004 }, ['wss://a'], 500, relays, 2);
+    expect(rest.perRelay[0].more).toBe(1000);
+    expect((await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, relays, 20)).perRelay[0].more).toBeUndefined();
+    expect((await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://down'], 500, fakeRelays({ 'wss://down': 'fail' }), 1)).perRelay[0]).toEqual({ relay: 'wss://down', count: 0, error: 'connection failed' });
+  });
 });
 
 type MockSocketHandlers = {
@@ -360,7 +377,8 @@ describe('relay ingress boundaries (#621)', () => {
     const all = [bigContent, manyTags, longTag, wrongKind, wrongTag, tooOld, good];
     const result = await fetchEvents(filter, ['wss://rogue'], 5000, rogueRelay((sub) => all.map((e) => ['EVENT', sub, e])));
     expect(result.events).toEqual([good]);
-    expect(result.perRelay[0]).toEqual({ relay: 'wss://rogue', count: all.length, error: undefined });
+    // One page, still bringing new events: the reader says where the rest would start.
+    expect(result.perRelay[0]).toEqual({ relay: 'wss://rogue', count: all.length, error: undefined, more: 500 });
     expect(verifyCalls()).toBe(1);
   });
 

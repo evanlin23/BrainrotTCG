@@ -212,7 +212,7 @@ export interface RunRow {
   eventsRead: number;
   /** Relays whose read ended in an error (a run with every relay down still reports `ok`). */
   relaysFailed: number;
-  /** Events the run's reader never saw because they are past the paging cap (INBOX_PAGES x INBOX_PAGE_SIZE per relay); 0 when every relay was down. */
+  /** In-window events the run didn't read: past the paging cap (INBOX_PAGES x INBOX_PAGE_SIZE per relay, twice), which since #999 are only ones an earlier run read through and handled; 0 when every relay was down. */
   beyondPaging: number;
   /** In-window events on the relays that no relay could serve this run (every relay down), so none were read; not a paging effect. */
   unreadable: number;
@@ -528,7 +528,7 @@ export const SCENARIOS: ScenarioInput[] = [
   { name: 'interrupted-filing', note: 'filing writes fail part-way (250 issues already exist, so listing takes 3 pages): the next run finishes the same issues without filing twice', runs: 6, phases: [{ fromS: 0, toS: 900, ratePerS: 0.02 }], qualifyingFraction: 1, githubFailWrites: [2, 3, 7], existingIssues: 250 },
   { name: 'write-limit', note: 'GitHub answers 500 to writes past 30 a run (a modeled provider limit): filing is slower than the 20-a-run cap', runs: 8, phases: [{ fromS: 0, toS: 900, ratePerS: 0.1 }], qualifyingFraction: 1, githubWriteLimitPerRun: 30 },
   { name: 'seen-cache-overflow', note: 'other traffic fills the 20,000-id seen cache, so handled events fall out of it and are derived again', runs: 4, phases: [{ fromS: 0, toS: 900, ratePerS: 0.05 }], invalidFraction: 0.5, qualifyingFraction: 0.3, seenFillerPerRun: 20_000 },
-  { name: 'paging-cap', slow: true, note: 'about 5,200 events on the relays, more than 50 pages x 100 can reach: the oldest are not read (slow: about two minutes)', runs: 2, cadenceS: 2000, phases: [{ fromS: 0, toS: 2000, ratePerS: 2.6 }] },
+  { name: 'paging-cap', slow: true, note: 'about 5,200 events on the relays, more than 50 pages x 100 reach in one pass: the rest are read from where the cap stopped (slow: about two minutes)', runs: 2, cadenceS: 2000, phases: [{ fromS: 0, toS: 2000, ratePerS: 2.6 }] },
   { name: 'synthetic-30-packs-per-second', slow: true, note: "#225's synthetic future opt-in: every generated pack submitted, 30 a second for 3 minutes, about 1 in 70 qualifying (slow: about two minutes)", futureOptIn225: true, runs: 2, cadenceS: 180, phases: [{ fromS: 0, toS: 180, ratePerS: 30 }], qualifyingFraction: 1 / 70 },
 ];
 
