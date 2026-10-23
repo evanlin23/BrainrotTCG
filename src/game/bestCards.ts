@@ -288,6 +288,13 @@ export const getBestCards = (publicKeyHex: string, used: number): BestCards => {
   return { cards, complete, unsaved: !!held };
 };
 
+/** The set a winner is rebuilt from: none when this build doesn't know that set version (a save from a newer build). */
+export const rebuildSet = (setId: string, setVersion: number) => getSet(setId, setVersion);
+
+/** An unscored winner the rebuild will try: the one rule rebuildBestCards and the Best cards section both go by. */
+export const awaitsRebuild = (best: Pick<BestCard, 'setId' | 'setVersion' | 'card'>): boolean =>
+  !best.card && !!rebuildSet(best.setId, best.setVersion);
+
 /**
  * Rebuilds winners from their references with the engine (derivePack): the unscored ones, or with
  * `all` every one (a cached card is never trusted over its ticket). Each rebuilt pack is offered whole.
@@ -301,7 +308,7 @@ export const rebuildBestCards = async (
   const packs = new Map<string, { entry: StoredBest; set: NonNullable<ReturnType<typeof getSet>> }>();
   const list = pending.get(publicKeyHex) ?? readStore()?.store[publicKeyHex];
   for (const entry of list?.b ?? []) {
-    const set = getSet(entry.s, entry.v);
+    const set = rebuildSet(entry.s, entry.v);
     if (set && (all || !tryScore(entry)?.card)) packs.set(`${entry.n}`, { entry, set });
   }
   let failed = 0;
