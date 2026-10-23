@@ -29,7 +29,10 @@ const blockedName = (() => {
 })();
 const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB' : 'AAAA');
 const idOf = (proof: string) => pullId(decodeProof(proof));
+/** The bot's marker as it was before it recorded receipts. */
 const marker = (proof: string) => `<!-- hof-verified ${idOf(proof)} -->`;
+/** The bot's marker with the pull's receipt; without one, the part every receipt follows. */
+const markerAt = (proof: string, receivedAt = '') => `<!-- hof-verified ${idOf(proof)} received ${receivedAt}${receivedAt && ' -->'}`;
 const link = (proof: string) => `https://evanlin23.github.io/BrainrotTCG/#/pull/${proof}`;
 /** Freezes the clock (only `Date`) at `time`; the shared afterEach restores it. */
 const clockAt = (time: string) => {
@@ -176,7 +179,7 @@ const outputs = (): Record<string, string> =>
 let home: string;
 let dir: string;
 const output = () => path.join(dir, 'hall-of-fame.json');
-const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string }[];
+const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
 beforeEach(() => {
   home = process.cwd();
   dir = mkdtempSync(path.join(os.tmpdir(), 'hall-of-fame-'));
@@ -244,6 +247,31 @@ describe('build (deploy workflow)', () => {
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/3/comments');
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/4/comments');
     expect(gh.writes()).toEqual([]);
+  });
+
+  it('credits a pull to its earliest receipt, even when another issue verified it first', async () => {
+    const gh = fakeGitHub({
+      issues: [issue(1, fourOfAKind), issue(2, fourOfAKind, { login: 'bob' })],
+      comments: {
+        // Verified first, by a marker from before receipts were recorded.
+        1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')],
+        // Verified a day later by a delayed run, but received before issue 1 was verified.
+        2: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:00:00.000Z'), '2026-10-03T00:00:00Z')],
+      },
+    });
+    await build(output());
+    expect(entries().map((e) => [e.issue, e.githubUser, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[2, 'bob', '2026-10-01T23:00:00.000Z', '2026-10-03T00:00:00Z', undefined]]);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it.each([
+    { marked: 'no receipt (from before receipts were recorded)', body: marker(fourOfAKind) },
+    { marked: 'a receipt after its comment', body: markerAt(fourOfAKind, '2026-10-02T00:00:01.000Z') },
+    { marked: "a receipt that isn't a time", body: `<!-- hof-verified ${idOf(fourOfAKind)} received soon -->` },
+  ])('stamps a pull whose marker has $marked with its verification, and says so', async ({ body }) => {
+    fakeGitHub({ issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, body, '2026-10-02T00:00:00Z')] } });
+    await build(output());
+    expect(entries().map((e) => [e.issue, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[1, '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z', 'verification']]);
   });
 
   it("leaves out a verified pull whose display name isn't allowed", async () => {
@@ -337,9 +365,10 @@ describe('published list', () => {
 });
 
 describe('verify-issue (issue workflow)', () => {
-  const run = async (body: string, labels = ['hall-of-fame']) => {
+  /** An `action` event on issue 7 with `body`, stamped (opened, or last updated) at `at` (the clock now). */
+  const run = async (body: string, labels = ['hall-of-fame'], action = 'opened', at = new Date().toISOString()) => {
     rmSync('github-output', { force: true });
-    writeFileSync('event.json', JSON.stringify({ issue: { ...issue(7, null, { labels }), body } }));
+    writeFileSync('event.json', JSON.stringify({ action, issue: { ...issue(7, null, { labels }), body, ...(action === 'opened' ? { created_at: at } : {}), updated_at: at } }));
     await verifyIssue();
     return { comment: readFileSync('hof-comment.md', 'utf8'), outputs: outputs() };
   };
@@ -349,7 +378,7 @@ describe('verify-issue (issue workflow)', () => {
     const result = await run(`My pull: ${link(fourOfAKind)}`);
     expect(result.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
     expect(result.comment).toContain('**Verified!**');
-    expect(result.comment).toContain(marker(fourOfAKind));
+    expect(result.comment).toContain(markerAt(fourOfAKind));
     expect(gh.writes()).toEqual([]);
   });
 
@@ -358,7 +387,7 @@ describe('verify-issue (issue workflow)', () => {
     const board = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1) });
     const joined = await run(link(fourOfAKind));
     expect(joined.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
-    expect(joined.comment).toContain(marker(fourOfAKind));
+    expect(joined.comment).toContain(markerAt(fourOfAKind, '2026-10-16T12:00:00.000Z'));
     // A full day yesterday leaves today open.
     fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-15', HALL_OF_FAME_DAILY_TOP) });
     expect((await run(link(fourOfAKind))).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
@@ -402,6 +431,42 @@ describe('verify-issue (issue workflow)', () => {
     expect([again, own, renamed, down, allTime].flatMap((gh) => gh.writes())).toEqual([]);
   });
 
+  it("records an edit as the receipt of the pull it adds, not the issue's creation", async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    fakeGitHub({ issues: [], published: [] });
+    // Issue 7 was opened on 2026-10-01 as a placeholder.
+    const edited = await run(link(fourOfAKind), ['hall-of-fame'], 'edited', '2026-10-16T11:58:00Z');
+    expect(edited.outputs.verified).toBe('true');
+    expect(edited.comment).toContain(markerAt(fourOfAKind, '2026-10-16T11:58:00Z'));
+  });
+
+  it("puts a pull a late run verifies after midnight on the day it was received, while that day's top is kept", async () => {
+    // Yesterday's top has room; today's is full.
+    const published = [
+      ...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1),
+      ...dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP)
+        .slice(HALL_OF_FAME_TOP + 1)
+        .map((e) => ({ ...e, id: `next-${e.id}` })),
+    ];
+    const gh = fakeGitHub({ issues: [], published });
+    clockAt('2026-10-17T00:10:00Z');
+    const late = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:55:00Z');
+    expect(late.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'daily', rejected: 'false' });
+    expect(late.comment).toContain(markerAt(fourOfAKind, '2026-10-16T23:55:00Z'));
+
+    // A day later the 16th's top is gone, so only the all-time list could take it.
+    clockAt('2026-10-18T00:10:00Z');
+    const later = await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:55:00Z');
+    expect(later.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+    expect(later.comment).toContain('received on an earlier UTC day whose top is no longer kept');
+    expect(later.comment).toContain(`Brainrot Score above 100,000 to make the top ${HALL_OF_FAME_TOP}`);
+    expect(later.comment).not.toContain('hof-verified');
+    // It still joins the all-time list when there's room.
+    const open = fakeGitHub({ issues: [], published: [] });
+    expect((await run(link(fourOfAKind), ['hall-of-fame'], 'opened', '2026-10-16T23:55:00Z')).outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
+    expect([...gh.writes(), ...open.writes()]).toEqual([]);
+  });
+
   it("turns down a real pull whose display name isn't allowed, and asks for the rejected label", async () => {
     const gh = fakeGitHub({ issues: [], published: [] });
     const result = await run(link(blockedName));
@@ -421,6 +486,8 @@ describe('verify-issue (issue workflow)', () => {
   });
 
   it('recovers from interrupted labeling: restores missing labels without duplicate comments and redeploys (#650)', async () => {
+    // Opened a minute before the bot's comment below.
+    clockAt('2026-10-02T09:59:00Z');
     // 1. Initial run: fresh submission with fourOfAKind
     const fakeIssue = issue(7, fourOfAKind, { labels: ['hall-of-fame'] });
     const gh = fakeGitHub({ issues: [fakeIssue], comments: {}, published: [] });
@@ -429,7 +496,7 @@ describe('verify-issue (issue workflow)', () => {
     let result = await run(link(fourOfAKind), ['hall-of-fame']);
     expect(result.outputs).toEqual({ verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' });
     expect(result.comment).toContain('**Verified!**');
-    expect(result.comment).toContain(marker(fourOfAKind));
+    expect(result.comment).toContain(markerAt(fourOfAKind, '2026-10-02T09:59:00.000Z'));
 
     // Simulate workflow shell execution:
     // Comment succeeds: bot adds comment to GitHub
@@ -466,8 +533,11 @@ describe('verify-issue (issue workflow)', () => {
     expect(entries()[0]).toMatchObject({
       id: idOf(fourOfAKind),
       proof: fourOfAKind,
-      submittedAt: '2026-10-02T10:00:00Z', // original comment timestamp preserved!
+      // The first receipt its marker recorded, and the first verification: both preserved.
+      submittedAt: '2026-10-02T09:59:00.000Z',
+      verifiedAt: '2026-10-02T10:00:00Z',
     });
+    expect(entries()[0]).not.toHaveProperty('receipt');
 
     // Step 4: Subsequent retry on the completed issue changes nothing
     const completedResult = await run(link(fourOfAKind), ['hall-of-fame', 'verified']);
@@ -628,7 +698,8 @@ describe('inbox (scheduled workflow)', () => {
     const [opened, marked, labelled, closed] = gh.requests.filter((r) => r.method !== 'GET');
     expect(opened.body).toMatchObject({ labels: ['hall-of-fame'], title: '[Hall of Fame] 4 of a Kind by Combo Miner' });
     expect(opened.body!.body).toContain(`#/pull/${fourOfAKind}`);
-    expect(marked.body!.body).toContain(marker(fourOfAKind));
+    // The receipt is the issue the fake GitHub stamped with the clock.
+    expect(marked.body!.body).toContain(markerAt(fourOfAKind, '2026-10-16T12:00:00.000Z'));
     expect(labelled.body).toEqual({ labels: ['verified'] });
     expect(closed.body).toEqual({ state: 'closed', state_reason: 'completed' });
     expect(outputs()).toEqual({ added: '1' });

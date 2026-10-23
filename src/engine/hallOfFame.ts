@@ -30,15 +30,15 @@ export interface RankableEntry {
   hand: string;
   multiplier: number;
   score: number;
-  /** When it was first verified (ISO time): earlier wins ties. */
+  /** When it was first received (ISO time; scripts/hall-of-fame.ts): earlier wins ties. */
   submittedAt: string;
 }
 
 const byTime = <T extends RankableEntry>(a: T, b: T) => a.submittedAt.localeCompare(b.submittedAt);
-/** Score, then the earlier verification, then pull id, so exact ties can't swap between runs. */
+/** Score, then the earlier receipt, then pull id, so exact ties can't swap between runs. */
 const byRank = <T extends RankableEntry>(a: T, b: T) => b.score - a.score || byTime(a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/** Each pull once (its earliest verification keeps the credit). */
+/** Each pull once (its earliest receipt keeps the credit). */
 export const uniquePulls = <T extends RankableEntry>(entries: readonly T[]): T[] => {
   const seen = new Set<string>();
   return [...entries].sort(byTime).filter((e) => !seen.has(e.id) && !!seen.add(e.id));
@@ -63,8 +63,8 @@ export const previousUtcDay = (day: string): string => {
 };
 
 /**
- * The best `HALL_OF_FAME_DAILY_TOP` pulls verified on one UTC day, best first. Ranked like
- * `topPulls`: each pull once, credited to its earliest verification in `entries` (so a pull verified
+ * The best `HALL_OF_FAME_DAILY_TOP` pulls received on one UTC day, best first. Ranked like
+ * `topPulls`: each pull once, credited to its earliest receipt in `entries` (so a pull received
  * on an earlier day among them doesn't count again), and ties go to the earlier one. The build only
  * passes the last two days' daily-only entries, so this alone can't stop a pull from counting on a
  * later day again: intake turns one down while a `daily` issue from the last eight days carries it

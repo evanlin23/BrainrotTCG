@@ -50,9 +50,13 @@
  * An issue labelled `rejected` is never listed: verify-issue adds that label to a pull whose display
  * name isn't allowed (src/engine/nameFilter.ts), and the owner adds it to remove an entry by hand.
  *
- * Ties (and a pull's UTC day) use the time the bot first verified that exact
- * pull on the issue (its marker comment), not the issue's creation date:
- * otherwise anyone could open a placeholder issue early and edit a pull in later.
+ * Ties (and a pull's UTC day) use the pull's first receipt: the time GitHub
+ * received the issue body that carried it, which the bot's first marker comment
+ * for that exact pull records (`receiptOf`). An edit's receipt is the edit, not
+ * the issue's creation, so a placeholder issue opened early and edited later
+ * can't claim an earlier spot, and a run that starts late (or after midnight)
+ * doesn't move the pull later. Markers from before receipts were recorded carry
+ * none; those entries keep their verification time and say so (`receipt`).
  *
  * Security: issue bodies are untrusted input. They are only ever parsed here,
  * never interpolated into a shell command, and echoed only through safe().
@@ -74,6 +78,7 @@ import {
   publicName,
   pullId,
   qualifiesForHallOfFame,
+  receiptTime,
   utcDay,
   verifyProof,
   type RankableEntry,
@@ -91,7 +96,17 @@ const OUTPUT = `${ROOT}public/hall-of-fame.json`;
 const REPO = process.env.GITHUB_REPOSITORY ?? 'evanlin23/BrainrotTCG';
 const BOT = 'github-actions[bot]';
 const API = 'https://api.github.com';
-const markerFor = (id: string) => `<!-- hof-verified ${id} -->`;
+/** The bot's marker on a verified pull, with the pull's first receipt (see "Ties" above). */
+const markerFor = (id: string, receivedAt: string) => `<!-- hof-verified ${id} received ${receivedAt} -->`;
+const MARKER = /<!-- hof-verified (\S+)(?: received (\S+))? -->/g;
+/**
+ * The receipt in `body`'s marker for pull `id`: a time, null for a marker from before receipts were
+ * recorded, or undefined when there is no marker for it.
+ */
+const markedReceipt = (body: string, id: string): string | null | undefined => {
+  for (const [, marked, receivedAt] of body.matchAll(MARKER)) if (marked === id) return receivedAt ?? null;
+  return undefined;
+};
 
 export interface HallOfFameEntry extends RankableEntry {
   proof: string;
@@ -105,10 +120,16 @@ export interface HallOfFameEntry extends RankableEntry {
   score: number;
   /** finish and misprint only for cards from sets with modifiers. */
   cards: { cardId: string; isHolo: boolean; finish?: Finish | null; misprint?: boolean }[];
-  /** Trusted, from GitHub: who submitted, and when the bot first verified this pull. */
+  /**
+   * Trusted, from GitHub: who submitted, when GitHub first received this pull (the time ties and
+   * the daily tops use), and when the bot first verified it.
+   */
   issue: number;
   githubUser: string;
   submittedAt: string;
+  verifiedAt: string;
+  /** Set when no receipt was recorded (markers before receipts were): submittedAt is verifiedAt. */
+  receipt?: 'verification';
 }
 
 interface Issue {
@@ -137,7 +158,8 @@ const safe = (text: string) =>
     .replace(/:\/\//g, ':\u200B//')
     .replace(/[\r\n]+/g, ' ');
 
-const toEntry = (pull: VerifiedPull, proof: string, issue: Issue, verifiedAt: string): HallOfFameEntry => ({
+/** An entry received and verified at `time`; `build` replaces both times with its marker's (`timesOf`). */
+const toEntry = (pull: VerifiedPull, proof: string, issue: Issue, time: string): HallOfFameEntry => ({
   id: pullId(pull.proof),
   proof,
   name: pull.proof.name,
@@ -152,7 +174,8 @@ const toEntry = (pull: VerifiedPull, proof: string, issue: Issue, verifiedAt: st
   issue: issue.number,
   // Entries the inbox filed came from Nostr, not from this GitHub account.
   githubUser: issue.user?.login === BOT ? 'nostr' : (issue.user?.login ?? 'unknown'),
-  submittedAt: verifiedAt,
+  submittedAt: time,
+  verifiedAt: time,
 });
 
 /** `rejected` marks a refusal that also gets the `rejected` label (a display name that isn't allowed). */
@@ -193,12 +216,35 @@ interface Comment {
   user: { login: string } | null;
 }
 
-/** When the bot first verified this pull on this issue (only the bot's own comments count). */
-const firstVerifiedAt = async (issue: number, id: string, token: string): Promise<string | null> => {
+/** The bot's first verification of a pull on an issue: when, and the receipt its marker records. */
+interface Verification {
+  verifiedAt: string;
+  /** Null for a marker from before receipts were recorded, or one that isn't a time before its comment. */
+  receivedAt: string | null;
+}
+
+/** The receipt a marker records, if it is a GitHub time no later than the comment carrying it. */
+export const receiptOf = (receivedAt: string | null | undefined, verifiedAt: string): string | null => {
+  if (!receivedAt) return null;
+  try {
+    return receiptTime(receivedAt) <= receiptTime(verifiedAt) ? receivedAt : null;
+  } catch {
+    return null;
+  }
+};
+
+/** An entry's times from its first verification: the receipt, or else the verification, marked as such. */
+export const timesOf = ({ verifiedAt, receivedAt }: Verification): Pick<HallOfFameEntry, 'submittedAt' | 'verifiedAt' | 'receipt'> =>
+  receivedAt ? { submittedAt: receivedAt, verifiedAt } : { submittedAt: verifiedAt, verifiedAt, receipt: 'verification' };
+
+/** The bot's first verification of this pull on this issue (only the bot's own comments count). */
+const firstVerification = async (issue: number, id: string, token: string): Promise<Verification | null> => {
   for (let page = 1; page < 20; page++) {
     const batch = await github<Comment[]>(`/repos/${REPO}/issues/${issue}/comments?per_page=100&page=${page}`, token);
-    const hit = batch.find((c) => c.user?.login === BOT && c.body?.includes(markerFor(id)));
-    if (hit) return hit.created_at;
+    for (const c of batch) {
+      const marked = c.user?.login === BOT && c.body ? markedReceipt(c.body, id) : undefined;
+      if (marked !== undefined) return { verifiedAt: c.created_at, receivedAt: receiptOf(marked, c.created_at) };
+    }
     if (batch.length < 100) return null;
   }
   // Not silent: past this many comments the marker isn't looked for. Not an error either, since
@@ -221,8 +267,8 @@ const latestBotComment = async (issue: number, token: string): Promise<Comment |
 const FOOTER = '\n\n---\n_Verified automatically by re-deriving the pack from its proof (`scripts/hall-of-fame.ts`)._';
 
 /** The bot's comment on a verified pull; its marker is what `build` looks for. */
-const verifiedComment = (entry: HallOfFameEntry, pull: VerifiedPull) =>
-  `✅ **Verified!** ${safe(entry.name)} \\#${entry.fingerprint} pulled a **${entry.hand}** in ${safe(entry.setName)} with a Brainrot Score of **${entry.score.toLocaleString('en-US')}**.\n\nIt will appear in the Hall of Fame after the next deploy (started automatically).${FOOTER}\n${markerFor(pullId(pull.proof))}`;
+const verifiedComment = (entry: HallOfFameEntry, pull: VerifiedPull, receivedAt: string) =>
+  `✅ **Verified!** ${safe(entry.name)} \\#${entry.fingerprint} pulled a **${entry.hand}** in ${safe(entry.setName)} with a Brainrot Score of **${entry.score.toLocaleString('en-US')}**.\n\nIt will appear in the Hall of Fame after the next deploy (started automatically).${FOOTER}\n${markerFor(pullId(pull.proof), receivedAt)}`;
 
 /** Where GitHub Pages serves the site; it always carries hall-of-fame.json, even once the site moves. */
 const pagesUrl = () => {
@@ -251,45 +297,53 @@ const publishedList = async (): Promise<(RankableEntry & { issue?: number })[] |
 
 const candidateOf = (pull: VerifiedPull) => ({ id: pullId(pull.proof), setId: pull.set.id, score: pull.score });
 
-/** The label for a pull joining the list today (`verified` when the published list can't be read). */
-const joinLabel = (pull: VerifiedPull, list: readonly RankableEntry[] | null, day: string): 'verified' | 'daily' =>
+/** The label for a pull joining the list on `day` (`verified` when the published list can't be read). */
+const joinLabel = (pull: VerifiedPull, list: readonly RankableEntry[] | null, day: string | undefined): 'verified' | 'daily' =>
   list && hallOfFameJoin(candidateOf(pull), list, day) === 'daily' ? 'daily' : 'verified';
 
-/** Why a verified pull doesn't join the list (all-time or `day`'s top), or null if it does. */
-const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day: string): string | null => {
+/** Why a verified pull doesn't join the list (all-time or `day`'s top, if any), or null if it does. */
+const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day: string | undefined): string | null => {
   const candidate = candidateOf(pull);
   if (hallOfFameJoin(candidate, list, day)) return null;
   if (list.some((e) => e.id === candidate.id)) return 'This pull is already in the Hall of Fame.';
+  if (!day) return `The pull is real, but it was received on an earlier UTC day whose top is no longer kept, and it needs a Brainrot Score above ${(hallOfFameFloor(list) ?? 0).toLocaleString('en-US')} to make the top ${HALL_OF_FAME_TOP}.`;
   // Turned down, so the top pulls and the day's top are both full: either bar lets it in.
   const lowest = hallOfFameFloor(list, day) ?? 0;
   return `The pull is real, but the Hall of Fame keeps the top ${HALL_OF_FAME_TOP} and the top ${HALL_OF_FAME_DAILY_TOP} of each UTC day. To join, it needs a Brainrot Score above ${lowest.toLocaleString('en-US')}.`;
 };
 
 export const verifyIssue = async () => {
-  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { issue: Issue };
+  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { action?: string; issue: Issue };
+  // When GitHub received the body this event carries (its first receipt, if the pull is new here):
+  // an opened issue's payload holds the body as opened, so its creation; for an edit, that edit (the
+  // payload's last update); for anything else the last update too, which is never before the body.
+  const receivedAt = event.action === 'opened' ? event.issue.created_at : event.issue.updated_at;
   let result = await checkIssue(event.issue);
   const token = process.env.GITHUB_TOKEN;
   // An edit that keeps the same verified pull needs no new comment.
-  let verifiedAt: string | null = null;
+  let verification: Verification | null = null;
   if (result.ok && token) {
     try {
-      verifiedAt = await firstVerifiedAt(event.issue.number, pullId(result.pull.proof), token);
+      verification = await firstVerification(event.issue.number, pullId(result.pull.proof), token);
     } catch (error) {
       console.warn(`Could not read earlier comments; treating this as a new verification. ${error}`);
     }
   }
-  const already = verifiedAt !== null;
-  // A new verification only goes in if it would join the list (the top pulls or today's top), and
-  // one that only makes today's top only if it isn't already on an earlier day's. The same pull
-  // verified again keeps the label it has.
+  const already = verification !== null;
+  // A new verification only goes in if it would join the list (the top pulls or the top of the day
+  // it was received, while that day's top is still published: today's or yesterday's, so a run that
+  // starts after midnight doesn't move it a day), and one that only makes a day's top only if it
+  // isn't already on an earlier day's. The same pull verified again keeps the label it has.
   let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
   const currentLabels = labelNames(event.issue);
   if (result.ok && !already) {
     const list = await publishedList();
     const day = today();
-    const reason = list && joinRefusal(result.pull, list, day);
+    const receivedDay = utcDay(receivedAt);
+    const joinDay = receivedDay === day || receivedDay === previousUtcDay(day) ? receivedDay : undefined;
+    const reason = list && joinRefusal(result.pull, list, joinDay);
     if (reason) result = { ok: false, reason };
-    else if (joinLabel(result.pull, list, day) === 'verified') label = 'verified';
+    else if (joinLabel(result.pull, list, joinDay) === 'verified') label = 'verified';
     else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
     else label = 'daily';
   }
@@ -311,7 +365,7 @@ export const verifyIssue = async () => {
   // the next build would list it while the published list doesn't yet. So editing away and back
   // can't start deploys, even for a pull that isn't live (an expired daily, or one outside the top).
   let redeploy = result.ok && !already;
-  if (repair && result.ok && verifiedAt && token) {
+  if (repair && result.ok && verification && token) {
     const { id } = result.entry;
     const list = await publishedList();
     const others = list?.filter((e) => e.issue !== event.issue.number) ?? null;
@@ -321,10 +375,12 @@ export const verifyIssue = async () => {
     if (list && others && !list.some((e) => e.id === id)) {
       const now = new Date();
       const day = utcDay(now.toISOString());
-      const counts = label === 'verified' || [day, previousUtcDay(day)].includes(utcDay(verifiedAt));
-      const listed = counts && listToPublish([...others, { ...result.entry, submittedAt: verifiedAt }], now).some((e) => e.id === id);
+      const entry = { ...result.entry, ...timesOf(verification) };
+      const counts = label === 'verified' || [day, previousUtcDay(day)].includes(utcDay(entry.submittedAt));
+      const listed = counts && listToPublish([...others, entry], now).some((e) => e.id === id);
       try {
-        redeploy = listed && (await latestBotComment(event.issue.number, token))?.body?.includes(markerFor(id)) === true;
+        const latest = (await latestBotComment(event.issue.number, token))?.body;
+        redeploy = listed && !!latest && markedReceipt(latest, id) !== undefined;
       } catch (error) {
         console.warn(`Could not read the bot's latest comment; not redeploying. ${error}`);
       }
@@ -333,7 +389,7 @@ export const verifyIssue = async () => {
   // `changed` runs the label step; an empty comment file makes it skip the comment.
   const changed = !already || repair;
 
-  const body = result.ok ? verifiedComment(result.entry, result.pull) : `❌ **Not added.** ${result.reason}${FOOTER}`;
+  const body = result.ok ? verifiedComment(result.entry, result.pull, receivedAt) : `❌ **Not added.** ${result.reason}${FOOTER}`;
   writeFileSync('hof-comment.md', already ? '' : body);
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
@@ -476,13 +532,13 @@ export const build = async (output = OUTPUT) => {
       console.log(buildSkipLine(issue.number, result.reason));
       continue;
     }
-    const verifiedAt = await firstVerifiedAt(issue.number, result.entry.id, token);
-    if (!verifiedAt) {
+    const verification = await firstVerification(issue.number, result.entry.id, token);
+    if (!verification) {
       next[issue.number] = { updatedAt: issue.updated_at, entry: null, reason: 'not verified on the issue yet' };
       console.log(`#${issue.number}: skipped (the bot hasn't verified this pull on the issue yet)`);
       continue;
     }
-    const entry = { ...result.entry, submittedAt: verifiedAt };
+    const entry = { ...result.entry, ...timesOf(verification) };
     next[issue.number] = { updatedAt: issue.updated_at, entry };
     verified.push(entry);
   }
@@ -493,7 +549,7 @@ export const build = async (output = OUTPUT) => {
   const dailyOnly = new Set(issues.filter(isDailyOnly).map((i) => i.number));
   const counted = verified.filter((e) => !dailyOnly.has(e.issue) || days.includes(utcDay(e.submittedAt)));
   const entries = listToPublish(counted, now);
-  for (const e of entries) console.log(`#${e.issue}: ${e.hand} (${e.score}), verified ${e.submittedAt}`);
+  for (const e of entries) console.log(`#${e.issue}: ${e.hand} (${e.score}), received ${e.submittedAt}${e.receipt ? ' (when verified)' : ''}`);
   writeFileSync(output, JSON.stringify(entries, null, 1) + '\n');
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);
 };
@@ -709,8 +765,8 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
           labels: ['hall-of-fame'],
         }));
       const entry = toEntry(pull, proof, issue, issue.created_at);
-      if (!earlier || !(await firstVerifiedAt(issue.number, id, token))) {
-        await github(`/repos/${REPO}/issues/${issue.number}/comments`, token, { body: verifiedComment(entry, pull) });
+      if (!earlier || !(await firstVerification(issue.number, id, token))) {
+        await github(`/repos/${REPO}/issues/${issue.number}/comments`, token, { body: verifiedComment(entry, pull, issue.created_at) });
       }
       await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: [joinLabel(pull, list, utcDay(issue.created_at))] });
       unfinished.delete(id);
