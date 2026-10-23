@@ -220,8 +220,8 @@ earlier *production* deployment. A staging preview is never a rollback target.
 
 ## Web analytics
 
-Production counts visits with Cloudflare Web Analytics, turned on for the Pages project in the
-Cloudflare dashboard (its automatic setup). Pages then adds one tag to every page it serves, just
+Production counts visits with Cloudflare Web Analytics, on through Pages' automatic setup (the Pages
+project's **Metrics → Web Analytics** in the Cloudflare dashboard; turn analytics off there). Pages adds one tag to every page it serves, just
 before `</body>`: a comment, a `<script defer>` loading
 `https://static.cloudflareinsights.com/beacon.min.js` with the site's token in `data-cf-beacon`, and
 the comment again. Our build never writes it, and there's nothing to set in this repository.
@@ -242,9 +242,9 @@ until `BEACON_TAG` in `scripts/deploy_contract.py` matches the new shape: read i
 page, keeping the token out of the code, logs and issues.
 
 Browser checks that load the real site (staging checks, the production smoke) answer exactly the
-beacon script's address with an inert script, and a POST to exactly
-`https://cloudflareinsights.com/cdn-cgi/rum` with an empty 204, so they aren't counted as visits;
-every other request to another origin, Cloudflare's included, is still refused
+beacon script's address with an inert script that reports nothing, so they aren't counted as
+visits; every other request to another origin, Cloudflare's reporting endpoint
+`https://cloudflareinsights.com/cdn-cgi/rum` included, is still refused
 (`tests/browser/support.ts`). The site sends no Content Security Policy; if one is added, it must
 allow that script in `script-src` and `https://cloudflareinsights.com` in `connect-src`.
 

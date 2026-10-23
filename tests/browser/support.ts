@@ -4,7 +4,7 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
-import { BEACON_URL, RUM_URL } from '../../scripts/cloudflare-analytics';
+import { BEACON_URL } from '../../scripts/cloudflare-analytics';
 import type { Finish, Rarity } from '../../src/engine/types';
 import { accessHeaders, stagingAccess, type StagingAccess } from './stagingAccess';
 
@@ -138,7 +138,7 @@ export function fetchFailureReason(error: unknown, secrets: readonly string[]): 
  * - Redirects are inspected with maxRedirects: 0; any redirect escape outside allowed origin/path is refused with 403.
  * - CSP is applied to enforce boundaries inside workers.
  * - Cloudflare Web Analytics' beacon script (a GET of exactly that URL) gets an inert stand-in
- *   (BEACON_STUB), and a POST to exactly its reporting endpoint gets an empty 204.
+ *   (BEACON_STUB). Its reporting endpoint is refused like any other origin; the stand-in never calls it.
  * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence, and on monitored
  *   requests whose fetch failed, named the same way (one failing because the page or context closed
  *   is teardown itself, and isn't recorded).
@@ -299,9 +299,7 @@ export async function monitor(
       return [];
     }
   });
-  // Web Analytics' reporting origin is allowed past the CSP only to reach the route below, which
-  // answers exactly RUM_URL and refuses the rest.
-  const connectOrigins = ["'self'", ...allowedOrigins, ...wsOrigins, ...prefixOrigins, new URL(RUM_URL).origin].join(' ');
+  const connectOrigins = ["'self'", ...allowedOrigins, ...wsOrigins, ...prefixOrigins].join(' ');
   const imgOrigins = ["'self'", 'data:', 'blob:', ...allowedOrigins].join(' ');
   const csp = [
     "default-src 'self' data: blob:",
@@ -411,7 +409,6 @@ export async function monitor(
       if (method === 'GET' && reqUrl.href === BEACON_URL) {
         return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: BEACON_STUB });
       }
-      if (method === 'POST' && reqUrl.href === RUM_URL) return route.fulfill({ status: 204 });
 
       const refusal = refuse(method, reqUrl);
       if (refusal) {

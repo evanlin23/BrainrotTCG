@@ -458,16 +458,7 @@ for (const continueAllowed of [false, true]) {
       expect(errors.blocked).toEqual([]);
     });
 
-    test('a report to its endpoint gets an empty answer and is never sent', async ({ page }) => {
-      const errors = await monitor(page, primaryUrl, 0, { continueAllowed });
-      await page.goto(primaryUrl);
-      const status = await page.evaluate(async (rum) => (await fetch(rum, { method: 'POST', body: '{}' })).status, RUM_URL);
-      expect(status).toBe(204);
-      expect(errors).toEqual([]);
-      expect(errors.blocked).toEqual([]);
-    });
-
-    test("anything else at Cloudflare's analytics hosts is refused and recorded", async ({ page }) => {
+    test("anything else at Cloudflare's analytics hosts, its report endpoint included, is refused and recorded", async ({ page }) => {
       const errors = await monitor(page, primaryUrl, 0, { continueAllowed, failOnUnexpected: false });
       await page.goto(primaryUrl);
       await page.evaluate(async ([beacon, rum]) => {
@@ -475,15 +466,16 @@ for (const continueAllowed of [false, true]) {
           fetch(`${beacon}?token=x`),
           fetch(beacon.replace('beacon.min.js', 'other.js')),
           fetch(beacon, { method: 'POST', body: '{}' }),
+          fetch(rum, { method: 'POST', body: '{}' }),
           fetch(rum),
           fetch(`${rum}/x`, { method: 'POST', body: '{}' }),
         ];
         await Promise.all(attempts.map((attempt) => attempt.catch(() => undefined)));
       }, [BEACON_URL, RUM_URL]);
-      // The guard's CSP stops fetches to the beacon's host in the page, before the route sees them.
-      const seen = (method: string, url: string) => (!continueAllowed && url.startsWith('https://static.') ? `CSP ${url}` : `${method} ${url}`);
+      // Without continueAllowed, the guard's CSP stops fetches to both hosts in the page, before the route sees them.
+      const seen = (method: string, url: string) => (continueAllowed ? `${method} ${url}` : `CSP ${url}`);
       for (const attempt of [seen('GET', BEACON_URL), seen('GET', BEACON_URL.replace('beacon.min.js', 'other.js')),
-        seen('POST', BEACON_URL), seen('GET', RUM_URL), seen('POST', `${RUM_URL}/x`)]) {
+        seen('POST', BEACON_URL), seen('POST', RUM_URL), seen('GET', RUM_URL), seen('POST', `${RUM_URL}/x`)]) {
         await expect.poll(() => errors.blocked.some((blocked) => blocked.endsWith(`] ${attempt}`))).toBe(true);
       }
     });
