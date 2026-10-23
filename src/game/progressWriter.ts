@@ -5,6 +5,7 @@ import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecovery
 import { recordMissing } from './history';
 import { getPlayer } from './player';
 import { clearPendingPack, onShelf, savePendingPack, type OpenedPack } from './pulls';
+import { persistStats } from './statsRecovery';
 
 /** The progress a tab holds and stores, each field under its own key. Fields are compared by reference. */
 export interface HeldProgress {
@@ -30,7 +31,7 @@ export interface ProgressWriterHost {
   stale(): void;
   /** Something couldn't be stored: warn that changes may be lost. */
   failed(): void;
-  /** Unreadable collection data is kept aside after a collection write: its note, and whether the player hid it. */
+  /** Unreadable collection data or stats are kept aside after a write: the note, and whether the player hid it. */
   keptAside(note: string | undefined, dismissed: boolean): void;
   /** Just before a collection write holding these packs: records that it holds them (ProgressGuard.storing). */
   storing(player: string, nonces: readonly number[]): boolean;
@@ -122,6 +123,13 @@ export const createProgressWriter = (host: ProgressWriterHost): ProgressWriter =
       return;
     }
     let statsHandled = false;
+    // Unreadable stored data was kept aside (or found kept already) by a write below: the note says so.
+    let archived = false;
+    const storeStats = () => {
+      const result = persistStats(stats);
+      if (result !== 'saved') archived = true;
+      return result !== 'blocked';
+    };
     // The collection archives stored entries it couldn't read before replacing them (or keeps them).
     if (last.get(STORAGE_KEYS.COLLECTION) !== collection) {
       const packs = unsavedPacks;
@@ -142,7 +150,7 @@ export const createProgressWriter = (host: ProgressWriterHost): ProgressWriter =
           const marked = packs.map((pack) => ({ ...pack, counted: true }));
           statsHandled = true;
           const shelved = savePendingPack(...marked);
-          if (shelved && setStoredData(STORAGE_KEYS.STATS, stats)) unsavedPacks = marked;
+          if (shelved && storeStats()) unsavedPacks = marked;
           // Packs taken off the shelf at load may not fit back on it: they stay owed by this tab, and the
           // next collection change tries again. If the marked copies did fit but the stats didn't, those
           // copies are what the shelf still holds.
@@ -164,17 +172,18 @@ export const createProgressWriter = (host: ProgressWriterHost): ProgressWriter =
       }
       // A ticket mapping the history couldn't take when its pack opened goes in once this save is done.
       if (packs.length > 0 && !recordMissing(packs, getPlayer().publicKeyHex)) host.failed();
-      // The archive can be written even when the collection then can't be. An archive storage won't
-      // read ('unavailable') may not exist: raise no note for it, and leave any note already shown.
-      const kept = collectionRecoveryState();
-      if (result !== 'saved' && (kept === 'stored' || kept === 'unsaved')) {
-        host.keptAside(collectionRecoveryNote(), collectionRecoveryDismissed());
-      }
+      if (result !== 'saved') archived = true;
     }
     for (const [key, value] of fields) {
       if (key === STORAGE_KEYS.STATS && statsHandled) continue;
       if (last.get(key) === value) continue;
-      if (!setStoredData(key, value)) host.failed();
+      if (!(key === STORAGE_KEYS.STATS ? storeStats() : setStoredData(key, value))) host.failed();
+    }
+    // The archive can be written even when the collection or stats then can't be. An archive storage
+    // won't read ('unavailable') may not exist: raise no note for it, and leave any note already shown.
+    const kept = collectionRecoveryState();
+    if (archived && (kept === 'stored' || kept === 'unsaved')) {
+      host.keptAside(collectionRecoveryNote(), collectionRecoveryDismissed());
     }
     // What this tab just stored (or, where storage refused, what it kept) is the progress it now holds.
     host.noted();

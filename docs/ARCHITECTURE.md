@@ -90,7 +90,8 @@ src/game/          Browser glue around the engine.
   nostrInbox.ts      Hall of Fame submissions over public Nostr relays (loaded only when used)
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
-  collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
+  collectionRecovery.ts  keeps unreadable collection entries and stats aside instead of overwriting them
+  statsRecovery.ts   rebuilds unreadable stats from what the save still proves, never from zero
   progressWriter.ts  stores committed progress field by field, behind both save guards, and owes
                      packs to the pending shelf until stored (App uses it via hooks/useProgressWriter.ts)
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
@@ -498,20 +499,30 @@ replaced, unreadable entries are archived byte for byte, with the identity snaps
 in `brainrot-collection-recovery-v1`: each distinct payload once, the first and then the newest 10,
 within 1M characters (older ones in between are let go and counted). The archive never blocks the
 save: a payload storage has no room for is kept for that visit only, and the note asks the player to
-download it. Nothing discards kept-aside data silently; the player can download or discard it from the
-save warning or Settings. A player record (`player.ts`) that can't be read as is is archived the same
-way before anything replaces it (#1052). If its secret key reads, the key stays and only the broken
-fields are repaired, with the ticket count past every ticket the history, stored packs and owed packs
-show that key used. If no key reads, the bytes stay where they are, the tab plays on a stand-in key
-that is never stored, and claims refuse (`PlayerUnreadableError`, so packs stay sealed) until the
-player restores a backup or starts a new player in Settings. Starting one (`startNewPlayer`) copies
-the whole save to `brainrot-before-new-player-v1` (a later start takes the next free slot, `:2` and
-on, so no copy is written over), changes the save stamp, removes the old player's progress and the
-owed packs that name no key, then writes the new record. A failed step is undone and no key is
-stored; if undoing fails too, the answer says so (`NEW_PLAYER_PARTIAL_NOTE`), the copy stays and the
-page reloads. Export writes the damaged bytes as `player`, in a file named
+download it. Stored stats this build can't read go in the same archive, marked with their key, when
+they load; the stats in use are rebuilt from their readable fields, this key's history and the
+collection (`statsRecovery.ts`), taking the history's best pack when it beats a readable one kept,
+and App stores them at once, unless their copy is held only for that visit (then the stats stay
+unsaved and the save warning shows) or the player record has no key that can be read (they were
+rebuilt from a stand-in key's empty history, and no pack opens until it is replaced). Nothing
+discards kept-aside data silently; the player can
+download or discard it from the save warning or Settings, and after a discard the next write
+replaces the bytes it came from. A player record (`player.ts`) that can't be read as is is archived
+the same way before anything replaces it (#1052). If its secret key reads, the key stays and only
+the broken fields are repaired, with the ticket count past every ticket the history, stored packs
+and owed packs show that key used. If no key reads, the bytes stay where they are, the tab plays on
+a stand-in key that is never stored, and claims refuse (`PlayerUnreadableError`, so packs stay
+sealed) until the player restores a backup or starts a new player in Settings. Starting one
+(`startNewPlayer`) copies the whole save to `brainrot-before-new-player-v1` (a later start takes the
+next free slot, `:2` and on, so no copy is written over), changes the save stamp, removes the old
+player's progress and the owed packs that name no key, then writes the new record. A failed step is
+undone and no key is stored; if undoing fails too, the answer says so (`NEW_PLAYER_PARTIAL_NOTE`),
+the copy stays and the page reloads. Export writes the damaged bytes as `player`, in a file named
 `brainrot-tcg-damaged-player-*` whose note promises no working key, and importing it says it is such
-a copy (`holdsDamagedPlayer`) rather than pairing the save with a new key. Export includes that archive. Import
+a copy (`holdsDamagedPlayer`) rather than pairing the save with a new key. Export includes that
+archive, with the payloads held for that visit only that were kept for the stored player (matched by
+secret key, or by the record's exact bytes when no key reads), and rebuilds unreadable stats as a
+load does, so the file imports again. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
 import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; a failed
