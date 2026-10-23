@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { BEACON_URL, pagesBeaconTag, RUM_URL } from '../../scripts/cloudflare-analytics';
-import { BEACON_STUB, monitor } from './support';
+import { BEACON_STUB, monitor, teardownMessages } from './support';
 
 let primaryServer: Server;
 let externalServer: Server;
@@ -170,7 +170,7 @@ test('a monitored request the server never answers is named as pending while the
   await page.goto(primaryUrl);
   await page.evaluate(() => { void fetch('/stall?key=not-for-logs'); });
 
-  await expect.poll(() => errors.pending).toEqual([`GET ${primaryOrigin}/stall`]);
+  await expect.poll(() => errors.pending).toEqual([`[fetching] GET ${primaryOrigin}/stall`]);
   expect(errors.failed).toEqual([]);
 });
 
@@ -195,19 +195,54 @@ test('a fulfill Playwright refuses is recorded, and the request it leaves paused
     `[fulfill failed: Fetch response has been disposed] GET ${primaryOrigin}/asset.json`,
     `[abort failed: Route is already handled!] GET ${primaryOrigin}/asset.json`,
   ]);
-  expect(errors.pending).toEqual([`GET ${primaryOrigin}/asset.json`]);
+  expect(errors.pending).toEqual([`[fulfilling] GET ${primaryOrigin}/asset.json`]);
 });
 
 test('a request still pending when a passing test closes its page does not fail the test', async ({ page }) => {
   const errors = await monitor(page, primaryUrl);
   await page.goto(primaryUrl);
   await page.evaluate(() => { void fetch('/stall'); });
-  await expect.poll(() => errors.pending).toEqual([`GET ${primaryOrigin}/stall`]);
+  await expect.poll(() => errors.pending).toEqual([`[fetching] GET ${primaryOrigin}/stall`]);
 
   await page.close();
   expect(test.info().errors).toEqual([]);
   expect(test.info().status).toBe('passed');
 });
+
+// missing_scenario (review of #1143): the test fixture closes the context, which disposes its request
+// client before the page closes. A fetch still running, or a fetched response not yet handed to the
+// browser, is then refused, and the guard recorded that as a failed request, failing a passing test.
+for (const stage of ['fetching', 'fulfilling'] as const) {
+  test(`a request whose context closes while ${stage} leaves a passing test passed`, async ({ page }) => {
+    const errors = await monitor(page, primaryUrl);
+    let closed: Promise<void> | undefined;
+    // Page routes run before the guard's: this one closes the context the way the fixture does, and
+    // waits for the request client to be disposed, before the guard's fetch runs or after it returns.
+    await page.route('**/asset.json', async (route) => {
+      const fetch = route.fetch.bind(route);
+      route.fetch = async (options) => {
+        const close = async () => {
+          closed = page.context().close({ reason: 'Test ended.' });
+          await page.context().request.dispose({ reason: 'Test ended.' });
+        };
+        if (stage === 'fetching') await close();
+        const response = await fetch(options);
+        if (stage === 'fulfilling') await close();
+        return response;
+      };
+      await route.fallback();
+    });
+    await page.goto(primaryUrl);
+    await page.evaluate(() => { void fetch('/asset.json'); });
+    await expect.poll(() => closed !== undefined).toBe(true);
+    await closed;
+
+    expect(errors.failed).toEqual([]);
+    expect(errors.pending).toEqual([`[${stage}] GET ${primaryOrigin}/asset.json`]);
+    expect(test.info().errors).toEqual([]);
+    expect(test.info().status).toBe('passed');
+  });
+}
 
 test('a CSP report the guard cannot read is still recorded', async ({ page }) => {
   const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
@@ -474,6 +509,28 @@ test('allowWebSocket function: allowed unless it returns false or throws', async
   expect(seen).toHaveLength(3);
 });
 
+// What teardown adds, from the guard's records and the test's status at close. A pending request is
+// named only in a test that is failing anyway: its own wait, or another record, failed it.
+test('teardown names the requests still pending only in a test that is already failing', () => {
+  const pending = [`[fetching] GET ${primaryOrigin}/stall`, `[fulfilling] GET ${primaryOrigin}/asset.json`];
+  const waiting = `Monitored requests still waiting when the page closed (2):\n${pending.join('\n')}`;
+  const failed = `[fetch failed: socket hang up (ECONNRESET)] GET ${primaryOrigin}/hang-up`;
+  const blocked = `GET https://example.com/ [blocked]`;
+
+  expect(teardownMessages({ blocked: [], failed: [], pending: [], status: 'failed' })).toEqual([]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'passed' })).toEqual([]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'failed' })).toEqual([waiting]);
+  expect(teardownMessages({ blocked: [], failed: [], pending, status: 'timedOut' })).toEqual([waiting]);
+  expect(teardownMessages({ blocked: [], failed: [failed], pending: pending.slice(0, 1), status: 'passed' })).toEqual([
+    `Monitored request failed in the network guard (1):\n${failed}`,
+    `Monitored request still waiting when the page closed (1):\n${pending[0]}`,
+  ]);
+  expect(teardownMessages({ blocked: [blocked], failed: [], pending, status: 'passed' })).toEqual([
+    `Unexpected browser I/O blocked by network guard (1 attempt):\n${blocked}`,
+    waiting,
+  ]);
+});
+
 // Teardown failure is the core acceptance: test.fail() passes only if the guard fails the test
 // once the page closes. Each scenario has a recording twin above (failOnUnexpected: false).
 test.describe('teardown fails on unexpected attempts', () => {
@@ -482,21 +539,6 @@ test.describe('teardown fails on unexpected attempts', () => {
     await monitor(page, primaryUrl);
     await page.goto(primaryUrl);
     await page.evaluate(() => fetch('/hang-up').catch(() => undefined));
-  });
-
-  test('a request still pending when a failing test closes its page is named at teardown', async ({ page }) => {
-    test.fail();
-    const errors = await monitor(page, primaryUrl);
-    await page.goto(primaryUrl);
-    await page.evaluate(() => { void fetch('/stall'); });
-    await expect.poll(() => errors.pending).toEqual([`GET ${primaryOrigin}/stall`]);
-    // Stands in for the wait that ran out on it.
-    expect.soft(errors.pending, 'the page waits on nothing').toEqual([]);
-
-    await page.close();
-    expect(test.info().errors.map((error) => error.message)).toContain(
-      `Monitored request still waiting when the page closed (1):\nGET ${primaryOrigin}/stall`,
-    );
   });
 
   test('blocked HTTP attempt fails the test at teardown', async ({ page }) => {

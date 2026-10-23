@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs';
-import { test, expect, type Page, type Locator, type Request, type WebSocketRoute } from '@playwright/test';
+import { test, expect, type Page, type Locator, type Request, type TestInfo, type WebSocketRoute } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
@@ -80,8 +80,9 @@ export type MonitorErrors = string[] & {
    */
   failed: string[];
   /**
-   * Requests the guard took on that the page is still waiting for ("METHOD url", sanitized): not yet
-   * answered, or answered in a way the browser never finished. A test that fails names them at
+   * Requests the guard took on that the page is still waiting for, sanitized and with the guard's
+   * stage: "[fetching] METHOD url" while its fetch runs, "[fulfilling] METHOD url" once the answer
+   * is handed to the browser and until the browser finishes it. A test that fails names them at
    * teardown, so a wait that ran out says which request it was waiting on.
    */
   readonly pending: string[];
@@ -137,6 +138,31 @@ export function fetchFailureReason(error: unknown, secrets: readonly string[]): 
   let reason = message.split('\n', 1)[0].replace(/^[\w.]+: /, '').replace(/\b(?:https?|wss?):\/\/[^\s'"()]+/g, sanitizeUrl);
   for (const secret of secrets) if (secret) reason = reason.split(secret).join('[redacted]');
   return reason.slice(0, 200) || 'no reason given';
+}
+
+/**
+ * What the guard's teardown adds to a test's errors: unexpected attempts, monitored requests that
+ * failed, and the requests still pending. Pending requests are recorded at close, and a fetch still
+ * running then ends only as teardown: a passing test simply didn't need them, so they are named only
+ * in a test that is failing anyway, often on a wait for that very request.
+ */
+export function teardownMessages({ blocked, failed, pending, status }: {
+  blocked: readonly string[];
+  failed: readonly string[];
+  pending: readonly string[];
+  status: TestInfo['status'];
+}): string[] {
+  const messages = [];
+  if (blocked.length > 0) {
+    messages.push(`Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`);
+  }
+  if (failed.length > 0) {
+    messages.push(`Monitored request${failed.length === 1 ? '' : 's'} failed in the network guard (${failed.length}):\n${failed.join('\n')}`);
+  }
+  if (pending.length > 0 && (messages.length > 0 || status !== 'passed')) {
+    messages.push(`Monitored request${pending.length === 1 ? '' : 's'} still waiting when the page closed (${pending.length}):\n${pending.join('\n')}`);
+  }
+  return messages;
 }
 
 /**
@@ -199,7 +225,12 @@ export async function monitor(
   Object.defineProperty(errors, 'pending', { get: () => [...pending.values()], enumerable: false });
   page.context().on('requestfinished', (request) => pending.delete(request));
   page.context().on('requestfailed', (request) => pending.delete(request));
-  const isTargetClosed = (error: unknown) => error instanceof Error && error.name === 'TargetClosedError';
+  /**
+   * The page or its context is closing. Playwright marks a context closing before it disposes the
+   * context's request client, which drops every fetch in flight and every fetched response not yet
+   * handed over, so a fetch, fulfill or abort refused after this is teardown, not the request failing.
+   */
+  const closing = () => page.isClosed() || page.context().isClosed();
   const secrets = Object.values(access?.headers ?? {});
 
   const base = new URL(baseURL);
@@ -267,19 +298,7 @@ export async function monitor(
     } catch {
       return; // test.info() unavailable outside active test runner
     }
-    const messages = [];
-    if (blocked.length > 0) {
-      messages.push(`Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`);
-    }
-    if (failed.length > 0) {
-      messages.push(`Monitored request${failed.length === 1 ? '' : 's'} failed in the network guard (${failed.length}):\n${failed.join('\n')}`);
-    }
-    // Recorded at close: the fetch of a request still waiting ends only after this, and as teardown. A
-    // passing test simply didn't need it, so it is named only in a test that is failing anyway, often on
-    // a wait for that very request.
-    if (pending.size > 0 && (messages.length > 0 || currentTest.status !== 'passed')) {
-      messages.push(`Monitored request${pending.size === 1 ? '' : 's'} still waiting when the page closed (${pending.size}):\n${[...pending.values()].join('\n')}`);
-    }
+    const messages = teardownMessages({ blocked, failed, pending: [...pending.values()], status: currentTest.status });
     if (messages.length > 0) {
       failedTeardown = true;
       if (currentTest.status === 'passed') currentTest.status = 'failed';
@@ -448,22 +467,24 @@ export async function monitor(
 
       if (continueAllowed && !access) return route.continue();
       const token = accessHeaders(request.url(), access);
-      pending.set(request, sanitizeAttempt(method, request.url()));
+      pending.set(request, sanitizeAttempt(method, request.url(), 'fetching'));
 
       let response;
       let url = request.url();
       /**
-       * Answers the request with `answer`, or aborts it. A refusal other than the page or context
-       * closing is recorded: the request it leaves paused holds the page's load with nothing saying why.
-       * Once Playwright has refused a fulfill it refuses the abort too, so that request stays pending.
+       * Answers the request with `answer`, or aborts it. A refusal while the page or context is closing
+       * is teardown: the request stays pending, which only a failing test reports. Any other refusal is
+       * recorded, since the request it leaves paused holds the page's load with nothing saying why. Once
+       * Playwright has refused a fulfill it refuses the abort too, so that request stays pending.
        */
       const end = async (answer?: () => Promise<void>) => {
+        if (pending.has(request)) pending.set(request, sanitizeAttempt(method, request.url(), 'fulfilling'));
         const tried = async (step: string, call: () => Promise<void>) => {
           try {
             await call();
             return true;
           } catch (error) {
-            if (isTargetClosed(error)) return true;
+            if (closing()) return true;
             noteFailed(sanitizeAttempt(method, url, `${step} failed: ${fetchFailureReason(error, secrets)}`));
             return false;
           }
@@ -487,8 +508,9 @@ export async function monitor(
         }
       } catch (error) {
         // The page only sees net::ERR_FAILED, so name the request and why for teardown (#1046). A fetch
-        // cut off because the page or context closed is teardown itself.
-        if (!isTargetClosed(error)) noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, secrets)}`));
+        // cut off because the page or context is closing is teardown itself, and stays pending.
+        if (closing()) return;
+        noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, secrets)}`));
         return end();
       }
 
