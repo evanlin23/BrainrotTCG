@@ -1,0 +1,27 @@
+# Throwaway check that the Cloudflare Access service token in the repo secrets gets past Access on
+# a preview address. Read-only GET requests; prints status codes and the redirect host, never the
+# secrets. The branch is deleted after one run.
+name: Access token probe
+on:
+  push:
+    branches: [claude/access-token-probe]
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ask the staging address for its front page with and without the token
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -u
+          [ -n "$CF_ACCESS_CLIENT_ID" ] && echo "CF_ACCESS_CLIENT_ID is set" || echo "::error::CF_ACCESS_CLIENT_ID is empty or not visible to this job"
+          [ -n "$CF_ACCESS_CLIENT_SECRET" ] && echo "CF_ACCESS_CLIENT_SECRET is set" || echo "::error::CF_ACCESS_CLIENT_SECRET is empty or not visible to this job"
+          url=https://staging.brainrottcg.pages.dev/
+          probe() {
+            curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' "$@" "$url" | sed -E 's#(https?://[^/]+)[^ ]*#\1#'
+          }
+          echo "without token: $(probe)"
+          echo "with token:    $(probe -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET")"
