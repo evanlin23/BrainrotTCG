@@ -82,7 +82,7 @@ test.beforeEach(async ({ page }) => {
   await emptyHallOfFame(page);
 });
 
-test('shares a card from My pulls, with its link, image and ticket', async ({ page, baseURL }) => {
+test('shares a card from My pulls, with its link, image and ticket', { tag: '@cross-browser' }, async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   const main = await profile(page);

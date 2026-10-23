@@ -384,6 +384,11 @@ export async function monitor(
       const reqUrl = new URL(request.url());
       const method = request.method().toUpperCase();
 
+      // Playwright's WebKit routes a blob: load too (Chromium and Firefox keep it in the browser). A blob URL
+      // names its creator's origin but its path is a bare id, so the path rule below would refuse the share
+      // image the page just drew. It is memory in this page, never a request, so nothing leaves the browser.
+      if (reqUrl.protocol === 'blob:') return route.continue();
+
       if (method === 'POST' && reqUrl.origin === origin && reqUrl.pathname === CSP_REPORT_PATH) {
         // The guard's own CSP violation report: record where the blocked request was headed, nothing else.
         try {
