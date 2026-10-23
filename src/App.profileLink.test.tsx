@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSet } from './content/sets';
 import { scorePulled, type CheckedProfile, type ProfilePack } from './engine';
 import { toPulled } from './game/cardCode';
-import type { ProfileProgress } from './game/profiles';
+import type { ProfileProgress } from './game/profileVerification';
 import App from './App';
 
 const { verifyProfileLive } = vi.hoisted(() => ({ verifyProfileLive: vi.fn() }));
-vi.mock('./game/profiles', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./game/profiles')>()),
+vi.mock('./game/profileVerification', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./game/profileVerification')>()),
   verifyProfileLive,
 }));
 
