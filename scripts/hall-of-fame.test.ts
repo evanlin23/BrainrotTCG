@@ -776,6 +776,7 @@ describe('the filed index (#1000)', () => {
     await inbox();
     issues.length = 0; // deleted: it isn't in any listing, and the index still has it
     const event = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
     vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
     gh.requests.length = 0;
     await inbox();
@@ -787,6 +788,23 @@ describe('the filed index (#1000)', () => {
     await inbox();
     expect(listings(gh)[0]).toBe(VERIFIED);
     expect(gh.writes()).toEqual(FILED);
+  });
+
+  it('marks an event seen when a recent issue confirms what the kept index says', async () => {
+    const issues = [issue(1, fourOfAKind)];
+    const gh = fakeGitHub({ issues, published: [] });
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [], perRelay: [] });
+    await inbox();
+    // The same pull verified again under a new issue: it's in the recent listing, the first one isn't.
+    issues.push(issue(2, fourOfAKind, { updated: '2026-10-16T12:10:00Z' }));
+    const event = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
+    vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
+    gh.requests.length = 0;
+    await inbox();
+    expect(listings(gh)).not.toContain(VERIFIED);
+    expect(gh.writes()).toEqual([]);
+    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toContain(event.id);
   });
 
   it('counts a pull verified after the index was listed', async () => {

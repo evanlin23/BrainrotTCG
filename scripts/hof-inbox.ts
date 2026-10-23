@@ -14,7 +14,8 @@ export interface InboxContext {
   /**
    * Of `filed`, the ones known only from a filed index kept from an earlier run, not from this run's
    * listing. An event for one is passed over but not marked seen, so if its issue has gone since the
-   * index was listed, the next full listing lets it be filed.
+   * index was listed, a later full listing that reads the event again (while it is in the relay
+   * window) lets it be filed.
    */
   unconfirmed?: Set<string>;
   /** How many pulls may be re-derived this run (about 0.1 s each). */

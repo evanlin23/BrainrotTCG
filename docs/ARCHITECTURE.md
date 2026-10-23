@@ -251,9 +251,10 @@ falls on the build's day or the day before, so old daily issues cost nothing. Th
 `verified` issues plus any `hall-of-fame` issue updated in the last eight days. It keeps the pulls
 of `verified` issues in an Actions cache and lists them all again only when that index is a day old
 or missing; the eight-day listing brings it up to date in between. An issue deleted, or with its
-`hall-of-fame` label removed, can still hold its pull back until the next full listing, but only
-for that long: an event the kept index alone turns down isn't marked handled, so the run that
-lists in full files it, as if every run had. So that a daily-only
+`hall-of-fame` label removed, can still hold its pull back until a full listing. An event the kept
+index alone turns down isn't marked handled, so it is read again on later runs: usually the next
+full listing, within a day, files it, and one that run doesn't reach (relay page cap or run budget)
+waits for the one after, while the event is still in the seven-day relay window. So that a daily-only
 pull counts on one day's top only, intake and the inbox turn it down while another `daily` issue
 updated in the last eight days carries it; proofs carry no signed time, so one filed again after that
 can count again. The page's pending check counts a daily-only relay pull only when its event was sent
