@@ -8,13 +8,11 @@ from a 390 px wide screen.
 
 ## Principles
 
-1. **The pack is the hero.** (The Open pack button, landing Card guide link and logo cluster below are
-   superseded by the first-pack flow decision, #898.) Each screen has one primary action: on the home screen it's opening the
+1. **The pack is the hero.** Each screen has one primary action: on the home screen it's opening the
    pack; during a reveal it's the next card; in the summary it's moving on to the next pack. Everything else
    steps back (smaller, quieter, or out of the way). A new player's home screen is the logo (mark
-   and wordmark), the gear, the pack and the quiet Card guide link under it: the tabs and the era
-   picker come once their first pack is saved and they leave it. There the Open pack button is brand
-   filled, the one obvious action (#80); once the nav is in it steps back to secondary under the swipe.
+   and wordmark), the gear and the pack: the tabs, the era picker and the quiet Card guide link come
+   once their first pack is saved and they leave it (#898, #628).
    The tear line is the wrapper's seam (#267): a white perforation over a soft brand-and-foil band, with
    a brand arrowhead at each end. A swipe can start anywhere in the top third of the pack (at least 80px
    under the seam), not only on it, and may drift up or down by up to 1.5 times its distance across
@@ -23,9 +21,12 @@ from a 390 px wide screen.
    let go without opening. These are design choices (`RELEASE_CUT_RATIO` 0.12, `DRAG_CUT_RATIO` 0.3,
    `MAX_DRIFT_RATIO` 1.5, the start band and a 32px floor in `usePackCutter.ts`, checked in
    `tests/browser/pack-swipe.spec.ts`).
-   The Open pack button under the pack opens it for a tap, a key or a screen reader.
-   A quiet "Card guide" link under the pack (44px target, hidden from the tear until the pack is put
-   away) opens the selected set's card guide, so rarity, holo and odds are a tap away before the first pull.
+   The pack itself is the one control, named "Open pack, {set name}" (#628): a tap or click, or Space
+   or Enter with focus on it, opens it exactly as a finished swipe does, and the click a swipe ends in
+   is swallowed (a press that moved more than `TAP_SLOP_PX`, 10px, is a drag). The keys work only with
+   focus on the pack, never from the page. While the ticket works its name reads "Opening…" and input
+   is ignored. Once a first pack is saved, a quiet "Card guide" link under the pack (44px target, hidden
+   from the tear until the pack is put away) opens the selected set's card guide.
    The summary lists the cards in the order they were revealed (best last), each opening up close, where
    its Share makes an image of it linking to the pack; nothing is shared mid-reveal. Its actions keep their own row under
    the scrolling cards, above the phone's home indicator, and wrap their labels at large text. Under the
@@ -99,7 +100,9 @@ results line (`PackSummaryUI.tsx`) that goes.
    swipe ends in is swallowed; keys are scoped to the focused pack, never the page). No separate
    Open pack button. Focus is a visible ring on the wrapper; while the ticket works it reads
    "Opening..." and further input is ignored. A finger and a partial tear play along the seam, at
-   most twice, and stop at the first touch. Reduced motion shows the arrowheads and a caption
+   most twice (counted per device, never part of a save), and stop at the first touch. A press that
+   wanders more than a tap's slop (10px) is a drag and never opens the pack, even back where it began.
+   The focus ring is drawn inside the pack's edge so the stage never clips it. Reduced motion shows the arrowheads and a caption
    ("Swipe across to open"; desktop "Drag across, or click") with no motion. Swiping the pack body
    only ever opens it; switching packs is never a swipe on the pack.
 3. **First-card cue.** On the first card of a player's first pack only, the back lifts at one corner
@@ -300,7 +303,14 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   problem).
 - **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit
   name" opening the field in place (Enter saves, Escape cancels and returns focus to the button);
-  level and stats; best pulls; the collection score and sets; Achievements (`#achievements`, the
+  Best pack and Best card (`profile/BestHighlights.tsx`, #680), each verified on its own by opening
+  its one pack again from its ticket: "Checking…", then the engine's cards with a green "Verified"
+  mark, or a short reason it can't be checked, or "Couldn't check" with "Try again" (a ticket that
+  opens to other cards says so and offers no retry). Stored cards and scores are never shown as
+  verified, and Verified covers that pack only: the level and totals stay this device's progress, as
+  the footnote under them says. Best pack shares through its pull proof, Best card opens the card
+  viewer; level and stats (your own profile drops the best-score stat and Best pulls, which would
+  repeat them; a shared profile keeps both); the collection score and sets; Achievements (`#achievements`, the
   three newest with "Show all achievements" folded below; achievement toasts link here and open it);
   "Card back and foil" (`#rewards`, a closed `<details>` whose summary counts what is unlocked;
   level-up toasts open it); All packs; then a one-line "Saved in this browser · Back up" footnote.

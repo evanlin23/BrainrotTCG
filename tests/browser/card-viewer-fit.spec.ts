@@ -20,7 +20,7 @@ async function openViewer(page: Page, baseURL: string) {
   const errors = await monitor(page, baseURL);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+  const pack = page.getByRole('button', { name: /^Open pack/ });
   await pack.focus();
   await page.keyboard.press('Space');
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
