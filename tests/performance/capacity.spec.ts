@@ -1,8 +1,8 @@
 import { test, expect, type Page, type Request, type TestInfo } from '@playwright/test';
-import { expectDecoded, holdTickets, monitor, releaseTickets, snapshot } from './support';
+import { expectDecoded, expectSummaryTakesClicks, holdTickets, monitor, releaseTickets, snapshot } from '../browser/support';
 import {
-  ARGON2_BYTES_PER_JOB, BUDGETS, CAPS, REPORT_NOTE, SEED, STORAGE_KEYS, capacityConfig, mainHeap, originUsage, peakBusy, poolCap,
-  readRecording, recordPage, reopenedPacksStored, sourceRevision, storageBytes, syntheticSave, writeReport,
+  ARGON2_BYTES_PER_JOB, BUDGETS, CAPS, REPORT_NOTE, SEED, STORAGE_KEYS, TICKETS_PER_WORKER, capacityConfig, injectedFailure, mainHeap, originUsage,
+  peakBusy, poolCap, readRecording, recordPage, recycling, reopenedPacksStored, sourceRevision, storageBytes, syntheticSave, writeReport,
   type CapacityReport, type RunFacts,
 } from './capacity';
 
@@ -14,15 +14,15 @@ import {
  * CAPACITY_* (see docs/DEVELOPMENT.md) and are capped in capacity.ts.
  *
  * Asserted: what must hold at any size (exact records, counts, nonces, no lost or doubled pack, the
- * worker pool's cap, storage that grows by a pack's records and no more, recovery after a refused write).
- * Timings are recorded in the report. They get ceilings that only a hang or a blow-up trips, taken from
- * measured runs (docs/DEVELOPMENT.md > Capacity), never a pass/fail judgement of ordinary variation.
+ * worker pool's cap and its recycling, storage that grows by a pack's records and no more, recovery after
+ * a refused write). Timings, long tasks and heap are report-only (#709): they go in the report and are
+ * never judged here; a hang is caught by each test's timeout.
  */
 
 const config = capacityConfig();
 /** Set by the functional-failure proof (docs/DEVELOPMENT.md > Capacity): the run must exit nonzero with no report. */
-const injectFailure = process.env.CAPACITY_INJECT_FAILURE === '1';
-const openButton = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
+const injected = injectedFailure();
+const openButton = (page: Page) => page.getByRole('button', { name: /^Open pack/ });
 
 interface Measure {
   clickableMs: number;
@@ -40,7 +40,7 @@ interface Measure {
 const deviceOf = (page: Page) => page.evaluate(() => ({
   hardwareConcurrency: navigator.hardwareConcurrency,
   deviceMemory: (navigator as { deviceMemory?: number }).deviceMemory ?? null,
-  mobile: /Mobi/.test(navigator.userAgent),
+  mobile: (navigator as { userAgentData?: { mobile?: boolean } }).userAgentData?.mobile === true,
 }));
 
 async function facts(page: Page, testInfo: TestInfo): Promise<RunFacts> {
@@ -187,25 +187,38 @@ async function expectPackStored(page: Page, size: number, pack: number, previous
   return after;
 }
 
-/** The functional-failure proof: the last stored pack is lost behind the app's back, so the checks above must fail the run. */
+/**
+ * The functional-failure proof: the one stored thing CAPACITY_INJECT_FAILURE names is corrupted behind the
+ * app's back after the last pack, so the check on that thing in expectPackStored must fail the run.
+ */
 async function breakLastPack(page: Page) {
-  if (injectFailure) await page.evaluate((key) => localStorage.setItem(key, JSON.stringify({ packsOpened: 0 })), STORAGE_KEYS.STATS);
+  if (!injected) return;
+  await page.evaluate(([kind, keys]) => {
+    const read = (key: string) => JSON.parse(localStorage.getItem(key) ?? 'null');
+    const write = (key: string, value: unknown) => localStorage.setItem(key, JSON.stringify(value));
+    if (kind === 'stats') write(keys.stats, { packsOpened: 0 });
+    else if (kind === 'history') write(keys.history, read(keys.history).slice(1));
+    else if (kind === 'collection') {
+      const collection = read(keys.collection) as Record<string, { normalCount: number }>;
+      const first = Object.values(collection)[0];
+      first.normalCount += 1;
+      write(keys.collection, collection);
+    } else if (kind === 'nonce') write(keys.player, { ...read(keys.player), nextNonce: read(keys.player).nextNonce - 1 });
+    else write(keys.pending, [{ nonce: 0 }]);
+  }, [injected, { stats: STORAGE_KEYS.STATS, history: STORAGE_KEYS.HISTORY, collection: STORAGE_KEYS.COLLECTION, player: 'brainrot-player-v1', pending: STORAGE_KEYS.PENDING_PACKS }] as const);
 }
 
-/** Sizes and counts a session adds to storage, against the ceilings. */
+/** Storage a session adds, against the bounds: the shape of a record is fixed, so this is exact enough to assert. */
 function expectGrowthWithin(first: Measure, last: Measure, packs: number) {
   expect(last.localStorageBytes - first.localStorageBytes).toBeLessThanOrEqual(BUDGETS.storageOnce + BUDGETS.storagePerPack * packs);
   const historyPerPack = (last.historyBytes - first.historyBytes) / packs;
   expect(historyPerPack).toBeGreaterThanOrEqual(BUDGETS.historyGrowthPerPack.min);
   expect(historyPerPack).toBeLessThanOrEqual(BUDGETS.historyGrowthPerPack.max);
-  if (first.mainHeapUsedBytes !== null && last.mainHeapUsedBytes !== null) {
-    expect(last.mainHeapUsedBytes - first.mainHeapUsedBytes).toBeLessThanOrEqual(BUDGETS.heapGrowthBytes);
-  }
 }
 
 /** Folds a page's recording into a session total: a reload starts a new recording, so the spec keeps the sum. */
 function totals() {
-  const sum = { longTasks: 0, longTaskMs: 0, workersCreated: 0, workersTerminated: 0, peakBusy: 0, jobsDone: 0, documents: 0 };
+  const sum = { longTasks: 0, longTaskMs: 0, workersCreated: 0, workersTerminated: 0, peakBusy: 0, jobsDone: 0, recycled: 0, mostOnAWorker: 0, documents: 0 };
   return {
     sum,
     async fold(page: Page) {
@@ -217,31 +230,45 @@ function totals() {
       sum.workersTerminated += recording.workersTerminated;
       sum.peakBusy = Math.max(sum.peakBusy, peakBusy(recording.jobs));
       sum.jobsDone += recording.jobs.filter((job) => job.kind === 'done').length;
+      const { recycled, mostOnAWorker } = recycling(recording.jobs);
+      sum.recycled += recycled;
+      sum.mostOnAWorker = Math.max(sum.mostOnAWorker, mostOnAWorker);
     },
   };
 }
 
-/** Pool and worker bounds over `documents` page loads: never more busy than the pool allows, every worker accounted for. */
-function expectPoolWithin(sum: ReturnType<typeof totals>['sum'], cap: number) {
+/**
+ * Pool and worker bounds over the page loads in `sum`: never more busy than the pool allows, every worker
+ * accounted for. A worker is ended after TICKETS_PER_WORKER tickets and replaced (ticketPool.ts), so beyond
+ * the ticket miner's worker and a pool of at most `cap` per page, only `replacements` spawns are allowed:
+ * the most that `tickets` answered tickets can cause, not a raised cap.
+ */
+function expectPoolWithin(sum: ReturnType<typeof totals>['sum'], cap: number, tickets: number) {
+  const replacements = Math.ceil(tickets / TICKETS_PER_WORKER);
   expect(sum.peakBusy).toBeLessThanOrEqual(cap);
-  // Each page has the ticket miner's one worker plus a re-open pool of at most `cap`; these runs are too short to recycle any.
-  expect(sum.workersCreated).toBeLessThanOrEqual((cap + 1) * sum.documents);
-  // Each page keeps at most the ticket miner's worker; the pool's were terminated when it wound down.
+  expect(sum.mostOnAWorker, 'a worker answered more tickets than it is allowed before it is replaced').toBeLessThanOrEqual(TICKETS_PER_WORKER);
+  expect(sum.recycled).toBeLessThanOrEqual(replacements);
+  expect(sum.workersCreated).toBeLessThanOrEqual((cap + 1) * sum.documents + replacements);
+  // Each page keeps at most the ticket miner's worker; the pool's and every recycled one were terminated.
   expect(sum.workersCreated - sum.workersTerminated).toBeLessThanOrEqual(sum.documents);
-  expect(sum.longTaskMs).toBeLessThanOrEqual(BUDGETS.longTaskMs);
 }
 
 const STORAGE_FULL = /QuotaExceeded|Storage is full|Could not save pack history/;
 
-/** Writes fail as if the browser's storage were full; only the named keys, and with `above` only values longer than that (a restore of what was there still fits). */
+/** Writes fail as if the browser's storage were full; only the named keys, and with `above` only values longer than that (a restore of what was there still fits). The page counts the writes it refused. */
 const refuseWrites = (page: Page, keys: string[], above = -1) => page.evaluate(({ blocked, limit }) => {
   const set = new Set(blocked);
   const write = Storage.prototype.setItem;
   Storage.prototype.setItem = function (key: string, value: string) {
-    if (set.has(key) && value.length > limit) throw new DOMException('Storage is full', 'QuotaExceededError');
+    if (set.has(key) && value.length > limit) {
+      (window as unknown as { refusedWrites: number }).refusedWrites = ((window as unknown as { refusedWrites?: number }).refusedWrites ?? 0) + 1;
+      throw new DOMException('Storage is full', 'QuotaExceededError');
+    }
     return write.call(this, key, value);
   };
 }, { blocked: keys, limit: above });
+
+const refusedWrites = (page: Page) => page.evaluate(() => (window as unknown as { refusedWrites?: number }).refusedWrites ?? 0);
 
 test.describe('growing saves', () => {
   for (const size of config.history) {
@@ -263,7 +290,6 @@ test.describe('growing saves', () => {
       await ticketReady(page, size);
       const baseline = await measure(page, clickableMs);
       const device = await deviceOf(page);
-      expect(baseline.clickableMs).toBeLessThanOrEqual(BUDGETS.interactiveMs);
       const rows: CapacityReport['results'] = [{ phase: 'baseline', size, pack: 0, ...baseline }];
 
       let previous = await snapshot(page);
@@ -272,7 +298,6 @@ test.describe('growing saves', () => {
         const openMs = Math.round(await openPack(page));
         if (pack === config.packs) await breakLastPack(page);
         previous = await expectPackStored(page, size, pack, previous);
-        expect(openMs).toBeLessThanOrEqual(BUDGETS.interactiveMs);
         const bytes = await storageBytes(page);
         const historyBytes = bytes.perKey[STORAGE_KEYS.HISTORY] ?? 0;
         rows.push({ phase: 'pack', size, pack, openToResultMs: openMs, localStorageBytes: bytes.total, historyBytes, historyGrowthBytes: historyBytes - previousHistoryBytes });
@@ -287,16 +312,17 @@ test.describe('growing saves', () => {
       await ticketReady(page, size + config.packs);
       const after = await measure(page, 0);
       expectGrowthWithin(baseline, after, config.packs);
-      expect(after.peakBusyJobs).toBeLessThanOrEqual(poolCap(device));
-      expect(after.workersCreated).toBeLessThanOrEqual(poolCap(device));
-      expect(after.longTaskTotalMs).toBeLessThanOrEqual(BUDGETS.longTaskMs);
+      // A fresh page: the ticket miner's worker, replaced after TICKETS_PER_WORKER tickets, and no pool.
+      const recorded = totals();
+      await recorded.fold(page);
+      expectPoolWithin(recorded.sum, poolCap(device), recorded.sum.jobsDone);
       expect(errors).toEqual([]);
 
       rows.push({
         phase: 'after-session', size, pack: config.packs, ...after,
         localStorageGrowthBytes: after.localStorageBytes - baseline.localStorageBytes,
         mainHeapGrowthBytes: after.mainHeapUsedBytes === null || baseline.mainHeapUsedBytes === null ? null : after.mainHeapUsedBytes - baseline.mainHeapUsedBytes,
-        argon2EstimateBytes: after.peakBusyJobs * ARGON2_BYTES_PER_JOB,
+        workersRecycled: recorded.sum.recycled, argon2EstimateBytes: after.peakBusyJobs * ARGON2_BYTES_PER_JOB,
       });
       await finish(page, testInfo, `growing-save-${size}`, [size], config.packs, rows);
     });
@@ -313,7 +339,6 @@ test.describe('long session', () => {
     await ticketReady(page, size);
     const baseline = await measure(page, clickableMs);
     const device = await deviceOf(page);
-    expect(baseline.clickableMs).toBeLessThanOrEqual(BUDGETS.interactiveMs);
     const rows: CapacityReport['results'] = [{ phase: 'baseline', size, pack: 0, ...baseline }];
     let previous = await snapshot(page);
     let previousHistoryBytes = baseline.historyBytes;
@@ -322,14 +347,14 @@ test.describe('long session', () => {
       const openMs = Math.round(await openPack(page));
       if (pack === config.sessionPacks) await breakLastPack(page);
       previous = await expectPackStored(page, size, pack, previous);
-      expect(openMs).toBeLessThanOrEqual(BUDGETS.interactiveMs);
 
       // A dialog opened over the summary and closed again.
+      await expectSummaryTakesClicks(page);
       await page.locator('.summary-card').first().click();
-      const dialog = page.getByRole('dialog');
-      await expect(dialog).toBeVisible();
+      const viewer = page.locator('.card-viewer .card-viewer-card');
+      await expect(viewer).toBeVisible();
       await page.keyboard.press('Escape');
-      await expect(dialog).toHaveCount(0);
+      await expect(viewer).toHaveCount(0);
 
       const bytes = await storageBytes(page);
       const historyBytes = bytes.perKey[STORAGE_KEYS.HISTORY] ?? 0;
@@ -372,14 +397,14 @@ test.describe('long session', () => {
     await recorded.fold(page);
     const final = await measure(page, 0);
     expectGrowthWithin(baseline, final, config.sessionPacks);
-    expectPoolWithin(recorded.sum, poolCap(device));
+    expectPoolWithin(recorded.sum, poolCap(device), recorded.sum.jobsDone);
     expect(errors).toEqual([]);
 
     rows.push({
       phase: 'after-session', size, pack: config.sessionPacks, ...final,
       localStorageGrowthBytes: final.localStorageBytes - baseline.localStorageBytes,
       mainHeapGrowthBytes: final.mainHeapUsedBytes === null || baseline.mainHeapUsedBytes === null ? null : final.mainHeapUsedBytes - baseline.mainHeapUsedBytes,
-      workersCreatedAllDocuments: recorded.sum.workersCreated, workersTerminatedAllDocuments: recorded.sum.workersTerminated,
+      workersCreatedAllDocuments: recorded.sum.workersCreated, workersTerminatedAllDocuments: recorded.sum.workersTerminated, workersRecycledAllDocuments: recorded.sum.recycled,
       peakBusyAllDocuments: recorded.sum.peakBusy, longTaskMsAllDocuments: recorded.sum.longTaskMs,
       argon2EstimateBytes: recorded.sum.peakBusy * ARGON2_BYTES_PER_JOB,
     });
@@ -420,7 +445,7 @@ test.describe('reconstruction', () => {
     expect((await snapshot(page)).history).toEqual(historyBefore);
     expect(activeStorage.total - idleStorage.total).toBeLessThanOrEqual(BUDGETS.reopenStorageBytes);
     await recorded.fold(page);
-    expectPoolWithin(recorded.sum, poolCap(device));
+    expectPoolWithin(recorded.sum, poolCap(device), config.uncached);
     expect(active.jobs.filter((job) => job.kind === 'cancelled')).toEqual([]);
 
     // The stored packs outlive the visit: a reload still finds them.
@@ -435,7 +460,7 @@ test.describe('reconstruction', () => {
     await finish(page, testInfo, 'reconstruction', [size], config.uncached, [
       { phase: 'idle', size, uncached: config.uncached, workersCreated: idle.workersCreated, peakBusyJobs: peakBusy(idle.jobs), localStorageBytes: idleStorage.total, reopenedStored: 0 },
       {
-        phase: 'active', size, uncached: config.uncached, workersCreated: active.workersCreated, workersTerminated: active.workersTerminated,
+        phase: 'active', size, uncached: config.uncached, workersCreated: active.workersCreated, workersTerminated: active.workersTerminated, workersRecycled: recycling(active.jobs).recycled,
         peakBusyJobs: peakBusy(active.jobs), longTasks: active.longTasks.length, localStorageBytes: activeStorage.total,
         reopenedStored: config.uncached, originUsageBytes: await originUsage(page), argon2EstimateBytes: peakBusy(active.jobs) * ARGON2_BYTES_PER_JOB,
       },
@@ -564,6 +589,7 @@ test.describe('failure and interruption', () => {
     const note = main.locator('.settings-desc').filter({ hasText: /no room|too big/i });
     await expect(note).toContainText(/Your previous save data was restored|Nothing changed/);
     await expect(main).not.toContainText(/clear (your )?(site|browser)? ?data/i);
+    expect(await refusedWrites(page), 'the browser never refused the imported history').toBeGreaterThan(0);
     expect(await snapshot(page)).toEqual(before);
     expect(await player(page)).toEqual(playerBefore);
     const bytesAfter = await storageBytes(page);
@@ -580,6 +606,7 @@ test.describe('failure and interruption', () => {
     expect(await snapshot(page)).toEqual(before);
     const openMs = Math.round(await openPack(page));
     await expectPackStored(page, size, 1, before);
+    // The refusal was counted above; the app may log it, and anything else logged is a failure.
     expect(errors.filter((error) => !STORAGE_FULL.test(error))).toEqual([]);
 
     await finish(page, testInfo, 'import-rollback', [size, bigger], 1, [

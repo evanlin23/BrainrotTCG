@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { poolSize, TICKETS_PER_WORKER } from '../../src/game/ticketPool';
 import {
-  CAPS, REPORT_NOTE, SEED, capacityConfig, syntheticSave, validateCapacityReport, writeReport, type CapacityReport,
-} from '../browser/capacity';
+  CAPS, FAILURES, REPORT_NOTE, SEED, capacityConfig, injectedFailure, poolCap, recycling, syntheticSave, validateCapacityReport, writeReport,
+  type CapacityReport, type PageRecording,
+} from './capacity';
 
 const report = (): CapacityReport => ({
   schema: 1, scenario: 'growing-save-500', note: REPORT_NOTE, seed: SEED,
@@ -85,5 +87,43 @@ describe('capacity synthetic save (#709)', () => {
     const parsed = JSON.parse(syntheticSave(0).file);
     expect(JSON.parse(parsed.history)).toEqual([]);
     expect(JSON.parse(parsed.collection)).toEqual({});
+  });
+});
+
+describe('capacity pool cap and recycling (#709)', () => {
+  it('follows the app\'s own pool size for each kind of device', () => {
+    const devices = [
+      { hardwareConcurrency: 1, deviceMemory: null, mobile: false },
+      { hardwareConcurrency: 2, deviceMemory: null, mobile: false },
+      { hardwareConcurrency: 4, deviceMemory: 4, mobile: true },
+      { hardwareConcurrency: 16, deviceMemory: 8, mobile: true },
+      { hardwareConcurrency: 16, deviceMemory: 8, mobile: false },
+    ];
+    const navigatorBefore = globalThis.navigator;
+    expect(devices.map(poolCap)).toEqual([1, 1, 3, 4, 8]);
+    // The stand-in navigator is put back, and is the one poolSize reads.
+    expect(globalThis.navigator).toBe(navigatorBefore);
+    expect(poolSize()).toBe(Math.max(1, Math.min(2, (navigatorBefore.hardwareConcurrency || 2) - 1)));
+  });
+
+  it('counts the workers that answered a full share of tickets, and the most any one answered', () => {
+    const done = (worker: number, nonce: number): PageRecording['jobs'][number] => ({ t: nonce, kind: 'done', worker, nonce });
+    const jobs = [
+      ...Array.from({ length: TICKETS_PER_WORKER }, (_, n) => done(0, n)),
+      ...Array.from({ length: TICKETS_PER_WORKER - 1 }, (_, n) => done(1, 10 + n)),
+      { t: 99, kind: 'start' as const, worker: 2, nonce: 50 },
+    ];
+    expect(recycling(jobs)).toEqual({ recycled: 1, mostOnAWorker: TICKETS_PER_WORKER });
+    expect(recycling([])).toEqual({ recycled: 0, mostOnAWorker: 0 });
+  });
+});
+
+describe('capacity failure injection (#709)', () => {
+  it('names one stored thing to corrupt, and refuses anything else', () => {
+    expect(injectedFailure(undefined)).toBeNull();
+    expect(injectedFailure('')).toBeNull();
+    for (const name of FAILURES) expect(injectedFailure(name)).toBe(name);
+    expect(() => injectedFailure('1')).toThrow(/must be one of/);
+    expect(() => injectedFailure('histroy')).toThrow(/must be one of/);
   });
 });

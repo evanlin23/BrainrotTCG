@@ -5,6 +5,10 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { scorePack } from '../../src/engine/scoring';
 import type { Rarity } from '../../src/engine/types';
 import { TICKET_PARAMS } from '../../src/engine/ticket';
+import { TICKETS_PER_WORKER, poolSize } from '../../src/game/ticketPool';
+import { PLAYER_KEY_PREFIX, PLAYER_SECRET } from '../browser/support';
+
+export { TICKETS_PER_WORKER };
 
 /**
  * Helpers for capacity.spec.ts (#709): bounded, synthetic growing saves and the page-side recording
@@ -14,11 +18,6 @@ import { TICKET_PARAMS } from '../../src/engine/ticket';
 
 /** Which generator made the seeded records; recorded in every report. */
 export const SEED = 'capacity-shape-v1';
-
-/** The fixture player support.ts seeds (secret 01 x32). */
-export const PLAYER_SECRET = '01'.repeat(32);
-export const PLAYER_KEY_PREFIX = '8a88e3dd7409f195';
-export const PLAYER_PUBLIC_KEY = '8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c';
 
 /** Argon2id memory one ticket job allocates, for the estimate. Never a measurement. */
 export const ARGON2_BYTES_PER_JOB = TICKET_PARAMS.memorySize * 1024;
@@ -45,6 +44,18 @@ const whole = (name: string, value: string, max: number): number => {
   if (!/^\d+$/.test(value) || Number(value) > max) throw new Error(`${name} must be digits only and at most ${max}, got "${value}"`);
   return Number(value);
 };
+
+/** What CAPACITY_INJECT_FAILURE may name: the stored state a run corrupts behind the app's back, so its checks must fail the run. */
+export const FAILURES = ['history', 'stats', 'collection', 'nonce', 'shelf'] as const;
+export type Failure = (typeof FAILURES)[number];
+
+/** The failure to inject, if one is named; any other value throws, so a typo can't pass as "no injection". */
+export function injectedFailure(value: string | undefined = process.env.CAPACITY_INJECT_FAILURE): Failure | null {
+  if (!value?.trim()) return null;
+  const named = FAILURES.find((name) => name === value.trim());
+  if (!named) throw new Error(`CAPACITY_INJECT_FAILURE must be one of ${FAILURES.join(', ')}, got "${value}"`);
+  return named;
+}
 
 export function capacityConfig(env: Record<string, string | undefined> = process.env): CapacityConfig {
   const read = (name: keyof typeof DEFAULTS) => env[name]?.trim() || DEFAULTS[name];
@@ -112,10 +123,28 @@ export function syntheticSave(packs: number, uncached = 0): SyntheticSave {
   return { file, expected: { packs, cards: total, nextNonce: packs, uncached } };
 }
 
-/** How the test project's browser reports itself, for the pool-size cap (mirrors poolSize in ticketPool.ts). */
-export const poolCap = (device: { hardwareConcurrency: number; deviceMemory: number | null; mobile: boolean }): number => {
-  const cap = device.deviceMemory === null || device.deviceMemory < 4 ? 2 : device.deviceMemory >= 8 && !device.mobile ? 8 : 4;
-  return Math.max(1, Math.min(cap, (device.hardwareConcurrency || 2) - 1));
+export interface DeviceFacts { hardwareConcurrency: number; deviceMemory: number | null; mobile: boolean }
+
+/**
+ * The pool size the app picks on a browser that reports `device`: the app's own poolSize, run against
+ * that navigator, so the cap can't drift from the rule.
+ */
+export const poolCap = (device: DeviceFacts): number => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      hardwareConcurrency: device.hardwareConcurrency,
+      ...(device.deviceMemory === null ? {} : { deviceMemory: device.deviceMemory }),
+      userAgentData: { mobile: device.mobile },
+    },
+  });
+  try {
+    return poolSize();
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original);
+    else delete (globalThis as { navigator?: unknown }).navigator;
+  }
 };
 
 export interface PageRecording {
@@ -228,6 +257,17 @@ export function peakBusy(jobs: PageRecording['jobs']): number {
   return peak;
 }
 
+/**
+ * How the pool's recycling shows in a recording: workers that answered TICKETS_PER_WORKER tickets
+ * (the app ends those and starts a fresh one), and the most tickets any one worker answered.
+ */
+export function recycling(jobs: PageRecording['jobs']): { recycled: number; mostOnAWorker: number } {
+  const answered = new Map<number, number>();
+  for (const job of jobs) if (job.kind === 'done') answered.set(job.worker, (answered.get(job.worker) ?? 0) + 1);
+  const counts = [...answered.values()];
+  return { recycled: counts.filter((n) => n >= TICKETS_PER_WORKER).length, mostOnAWorker: Math.max(0, ...counts) };
+}
+
 export interface StorageBytes {
   /** Characters of key + value in each app key, which is how browsers count localStorage against the quota. */
   perKey: Record<string, number>;
@@ -287,7 +327,7 @@ export interface RunFacts {
   dirty: boolean;
   browser: string;
   project: string;
-  device: { hardwareConcurrency: number; deviceMemory: number | null; mobile: boolean };
+  device: DeviceFacts;
 }
 
 let revision: { revision: string; dirty: boolean } | undefined;
@@ -303,23 +343,17 @@ export function sourceRevision() {
 export const REPORT_NOTE = 'Synthetic shape data in emulated Chromium on this host, with no throttling: not a verified history, a certified profile or a physical phone.';
 
 /**
- * Ceilings the spec asserts. Each is several times the largest figure measured (docs/DEVELOPMENT.md >
- * Capacity), so a 2-core CI runner passes, and only a hang or a blow-up trips it. Ordinary timing
- * variation is for the report to show, not for these to judge.
+ * Bounds on what the app stores, which are deterministic for a given build (a record is a fixed shape),
+ * so they are asserted. Each is several times the largest figure measured (docs/DEVELOPMENT.md >
+ * Capacity). Timing, long tasks and heap are never asserted here: the report records them.
  */
 export const BUDGETS = {
-  /** Page start to a pressable Open pack, and Open pack press to a decoded result (measured about 1.2-1.8 s each). */
-  interactiveMs: 15_000,
   /** One record a pack adds to the history key, in key + value characters (measured 149-177, 321 for the first of an empty history). */
   historyGrowthPerPack: { min: 100, max: 600 },
   /** Everything the app stores, over a session: a one-off for the first pack (the collection gains its art paths) plus a bound per pack (measured +26-33 KB in all). */
   storageOnce: 64_000,
   storagePerPack: 8_000,
-  /** Main-thread JS heap after a collection, session start to end (measured +1.5-2.1 MB); worker and Argon2 memory are not in it. */
-  heapGrowthBytes: 24_000_000,
-  /** Long-task time over a session (measured 0.1-0.5 s). */
-  longTaskMs: 8_000,
-  /** The re-open pass's own storage (measured +6 KB for 4 packs) and the packs it may store per record. */
+  /** The re-open pass's own storage (measured +6 KB for 4 packs). */
   reopenStorageBytes: 32_000,
 } as const;
 

@@ -714,11 +714,13 @@ blank Chromium page at 390×844, device scale 3, mobile emulation and no network
 branch. **Chromium emulation, not a real device**; a low-end phone and a GPU or ASIC miner haven't
 been measured.
 
-## Capacity
+## Capacity (opt-in)
 
-`tests/browser/capacity.spec.ts` (#709) drives the real app with a growing synthetic save and a
-bounded repeated-opening session. It runs with the other browser specs (`npx playwright test
-capacity`) and in no separate job. Saves are built by `syntheticSave` (`tests/browser/capacity.ts`) from a
+`npm run test:performance:capacity` (`tests/performance/capacity.spec.ts`, #709) is **report-only and in
+no check, PR shard or default CI job**, like the other opt-in performance runs above. It drives the real app
+with a growing synthetic save and a bounded repeated-opening session, in both browser projects
+(`--project=desktop-chromium`, `--project=mobile-chromium` for one), and builds and serves the app as
+the browser specs do. Saves are built by `syntheticSave` (`tests/performance/capacity.ts`) from a
 fixed seed and go in through Settings > Import, so the app's own validation, backup and reload run. **That
 history is synthetic shape data, never a verified history or proof evidence, and it runs in emulated
 Chromium on the host with no throttling, not on a phone.** Every report says so.
@@ -733,25 +735,35 @@ Sizes are set by environment, digits only, each with a hard cap: `CAPACITY_HISTO
 `0,500,3000`, at most 20000 each), `CAPACITY_PACKS` (real packs per size, default 2, at most 10),
 `CAPACITY_SESSION_HISTORY` (default 500), `CAPACITY_SESSION_PACKS` (default 6, at most 20) and
 `CAPACITY_UNCACHED` (default 4, at most 12). `npx vitest run tests/performance/capacity-report.test.ts`
-checks the report schema and the configuration.
+checks the report schema, the configuration, the pool-size rule and the failure names.
 
 **What fails and what is reported.** Functional violations fail the run: a lost, doubled or misnumbered
 pack, a pack left on the pending shelf, a console or request error (aborted card art included), more
-workers than the pool allows, an import that isn't rolled back exactly. Measurements are asserted only
-against ceilings several times the largest figure measured, so a 2-core CI runner passes and only a
-hang or blow-up trips them; ordinary timing variation is for the report to show (the issue calls timing
-report-only). Storage bytes, long tasks, workers created, peak busy jobs and the main-thread heap are
-recorded separately; the Argon2 figure is peak busy × `TICKET_PARAMS.memorySize`, an estimate, not a
-measurement. A report is written to `test-results/capacity/<project>-<scenario>.json` only after every
-assertion passed, with the revision, browser, seed and sample counts, and `writeReport` refuses one that
-fails validation. `CAPACITY_INJECT_FAILURE=1` drops the last stored pack behind the app's back, so a run
-must exit nonzero and write no report.
+workers busy than the pool allows or created than its recycling explains, storage that grows by more
+than a record's fixed shape allows, an import that isn't rolled back exactly. **Timing is never
+asserted**: page start to a pressable Open pack, press to decoded result, long tasks, the main-thread
+heap, storage bytes, workers created, recycled (replaced after `TICKETS_PER_WORKER` tickets) and peak busy
+are recorded in the report, and a hang is caught by each test's own timeout. The pool cap is the app's own
+`poolSize` run against the emulated device's navigator; beyond the ticket miner's worker and a pool of that
+size per page, only `ceil(tickets / TICKETS_PER_WORKER)` replacement spawns are allowed, and no worker may
+answer more than `TICKETS_PER_WORKER` tickets. The Argon2 figure is peak busy × `TICKET_PARAMS.memorySize`,
+an estimate, not a measurement. A report is written to `test-results/capacity/<project>-<scenario>.json` only
+after every assertion passed, with the revision, browser, seed and sample counts, and `writeReport` refuses
+one that fails validation.
 
-Measured (Chromium on a 4-vCPU host, desktop and Pixel 5 emulation, 10 runs each): page start to a
-pressable Open pack about 1.2 to 1.8 s (1.3 s desktop and 1.7 s Pixel 5 at 3000 records); a record adds 149 to 177 characters to the history
-key; a session adds 26 to 33 KB (about 25 KB of it for the first pack, where the collection gains its art paths) of storage in all; the main-thread heap grows 1.5 to 2.1 MB after a forced collection over a
-session; long tasks total 0.1 to 0.5 s; re-opening four packs adds 6 KB (workers created 4, peak busy 3, against 1 and 1 with nothing to re-open). The ceilings are
-`BUDGETS` in `tests/browser/capacity.ts`.
+`CAPACITY_INJECT_FAILURE=<name>` corrupts one stored thing behind the app's back after the last pack, so the
+matching check must fail the run and no report is written: `history` (drops the newest record), `stats`
+(packs opened back to 0), `collection` (one card count off by one), `nonce` (next number one too low) or
+`shelf` (a pack left on the pending shelf). Any other value throws. Each was run once against the growing-save and
+long-session scenarios; none is injected into the failure scenarios, whose own checks are exact comparisons
+with the state before.
+
+Measured on 2026-10-23 in the sandbox's Chromium over the built site, one run of each project, as
+orientation only (nothing here is a ceiling): a 500-record save reaches a clickable pack in about 1.5-1.7 s;
+the history key grows 149-173 characters a record; a real pack takes about 1.1-1.4 s from click to result;
+re-opening 4 records without cached cards creates 4 workers (3 terminated, 3 busy at once) and stores each
+once. The nine scenarios take about 1.3 minutes on desktop-chromium and on mobile-chromium each, at the default
+sizes (`CAPACITY_HISTORY` 0, 500, 3000).
 
 ## Dependency audit
 
