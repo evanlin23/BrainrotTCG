@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded } from './support';
+import { monitor, expectDecoded, expectPackDropped } from './support';
 
 // The narrowest phone we design for (#312 S6): nothing on the pack screen reads under 12 px, and
 // form fields are 16 px so iOS doesn't zoom the page when one takes focus.
@@ -33,6 +33,7 @@ test('keeps pack-screen text at 12 px and form fields at 16 px on a 360 px phone
   const packShell = page.locator('.pack-shell');
   await expect(packShell).toBeVisible();
   await expectDecoded(packShell.locator('img'), 2);
+  await expectPackDropped(page);
   await page.evaluate(() => document.fonts.ready);
   expect(await page.evaluate(() => innerWidth)).toBe(360);
   // The set name on the wrapper is sized in pack widths, so it is the first thing to fall under the floor.

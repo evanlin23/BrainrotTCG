@@ -7,7 +7,7 @@ import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack } from '../../game/pulls';
-import { StaleSaveError } from '../../game/player';
+import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 import { REFUSAL_COPY } from './refusal';
@@ -261,6 +261,30 @@ describe('the controls under the pack (#312)', () => {
     expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.blocked.message);
     expect(announced()).toBe(REFUSAL_COPY.blocked.message);
     expect(retryButton()?.textContent).toBe(REFUSAL_COPY.blocked.action);
+    await act(async () => { vi.advanceTimersByTime(100); });
+  });
+
+  it('names the damaged player record and its three choices, and opens Save & backup (#1052)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(openPack).mockRejectedValueOnce(new PlayerUnreadableError());
+    const onOpenSave = vi.fn();
+    await act(() => root.render(
+      <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={DEFAULT_SETTINGS} disabled={false} mountedSave={MOUNTED_SAVE} onOpenSave={onOpenSave} />,
+    ));
+    act(() => openButton()!.click());
+    await pastTheTear();
+
+    const message = REFUSAL_COPY.unreadable.message;
+    expect($('.pack-refusal-text')?.textContent).toBe(message);
+    expect(announced()).toBe(message);
+    expect(message).toContain("damaged and can't be read");
+    expect(message).toContain('restore a backup, download the save with the damaged record, or start a new player');
+    expect(retryButton()?.textContent).toBe('Open Save & backup');
+    act(() => retryButton()!.click());
+    expect(onOpenSave).toHaveBeenCalledTimes(1);
+    // Nothing is torn again: the record stays as it is until the player chooses in Settings.
+    expect(cutter.completeCut).toHaveBeenCalledTimes(1);
+    expect(openPack).toHaveBeenCalledTimes(1);
     await act(async () => { vi.advanceTimersByTime(100); });
   });
 

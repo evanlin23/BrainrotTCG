@@ -20,7 +20,7 @@ import { canOpenSharedSet } from './game/sharedPullSet';
 import { isCardOwned } from './game/versions';
 import { takePendingPacks, type OpenedPack } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
-import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE, STALE_SAVE_WARNING } from './game/saveFile';
+import { downloadSaveFile, exportSaveFile, importSaveFile, NEW_PLAYER_PARTIAL_NOTE, PARTIAL_IMPORT_NOTE, STALE_SAVE_WARNING, startNewPlayer } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
@@ -28,7 +28,7 @@ import { readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression';
 import { historyAchievementsReady, myStats, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
-import { sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
+import { playerUnreadable, sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
 import { isStaging, STAGING_NOTE } from './game/staging';
@@ -70,6 +70,21 @@ function App() {
   const [settings, setSettings] = useState<Settings>(() => readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)));
   const [saveFailed, setSaveFailed] = useState(false);
   const [staleSave, setStaleSave] = useState(false);
+  // The save this tab loaded. Another tab can import a save (even the same player's), switch player
+  // or clear storage while this one stays open: from then on everything held here is the old save's,
+  // so nothing here unlocks achievements from the new player's history or stores progress over the
+  // new save (a reload picks that save up). Once the stored save differs it stays changed for this
+  // tab, even if the old one comes back: that tab may have written the old save's progress meanwhile.
+  // First, before the kept-aside note: reading the player keeps an unreadable record aside (#1052).
+  const [mountedSave] = useState(saveMark);
+  // A stored player record with no key that can be read: packs stay sealed until it is restored or
+  // replaced (Settings > Save & backup).
+  const [recordUnreadable] = useState(playerUnreadable);
+  const playerChanged = useRef(false);
+  const samePlayer = useCallback(() => {
+    if (!playerChanged.current && !sameSave(mountedSave, saveMark())) playerChanged.current = true;
+    return !playerChanged.current;
+  }, [mountedSave]);
   // Unreadable collection data kept aside (game/collectionRecovery), with Download and Discard beside
   // the note: in the banner, and in Settings > Save & backup. A stale tab shows neither (see recoveryCurrent).
   const [recoveryNote, setRecoveryNote] = useState(collectionRecoveryNote);
@@ -88,17 +103,6 @@ function App() {
   const recoveryChanged = useCallback(() => {
     if (collectionRecoveryState() !== 'unavailable') setRecoveryNote(collectionRecoveryNote());
   }, []);
-  // The save this tab loaded. Another tab can import a save (even the same player's), switch player
-  // or clear storage while this one stays open: from then on everything held here is the old save's,
-  // so nothing here unlocks achievements from the new player's history or stores progress over the
-  // new save (a reload picks that save up). Once the stored save differs it stays changed for this
-  // tab, even if the old one comes back: that tab may have written the old save's progress meanwhile.
-  const [mountedSave] = useState(saveMark);
-  const playerChanged = useRef(false);
-  const samePlayer = useCallback(() => {
-    if (!playerChanged.current && !sameSave(mountedSave, saveMark())) playerChanged.current = true;
-    return !playerChanged.current;
-  }, [mountedSave]);
   // The progress this tab loaded. Another tab of the same player can store packs into it meanwhile (no
   // import or switch, so samePlayer can't tell): everything held here is then older, and storing it would
   // drop that tab's packs, cards and unlocks. As with a changed save, this tab stores no more progress
@@ -315,6 +319,23 @@ function App() {
     return error;
   }, [samePlayer]);
 
+  /** Start a new player in place of an unreadable record (Settings asks first). Returns an error to show, if any. */
+  const handleStartNewPlayer = useCallback((): string | null => {
+    if (!samePlayer()) {
+      setStaleSave(true);
+      return STALE_SAVE_WARNING;
+    }
+    const error = startNewPlayer({ expectedSave: mountedSave });
+    if (error === STALE_SAVE_WARNING) setStaleSave(true);
+    if (!error) reloadPage();
+    else if (error === NEW_PLAYER_PARTIAL_NOTE) {
+      // The app still holds the save from before; only a reload shows what storage now holds.
+      window.alert(error);
+      reloadPage();
+    }
+    return error;
+  }, [samePlayer, mountedSave]);
+
   const handlePackOpened = useCallback((pack: OpenedPack, from: PackProgress = { stats, collection, hallOfFame }): PackProgress => {
     packAdded(pack);
     if (pack.unrecorded) setSaveFailed(true);
@@ -481,6 +502,7 @@ function App() {
           disabled={isAnyModalOpen || onPage}
           openBlocked={staleSave}
           mountedSave={mountedSave}
+          onOpenSave={() => openPage('settings', 'save-backup')}
           settings={settings}
           cardBack={usable(CARD_BACKS, settings.cardBack, rewardLevel)}
           isOwned={isOwned}
@@ -540,6 +562,8 @@ function App() {
           recoveryNote: staleSave ? undefined : recoveryNote,
           recoveryAllowed: recoveryCurrent,
           onRecoveryChanged: recoveryChanged,
+          playerUnreadable: recordUnreadable && !staleSave,
+          onStartNewPlayer: handleStartNewPlayer,
           guideSet: selectedSet,
           pagesUnlocked,
         }} />

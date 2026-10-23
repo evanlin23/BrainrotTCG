@@ -276,6 +276,9 @@
 
 .profile-how summary {
   width: fit-content;
+  min-height: var(--touch-target);
+  padding-block: var(--space-2);
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-weight: 600;
   cursor: pointer;

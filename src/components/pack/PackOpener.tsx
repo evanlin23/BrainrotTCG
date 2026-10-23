@@ -27,7 +27,7 @@ import { REFUSAL_COPY } from './refusal';
 import { usePackLifecycle } from './usePackLifecycle';
 import { stageEntrance } from './stageEntrance';
 import { packImageUrl } from '../../content/art';
-import { StaleSaveError, type SaveMark } from '../../game/player';
+import { PlayerUnreadableError, StaleSaveError, type SaveMark } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
 
@@ -96,9 +96,11 @@ interface PackOpenerProps {
    * entrance plays then.
    */
   shown?: boolean;
+  /** Go to Settings, Save & backup: where an unreadable player record's refusal sends the player. */
+  onOpenSave?: () => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true, onOpenSave }: PackOpenerProps) => {
   // Where the pack is, from the tear to the packs screen (packLifecycle.ts). What the stage doesn't say is
   // the reveal's own state below: which card is up, what is locked, what is being celebrated.
   const [stage, send] = usePackLifecycle();
@@ -151,7 +153,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       pack = await openPack(set, mountedSave);
     } catch (error) {
       console.error('Could not open pack', error);
-      const { from } = send({ type: 'failed', refusal: error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed' });
+      const { from } = send({ type: 'failed', refusal: error instanceof PlayerUnreadableError ? 'unreadable' : error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed' });
       // Already back on the packs screen: nothing was dealt, so there's nothing to say.
       if (from.kind === 'waiting' && from.leaving === 'left') landingRef.current.resetCutState();
       return;
@@ -315,11 +317,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       reloadPage();
       return;
     }
+    if (refusal === 'unreadable' && onOpenSave) {
+      onOpenSave();
+      return;
+    }
     // Try again goes as the pack is torn again (busy while the ticket is on its way): focus moves to
     // the pack rather than falling to the page for the whole wait.
     focusIfFree(packRef.current);
     handleOpen();
-  }, [refusal, handleOpen, packRef]);
+  }, [refusal, handleOpen, packRef, onOpenSave]);
   /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
   const stageRef = useRef<HTMLDivElement>(null);
   // The stage is on its way out when the cards come in, and the reveal must not inherit anything it

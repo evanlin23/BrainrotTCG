@@ -310,7 +310,7 @@ test.describe("the new address's Settings fetches the old save", () => {
     expect(here).toEqual({ ...notGame(before), ...HANDED_OVER, [STAMP]: expect.any(String), [BACKUP]: expect.any(String) });
     expect(here[STAMP]).not.toBe(oldStamp);
     expect(JSON.parse(here[BACKUP])).toEqual(game(before));
-    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual({ ...OLD_STORAGE, [MOVED]: expect.any(String) });
+    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual(OLD_STORAGE);
   });
 
   test('over a different save with progress: Keep mine changes nothing here', async ({ page }) => {
@@ -324,8 +324,8 @@ test.describe("the new address's Settings fetches the old save", () => {
     await expect(note).toHaveText('Kept the save you have here.');
     expect(await storageAt(page.context(), NEW_ORIGIN)).toEqual(before);
     expect(before[PLAYER]).toBe(HERE_SAVE[PLAYER]);
-    // The old address sent its save, so it marks itself moved; the save itself stays there.
-    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual({ ...OLD_STORAGE, [MOVED]: expect.any(String) });
+    // Sending isn't arriving: the old address keeps its save and doesn't mark it moved (#1035).
+    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual(OLD_STORAGE);
   });
 
   test('when this player is already here: it says so and writes nothing', async ({ page }) => {
@@ -366,9 +366,9 @@ test.describe('messages from anyone else hand nothing over', () => {
     await expect(sender.locator('#status')).toHaveText(`Sent to ${new URL(NEW_URL).host}. You can close this window.`);
     expect((await roundTrip(sender, page, 'after-sender')).origin).toBe(OLD_ORIGIN);
     expect((await allHeard(page)).map((m) => m.type ?? m.probe)).toEqual(['after-receiver', 'after-sender']);
-    // Whatever another site does, the old address keeps its save. It does mark itself moved although
-    // nothing arrived: https://github.com/evanlin23/BrainrotTCG/issues/1035.
-    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual({ ...OLD_STORAGE, [MOVED]: expect.any(String) });
+    // Whatever another site does, the old address keeps its save, and it doesn't mark it moved, since
+    // nothing arrived (#1035).
+    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual(OLD_STORAGE);
   });
 
   /**
@@ -477,7 +477,7 @@ test.describe('messages from anyone else hand nothing over', () => {
     await popup.evaluate((url) => { location.assign(url); }, `${OLD_URL}#/send`);
     await Promise.all([closed, expect(page).toHaveTitle('Arrived')]);
     expect(await storageAt(page.context(), NEW_ORIGIN)).toEqual({ ...before, ...HANDED_OVER, [STAMP]: expect.any(String) });
-    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual({ ...OLD_STORAGE, [MOVED]: expect.any(String) });
+    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual(OLD_STORAGE);
   });
 });
 
@@ -565,6 +565,6 @@ test.describe('a pop-up that was blocked or closed, then tapped again (simulated
     await closing(await popupOpened);
     await expect(page).toHaveTitle('Arrived');
     expect(await storageAt(page.context(), NEW_ORIGIN)).toEqual({ ...before, ...HANDED_OVER, [STAMP]: expect.any(String) });
-    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual({ ...OLD_STORAGE, [MOVED]: expect.any(String) });
+    expect(await storageAt(page.context(), OLD_ORIGIN)).toEqual(OLD_STORAGE);
   });
 });

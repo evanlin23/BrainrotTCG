@@ -18,7 +18,7 @@ import SharePreviewSheet from '../share/SharePreviewSheet';
 import { renderPlayerCard } from '../../game/playerCard';
 import { getLatestSet } from '../../content/sets';
 import { byBest, getHistory, historyCards, isHallOfFameWorthy, type HistoryEntry } from '../../game/history';
-import { HALL_OF_FAME_MIN_SCORE } from '../../engine';
+import { QUALIFY_RULE } from '../ui/rankingsRule';
 import type { BestPackStats } from '../../game/bestSources';
 import { STORAGE_KEYS } from '../../constants';
 import { getPlayer } from '../../game/player';
@@ -340,7 +340,7 @@ const ProfilePage = ({
                 <p className="pulls-note">
                   {worthy.length
                     ? 'These qualify for Rankings, the public Hall of Fame. Open one to share it or submit it.'
-                    : `None yet: a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+, qualifies for Rankings.`}
+                    : `None yet: ${QUALIFY_RULE}, qualifies for Rankings.`}
                 </p>
               )}
               <ul ref={listRef} className="pulls-list">
