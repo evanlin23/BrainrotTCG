@@ -19,6 +19,8 @@
  * the temporary worktree changes except the compact evidence file the quality review reads. A run
  * that is interrupted leaves its worktree behind; the next run removes it first.
  *
+ * It replays whatever HEAD is checked out (CI: the merge commit), so run it from the branch to check.
+ *
  *   npx tsx scripts/defect-replay.ts            # all cases and meta-cases; exit 0 only on pass
  *   npx tsx scripts/defect-replay.ts --list     # the cases, without running anything
  *   git diff --name-only ... | npx tsx scripts/defect-replay.ts --if-gate-changed
@@ -158,11 +160,12 @@ export const META: readonly MetaCase[] = [
 ];
 
 /**
- * What the replay guards: the unit gate's config and setup, this harness, and each case's owning
+ * What the replay guards: the unit gate's config, setup, dependencies and test budget, this harness, and each case's owning
  * test and fixed code. CI runs the replay on a pull request that changes any of them.
  */
 export const GATE_PATHS: readonly string[] = [...new Set([
-  'vite.config.ts', 'src/test/', 'scripts/defect-replay.ts', 'scripts/defect-replay.test.ts',
+  'vite.config.ts', 'src/test/', 'package.json', 'package-lock.json', 'scripts/test-budget.ts',
+  'scripts/defect-replay.ts', 'scripts/defect-replay.test.ts',
   ...[...CASES, ...META].flatMap((c) => [c.test.file, c.fault.file]),
 ])];
 

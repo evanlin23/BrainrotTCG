@@ -211,7 +211,7 @@ export interface RunRow {
   /** Events on the relays after expiry, before this run read them. */
   onRelays: number;
   eventsRead: number;
-  /** Relays whose read ended in an error (a run with every relay down still reports `ok`). */
+  /** Relays whose read ended in an error (a run with every relay down fails). */
   relaysFailed: number;
   /** In-window events the run didn't read: past the paging cap (INBOX_PAGES x INBOX_PAGE_SIZE per relay, twice), which since #999 are only ones an earlier run read through and handled; 0 when every relay was down. */
   beyondPaging: number;
@@ -493,7 +493,7 @@ export const runScenario = async (input: ScenarioInput, opts: { argon?: Awaited<
       verification: 'stubbed: two pre-mined stand-in tickets replace Argon2; proof and event signatures are real',
       time: 'fake clock in model seconds; nothing slept, so no wall-clock throughput is implied',
       providers: 'in-memory GitHub and relay fakes; latencies and limits are inputs, not observations',
-      limits: 'not exercised: the published list is assumed to be a 404, so the floor and joinRefusal paths do not run; event and proof keys come from 16-key pools',
+      limits: 'not exercised: the published list is assumed to be a 404, so the floor and joinRefusal paths do not run; event and proof keys come from 16-key pools; every fake relay serves the same event set, so relays never disagree',
       capacity: 'modeledRunS is derivations x argonMs + requests x latency inputs; not observed production throughput',
       ...(cfg.futureOptIn225 ? { synthetic: "#225's synthetic future opt-in scenario, not a claim the current service supports this rate" } : {}),
     },

@@ -24,7 +24,7 @@ const expectConsistent = (s: Summary) => {
   expect(s.meta.seed).toBe(s.config.seed);
   expect(s.totals.arrived).toBe(s.runs.reduce((n, r) => n + r.arrived, 0));
   for (const r of s.runs) {
-    for (const v of [r.arrived, r.onRelays, r.eventsRead, r.beyondPaging, r.budgetUsed, r.filed, r.deferred, r.backlog, r.oldestBacklogAgeS, r.relayRequests, r.modeledRunS]) expect(v).toBeGreaterThanOrEqual(0);
+    for (const v of [r.arrived, r.onRelays, r.eventsRead, r.beyondPaging, r.unreadable, r.budgetUsed, r.filed, r.deferred, r.backlog, r.oldestBacklogAgeS, r.relayRequests, r.modeledRunS]) expect(v).toBeGreaterThanOrEqual(0);
     expect(r.budgetUsed).toBeLessThanOrEqual(INBOX_BUDGET);
     expect(r.filed).toBeLessThanOrEqual(INBOX_MAX_FILED);
   }
@@ -113,6 +113,7 @@ describe('outages and expiry', () => {
     const s = await run({ name: 'some-relays-down', runs: 3, cadenceS: 3600, qualifyingFraction: 1, phases: [{ fromS: 0, toS: 3600, ratePerS: 0.002 }], relayOutage: { fromS: 0, durationS: 10 * 3600, relaysDown: HOF_RELAYS.length - 1 } });
     expectPassed(s);
     expect(s.runs.map((r) => [r.outcome, r.relaysFailed])).toEqual(Array(3).fill(['ok', HOF_RELAYS.length - 1]));
+    expect(s.runs.map((r) => r.unreadable)).toEqual([0, 0, 0]); // one relay up still serves every event
     expect(s.totals.pulls).toMatchObject({ delivered: s.totals.arrived, pending: 0, lost: 0 });
   }, 30_000);
 
@@ -230,7 +231,7 @@ describe('labels and the command line', () => {
     const s = await run({ name: 'unsampled', runs: 1, phases: [{ fromS: 0, toS: 900, ratePerS: 2 / 900 }], qualifyingFraction: 1, model: { argonMs: 'measured' } });
     expectPassed(s);
     expect(s.meta.argon.source).toMatch(/^measured-missing/);
-    expect(s.labels.limits).toMatch(/404.*floor.*joinRefusal.*16-key pools/);
+    expect(s.labels.limits).toMatch(/404.*floor.*joinRefusal.*16-key pools.*same event set/);
     expect((await run({ name: 'fixed', runs: 1 })).meta.argon.source).toBe('input');
   }, 60_000);
 

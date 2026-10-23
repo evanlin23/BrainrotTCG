@@ -28,7 +28,10 @@ export interface BurnInPlan { specs: string[]; repeat: number }
 const isSpec = (file: string) => file.startsWith(`${BROWSER_DIR}/`) && file.endsWith('.spec.ts');
 const isHelper = (file: string) => file.startsWith(`${BROWSER_DIR}/`) && file.endsWith('.ts') && !file.endsWith('.spec.ts');
 
-/** Does this spec source import the helper at `helper` (a path like tests/browser/support.ts)? */
+/**
+ * Does this spec source import the helper at `helper` (a path like tests/browser/support.ts)?
+ * Only a direct import counts: a spec that reaches the helper through another helper isn't selected.
+ */
 export const importsHelper = (source: string, helper: string): boolean => {
   const name = path.posix.basename(helper, '.ts').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`from\\s+['"]\\./${name}(\\.ts)?['"]`).test(source);
