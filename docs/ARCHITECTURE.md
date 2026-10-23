@@ -238,6 +238,15 @@ read as "Someone"), beside the key fingerprint in Rankings, shared pull links an
   Appeal).
 - A name the check refused: the player renames in Profile, shares the pull again (a new link to the
   same pull) and submits it again.
+- Duplicates (#21): `verify-issue` closes an opened or edited issue, as a duplicate, when a
+  lower-numbered issue that isn't `rejected` already holds the same pull (same `pullId`) under
+  `verified` or `daily`, and the bot verified it there before GitHub received this issue's body. It
+  says which issue, and how to contest it: comment asking a maintainer to reopen it, or file a new
+  issue (the submitter can't reopen an issue the bot closed). It never touches the other issue, and
+  never closes one a maintainer reopened, on `reopened` or any later edit: reopening is the owner's
+  override. It closes nothing when GitHub can't be read. Of two issues
+  received at once, neither closes: the earlier-numbered one never yields to a later one, and the
+  later one was received before the other was verified.
 - An entry verified before the word list blocked its name drops out at the next deploy and no longer
   counts as filed (for the relay inbox or a day's top), so the player can resubmit it under a new name.
 - Appeal: the player opens an issue. The owner takes `rejected` off a wrongly removed entry, or fixes
@@ -475,8 +484,8 @@ localStorage keys are `STORAGE_KEYS` in `src/constants/config.ts`, plus `brainro
 `brainrot-reopen-backoff-v1` (how long an automatic resume waits after re-opened packs couldn't be
 saved) and `brainrot-reopened-v1` (profile re-opening), `brainrot-hof-submitted-v1` (Hall of Fame submissions),
 `brainrot-save-stamp-v1` (changed by every import and move, so other open tabs can tell) and the
-`brainrot-before-import-v1`, `brainrot-before-move-v1` and `brainrot-before-move-pending-v1` backups
-(kept for recovery by hand: the app never restores a save from them). IndexedDB holds one database,
+`brainrot-before-import-v1`, `brainrot-before-move-v1`, `brainrot-before-move-pending-v1` and
+`brainrot-before-new-player-v1` (then `:2`, `:3`, …) backups (kept for recovery by hand: the app never restores a save from them). IndexedDB holds one database,
 `brainrot-packs` (`packStore.ts`).
 `brainrot-best-cards-v1` (`bestCards.ts`, the save field `bestCards`) keeps each full public key's
 best cards as rebuildable references (set, version, nonce, slot) with a discardable cached card code
@@ -490,7 +499,19 @@ in `brainrot-collection-recovery-v1`: each distinct payload once, the first and 
 within 1M characters (older ones in between are let go and counted). The archive never blocks the
 save: a payload storage has no room for is kept for that visit only, and the note asks the player to
 download it. Nothing discards kept-aside data silently; the player can download or discard it from the
-save warning or Settings. Export includes that archive. Import
+save warning or Settings. A player record (`player.ts`) that can't be read as is is archived the same
+way before anything replaces it (#1052). If its secret key reads, the key stays and only the broken
+fields are repaired, with the ticket count past every ticket the history, stored packs and owed packs
+show that key used. If no key reads, the bytes stay where they are, the tab plays on a stand-in key
+that is never stored, and claims refuse (`PlayerUnreadableError`, so packs stay sealed) until the
+player restores a backup or starts a new player in Settings. Starting one (`startNewPlayer`) copies
+the whole save to `brainrot-before-new-player-v1` (a later start takes the next free slot, `:2` and
+on, so no copy is written over), changes the save stamp, removes the old player's progress and the
+owed packs that name no key, then writes the new record. A failed step is undone and no key is
+stored; if undoing fails too, the answer says so (`NEW_PLAYER_PARTIAL_NOTE`), the copy stays and the
+page reloads. Export writes the damaged bytes as `player`, in a file named
+`brainrot-tcg-damaged-player-*` whose note promises no working key, and importing it says it is such
+a copy (`holdsDamagedPlayer`) rather than pairing the save with a new key. Export includes that archive. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
 import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; a failed

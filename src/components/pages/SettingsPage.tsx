@@ -6,13 +6,15 @@ import { reloadPage } from '../../game/reload';
 import { CARD_FLIP_SRC, EFFECT_DELAY_MS, VINE_BOOM_SRC, soundVolume } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import { SPECIAL_REVEAL_CUTOFF, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
-import type { Settings } from '../../types';
+import type { MotionSetting, Settings } from '../../types';
 import type { SetDefinition } from '../../engine';
 import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
-import KeptAsideActions from '../ui/KeptAsideActions';
+import KeptAsideActions, { KEPT_ASIDE_DOWNLOAD_LABEL } from '../ui/KeptAsideActions';
+import UnreadablePlayerRow from './UnreadablePlayerRow';
 import '../../styles/Settings.css';
-import { downloadSaveFile, EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { DAMAGED_EXPORT_KEY_NOTE, downloadSaveFile, EXPORT_KEY_NOTE, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { PLAYER_PAUSED_NOTE } from '../../game/collectionRecovery';
 import { sameSave, saveMark, type SaveMark } from '../../game/player';
 
 interface SettingsPageProps {
@@ -29,6 +31,10 @@ interface SettingsPageProps {
     recoveryAllowed?: () => boolean;
     /** What's kept aside changed (discarded here, or more kept aside meanwhile); the app refreshes what it shows. */
     onRecoveryChanged?: () => void;
+    /** This browser's player record can't be read (#1052): Save & backup shows its row first, with Restore, Download and Start a new player. */
+    playerUnreadable?: boolean;
+    /** Starts a new player in place of that record. Returns an error to show, or null (the page then reloads). */
+    onStartNewPlayer?: () => string | null;
     /** The pack being opened: Help's card guide shows its odds. */
     guideSet?: SetDefinition;
     /** The tabs and pack picker already show on their own (a saved pack or a collected card): "Show every page" would change nothing, so it is left out. */
@@ -36,9 +42,10 @@ interface SettingsPageProps {
 }
 
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, playerUnreadable = false, onStartNewPlayer, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
-    const [exportNote, setExportNote] = useState(EXPORT_KEY_NOTE);
+    // Null until Export is used: then what the file holds is said for the record as it is now.
+    const [exportNote, setExportNote] = useState<string | null>(null);
     // Counts successful exports; it keys the note's text so a repeat Export is announced again.
     const [exportCount, setExportCount] = useState(0);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -52,10 +59,12 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const focusRestoreKeep = useRef(false);
     const activeImportTokenRef = useRef(0);
     const activeReaderRef = useRef<FileReader | null>(null);
+    const showUnreadableRow = playerUnreadable && !!onStartNewPlayer;
+    // The unreadable-player row already says packs are paused, and has its own Download for the whole save.
+    const shownRecoveryNote = showUnreadableRow ? recoveryNote?.replace(` ${PLAYER_PAUSED_NOTE}`, '') : recoveryNote;
     const handleExportSave = () => {
         try {
-            downloadSaveFile();
-            setExportNote(EXPORT_DONE_NOTE);
+            setExportNote(downloadSaveFile());
             setExportCount((n) => n + 1);
         } catch {
             setExportNote("Couldn't read browser storage to export your save.");
@@ -325,6 +334,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                         onChange={(effectsVolume) => onSettingsChange({ ...settings, effectsVolume })}
                         onRelease={(effectsVolume) => playSample(effectsVolume)}
                     />
+                    <ChoiceRow<MotionSetting>
+                        label="Motion"
+                        desc="Auto follows your device's reduced-motion setting. Reduced keeps reveals and celebrations calm whatever your device says. Scores and saves don't change."
+                        value={settings.motion ?? 'auto'}
+                        options={[{ value: 'auto', label: 'Auto' }, { value: 'reduced', label: 'Reduced' }]}
+                        onChange={(motion) => onSettingsChange({ ...settings, motion })}
+                    />
                     <SwitchRow
                         label="Particles"
                         desc="Confetti on Epic and better pulls, finishes and misprints; sparkles on holos; sparks as you swipe a pack open. Plain cards just flip."
@@ -357,11 +373,14 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
             <section id="save-backup" className="settings-group" aria-labelledby="settings-save">
                 <h2 id="settings-save" ref={saveHeadingRef} className="section-title" tabIndex={-1}>Save &amp; backup</h2>
                 <div className="settings-panel">
-                    {recoveryNote && recoveryAllowed && (
+                    {showUnreadableRow && (
+                        <UnreadablePlayerRow onRestore={handleImportClick} onStartNewPlayer={onStartNewPlayer} />
+                    )}
+                    {shownRecoveryNote && recoveryAllowed && (
                         <div className="settings-row settings-row--wrap">
                             <span className="settings-text">
                                 <span className="settings-label">Kept-aside data</span>
-                                <span className="settings-desc">{recoveryNote}</span>
+                                <span className="settings-desc">{shownRecoveryNote}</span>
                             </span>
                             <KeptAsideActions variant="settings" canAct={recoveryAllowed} onGone={() => {
                                 onRecoveryChanged?.();
@@ -369,13 +388,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                                 saveHeadingRef.current?.focus();
                             }} onChanged={() => onRecoveryChanged?.()} onLeave={() => {
                                 (reloadRef.current ?? saveHeadingRef.current)?.focus();
-                            }} />
+                            }} downloadLabel={showUnreadableRow ? KEPT_ASIDE_DOWNLOAD_LABEL : undefined} />
                         </div>
                     )}
                     <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
-                            <span className="settings-desc" role="status"><span key={exportCount}>{exportNote}</span></span>
+                            <span className="settings-desc" role="status"><span key={exportCount}>{exportNote ?? (playerUnreadable ? DAMAGED_EXPORT_KEY_NOTE : EXPORT_KEY_NOTE)}</span></span>
                         </span>
                         <button type="button" className="btn btn--secondary btn--sm" onClick={handleExportSave}>
                             <Download aria-hidden="true" /> Export
@@ -502,6 +521,41 @@ const SliderRow = ({ label, desc, value, onChange, onRelease }: { label: string;
                     onKeyUp={release}
                 />
                 <span className="settings-value tabular" aria-hidden="true">{text}</span>
+            </span>
+        </div>
+    );
+};
+
+const ChoiceRow = <T extends string>({ label, desc, value, options, onChange }: { label: string; desc: string; value: T; options: { value: T; label: string }[]; onChange: (value: T) => void }) => {
+    const id = useId();
+    // A radio group, as in the rewards pickers: one Tab stop (the chosen one), arrow keys move the choice.
+    const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+        if (!step) return;
+        event.preventDefault();
+        const at = Math.max(0, options.findIndex((option) => option.value === value));
+        const next = options[(at + step + options.length) % options.length];
+        onChange(next.value);
+        event.currentTarget.querySelector<HTMLElement>(`[data-choice="${next.value}"]`)?.focus();
+    };
+    return (
+        <div className="settings-row settings-row--choice">
+            <span className="settings-text">
+                <span className="settings-label" id={`${id}-label`}>{label}</span>
+                <span className="settings-desc" id={`${id}-desc`}>{desc}</span>
+            </span>
+            <span className="settings-choice" role="radiogroup" aria-labelledby={`${id}-label`} aria-describedby={`${id}-desc`} onKeyDown={onKeyDown}>
+                {options.map((option) => (
+                    <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        data-choice={option.value}
+                        aria-checked={option.value === value}
+                        tabIndex={option.value === value ? 0 : -1}
+                        onClick={() => onChange(option.value)}
+                    >{option.label}</button>
+                ))}
             </span>
         </div>
     );

@@ -119,7 +119,8 @@ With staging on, a deploy of `main` runs:
 2. **stage** checks the seal, publishes those files as a Cloudflare Pages *preview* (Wrangler's
    `--branch`, the branch named by `CLOUDFLARE_STAGING_BRANCH`) and waits until
    `https://<branch>.<project>.pages.dev/` serves this run's `deployment-id.json`. Then it fetches
-   every sealed file from staging and fails if any one differs from its sealed hash.
+   every sealed file from staging and fails if any one differs from its sealed hash (pages may
+   carry Web Analytics' one tag, taken out first: [Web analytics](#web-analytics)).
 3. **staging-checks** first checks staging still serves this run's `deployment-id.json` (a later
    run on the same commit may have replaced it, and a re-run would then test other files), then runs
    browser checks (`playwright.staging.config.ts`: the built-site check, the pack-opener and
@@ -156,8 +157,8 @@ What keeps staging apart:
 
 1. Nothing new on Cloudflare: staging is a preview in the same project, with the same token. The token
    needs **Account → Cloudflare Pages → Edit** (step 3 of the move); its scope can't be checked from
-   this repository. Keep Cloudflare features that rewrite HTML (Web Analytics' automatic setup, for
-   example) off: the checks compare every file byte for byte.
+   this repository. Keep Cloudflare features that rewrite HTML off, Web Analytics aside
+   ([Web analytics](#web-analytics)): the checks compare every file byte for byte.
 2. If the project's preview deployments are behind Cloudflare Access (they are here: the Access app
    *brainrottcg - Cloudflare Pages* covers `*.brainrottcg.pages.dev`, and it stays), give the checks
    a service token as in [Cloudflare Access on staging](#cloudflare-access-on-staging). Without
@@ -218,6 +219,41 @@ both secrets; a token past its expiry date fails the next staging deploy.
 
 Rollback is unchanged ([Recover on the same origin](#recover-on-the-same-origin)): roll back to an
 earlier *production* deployment. A staging preview is never a rollback target.
+
+## Web analytics
+
+Production counts visits with Cloudflare Web Analytics, on through Pages' automatic setup (the Pages
+project's **Metrics → Web Analytics** in the Cloudflare dashboard; turn analytics off there). Pages adds one tag to every page it serves, just
+before `</body>`: a comment, a `<script defer>` loading
+`https://static.cloudflareinsights.com/beacon.min.js` with the site's token in `data-cf-beacon`, and
+the comment again. Our build never writes it, and there's nothing to set in this repository.
+
+The deploy still checks that staging and production serve every sealed file byte for byte
+(`deploy_contract.py served`). Before comparing a page, it takes out exactly that one tag in exactly
+that place (`without_beacon`), and nothing else:
+
+- A page with no tag passes, so turning Web Analytics off needs no change here.
+- A second tag, a tag anywhere else or with any other source, attribute, quoting or token shape, a
+  tag in a file that isn't a page, or any other changed byte still fails the release. So does any
+  other Cloudflare setting that rewrites HTML: keep those off.
+- Every tagged page in a run must carry the same token. The check prints whether it saw the tag, and
+  on how many pages, but never the token.
+
+If Cloudflare changes the tag's shape, every release fails with "different content" on its pages
+until `BEACON_TAG` in `scripts/deploy_contract.py` matches the new shape: read it from the served
+page, keeping the token out of the code, logs and issues.
+
+Browser checks that load the real site (staging checks, the production smoke) answer exactly the
+beacon script's address with an inert script that reports nothing, so they aren't counted as
+visits; every other request to another origin, Cloudflare's reporting endpoint
+`https://cloudflareinsights.com/cdn-cgi/rum` included, is still refused
+(`tests/browser/support.ts`). The site sends no Content Security Policy; if one is added, it must
+allow that script in `script-src` and `https://cloudflareinsights.com` in `connect-src`.
+
+The beacon is Cloudflare's script, loaded unpinned from its host (it isn't versioned, so it can't
+carry a Subresource Integrity hash), and runs with full access to the page and its storage: saves
+and the player's signing key. Keeping Web Analytics on trusts Cloudflare with that, beyond serving
+the files. [POLICIES.md](POLICIES.md) says what it collects.
 
 ## Release evidence
 
@@ -395,7 +431,8 @@ copy of a set page keeps production's link preview (`og:image` and its size), al
 `playwright.production.config.ts` runs the shared-pull smoke specs against production in a fresh
 browser context: public proof fixtures, card and share pages, malformed links and every lazy
 screen, with every write and every request to another origin refused, so nothing reaches a relay,
-the Hall of Fame or analytics. A failure turns the deploy run red. A last step always runs
+the Hall of Fame or analytics (Web Analytics' beacon gets an inert stand-in, so the checks aren't
+counted as visits). A failure turns the deploy run red. A last step always runs
 (`production-smoke.ts --status`): it calls the release known-good only when both the HTTP and the
 browser checks passed, and when one of them failed names the newest deploy run on `main` that
 passed on an earlier commit as the rollback target, or says to fix forward when there is none. It

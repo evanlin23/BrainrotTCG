@@ -14,6 +14,7 @@ import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
 import { usePackHistory } from '../../hooks/usePackHistory';
+import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { BRAINROT_VOICES, EFFECT_SOUNDS, CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { effectsLevel } from '../../utils/settings';
 import PackCuttingUI from './PackCuttingUI';
@@ -24,12 +25,16 @@ import ShowcaseRibbon from './ShowcaseRibbon';
 import { revealAnnouncement } from '../cards/cardLabel';
 import { REFUSAL_COPY } from './refusal';
 import { usePackLifecycle } from './usePackLifecycle';
+import { stageEntrance } from './stageEntrance';
 import { packImageUrl } from '../../content/art';
-import { StaleSaveError, type SaveMark } from '../../game/player';
+import { PlayerUnreadableError, StaleSaveError, type SaveMark } from '../../game/player';
 import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrder, SPECIAL_REVEAL_DURATION_MS } from '../../game/reveal';
 import '../../styles/PackOpener.css';
 
 const Motion = motion;
+
+/** Where the sealed pack's stage rests. */
+const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0 };
 
 /**
  * Focus follows the stage (#312) onto a control that just appeared, unless the player has put it
@@ -78,15 +83,38 @@ interface PackOpenerProps {
   onLeaveEarly?: (pack: OpenedPack) => void;
   /** No pack is saved yet: the sealed pack plays its opening cue (a finger tearing along the seam) a couple of times. */
   openCue?: boolean;
+  /**
+   * The sealed pack has already come into the packs screen once in this page load, so it only rises in
+   * (stageEntrance.ts). It outlives this opener, which a set change remounts; left out, the first stage falls.
+   */
+  arrived?: boolean;
+  /** The sealed pack's stage was shown for the first time. */
+  onArrive?: () => void;
+  /**
+   * The packs screen is on screen. It stays mounted, hidden, under a page, so a load straight into one
+   * (#/cards) mounts the stage unseen: it waits at its starting place until the screen is shown, and its
+   * entrance plays then.
+   */
+  shown?: boolean;
+  /** Go to Settings, Save & backup: where an unreadable player record's refusal sends the player. */
+  onOpenSave?: () => void;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false, arrived = false, onArrive, shown = true, onOpenSave }: PackOpenerProps) => {
   // Where the pack is, from the tear to the packs screen (packLifecycle.ts). What the stage doesn't say is
   // the reveal's own state below: which card is up, what is locked, what is being celebrated.
   const [stage, send] = usePackLifecycle();
   const isPackCut = stage.kind !== 'sealed';
   const isOpening = stage.kind === 'revealing' || stage.kind === 'summary';
   const showSummary = stage.kind === 'summary';
+  const reducedMotion = usePrefersReducedMotion();
+  // The stage falls in once and rises in after that: it has landed once it has been on screen.
+  const [landed, setLanded] = useState(arrived);
+  const markLanded = () => {
+    if (landed) return;
+    setLanded(true);
+    onArrive?.();
+  };
   /** Why the last tear didn't open a pack, shown under it with a way to try again. */
   const refusal = stage.kind === 'sealed' ? stage.refusal : null;
   /** The player left a torn pack while its ticket was still being worked out: keep it, don't show it. */
@@ -125,7 +153,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       pack = await openPack(set, mountedSave);
     } catch (error) {
       console.error('Could not open pack', error);
-      const { from } = send({ type: 'failed', refusal: error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed' });
+      const { from } = send({ type: 'failed', refusal: error instanceof PlayerUnreadableError ? 'unreadable' : error instanceof StaleSaveError || openBlockedRef.current ? 'blocked' : 'failed' });
       // Already back on the packs screen: nothing was dealt, so there's nothing to say.
       if (from.kind === 'waiting' && from.leaving === 'left') landingRef.current.resetCutState();
       return;
@@ -289,11 +317,15 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       reloadPage();
       return;
     }
+    if (refusal === 'unreadable' && onOpenSave) {
+      onOpenSave();
+      return;
+    }
     // Try again goes as the pack is torn again (busy while the ticket is on its way): focus moves to
     // the pack rather than falling to the page for the whole wait.
     focusIfFree(packRef.current);
     handleOpen();
-  }, [refusal, handleOpen, packRef]);
+  }, [refusal, handleOpen, packRef, onOpenSave]);
   /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
   const stageRef = useRef<HTMLDivElement>(null);
   // The stage is on its way out when the cards come in, and the reveal must not inherit anything it
@@ -699,16 +731,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
           <Motion.div
             key="pack"
             ref={stageRef}
-            initial={{ y: '-100vh', opacity: 0, rotate: -10 }}
-            animate={{ y: 0, opacity: 1, rotate: 0 }}
+            {...stageEntrance(landed, reducedMotion)}
+            onAnimationStart={(definition) => {
+              markLanded();
+              // A stage that comes back while it is still fading out is the same element, and framer-motion
+              // leaves its leaving mark (which stops taps, PackOpener.css) on it. Coming back clears it.
+              if (definition === STAGE_AT_REST) stageRef.current?.removeAttribute('data-motion-pop-id');
+            }}
+            animate={shown ? STAGE_AT_REST : false}
             // Quick, on its own timing: the drop-in spring's long tail left the screen blank before the reveal.
             exit={{ scale: 1.25, opacity: 0, transition: { duration: 0.25, ease: 'easeIn' } }}
-            transition={{
-              type: 'spring',
-              stiffness: 80,
-              damping: 12,
-              mass: 1
-            }}
             className="pack-display"
           >
             <PackCuttingUI

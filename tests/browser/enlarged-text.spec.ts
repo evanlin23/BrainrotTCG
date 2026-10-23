@@ -1,16 +1,10 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { monitor, scaleText } from './support';
 
-// Enlarged text on the narrowest phone (#681, #682): the Cards page's unstarted-era rows and the empty
-// Profile's first-pack button wrap inside the page instead of running off its right edge.
+// Enlarged text on the narrowest phone (#681, #682, #765): the Cards page's unstarted-era rows, the empty
+// Profile's first-pack button and Settings' Motion row wrap inside the page instead of running off its right edge.
 
 const pageNamed = (page: Page, name: string) => page.getByRole('main', { name, exact: true });
-
-/** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
-async function scaleText(page: Page, percent: number) {
-  await page.addStyleTag({ content: `html { font-size: ${percent}% !important; }` });
-  await page.evaluate(() => document.fonts.ready);
-}
 
 /** `target` and everything inside it stays within the page width, and the page itself doesn't scroll sideways. */
 const insidePage = (page: Page, target: Locator, width: number) => expect.poll(async () => {
@@ -108,6 +102,47 @@ for (const width of [320, 390]) {
       // It still goes to the pack screen.
       await action.click();
       await expect(page.getByRole('button', { name: /^Open pack/ })).toBeVisible();
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+for (const width of [320, 390]) {
+  for (const percent of [100, 200]) {
+    test(`Settings: the Motion row fits a ${width} px phone at ${percent}% text and works by keyboard (#765)`, async ({ page, baseURL }) => {
+      await page.setViewportSize({ width, height: 700 });
+      const errors = await monitor(page, baseURL!);
+      await page.goto('./#/settings');
+      const group = pageNamed(page, 'Settings').getByRole('radiogroup', { name: 'Motion', exact: true });
+      await expect(group).toBeVisible();
+      await scaleText(page, percent);
+      const row = group.locator('xpath=ancestor::*[contains(@class, "settings-row")]');
+      await group.scrollIntoViewIfNeeded();
+      await insidePage(page, row, width);
+      await unclipped(row);
+
+      const radios = group.getByRole('radio');
+      await expect(radios).toHaveText(['Auto', 'Reduced']);
+      for (const radio of await radios.all()) {
+        expect((await radio.boundingBox())!.height, 'a choice is a touch target').toBeGreaterThanOrEqual(44);
+        // The whole label is painted: the choice grows to hold wrapped lines instead of cutting the text.
+        await expect.poll(() => radio.evaluate((button) => button.scrollWidth <= button.clientWidth + 1)).toBe(true);
+      }
+      // The choices sit below the text, or beside it when there is room, and never over it.
+      const [desc, choices] = await Promise.all([row.locator('.settings-desc').boundingBox(), group.boundingBox()]);
+      const overlaps = choices!.x < desc!.x + desc!.width && choices!.x + choices!.width > desc!.x && choices!.y < desc!.y + desc!.height && choices!.y + choices!.height > desc!.y;
+      expect(overlaps, 'the choices cover the description').toBe(false);
+
+      // Keyboard: one Tab stop on the chosen choice, and the arrows move the choice.
+      const [auto, reduced] = await radios.all();
+      await auto.focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(reduced).toBeFocused();
+      await expect(reduced).toHaveAttribute('aria-checked', 'true');
+      await expect(auto).toHaveAttribute('aria-checked', 'false');
+      await page.keyboard.press('ArrowLeft');
+      await expect(auto).toBeFocused();
+      await expect(auto).toHaveAttribute('aria-checked', 'true');
       expect(errors).toEqual([]);
     });
   }

@@ -123,6 +123,7 @@ describe('Save & backup preflight', () => {
     ['settings array', { settings: '[]' }],
     ['invalid settings flag', { settings: '{"particlesEnabled":"yes"}' }],
     ['invalid show-every-page flag', { settings: '{"showAllPages":"yes"}' }],
+    ['non-text motion choice', { settings: '{"motion":true}' }],
     ['non-numeric volume', { settings: '{"effectsVolume":"loud"}' }],
     ['non-numeric legacy music volume', { settings: '{"musicVolume":"loud"}' }],
     ['non-finite volume', { settings: '{"effectsVolume":1e999}' }],
@@ -130,6 +131,27 @@ describe('Save & backup preflight', () => {
     ['invalid Hall of Fame date', { hallOfFame: '{"first4OfAKind":{"achieved":true,"date":"now"}}' }],
   ])('rejects %s before writing any field or backup', (_name, change) => {
     expectRejectedWithoutWrites(JSON.stringify({ ...fixture(), ...change }));
+  });
+
+  it.each(['auto', 'reduced'])('imports the %s Motion choice and keeps it through an export and import', (motion) => {
+    const settings = `{"particlesEnabled":false,"motion":"${motion}"}`;
+    expect(importSaveFile(JSON.stringify({ ...fixture(), settings }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
+    const saved = exportSaveFile();
+    store.set(STORAGE_KEYS.SETTINGS, '{}');
+    expect(importSaveFile(saved)).toBeNull();
+    expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).motion).toBe(motion);
+  });
+
+  it('accepts a Motion choice this build does not know, reads it as Auto, and round-trips it', () => {
+    const settings = '{"particlesEnabled":false,"motion":"wobbly"}';
+    expect(importSaveFile(JSON.stringify({ ...fixture(), settings }))).toBeNull();
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
+    expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).motion).toBe('auto');
+    const saved = exportSaveFile();
+    store.set(STORAGE_KEYS.SETTINGS, '{}');
+    expect(importSaveFile(saved)).toBeNull();
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
   });
 
   it('keeps the show-every-page flag through an export and import', () => {
@@ -240,7 +262,7 @@ describe('Save & backup preflight', () => {
     expect(importSaveFile(JSON.stringify({ ...fixture(), settings }))).toBeNull();
     expect(store.get(STORAGE_KEYS.SETTINGS)).toBe(settings);
     const read = readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!));
-    expect(read).toEqual({ effectsVolume: 0.4, particlesEnabled: false, pauseBigPulls: false, cardBack: 'midnight' });
+    expect(read).toEqual({ effectsVolume: 0.4, particlesEnabled: false, pauseBigPulls: false, cardBack: 'midnight', motion: 'auto' });
     // The sound switch alone, from before the sliders: off still mutes effects.
     expect(importSaveFile(JSON.stringify({ ...fixture(), settings: '{"soundEnabled":false}' }))).toBeNull();
     expect(readSettings(JSON.parse(store.get(STORAGE_KEYS.SETTINGS)!)).effectsVolume).toBe(0);

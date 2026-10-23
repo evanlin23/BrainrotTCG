@@ -11,7 +11,8 @@ code does today (paths in brackets); change this file in the same PR as any chan
   card, in any set, whatever the odds shown.
 - If money is ever needed, only non-random things: donations, cosmetics sold as exactly what the
   buyer sees, or merch. Nothing sold changes pack odds, rarity, tickets or Hall of Fame standing.
-- Today the game has no payment code, ads or analytics, and takes no money.
+- Today the game has no payment code or ads and takes no money. The live site's pages carry
+  Cloudflare Web Analytics (see [Privacy and kids](#privacy-and-kids-75)).
 
 Why the line is firm: regulators treat paid randomised items differently from country to country,
 and the rules keep changing.
@@ -49,13 +50,16 @@ between the two addresses window to window, never in a URL [`src/game/move.ts`].
 | Someone files the Hall of Fame issue form by hand (not linked from the game) | The proof, plus their GitHub login on the issue and in `hall-of-fame.json` | GitHub; needs an account |
 | Player opens a bug report on GitHub | Only what they paste. The generated report excludes keys, saves, names, proof links and raw errors. | GitHub; needs an account |
 | Any visit | IP address, user agent and requested paths, as for any website | The host, Cloudflare Pages (the old GitHub Pages address redirects). Both keep logs under their own policies. |
+| Any page load on the live site | Cloudflare Web Analytics, which Cloudflare Pages' automatic setup adds to every page, reports the page view and page-load timings read with the browser's Performance API. Cloudflare says it uses no cookies or `localStorage` for this and does not fingerprint visitors by IP address or user agent ([Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/), [data collection](https://developers.cloudflare.com/web-analytics/data-metrics/data-origin-and-collection/)). | Cloudflare, which runs it under its [privacy policy](https://www.cloudflare.com/privacypolicy/) [docs/HOSTING.md#web-analytics]. |
 | Visiting Rankings, or a pack summary that checks the board | A read request to the same five relays for recent pulls, with no name attached | Relay operators can see the visitor's IP address (inferred from how WebSocket connections work), even if the visitor never submits. |
 
 Submitted pulls are effectively permanent: this project can hide an entry from the published list
 (a maintainer adds the `rejected` label) but cannot recall copies held by relays, GitHub or others.
 Renaming only changes future signatures; old proofs keep the name they were signed with.
 
-The game loads no third-party scripts, fonts or images: fonts, art and audio are bundled and served
+Apart from Cloudflare Web Analytics' beacon script, which Cloudflare Pages adds to the live site's
+pages and which loads from `static.cloudflareinsights.com` and reports to Cloudflare, the game loads
+no third-party scripts, fonts or images: fonts, art and audio are bundled and served
 from the same origin, and the only other `fetch` is `hall-of-fame.json` from that origin
 [`src/styles/tokens.css`, `src/game/hallOfFameList.ts`]. An imported backup or old save can keep a
 historical card the game no longer ships, with whatever image address it was saved with. The save
@@ -121,6 +125,10 @@ for themselves.
   covered by the notice below, not by MIT.
 - Takedown and removal requests go through GitHub Issues (see the notice below). The owner chose
   this as the only public contact; there is no email address.
+- Conduct reports, name reviews and Hall of Fame removals use the same route: the "Conduct report or
+  removal request" issue form, described in [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md). A maintainer
+  hides an entry with the `rejected` label and handles appeals as set out under "Display names" in
+  [docs/ARCHITECTURE.md](ARCHITECTURE.md).
 
 ### Art and assets notice
 
