@@ -80,6 +80,7 @@ export default defineConfig({
       '**/.git/**',
       'tests/browser/**',
       'tests/performance/*.spec.ts',
+      'tests/visual/**',
       'dist/**',
       '.claude/worktrees/**',
     ],

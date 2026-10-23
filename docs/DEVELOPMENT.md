@@ -92,6 +92,7 @@ Examples from merged fixes:
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build or link previews | also `npm run build && npm run check:site`, and the same with `BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
+| Changed what a baselined screen shows | `npm run test:visual` in the pinned image (see Visual baselines) |
 | Changed the logo mark (`src/styles/logoMark.ts`) | `npm run icons` rewrites the logo SVGs, favicon and touch icon; `scripts/logo-icons.test.ts` fails if they drift |
 | Adding a set version | `npm run check:sets -- --update` (it refuses changes to released sets) |
 | Docs only | check local links and `git diff --check origin/main...HEAD` |
@@ -320,6 +321,52 @@ projects:
 Changes to `playwright.config.ts` or app code burn in nothing; the regular shards still run every spec
 once. Before pushing a new or changed spec, run the same locally with
 `npx playwright test <spec> --repeat-each=10`.
+
+### Visual baselines
+
+`tests/visual/screens.spec.ts` compares four screens with reviewed images in `tests/visual/baselines/`:
+a new player's first pack, its summary, the share sheet for that pull and that set's part of the Cards page, each
+at a phone width (Pixel 5 emulation) and at 1280×800, at scale 1 (#745). It reuses the browser smoke's
+build, fixture player and helpers, and the browser specs still own behaviour (focus, hit-testing,
+keyboard, reflow); an image only says the screen looks as someone last approved it.
+
+Pixels depend on the browser build and the font rasteriser, so the images are drawn and compared only
+in the pinned Playwright image, the one the `visual-baselines` job in `browser-tests.yml` uses (its
+tag matches the locked `@playwright/test`; `scripts/visual-baselines.test.ts` keeps this command, the
+job and the lockfile in step). Run it from the checkout with Docker; the second `-v` gives the
+container its own `node_modules`, so a macOS or Windows install isn't used:
+
+```sh
+IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
+docker run --rm --ipc=host -v "$PWD":/work -v /work/node_modules -w /work "$IMAGE" sh -c 'npm ci && npm run test:visual'
+```
+
+Files it writes come out owned by root on a Linux host. The job runs as the runner's uid on Node 22
+instead of the image's Node; the browser and fonts, which draw the pixels, are the image's either
+way. Running `npm run test:visual` outside the
+image draws different pixels and fails; that is not a design change.
+
+- **Fixed inputs.** The fixture player and its first ticket, the set it opens (Summer of Slop, not
+  the newest, so a release leaves the images alone; docs/ADDING_A_SET.md), the browser, viewport and
+  scale, the preview's port and base path (the share sheet's QR code encodes the address, so
+  `PREVIEW_PORT`, `BASE_PATH` and `SITE_URL` are ignored here), locale and time zone, `Date` (timers
+  stay real, see the spec), reduced motion, and CSS animations and the caret at capture. Every wait is for a state (a role, decoded art, loaded fonts, the toasts gone), and
+  Playwright takes shots until two agree before comparing.
+- **No tolerance.** `threshold: 0` and `maxDiffPixels: 0`: the image draws the same pixels on every
+  run (checked with `--repeat-each=10` in the image), so any difference is a change to look at. Don't add a
+  tolerance or a mask to get green; if a screen stops being stable, fix what moves.
+- **On a mismatch** the job fails and uploads `visual-baselines-diff` (7 days): the expected, actual
+  and diff PNG of each screen that changed, at most 24 images of a few hundred KB. There are no
+  traces or videos, which would hold the fixture's saved data. A run takes about a minute after the
+  build; the job is capped at 20 minutes and the committed images at 3 MB.
+- **Updating.** When a change means to alter a screen, run the command above with
+  `npm run test:visual -- --update-snapshots=changed`, which rewrites only the images that differ,
+  and commit them with the change. CI never writes or accepts a baseline (it runs with
+  `--update-snapshots=none`), and a new screen fails there until its image is committed.
+- **Review.** A baseline change is a design change. Someone other than its author (the PR's reviewer,
+  or the owner for tone and art) opens each changed image on the PR's head commit, compares it with
+  the old one and docs/DESIGN.md, and approves that head. A later push that touches an image needs a
+  new look. Don't approve an image that shows a known defect, such as overlapping controls.
 
 ## Local agent usability audit
 
