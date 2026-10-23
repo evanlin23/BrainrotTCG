@@ -26,7 +26,7 @@ vi.mock('../../hooks/usePackCutter', () => ({
       packRef: { current: null },
       isCutting: cutter.cutting,
       cutPoints: [],
-      sparks: [],
+      sparkCanvasRef: () => {},
       resetCutState: cutter.resetCutState,
       completeCut: cutter.completeCut,
       handlePointerDown: () => {},
@@ -408,6 +408,7 @@ describe('the sealed pack stage on a desktop window', () => {
       // The stage scrolls here (PackOpener.css); the player has wheeled down to the bottom of the pack.
       const stage = document.querySelector<HTMLElement>('.pack-display')!;
       stage.scrollTop = 420;
+      stage.dispatchEvent(new Event('scroll')); // jsdom doesn't scroll on its own; a browser does this
       expect(stage.scrollTop).toBe(420);
 
       act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
@@ -418,6 +419,56 @@ describe('the sealed pack stage on a desktop window', () => {
       expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
       expect(stage.scrollTop).toBe(0);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Writing scrollTop, or measuring the stage and its room, inside the commit that brings the cards in
+  // makes the browser lay the page out there, in the middle of the longest stall between the tear and
+  // the first card on a slow phone (#266). The hold measures once, as the pack is torn.
+  it('does not write the scroll or measure the stage in the commit that brings the cards in', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const set = SETS[0];
+    const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+    vi.mocked(openPack).mockResolvedValue({
+      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
+    } as unknown as Awaited<ReturnType<typeof openPack>>);
+    const scrollWrites: Element[] = [];
+    const measured: unknown[] = [];
+    const scrollTop = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get: scrollTop.get,
+      set(this: Element, value: number) { scrollWrites.push(this); scrollTop.set!.call(this, value); },
+    });
+    const getComputedStyle = window.getComputedStyle;
+    const computedSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation((element, ...rest) => {
+      measured.push(element);
+      return getComputedStyle.call(window, element, ...rest);
+    });
+    const getBoundingClientRect = Element.prototype.getBoundingClientRect;
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      measured.push(this);
+      return getBoundingClientRect.call(this);
+    });
+    try {
+      await render(false);
+      const stage = document.querySelector<HTMLElement>('.pack-display')!;
+      const room = stage.parentElement!;
+      act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
+      scrollWrites.length = 0;
+      measured.length = 0;
+
+      await act(async () => { vi.advanceTimersByTime(500); });
+      await act(async () => {});
+      expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
+      expect(scrollWrites).not.toContain(stage);
+      expect(measured).not.toContain(stage);
+      expect(measured).not.toContain(room);
+    } finally {
+      Object.defineProperty(Element.prototype, 'scrollTop', scrollTop);
+      computedSpy.mockRestore();
+      rectSpy.mockRestore();
       vi.useRealTimers();
     }
   });
@@ -791,42 +842,23 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
   });
 
   describe('with the torn pack still flying off', () => {
-    const sizes: MockInstance[] = [];
     beforeEach(() => {
-      // jsdom has no layout, and without a size framer-motion never marks a leaving element. It reads
-      // the element's computed width and height, and its parent's offset size. Laid out, the held stage
-      // also follows its room, which jsdom has no ResizeObserver to watch.
-      vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
-      const computed = window.getComputedStyle.bind(window);
-      const sized = { width: '200px', height: '300px' } as Record<PropertyKey, string>;
-      sizes.push(
-        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200),
-        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300),
-        vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => new Proxy(computed(el, pseudo), {
-          get: (style, key) => {
-            if (key in sized) return sized[key];
-            const value: unknown = Reflect.get(style, key, style);
-            return typeof value === 'function' ? value.bind(style) : value;
-          },
-        })),
-      );
       // Framer's clock stops, so the 250ms exit cannot finish before the player returns.
       MotionGlobalConfig.useManualTiming = true;
     });
     afterEach(() => {
       MotionGlobalConfig.useManualTiming = false;
-      for (const spy of sizes.splice(0)) spy.mockRestore();
     });
 
     it('takes taps on a pack that comes back while the torn one is still flying off', async () => {
       show();
       await tear();
       const leaving = stage();
-      expect(leaving.getAttribute('data-motion-pop-id')).not.toBeNull();
+      expect(leaving.getAttribute('data-leaving')).not.toBeNull();
       escape();
       // The same element as the one that left, so it must not keep the mark that makes a leaving pack ignore taps.
       expect(stage()).toBe(leaving);
-      expect(stage().getAttribute('data-motion-pop-id')).toBeNull();
+      expect(stage().getAttribute('data-leaving')).toBeNull();
     });
   });
 });
