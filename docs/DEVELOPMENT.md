@@ -99,7 +99,8 @@ Examples from merged fixes:
 CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
 deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
 to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
-deploying main. CI uploads files only from failed runs, kept for 7 days.
+deploying main. CI uploads files only from failed runs, kept for 7 days. A nightly workflow, not
+part of PR CI, runs the unit suite in shuffled order twice (see Shuffled and repeat runs).
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
@@ -396,6 +397,33 @@ times on an up-to-date branch, set each floor a few points below the lowest figu
 budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor
 only for removed or unreachable code, never to land untested code. When the runtime budget trips,
 look for a slow or hanging test before raising it.
+
+## Shuffled and repeat runs
+
+`.github/workflows/test-order.yml` runs the unit suite on a schedule (06:41 UTC) or by hand from the
+Actions tab, never for a pull request. It runs `vitest run` with files and tests shuffled by one
+seed, then again with the same seed in the same job. A test that fails only shuffled depends on what
+another test left behind; one that fails in only one of the two runs depends on the clock,
+`Math.random` or load. Both runs leave out coverage and the runtime budget, which per-PR CI owns,
+and nothing is retried. The runs sample orders: a green night doesn't prove the suite
+order-independent, and GitHub's schedule is best effort (it has never fired the Hall of Fame inbox
+here), so a night without a run is not a pass.
+
+The seed is the run id modulo 10^9, or the `seed` input of a manual run. The job log
+(`Shuffle seed: ...`) and the run summary record it with the revision. To replay a failure exactly:
+
+```sh
+git checkout <revision> && npm ci
+npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=<seed>
+```
+
+Adding the failing file's path to that command keeps the order of the tests within the file but
+not the order of files, so if the file alone passes, replay the whole suite.
+A failure, timeout or cancel comments on the open `test-order` issue that the workflow opened, or opens one, with the
+seed, revision, run link and replay command. File each root cause as its own issue and link it
+there. Fix the test, never loosen or skip it, and close the issue once a run passes again.
+`scripts/hof-workflows.test.ts` checks the workflow's permissions and runs its seed and report steps,
+in the shell each declares, against a fake `gh`.
 
 ## Performance baseline
 
