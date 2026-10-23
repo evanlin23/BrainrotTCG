@@ -369,34 +369,6 @@ describe('the reveal sounds on a first pack', () => {
   });
 });
 
-describe('the sealed pack stage on a desktop window', () => {
-  it('goes back to the top as the cards come in, so the reveal inherits no scroll', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const set = SETS[0];
-    const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
-    vi.mocked(openPack).mockResolvedValue({
-      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
-    } as unknown as Awaited<ReturnType<typeof openPack>>);
-    try {
-      await render(false);
-      // The stage scrolls here (PackOpener.css); the player has wheeled down to the bottom of the pack.
-      const stage = document.querySelector<HTMLElement>('.pack-display')!;
-      stage.scrollTop = 420;
-      expect(stage.scrollTop).toBe(420);
-
-      act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
-      // Tearing and waiting on the ticket leave the stage where the player scrolled it.
-      expect(stage.scrollTop).toBe(420);
-      await act(async () => { vi.advanceTimersByTime(500); });
-      await act(async () => {});
-      expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
-      expect(stage.scrollTop).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
-
 describe('the random effect after a flip', () => {
   const deal = async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });

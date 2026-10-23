@@ -230,8 +230,8 @@ for (const size of SIZES) {
       const [box, room] = [(await packShell.boundingBox())!, (await stage.boundingBox())!];
       expect(box.x, 'pack left edge').toBeGreaterThanOrEqual(-0.5);
       expect(box.x + box.width, 'pack right edge').toBeLessThanOrEqual(size.turned.width + 0.5);
-      // On a phone the whole pack fits its stage (pack-fit.spec.ts); a desktop window's big pack runs past it.
-      if (size.project === 'mobile-chromium') expect(box.y + box.height, 'pack bottom edge').toBeLessThanOrEqual(room.y + room.height + 0.5);
+      // The whole pack fits its stage at every size (pack-fit.spec.ts).
+      expect(box.y + box.height, 'pack bottom edge').toBeLessThanOrEqual(room.y + room.height + 0.5);
 
       await releaseTickets(page);
       await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 20000 });

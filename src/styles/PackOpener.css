@@ -106,10 +106,8 @@
 
 /*
  * The stage the whole sealed pack sits in. It is both the box the drop-in animation moves and the
- * clip for the torn top strip. On a phone the pack fits inside it (see --pack-fit below): a pack
- * taller than the stage was cut off by this box's moving bottom edge on the way down. On a desktop
- * window the pack is bigger than the stage and the stage scrolls (the block at the end of this
- * section), so it still clips here, and never sideways.
+ * clip for the torn top strip. The pack fits inside it at every window size (see --pack-fit below): a
+ * pack taller than the stage was cut off by this box's moving bottom edge on the way down.
  */
 .pack-display {
     position: relative;
@@ -135,13 +133,15 @@
 }
 
 /*
- * The whole pack fits the stage, so on a phone nothing needs scrolling or reaching. The wrapper image is
+ * The whole pack fits the stage, so on any screen nothing needs scrolling or reaching. The wrapper image is
  * 1536:2752 with clear space above the crimp, so it's pulled up by a tenth of its width to put the
  * set ribbon just under the picker; the printed pack is then 1.7 widths tall, and --pack-fit is the
  * width at which that height fills the stage less a gap above and below. The gap is a space-4, and at
  * most a twentieth of the stage's height, so on a short landscape stage (a phone on its side) it
  * shrinks with the stage and the width never goes negative. The width is also capped at 80% of the
- * screen (100% on phones, below). There is no floor: one taller than the stage cut the bottom of the
+ * screen (100% on phones, below). The height is what sizes it on a laptop or desktop window (1280x800,
+ * 1366x768): sized by the screen's width, the pack ran past the bottom of the window and the footer and
+ * most of the art needed a scroll (#1111). There is no floor: one taller than the stage cut the bottom of the
  * pack off at rest and while it fell in. A pack on a stage that short is small but whole, and it still
  * opens: the pack itself is the Open pack control (.pack-actions, which follows the same width, only
  * carries a refusal under it).
@@ -166,44 +166,6 @@
     .pack-actions {
         /* The full width of the phone when the height allows: big, without running off both sides. */
         --pack-w: min(100vw, var(--pack-fit));
-    }
-}
-
-/*
- * A desktop window is wide enough that the whole pack at the stage's height is small (a third of the
- * screen, #536), and the owner wants the big pack back, wide and tall enough to scroll down. So here
- * the pack is sized to the part of it a player needs to see, and its bottom runs on past the stage:
- * --pack-share is the share of the printed pack, from the crimp down, that is on the stage at rest.
- * The wrapper art's printed pack starts 0.184 widths down its box (0.084 below --pack-fit's top, after
- * the pull-up above) and is 1.575 widths tall; half of it shows the crimp, the set ribbon, the tear
- * line, the logo and the top of the cards, and the rest is a wheel, trackpad or key press away.
- * --pack-fit stays the floor, so the pack is never smaller than the whole of it on the stage. The 80%
- * and 1600px caps still apply.
- *
- * The stage itself scrolls (not the page, so the app header and nav stay put): the wrapper is
- * positioned inside it, and a positioned box's bottom edge is part of its scrollable overflow. There
- * is no fade or crop at the bottom. The pack never scrolls sideways (overflow-x), and a thin scrollbar
- * is enough of a cue. overscroll-behavior keeps the wheel from chaining to the page once the stage is
- * at either end. The tear line and the hint both sit in the top of the pack, so
- * at rest (scrollTop 0) the screen is the same as it would be without scrolling. PackOpener.tsx puts
- * the stage back at the top when the cards come in. Phones, a phone on its side (under 900px wide or
- * 600px tall) and touch tablets (a coarse pointer: .pack-shell's touch-action: none, which the cut
- * needs, stops a finger scrolling the stage over the pack) keep the fit above, with nothing to scroll.
- */
-@media (min-width: 900px) and (min-height: 600px) and (pointer: fine) {
-    .pack-display {
-        overflow-x: hidden;
-        overflow-y: auto;
-        overscroll-behavior-y: contain;
-        scrollbar-width: thin;
-        scrollbar-color: var(--border-strong) transparent;
-    }
-
-    .pack-shell-wrap,
-    .pack-actions {
-        --pack-share: 0.52;
-        --pack-big: calc((100cqh - var(--pack-gap)) / (1.575 * var(--pack-share) + 0.084));
-        --pack-w: min(80vw, 1600px, max(var(--pack-fit), var(--pack-big)));
     }
 }
 

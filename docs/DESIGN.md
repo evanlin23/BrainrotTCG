@@ -138,7 +138,8 @@ results line (`PackSummaryUI.tsx`) that goes.
 6. **Next pack and share.** Next pack returns to a sealed pack under the same cue rules (no replayed
    demonstration once a pack is saved). Share makes the best card's image and link, as today.
 7. **Desktop (900 px up).** The same flow in a centred column; the pack opens by click, Space, Enter
-   or drag. A pack carousel is **not** added now: a new player has one pack and the picker already
+   or drag. The whole pack is on screen at rest, sized by the window's height, so at 1280x800 and
+   1366x768 its footer and the tear line show without a scroll. A pack carousel is **not** added now: a new player has one pack and the picker already
    serves returning players. Revisit with two or more started eras. Phones keep the picker.
 
 ### Guardrails

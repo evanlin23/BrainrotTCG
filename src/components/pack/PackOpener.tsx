@@ -326,13 +326,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     focusIfFree(packRef.current);
     handleOpen();
   }, [refusal, handleOpen, packRef, onOpenSave]);
-  /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
+  /** The sealed pack's stage. */
   const stageRef = useRef<HTMLDivElement>(null);
-  // The stage is on its way out when the cards come in, and the reveal must not inherit anything it
-  // scrolled to: it goes back to the top as opening starts.
-  useLayoutEffect(() => {
-    if (isOpening && stageRef.current) stageRef.current.scrollTop = 0;
-  }, [isOpening]);
   // A refusal replaces the button the player was on: its Try again takes focus.
   const retryButtonRef = useCallback((el: HTMLButtonElement | null) => focusIfFree(el), []);
 

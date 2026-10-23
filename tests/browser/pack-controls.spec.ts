@@ -196,7 +196,7 @@ test('a drag that ends where it began never opens the pack, but a click on it st
 
   // Pressed below the start band, so the swipe cuts nothing, dragged well past a tap and back to
   // where it began: the release is a tap by position alone, but the finger was no tap.
-  // On a short window the pack runs past the stage and the screen, so aim within what shows of it.
+  // The pack's box starts above the stage (its art has clear space over the crimp), so aim within what shows of it.
   const { x, y } = await shell.evaluate((el) => {
     const edge = el.getBoundingClientRect();
     const stage = el.closest('.pack-display')!.getBoundingClientRect();
