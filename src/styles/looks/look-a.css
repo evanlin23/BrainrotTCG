@@ -1,0 +1,197 @@
+/*
+ * Look A, "Slab": a clean premium frame. The rim is the rarity colour, the body a dark ink tinted by
+ * the set. A finish turns the body to its metal and a holo to foil. Guilloche backs; a printed foil pouch.
+ */
+
+/* ---- Card face ---- */
+
+:root[data-look='a'] .card-wrapper .card-front {
+    --art-l: 7%;
+    --art-t: 12.5%;
+    --art-w: 86%;
+    --art-h: 54%;
+    --crop-y: 301;
+    --crop-h: 345;
+    --name-max: 7.4cqw;
+    --name-fit: 130cqw;
+    --ground: linear-gradient(170deg, color-mix(in srgb, var(--set-a) 26%, var(--look-ink)), var(--look-ink) 62%);
+    --ink-on-ground: var(--white);
+    --ink-quiet: color-mix(in srgb, var(--white) 70%, transparent);
+    border: 4px solid transparent;
+    background: var(--ground) padding-box, var(--rim) border-box;
+}
+
+:root[data-look='a'] .card-front:is(.finish-silver, .finish-gold, .finish-platinum, .finish-diamond) {
+    --ground: var(--metal-ramp);
+    --ink-on-ground: var(--look-ink);
+    --ink-quiet: color-mix(in srgb, var(--look-ink) 75%, transparent);
+}
+
+/* A holo: the body is foil under a dark wash, so the white type still reads. */
+:root[data-look='a'] .card-wrapper.holo .card-front:not(:is(.finish-silver, .finish-gold, .finish-platinum, .finish-diamond)) {
+    --ground:
+        linear-gradient(color-mix(in srgb, var(--look-ink) 52%, transparent), color-mix(in srgb, var(--look-ink) 52%, transparent)),
+        var(--foil);
+}
+
+:root[data-look='a'] .card-art {
+    border-radius: var(--radius-sm);
+    box-shadow: 0 0 0 2px var(--r-solid), 0 6px 14px var(--shade-50);
+}
+
+:root[data-look='a'] .lk-name {
+    left: 7%;
+    right: 7%;
+    top: 3.6%;
+    height: 7.2%;
+    display: flex;
+    align-items: center;
+    color: var(--ink-on-ground);
+    letter-spacing: 0.01em;
+}
+
+/* The rarity: a strip in its colour under the art, symbol first. */
+:root[data-look='a'] .lk-rarity {
+    left: 7%;
+    right: 7%;
+    top: 68.5%;
+    height: 4.4%;
+    padding: 0 0.6em;
+    border-radius: var(--radius-sm);
+    background: var(--rim);
+    color: var(--look-ink);
+}
+
+:root[data-look='a'] .lk-rarity-symbol {
+    font-size: 1.15em;
+}
+
+:root[data-look='a'] .lk-finish {
+    right: 9%;
+    top: 68.5%;
+    height: 4.4%;
+    color: var(--look-ink);
+}
+
+:root[data-look='a'] .lk-caption {
+    left: 7%;
+    right: 7%;
+    top: 74.5%;
+    height: 15%;
+    padding: 0 0.7em;
+    border-radius: var(--radius-sm);
+    background: var(--look-paper);
+    color: var(--look-paper-ink);
+}
+
+:root[data-look='a'] .lk-foot {
+    left: 7%;
+    right: 7%;
+    top: 91.2%;
+    height: 5%;
+    color: var(--ink-quiet);
+}
+
+/* ---- Card back ---- */
+
+:root[data-look='a'] .lk-back-pattern {
+    background:
+        repeating-radial-gradient(circle at 50% 46%, transparent 0 7px, color-mix(in srgb, var(--bk-b) 32%, transparent) 7px 8px),
+        repeating-conic-gradient(from 0deg at 50% 46%, color-mix(in srgb, var(--bk-c) 22%, transparent) 0 4deg, transparent 4deg 12deg),
+        radial-gradient(circle at 50% 46%, color-mix(in srgb, var(--bk-b) 30%, var(--bk-a)), var(--bk-a) 70%);
+}
+
+:root[data-look='a'] .lk-back::after {
+    content: '';
+    position: absolute;
+    inset: 4%;
+    border: 2px solid var(--bk-b);
+    border-radius: var(--radius-md);
+}
+
+:root[data-look='a'] .lk-back-medal {
+    left: 26%;
+    top: 26%;
+    width: 48%;
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    border: 3px solid var(--bk-b);
+    border-radius: 50%;
+    background: var(--bk-a);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--bk-a) 80%, transparent), 0 0 0 8px var(--bk-c);
+    color: var(--bk-b);
+}
+
+:root[data-look='a'] .lk-back-mark {
+    width: 62%;
+    height: 62%;
+}
+
+:root[data-look='a'] .lk-back-word {
+    left: 0;
+    right: 0;
+    bottom: 12%;
+    color: var(--bk-b);
+    font-size: max(0.75rem, 9cqw);
+    text-align: center;
+}
+
+/* ---- Pack ---- */
+
+:root[data-look='a'] .lk-pack-ground {
+    background:
+        linear-gradient(115deg, transparent 54%, var(--set-b) 54% 63%, transparent 63%),
+        linear-gradient(160deg, var(--set-a), color-mix(in srgb, var(--set-a) 45%, var(--look-ink)));
+}
+
+:root[data-look='a'] .lk-pack-crimp {
+    background: repeating-linear-gradient(
+        90deg,
+        var(--finish-silver) 0 1.5cqw,
+        color-mix(in srgb, var(--finish-silver) 45%, var(--black)) 1.5cqw 3cqw
+    );
+}
+
+:root[data-look='a'] .lk-pack-brand {
+    left: 12%;
+    right: 12%;
+    top: 23%;
+    height: 33%;
+    justify-content: center;
+    gap: 3cqw;
+    border: 2px solid var(--set-b);
+    border-radius: var(--radius-md);
+    background: var(--look-ink);
+    color: var(--set-b);
+}
+
+:root[data-look='a'] .lk-pack-mark {
+    width: 34cqw;
+    height: 34cqw;
+}
+
+:root[data-look='a'] .lk-pack-word {
+    color: var(--white);
+    font-size: max(0.75rem, 8cqw);
+}
+
+:root[data-look='a'] .lk-pack-burst {
+    right: 8%;
+    top: 52%;
+    padding: 1.5cqw 3cqw;
+    border-radius: var(--radius-pill);
+    background: var(--brand);
+    color: var(--brand-ink);
+    line-height: 1;
+}
+
+:root[data-look='a'] .lk-pack-label {
+    left: 8%;
+    right: 8%;
+    bottom: 10%;
+    padding: 3cqw 2cqw;
+    border-radius: var(--radius-sm);
+    background: var(--look-paper);
+    color: var(--look-paper-ink);
+}

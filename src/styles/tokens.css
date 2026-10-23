@@ -215,6 +215,14 @@
   --pack-gold-3: #fff3c4;
   --pack-gold-4: #c8961e;
 
+  /* #1138 exploration: inks for the draft card and pack looks (styles/looks/) */
+  --look-ink: #15102a;
+  --look-paper: #f6f1e4;
+  --look-paper-ink: #1d1729;
+  --look-crt: #06050c;
+  --look-midnight: #0c1a3a;
+  --look-vapor: #2c0b48;
+
   /* Motion: short and purposeful; disabled under prefers-reduced-motion */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);

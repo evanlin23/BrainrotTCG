@@ -1,0 +1,288 @@
+/*
+ * Look C, "Signal": a glitchy neon HUD. A dark CRT body with scanlines and a grid, a thin glowing
+ * outline and corner brackets in the rarity colour; the brackets turn to metal for a finish and to
+ * foil for a holo. Scanline backs; an iridescent foil pack.
+ */
+
+/* ---- Card face ---- */
+
+:root[data-look='c'] .card-wrapper .card-front {
+    --art-l: 6%;
+    --art-t: 12%;
+    --art-w: 88%;
+    --art-h: 56%;
+    --crop-y: 299;
+    --crop-h: 349;
+    --name-max: 7cqw;
+    --name-fit: 120cqw;
+    --bracket: var(--rim);
+    border: 2px solid transparent;
+    background:
+        repeating-linear-gradient(0deg, color-mix(in srgb, var(--white) 5%, transparent) 0 1px, transparent 1px 3px) padding-box,
+        linear-gradient(90deg, color-mix(in srgb, var(--r-solid) 14%, transparent) 1px, transparent 1px) 0 0 / 8% 100% padding-box,
+        radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--set-a) 18%, var(--look-crt)), var(--look-crt) 70%) padding-box,
+        var(--rim) border-box;
+    box-shadow: 0 0 14px color-mix(in srgb, var(--r-solid) 55%, transparent), 0 14px 34px var(--shade-55);
+}
+
+:root[data-look='c'] .card-front:is(.finish-silver, .finish-gold, .finish-platinum, .finish-diamond) {
+    --bracket: var(--metal-ramp);
+}
+
+:root[data-look='c'] .card-wrapper.holo .card-front:not(:is(.finish-silver, .finish-gold, .finish-platinum, .finish-diamond)) {
+    --bracket: var(--foil);
+}
+
+/* Corner brackets: four L-shapes drawn by one masked layer. */
+:root[data-look='c'] .lk-face::before {
+    content: '';
+    position: absolute;
+    inset: 2%;
+    background: var(--bracket);
+    --len: 14%;
+    --w: 3px;
+    -webkit-mask:
+        linear-gradient(var(--black) 0 0) top left / var(--len) var(--w) no-repeat,
+        linear-gradient(var(--black) 0 0) top left / var(--w) var(--len) no-repeat,
+        linear-gradient(var(--black) 0 0) top right / var(--len) var(--w) no-repeat,
+        linear-gradient(var(--black) 0 0) top right / var(--w) var(--len) no-repeat,
+        linear-gradient(var(--black) 0 0) bottom left / var(--len) var(--w) no-repeat,
+        linear-gradient(var(--black) 0 0) bottom left / var(--w) var(--len) no-repeat,
+        linear-gradient(var(--black) 0 0) bottom right / var(--len) var(--w) no-repeat,
+        linear-gradient(var(--black) 0 0) bottom right / var(--w) var(--len) no-repeat;
+    mask:
+        linear-gradient(var(--black) 0 0) top left / var(--len) var(--w) no-repeat,
+        linear-gradient(var(--black) 0 0) top left / var(--w) var(--len) no-repeat,
+        linear-gradient(var(--black) 0 0) top right / var(--len) var(--w) no-repeat,
+        linear-gradient(var(--black) 0 0) top right / var(--w) var(--len) no-repeat,
+        linear-gradient(var(--black) 0 0) bottom left / var(--len) var(--w) no-repeat,
+        linear-gradient(var(--black) 0 0) bottom left / var(--w) var(--len) no-repeat,
+        linear-gradient(var(--black) 0 0) bottom right / var(--len) var(--w) no-repeat,
+        linear-gradient(var(--black) 0 0) bottom right / var(--w) var(--len) no-repeat;
+}
+
+:root[data-look='c'] .card-front:is(.finish-silver, .finish-gold, .finish-platinum, .finish-diamond) .lk-face::before,
+:root[data-look='c'] .card-wrapper.holo .lk-face::before {
+    --w: 5px;
+    --len: 22%;
+}
+
+/* The art: a chamfered screen. */
+:root[data-look='c'] .card-art {
+    clip-path: polygon(4% 0, 100% 0, 100% 92%, 96% 100%, 0 100%, 0 8%);
+}
+
+/* The name: split into red and cyan, like a mistuned signal. */
+:root[data-look='c'] .lk-name {
+    left: 7%;
+    right: 7%;
+    top: 3.4%;
+    height: 7.4%;
+    display: flex;
+    align-items: center;
+    color: var(--white);
+    text-shadow: -0.08em 0 var(--foil-pink), 0.08em 0 var(--foil-mint);
+}
+
+/* The rarity: a HUD tag. */
+:root[data-look='c'] .lk-rarity {
+    left: 6%;
+    top: 69.5%;
+    height: 4.6%;
+    padding: 0 0.6em;
+    border: 1px solid var(--r-solid);
+    background: color-mix(in srgb, var(--r-solid) 18%, transparent);
+    color: var(--r-solid);
+    font-family: var(--font-mono);
+    font-stretch: normal;
+}
+
+:root[data-look='c'] .card-wrapper.brainrot .lk-rarity {
+    border-image: var(--rarity-brainrot) 1;
+}
+
+:root[data-look='c'] .lk-rarity::before {
+    content: '[';
+}
+
+:root[data-look='c'] .lk-rarity::after {
+    content: ']';
+}
+
+:root[data-look='c'] .lk-finish {
+    right: 6%;
+    top: 69.5%;
+    height: 4.6%;
+    padding: 0 0.6em;
+    background: var(--bracket);
+    color: var(--look-crt);
+    font-family: var(--font-mono);
+    font-stretch: normal;
+}
+
+/* The caption: a terminal line. */
+:root[data-look='c'] .lk-caption {
+    left: 6%;
+    right: 6%;
+    top: 75.5%;
+    height: 13.5%;
+    padding: 0 0.6em;
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    border-left: 2px solid var(--r-solid);
+    background: color-mix(in srgb, var(--black) 55%, transparent);
+    color: var(--foil-mint);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    text-align: left;
+}
+
+:root[data-look='c'] .lk-caption::before {
+    content: '> ';
+    color: var(--r-solid);
+}
+
+/* The collector line, beside a barcode. */
+:root[data-look='c'] .lk-foot {
+    left: 6%;
+    right: 6%;
+    top: 91%;
+    height: 5%;
+    color: color-mix(in srgb, var(--white) 70%, transparent);
+    font-family: var(--font-mono);
+    font-stretch: normal;
+}
+
+:root[data-look='c'] .lk-foot::before {
+    content: '';
+    width: 20%;
+    height: 80%;
+    background: repeating-linear-gradient(
+        90deg,
+        currentColor 0 1px,
+        transparent 1px 3px,
+        currentColor 3px 5px,
+        transparent 5px 6px
+    );
+}
+
+/* ---- Card back ---- */
+
+:root[data-look='c'] .lk-back-pattern {
+    background:
+        repeating-linear-gradient(0deg, color-mix(in srgb, var(--white) 6%, transparent) 0 1px, transparent 1px 3px),
+        linear-gradient(transparent 58%, color-mix(in srgb, var(--bk-b) 45%, transparent) 58.5%, transparent 59%),
+        radial-gradient(ellipse at 50% 60%, color-mix(in srgb, var(--bk-c) 30%, transparent), transparent 60%),
+        var(--bk-a);
+}
+
+/* A floor grid running off to the horizon, over the pattern and under the mark. */
+:root[data-look='c'] .lk-back-pattern::after {
+    content: '';
+    position: absolute;
+    left: -50%;
+    right: -50%;
+    top: 58%;
+    bottom: -10%;
+    background:
+        linear-gradient(90deg, color-mix(in srgb, var(--bk-b) 60%, transparent) 1px, transparent 1px) 0 0 / 8% 100%,
+        linear-gradient(color-mix(in srgb, var(--bk-b) 60%, transparent) 1px, transparent 1px) 0 0 / 100% 14%;
+    transform: perspective(40cqw) rotateX(60deg);
+    transform-origin: 50% 0;
+}
+
+:root[data-look='c'] .lk-back-medal {
+    left: 25%;
+    top: 22%;
+    width: 50%;
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    color: var(--bk-b);
+    filter: drop-shadow(-0.6cqw 0 var(--foil-pink)) drop-shadow(0.6cqw 0 var(--foil-mint));
+}
+
+:root[data-look='c'] .lk-back-mark {
+    width: 80%;
+    height: 80%;
+}
+
+:root[data-look='c'] .lk-back-word {
+    left: 0;
+    right: 0;
+    bottom: 10%;
+    color: var(--white);
+    font-size: max(0.75rem, 9cqw);
+    text-align: center;
+    text-shadow: -0.08em 0 var(--foil-pink), 0.08em 0 var(--foil-mint);
+}
+
+/* ---- Pack ---- */
+
+:root[data-look='c'] .lk-pack-ground {
+    background:
+        repeating-linear-gradient(0deg, color-mix(in srgb, var(--black) 10%, transparent) 0 1px, transparent 1px 3px),
+        linear-gradient(160deg, color-mix(in srgb, var(--set-a) 55%, transparent), color-mix(in srgb, var(--set-b) 45%, transparent)),
+        var(--foil);
+    background-size: auto, auto, 200% 200%;
+}
+
+:root[data-look='c'] .lk-pack-crimp {
+    background: repeating-linear-gradient(90deg, var(--look-crt) 0 2cqw, color-mix(in srgb, var(--look-crt) 60%, var(--white)) 2cqw 2.5cqw);
+}
+
+/* A HUD window with the mark. */
+:root[data-look='c'] .lk-pack-brand {
+    left: 10%;
+    right: 10%;
+    top: 23%;
+    height: 34%;
+    justify-content: center;
+    gap: 2cqw;
+    border: 1px solid var(--white);
+    background:
+        repeating-linear-gradient(0deg, color-mix(in srgb, var(--white) 6%, transparent) 0 1px, transparent 1px 3px),
+        color-mix(in srgb, var(--look-crt) 82%, transparent);
+    color: var(--white);
+    clip-path: polygon(6% 0, 100% 0, 100% 90%, 94% 100%, 0 100%, 0 10%);
+}
+
+:root[data-look='c'] .lk-pack-mark {
+    width: 34cqw;
+    height: 34cqw;
+    filter: drop-shadow(-1cqw 0 var(--foil-pink)) drop-shadow(1cqw 0 var(--foil-mint));
+}
+
+:root[data-look='c'] .lk-pack-word {
+    font-size: max(0.75rem, 8cqw);
+}
+
+:root[data-look='c'] .lk-pack-burst {
+    left: 10%;
+    top: 59%;
+    flex-direction: row;
+    gap: 0.4em;
+    padding: 1cqw 3cqw;
+    background: var(--look-crt);
+    color: var(--foil-mint);
+    font-family: var(--font-mono);
+}
+
+:root[data-look='c'] .lk-pack-label {
+    left: 8%;
+    right: 8%;
+    bottom: 10%;
+    padding: 3cqw 2cqw;
+    background: var(--look-crt);
+    color: var(--white);
+}
+
+:root[data-look='c'] .lk-pack-name {
+    text-shadow: -0.06em 0 var(--foil-pink), 0.06em 0 var(--foil-mint);
+}
+
+:root[data-look='c'] .lk-pack-era {
+    color: var(--foil-mint);
+    font-family: var(--font-mono);
+}

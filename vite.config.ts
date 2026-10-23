@@ -72,6 +72,10 @@ export default defineConfig({
   // The Motion setting reaches every reduced-motion rule in the stylesheets (scripts/reduced-motion-css.ts).
   css: { postcss: { plugins: [reducedMotionCss()] } },
   plugins: [react(), siteUrl(), preloadRecovery(), testBudget()],
+  // #1138 exploration: DESIGN_LAB=1 also builds design-lab.html, a page of cards in each draft look.
+  ...(process.env.DESIGN_LAB === '1'
+    ? { build: { rollupOptions: { input: { main: 'index.html', lab: 'design-lab.html' } } } }
+    : {}),
   test: {
     // Vitest's defaults (any node_modules, .git) plus the Playwright suites, build output and the
     // agent worktrees nested under .claude/worktrees (each a full checkout with its own tests).

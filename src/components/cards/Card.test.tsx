@@ -112,3 +112,22 @@ describe('card tilt', () => {
     removeEventListener.mockRestore();
   });
 });
+
+describe('draft look frame (#1138)', () => {
+  it('draws the printed parts as hidden decoration, with the finish and holo named', () => {
+    render(meta({ isHolo: true, finish: 'GOLD' }), true);
+    const frame = front().querySelector('.lk-face')!;
+    expect(frame.getAttribute('aria-hidden')).toBe('true');
+    expect(frame.querySelector('.lk-name')!.textContent).toBe(legendary.name);
+    expect(frame.querySelector('.lk-rarity-name')!.textContent).toBe('Legendary');
+    expect(frame.querySelector('.lk-finish')!.textContent).toBe('Gold · Holo');
+    // The art stays the one named image, so screen readers hear the card once.
+    expect(front().querySelectorAll('.card-art img[alt]:not([alt=""])')).toHaveLength(1);
+    expect(back().querySelector('.lk-back')!.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('leaves the finish chip out for a plain card', () => {
+    render(meta(), true);
+    expect(front().querySelector('.lk-finish')).toBeNull();
+  });
+});

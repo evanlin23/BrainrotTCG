@@ -1,0 +1,321 @@
+/*
+ * #1138 exploration: three draft card and pack directions, switched by `data-look` on <html>
+ * (game/designLook.ts, ?look=a|b|c). Without it every piece below stays hidden and the printed card,
+ * card_back.webp and pack.webp render as before. Each look's file (loaded after this one, so it wins
+ * ties) is scoped to its own data-look.
+ */
+
+.lk-face,
+.lk-back,
+.lk-pack {
+    display: none;
+}
+
+/* Today the art window is the whole printed card. */
+.card-art {
+    display: contents;
+}
+
+/* ---- Shared by every draft look ---- */
+
+/* Card back colours, picked like today's backs: on <html> (data-card-back) or on a swatch (.back-*). */
+:root,
+.back-classic {
+    --bk-a: var(--look-ink);
+    --bk-b: var(--foil-pink);
+    --bk-c: var(--brand);
+    --bk-filter: none;
+    --bk-anim: none;
+}
+
+:root[data-card-back='midnight'],
+.back-midnight {
+    --bk-a: var(--look-midnight);
+    --bk-b: var(--finish-silver);
+    --bk-c: var(--rarity-rare);
+}
+
+:root[data-card-back='vapor'],
+.back-vapor {
+    --bk-a: var(--look-vapor);
+    --bk-b: var(--foil-pink);
+    --bk-c: var(--foil-mint);
+}
+
+:root[data-card-back='gold'],
+.back-gold {
+    --bk-a: var(--black);
+    --bk-b: var(--finish-gold);
+    --bk-c: var(--pack-gold-1);
+}
+
+:root[data-card-back='void'],
+.back-void {
+    --bk-a: var(--black);
+    --bk-b: var(--white);
+    --bk-c: var(--card-edge);
+}
+
+:root[data-card-back='prism'],
+.back-prism {
+    --bk-a: var(--look-ink);
+    --bk-b: var(--foil-mint);
+    --bk-c: var(--foil-pink);
+    /* Still (reduced motion): one turn of the colours; otherwise they cycle, as today. */
+    --bk-filter: hue-rotate(90deg) saturate(1.4);
+    --bk-anim: card-back-prism var(--dur-drift) linear infinite;
+}
+
+/* The card face: a container so the frame scales with the card, from the reveal down to a thumb. */
+:root[data-look] .card-face {
+    container-type: inline-size;
+}
+
+:root[data-look] .card-back-image,
+:root[data-look] .modifier-sticker {
+    display: none;
+}
+
+/* Rarity as a paint: a flat colour, or Brainrot's spectrum. */
+:root[data-look] .card-wrapper .card-front {
+    --rim: linear-gradient(var(--r), var(--r));
+    --r-solid: var(--r);
+    /* The art window in the printed card (687 x 1024): Genesis frame's window less its overlapping
+       decorations. Each look trims it to its own slot's shape; a production build would bake from art/. */
+    --crop-x: 160;
+    --crop-y: 244;
+    --crop-w: 368;
+    --crop-h: 459;
+}
+
+:root[data-look] .card-wrapper.brainrot .card-front {
+    --rim: var(--rarity-brainrot);
+    --r-solid: var(--rarity-brainrot-solid);
+}
+
+/* A finish as a metal: one ramp from its sticker colour. */
+:root[data-look] .card-front:is(.finish-silver, .finish-gold, .finish-platinum, .finish-diamond) {
+    --metal-ramp: linear-gradient(
+        var(--foil-angle),
+        color-mix(in srgb, var(--metal) 55%, var(--black)) 0%,
+        var(--metal) 24%,
+        color-mix(in srgb, var(--metal) 35%, var(--white)) 42%,
+        var(--metal) 58%,
+        color-mix(in srgb, var(--metal) 60%, var(--black)) 100%
+    );
+}
+
+:root[data-look] .card-front.finish-silver { --metal: var(--finish-silver); }
+:root[data-look] .card-front.finish-gold { --metal: var(--finish-gold); }
+:root[data-look] .card-front.finish-platinum { --metal: var(--finish-platinum); }
+:root[data-look] .card-front.finish-diamond { --metal: var(--finish-diamond); }
+
+:root[data-look] .card-art {
+    display: block;
+    position: absolute;
+    left: var(--art-l);
+    top: var(--art-t);
+    width: var(--art-w);
+    height: var(--art-h);
+    overflow: hidden;
+    /* The misprint ghost (z-index 1) stays inside the slot, under the drawn frame and the holo layers. */
+    isolation: isolate;
+    background: var(--black);
+}
+
+/* The printed card, scaled and shifted so only its art window fills the slot. */
+:root[data-look] .card-art > .card-image {
+    position: absolute;
+    max-width: none;
+    width: calc(100% * 687 / var(--crop-w));
+    height: calc(100% * 1024 / var(--crop-h));
+    left: calc(-100% * var(--crop-x) / var(--crop-w));
+    top: calc(-100% * var(--crop-y) / var(--crop-h));
+    border-radius: 0;
+}
+
+:root[data-look] .lk-face {
+    display: block;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+:root[data-look] .lk-face > *,
+:root[data-look] .lk-back > *,
+:root[data-look] .lk-pack > * {
+    position: absolute;
+}
+
+/* One line, sized by its length (--name-len) so a long name shrinks instead of being cut. */
+:root[data-look] .lk-name {
+    overflow: hidden;
+    font-family: var(--font-display);
+    font-size: max(0.75rem, min(var(--name-max), calc(var(--name-fit) / var(--name-len))));
+    line-height: 1;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+:root[data-look] .lk-rarity,
+:root[data-look] .lk-foot,
+:root[data-look] .lk-finish {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-family: var(--font-body);
+    font-stretch: 75%;
+    font-weight: 800;
+    font-size: max(0.75rem, 3.4cqw);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+:root[data-look] .lk-caption {
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: max(0.75rem, 4.4cqw);
+    line-height: 1.15;
+    text-align: center;
+    text-wrap: balance;
+}
+
+:root[data-look] .lk-foot-mark {
+    width: 1.2em;
+    height: 1.2em;
+    margin-left: auto;
+}
+
+:root[data-look] .lk-back {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    container-type: inline-size;
+    background: var(--bk-a);
+}
+
+:root[data-look] .lk-back-pattern {
+    inset: 0;
+    filter: var(--bk-filter);
+    animation: var(--bk-anim);
+}
+
+:root[data-look] .lk-back-mark,
+:root[data-look] .lk-pack-mark {
+    display: block;
+}
+
+:root[data-look] .lk-back-word,
+:root[data-look] .lk-pack-word {
+    font-family: var(--font-logo);
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* ---- Pack wrappers: drawn in place of pack.webp on the Open screen and in the pack shelf ---- */
+
+:root[data-look] :is(.pack-half, .pack-tile-art) > img,
+:root[data-look] .pack-set-ribbon {
+    display: none;
+}
+
+:root[data-look] .lk-pack {
+    /* Crimped top and bottom: a row of teeth, then the body. In shares of the pack, so any size crimps alike. */
+    --lk-crimp:
+        conic-gradient(from 135deg at 50% 0%, var(--black) 90deg, transparent 0) top / 5% 1.4% repeat-x,
+        linear-gradient(var(--black) 0 0) center / 100% 97.2% no-repeat,
+        conic-gradient(from -45deg at 50% 100%, var(--black) 90deg, transparent 0) bottom / 5% 1.4% repeat-x;
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    container-type: inline-size;
+    -webkit-mask: var(--lk-crimp);
+    mask: var(--lk-crimp);
+    font-family: var(--font-display);
+    text-align: center;
+}
+
+:root[data-look] .pack-tile-art .lk-pack {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 300 / 533;
+}
+
+/* The pack foil reward follows the drawn wrapper's outline, not pack.webp's. */
+:root[data-look] .pack-half::after {
+    -webkit-mask:
+        conic-gradient(from 135deg at 50% 0%, var(--black) 90deg, transparent 0) top / 5% 1.4% repeat-x,
+        linear-gradient(var(--black) 0 0) center / 100% 97.2% no-repeat,
+        conic-gradient(from -45deg at 50% 100%, var(--black) 90deg, transparent 0) bottom / 5% 1.4% repeat-x;
+    mask:
+        conic-gradient(from 135deg at 50% 0%, var(--black) 90deg, transparent 0) top / 5% 1.4% repeat-x,
+        linear-gradient(var(--black) 0 0) center / 100% 97.2% no-repeat,
+        conic-gradient(from -45deg at 50% 100%, var(--black) 90deg, transparent 0) bottom / 5% 1.4% repeat-x;
+}
+
+:root[data-look] .lk-pack-ground {
+    inset: 0;
+}
+
+:root[data-look] .lk-pack-crimp {
+    left: 0;
+    right: 0;
+    height: 6%;
+}
+
+:root[data-look] .lk-pack-crimp-top {
+    top: 0;
+}
+
+:root[data-look] .lk-pack-crimp-bottom {
+    bottom: 0;
+}
+
+:root[data-look] .lk-pack-brand,
+:root[data-look] .lk-pack-label,
+:root[data-look] .lk-pack-burst {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+:root[data-look] .lk-pack-name {
+    font-size: max(0.75rem, 9cqw);
+    line-height: 1.05;
+    text-transform: uppercase;
+    text-wrap: balance;
+}
+
+:root[data-look] .lk-pack-era,
+:root[data-look] .lk-pack-burst {
+    font-family: var(--font-body);
+    font-weight: 800;
+    font-size: max(0.75rem, 4.2cqw);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+/* A pack thumb in the shelf: the tile names the set under it, and every pack holds the same count. */
+@container (max-width: 12rem) {
+    :root[data-look] .lk-pack-era,
+    :root[data-look] .lk-pack-word,
+    :root[data-look] .lk-pack-burst {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lk-back-pattern,
+    .lk-face,
+    .lk-face::before,
+    .lk-pack-ground {
+        animation: none;
+    }
+}

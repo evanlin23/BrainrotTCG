@@ -7,6 +7,9 @@ import { FINISH_INFO, modifierClasses, modifierLabel } from '../../game/modifier
 import CardImage from './CardImage';
 import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
 import { cardFaceLabel } from './cardLabel';
+import { CardBackArt, CardFaceFrame } from '../looks/LookArt';
+import { setColours } from '../looks/lookColours';
+import { getLatestSet } from '../../content/sets';
 
 export type { CardWithMeta };
 
@@ -84,6 +87,7 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
             style={{
                 transform: `perspective(1000px) rotateX(${tilt.rotateX}deg) rotateY(${tilt.rotateY}deg)`,
                 ...(card.finish ? { '--finish-tell': FINISH_INFO[card.finish].color } : {}),
+                ...setColours(getLatestSet(card.setId)),
                 transition: 'transform 0.15s ease-out'
             }}
         >
@@ -102,12 +106,17 @@ const Card = ({ card, isFlipped, onFlip, slowFlip = false, tell = false }: CardP
                     flip button already says which card this is, so the back image is decoration. */}
                 <div className="card-face card-back" aria-hidden={isFlipped}>
                     <img src={cardBackImage} alt="" className="card-back-image" draggable="false" />
+                    <CardBackArt />
                 </div>
 
                 {/* Card Front */}
                 <div className={`card-face card-front ${modifierClasses(card)}`} aria-hidden={!isFlipped}>
-                    <CardImage src={card.image} finish={card.finish} alt={cardFaceLabel(card)} className="card-full-image" draggable="false" />
-                    {card.misprint && <CardImage src={card.image} finish={card.finish} alt="" aria-hidden="true" className="misprint-ghost" draggable="false" />}
+                    {/* The art window: the whole printed card today; a draft look (#1138) crops it to the art and draws its own frame. */}
+                    <div className="card-art">
+                        <CardImage src={card.image} finish={card.finish} alt={cardFaceLabel(card)} className="card-full-image" draggable="false" />
+                        {card.misprint && <CardImage src={card.image} finish={card.finish} alt="" aria-hidden="true" className="misprint-ghost" draggable="false" />}
+                    </div>
+                    <CardFaceFrame card={card} />
                     {card.isHolo && <div className="holo-shine-overlay"></div>}
                     <div className="holo-overlay"></div>
                     {/* The reveal's announcement already says New and the finish, so the stickers stay silent. */}

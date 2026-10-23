@@ -5,6 +5,7 @@ import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
 import type { SetDefinition } from '../../engine';
 import { packArtSettled } from '../../game/packArt';
+import { PackWrapperArt } from '../looks/LookArt';
 import { seamBands } from './seamTrail';
 import { REFUSAL_COPY, type PackRefusal } from './refusal';
 
@@ -150,9 +151,11 @@ const PackCuttingUI = ({
           {/* Each half carries its foil with it when the wrapper tears. */}
           <div className="pack-half pack-half-bottom">
             <img src={packDesign} alt="" draggable="false" onLoad={packArtSettled} onError={packArtSettled} />
+            <PackWrapperArt set={set} />
           </div>
           <div className="pack-half pack-half-top" aria-hidden="true">
             <img src={packDesign} alt="" draggable="false" />
+            <PackWrapperArt set={set} />
           </div>
           {/* The set tag is stuck on the top strip, so it tears away with it. */}
           <div className="pack-top-piece">

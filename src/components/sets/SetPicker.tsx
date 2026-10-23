@@ -3,6 +3,7 @@ import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { SetDefinition } from '../../engine';
 import { isNewSet, setCode } from '../../content/sets';
 import { packThumbUrl } from '../../content/art';
+import { PackWrapperArt } from '../looks/LookArt';
 import type { CollectionItem } from '../../types';
 import { setProgress } from '../../game/progression';
 import { isCardOwned } from '../../game/versions';
@@ -133,6 +134,7 @@ const SetPicker = ({ sets, selectedId, onSelect, collection, disabled = false }:
                   >
                     <span className="pack-tile-art">
                       <img src={packThumbUrl(s.id)} alt="" loading="lazy" draggable="false" />
+                      <PackWrapperArt set={s} />
                       {isNewSet(s) ? <span className="pack-tile-flag">New</span> : s.draft && <span className="pack-tile-flag is-preview">Preview</span>}
                     </span>
                     <span className="pack-tile-name">

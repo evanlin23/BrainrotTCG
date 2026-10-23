@@ -1,0 +1,260 @@
+/*
+ * Look B, "Sticker": a loud sticker-bomb frame. Halftone dots over the rarity colour inside a white
+ * die-cut edge; the edge turns to metal for a finish and to foil for a holo. Checker backs; a bag
+ * covered in stickers.
+ */
+
+/* ---- Card face ---- */
+
+:root[data-look='b'] .card-wrapper .card-front {
+    --art-l: 8%;
+    --art-t: 15%;
+    --art-w: 84%;
+    --art-h: 51%;
+    --crop-y: 307;
+    --crop-h: 333;
+    --name-max: 7cqw;
+    --name-fit: 120cqw;
+    --edge: linear-gradient(var(--white), var(--white));
+    border: 5px solid transparent;
+    background:
+        radial-gradient(circle, color-mix(in srgb, var(--look-ink) 30%, transparent) 22%, transparent 24%) 0 0 / 7px 7px padding-box,
+        linear-gradient(var(--r-solid), var(--r-solid)) padding-box,
+        var(--edge) border-box;
+}
+
+/* Brainrot's spectrum under the dots. */
+:root[data-look='b'] .card-wrapper.brainrot .card-front {
+    background:
+        radial-gradient(circle, color-mix(in srgb, var(--look-ink) 30%, transparent) 22%, transparent 24%) 0 0 / 7px 7px padding-box,
+        var(--rarity-brainrot) padding-box,
+        var(--edge) border-box;
+}
+
+:root[data-look='b'] .card-front:is(.finish-silver, .finish-gold, .finish-platinum, .finish-diamond) {
+    --edge: var(--metal-ramp);
+    border-width: 7px;
+}
+
+:root[data-look='b'] .card-wrapper.holo .card-front:not(:is(.finish-silver, .finish-gold, .finish-platinum, .finish-diamond)) {
+    --edge: var(--foil);
+    border-width: 7px;
+}
+
+/* The art: a photo stuck on slightly askew, with a white border. */
+:root[data-look='b'] .card-art {
+    border: 4px solid var(--white);
+    border-radius: var(--radius-sm);
+    box-shadow: 3px 4px 0 var(--look-ink);
+    rotate: -1.5deg;
+}
+
+/* The name: a yellow price sticker. */
+:root[data-look='b'] .lk-name {
+    left: 5%;
+    right: 5%;
+    top: 3%;
+    height: 9.5%;
+    display: flex;
+    align-items: center;
+    padding: 0 0.4em;
+    border: 3px solid var(--look-ink);
+    border-radius: var(--radius-md);
+    background: var(--brand);
+    box-shadow: 3px 3px 0 var(--look-ink);
+    color: var(--look-ink);
+    rotate: 1deg;
+}
+
+/* The rarity: a black sticker slapped on the art's corner, in its colour. */
+:root[data-look='b'] .lk-rarity {
+    right: 6%;
+    top: 61.5%;
+    padding: 0.25em 0.7em;
+    border: 3px solid var(--white);
+    border-radius: var(--radius-pill);
+    background: var(--look-ink);
+    box-shadow: 2px 3px 0 var(--shade-50);
+    color: var(--r-solid);
+    rotate: 4deg;
+}
+
+:root[data-look='b'] .card-wrapper.brainrot .lk-rarity {
+    border-color: transparent;
+    background: linear-gradient(var(--look-ink), var(--look-ink)) padding-box, var(--rarity-brainrot) border-box;
+}
+
+:root[data-look='b'] .lk-rarity-symbol {
+    font-size: 1.2em;
+    line-height: 1;
+}
+
+:root[data-look='b'] .lk-rarity-name {
+    color: var(--white);
+}
+
+:root[data-look='b'] .lk-finish {
+    left: 6%;
+    top: 62%;
+    padding: 0.15em 0.6em;
+    border: 2px solid var(--look-ink);
+    border-radius: var(--radius-pill);
+    background: var(--white);
+    color: var(--look-ink);
+    rotate: -4deg;
+}
+
+/* The caption: a speech bubble. */
+:root[data-look='b'] .lk-caption {
+    left: 6%;
+    right: 6%;
+    top: 70.5%;
+    height: 17%;
+    padding: 0 0.7em;
+    border: 3px solid var(--look-ink);
+    border-radius: var(--radius-lg);
+    background: var(--white);
+    color: var(--look-ink);
+    box-shadow: 3px 3px 0 var(--look-ink);
+    /* The bubble's tail sits outside it. */
+    overflow: visible;
+}
+
+:root[data-look='b'] .lk-caption::before {
+    content: '';
+    position: absolute;
+    top: -3.2cqw;
+    left: 18%;
+    width: 5cqw;
+    height: 5cqw;
+    border-left: 3px solid var(--look-ink);
+    border-top: 3px solid var(--look-ink);
+    background: var(--white);
+    rotate: 45deg;
+}
+
+/* The collector line: a strip of tape. */
+:root[data-look='b'] .lk-foot {
+    left: 14%;
+    right: 14%;
+    top: 90%;
+    height: 5.5%;
+    justify-content: center;
+    background: color-mix(in srgb, var(--look-paper) 88%, transparent);
+    color: var(--look-paper-ink);
+    rotate: -1deg;
+}
+
+:root[data-look='b'] .lk-foot-mark {
+    margin-left: 0;
+}
+
+/* ---- Card back ---- */
+
+:root[data-look='b'] .lk-back-pattern {
+    inset: -30%;
+    background:
+        conic-gradient(var(--bk-b) 25%, var(--bk-a) 0 50%, var(--bk-b) 0 75%, var(--bk-a) 0) 0 0 / 18cqw 18cqw;
+    rotate: -12deg;
+}
+
+:root[data-look='b'] .lk-back-medal {
+    left: 22%;
+    top: 24%;
+    width: 56%;
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    border: 4px solid var(--look-ink);
+    border-radius: 50%;
+    background: var(--white);
+    box-shadow: 4px 5px 0 var(--look-ink);
+    color: var(--bk-a);
+    rotate: -6deg;
+}
+
+:root[data-look='b'] .lk-back-mark {
+    width: 64%;
+    height: 64%;
+}
+
+:root[data-look='b'] .lk-back-word {
+    left: 8%;
+    right: 8%;
+    bottom: 14%;
+    padding: 0.25em 0;
+    background: var(--bk-c);
+    color: var(--look-ink);
+    font-size: max(0.75rem, 8cqw);
+    text-align: center;
+    rotate: 3deg;
+    box-shadow: 3px 3px 0 var(--look-ink);
+}
+
+/* ---- Pack ---- */
+
+:root[data-look='b'] .lk-pack-ground {
+    background:
+        radial-gradient(circle, color-mix(in srgb, var(--look-ink) 28%, transparent) 24%, transparent 26%) 0 0 / 4cqw 4cqw,
+        linear-gradient(200deg, var(--set-a) 0 48%, var(--set-b) 48%);
+}
+
+:root[data-look='b'] .lk-pack-crimp {
+    background: repeating-linear-gradient(90deg, var(--white) 0 1cqw, color-mix(in srgb, var(--white) 70%, var(--look-ink)) 1cqw 2cqw);
+}
+
+:root[data-look='b'] .lk-pack-brand {
+    left: 8%;
+    right: 8%;
+    top: 23%;
+    gap: 2cqw;
+}
+
+:root[data-look='b'] .lk-pack-mark {
+    width: 40cqw;
+    height: 40cqw;
+    padding: 4cqw;
+    border: 4px solid var(--look-ink);
+    border-radius: 50%;
+    background: var(--white);
+    box-shadow: 4px 4px 0 var(--look-ink);
+    color: var(--set-a);
+    rotate: -8deg;
+}
+
+:root[data-look='b'] .lk-pack-word {
+    color: var(--white);
+    font-size: max(0.75rem, 11cqw);
+    -webkit-text-stroke: 1.2cqw var(--look-ink);
+    paint-order: stroke fill;
+    rotate: -3deg;
+}
+
+/* The count: a yellow starburst. */
+:root[data-look='b'] .lk-pack-burst {
+    right: 5%;
+    top: 50%;
+    width: 26cqw;
+    aspect-ratio: 1;
+    justify-content: center;
+    background: var(--brand);
+    color: var(--look-ink);
+    line-height: 1;
+    clip-path: polygon(50% 0, 61% 18%, 82% 10%, 80% 32%, 100% 40%, 84% 56%, 96% 76%, 74% 78%, 68% 100%, 50% 86%, 32% 100%, 26% 78%, 4% 76%, 16% 56%, 0 40%, 20% 32%, 18% 10%, 39% 18%);
+    rotate: 10deg;
+}
+
+/* The set name: black tape across the bottom. */
+:root[data-look='b'] .lk-pack-label {
+    left: -2%;
+    right: -2%;
+    bottom: 11%;
+    padding: 3cqw 6cqw;
+    background: var(--look-ink);
+    color: var(--white);
+    rotate: -4deg;
+}
+
+:root[data-look='b'] .lk-pack-era {
+    color: var(--brand);
+}

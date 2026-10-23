@@ -13,12 +13,15 @@ import { resumeReopening } from './game/reopenJob'
 import { warmUpArgon2, warmUpFirstPack } from './game/warmUp'
 import { warmConfetti } from './components/pack/loadConfetti'
 import { markStaging } from './game/staging'
+import { applyDesignLook } from './game/designLook'
 import { STORAGE_KEYS } from './constants'
 import { setMotionSetting } from './utils/motion'
 import { readSettings } from './utils/settings'
 import { getStoredData } from './utils/storage'
 
 markStaging()
+// #1138 exploration: ?look=a|b|c previews a draft card and pack direction (game/designLook.ts).
+applyDesignLook()
 
 // If receiveSave fails (it throws, or its promise rejects), the game starts here as usual rather than
 // stopping at that step. Migrations and the pull-log move have their own screens below.
