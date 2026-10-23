@@ -131,12 +131,14 @@
     transition: none;
 }
 
-/* The leaving pack is lifted out of the flow (AnimatePresence popLayout) and fades over the reveal for a
-   quarter second; it must not take a tap meant for the reveal's Skip or its first card. The attribute is
-   set on the leaving element by framer-motion's PopChild (popLayout) in the version the lockfile pins; if
-   a framer upgrade (#673) stops setting it, this rule goes quiet and the "pack leaving" frame-sampling
-   test in summary-actions.spec.ts fails. */
-.pack-display[data-motion-pop-id] {
+/* A leaving stage (the torn pack, or the reveal when the player returns to the pack) is lifted out of the
+   flow over the container, so it overlaps what comes in instead of pushing it. PackOpener's Lifted sets
+   the attribute in the render that starts the exit. The pack stage keeps the height and place it was held
+   at (inline), so it leaves where it was. It fades over the reveal for a quarter second and must not take
+   a tap meant for the reveal's Skip or its first card. */
+.lifted[data-leaving] {
+    position: absolute;
+    inset: 0;
     pointer-events: none;
 }
 

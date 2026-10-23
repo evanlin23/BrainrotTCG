@@ -1,5 +1,6 @@
+import type { ComponentProps } from 'react';
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useIsPresent } from 'framer-motion';
 import type { CardWithMeta } from '../cards/Card';
 import type { Settings } from '../../types';
 import type { SetDefinition } from '../../engine';
@@ -32,6 +33,19 @@ import { isBigPull, isSpecialReveal, markNew, nextSpecialRevealIndex, revealOrde
 import '../../styles/PackOpener.css';
 
 const Motion = motion;
+
+/**
+ * A stage inside the pack/reveal AnimatePresence that takes itself out of the flow the render it
+ * starts leaving (PackOpener.css, `.lifted[data-leaving]`), so it overlaps whatever comes in. This is
+ * what AnimatePresence's popLayout mode does, but popLayout measures the leaving element in the commit
+ * that drops it (framer-motion 14 reads its computed style), and that commit is the one that brings
+ * the first card in: the browser lays the page out there, in the middle of the longest stall on a
+ * slow phone (#266). The attribute is rendered, so nothing is read.
+ */
+const Lifted = ({ className, ...props }: ComponentProps<typeof Motion.div>) => {
+  const present = useIsPresent();
+  return <Motion.div {...props} className={`lifted ${className ?? ''}`} data-leaving={present ? undefined : ''} />;
+};
 
 /** Where the sealed pack's stage rests. */
 const STAGE_AT_REST = { y: 0, opacity: 1, rotate: 0 };
@@ -732,22 +746,16 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         />
       )}
       {/* The torn pack flies off as the first card back fades in, not before it: waiting for the exit
-          left an empty stage between the tear and the reveal (#312 P2-6). popLayout lifts the leaving
-          pack out of the flow, so the two overlap in place. */}
-      <AnimatePresence mode="popLayout">
+          left an empty stage between the tear and the reveal (#312 P2-6). The leaving one lifts itself
+          out of the flow (Lifted), so the two overlap in place. */}
+      <AnimatePresence>
         {!isOpening ? (
-          <Motion.div
+          <Lifted
             key="pack"
             ref={stageRef}
             onScroll={markStageScrolled}
             {...stageEntrance(landed, reducedMotion)}
-            onAnimationStart={(definition) => {
-              markLanded();
-              // A stage that comes back while it is still fading out is the same element. framer-motion 12
-              // left its leaving mark (which stops taps, PackOpener.css) on it; 14 clears it. Coming back
-              // clears it here too, so taps don't depend on the framer version.
-              if (definition === STAGE_AT_REST) stageRef.current?.removeAttribute('data-motion-pop-id');
-            }}
+            onAnimationStart={markLanded}
             animate={shown ? STAGE_AT_REST : false}
             // Quick, on its own timing: the drop-in spring's long tail left the screen blank before the reveal.
             exit={{ scale: 1.25, opacity: 0, transition: { duration: 0.25, ease: 'easeIn' } }}
@@ -773,9 +781,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               onCueEnd={endCue}
               onTouch={touchPack}
             />
-          </Motion.div>
+          </Lifted>
         ) : (
-          <Motion.div
+          <Lifted
             key="opening"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -806,7 +814,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
                 holdOptional={!disabled}
               />
             )}
-          </Motion.div>
+          </Lifted>
         )}
       </AnimatePresence>
     </div>

@@ -416,12 +416,12 @@ describe('the sealed pack stage on a desktop window', () => {
       set(this: Element, value: number) { scrollWrites.push(this); scrollTop.set!.call(this, value); },
     });
     const getComputedStyle = window.getComputedStyle;
-    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, ...rest) => {
+    const computedSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation((element, ...rest) => {
       measured.push(element);
       return getComputedStyle.call(window, element, ...rest);
     });
     const getBoundingClientRect = Element.prototype.getBoundingClientRect;
-    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
       measured.push(this);
       return getBoundingClientRect.call(this);
     });
@@ -441,6 +441,8 @@ describe('the sealed pack stage on a desktop window', () => {
       expect(measured).not.toContain(room);
     } finally {
       Object.defineProperty(Element.prototype, 'scrollTop', scrollTop);
+      computedSpy.mockRestore();
+      rectSpy.mockRestore();
       vi.useRealTimers();
     }
   });
@@ -759,42 +761,23 @@ describe('how the sealed pack comes into the packs screen (#720)', () => {
   });
 
   describe('with the torn pack still flying off', () => {
-    const sizes: MockInstance[] = [];
     beforeEach(() => {
-      // jsdom has no layout, and without a size framer-motion never marks a leaving element. It reads
-      // the element's computed width and height, and its parent's offset size. Laid out, the held stage
-      // also follows its room, which jsdom has no ResizeObserver to watch.
-      vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
-      const computed = window.getComputedStyle.bind(window);
-      const sized = { width: '200px', height: '300px' } as Record<PropertyKey, string>;
-      sizes.push(
-        vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(200),
-        vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300),
-        vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => new Proxy(computed(el, pseudo), {
-          get: (style, key) => {
-            if (key in sized) return sized[key];
-            const value: unknown = Reflect.get(style, key, style);
-            return typeof value === 'function' ? value.bind(style) : value;
-          },
-        })),
-      );
       // Framer's clock stops, so the 250ms exit cannot finish before the player returns.
       MotionGlobalConfig.useManualTiming = true;
     });
     afterEach(() => {
       MotionGlobalConfig.useManualTiming = false;
-      for (const spy of sizes.splice(0)) spy.mockRestore();
     });
 
     it('takes taps on a pack that comes back while the torn one is still flying off', async () => {
       show();
       await tear();
       const leaving = stage();
-      expect(leaving.getAttribute('data-motion-pop-id')).not.toBeNull();
+      expect(leaving.getAttribute('data-leaving')).not.toBeNull();
       escape();
       // The same element as the one that left, so it must not keep the mark that makes a leaving pack ignore taps.
       expect(stage()).toBe(leaving);
-      expect(stage().getAttribute('data-motion-pop-id')).toBeNull();
+      expect(stage().getAttribute('data-leaving')).toBeNull();
     });
   });
 });
