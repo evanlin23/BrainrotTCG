@@ -74,20 +74,28 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
 
   // The tallest the region has been on this screen, in px (#803). A toast puts a row on the home screen
   // (Toasts.css); when it goes, that row stays, so nothing under the finger moves at expiry. It is
-  // forgotten with the screen it was measured for, and on a resize, which re-lays the page out anyway.
+  // forgotten when the screen changes (also on the way back to one seen before), and on a resize, which
+  // re-lays the page out anyway.
   const regionRef = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState({ for: layoutKey, height: 0 });
   useEffect(() => {
     const region = regionRef.current;
     if (!region) return;
+    setSlot((was) => (was.for === layoutKey ? was : { for: layoutKey, height: 0 }));
     const measure = () => {
       const height = Math.ceil(region.getBoundingClientRect().height);
       if (height <= 0) return;
       setSlot((was) => (was.for === layoutKey && was.height >= height ? was : { for: layoutKey, height }));
     };
+    // The region's height without the row held for it: what the toast up now needs after a resize.
+    const forget = () => {
+      region.style.minHeight = '0px';
+      const height = Math.ceil(region.getBoundingClientRect().height);
+      region.style.minHeight = '';
+      setSlot({ for: layoutKey, height });
+    };
     const observer = new ResizeObserver(measure);
     observer.observe(region);
-    const forget = () => setSlot({ for: layoutKey, height: 0 });
     window.addEventListener('resize', forget);
     return () => {
       observer.disconnect();

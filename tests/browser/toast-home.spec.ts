@@ -15,6 +15,8 @@ const VIEWPORTS = [
   { width: 360, height: 640 },
   { width: 390, height: 844 },
   { width: 1280, height: 800 },
+  // A phone on its side: the least height, where the pack is already only about 100px tall.
+  { width: 640, height: 360 },
 ];
 
 /** Every control on the home screen, as the page lays it out. */
@@ -89,10 +91,12 @@ for (const viewport of VIEWPORTS) {
     test.setTimeout(90000);
     await page.setViewportSize(viewport);
     const errors = await toSummary(page, baseURL!);
-    await toHome(page);
+    const toast = await toHome(page);
 
     await expect.poll(() => blocked(page), { message: 'no control is under the toast' }).toEqual([]);
     expect(await squeezed(page)).toEqual([]);
+    // However little of it a short screen draws, the button's name is still all of it.
+    await expect(toast).toHaveAccessibleName(/^\s*\d+ achievements unlocked\s*\S.*/);
     expect(errors).toEqual([]);
   });
 }
@@ -110,6 +114,8 @@ test('at 200% text on a 360px phone both toasts leave every control uncovered an
     await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 25000 });
     await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
     expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
+    // The level-up's line is clamped on screen; the button's name still has all of it.
+    if (/Level/.test(String(kicker))) await expect(toast).toHaveAccessibleName(/^\s*Level up\s+\S.*\S\s+Next: .+/);
     await toast.blur();
   }
   await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
@@ -136,6 +142,37 @@ for (const viewport of VIEWPORTS) {
     expect(errors).toEqual([]);
   });
 }
+
+// The row is held for the screen it was measured on, not for the next visit to it: a tab away and back
+// leaves no empty row where a toast was, and the pack is the size a fresh load gives it (#803).
+test('the row a toast held is gone when the player comes back to the home screen, at 200% text on a 360px phone', async ({ page, baseURL }) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 360, height: 640 });
+  const errors = await toSummary(page, baseURL!);
+  await page.addStyleTag({ content: ENLARGED });
+  const toast = await toHome(page);
+  await toast.blur();
+  await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 25000 });
+  await page.locator('.toast').focus();
+  await page.locator('.toast').blur();
+  await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
+  const region = () => page.locator('.toast-region').evaluate((el) => Math.round(el.getBoundingClientRect().height));
+  expect(await region(), 'the row is held while the player is still on the screen').toBeGreaterThan(0);
+
+  await page.locator('.app-nav-item', { hasText: 'Cards' }).click();
+  await expect(page.locator('.app-main')).toBeHidden();
+  await page.locator('.app-nav-item', { hasText: 'Open' }).click();
+  await expect(page.locator('.set-current')).toBeVisible();
+  expect(await region(), 'no empty row where the toast was').toBe(0);
+  const back = await placed(page);
+
+  // The enlarged text is an injected style, so a reload drops it: put it back before comparing.
+  await page.reload();
+  await expect(page.locator('.app-logo')).toBeVisible();
+  await page.addStyleTag({ content: ENLARGED });
+  await expect.poll(() => placed(page), { message: 'the controls are where a fresh load puts them' }).toEqual(back);
+  expect(errors).toEqual([]);
+});
 
 // A card close-up is a sheet over the summary: the toast waits for it to close instead of sitting over it
 // (z-index above the sheet) and taking a tap meant for the sheet.

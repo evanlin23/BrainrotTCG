@@ -338,12 +338,16 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   screen the toast is a row of its own under the header and the pack stage gives up that height, so it
   never covers the set picker, the pack, the guide link or a tab (#803). The row is kept short (tight
   padding, a one-line kicker, a two-line clamp on a level-up's line, the full text still the button's
-  name) so at 200% text the pack and set steps stay at least 44 px. The row stays reserved after the
-  toast expires, until the route or pack focus changes or the window resizes, so nothing moves under a
-  finger at expiry (a shift as it first appears is fine). A card close-up or any other sheet holds
+  name) so at 200% text the pack and set steps stay at least 44 px. On a short screen (420 px tall or
+  less, a phone on its side) the row is one thin line: the icon goes and the kicker stays in the name
+  but isn't drawn, so the pack and set steps stay at least 44 px there too. The row stays reserved
+  after the toast expires, so nothing moves under a finger at expiry (a shift as it first appears is
+  fine). It can grow when a taller toast arrives; it never shrinks under the player until the screen
+  changes. It is forgotten when the route or pack focus changes (a return to a screen already seen
+  starts with no empty row) and when the window resizes. A card close-up or any other sheet holds
   the toast until it closes. In pack focus mode it still overlays, under the pack's X.
-  `tests/browser/toast-home.spec.ts` checks every home control at 360, 390 and 1280, 200% text at 360,
-  expiry, and the sheet hold.
+  `tests/browser/toast-home.spec.ts` checks every home control at 360, 390, 1280 and 640x360, 200% text
+  at 360, expiry, the return to the screen, and the sheet hold.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
