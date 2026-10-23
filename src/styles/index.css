@@ -75,8 +75,12 @@
   box-shadow: none;
 }
 
+/* The way home from every other page: the header row is already as tall as the 44px buttons beside it, so
+   a touch-sized link adds no height. */
 a.app-logo--link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-target);
   text-decoration: none;
   border-radius: var(--radius-sm);
 }
