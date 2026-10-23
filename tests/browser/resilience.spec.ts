@@ -245,14 +245,10 @@ test.describe('offline mid-session', () => {
     };
     await page.goto('./');
     await packsScreen(page);
-    const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
-    const rankingsStatus = rankings.getByRole('status');
-    await nav(page).getByRole('button', { name: 'Rankings', exact: true }).click();
-    await expect(rankingsStatus).toHaveText('Rankings loaded.');
-    await page.getByRole('button', { name: 'Close Rankings', exact: true }).click();
-    await packsScreen(page);
 
-    // Offline: the pack opens and is recorded; only pictures fail to load.
+    // Offline: the pack opens and is recorded; only pictures fail to load. It opens before any card art
+    // has shown on this page (Rankings shows the saved pack's), so none of it can come from the page's
+    // memory cache without a request.
     await setOffline(true);
     await openOne(page);
     expect(await tickets(page)).toEqual([0, 1]);
@@ -268,9 +264,16 @@ test.describe('offline mid-session', () => {
     await setOffline(false);
     await expectDecoded(art, 5);
 
-    // Offline again, Rankings says the live feed is down; back online, Retry brings it back.
-    await setOffline(true);
+    // Rankings loads online; offline, it says the live feed is down; back online, Retry brings it back.
     await page.getByRole('button', { name: 'Next pack', exact: true }).click();
+    await packsScreen(page);
+    const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
+    const rankingsStatus = rankings.getByRole('status');
+    await nav(page).getByRole('button', { name: 'Rankings', exact: true }).click();
+    await expect(rankingsStatus).toHaveText('Rankings loaded.');
+    await page.getByRole('button', { name: 'Close Rankings', exact: true }).click();
+    await packsScreen(page);
+    await setOffline(true);
     await nav(page).getByRole('button', { name: 'Rankings', exact: true }).click();
     await expect(rankingsStatus).toHaveText(FEED_DOWN);
     await setOffline(false);
