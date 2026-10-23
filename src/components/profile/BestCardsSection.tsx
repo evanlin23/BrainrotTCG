@@ -116,7 +116,8 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChang
         // A player switched meanwhile is no longer the one on screen.
         if (!mounted.current || getPlayerTickets().player.publicKeyHex !== player.publicKeyHex) return;
         setList({ cards, complete, unsaved });
-        setUnavailable(failed > 0);
+        // A rebuild that reports no failure yet leaves a rebuildable winner unscored is no better: nothing more is coming.
+        setUnavailable(failed > 0 || cards.some(awaitsRebuild));
         listChanged.current?.();
       })
       .catch(() => {

@@ -104,6 +104,24 @@ describe('owned playback clones', () => {
     expect([one, two, foreign].map((a) => a.getAttribute('src'))).toEqual(['/a.mp3', '/b.mp3', '/foreign.mp3']);
   });
 
+  it("stops only its own clones when another instance is playing too", () => {
+    play();
+    let other!: Audio;
+    const otherRoot = createRoot(document.createElement('div'));
+    act(() => otherRoot.render(<Probe onRender={(hook) => (other = hook)} />));
+    const [mine] = audio.preloadAudio(['/a.mp3']);
+    const [theirs] = other.preloadAudio(['/b.mp3']);
+    const myClone = audio.playAndCleanup(mine);
+    const theirClone = other.playAndCleanup(theirs);
+
+    audio.stopAll();
+
+    expect(pausedClones()).toEqual([myClone]);
+    expect(theirClone.getAttribute('src')).toBe('/b.mp3');
+    act(() => otherRoot.unmount());
+    expect(pausedClones()).toEqual([myClone, theirClone]);
+  });
+
   it('is safe to stop and release twice, and a released clone ending later does nothing more', async () => {
     play();
     const [sound] = audio.preloadAudio(['/a.mp3']);

@@ -463,6 +463,7 @@ test.describe('messages from anyone else hand nothing over', () => {
       (window.parent.opener as Window).postMessage({ type: 'brainrot-save', probe: 'from-old-other', save }, '*');
     }, stranger);
     expect(await heard(page, 'from-old-other')).toEqual({ origin: OLD_ORIGIN, type: 'brainrot-save', probe: 'from-old-other', fromOpener: false });
+    expect(await storageAt(page.context(), NEW_ORIGIN)).toEqual(before);
     // The window Settings opened, gone on to another site.
     await popup.goto(THIRD_URL);
     await popup.evaluate((save) => {

@@ -38,6 +38,8 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.clearAllMocks();
+  // clearAllMocks keeps a mockResolvedValue('failed'), so put the default back for the next test.
+  vi.mocked(shareActions.shareTo).mockImplementation(async () => 'shared');
   vi.unstubAllGlobals();
 });
 

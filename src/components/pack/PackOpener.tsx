@@ -734,8 +734,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
             {...stageEntrance(landed, reducedMotion)}
             onAnimationStart={(definition) => {
               markLanded();
-              // A stage that comes back while it is still fading out is the same element, and framer-motion
-              // leaves its leaving mark (which stops taps, PackOpener.css) on it. Coming back clears it.
+              // A stage that comes back while it is still fading out is the same element. framer-motion 12
+              // left its leaving mark (which stops taps, PackOpener.css) on it; 14 clears it. Coming back
+              // clears it here too, so taps don't depend on the framer version.
               if (definition === STAGE_AT_REST) stageRef.current?.removeAttribute('data-motion-pop-id');
             }}
             animate={shown ? STAGE_AT_REST : false}

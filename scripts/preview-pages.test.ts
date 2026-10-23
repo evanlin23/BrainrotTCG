@@ -124,8 +124,8 @@ describe('previewCacheContract', () => {
   it.each(['ci', 'deploy', 'browser-tests', 'performance-baseline'])('starts every preview cache key and restore prefix with it in %s.yml', (name) => {
     const workflow = readFileSync(`${ROOT}.github/workflows/${name}.yml`, 'utf8');
     const caches = [...workflow.matchAll(/- uses: actions\/cache[^\n]*\n\s+with:\n\s+path: \.cache\/previews\n\s+key: (.*)\n\s+restore-keys: (.*)\n/g)];
-    // browser-tests.yml has three: the shards, the burn-in and the cross-browser smoke.
-    expect(caches.length).toBe(name === 'browser-tests' ? 3 : 1);
+    // browser-tests.yml has four: the shards, the burn-in, the cross-browser smoke and the visual baselines.
+    expect(caches.length).toBe(name === 'browser-tests' ? 4 : 1);
     for (const cache of caches) {
       const [, key, restore] = cache;
       const contract = '${{ steps.previews.outputs.contract }}';

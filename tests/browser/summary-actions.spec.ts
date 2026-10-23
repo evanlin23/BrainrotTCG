@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot } from './support';
+import { monitor, expectDecoded, expectSummaryTakesClicks, fingerFor, snapshot, untilIdle } from './support';
 
 /**
  * The pack summary (#182, #339): its actions stay stuck on screen while the rest scrolls, at 360x640
@@ -42,12 +42,12 @@ async function openSummary(page: Page, baseURL: string, { textZoom = 100, viewpo
   return { errors, packShell };
 }
 
-/** Waits out the summary's entrance: two reads of its layout a frame apart agree. */
+/** Waits out the summary's entrance: its fade and rise have ended. */
 async function settled(page: Page) {
-  const read = () => page.evaluate(() => JSON.stringify(
-    ['.summary-content', '.summary-actions', '.summary-cards li:last-child'].map((selector) => document.querySelector(selector)?.getBoundingClientRect()),
-  ));
-  await expect.poll(async () => (await read()) === (await page.waitForTimeout(150).then(read)), 'the summary settled').toBe(true);
+  await expect.poll(() => page.locator('.pack-summary').evaluate((el) => {
+    const { transform, opacity } = getComputedStyle(el);
+    return new DOMMatrixReadOnly(transform).isIdentity && opacity === '1';
+  }), { message: 'the summary settled' }).toBe(true);
 }
 
 /** The summary's boxes, rounded to whole pixels; `content` is the scrolling list, `actions` its own row. */
@@ -291,7 +291,7 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
   const recorded = async () => (await snapshot(page)).stats?.packsOpened;
   expect(await recorded()).toBe(1);
   const stays = async (what: string) => {
-    await page.waitForTimeout(400);
+    await untilIdle(page);
     await expect(summary, `${what} left the summary`).toBeVisible();
     await expect(page.locator('.summary-card'), `${what} changed the summary`).toHaveCount(5);
     await expect(packShell, `${what} brought the sealed pack back`).toBeHidden();
@@ -352,7 +352,7 @@ test('card taps, swipes and empty space never leave the summary; the viewer clos
       await page.mouse.down();
       await page.mouse.move(x1, y1, { steps: 8 });
       await page.mouse.up();
-      await page.waitForTimeout(200);
+      await untilIdle(page);
       await expect(dialog, `a drag ${name} to the empty space closed card ${index + 1}`).toBeVisible();
     }
     await page.evaluate(() => getSelection()?.removeAllRanges());

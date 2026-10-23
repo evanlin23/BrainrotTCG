@@ -293,7 +293,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
 ## Components
 
 - **Buttons** (`.btn`): `.btn--primary` (flat yellow background, one per screen), `.btn--secondary`
-  (surface + border), `.btn--ghost` (text only); `.btn--lg`, `.btn--sm`, `.btn--block`; `.icon-btn`
+  (surface + border), `.btn--ghost` (text only), `.btn--danger` (outlined, for an irreversible answer that sits
+  beside a safe primary one); `.btn--lg`, `.btn--sm`, `.btn--block`; `.icon-btn`
   for icon-only buttons, always with an `aria-label`.
 - **Page** (`ui/Page.tsx`): Cards, Rankings, Profile and Settings. An `h1` with a "Close <title>"
   button (back to Open), then the screen, loaded on demand: a skeleton holds its place meanwhile
@@ -355,6 +356,11 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   (nothing when unknown; never a login, so it is text, not a link inside the row's link).
   A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
   before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
+  Above it, a muted "Lists last updated" line gives the published rankings' own build time in UTC
+  (hidden when `rankings.json` can't be read). A "Past days" button beside "Where it started" opens a
+  sheet with Month and Day pickers over each closed UTC day's top 10; it opens on the newest day of
+  the newest month that has one, each row links to its GitHub issue, and a missing archive is a quiet
+  note.
   A closed "How Rankings work" disclosure sits above the lists in every state (loading, failed,
   feed unavailable, empty, populated, both tabs): who qualifies, that nothing is filed
   automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
@@ -488,7 +494,9 @@ pack order). That is the shipped best-card rule: `revealOrder`
 (`src/game/reveal.ts`) sorts by `cardPoints` ascending and keeps pack order on ties, and `previewOf`
 (`src/game/previewLinks.ts`, called from `previewFor` in `src/game/pulls.ts`) takes its last card
 when nothing matches. Reuse scoring, not cached collection counters. No Matches stays visible because
-it explains the formula, not pull excitement.
+it explains the formula, not pull excitement. The one exception is a shared pull (#639): its title already
+names a real combo, so `PackCardViewer` drops the headline there (`titled`), and only when the multiplier is
+above 1; a No Matches pull keeps its line.
 
 (Superseded by #898: "combo with its odds" and "a swipe or Open pack away" in the next section go when their slices land. The 1-in-N line is gone, #778: no surface shows the chance.) On the results screen the heading is only **[score] Brainrot Score**, then one line **[combo] ×[multiplier]**. Then the Rankings line: Submit when the pull
 qualifies, or the one-sentence reason there is none when it doesn't (#1004). The Card guide (one tap, no fold) has

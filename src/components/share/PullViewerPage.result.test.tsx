@@ -95,4 +95,13 @@ describe('PackCardViewer titled (#639)', () => {
     expect(container.querySelector('.score-panel-total')!.textContent).toBe('9,850');
     expect(container.querySelector('.score-panel-math')!.textContent).toBe('Brainrot Score · 4,925 pts × 2');
   });
+
+  it('keeps the No Matches headline even when told it is titled', async () => {
+    await act(async () => root.render(<PullViewerPage proof={NO_MATCHES.proof} onClose={() => {}} />));
+    const { cardsWithMeta } = await vi.mocked(checkPull).mock.results[0].value;
+    await act(async () => {});
+
+    await act(async () => root.render(<PackCardViewer cards={cardsWithMeta} titled />));
+    expect(container.querySelector('.pack-headline-combo')!.textContent).toBe('No Matches ×1');
+  });
 });
