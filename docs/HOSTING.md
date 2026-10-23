@@ -123,7 +123,8 @@ With staging on, a deploy of `main` runs:
    run on the same commit may have replaced it, and a re-run would then test other files), then runs
    browser checks (`playwright.staging.config.ts`: the built-site check, the pack-opener and
    shared-pull smoke tests, and `tests/browser/staging.check.ts`) against the staging address, with
-   no secrets. Nothing is rebuilt: the tests' copy of the site is the sealed one.
+   no secrets but the Access service token ([below](#cloudflare-access-on-staging)). Nothing is
+   rebuilt: the tests' copy of the site is the sealed one.
 4. **publish** runs only if both passed. It checks the seal again and publishes the same files to
    production, then fetches every sealed file from production and fails if any differs. Both
    comparisons print the release's identity (commit, run, manifest hash, file count, Hall of Fame
@@ -141,7 +142,8 @@ What keeps staging apart:
   asks not to be indexed, never offers to bring a save from the old address, and never publishes to
   the Hall of Fame. The same files at the production address are the normal game.
 - **No real data.** Staging doesn't post to GitHub or anywhere public, and its browser checks run
-  without secrets. The Hall of Fame list it serves is the one built in, read-only.
+  with no secret but the Access service token, which only reads previews. The Hall of Fame list it
+  serves is the one built in, read-only.
 - **Fails closed.** With `CLOUDFLARE_STAGING_BRANCH` set, the site job stops the deploy, before
   anything is built or published, if the Cloudflare secrets are missing, the project isn't ready, its
   address isn't a `pages.dev` one, or the branch is `main`, the project's production branch, or not a
@@ -153,19 +155,58 @@ What keeps staging apart:
 
 1. Nothing new on Cloudflare: staging is a preview in the same project, with the same token. The token
    needs **Account → Cloudflare Pages → Edit** (step 3 of the move); its scope can't be checked from
-   this repository. Don't put an **Access policy** on the project's preview deployments, and keep
-   Cloudflare features that rewrite HTML (Web Analytics' automatic setup, for example) off: the
-   checks fetch staging without signing in and compare every file byte for byte.
-2. After this change is merged and a deploy on `main` succeeds, add the repository **variable** (not a
+   this repository. Keep Cloudflare features that rewrite HTML (Web Analytics' automatic setup, for
+   example) off: the checks compare every file byte for byte.
+2. If the project's preview deployments are behind Cloudflare Access (they are here: the Access app
+   *brainrottcg - Cloudflare Pages* covers `*.brainrottcg.pages.dev`, and it stays), give the checks
+   a service token as in [Cloudflare Access on staging](#cloudflare-access-on-staging). Without
+   Access, skip this step.
+3. After this change is merged and a deploy on `main` succeeds, add the repository **variable** (not a
    secret) `CLOUDFLARE_STAGING_BRANCH` with the value `staging` (**Settings → Secrets and variables →
    Actions → Variables**). The next deploy goes through staging, at
    `https://staging.brainrottcg.pages.dev/` (or the project's own address).
-3. To turn it off, delete the variable. Staging's last copy stays up as a preview until it's
+4. To turn it off, delete the variable. Staging's last copy stays up as a preview until it's
    deleted in the dashboard; it holds no secrets and writes nothing.
+
+### Cloudflare Access on staging
+
+Access in front of the previews keeps people out of staging, so the checks sign in as a
+[service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/). Set it up
+before the variable in step 3 above:
+
+1. In **Zero Trust → Access controls → Service credentials → Service Tokens**, create a token
+   (for example `brainrottcg-staging-checks`) and copy its Client ID and Client Secret; the secret is shown once.
+2. In the Access app that covers the previews (*brainrottcg - Cloudflare Pages*), add a policy with
+   action **Service Auth** that includes that token. A plain *Allow* policy doesn't accept service
+   tokens. Keep the app and its other policies as they are.
+3. In **Zero Trust → Access controls → Access settings → Manage service tokens**, check that
+   **Strict service token authentication** is on (it is always on for organizations created from
+   October 2026). Without it, Access answers a valid token with a `CF_Authorization` session cookie,
+   which a failed `page.request` call in the checks could print in its log; with it, Access sets no
+   cookie and answers a missing or rejected token with a 401 or 403.
+4. Add the repository **secrets** `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (**Settings →
+   Secrets and variables → Actions → Secrets**).
+5. Only then set the `CLOUDFLARE_STAGING_BRANCH` variable.
+
+The checks send the token's `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers on every
+request to the staging origin (the page, its Web Worker, and the `stage` and `staging-checks`
+fetches), and never to production, GitHub or any other host: they follow redirects with the
+headers only within the staging origin, and the deploy workflow's contract
+(`deploy_contract.py check-workflows`) allows the two secrets only in the four steps that fetch
+staging. They don't rely on the `CF_Authorization` cookie:
+with strict service token authentication on, Access returns none and ignores one sent back. Browser
+traces are off while the token is set, since they record request headers.
+
+With the token missing, expired or not in a Service Auth policy, Access answers with a redirect to
+its login page, a 401 or a 403, and `stage` or `staging-checks` stops with an error that names the
+missing or rejected token and points here; production keeps the previous release. With neither
+secret set and no Access on the previews, the checks run as before. Rotate the token by updating
+both secrets; a token past its expiry date fails the next staging deploy.
 
 ### Not checked from here
 
-- The token's scope, and whether the project's previews are behind Access.
+- The token's scope, whether the project's previews are behind Access, and the service token's
+  expiry date.
 - Whether Cloudflare sends `X-Robots-Tag: noindex` for previews. The page asks not to be indexed
   either way, but from a script: staging and production serve the same `index.html`, so it can't
   carry a staging-only `noindex` tag, and a crawler that runs no scripts has only that header.
