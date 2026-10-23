@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { canonical, checkHistory, compareCorpus, resolveBase } from './check-history.ts';
+import { canonical, checkHistory, compareCorpus, entryId, parseCorpus, resolveBase, type Retirement } from './check-history.ts';
 
 /**
  * Synthetic base/candidate pairs in scripts/fixtures/history stand in for the vector files and the
@@ -50,6 +50,30 @@ describe('compareCorpus', () => {
     ]);
   });
 
+  it('calls one deleted copy of a duplicated entry removed, not moved', () => {
+    expect(compareCorpus('v.json', { invalid: ['a', 'b', 'a'] }, { invalid: ['a', 'b'] })).toEqual([
+      expect.stringMatching(/^v\.json: invalid\[2\] was removed or changed/),
+    ]);
+    expect(compareCorpus('v.json', { invalid: ['a', 'b', 'a'] }, { invalid: ['a', 'a', 'b'] })).toEqual([
+      expect.stringMatching(/^v\.json: invalid\[2\] moved before/),
+    ]);
+  });
+
+  it('lets a retired entry go, and reports it, only when its file, list and hash all match', () => {
+    const base = fixture('vectors-base.json') as { packs: unknown[] };
+    const retire = (r: Partial<Retirement>): Retirement[] => [
+      { file: 'v.json', list: 'packs', sha256: entryId(base.packs[1]), reason: 'proof v2', approvedIn: '#1', ...r },
+    ];
+    const notes: string[] = [];
+    expect(compareCorpus('v.json', base, fixture('vectors-removed.json'), retire({}), notes)).toEqual([]);
+    expect(notes).toEqual([expect.stringMatching(/^v\.json: packs\[1\] RETIRED \(proof v2; approved in #1\)/)]);
+    for (const wrong of [{ file: 'other.json' }, { list: 'rng' }, { sha256: entryId(base.packs[0]) }]) {
+      expect(compareCorpus('v.json', base, fixture('vectors-removed.json'), retire(wrong))).toEqual([
+        expect.stringMatching(/^v\.json: packs\[1\] was removed or changed/),
+      ]);
+    }
+  });
+
   it('fails a changed field outside the lists', () => {
     expect(vectors('vectors-field-changed.json')).toEqual([expect.stringMatching(/^v\.json: testKey changed from/)]);
   });
@@ -81,6 +105,15 @@ describe('compareCorpus', () => {
   it('keeps list order but not key order in the canonical form', () => {
     expect(canonical({ b: 1, a: [1, 2] })).toBe(canonical({ a: [1, 2], b: 1 }));
     expect(canonical([1, 2])).not.toBe(canonical([2, 1]));
+  });
+});
+
+describe('parseCorpus', () => {
+  it('refuses numbers that only compare equal as doubles', () => {
+    expect(parseCorpus('{"n": 9007199254740991}', 'v.json')).toEqual({ n: 9007199254740991 });
+    for (const n of ['9007199254740991.0', '9007199254740993', '9007199254740992', '1e3', '-0', '0.5']) {
+      expect(() => parseCorpus(`{"n": [${n}]}`, 'v.json')).toThrow(/^v\.json is refused: the number .* is not a safe integer/);
+    }
   });
 });
 
@@ -146,6 +179,37 @@ describe('checkHistory', () => {
     const base = repo();
     writeFileSync(path.join(dir, 'lock.json'), '{"alpha@1": ');
     expect(() => checkHistory(dir, base, FILES)).toThrow(/^lock\.json is not valid JSON/);
+  });
+
+  it('fails a non-canonical or unsafe number on either side', () => {
+    const base = repo();
+    writeFileSync(path.join(dir, 'spec/v.json'), '{"version": 9007199254740991.0}');
+    expect(() => checkHistory(dir, base, FILES)).toThrow(/^spec\/v\.json is refused: the number 9007199254740991\.0/);
+    writeFileSync(path.join(dir, 'lock.json'), '{"big": 9007199254740993}');
+    git('add', '.');
+    git('commit', '-q', '-m', 'big');
+    const big = git('rev-parse', 'HEAD');
+    writeFileSync(path.join(dir, 'lock.json'), '{"big": 9007199254740992}');
+    expect(() => checkHistory(dir, big, ['lock.json'])).toThrow(/^lock\.json at [0-9a-f]+ is refused: the number 9007199254740993/);
+  });
+
+  it('reads retirements from the working tree and refuses a malformed list', () => {
+    const base = repo();
+    const removed = (fixture('vectors-base.json') as { packs: unknown[] }).packs[1];
+    put('spec/v.json', 'vectors-removed.json');
+    const retirement = { file: 'spec/v.json', list: 'packs', sha256: entryId(removed), reason: 'proof v2', approvedIn: '#1' };
+    const retired = path.join(dir, 'spec/retired-vectors.json');
+    writeFileSync(retired, JSON.stringify({ retired: [retirement] }));
+    const notes: string[] = [];
+    expect(checkHistory(dir, base, FILES, notes)).toEqual([]);
+    expect(notes).toEqual([expect.stringMatching(/^spec\/v\.json: packs\[1\] RETIRED/)]);
+    const bad = [{ file: 'spec/vectors.json' }, { sha256: 'abc' }, { reason: ' ' }, { extra: 'x' }];
+    for (const change of bad) {
+      writeFileSync(retired, JSON.stringify({ retired: [{ ...retirement, ...change }] }));
+      expect(() => checkHistory(dir, base, FILES)).toThrow(/retired\[0\] must have exactly/);
+    }
+    writeFileSync(retired, '[]');
+    expect(() => checkHistory(dir, base, FILES)).toThrow(/must be an object with a "retired" list/);
   });
 
   it('fails when the base lacks a file or the working tree deleted one', () => {

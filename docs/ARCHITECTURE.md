@@ -689,20 +689,40 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
    working tree with a base commit. Every top-level field of the base must remain; a list keeps
    every old entry unchanged and in its order, with new entries allowed anywhere; any other value
    (a set key's hash, `version`, `testKey`) must be identical. New top-level fields are allowed.
-   Whitespace, indentation and key order inside objects don't count. Regenerating the files can't
+   Whitespace, indentation and key order inside objects don't count. Every number must be a safe
+   integer written as JavaScript prints it (no `1.0`, `1e3`, `-0` or values past 2^53), since
+   `JSON.parse` would make different texts equal; anything else fails. Regenerating the files can't
    pass it by rewriting the expected values, and neither can the lock's `--update`.
    - **Base.** Locally, the merge base of `HEAD` and `origin/main`, or `--base <rev>`. In pull
      request CI, the first parent of GitHub's merge commit, the base the PR merges onto (the
      checkout fetches 2 commits). In deploys from main, the commit main was at before the push,
      or the parent for a manual run, fetched by SHA from the public repository without a token.
      A base missing from a shallow checkout fails with how to fetch it; nothing is skipped. Fork
-     PRs work the same, since the base is fetched from this repository.
+     PRs work the same, since the base is fetched from this repository. Gap: deploy.yml's
+     `concurrency` cancels an in-progress run when another push or a Hall of Fame
+     `gh workflow run deploy.yml` dispatch starts. The next run compares only with its own base
+     (`github.event.before`, or the parent for a dispatch), so the cancelled push's range is never
+     checked on main. The pull request gate still covers every PR that was up to date with main
+     when CI ran; a push straight to main, or a PR merged while behind main, is the uncovered case.
    - **Trust.** The base files are read as data with `git show` and `JSON.parse`; nothing from the
      base is imported or run, and no secret is used. The script that runs is the candidate's, so a
      change to the script or its CI step is a change to the gate and needs its own review.
-   - **Protocol changes.** A new set, ticket, proof or profile version adds new entries (or a new
-     top-level list) and keeps the old version's entries and tests. If the file layout itself has
-     to change, start a new vector file and leave the old one, and its check, in place.
+   - **Protocol changes.** A new set or ticket version adds new entries (or a new top-level list)
+     and keeps the old version's entries and tests. A new proof or profile version usually can't
+     only add: `invalid` has an "unsupported proof version" case and `invalidProfiles` an
+     "unsupported profile version" case that encode version 2, and once 2 is valid those cases
+     must change or go. Keeping the old file doesn't help, because the verifier runs over it too.
+     Retiring such an entry needs the owner's sign-off in the PR, and is the one exception the
+     gate takes: list it in `spec/retired-vectors.json` as
+     `{"retired": [{"file", "list", "sha256", "reason", "approvedIn"}]}`, where `sha256` is
+     `entryId` (SHA-256 of the entry's canonical form) from `scripts/check-history.ts` and
+     `approvedIn` links the owner's approval. The file is read from the candidate tree, so the
+     retirement is in the reviewed diff. A malformed file or an unknown file name fails, a hash
+     that matches no removed entry retires nothing (so the removal still fails), and each entry
+     it lets go is printed as `!!! ... RETIRED`. Only list entries can be retired, never a
+     top-level field or a set lock. A PR that adds to the file is not merged on a reviewer's
+     approval alone. Add the replacement cases in the same PR. If the file layout itself has to
+     change, start a new vector file and leave the old one, and its check, in place.
 
 `npm run check` runs lint, types, all tests, set locks and card assets; `npm run build` packages the
 site and static previews. On every pull request and non-main push, CI runs both, the independent
