@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { publishUntilAccepted, type PublishResult } from '../../game/nostrInbox';
+import { hallOfFameEvent, publishUntilAccepted, type PublishResult } from '../../game/nostrInbox';
 import { resetSubmissionsForTest, SUBMITTED_KEY } from '../../game/share';
 import { useHallOfFameSubmit, type SubmitState } from './useHallOfFameSubmit';
 
@@ -150,5 +150,182 @@ describe('useHallOfFameSubmit', () => {
       window.dispatchEvent(new StorageEvent('storage', { key: SUBMITTED_KEY }));
     });
     expect(latestState).toBe('idle');
+
+    // ...and so does a stored empty id: there is no pull to call sent
+    localStorage.setItem(SUBMITTED_KEY, JSON.stringify(['']));
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: SUBMITTED_KEY }));
+    });
+    expect(latestState).toBe('idle');
+  });
+
+  describe('with two controls on one pull (the share sheet and the summary line)', () => {
+    const controls: Record<string, { state: SubmitState; submit: () => Promise<boolean> }> = {};
+    const Control = ({ name, id }: { name: string; id: string }) => {
+      const [state, submit] = useHallOfFameSubmit('test-proof', id, 500);
+      controls[name] = { state, submit };
+      return null;
+    };
+    const states = () => [controls.a.state, controls.b.state];
+    const ACCEPTED = { accepted: { relay: 'wss://relay.damus.io', ok: true, message: 'OK' }, all: Promise.resolve<PublishResult[]>([]) };
+    const REFUSED = { accepted: null, all: Promise.resolve<PublishResult[]>([]) };
+    const renderBoth = (idA = 'pull-two', idB = 'pull-two') =>
+      act(() => {
+        root!.render(
+          <>
+            <Control name="a" id={idA} />
+            <Control name="b" id={idB} />
+          </>,
+        );
+      });
+
+    it('shows a failed send only on the control that made it', async () => {
+      mockPublish.mockResolvedValueOnce(REFUSED);
+      renderBoth();
+
+      await act(async () => {
+        await controls.a.submit();
+      });
+
+      expect(states()).toEqual(['failed', 'idle']);
+    });
+
+    it('shows sending and then sent on both controls, and sent replaces a failed one', async () => {
+      mockPublish.mockResolvedValueOnce(REFUSED);
+      renderBoth();
+      await act(async () => {
+        await controls.a.submit();
+      });
+      expect(states()).toEqual(['failed', 'idle']);
+
+      let resolveRelay!: (value: typeof ACCEPTED) => void;
+      mockPublish.mockReturnValueOnce(new Promise((resolve) => (resolveRelay = resolve)));
+      let send!: Promise<boolean>;
+      act(() => {
+        send = controls.b.submit();
+      });
+      expect(states()).toEqual(['sending', 'sending']);
+
+      await act(async () => {
+        resolveRelay(ACCEPTED);
+        await send;
+      });
+      expect(states()).toEqual(['sent', 'sent']);
+    });
+
+    it('sends a pull once when both controls press send together', async () => {
+      let resolveRelay!: (value: typeof ACCEPTED) => void;
+      mockPublish.mockReturnValueOnce(new Promise((resolve) => (resolveRelay = resolve)));
+      renderBoth();
+
+      let first!: Promise<boolean>;
+      let second!: Promise<boolean>;
+      act(() => {
+        first = controls.a.submit();
+        second = controls.b.submit();
+      });
+      await act(async () => {
+        resolveRelay(ACCEPTED);
+        await Promise.all([first, second]);
+      });
+
+      expect(mockPublish).toHaveBeenCalledTimes(1);
+      await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    });
+
+    it('keeps one control failed while the other pull is sent', async () => {
+      mockPublish.mockResolvedValueOnce(REFUSED);
+      renderBoth('pull-one', 'pull-other');
+      await act(async () => {
+        await controls.a.submit();
+      });
+      mockPublish.mockResolvedValueOnce(ACCEPTED);
+      await act(async () => {
+        await controls.b.submit();
+      });
+      expect(states()).toEqual(['failed', 'sent']);
+    });
+  });
+
+  it('counts a send that throws as failed, and resolves false rather than throwing', async () => {
+    mockPublish.mockRejectedValueOnce(new Error('relay list unreachable'));
+    act(() => {
+      root!.render(<Harness id="pull-throws" proof="test-proof" score={600} />);
+    });
+
+    let result: boolean | undefined;
+    await act(async () => {
+      result = await latestSubmit!();
+    });
+
+    expect(result).toBe(false);
+    expect(latestState).toBe('failed');
+  });
+
+  it('shows sending, not failed, while a retry runs, and failed again if the retry does too', async () => {
+    mockPublish.mockResolvedValueOnce({ accepted: null, all: Promise.resolve([]) });
+    act(() => {
+      root!.render(<Harness id="pull-retry-again" proof="test-proof" score={700} />);
+    });
+    await act(async () => {
+      await latestSubmit!();
+    });
+    expect(latestState).toBe('failed');
+
+    let resolveRelay!: (value: { accepted: null; all: Promise<PublishResult[]> }) => void;
+    mockPublish.mockReturnValueOnce(new Promise((resolve) => (resolveRelay = resolve)));
+    let retry!: Promise<boolean>;
+    act(() => {
+      retry = latestSubmit!();
+    });
+    expect(latestState).toBe('sending');
+
+    await act(async () => {
+      resolveRelay({ accepted: null, all: Promise.resolve([]) });
+      await retry;
+    });
+    expect(latestState).toBe('failed');
+    expect(mockPublish).toHaveBeenCalledTimes(2);
+  });
+
+  it('signs the proof, id and score it was given into the note it sends', async () => {
+    mockPublish.mockResolvedValueOnce({ accepted: { relay: 'wss://relay.damus.io', ok: true, message: 'OK' }, all: Promise.resolve([]) });
+    act(() => {
+      root!.render(<Harness id="pull-args" proof="the-proof" score={812} />);
+    });
+
+    await act(async () => {
+      await latestSubmit!();
+    });
+
+    expect(hallOfFameEvent).toHaveBeenCalledWith('the-proof', 'pull-args', expect.any(Number), 812);
+  });
+
+  it('follows the id it is given: a sent pull does not make the next one sent', () => {
+    localStorage.setItem(SUBMITTED_KEY, JSON.stringify(['pull-a']));
+    act(() => {
+      root!.render(<Harness id="pull-a" proof="test-proof" />);
+    });
+    expect(latestState).toBe('sent');
+
+    act(() => {
+      root!.render(<Harness id="pull-b" proof="test-proof" />);
+    });
+    expect(latestState).toBe('idle');
+  });
+
+  it('stops listening for storage changes when its last control unmounts', () => {
+    const add = vi.spyOn(window, 'addEventListener');
+    const remove = vi.spyOn(window, 'removeEventListener');
+    const storageCalls = (spy: typeof add) => spy.mock.calls.filter(([type]) => (type as string) === 'storage');
+    act(() => {
+      root!.render(<Harness id="pull-unmount" proof="test-proof" />);
+    });
+    expect(storageCalls(add)).toHaveLength(1);
+
+    act(() => root!.unmount());
+
+    expect(storageCalls(remove)).toHaveLength(1);
+    root = createRoot(container!);
   });
 });

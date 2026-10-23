@@ -70,7 +70,7 @@ terms and hate [`src/engine/nameFilter.ts`]. Settings refuses a blocked name. A 
 from the old address still goes ahead but doesn't bring a blocked name over: the identity keeps this
 browser's allowed name for the same key, or gets a random one (`importPlayer` and `withAllowedName`
 in `src/game/player.ts`). The Hall of Fame intake skips a blocked name or labels its issue
-`rejected`; Rankings, shared pulls and shared profiles show "Player" in its place. A word list misses some names, so a maintainer removes those by
+`rejected`; Rankings, shared pulls and shared profiles show "Someone" in its place. A word list misses some names, so a maintainer removes those by
 hand: odd spellings (such as "sl00t"), words split into pieces of more than one letter ("Fu ck"),
 some short words run into others ("hugedick"), phrase spellings not on the list ("killurself"), and a
 hate number split up ("14 88") or written in other digits (such as Arabic-Indic). A shared link's

@@ -206,8 +206,8 @@ changes what verifies: `isNameAllowed` (`src/engine/nameFilter.ts`) only decides
 published and shown. Settings rename and save import refuse a blocked name. The relay inbox skips a
 blocked-name pull before verifying it (no budget spent), `verify-issue` refuses one and labels its
 issue `rejected`, the build leaves `rejected` issues and blocked names out, and the page's pending
-check skips them. Other players' names show through `publicName`: a blocked one reads "Player"
-beside the key fingerprint in Rankings, shared pull links and shared profiles.
+check skips them. Other players' names show through `visitorName` (`publicName`, with a blank or blocked one
+read as "Someone"), beside the key fingerprint in Rankings, shared pull links and shared profiles.
 
 - Removal, including a reported name the check missed: the owner adds the `rejected` label to the
   entry's issue and the next deploy leaves it out. The workflows never take that label off, and the
@@ -737,8 +737,8 @@ Status: proposed, awaiting owner (#348).
 
 No matcher or enforcement is installed. Names are nonunique labels beside a key fingerprint (spec
 section 9). Retain released 24-code-point/fixed-character proof rules (spec section 7, rule 2); verify
-the original signed bytes, never a normalized substitute. Legacy empty names remain valid (viewers
-show "Anonymous"). Format, cryptographic validity and permitted publication are separate; React
+the original signed bytes, never a normalized substitute. Legacy empty names remain valid (shared
+pages show "Someone"). Format, cryptographic validity and permitted publication are separate; React
 escaping and the bot's Markdown sanitiser are not moderation. Today the name field already counts
 code points (it cuts input at 24, silently) and a rename to a blank name is refused; entry UI should
 also preview normalization and explain rejected or truncated input. A grapheme or UTF-16
