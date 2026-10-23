@@ -417,10 +417,47 @@ describe('decode before ready (#762)', () => {
     await act(async () => root.render(<CardImage src={other.image} alt="" />));
     await fire(img, 'load');
     expect(decodes).toHaveLength(2);
-    await act(async () => decodes[0].resolve());
-    expect(img.dataset.state).toBe('loading');
+    // The new card's decode settles first, then the old card's decode arrives late and changes nothing.
     await act(async () => decodes[1].resolve());
     expect(img.dataset.state).toBe('ready');
+    await act(async () => decodes[0].resolve());
+    expect(img.dataset.state).toBe('ready');
+  });
+
+  it('shows the image without waiting when the browser has no decode, or its decode is not a promise', async () => {
+    delete (HTMLImageElement.prototype as { decode?: unknown }).decode;
+    const missing = await loadedImage(plain.image);
+    expect(missing.dataset.state).toBe('ready');
+    await act(async () => root.render(<></>));
+
+    Object.defineProperty(HTMLImageElement.prototype, 'decode', { configurable: true, value: () => undefined });
+    const notAPromise = await loadedImage(other.image);
+    expect(notAPromise.dataset.state).toBe('ready');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('never renders a loading frame for art it already decoded when only the thumbnail flag changes (#484)', async () => {
+    await act(async () => root.render(<CardImage src={plain.image} thumbnail alt="" />));
+    const img = container.querySelector('img')!;
+    // jsdom loads no images: from here on the img reports the art it shows as fully loaded, as a browser would.
+    const complete = vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    const naturalWidth = vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(256);
+    try {
+      await fire(img, 'load');
+      await act(async () => decodes[0].resolve());
+      expect(img.dataset.state).toBe('ready');
+      expect(decodes).toHaveLength(1);
+
+      // A synchronous act flushes layout effects but no promise, so a frame left in loading shows here.
+      for (const thumbnail of [false, true, false]) {
+        act(() => root.render(<CardImage src={plain.image} thumbnail={thumbnail} alt="" />));
+        expect(img.dataset.state).toBe('ready');
+      }
+      expect(decodes).toHaveLength(1);
+    } finally {
+      complete.mockRestore();
+      naturalWidth.mockRestore();
+    }
   });
 
   it('drops the wait on unmount, so nothing settles into an unmounted image', async () => {

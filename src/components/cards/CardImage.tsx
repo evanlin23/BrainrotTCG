@@ -118,10 +118,11 @@ const CardImage = ({
 
   const imageRef = useRef<HTMLImageElement>(null);
   // A fresh status for a URL the img already shows (a card without a finish switching between its
-  // thumbnail and full-size view keeps the same src) gets no new load event: take the load it had.
+  // thumbnail and full-size view keeps the same src) gets no new load event: take the load it had, and
+  // the decode, so no loading frame paints in between.
   useLayoutEffect(() => {
     const img = imageRef.current;
-    if (state === 'loading' && status.loaded !== shown && img?.complete && img.naturalWidth > 0 && img.getAttribute('src') === shown) update({ loaded: shown });
+    if (state === 'loading' && status.loaded !== shown && img?.complete && img.naturalWidth > 0 && img.getAttribute('src') === shown) update({ loaded: shown, decoded: shown });
     // `update` only closes over `id`, which changes `state`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, shown]);
