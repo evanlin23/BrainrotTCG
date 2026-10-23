@@ -81,6 +81,9 @@ const HallOfFamePage = () => {
   // True once a check of the live relays found every one unreachable: the published rankings still
   // show, but anything sent since the last deploy can't be seen, so an empty board mustn't claim it's empty.
   const [relaysDown, setRelaysDown] = useState(false);
+  // True once the relays answered but the list of rejected pulls didn't load: nothing sent since the
+  // last deploy shows (a removed pull mustn't come back), so the page says so instead of hiding it.
+  const [unchecked, setUnchecked] = useState(false);
   // True from the moment the published rankings arrive until the live relays have answered (or failed
   // to), or CHECK_DEADLINE_MS has passed. The published pulls show meanwhile, but an empty board can't
   // say it's empty, or the status that the rankings loaded, before it knows which: the status says it
@@ -103,6 +106,7 @@ const HallOfFamePage = () => {
       setEntries(list);
       setPending([]);
       setRelaysDown(false);
+      setUnchecked(false);
       setChecking(true);
       setLoadState('loaded');
       // Then anything sent since the last deploy, re-derived here before it shows (see loadPending).
@@ -111,16 +115,17 @@ const HallOfFamePage = () => {
       // Past the deadline the page stops waiting, but the check isn't abandoned: entries it still finds
       // are added, and if it ends with no relay reached, the live-feed message appears then.
       deadline = setTimeout(() => setChecking(false), CHECK_DEADLINE_MS);
-      const settle = (reached: boolean) => {
+      const settle = (result: boolean | 'unchecked' | undefined) => {
         if (controller.signal.aborted) return;
         clearTimeout(deadline);
         loadingRef.current = false;
-        if (!reached) setRelaysDown(true);
+        if (result === false) setRelaysDown(true);
+        if (result === 'unchecked') setUnchecked(true);
         setChecking(false);
       };
       loadPending(list, (entry) => {
         if (!controller.signal.aborted) setPending((prev) => [...prev, entry]);
-      }, controller.signal).then((reached) => settle(reached !== false), () => settle(false));
+      }, controller.signal).then(settle, () => settle(false));
     });
     return () => {
       controller.abort();
@@ -230,7 +235,9 @@ const HallOfFamePage = () => {
   );
 
   // Loaded and not reporting a problem: the published list shows, and the status steps back to one line.
-  const quiet = loadState === 'loaded' && !relaysDown;
+  // Recent pulls may be missing: no relay could be read, or what they hold couldn't be checked.
+  const missing = relaysDown || unchecked;
+  const quiet = loadState === 'loaded' && !missing;
 
   return (
     <div className="hall-of-fame">
@@ -258,10 +265,12 @@ const HallOfFamePage = () => {
                 ? 'Checking for new packs…'
                 : relaysDown
                   ? "Couldn't reach the live feed, so pulls sent recently may be missing. Try again."
-                  : 'Rankings loaded.'}
+                  : unchecked
+                    ? "Couldn't check pulls sent recently, so they may be missing. Try again."
+                    : 'Rankings loaded.'}
         </p>
         {/* Retry appears only once a load has actually failed: beside "Loading…" it read as a hang. */}
-        {(loadState === 'failed' || (loadState === 'loaded' && relaysDown)) && (
+        {(loadState === 'failed' || (loadState === 'loaded' && missing)) && (
           <button ref={retryRef} type="button" className="btn btn--secondary btn--sm" onClick={retry} aria-label="Retry loading rankings">
             Retry
           </button>
@@ -308,7 +317,7 @@ const HallOfFamePage = () => {
                 <div className="hof-empty">
                   <Crown aria-hidden="true" />
                   <p>
-                    {relaysDown ? (
+                    {missing ? (
                       <strong>No filed pulls today that we can see.</strong>
                     ) : (
                       <>
@@ -346,7 +355,7 @@ const HallOfFamePage = () => {
               <div className="hof-empty">
                 <Crown aria-hidden="true" />
                 <p>
-                  {relaysDown ? (
+                  {missing ? (
                     <strong>Nothing filed here that we can see.</strong>
                   ) : (
                     <>

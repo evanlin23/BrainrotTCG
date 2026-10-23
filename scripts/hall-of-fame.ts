@@ -219,6 +219,22 @@ const firstVerifiedAt = async (issue: number, id: string, token: string): Promis
   return null;
 };
 
+/**
+ * Every pull the bot has verified on this issue, from its marker comments. Only the bot writes
+ * these, and it strips `<` and `>` from the text it quotes, so an issue's author can't add or remove
+ * one by editing the issue.
+ */
+const verifiedMarkerIds = async (issue: number, token: string): Promise<string[]> => {
+  const ids: string[] = [];
+  for (let page = 1; page < 20; page++) {
+    const batch = await github<Comment[]>(`/repos/${REPO}/issues/${issue}/comments?per_page=100&page=${page}`, token);
+    for (const c of batch) if (c.user?.login === BOT) for (const [, id] of c.body?.matchAll(/<!-- hof-verified (\S+) -->/g) ?? []) ids.push(id);
+    if (batch.length < 100) return ids;
+  }
+  console.warn(`#${issue}: more than ${19 * 100} comments; stopped looking for verified markers`);
+  return ids;
+};
+
 /** The bot's latest comment on the issue, or null if there is none or there are too many to read. */
 const latestBotComment = async (issue: number, token: string): Promise<Comment | null> => {
   let latest: Comment | null = null;
@@ -481,11 +497,21 @@ const withdrawnText = (ids: Iterable<string>) => JSON.stringify([...new Set(ids)
 /**
  * The pulls of every Hall of Fame issue labelled `rejected`, open or closed. Removing an entry can't
  * take its submission off the public relays, so the page needs this list to stop showing it there.
- * One refused for its display name isn't listed (`listedPullId`): the page leaves blocked names out
- * itself, and the same pull renamed may be submitted again.
+ * They come from the bot's marker comments (`verifiedMarkerIds`), not the issue's body: its author
+ * can edit that once it is rejected, and a pull edited away mustn't show again. An issue the bot
+ * never verified has no marker and was never listed; for it the body is the only record, and a pull
+ * refused for its display name isn't taken from it (`listedPullId`): the page leaves blocked names
+ * out itself, and the same pull renamed may be submitted again.
  */
-const listWithdrawn = async (token: string): Promise<string[]> =>
-  (await listIssues('labels=hall-of-fame,rejected', token)).flatMap((issue) => listedPullId(issue) ?? []);
+const listWithdrawn = async (token: string): Promise<string[]> => {
+  const ids: string[] = [];
+  for (const issue of await listIssues('labels=hall-of-fame,rejected', token)) {
+    const marked = await verifiedMarkerIds(issue.number, token);
+    const unmarked = marked.length > 0 ? null : listedPullId(issue);
+    ids.push(...marked, ...(unmarked ? [unmarked] : []));
+  }
+  return ids;
+};
 
 /** The withdrawn list as deployed now, or null if it can't be read. */
 const deployedWithdrawn = async (): Promise<string[] | null> => {

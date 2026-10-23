@@ -259,14 +259,19 @@ that shows it drops it separately:
 - The published list: the deploy the label starts rebuilds `hall-of-fame.json` without it, and the
   old address's copy with it (`copyHallOfFame` in `scripts/redirect-site.ts`).
 - Pending: the same build writes `hall-of-fame-withdrawn.json`, the pull ids of `rejected` issues,
-  open or closed, and `loadPending` never shows one of those as pending. A pull refused only for its
-  name isn't listed: the page skips blocked names itself, and the same pull renamed may come back.
-  If the file can't be loaded, the page shows nothing pending rather than risk a removed pull. A
-  build that can't list the issues carries the deployed file forward (read from the old address),
-  and otherwise publishes none, never an empty one.
+  open or closed, and `loadPending` never shows one of those as pending. The ids come from the bot's
+  `hof-verified` marker comments, which the issue's author can't edit, so editing the body after a
+  rejection can't bring a pull back. An issue the bot never verified has no marker and was never
+  listed; its body is the only record. A pull refused only for its name isn't listed: the page skips
+  blocked names itself, and the same pull renamed may come back. If the file doesn't load within
+  the relays' 5 seconds, the page shows nothing pending rather than risk a removed pull, and Rankings
+  says recent pulls couldn't be checked. A build that can't read the issues or their comments carries
+  the deployed file forward (read from the old address), and otherwise publishes none, never an
+  empty one.
 - Open tabs: `loadHallOfFame` reuses a loaded list for at most five minutes, so a tab left open
-  drops the entry the next time it shows the list after that. Both files are fetched with
-  `cache: 'no-cache'`, and the client keeps no other copy (no service worker, nothing in storage).
+  drops the entry the next time it shows the list after that. If that refetch fails, it keeps the
+  list it had and tries again on the next read. Both files are fetched with `cache: 'no-cache'`, and
+  the client keeps no other copy (no service worker, nothing in storage).
 - Shared pull links: a link is the signed proof itself, so it still verifies anywhere, by design.
   Removal only decides what the Hall of Fame lists.
 

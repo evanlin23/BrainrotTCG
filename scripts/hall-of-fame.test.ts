@@ -252,7 +252,8 @@ describe('build (deploy workflow)', () => {
     await build(output());
     expect(entries().map((e) => [e.issue, e.githubUser, e.submittedAt])).toEqual([[1, 'alice', '2026-10-02T00:00:00Z']]);
     expect(entries()[0]).toMatchObject({ id: idOf(fourOfAKind), proof: fourOfAKind, setId: 'lockdown-lore', hand: '4 of a Kind', score: 15000 });
-    expect(gh.requests.map((r) => r.path)).not.toContain('/issues/3/comments');
+    // Issue 3's markers are read once, for the withdrawn list only.
+    expect(gh.requests.filter((r) => r.path === '/issues/3/comments')).toHaveLength(1);
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/4/comments');
     expect(gh.writes()).toEqual([]);
   });
@@ -333,6 +334,35 @@ describe('build (deploy workflow)', () => {
     expect(entries().map((e) => e.issue)).toEqual([1]);
     expect(gh.requests.filter((r) => r.path === '/issues').map((r) => r.query)).toContain('state=all&labels=hall-of-fame,rejected&per_page=100&page=1');
     expect(gh.writes()).toEqual([]);
+  });
+
+  it("withdraws the pull the bot verified, not the one the author's edited body holds now", async () => {
+    const rejected = { labels: ['hall-of-fame', 'rejected'] };
+    fakeGitHub({
+      issues: [
+        issue(2, pair, rejected), // verified as fourOfAKind, then edited to another pull after the rejection
+        issue(3, null, rejected), // verified as fourOfAKind, then edited to hold no link
+        issue(4, fourOfAKind, rejected), // the author pasted a marker for someone else's pull
+      ],
+      comments: {
+        2: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')],
+        3: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')],
+        4: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z'), comment('mallory', marker(pair), '2026-10-03T00:00:00Z')],
+      },
+    });
+    await build(output());
+    expect(withdrawn()).toEqual([idOf(fourOfAKind)]);
+  });
+
+  it('carries the deployed withdrawn list forward when a rejected issue\'s comments can\'t be read', async () => {
+    writeFileSync(withdrawnFile(), '[]\n');
+    fakeGitHub({
+      issues: [issue(2, pair, { labels: ['hall-of-fame', 'rejected'] })],
+      withdrawn: [idOf(fourOfAKind)],
+      fail: (r) => r.path === '/issues/2/comments',
+    });
+    await build(output());
+    expect(withdrawn()).toEqual([idOf(fourOfAKind)]);
   });
 
   it("doesn't withdraw a pull refused for its display name, which may come back renamed", async () => {

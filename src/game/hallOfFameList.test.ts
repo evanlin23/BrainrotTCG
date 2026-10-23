@@ -221,6 +221,28 @@ describe('loadHallOfFame', () => {
     }
   });
 
+  it('keeps the last list that loaded when a refetch fails, and tries again on the next read', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+      const { loadHallOfFame } = await import('./hallOfFameList');
+      const mockFetch = vi.fn(async () => mockSuccessResponse([{ id: 'kept', proof: 'p' }]));
+      vi.stubGlobal('fetch', mockFetch);
+      await loadHallOfFame();
+
+      vi.setSystemTime(new Date('2026-10-16T12:05:00Z'));
+      mockFetch.mockImplementation(async () => mockResponse(null, false, 503));
+      await expect(loadHallOfFame()).resolves.toEqual([{ id: 'kept', proof: 'p' }]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      mockFetch.mockImplementation(async () => mockSuccessResponse([]));
+      await expect(loadHallOfFame()).resolves.toEqual([]);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('preserves existing legacy-ID behavior intact', async () => {
     const { loadHallOfFame } = await import('./hallOfFameList');
     const { secretKey, publicKey } = generateKeypair();
@@ -302,12 +324,12 @@ describe('loadPending', () => {
       expect(await run(controller.signal)).toBe(true);
     });
 
-    it("is still reported when the list of rejected pulls can't be loaded", async () => {
+    it("is still reported when the list of rejected pulls can't be loaded, and a reached feed says pending went unchecked", async () => {
       withdrawnFetch.mockImplementation(async () => mockResponse(null, false, 404));
       fetchEvents.mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'connection failed' }] });
       expect(await run()).toBe(false);
       fetchEvents.mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0 }] });
-      expect(await run()).toBe(true);
+      expect(await run()).toBe('unchecked');
     });
   });
 
@@ -403,7 +425,7 @@ describe('loadPending', () => {
       expect(vi.mocked(checkPull).mock.calls.length).toBe(before);
     });
 
-    it('gives up on a list of rejected pulls that never loads, and shows nothing pending', async () => {
+    it('gives up on a list of rejected pulls that never loads within the relays\' 5 s, and shows nothing pending', async () => {
       vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
       vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
       const { secretKey, publicKey } = generateKeypair();
@@ -417,12 +439,12 @@ describe('loadPending', () => {
       }));
       const { loadPending } = await import('./hallOfFameList');
       const onEntry = vi.fn();
-      let reached: boolean | undefined;
+      let reached: boolean | 'unchecked' | undefined;
       void loadPending(board(0), onEntry, new AbortController().signal).then((r) => (reached = r));
-      await vi.advanceTimersByTimeAsync(14_999);
+      await vi.advanceTimersByTimeAsync(4_999);
       expect(reached).toBeUndefined();
       await vi.advanceTimersByTimeAsync(1);
-      expect(reached).toBe(true);
+      expect(reached).toBe('unchecked');
       expect(onEntry).not.toHaveBeenCalled();
     });
 
