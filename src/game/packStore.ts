@@ -50,7 +50,8 @@ const open = (): Promise<IDBDatabase | null> => {
         settled = true;
         resolve(database);
       };
-      // Private windows and old browsers: memory only, so re-opened packs last until the page closes.
+      // An error (a private window, a VersionError) or another tab's upgrade blocking this one: memory
+      // only, so re-opened packs last until the page closes, and writes report they weren't saved.
       request.onerror = fallback;
       request.onblocked = fallback;
     } catch {
@@ -72,15 +73,17 @@ export interface StoredPack {
 }
 
 /**
- * Keep re-opened packs. Resolves once they're on disk (or right away without IndexedDB): false if
- * the write failed, so they're only in memory for this visit.
+ * Keep re-opened packs. Resolves once they're on disk (or right away without IndexedDB, where memory
+ * is all there is): false if they didn't reach disk because the database failed to open, its open
+ * was blocked or the write failed, so they're only in memory for this visit.
  */
 export const putStoredPacks = async (packs: readonly StoredPack[]): Promise<boolean> => {
   if (packs.length === 0) return true;
   for (const p of packs) memory.set(packRefKey(p.setKey, p.publicKeyHex, p.nonce), p.cards);
   memoryVersion++;
+  if (typeof indexedDB === 'undefined') return true;
   const database = await open();
-  if (!database) return true;
+  if (!database) return false;
   return new Promise<boolean>((resolve) => {
     try {
       const tx = database.transaction(STORE, 'readwrite');

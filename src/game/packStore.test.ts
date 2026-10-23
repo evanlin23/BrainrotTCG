@@ -164,6 +164,47 @@ describe('pack store connection ownership', () => {
     expect(current.handle.transaction).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['onblocked', 'onerror'] as const)("reports a write as not saved when the open hits %s, keeping it in memory", async (failure) => {
+    const writing = putStoredPacks([sample]);
+    requests[0][failure]?.();
+    expect(await writing).toBe(false);
+    expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBe(sample.cards);
+  });
+
+  it('reports a write as not saved when opening throws', async () => {
+    openDatabase.mockImplementation(() => { throw new Error('storage denied'); });
+    expect(await putStoredPacks([sample])).toBe(false);
+  });
+
+  it('keeps packs in memory only, as saved, without IndexedDB at all', async () => {
+    vi.unstubAllGlobals();
+    expect(typeof indexedDB).toBe('undefined');
+    expect(await putStoredPacks([sample])).toBe(true);
+    expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBe(sample.cards);
+    expect(openDatabase).not.toHaveBeenCalled();
+  });
+
+  it('reports a write as saved only once its transaction completes', async () => {
+    const writing = putStoredPacks([sample]);
+    const value = succeed(requests[0]);
+    expect(await writing).toBe(true);
+    expect(value.records.get('set@1|0123456789abcdef|7')).toBe(sample.cards);
+  });
+
+  it.each(['onerror', 'onabort', 'throws'] as const)('reports a write as not saved when its transaction %s', async (failure) => {
+    const value = database();
+    const tx: Record<string, (() => void) | null | unknown> = { oncomplete: null, onerror: null, onabort: null, objectStore: () => ({ put: vi.fn() }) };
+    value.handle.transaction.mockImplementation((() => {
+      if (failure === 'throws') throw new DOMException('closing', 'InvalidStateError');
+      queueMicrotask(() => (tx[failure] as () => void)());
+      return tx;
+    }) as never);
+    const writing = putStoredPacks([sample]);
+    succeed(requests[0], value);
+    expect(await writing).toBe(false);
+    expect(getStoredPack(sample.setKey, sample.publicKeyHex, sample.nonce)).toBe(sample.cards);
+  });
+
   it('retains memory fallback when opening throws, and reports reads as unavailable', async () => {
     openDatabase.mockImplementation(() => { throw new Error('storage denied'); });
     await putStoredPacks([sample]);
