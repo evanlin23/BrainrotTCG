@@ -75,45 +75,44 @@ const Verified = () => (
   </span>
 );
 
-interface StatusProps<S, V> {
-  state: BestSourceState<S, V>;
-  what: string;
-  onRetry: () => void;
-}
-
-/** Every state but a verified one: checking, unavailable with its reason, or failed (with a retry when one can help). */
-const Status = <S, V>({ state, what, onRetry }: StatusProps<S, V>) => {
-  if (state.status === 'checking') return <p className="pulls-note profile-highlight-note">Checking {what} against its ticket…</p>;
-  if (state.status === 'unavailable') return <p className="pulls-note profile-highlight-note">{UNAVAILABLE[state.reason]}</p>;
-  if (state.status !== 'failed') return null;
-  if (state.reason === 'mismatch') {
-    return <p className="pulls-note profile-highlight-note">Not verified: its ticket doesn't open what was recorded, so it isn't shown.</p>;
-  }
-  return (
-    <p className="pulls-note profile-highlight-note">
-      Couldn't check {what} just now.{' '}
-      <button type="button" className="btn btn--secondary btn--sm" onClick={onRetry}>
-        Try again
-      </button>
-    </p>
-  );
+/** What a screen reader hears when a check settles: the state alone, never the row or its buttons. */
+const stateText = <S, V>(state: BestSourceState<S, V>, what: string): string => {
+  if (state.status === 'checking') return `Checking ${what} against its ticket…`;
+  if (state.status === 'unavailable') return UNAVAILABLE[state.reason];
+  if (state.status === 'available') return `Verified: ${what}.`;
+  if (state.reason === 'mismatch') return "Not verified: its ticket doesn't open what was recorded, so it isn't shown.";
+  return `Couldn't check ${what} just now.`;
 };
 
-interface HighlightProps {
+interface HighlightProps<S, V> {
   title: string;
   titleRef: RefObject<HTMLHeadingElement | null>;
-  children: ReactNode;
+  state: BestSourceState<S, V>;
+  what: string;
+  /** Try again, after an error that checking again can fix. */
+  onRetry: () => void;
+  /** The verified row, once there is one. */
+  children?: ReactNode;
 }
 
-const Highlight = ({ title, titleRef, children }: HighlightProps) => {
+const Highlight = <S, V>({ title, titleRef, state, what, onRetry, children }: HighlightProps<S, V>) => {
   const id = useId();
+  const verified = state.status === 'available';
   return (
     <section aria-labelledby={id} className="profile-highlight">
       <h2 id={id} ref={titleRef} tabIndex={-1} className="section-title profile-heading">
         {title}
       </h2>
-      {/* Checking, then verified or why not: announced as it changes. */}
-      <div role="status">{children}</div>
+      {/* Only the state is live (checking, then verified or why not), so a settled check doesn't read out the whole row. */}
+      <p className={verified ? 'sr-only' : 'pulls-note profile-highlight-note'}>
+        <span role="status">{stateText(state, what)}</span>
+        {state.status === 'failed' && state.reason !== 'mismatch' && (
+          <button type="button" className="btn btn--secondary btn--sm" onClick={onRetry}>
+            Try again
+          </button>
+        )}
+      </p>
+      {children}
     </section>
   );
 };
@@ -181,8 +180,8 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge }: BestHighl
 
   return (
     <div className="profile-highlights">
-      <Highlight title="Best pack" titleRef={packTitle}>
-        {pack.state.status === 'available' ? (
+      <Highlight title="Best pack" titleRef={packTitle} state={pack.state} what="your best pack" onRetry={() => retry(pack.retry, packTitle)}>
+        {pack.state.status === 'available' && (
           <ul className="pulls-list">
             {(() => {
               const { source, verified } = pack.state;
@@ -206,13 +205,11 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge }: BestHighl
               );
             })()}
           </ul>
-        ) : (
-          <Status state={pack.state} what="your best pack" onRetry={() => retry(pack.retry, packTitle)} />
         )}
       </Highlight>
 
-      <Highlight title="Best card" titleRef={cardTitle}>
-        {shownCard && cardVersion ? (
+      <Highlight title="Best card" titleRef={cardTitle} state={card.state} what="your best card" onRetry={() => retry(card.retry, cardTitle)}>
+        {shownCard && cardVersion && (
           <>
             <ul className="pulls-list">
               <li>
@@ -258,8 +255,6 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge }: BestHighl
             </ul>
             {!shownCard.source.complete && <p className="pulls-note profile-highlight-note">The best among the packs saved on this device.</p>}
           </>
-        ) : (
-          <Status state={card.state} what="your best card" onRetry={() => retry(card.retry, cardTitle)} />
         )}
       </Highlight>
 

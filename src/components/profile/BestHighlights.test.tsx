@@ -137,6 +137,39 @@ describe('both highlights', () => {
 });
 
 describe('states', () => {
+  it('shows the engine’s points for the Best card, never the cached ones from its source', async () => {
+    seedBestCards();
+    const enginePoints = points(PACK_B[1]);
+    const cached = enginePoints + 12345;
+    // The source (and its cached points) disagree with what the engine opens.
+    checkBestCard.mockImplementation((source: { slot: number }) => Promise.resolve(verifiedCard({ ...source, points: cached } as never)));
+    await render();
+    const shown = highlight('Best card').querySelector('.pull-row-score')?.textContent ?? '';
+    expect(shown).toContain(enginePoints.toLocaleString());
+    expect(shown).not.toContain(cached.toLocaleString());
+  });
+
+  it('keeps only the state text in the live region, never the row or its buttons', async () => {
+    seedBestCards();
+    const pack = deferred<BestPackState>();
+    checkBestPack.mockReturnValueOnce(pack.promise);
+    checkBestCard.mockImplementationOnce((source) => Promise.resolve({ status: 'failed', source, reason: 'error' }));
+    await render();
+    const live = (name: string) => [...highlight(name).querySelectorAll('[role="status"]')].map((r) => r.textContent);
+    expect(live('Best pack')).toEqual(['Checking your best pack against its ticket…']);
+    expect(live('Best card')).toEqual(["Couldn't check your best card just now."]);
+    // The retry button sits beside the live region, not in it.
+    expect(highlight('Best card').querySelector('[role="status"] button')).toBeNull();
+    expect(highlight('Best card').querySelector('button')?.textContent).toBe('Try again');
+
+    await act(async () => pack.resolve(verifiedPack(checkBestPack.mock.calls[0][0])));
+    expect(live('Best pack')).toEqual(['Verified: your best pack.']);
+    expect(highlight('Best pack').querySelector('.pull-row')).not.toBeNull();
+    expect(highlight('Best pack').querySelector('[role="status"] .pull-row, [role="status"] button')).toBeNull();
+    // One live region per highlight, so two settling at once never read a whole row.
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(2);
+  });
+
   it('shows checking, never the kept cards or score, until each check settles on its own', async () => {
     seedBestCards();
     const pack = deferred<BestPackState>();

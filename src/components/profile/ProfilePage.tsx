@@ -254,7 +254,7 @@ const ProfilePage = ({
           />
         ) : (
           <div className="pulls-empty">
-            <p>No packs yet. Your level, stats and best pulls show up here.</p>
+            <p>No packs yet. Your level, stats, best pack and best card show up here.</p>
             <button type="button" className="btn btn--primary" onClick={onOpenPacks}>
               Open your first pack
             </button>

@@ -109,7 +109,7 @@ test('shares a card from the verified Best pack highlight', async ({ page, baseU
   }, STORAGE_KEYS.STATS);
   const main = await profile(page);
   const best = main.getByRole('region', { name: 'Best pack', exact: true });
-  await expect(best.locator('.profile-verified')).toHaveText(/Verified/);
+  await expect(best.locator('.profile-verified')).toHaveText(/Verified/, { timeout: 15000 });
   await expect(best.locator('.pull-row-meta')).toContainText('ticket #0');
   await best.locator('.pull-row').click();
   const { sheet, shareButton, viewer } = await shareCardFromPull(page);

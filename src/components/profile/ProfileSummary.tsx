@@ -46,7 +46,11 @@ interface ProfileSummaryProps {
   highlighted?: boolean;
 }
 
-/** Level, the numbers that matter, best pulls, then the collection score and cards by set. Same for your profile and someone else's. */
+/**
+ * Level, the numbers that matter, best pulls, then the collection score and cards by set. Someone else's
+ * profile shows all of it; your own (`highlighted`) leaves out the best score and best pulls, which its
+ * Best pack and Best card highlights already show.
+ */
 const ProfileSummary = ({ stats, actions, levelNote, partial = false, partialNote, onOpenPack, packBadge, highlighted = false }: ProfileSummaryProps) => {
   const [open, setOpen] = useState<ProfilePack | null>(null);
   const bestId = useId();
