@@ -78,6 +78,32 @@ test("a set's link opens the packs screen on that set, and leaves the address cl
   expect(errors).toEqual([]);
 });
 
+test("a set's link, loaded cold while its pack art is still downloading, never asks for another set's pack art", async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!, 0, { returning: true });
+  const packArt = /\/assets\/pack-[\w-]+\.webp$/;
+  const asked = new Set<string>();
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (packArt.test(path)) asked.add(path);
+  });
+  // Hold every pack picture until the packs screen has settled on the set, so a request for the wrong
+  // set's would still be in flight, as on a slow connection, when the app switches.
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(packArt, async (route) => {
+    await released;
+    await route.fallback();
+  });
+  await page.goto(`./s/${SET.id}/`, { waitUntil: 'commit' });
+  await expect(page.locator('.set-current-name')).toHaveText(SET.name);
+  release();
+  await expectDecoded(page.locator('.pack-shell img'), 2);
+  // Only the linked set's picture was asked for: the default set's was never rendered.
+  const shown = await page.locator('.pack-shell img').first().evaluate((image) => new URL((image as HTMLImageElement).src).pathname);
+  expect([...asked]).toEqual([shown]);
+  expect(errors).toEqual([]);
+});
+
 test('a first visit, with nothing cached, shows its pack and the cards it opens, and fetches few card pictures', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
