@@ -14,10 +14,8 @@
 
 .toast {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  align-items: stretch;
   width: 100%;
-  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-lg);
   /* A thumb's size at every screen size: it is tapped, and swiped away. */
   min-height: var(--touch-target);
@@ -26,6 +24,45 @@
   box-shadow: var(--shadow-2);
   text-align: left;
   pointer-events: auto;
+}
+
+/* The body opens what the toast is about (and dismisses it); the X beside it only dismisses. Both are a
+   thumb's size, and the whole toast is still what a swipe moves. */
+.toast-open {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  text-align: inherit;
+}
+
+.toast-dismiss {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--touch-target);
+  min-height: var(--touch-target);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--text-muted);
+}
+
+.toast-dismiss svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (hover: hover) {
+  .toast-dismiss:hover {
+    color: var(--text);
+  }
 }
 
 .toast-icon {
@@ -99,6 +136,9 @@
   right: 0;
   bottom: var(--space-1);
   left: 0;
+}
+
+.app:not(.is-focus) .toast-open {
   gap: var(--space-2);
   padding-block: var(--space-1);
 }
@@ -145,7 +185,7 @@
   }
 
   /* A level-up is three lines tall; tight padding keeps its box off the headline below it. */
-  .app.is-focus .toast {
+  .app.is-focus .toast-open {
     padding-block: var(--space-1);
   }
 }

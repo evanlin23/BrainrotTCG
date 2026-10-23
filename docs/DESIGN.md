@@ -381,7 +381,9 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   for good), holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or
   sideways follows the finger and sends it away (a press that travels 16 px or less is still a tap, a
   swipe that stops short springs back); Escape on the focused toast does the same without opening it. With
-  reduced motion it only fades, wherever it is sent. The toast's code and styles are fetched when the first
+  reduced motion it only fades, wherever it is sent. A visible X at its right edge (a 44 px square, named
+  "Dismiss") only sends it away, so a player who does not want to open what it names has a plain way to be
+  rid of it; the rest of the toast, the body, opens what it is about and dismisses it. The toast's code and styles are fetched when the first
   toast is due (a new player sees none before a first pack is saved), so the first screen carries neither; its
   live region is on the page from the start. A toast never takes room: the page is laid out the same
   with a toast up, after one and with none, so the pack's size and place never depend on one (#803). On a
@@ -395,7 +397,7 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   screen (520 px tall or less, where the headline below it is kept clear by tight padding).
   `tests/browser/toast-home.spec.ts` checks every home control at 360, 390, 1280, 640x360, 844x390, 900 and
   1440, 200% text at 360, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
-  `tests/browser/toast-touch.spec.ts` checks the tap, the swipe, the seen toast, the pack hold, the reduced
+  `tests/browser/toast-touch.spec.ts` checks the tap, the X, the swipe, the seen toast, the pack hold, the reduced
   motion fade, and the 44 px target, a tap and what the toast covers on the home screen and the summary at
   five phone sizes, in touch emulation.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.

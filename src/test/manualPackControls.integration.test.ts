@@ -158,7 +158,7 @@ it('leaves a reveal with Escape as Back to packs does, and says the face-down ca
   await app.until('a notice says the pack was kept', () => expect(toasts()).toContain('Pack kept'));
   expect(toasts()).toContain('Its cards are in Cards');
   // Tapping the notice opens the cards it names.
-  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast')].find((el) => el.textContent?.includes('Pack kept'))!.click());
+  await app.interact(() => [...document.querySelectorAll<HTMLButtonElement>('.toast-open')].find((el) => el.textContent?.includes('Pack kept'))!.click());
   await app.until('Cards opens from the notice', () => expect(pageTitle()).toBe('Cards'));
   expect(location.hash).toBe('#/cards');
 

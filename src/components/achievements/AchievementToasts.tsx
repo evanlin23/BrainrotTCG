@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, type PanInfo, type Variants } from 'framer-motion';
-import { Award, ChevronsUp, Layers } from 'lucide-react';
+import { Award, ChevronsUp, Layers, X } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
 import { GROUPED_TOAST_MS, TOAST_MS, TOAST_SEEN_MS } from '../../constants/toast';
 import '../../styles/Toasts.css';
@@ -19,7 +19,7 @@ interface AchievementToastsProps {
   queue: ToastItem[];
   /** Remove these ids from the queue. */
   onDismiss: (ids: string[]) => void;
-  /** Tapping a toast opens the achievements list, the profile for a level-up, or Cards for a kept pack. */
+  /** Tapping a toast's body opens the achievements list, the profile for a level-up, or Cards for a kept pack. Its X only dismisses. */
   onOpen: (target: ToastTarget) => void;
   /**
    * Hold the toasts, in order, until this clears: while a sheet, page or pack is open, so they never
@@ -42,7 +42,7 @@ const GROUP_AT = 3;
 /**
  * How long a toast stays up is TOAST_MS or GROUPED_TOAST_MS (constants/toast). Hovering or
  * focusing it from the keyboard holds it until the pointer or focus leaves, and then it gets its full
- * time again. A swipe up or sideways, or Escape on the focused toast, sends it away at once.
+ * time again. Its X, a swipe up or sideways, or Escape on the focused toast sends it away at once.
  */
 export { GROUPED_TOAST_MS, TOAST_MS };
 
@@ -128,6 +128,19 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
     return () => window.clearTimeout(timer);
   }, [key, grouped, holding, onDismiss]);
 
+  // A click on the body (open it) or on the X (just dismiss). Neither counts after a swipe, or on a toast
+  // already fading out.
+  const leave = (open: boolean) => {
+    if (liveKey.current !== key) return;
+    if (swiped.current) {
+      swiped.current = false;
+      return;
+    }
+    setAway(STAY);
+    onDismiss(shown.map((a) => a.id));
+    if (open) onOpen(shown[0].opens ?? 'achievements');
+  };
+
   const swipe = (info: PanInfo) => {
     const { x, y } = info.offset;
     const sideways = Math.abs(x) > Math.abs(y);
@@ -144,16 +157,15 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
       {!held && (
         <AnimatePresence mode="wait" custom={away}>
           {key && (
-            <motion.button
+            <motion.div
               key={key}
-              type="button"
               className={`toast ${!grouped && shown[0].kicker ? 'toast--detail' : ''}`}
               onPointerEnter={() => setPointerOn(key)}
               onPointerLeave={() => setPointerOn('')}
-              // Only focus from the keyboard holds it: a click or swipe leaves focus on the button, which
-              // would otherwise hold it up for good.
+              // Only focus from the keyboard holds it: a click or swipe leaves focus on a button, which
+              // would otherwise hold it up for good. Focus bubbles up from either button.
               onFocus={(event) => {
-                if (focusVisible(event.currentTarget)) setFocusOn(key);
+                if (focusVisible(event.target as HTMLElement)) setFocusOn(key);
               }}
               onBlur={() => setFocusOn('')}
               onPointerDown={() => {
@@ -166,16 +178,6 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
                 event.preventDefault();
                 setAway(STAY);
                 onDismiss(shown.map((a) => a.id));
-              }}
-              onClick={() => {
-                if (liveKey.current !== key) return;
-                if (swiped.current) {
-                  swiped.current = false;
-                  return;
-                }
-                setAway(STAY);
-                onDismiss(shown.map((a) => a.id));
-                onOpen(shown[0].opens ?? 'achievements');
               }}
               // Follows the finger and springs back unless it is thrown far or fast enough to leave.
               drag
@@ -196,22 +198,27 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
               exit="leave"
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
-              <span className="toast-icon" aria-hidden="true">
-                {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}
-              </span>
-              <span className="toast-text">
-                <span className="toast-kicker">{grouped ? `${shown.length} achievements unlocked` : (shown[0].kicker ?? 'Achievement unlocked')}</span>
-                <span className="toast-title">
-                  {grouped
-                    ? shown
-                        .slice(0, 3)
-                        .map((a) => a.name)
-                        .join(', ') + (shown.length > 3 ? ` +${shown.length - 3} more` : '')
-                    : shown[0].name}
+              <button type="button" className="toast-open" onClick={() => leave(true)}>
+                <span className="toast-icon" aria-hidden="true">
+                  {grouped || !shown[0].kicker ? <Award strokeWidth={2.4} /> : shown[0].opens === 'collection' ? <Layers strokeWidth={2.4} /> : <ChevronsUp strokeWidth={2.4} />}
                 </span>
-                {!grouped && <span className="toast-desc">{shown[0].description}</span>}
-              </span>
-            </motion.button>
+                <span className="toast-text">
+                  <span className="toast-kicker">{grouped ? `${shown.length} achievements unlocked` : (shown[0].kicker ?? 'Achievement unlocked')}</span>
+                  <span className="toast-title">
+                    {grouped
+                      ? shown
+                          .slice(0, 3)
+                          .map((a) => a.name)
+                          .join(', ') + (shown.length > 3 ? ` +${shown.length - 3} more` : '')
+                      : shown[0].name}
+                  </span>
+                  {!grouped && <span className="toast-desc">{shown[0].description}</span>}
+                </span>
+              </button>
+              <button type="button" className="toast-dismiss" aria-label="Dismiss" onClick={() => leave(false)}>
+                <X strokeWidth={2.4} aria-hidden="true" />
+              </button>
+            </motion.div>
           )}
         </AnimatePresence>
       )}

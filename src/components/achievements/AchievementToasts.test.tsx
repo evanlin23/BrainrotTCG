@@ -80,7 +80,7 @@ describe('notices while a sheet, page or pack is open', () => {
     act(() => root.render(<Harness initial={[kept, levelUp]} paused />));
     // Still there as it fades, but a tap on it no longer counts: it has gone back to the queue or out.
     expect(toasts()).toEqual(['Pack kept']);
-    act(() => document.querySelector<HTMLElement>('.toast')!.click());
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
     expect(opened).toEqual([]);
     await act(() => vi.advanceTimersByTimeAsync(300));
     expect(document.querySelectorAll('.toast')).toHaveLength(0);
@@ -107,7 +107,7 @@ describe('notices while a sheet, page or pack is open', () => {
     expect(toasts()).toEqual(['Pack kept']);
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 400));
     expect(toasts()).toEqual(['Pack kept']);
-    act(() => document.querySelector<HTMLElement>('.toast')!.click());
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
     expect(opened).toEqual(['collection']);
     expect(dismissed).toEqual([['pack-kept-1']]);
   });
@@ -124,7 +124,7 @@ describe('notices while a sheet, page or pack is open', () => {
 describe('dismissing a toast with the keyboard', () => {
   it('lets Escape on the focused toast send it away without opening it, and leaves the next', async () => {
     act(() => root.render(<Harness initial={[kept, levelUp]} />));
-    const toast = document.querySelector<HTMLElement>('.toast')!;
+    const toast = document.querySelector<HTMLElement>('.toast-open')!;
     act(() => toast.focus());
     const key = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     act(() => toast.dispatchEvent(key));
@@ -134,6 +134,44 @@ describe('dismissing a toast with the keyboard', () => {
     expect(key.defaultPrevented).toBe(true);
     await act(() => vi.advanceTimersByTimeAsync(400));
     expect(toasts()).toEqual(['Level 2']);
+  });
+});
+
+describe('the dismiss control', () => {
+  const dismissButton = () => document.querySelector<HTMLButtonElement>('button.toast-dismiss')!;
+
+  it('has an accessible name, and only dismisses: nothing is opened', async () => {
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    expect(dismissButton().getAttribute('aria-label')).toBe('Dismiss');
+    act(() => dismissButton().click());
+    expect(dismissed).toEqual([['pack-kept-1']]);
+    expect(opened).toEqual([]);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(toasts()).toEqual(['Level 2']);
+  });
+
+  it('dismisses a whole grouped toast with all its ids', () => {
+    const run = [1, 2, 3].map((n): ToastItem => ({ id: `a${n}`, name: `Achievement ${n}`, description: 'Done' }));
+    act(() => root.render(<Harness initial={run} />));
+    act(() => dismissButton().click());
+    expect(dismissed).toEqual([['a1', 'a2', 'a3']]);
+    expect(opened).toEqual([]);
+  });
+
+  it('is separate from the body, which opens the toast\'s target and dismisses it too', () => {
+    act(() => root.render(<Harness initial={[levelUp]} />));
+    expect(document.querySelectorAll('.toast button')).toHaveLength(2);
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
+    expect(opened).toEqual(['profile']);
+    expect(dismissed).toEqual([['level-2']]);
+  });
+
+  it('does nothing on a toast already fading out', () => {
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    const button = dismissButton();
+    act(() => root.render(<Harness initial={[kept, levelUp]} paused />));
+    act(() => button.click());
+    expect(opened).toEqual([]);
   });
 });
 
@@ -148,7 +186,7 @@ describe('how long a toast stays up (#718)', () => {
     act(() => root.render(<Harness initial={[levelUp]} />));
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 100));
     expect(dismissed).toEqual([]);
-    act(() => document.querySelector<HTMLElement>('.toast')!.click());
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
     expect(opened).toEqual(['profile']);
   });
 
@@ -177,10 +215,10 @@ describe('how long a toast stays up (#718)', () => {
 
   it('waits while it has keyboard focus, and not after focus leaves', async () => {
     act(() => root.render(<Harness initial={[levelUp]} />));
-    act(() => document.querySelector<HTMLElement>('.toast')!.focus());
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.focus());
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS * 3));
     expect(dismissed).toEqual([]);
-    act(() => document.querySelector<HTMLElement>('.toast')!.blur());
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.blur());
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
     expect(dismissed).toEqual([['level-2']]);
   });
@@ -192,7 +230,7 @@ describe('how long a toast stays up (#718)', () => {
       return selector === ':focus-visible' ? false : matches.call(this, selector);
     });
     act(() => root.render(<Harness initial={[levelUp]} />));
-    act(() => document.querySelector<HTMLElement>('.toast')!.focus());
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.focus());
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
     expect(dismissed).toEqual([['level-2']]);
   });

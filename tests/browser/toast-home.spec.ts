@@ -8,8 +8,9 @@ import { expectSummaryTakesClicks, monitor } from './support';
  * screen it sits in the free band at the right, so with it up nothing the player can press is under it,
  * the centre of each control still reaches that control, and the page is laid out the same with a toast,
  * after one and with none. A card close-up (any sheet) holds it. Held by focus (a focused toast never
- * expires), and expiry is waited for on the page's own timers (the exit animation stalls under a fake
- * clock), so no step races one.
+ * expires), and sent away with its X rather than waited out (the timing is the unit tests' job: a jump
+ * of Playwright's clock leaves the exit animation behind the next toast's timer), so no step races a
+ * timer and none waits 5 or 6 seconds.
  */
 
 const VIEWPORTS = [
@@ -87,13 +88,25 @@ async function toSummary(page: Page, baseURL: string) {
  */
 const hold = async (page: Page) => {
   await page.keyboard.press('Shift');
-  await page.locator('.toast').focus();
+  await page.locator('.toast-open').focus();
 };
 
-/** Back home from the summary, with the first toast still up and held by focus. */
+/** The toasts a fresh player's first pack makes, in order, and what each one's button is named. */
+const TOASTS = [
+  { kicker: /^\d+ achievements unlocked$/, name: /^\s*\d+ achievements unlocked\s+\S.*/ },
+  // The level-up's line is clamped on screen; the button's name still has all of it.
+  { kicker: /^Level up$/, name: /^\s*Level up\s+\S.*\S\s+Next: .+/ },
+];
+
+/** Sends the toast on screen away with its X, as a player would: the page is then as it is once one has timed out. */
+const dismiss = async (page: Page) => {
+  await page.locator('.toast-dismiss').click();
+};
+
+/** Back home from the summary, with the first toast still up and held by focus; its button is returned. */
 async function toHome(page: Page) {
   await page.getByRole('button', { name: /Next pack/ }).click();
-  const toast = page.locator('.toast');
+  const toast = page.locator('.toast-open');
   await expect(toast).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.set-current')).toBeVisible();
   await hold(page);
@@ -111,16 +124,16 @@ for (const viewport of VIEWPORTS) {
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
 
-    for (const kicker of [/achievements? unlocked/i, /^Level up$/]) {
-      await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 25000 });
+    for (const { kicker, name } of TOASTS) {
+      await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
       // Held at once, so this toast's own timer can't expire while the checks run.
       await hold(page);
       await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
       expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
       expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
       // However little of it a short screen draws, the button's name is still all of it.
-      await expect(toast).toHaveAccessibleName(/^\s*(\d+ achievements unlocked|Level up)\s*\S.*/);
-      await toast.blur();
+      await expect(toast).toHaveAccessibleName(name);
+      await dismiss(page);
     }
     expect(errors).toEqual([]);
   });
@@ -135,35 +148,34 @@ test('at 200% text on a 360px phone both toasts leave every control uncovered an
   await page.addStyleTag({ content: ENLARGED });
   const toast = await toHome(page);
 
-  for (const kicker of [/achievements? unlocked/i, /^Level up$/]) {
-    await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 25000 });
+  for (const { kicker, name } of TOASTS) {
+    await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 15000 });
     await hold(page);
     await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
     expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
-    // The level-up's line is clamped on screen; the button's name still has all of it.
-    if (/Level/.test(String(kicker))) await expect(toast).toHaveAccessibleName(/^\s*Level up\s+\S.*\S\s+Next: .+/);
-    await toast.blur();
+    await expect(toast).toHaveAccessibleName(name);
+    await dismiss(page);
   }
-  await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
+  await expect(page.locator('.toast')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
 // Nothing the player is heading for moves as the toasts arrive or leave: the pack and the chevrons are
 // where they were while one was up, so a tap on one never lands on the other (#803).
 for (const viewport of VIEWPORTS) {
-  test(`nothing on the home screen moves when the toasts expire at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+  test(`nothing on the home screen moves when the toasts go at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
     test.setTimeout(120000);
     await page.setViewportSize(viewport);
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
     // The taller level-up toast comes second; measure with it up.
-    await toast.blur();
-    await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 25000 });
+    await dismiss(page);
+    await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 15000 });
     await hold(page);
     const during = await placed(page);
 
-    await page.locator('.toast').blur();
-    await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
+    await dismiss(page);
+    await expect(page.locator('.toast')).toHaveCount(0);
     expect(await placed(page), 'every control stays where it was when the toast went').toEqual(during);
     expect(errors).toEqual([]);
   });

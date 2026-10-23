@@ -197,8 +197,8 @@ it('opens the era of the selected pack first in Cards', async () => {
   expect(open).toEqual([selected.name, newest.name]);
 });
 
-it('fetches a page on intent, but not while a pack is opening', async () => {
-  // Every lazy screen request the App makes goes through sheetLoader: record which importer ran.
+/** Every lazy screen request the App makes goes through sheetLoader: record which importer ran. */
+const recordRequests = () => {
   const requested: string[] = [];
   vi.doMock('../components/ui/sheetEntry', async (importOriginal) => {
     const original = await importOriginal<typeof import('../components/ui/sheetEntry')>();
@@ -208,6 +208,32 @@ it('fetches a page on intent, but not while a pack is opening', async () => {
         original.sheetLoader(() => { requested.push(String(importer)); return importer(); }),
     };
   });
+  return requested;
+};
+
+it('fetches the toasts ahead of the first pack: not at startup, once the sealed pack art has settled and the page is idle', async () => {
+  const requested = recordRequests();
+  app = await mountedApp({
+    ...PLAYER('Warm-up fixture'),
+    ...RETURNING,
+    [STORAGE_KEYS.SETTINGS]: JSON.stringify({ effectsVolume: 0, particlesEnabled: false, pauseBigPulls: false }),
+    [STORAGE_KEYS.SELECTED_SET]: 'right-now',
+  });
+  await app.mount();
+  await app.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
+  // No toast is due, and the pack's art (which the first screen needs more) has not settled: however long
+  // the page idles, the chunk is not asked for.
+  await app.settle(5000);
+  expect(requested, 'the toasts are not fetched at startup, ahead of the pack art').toEqual([]);
+
+  const { packArtSettled } = await import('../game/packArt');
+  await app.interact(() => packArtSettled());
+  await app.until('the idle page fetches the toasts for the pack to come', () => expect(requested.filter((importer) => importer.includes('AchievementToasts'))).toHaveLength(1));
+  expect(requested, 'only the toasts are warmed').toHaveLength(1);
+});
+
+it('fetches a page on intent, but not while a pack is opening', async () => {
+  const requested = recordRequests();
   app = await mountedApp({
     ...PLAYER('Prefetch fixture'),
     ...RETURNING,
@@ -242,7 +268,9 @@ it('fetches a page on intent, but not while a pack is opening', async () => {
   await app.until('the ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
   await app.until('the pack lets go of the app', () => expect(button('Settings').disabled).toBe(false));
-  // The pack's own toasts are due now, so their chunk is fetched; no page is until one is pointed at.
+  // The pack's own toasts are due now (its art never settles in jsdom, so this is the fetch for a toast that
+  // is due, not the idle warm-up), so their chunk is fetched, once; no page is until one is pointed at.
+  expect(requested.filter((importer) => importer.includes('AchievementToasts'))).toHaveLength(1);
   const pages = () => requested.filter((importer) => !importer.includes('AchievementToasts'));
   expect(pages()).toEqual([]);
   await app.interact(() => point('Cards'));

@@ -4,7 +4,7 @@ import { expectSummaryTakesClicks, fingerFor, monitor } from './support';
 /**
  * Achievement toasts under a thumb (phone feedback on #803: it blocks things, will not go away, and a
  * tap on it did nothing). A tap opens what it is for, even when the finger drifts a few pixels; a swipe up
- * or sideways follows the finger and sends it away for good; a toast the player has seen does not come back
+ * or sideways follows the finger and sends it away for good, as does its own X (which opens nothing); a toast the player has seen does not come back
  * every time a sheet closes; and none shows over the pack while it is torn and revealed, or covers the pack's X,
  * the headline, the cards or the buttons at any phone size. Phone emulation (touch, Chromium), not a physical
  * phone. A toast is held with focus while it is measured, so none times out between steps, and the page's own
@@ -12,6 +12,8 @@ import { expectSummaryTakesClicks, fingerFor, monitor } from './support';
  */
 
 test.skip(({ hasTouch }) => !hasTouch, 'touch only');
+
+const TOUCH_TARGET = 44;
 
 /** Portrait and landscape phones, small to large. */
 const PHONES = [
@@ -28,7 +30,7 @@ const PHONES = [
  */
 const hold = async (page: Page) => {
   await page.keyboard.press('Shift');
-  await page.locator('.toast').focus();
+  await page.locator('.toast-open').focus();
 };
 
 /**
@@ -101,6 +103,25 @@ for (const drift of [4, 12]) {
   });
 }
 
+test('the X is a visible 44px control that only dismisses: the toast goes, the screen stays, the next one follows', async ({ page, baseURL }) => {
+  test.setTimeout(120000);
+  const { errors, toast } = await toSummaryWithToast(page, baseURL!);
+  const dismiss = toast.getByRole('button', { name: 'Dismiss' });
+  await expect(dismiss).toBeVisible();
+  const box = (await dismiss.boundingBox())!;
+  expect(box.width, 'wide enough for a thumb').toBeGreaterThanOrEqual(TOUCH_TARGET - 0.5);
+  expect(box.height, 'tall enough for a thumb').toBeGreaterThanOrEqual(TOUCH_TARGET - 0.5);
+  const toastBox = (await toast.boundingBox())!;
+  expect(box.x + box.width, 'inside the toast').toBeLessThanOrEqual(toastBox.x + toastBox.width + 0.5);
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator('.toast-kicker').filter({ hasText: /achievements unlocked/ })).toHaveCount(0);
+  // Nowhere was opened: still on the pack's summary, and the level-up is the toast that follows.
+  await expect(page.locator('#achievements')).toHaveCount(0);
+  await expect(page.locator('.summary-card')).toHaveCount(5);
+  await expect(page.locator('.toast-kicker')).toHaveText(/^Level up$/, { timeout: 15000 });
+  expect(errors).toEqual([]);
+});
+
 for (const [direction, steps] of [
   ['up', [{ dx: 0, dy: -20 }, { dx: 0, dy: -50 }, { dx: 0, dy: -80 }]],
   ['left', [{ dx: -30, dy: 0 }, { dx: -70, dy: 0 }, { dx: -110, dy: 2 }]],
@@ -136,35 +157,42 @@ test('the toast follows the finger, and springs back from a swipe that stops sho
 
 // The fly-out is only for those who have not asked for less motion: with reduced motion the toast fades
 // where it is, wherever it was sent. Sampled every frame, from the release until the toast is gone.
-for (const reducedMotion of ['no-preference', 'reduce'] as const) {
-  test(`a swiped toast ${reducedMotion === 'reduce' ? 'only fades out with reduced motion' : 'flies off the way it was thrown'}`, async ({ page, baseURL }) => {
-    test.setTimeout(120000);
-    await page.emulateMedia({ reducedMotion });
-    const { errors, toast } = await toSummaryWithToast(page, baseURL!);
-    const { box } = await centre(toast);
-    const finger = await drag(page, toast, [{ dx: -30, dy: 0 }, { dx: -70, dy: 0 }, { dx: -110, dy: 2 }], { lift: false });
-    await settled(page, toast);
-    await page.evaluate(() => {
-      const el = document.querySelector('.toast')!;
-      const lefts: number[] = [];
-      Object.assign(window, { toastLefts: lefts });
-      const frame = () => {
-        if (!el.isConnected) return;
-        lefts.push(el.getBoundingClientRect().left);
-        requestAnimationFrame(frame);
-      };
-      frame();
-    });
-    await finger.release();
-    await expect(page.locator('.toast-kicker').filter({ hasText: /achievements unlocked/ })).toHaveCount(0);
-    const lefts = await page.evaluate(() => (window as unknown as { toastLefts: number[] }).toastLefts);
-    const furthest = Math.max(...lefts.map((left) => Math.abs(left - box.x)));
-    // The finger carried it to about 110px; flying off takes it well past that, to 240px.
-    if (reducedMotion === 'reduce') expect(furthest, 'it moved on after the finger let go').toBeLessThanOrEqual(115);
-    else expect(furthest, 'it flew off').toBeGreaterThan(130);
-    expect(errors).toEqual([]);
+/** How far, in px, a toast swiped left (to about 110px under the finger) got from where it started. */
+async function furthestAfterSwipe(page: Page, baseURL: string) {
+  const { errors, toast } = await toSummaryWithToast(page, baseURL);
+  const { box } = await centre(toast);
+  const finger = await drag(page, toast, [{ dx: -30, dy: 0 }, { dx: -70, dy: 0 }, { dx: -110, dy: 2 }], { lift: false });
+  await settled(page, toast);
+  await page.evaluate(() => {
+    const el = document.querySelector('.toast')!;
+    const lefts: number[] = [];
+    Object.assign(window, { toastLefts: lefts });
+    const frame = () => {
+      if (!el.isConnected) return;
+      lefts.push(el.getBoundingClientRect().left);
+      requestAnimationFrame(frame);
+    };
+    frame();
   });
+  await finger.release();
+  await expect(page.locator('.toast-kicker').filter({ hasText: /achievements unlocked/ })).toHaveCount(0);
+  const lefts = await page.evaluate(() => (window as unknown as { toastLefts: number[] }).toastLefts);
+  expect(errors).toEqual([]);
+  return Math.max(...lefts.map((left) => Math.abs(left - box.x)));
 }
+
+test('a swiped toast flies off the way it was thrown', async ({ page, baseURL }) => {
+  test.setTimeout(120000);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // The finger carried it to about 110px; flying off takes it well past that, to 240px.
+  expect(await furthestAfterSwipe(page, baseURL!), 'it flew off').toBeGreaterThan(130);
+});
+
+test('a swiped toast only fades out with reduced motion', async ({ page, baseURL }) => {
+  test.setTimeout(120000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await furthestAfterSwipe(page, baseURL!), 'it moved on after the finger let go').toBeLessThanOrEqual(115);
+});
 
 test('a toast the player saw does not come back each time a card close-up closes', async ({ page, baseURL }) => {
   test.setTimeout(120000);
@@ -215,8 +243,6 @@ test('no toast shows over the pack while it is torn and revealed', async ({ page
 
 /** Every control on the home screen: the set steps, the pack, the guide link, the header buttons, the tab bar. */
 const HOME_CONTROLS = ['.set-step', '.set-current', '.pack-shell', '[data-pack-open]', '.card-guide-link', '.app-utilities button', '.app-nav-item'];
-const TOUCH_TARGET = 44;
-
 for (const viewport of PHONES) {
   test(`on the home screen the toast is a 44px target a tap opens, and covers no control at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
     test.setTimeout(120000);
