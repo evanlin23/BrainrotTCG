@@ -8,10 +8,13 @@ const ARCHIVE_KEY = STORAGE_KEYS.COLLECTION_RECOVERY;
 
 export type CollectionSaveResult = 'saved' | 'recovered' | 'blocked';
 
-/** Player records (game/player.ts) kept aside are marked with their storage key; an entry without one is a collection. */
-type KeptKey = typeof PLAYER_KEY;
+/** Stats kept aside are marked with their storage key (game/statsRecovery.ts); an entry without one is a collection. */
+const STATS_KEY = STORAGE_KEYS.STATS;
 
-/** One kept-aside collection (or player record): its exact bytes and the identity snapshot they belonged to. */
+/** Player records (game/player.ts) and stats kept aside are marked with their storage key; an entry without one is a collection. */
+type KeptKey = typeof PLAYER_KEY | typeof STATS_KEY;
+
+/** One kept-aside collection (or player record, or stats): its exact bytes and the identity snapshot they belonged to. */
 type Entry = { raw: string; player: string | null; key?: KeptKey };
 /**
  * The first payload kept, then the newest ones under `later`; `dropped` counts later payloads let go
@@ -29,12 +32,15 @@ export const ARCHIVE_BUDGET = 1_000_000;
 let unsaved: Entry[] = [];
 /** Older payloads let go from `unsaved` to stay within its limit (the stored archive counts its own in `dropped`). */
 let droppedThisVisit = 0;
+/** Stored bytes the player discarded the kept-aside copy of this visit: the next write replaces them without keeping them again. */
+let discarded: Entry[] = [];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const isEntry = (value: unknown): value is Entry => isRecord(value) && typeof value.raw === 'string'
-  && (value.player === null || typeof value.player === 'string') && (value.key === undefined || value.key === PLAYER_KEY);
+  && (value.player === null || typeof value.player === 'string')
+  && (value.key === undefined || value.key === PLAYER_KEY || value.key === STATS_KEY);
 
 const sameEntry = (a: Entry, b: Entry) => a.raw === b.raw && a.key === b.key;
 
@@ -59,9 +65,11 @@ const readArchive = (stored: string): Archive => {
 const entriesOf = (archive: Archive | null): Entry[] => (archive ? [archive, ...(archive.later ?? [])] : []);
 
 const withKey = (entry: Entry, storageKey: string): Entry =>
-  (storageKey === PLAYER_KEY ? { ...entry, key: storageKey } : entry);
+  (storageKey === PLAYER_KEY || storageKey === STATS_KEY ? { ...entry, key: storageKey } : entry);
 
-const WHAT: Record<KeptKey | 'collection', string> = { collection: 'collection data is', [PLAYER_KEY]: 'player data is' };
+const WHAT: Record<KeptKey | 'collection', string> = {
+  collection: 'collection data is', [PLAYER_KEY]: 'player data is', [STATS_KEY]: 'stats are',
+};
 
 const withLater = (first: Archive, later: Entry[], dropped: number): Archive => {
   const archive: Archive = { ...first, later, dropped };
@@ -85,7 +93,7 @@ const keepForThisVisit = (entry: Entry, why: unknown): 'archived' => {
 };
 
 /**
- * Before the stored collection (or player record) is replaced: if `unreadable` says this build can't read all of
+ * Before the stored collection (or player record, or stats) is replaced: if `unreadable` says this build can't read all of
  * it, keep its exact bytes (with the identity they belonged to) aside. The archive never blocks the save:
  * past its limits it lets the oldest later payloads go, and when even the first and newest won't fit, it
  * keeps the newest for this visit. 'blocked' only means the stored value couldn't be read, so it must stay.
@@ -102,6 +110,7 @@ export const keepUnreadableAside = (
     return 'blocked';
   }
   if (raw === null || !unreadable(raw)) return 'clean';
+  if (discarded.some((gone) => sameEntry(gone, withKey({ raw, player: null }, storageKey)))) return 'clean';
 
   let player: string | null = null;
   let stored: string | null;
@@ -145,6 +154,19 @@ export const keepUnreadableAside = (
     console.warn(`Let the ${evicted} oldest later payload(s) go from "${ARCHIVE_KEY}" to keep the first and the newest within its limits.`);
   }
   return 'archived';
+};
+
+/** True when the bytes stored under this key are in the stored archive, not only kept for this visit. */
+export const keptInStorage = (storageKey: typeof STORAGE_KEYS.COLLECTION | KeptKey): boolean => {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const stored = localStorage.getItem(ARCHIVE_KEY);
+    if (raw === null || stored === null) return false;
+    const entry = withKey({ raw, player: null }, storageKey);
+    return entriesOf(readArchive(stored)).some((kept) => sameEntry(kept, entry));
+  } catch {
+    return false;
+  }
 };
 
 /** Unparseable bytes are unreadable too. */
@@ -206,6 +228,9 @@ export const COLLECTION_RECOVERY_NOTES: Record<KeptState, string> = {
   unsaved: `Unreadable collection data ${KEPT.unsaved} ${PRIVATE}`,
 };
 
+/** Added to the note while stats are kept aside: the ones in use were rebuilt (game/statsRecovery.ts), not started over. */
+export const STATS_REBUILT_NOTE = 'Your stats were rebuilt from your pack history and collection.';
+
 /** Added while a damaged player record is kept aside and the one stored now has its key: only the broken fields were repaired (game/player.ts). */
 export const PLAYER_REPAIRED_NOTE = 'Your player key was kept, and its ticket count was repaired.';
 
@@ -248,11 +273,12 @@ const noteFor = (state: KeptState): string => {
   const kinds = [
     entries.some((entry) => entry.key === undefined) && 'collection',
     players.length > 0 && 'player',
+    entries.some((entry) => entry.key === STATS_KEY) && 'stats',
   ].filter((kind): kind is string => !!kind);
-  if (kinds.length <= 1 && kinds[0] !== 'player') return COLLECTION_RECOVERY_NOTES[state];
+  if (kinds.length === 0 || (kinds.length === 1 && kinds[0] === 'collection')) return COLLECTION_RECOVERY_NOTES[state];
   const what = `Unreadable ${kinds.length === 1 ? kinds[0] : `${kinds.slice(0, -1).join(', ')} and ${kinds[kinds.length - 1]}`} data`;
-  const added = playerNote(players);
-  return `${what} ${KEPT[state]}${added ? ` ${added}` : ''} ${PRIVATE}`;
+  const added = [playerNote(players), kinds.includes('stats') && STATS_REBUILT_NOTE].filter((note): note is string => !!note);
+  return `${what} ${KEPT[state]}${added.map((note) => ` ${note}`).join('')} ${PRIVATE}`;
 };
 
 /** Older payloads let go to stay within the limits: the stored archive's count plus this visit's. */
@@ -335,10 +361,10 @@ export const dismissCollectionRecovery = (): boolean => {
 };
 
 /**
- * Everything kept aside, as a JSON file built in this browser: the stored archive (wrapped if it
- * can't be read) with this visit's unsaved payloads after it. Null when nothing is kept.
+ * The stored archive (wrapped if it can't be read) with this visit's unsaved payloads after it (those
+ * `ours` accepts), and whether those added any.
  */
-export const collectionRecoveryFile = (now = new Date()): { name: string; text: string } | null => {
+const keptArchive = (ours: (entry: Entry) => boolean = () => true): { file: Archive; added: boolean } | null => {
   const stored = getStoredArchive();
   if (stored.status === 'unavailable') {
     throw (stored.error instanceof Error ? stored.error : new DOMException('Storage read denied', 'SecurityError'));
@@ -346,12 +372,36 @@ export const collectionRecoveryFile = (now = new Date()): { name: string; text: 
   const raw = stored.status === 'found' ? stored.raw : null;
   const archive = raw === null ? null : readArchive(raw);
   const kept = entriesOf(archive);
-  const extra = unsaved.filter((entry) => !kept.some((k) => sameEntry(k, entry)));
-  const dropped = (archive?.dropped ?? 0) + droppedThisVisit;
-  let file: Archive;
-  if (archive) file = extra.length === 0 && droppedThisVisit === 0 ? archive : withLater(archive, [...(archive.later ?? []), ...extra], dropped);
-  else if (extra.length > 0) file = withLater(extra[0], extra.slice(1), dropped);
-  else return null;
+  const extra = unsaved.filter((entry) => ours(entry) && !kept.some((k) => sameEntry(k, entry)));
+  // Payloads let go this visit count only beside one of the payloads they were kept with.
+  const droppedNow = extra.length > 0 || unsaved.every(ours) ? droppedThisVisit : 0;
+  const dropped = (archive?.dropped ?? 0) + droppedNow;
+  if (archive && extra.length === 0 && droppedNow === 0) return { file: archive, added: false };
+  if (archive) return { file: withLater(archive, [...(archive.later ?? []), ...extra], dropped), added: true };
+  if (extra.length > 0) return { file: withLater(extra[0], extra.slice(1), dropped), added: true };
+  return null;
+};
+
+/**
+ * The kept-aside data a backup carries: the stored text as is, or with this visit's unsaved payloads when
+ * storage had no room for them. Only payloads kept for the player stored now go in (by secret key, as the
+ * record's other fields change with every pack), so a save another tab imported never carries this tab's.
+ */
+export const exportedCollectionRecovery = (stored: string | null): string | null => {
+  const now = localStorage.getItem(PLAYER_KEY);
+  const key = keyOf(now);
+  const kept = keptArchive((entry) => (key === undefined ? entry.player === now : keyOf(entry.player) === key));
+  return kept?.added ? JSON.stringify(kept.file) : stored;
+};
+
+/**
+ * Everything kept aside, as a JSON file built in this browser: the stored archive (wrapped if it
+ * can't be read) with this visit's unsaved payloads after it. Null when nothing is kept.
+ */
+export const collectionRecoveryFile = (now = new Date()): { name: string; text: string } | null => {
+  const kept = keptArchive();
+  if (!kept) return null;
+  const file = kept.file;
   return { name: `brainrot-collection-recovery-${now.toISOString().split('T')[0]}.json`, text: JSON.stringify(file, null, 2) };
 };
 
@@ -386,9 +436,18 @@ export type DiscardResult = 'discarded' | 'changed' | 'refused';
  * has let go of the stored ones.
  */
 export const discardCollectionRecovery = (shown: string | null): DiscardResult => {
+  let gone: Entry[];
   try {
     const print = currentPrint();
     if (print !== null && print !== shown) return 'changed';
+    const stored = localStorage.getItem(ARCHIVE_KEY);
+    const kept = [...entriesOf(stored === null ? null : readArchive(stored)), ...unsaved];
+    // The stored collection or stats discarded now or before, if a write hasn't replaced them yet.
+    gone = [STORAGE_KEYS.COLLECTION, STATS_KEY].flatMap((key) => {
+      const raw = localStorage.getItem(key);
+      const entry = raw === null ? null : withKey({ raw, player: null }, key);
+      return entry && [...kept, ...discarded].some((k) => sameEntry(k, entry)) ? [entry] : [];
+    });
     localStorage.removeItem(ARCHIVE_KEY);
   } catch (error) {
     console.error(`Failed to remove localStorage key "${ARCHIVE_KEY}":`, error);
@@ -403,5 +462,6 @@ export const discardCollectionRecovery = (shown: string | null): DiscardResult =
   unsaved = [];
   droppedThisVisit = 0;
   hiddenThisVisit = null;
+  discarded = gone;
   return 'discarded';
 };
