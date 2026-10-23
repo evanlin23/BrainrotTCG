@@ -15,7 +15,9 @@
  * - the cache contract (docs/HOSTING.md): everything in assets/ has a content hash in its name, pages
  *   load their code and styles from there, every other file sits at the top or in p/ or s/, and a
  *   _headers file, if there is one, marks only assets/ immutable;
- * - the build has at most MAX_SITE_FILES files (Cloudflare Pages takes 20,000 per deploy).
+ * - the build has at most MAX_SITE_FILES files (Cloudflare Pages takes 20,000 per deploy);
+ * - the code and styles index.html loads before the app can first render come to at most
+ *   MAX_FIRST_LOAD_BYTES gzipped (#776).
  *
  *   npm run build && npm run check:site                      (GitHub Pages, /BrainrotTCG/)
  *   BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/ npm run build    (Cloudflare Pages)
@@ -29,6 +31,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import { checkAssets, type AssetCheck, type AssetValidationError } from './check-card-assets.ts';
 import { isMainModule } from './main-module.ts';
 import { generatePreviews, optionsFromEnv, type PreviewOptions } from './preview-pages.ts';
@@ -194,6 +197,23 @@ export const MAX_SITE_FILES = 19_000;
 export const checkFileCount = (count: number, max = MAX_SITE_FILES): AssetValidationError[] =>
   count > max ? [{ path: '.', error: `Has ${count.toLocaleString('en-US')} files, over ${max.toLocaleString('en-US')} (Cloudflare Pages takes 20,000 per deploy)` }] : [];
 
+/**
+ * Most bytes, gzipped as the hosts serve them, of index.html and the code and styles it loads before
+ * the app can first render (#776: on a slow connection these come before anything else). Raise it
+ * only with a reason in the PR: what was added, and why the first screen can't load it later.
+ */
+export const MAX_FIRST_LOAD_BYTES = 280_000;
+
+/** The files (relative to the build) index.html loads up front: its module scripts, modulepreloads and stylesheets. */
+export const firstLoadFiles = (html: string, base: string): string[] =>
+  [...html.matchAll(/<script\b[^>]*\bsrc="([^"]*)"[^>]*>|<link\b(?=[^>]*\brel="(?:stylesheet|modulepreload)")[^>]*\bhref="([^"]*)"[^>]*>/g)]
+    .map(([, src, href]) => unescape(src ?? href))
+    .filter((link) => link.startsWith(base))
+    .map((link) => link.slice(base.length).replace(/[?#].*$/, ''));
+
+export const checkFirstLoad = (bytes: number, max = MAX_FIRST_LOAD_BYTES): AssetValidationError[] =>
+  bytes > max ? [{ path: 'index.html', error: `Loads ${bytes.toLocaleString('en-US')} bytes (gzip) before the app can render, over ${max.toLocaleString('en-US')} (MAX_FIRST_LOAD_BYTES, #776)` }] : [];
+
 export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Promise<SiteCheckResult> => {
   const { base } = options;
   // SITE_URL may end in / or not: compare against it ending in exactly one, as the build writes it.
@@ -297,6 +317,10 @@ export const checkSite = async (options: SiteCheckOptions, concurrency = 8): Pro
 
   const optional = (file: string) => (present.has(file) ? readFileSync(path.join(outDir, file), 'utf8') : undefined);
   errors.push(...checkCrawlerFiles(site, optional('robots.txt'), optional('sitemap.xml')));
+
+  const index = readFileSync(path.join(outDir, 'index.html'));
+  const upFront = firstLoadFiles(index.toString('utf8'), base).filter((file) => present.has(file));
+  errors.push(...checkFirstLoad(upFront.reduce((sum, file) => sum + gzipSync(readFileSync(path.join(outDir, file))).length, gzipSync(index).length)));
 
   const headersFile = path.join(outDir, '_headers');
   errors.push(...checkCacheContract(files, base, existsSync(headersFile) ? readFileSync(headersFile, 'utf8') : undefined, sourceNames()));
