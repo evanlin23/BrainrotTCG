@@ -222,6 +222,8 @@ it('fetches a page on intent, but not while a pack is opening', async () => {
     tab.focus();
   };
   expect(requested, 'nothing is fetched at startup').toEqual([]);
+  // The toasts' live region is on the page from the start, so a toast that arrives later is announced.
+  expect(document.querySelector('.toast-region[role="status"][aria-live="polite"]')).not.toBeNull();
 
   await app.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await app.interact(() => {
@@ -240,10 +242,12 @@ it('fetches a page on intent, but not while a pack is opening', async () => {
   await app.until('the ticket produces a reveal with Skip', () => expect(document.querySelector('.reveal-skip')).not.toBeNull());
   await app.interact(() => document.querySelector<HTMLButtonElement>('.reveal-skip')!.click());
   await app.until('the pack lets go of the app', () => expect(button('Settings').disabled).toBe(false));
-  expect(requested).toEqual([]);
+  // The pack's own toasts are due now, so their chunk is fetched; no page is until one is pointed at.
+  const pages = () => requested.filter((importer) => !importer.includes('AchievementToasts'));
+  expect(pages()).toEqual([]);
   await app.interact(() => point('Cards'));
-  expect(requested).toHaveLength(1);
-  expect(requested[0]).toContain('CollectionBrowser');
+  expect(pages()).toHaveLength(1);
+  expect(pages()[0]).toContain('CollectionBrowser');
 }, 60_000);
 
 // The App's own Rankings and Profile pages, through the real Page, and its Share sheet, through the real

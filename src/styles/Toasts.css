@@ -94,14 +94,6 @@
   margin: 0 calc(var(--gutter) + 3rem + var(--space-3)) 0 max(var(--gutter), calc((100% - var(--content-max)) / 2 + var(--gutter)));
 }
 
-/* Settings stays at the right edge even when enlarged text wraps it onto a row of its own, so the toast
-   always has the left of the header to itself. */
-@media (max-width: 899px) {
-  .app:not(.is-focus) .app-utilities {
-    margin-left: auto;
-  }
-}
-
 .app:not(.is-focus) .toast {
   position: absolute;
   right: 0;

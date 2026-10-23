@@ -2,7 +2,7 @@
 import { act, useCallback, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TOAST_SEEN_MS } from '../../constants/config';
+import { TOAST_SEEN_MS } from '../../constants/toast';
 import AchievementToasts, { GROUPED_TOAST_MS, TOAST_MS, type ToastItem } from './AchievementToasts';
 
 // The app's own queue: dismissing removes ids, and re-rendering with `held` holds it as a big pull's
@@ -53,8 +53,6 @@ describe('notices during a big pull\'s showcase', () => {
     act(() => root.render(<Harness initial={[kept, levelUp]} held />));
     // Gone in the same frame, with no exit fade over the card.
     expect(document.querySelectorAll('.toast')).toHaveLength(0);
-    // The region stays, so a held notice is still announced when it shows.
-    expect(document.querySelector('.toast-region[role="status"]')).not.toBeNull();
 
     // Held for as long as the showcase lasts: nothing is shown or dismissed.
     await act(() => vi.advanceTimersByTimeAsync(10_000));

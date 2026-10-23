@@ -3,7 +3,8 @@ import { Settings2 } from 'lucide-react';
 import './styles/index.css';
 import PackOpener from './components/pack/PackOpener';
 import { useAnySheetOpen } from './components/ui/openSheets';
-import AchievementToasts, { type ToastItem } from './components/achievements/AchievementToasts';
+import { usePrefersReducedMotion } from './hooks/usePrefersReducedMotion';
+import type { ToastItem } from './components/achievements/AchievementToasts';
 import AppNav from './components/ui/AppNav';
 import KeptAsideActions from './components/ui/KeptAsideActions';
 import AppPage, { type PageSection } from './components/ui/Page';
@@ -50,6 +51,8 @@ import type { CollectionItem, Stats, HallOfFameData, Settings } from './types';
 // Keep loaders stable. A page or sheet is requested when its route or state opens it, or a moment
 // earlier when the player points at, focuses or presses what opens it: never at startup (unless the
 // address opens it) or on idle.
+/** The toasts and their styles are fetched when the first one is due, so the first screen doesn't carry them: a new player sees none before a pack is saved. */
+const loadToasts = sheetLoader(() => import('./components/achievements/AchievementToasts'));
 const loadProfilePage = sheetLoader(() => import('./components/profile/ProfilePage'));
 const loadPublicProfile = sheetLoader(() => import('./components/profile/ProfileViewerPage'));
 const loadHallOfFame = sheetLoader(() => import('./components/pages/HallOfFamePage'));
@@ -409,6 +412,20 @@ function App() {
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
   // Any sheet at all (the summary's card close-up too): a toast over one covers its title or takes a tap meant for it (#803).
   const anySheetOpen = useAnySheetOpen();
+  const reducedMotion = usePrefersReducedMotion();
+  // Once loaded they stay mounted, so the last toast can still fade or fly out. A failed fetch is asked
+  // again when the next toast is due; the queue keeps what was waiting.
+  const [toastsLoaded, setToastsLoaded] = useState(!!loadToasts.loaded);
+  const toastsDue = visibleNotifications.length > 0;
+  useEffect(() => {
+    if (toastsLoaded || !toastsDue) return;
+    let live = true;
+    loadToasts().then(() => live && setToastsLoaded(true), () => {});
+    return () => {
+      live = false;
+    };
+  }, [toastsLoaded, toastsDue, visibleNotifications]);
+  const AchievementToasts = toastsLoaded ? loadToasts.loaded : undefined;
   // A sheet (Share, or a shared link) leaves no tab current; Settings is none of the tabs either.
   const activeTab = shareTarget || viewProof || viewProfile || brokenLink ? null : route;
   // A new player sees only the logo and the pack until their first pack is saved (#222, #312): no tabs,
@@ -499,13 +516,18 @@ function App() {
       </header>
 
       {/* Right under the header, and the save warning when it shows: a toast takes no room, and on the home screen lies over the header's wordmark. Held while a pack is torn and revealed, so it is never over the pack. */}
-      <AchievementToasts
-        queue={visibleNotifications}
-        onDismiss={dismissNotifications}
-        onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
-        paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
-        held={packShowcase}
-      />
+      <div className="toast-region" role="status" aria-live="polite">
+        {AchievementToasts && (
+          <AchievementToasts
+            queue={visibleNotifications}
+            onDismiss={dismissNotifications}
+            onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
+            paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
+            held={packShowcase}
+            reduced={reducedMotion}
+          />
+        )}
+      </div>
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}
       <main ref={mainRef} className="app-main" hidden={onPage} inert={onPage}>

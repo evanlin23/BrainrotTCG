@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, type PanInfo, type Variants } from 'framer-motion';
 import { Award, ChevronsUp, Layers } from 'lucide-react';
 import type { Achievement } from '../../data/achievements';
-import { GROUPED_TOAST_MS, TOAST_MS, TOAST_SEEN_MS } from '../../constants/config';
-import { usePrefersReducedMotion } from '../../hooks/usePrefersReducedMotion';
+import { GROUPED_TOAST_MS, TOAST_MS, TOAST_SEEN_MS } from '../../constants/toast';
 import '../../styles/Toasts.css';
 
 /** An achievement, or (with a kicker) something else worth a toast, like a level-up. */
@@ -33,13 +32,15 @@ interface AchievementToastsProps {
    * already up leaves at once, with no fade over the card.
    */
   held?: boolean;
+  /** Reduced motion: a toast only fades, wherever it is sent. Passed in, so this file shares nothing but React with the first screen. */
+  reduced?: boolean;
 }
 
 /** At this many waiting unlocks, show one grouped toast instead of a long run of single ones. */
 const GROUP_AT = 3;
 
 /**
- * How long a toast stays up is TOAST_MS or GROUPED_TOAST_MS (constants/config). Hovering or
+ * How long a toast stays up is TOAST_MS or GROUPED_TOAST_MS (constants/toast). Hovering or
  * focusing it from the keyboard holds it until the pointer or focus leaves, and then it gets its full
  * time again. A swipe up or sideways, or Escape on the focused toast, sends it away at once.
  */
@@ -83,7 +84,7 @@ const focusVisible = (el: HTMLElement) => {
  * Achievement unlocks, one small toast at a time at the top of the screen. A burst (one lucky pack
  * can unlock seven) becomes a single "N achievements" toast rather than a wall over the game.
  */
-const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = false }: AchievementToastsProps) => {
+const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = false, reduced = false }: AchievementToastsProps) => {
   // Level-ups and the like go one at a time; a run of achievements at the front can be grouped.
   const leadingAchievements = queue.findIndex((t) => t.kicker) === -1 ? queue : queue.slice(0, queue.findIndex((t) => t.kicker));
   const grouped = leadingAchievements.length >= GROUP_AT;
@@ -102,7 +103,6 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   // Set by a swipe, cleared by the click it ends in (or the next press or key): a swipe that stops short
   // is not a tap, and does not leave the toast deaf to Enter and Space.
   const swiped = useRef(false);
-  const reduced = usePrefersReducedMotion();
 
   // The toast up now and since when. A sheet, page or pack that takes the screen after it has been seen
   // lets it go; one that arrives first only holds it. Declared before the key effect, so it still reads
@@ -139,7 +139,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   };
 
   return (
-    <div className="toast-region" role="status" aria-live="polite">
+    <>
       {/* Unmounted while held, so a toast on screen goes at once instead of fading over the showcase. */}
       {!held && (
         <AnimatePresence mode="wait" custom={away}>
@@ -215,7 +215,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
           )}
         </AnimatePresence>
       )}
-    </div>
+    </>
   );
 };
 

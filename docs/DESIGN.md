@@ -329,7 +329,10 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   gated behind a first pack. Once a pack or a card is saved the pages show on their own and Settings
   leaves the switch out (the stored choice is kept). The header's gear
   ("Settings") opens the Settings page: Sound & display, Save & backup, Help (Card guide, Report a
-  problem).
+  problem). On a phone (899 px or less) the wordmark sits flush at the left gutter and the gear at the
+  right edge, with the space between them (#803). The achievement toast lies over the header's left, so the
+  gear must stay at the right edge, wherever the text size wraps it; before, the gear sat just after a
+  wordmark set in from the left. A wide screen's header is unchanged. `visual-baselines` first-pack-narrow.png shows it.
 - **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit
   name" opening the field in place (Enter saves, Escape cancels and returns focus to the button);
   Best pack and Best card (`profile/BestHighlights.tsx`, #680), each verified on its own by opening
@@ -378,7 +381,9 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   for good), holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or
   sideways follows the finger and sends it away (a press that travels 16 px or less is still a tap, a
   swipe that stops short springs back); Escape on the focused toast does the same without opening it. With
-  reduced motion it only fades, wherever it is sent. A toast never takes room: the page is laid out the same
+  reduced motion it only fades, wherever it is sent. The toast's code and styles are fetched when the first
+  toast is due (a new player sees none before a first pack is saved), so the first screen carries neither; its
+  live region is on the page from the start. A toast never takes room: the page is laid out the same
   with a toast up, after one and with none, so the pack's size and place never depend on one (#803). On a
   phone (899 px wide or less) it lies over the header, bottom-aligned, from the left gutter to the Settings
   button (the header puts Settings at the right edge), so it covers no set step, pack, guide link or tab; the
