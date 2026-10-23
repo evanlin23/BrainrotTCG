@@ -3,12 +3,14 @@ import { allTimeRank, dailyRank, decodeProof, pullId, qualifiesForHallOfFame, ut
 import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { canShare, proofFor, type PullRef } from '../../game/pulls';
 import { useHallOfFameSubmit } from '../share/useHallOfFameSubmit';
+import { NOT_QUALIFYING } from '../ui/rankingsRule';
 
 /**
  * The results screen's Hall of Fame line: one tap sends a pull that would make the list, the same
  * way the share sheet's Submit does, and a send from either shows in both (docs/DESIGN.md, one-screen
  * summary rule). It ranks against what the Rankings page shows: the published list plus the pending
- * sends it re-checks from the relays. Nothing shows for a pull that wouldn't make it, is listed
+ * sends it re-checks from the relays. A pull that doesn't qualify says why there is no Submit, in the
+ * Rankings page's words (#1004). Nothing else shows for a pull that wouldn't make it, is listed
  * already, or can't be signed on this device (if the list can't load, anything that qualifies, as in
  * the share sheet). A pull that qualifies keeps the line's height from the first paint, whatever it
  * ends up saying, so the cards below never move.
@@ -49,6 +51,7 @@ const SummaryHallOfFame = ({ pack, score }: { pack: PullRef; score: PackScore })
   }
   const lineRef = useRef<HTMLParagraphElement>(null);
 
+  if (!qualifies) return <p className="summary-hof summary-hof--why">{NOT_QUALIFYING}</p>;
   if (!proof) return null;
   const now = new Date().toISOString();
   const listed = !!list?.some((e) => e.id === id);
@@ -76,7 +79,7 @@ const SummaryHallOfFame = ({ pack, score }: { pack: PullRef; score: PackScore })
           ? "Couldn't submit"
           : today
             ? "Makes today's Rankings"
-            : 'Makes the Hall of Fame';
+            : 'Makes the all-time Rankings';
 
   return (
     <p className="summary-hof" ref={lineRef} tabIndex={-1}>
@@ -89,7 +92,7 @@ const SummaryHallOfFame = ({ pack, score }: { pack: PullRef; score: PackScore })
           <span aria-hidden="true">·</span>
           <button type="button" className="btn btn--secondary btn--sm summary-hof-submit" onClick={send}>
             {state === 'failed' ? 'Retry' : 'Submit'}
-            {state === 'idle' && <span className="sr-only"> to the Hall of Fame</span>}
+            {state === 'idle' && <span className="sr-only"> to Rankings</span>}
           </button>
         </>
       )}
