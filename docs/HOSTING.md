@@ -65,7 +65,8 @@ What keeps working:
   move. Sending the save to Save & backup marks nothing, since that window is closed before the new
   address stores it, so old links still offer the move afterwards. **Go without it** marks nothing,
   so the next old link offers it again.
-- **The Hall of Fame.** The old address keeps serving `hall-of-fame.json` for the scripts, and the
+- **The Hall of Fame.** The old address keeps serving `hall-of-fame.json`, `rankings.json` and
+  `rankings/` for the scripts (the build carries past days forward from them), and the
   issue links it files redirect like any other link.
 
 ## Your own domain later
@@ -388,10 +389,30 @@ Never upload that redirect artifact as the game. When GitHub Pages is the actual
 host, use the compatible feature-PR/forward-fix path above; there is no rollback command in this workflow.
 
 UI and ranking recovery are separate decisions. A provider rollback also restores its bundled
-`hall-of-fame.json`, which can omit newer winners or reintroduce moderated entries. Keep verified issue
+`hall-of-fame.json`, which can omit newer winners or reintroduce moderated entries, and its rankings
+archives. A Cloudflare rollback doesn't revert the GitHub Pages redirect's copy, which the next build
+reads, so that build carries the current archives forward, not the rolled-back ones
+(docs/ARCHITECTURE.md, "Published rankings"). Keep verified issue
 records/moderation intact, retain the current snapshot for comparison, and rebuild ranking data from
 current trusted evidence with compatible code. Do not undo submissions or rejected labels to match an
 old UI. The GitHub redirect's copy may differ until refreshed; record that explicitly.
+
+## When the build can't read the deployed Hall of Fame
+
+Before anything else, every deploy's build reads `hall-of-fame.json`, `rankings.json` and the daily
+archives from the GitHub Pages address (`https://<owner>.github.io/<repo>/`). It fails rather than
+drop a closed day (docs/ARCHITECTURE.md, "Published rankings").
+
+- **A 5xx, a network error or a page in place of a file** fails every deploy, unrelated hotfixes
+  included. The cause is GitHub Pages, not the change. Check https://www.githubstatus.com, wait until
+  Pages answers again, then run the deploy workflow again from the Actions tab.
+- **A 404 for `hall-of-fame.json`** fails too, and the error names `HOF_START_NEW_HISTORY`.
+  - On a new site or a fork, set that repository variable to today's UTC date (`YYYY-MM-DD`), run the
+    deploy, then delete the variable. It only counts on the day it names.
+  - On an existing site, the 404 means Pages lost the files, for example because Pages was turned off
+    or the repository was renamed (the address follows the name). Undo that if you can. Don't set the
+    variable: the next deploy would start a new history and lose every closed day for good. That is
+    the owner's call. The last copy of the archives is whatever the current host still serves.
 
 ## Read-only checks after deployment or recovery
 

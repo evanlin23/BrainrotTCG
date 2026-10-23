@@ -1,6 +1,6 @@
 /**
  * In-memory stand-ins for everything the Hall of Fame script (scripts/hall-of-fame.ts) talks to: the
- * GitHub REST API (issues, comments, labels), the deployed hall-of-fame.json, and the Nostr relays.
+ * GitHub REST API (issues, comments, labels), the deployed hall-of-fame.json and rankings, and the Nostr relays.
  * `offlineNetwork()` replaces the global `fetch` and `WebSocket` so the real `inbox` and `build` run
  * against them, and anything else (another host, an unknown relay) is refused and recorded, so a test
  * that would reach the network fails instead. No tokens, no network, no live writes.
@@ -51,8 +51,10 @@ export class FakeGitHub {
   constructor(
     readonly issues: FakeIssue[] = [],
     readonly comments: Record<number, FakeComment[]> = {},
-    /** The deployed hall-of-fame.json, or undefined for a 404. */
-    public published?: unknown[],
+    /** The deployed hall-of-fame.json (a list by default), or undefined for a 404. */
+    public published: unknown[] | undefined = [],
+    /** The deployed rankings files by path: a text, or the status the site answers with (else a 404). */
+    public site: Record<string, string | number> = {},
   ) {
     this.next = Math.max(99, ...issues.map((i) => i.number)) + 1;
   }
@@ -70,8 +72,11 @@ export class FakeGitHub {
   /** The answer to a request for this fake, or null if the URL isn't GitHub's. */
   handle(url: string, init: RequestInit = {}): Response | null {
     const method = init.method ?? 'GET';
-    if (/^https:\/\/[^/]+\.github\.io\/[^/]+\/hall-of-fame\.json$/.test(url)) {
-      return this.published ? json(this.published) : json({ message: 'Not Found' }, 404);
+    const deployed = /^https:\/\/[^/]+\.github\.io\/[^/]+\/(hall-of-fame\.json|rankings\.json|rankings\/daily-\d{4}-\d{2}\.json)\?run=\d+-\d+$/.exec(url)?.[1];
+    if (deployed === 'hall-of-fame.json') return this.published ? json(this.published) : json({ message: 'Not Found' }, 404);
+    if (deployed) {
+      const file = this.site[deployed];
+      return typeof file === 'string' ? new Response(file) : new Response('Not Found', { status: file ?? 404 });
     }
     const match = /^https:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+(\/[^?]*)(?:\?(.*))?$/.exec(url);
     if (!match) return null;

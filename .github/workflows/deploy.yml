@@ -178,6 +178,8 @@ jobs:
       - run: npx tsx scripts/hall-of-fame.ts build
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Set to a UTC date only to start a new site's history that day (docs/HOSTING.md).
+          HOF_START_NEW_HISTORY: ${{ vars.HOF_START_NEW_HISTORY }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: hof-build-cache.json
