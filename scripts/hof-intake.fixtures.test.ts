@@ -110,7 +110,8 @@ describe('inbox: duplicate submissions', () => {
     const gh = (net.github = new FakeGitHub());
     await inbox();
 
-    expect(net.relays.requests).toHaveLength(HOF_RELAYS.length * 2); // a second page brings nothing new
+    // A second page brings only the oldest event again, at its `until`; a third steps past it, empty.
+    expect(net.relays.requests).toHaveLength(HOF_RELAYS.length * 3);
     expect(net.relays.requests[0].filter).toEqual({ kinds: [HOF_KIND], '#t': [HOF_TAG], since: NOW / 1000 - 7 * 24 * 60 * 60, limit: 100 });
     expect(gh.writes()).toEqual(FILING);
     const [filed] = gh.botIssues();
