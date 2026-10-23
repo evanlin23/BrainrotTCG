@@ -45,6 +45,14 @@ const centre = async (toast: Locator) => {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2, box };
 };
 
+/** The toast is still, not mid-entrance: the slide-in finishes before its place is measured. */
+const settled = (page: Page, toast: Locator) => expect.poll(async () => {
+  const first = (await toast.boundingBox())!;
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  const second = (await toast.boundingBox())!;
+  return first.y === second.y && first.x === second.x;
+}, { message: 'the toast has settled' }).toBe(true);
+
 /** One finger down on the toast, through each of `steps` (offsets from the press), then lifted. */
 async function drag(page: Page, toast: Locator, steps: { dx: number; dy: number }[], { lift = true } = {}) {
   const { x, y } = await centre(toast);
@@ -161,6 +169,7 @@ for (const viewport of PHONES) {
     await expect(toast).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.set-current')).toBeVisible();
     await toast.focus();
+    await settled(page, toast);
 
     const box = (await toast.boundingBox())!;
     expect(box.height, 'tall enough for a thumb').toBeGreaterThanOrEqual(TOUCH_TARGET - 0.5);
@@ -204,6 +213,7 @@ for (const viewport of PHONES) {
     for (const kicker of [/achievements unlocked/, /^Level up$/]) {
       await expect(page.locator('.toast-kicker')).toHaveText(kicker, { timeout: 15000 });
       await page.locator('.toast').focus();
+      await settled(page, page.locator('.toast'));
       const covered = await page.evaluate((selectors) => {
         const toast = document.querySelector('.toast')!.getBoundingClientRect();
         const problems: string[] = [];
