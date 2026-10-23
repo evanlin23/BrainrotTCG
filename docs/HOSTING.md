@@ -182,7 +182,7 @@ before the variable in step 3 above:
 3. In **Zero Trust → Access controls → Access settings → Manage service tokens**, check that
    **Strict service token authentication** is on (it is always on for organizations created from
    October 2026). Without it, Access answers a valid token with a `CF_Authorization` session cookie,
-   which a failed `page.request` call in the checks could print in its log; with it, Access sets no
+   which a failed direct request in the checks could print in its log; with it, Access sets no
    cookie and answers a missing or rejected token with a 401 or 403.
 4. Add the repository **secrets** `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` (**Settings →
    Secrets and variables → Actions → Secrets**).

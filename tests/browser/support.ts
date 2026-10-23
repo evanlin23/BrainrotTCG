@@ -46,7 +46,7 @@ export interface MonitorOptions {
    * product's own Hall of Fame relays are the one exception: closed unconnected and not recorded.
    */
   allowWebSocket?: boolean | string[] | ((socket: WebSocketRoute) => boolean | void);
-  /** Fail the running test at teardown when the guard recorded an attempt. Default true. */
+  /** Fail the running test at teardown when the guard recorded an attempt or a failed fetch. Default true. */
   failOnUnexpected?: boolean;
   /**
    * Keep the original same-origin `route.continue()` (after the origin, method and path checks)
@@ -68,6 +68,11 @@ export interface MonitorOptions {
 export type MonitorErrors = string[] & {
   /** Sanitized unexpected network attempts (at most 40), kept apart from product errors. */
   blocked: string[];
+  /**
+   * Sanitized monitored requests whose fetch failed (at most 40): the method, the URL without its
+   * query and the reason, for a page that only saw net::ERR_FAILED.
+   */
+  failed: string[];
   /**
    * The monitor's HTTP policy for guards that cannot use `page.route` (warm runs, which keep the
    * HTTP cache): null when the request is allowed, otherwise the status and body to answer with.
@@ -104,6 +109,18 @@ function sanitizeAttempt(method: string, urlString: string, note?: string): stri
 }
 
 /**
+ * Why a fetch failed: the first line of the error without Playwright's `route.fetch:` prefix, URLs in
+ * it sanitized and the given secrets redacted. The call log under that line repeats the full URL and
+ * every request header, the Access token included, so none of it is kept.
+ */
+export function fetchFailureReason(error: unknown, secrets: readonly string[]): string {
+  const message = error instanceof Error ? error.message : String(error);
+  let reason = message.split('\n', 1)[0].replace(/^[\w.]+: /, '').replace(/\b(?:https?|wss?):\/\/[^\s'"()]+/g, sanitizeUrl);
+  for (const secret of secrets) if (secret) reason = reason.split(secret).join('[redacted]');
+  return reason.slice(0, 200) || 'no reason given';
+}
+
+/**
  * Collects page errors, enforces network guard isolation, and seeds a fixture player.
  * `returning` also records saved packs, so the tabs show: a new player sees only the packs screen
  * until their first pack is saved (#222).
@@ -112,7 +129,9 @@ function sanitizeAttempt(method: string, urlString: string, note?: string): stri
  * - Only intended local read requests/paths are permitted; writes are refused with 403.
  * - Redirects are inspected with maxRedirects: 0; any redirect escape outside allowed origin/path is refused with 403.
  * - CSP is applied to enforce boundaries inside workers.
- * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence.
+ * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence, and on monitored
+ *   requests whose fetch failed, named the same way (one failing because the page or context closed
+ *   is teardown itself, and isn't recorded).
  * - routeHttp: false preserves the HTTP cache for warm performance measurements (baseline.spec.ts).
  */
 export async function monitor(
@@ -147,6 +166,11 @@ export async function monitor(
     if (blocked.length < MAX_BLOCKED_ENTRIES && !blocked.includes(entry)) {
       blocked.push(entry);
     }
+  };
+  const failed: string[] = [];
+  Object.defineProperty(errors, 'failed', { value: failed, enumerable: false });
+  const noteFailed = (entry: string) => {
+    if (failed.length < MAX_BLOCKED_ENTRIES && !failed.includes(entry)) failed.push(entry);
   };
 
   const base = new URL(baseURL);
@@ -207,16 +231,21 @@ export async function monitor(
 
   let failedTeardown = false;
   const checkUnexpectedTeardown = () => {
-    if (failedTeardown) return;
-    if (failOnUnexpected && blocked.length > 0) {
+    if (failedTeardown || !failOnUnexpected) return;
+    const messages = [];
+    if (blocked.length > 0) {
+      messages.push(`Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`);
+    }
+    if (failed.length > 0) {
+      messages.push(`Monitored request${failed.length === 1 ? '' : 's'} failed in the network guard (${failed.length}):\n${failed.join('\n')}`);
+    }
+    if (messages.length > 0) {
       failedTeardown = true;
       try {
         const currentTest = test.info();
         if (currentTest) {
           currentTest.status = 'failed';
-          currentTest.errors.push({
-            message: `Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`,
-          });
+          for (const message of messages) currentTest.errors.push({ message });
         }
       } catch {
         // test.info() unavailable outside active test runner
@@ -380,7 +409,6 @@ export async function monitor(
       try {
         // One connection per request: a kept-alive socket the preview server closes while the machine is
         // busy fails the next request with ECONNRESET, which aborted a chunk or the favicon and failed the test.
-        // The catch below still aborts without saying why, and page.request shares the pool: see #1046.
         const headers = { headers: { ...request.headers(), connection: 'close', ...token } };
         response = await route.fetch({ maxRedirects: 0, ...headers });
         // The browser sends the hop after a fulfilled redirect itself, past this handler, so on
@@ -392,7 +420,12 @@ export async function monitor(
           url = target.href;
           response = await route.fetch({ url, maxRedirects: 0, ...headers });
         }
-      } catch {
+      } catch (error) {
+        // The page only sees net::ERR_FAILED, so name the request and why for teardown (#1046). A fetch
+        // cut off because the page or context closed is teardown itself.
+        if (!(error instanceof Error && error.name === 'TargetClosedError')) {
+          noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, Object.values(access?.headers ?? {}))}`));
+        }
         return route.abort();
       }
 

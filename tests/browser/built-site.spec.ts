@@ -6,6 +6,10 @@ import { accessRequest } from './stagingAccess';
 /*
  * The real build, served as a host serves it, at whichever BASE_PATH the run built for: the
  * GitHub Pages subpath by default, and the root in CI's BASE_PATH=/ run (docs/HOSTING.md).
+ *
+ * Direct reads use the `request` fixture, a separate request context with its own sockets, not
+ * page.request: that shares the browser context's pool with monitor()'s route.fetch, so a socket it
+ * keeps alive could be handed to a monitored request as the server closes it (#1046).
  */
 
 const SET = { id: 'web-ancients', name: 'Web Ancients' };
@@ -20,7 +24,7 @@ const requests = (page: Page, baseURL: string) => {
   return seen;
 };
 
-test('the app shell, its code and its link-preview picture all load from the base path', async ({ page, baseURL }) => {
+test('the app shell, its code and its link-preview picture all load from the base path', async ({ page, request, baseURL }) => {
   const errors = await monitor(page, baseURL!);
   const seen = requests(page, baseURL!);
   await page.goto('./');
@@ -37,17 +41,17 @@ test('the app shell, its code and its link-preview picture all load from the bas
   expect(await meta('twitter:image')).toBe(image);
   expect(await meta('twitter:card')).toBe('summary_large_image');
   const local = new URL(new URL(image).pathname.replace(/^.*?og-image/, 'og-image'), baseURL).href;
-  const response = await page.request.get(local, accessRequest(local));
+  const response = await request.get(local, accessRequest(local));
   expect(response.status()).toBe(200);
   expect(response.headers()['content-type']).toBe('image/jpeg');
   expect([await meta('og:image:width'), await meta('og:image:height')]).toEqual(['1200', '630']);
   expect(errors).toEqual([]);
 });
 
-test("a set's link opens the packs screen on that set, and leaves the address clean", async ({ page, baseURL }) => {
+test("a set's link opens the packs screen on that set, and leaves the address clean", async ({ page, request, baseURL }) => {
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   const setUrl = new URL(`s/${SET.id}/`, baseURL).href;
-  const setPage = await page.request.get(setUrl, accessRequest(setUrl));
+  const setPage = await request.get(setUrl, accessRequest(setUrl));
   expect(setPage.status()).toBe(200);
   expect(await setPage.text()).toContain(`<meta property="og:title" content="${SET.name}`);
   await page.goto(`./s/${SET.id}/`);
