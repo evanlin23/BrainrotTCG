@@ -6,7 +6,7 @@
  * null, "no archive", never as an error.
  */
 import { parseDailyArchive, parseRankingsFile, previousUtcDay, utcDay, type ArchivedPull } from '../engine';
-import { LOAD_TIMEOUT_MS } from './hallOfFameList';
+import { LIST_TTL_MS, LOAD_TIMEOUT_MS } from './hallOfFameList';
 
 export interface PublishedRankings {
   /** When the build wrote the rankings (and hall-of-fame.json with them), from the file itself. */
@@ -69,32 +69,49 @@ export const parsePastMonth = (text: string, month: string, rankings: PublishedR
   }
 };
 
-let loading: Promise<PublishedRankings | null> | null = null;
-
-/** rankings.json, fetched once per visit (again after a failure); null if missing or malformed. */
-export const loadPublishedRankings = (): Promise<PublishedRankings | null> => {
-  if (loading) return loading;
-  loading = fetchText('rankings.json').then((text) => {
-    const rankings = text === null ? null : parsePublishedRankings(text);
-    if (rankings === null) loading = null;
-    return rankings;
-  });
-  return loading;
+/**
+ * `load`, run at most once every LIST_TTL_MS (as `loadHallOfFame` is), so a tab left open picks up
+ * a removal the next time it shows the rankings after that. A load that gives null keeps the last
+ * value that loaded (null if none has), and the next call tries again.
+ */
+const reused = <T>(load: () => Promise<T | null>): (() => Promise<T | null>) => {
+  let loading: Promise<T | null> | null = null;
+  let loadedAt = 0;
+  let last: T | null = null;
+  return () => {
+    if (loading && Date.now() - loadedAt < LIST_TTL_MS) return loading;
+    loadedAt = Date.now();
+    const current = load().then((value) => {
+      if (value !== null) return (last = value);
+      if (loading === current) loading = null;
+      return last;
+    });
+    return (loading = current);
+  };
 };
 
-const months = new Map<string, Promise<PastDay[] | null>>();
+/** rankings.json, fetched at most once every five minutes; null if it has never loaded and checked. */
+export const loadPublishedRankings = reused(async () => {
+  const text = await fetchText('rankings.json');
+  return text === null ? null : parsePublishedRankings(text);
+});
 
-/** A listed month's closed days, fetched once per visit (again after a failure); null if missing or malformed. */
+const months = new Map<string, () => Promise<PastDay[] | null>>();
+
+/**
+ * A listed month's closed days, fetched at most once every five minutes for the same rankings.json;
+ * null if it has never loaded and checked.
+ */
 export const loadPastMonth = (rankings: PublishedRankings, month: string): Promise<PastDay[] | null> => {
   if (!rankings.months.includes(month)) return Promise.resolve(null);
   const key = `${rankings.generatedAt} ${month}`;
-  const cached = months.get(key);
-  if (cached) return cached;
-  const load = fetchText(`rankings/daily-${month}.json`).then((text) => {
-    const days = text === null ? null : parsePastMonth(text, month, rankings);
-    if (days === null) months.delete(key);
-    return days;
-  });
-  months.set(key, load);
-  return load;
+  let load = months.get(key);
+  if (!load) {
+    load = reused(async () => {
+      const text = await fetchText(`rankings/daily-${month}.json`);
+      return text === null ? null : parsePastMonth(text, month, rankings);
+    });
+    months.set(key, load);
+  }
+  return load();
 };

@@ -22,6 +22,8 @@ const october: DailyArchive = {
   },
 };
 const OCTOBER = serializeDailyArchive(october);
+/** October after a maintainer rejected pull 3's issue: the next build drops it from the 14th. */
+const OCTOBER_REMOVED = serializeDailyArchive({ ...october, days: { ...october.days, '2026-10-14': [october.days['2026-10-14'][0]] } });
 const BUILT = '2026-10-16T12:00:00.000Z';
 const RANKINGS: PublishedRankings = { generatedAt: BUILT, openFrom: '2026-10-15', months: ['2026-10', '2026-09'] };
 
@@ -102,7 +104,7 @@ describe('parsePastMonth', () => {
 
 describe('loading', () => {
   const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>();
-  /** A fresh module each time: the loaders keep what they fetched for the visit. */
+  /** A fresh module each time: the loaders keep what they fetched for up to five minutes. */
   const fresh = async () => {
     vi.resetModules();
     return import('./publishedRankings');
@@ -115,7 +117,7 @@ describe('loading', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('fetches rankings.json once per visit, without the cached copy', async () => {
+  it('fetches rankings.json once within five minutes, without the cached copy', async () => {
     const { loadPublishedRankings } = await fresh();
     fetchMock.mockImplementation(() => ok(indexText(BUILT, ['2026-09', '2026-10'])));
     expect(await loadPublishedRankings()).toEqual(RANKINGS);
@@ -140,7 +142,7 @@ describe('loading', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
-  it("fetches a listed month's archive once, and never one rankings.json doesn't list", async () => {
+  it("fetches a listed month's archive once within five minutes, and never one rankings.json doesn't list", async () => {
     const { loadPastMonth } = await fresh();
     fetchMock.mockImplementation(() => ok(OCTOBER));
     expect((await loadPastMonth(RANKINGS, '2026-10'))?.map((d) => d.day)).toEqual(['2026-10-14', '2026-10-01']);
@@ -150,6 +152,90 @@ describe('loading', () => {
     expect(await loadPastMonth(RANKINGS, '2026-08')).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  /** Runs `body` with Date faked from `start`, so the reuse limit is crossed without waiting. */
+  const atTime = async (start: string, body: () => Promise<void>) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(start));
+      await body();
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  it('fetches rankings.json again once it is five minutes old, so an open tab picks up a new deploy', () =>
+    atTime('2026-10-16T12:10:00Z', async () => {
+      const { loadPublishedRankings } = await fresh();
+      fetchMock.mockImplementation(() => ok(indexText(BUILT, ['2026-09', '2026-10'])));
+      expect(await loadPublishedRankings()).toEqual(RANKINGS);
+
+      const REDEPLOYED = '2026-10-16T12:12:00.000Z';
+      fetchMock.mockImplementation(() => ok(indexText(REDEPLOYED, ['2026-09', '2026-10'])));
+      vi.setSystemTime(new Date('2026-10-16T12:14:59.999Z'));
+      expect(await loadPublishedRankings()).toEqual(RANKINGS);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
+      expect((await loadPublishedRankings())?.generatedAt).toBe(REDEPLOYED);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]).toEqual([`${import.meta.env.BASE_URL}rankings.json`, expect.objectContaining({ cache: 'no-cache' })]);
+      // ...and keeps the new one for the next five minutes.
+      await loadPublishedRankings();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }));
+
+  it('keeps the rankings.json it had when a refetch fails, and tries again on the next read', () =>
+    atTime('2026-10-16T12:10:00Z', async () => {
+      const { loadPublishedRankings } = await fresh();
+      fetchMock.mockImplementation(() => ok(indexText(BUILT, ['2026-09', '2026-10'])));
+      await loadPublishedRankings();
+
+      vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
+      fetchMock.mockImplementation(() => Promise.resolve(new Response('Unavailable', { status: 503 })));
+      expect(await loadPublishedRankings()).toEqual(RANKINGS);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      fetchMock.mockImplementation(() => ok(indexText(BUILT, ['2026-10'])));
+      expect((await loadPublishedRankings())?.months).toEqual(['2026-10']);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    }));
+
+  it("fetches a month's archive again once it is five minutes old, so an open tab drops a removed pull", () =>
+    atTime('2026-10-16T12:10:00Z', async () => {
+      const { loadPastMonth } = await fresh();
+      const fourteenth = async () => (await loadPastMonth(RANKINGS, '2026-10'))?.find((d) => d.day === '2026-10-14')?.entries.map((e) => e.name);
+      fetchMock.mockImplementation(() => ok(OCTOBER));
+      expect(await fourteenth()).toEqual(['Player 2', 'Player 3']);
+
+      fetchMock.mockImplementation(() => ok(OCTOBER_REMOVED));
+      vi.setSystemTime(new Date('2026-10-16T12:14:59.999Z'));
+      expect(await fourteenth()).toEqual(['Player 2', 'Player 3']);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
+      expect(await fourteenth()).toEqual(['Player 2']);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]).toEqual([`${import.meta.env.BASE_URL}rankings/daily-2026-10.json`, expect.objectContaining({ cache: 'no-cache' })]);
+      await fourteenth();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    }));
+
+  it("keeps the month's archive it had when a refetch fails, and tries again on the next read", () =>
+    atTime('2026-10-16T12:10:00Z', async () => {
+      const { loadPastMonth } = await fresh();
+      fetchMock.mockImplementation(() => ok(OCTOBER));
+      const before = await loadPastMonth(RANKINGS, '2026-10');
+
+      vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
+      fetchMock.mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')));
+      expect(await loadPastMonth(RANKINGS, '2026-10')).toEqual(before);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      fetchMock.mockImplementation(() => ok(OCTOBER_REMOVED));
+      expect((await loadPastMonth(RANKINGS, '2026-10'))?.find((d) => d.day === '2026-10-14')?.entries).toHaveLength(1);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    }));
 
   it('reads a missing or malformed archive as no archive, and tries again next time', async () => {
     const { loadPastMonth } = await fresh();

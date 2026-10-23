@@ -330,9 +330,10 @@ describe('build: the published snapshot', () => {
       { 1: [verifiedBy(fourOfAKind, 90000)], 2: [verifiedBy(fourOfAKind, 80000)] },
     ));
     await build(output());
-    // #1 was verified first, but it's rejected, so #2 has the pull; #1 isn't even read.
+    // #1 was verified first, but it's rejected, so #2 has the pull; #1's comments are read once,
+    // only for the withdrawn list's markers.
     expect(entries().map((e) => [e.issue, e.githubUser])).toEqual([[2, 'bob']]);
-    expect(gh.requests.some((r) => r.path.startsWith('/issues/1/'))).toBe(false);
+    expect(gh.requests.filter((r) => r.path.startsWith('/issues/1/')).map((r) => r.path)).toEqual(['/issues/1/comments']);
 
     gh.issues[1].labels.push({ name: 'rejected' });
     gh.issues[1].updated_at = at(10);
