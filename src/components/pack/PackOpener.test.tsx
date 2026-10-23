@@ -37,7 +37,7 @@ vi.mock('../../hooks/usePackCutter', () => ({
   },
 }));
 vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
-vi.mock('../../utils/confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
+vi.mock('./confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
 let root: Root;

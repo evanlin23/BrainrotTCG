@@ -7,7 +7,7 @@ import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../..
 import { holdLive } from '../../game/admission';
 import { reloadPage } from '../../game/reload';
 import { whenIdle } from '../../game/idle';
-import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
+import { triggerRarityConfetti, triggerHoloSparkles } from './confettiEffects';
 import { buzz } from '../../utils/motion';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
