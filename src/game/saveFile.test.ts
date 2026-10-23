@@ -25,7 +25,7 @@ const write = vi.fn((key: string, value: string) => { store.set(key, value); });
 
 beforeEach(() => {
   store.clear();
-  write.mockClear();
+  write.mockReset(); // also drops an implementation a test installed, not just its calls
   vi.stubGlobal('localStorage', {
     get length() { return store.size; },
     key: (index: number) => [...store.keys()][index] ?? null,

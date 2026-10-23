@@ -99,7 +99,8 @@ Examples from merged fixes:
 CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
 deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
 to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
-deploying main. CI uploads files only from failed runs, kept for 7 days.
+deploying main. CI uploads files only from failed runs, kept for 7 days. A nightly workflow, not
+part of PR CI, runs the unit suite in shuffled order twice (see Shuffled and repeat runs).
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
@@ -207,6 +208,29 @@ stronger, and is done by hand against the preview and described in the PR.
 Browser tests have no retries, so a test that fails once fails CI: fix its cause rather than re-running.
 Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
 close-up sets `data-tilt="live"` once it follows the mouse.
+
+### Automated axe checks
+
+`tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
+browser spec. `axe-critical-states.spec.ts` calls it for four loaded states: the first pack, the pack
+summary, Settings and a card's share sheet over its viewer, in both projects. A scan runs a fixed list of
+rules (names, roles and relationships, the document, and `color-contrast`) after fonts, images and finite
+running animations have settled, with reduced motion emulated for the scan so looping pulses cannot make
+contrast depend on their phase; it is not a tag or the whole rule set, and no rule is disabled. Add a state by
+calling `expectAxeClean(page, testInfo, '<state>')` once its screen is loaded, after listing the state in
+`AXE_STATES`; do not add another scanner.
+
+- A scan fails on any violation, on a scan that passed no nodes, and on a page where contrast or the
+  document checks found nothing to check, so an empty or wrong page cannot pass.
+- Axe cannot judge text on art, gradients, overlapping layers, partly transparent backgrounds or
+  pseudo-element backgrounds, canvas contents or images. It lists those as "needs review"; each scan attaches
+  them to the test report, adds an `axe-needs-review` annotation and prints one line per scan, so the list
+  shows in CI logs. Treat them as unchecked, not as passing.
+- An accepted violation goes in `AXE_EXCEPTIONS` with its state, exact rule and selector, the reason, an
+  owner and what removes it (a test rejects an entry with a blank field or an unknown rule or state). An entry
+  that stops matching fails the scan, so the list only shrinks. It is empty today; use it only with a linked follow-up.
+- A green scan is not a full accessibility audit or a physical-phone check. Keyboard order, focus rings,
+  reduced motion, target sizes and screen-reader wording stay with the specs that own them.
 
 The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
 adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes, in both
@@ -396,6 +420,33 @@ times on an up-to-date branch, set each floor a few points below the lowest figu
 budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor
 only for removed or unreachable code, never to land untested code. When the runtime budget trips,
 look for a slow or hanging test before raising it.
+
+## Shuffled and repeat runs
+
+`.github/workflows/test-order.yml` runs the unit suite on a schedule (06:41 UTC) or by hand from the
+Actions tab, never for a pull request. It runs `vitest run` with files and tests shuffled by one
+seed, then again with the same seed in the same job. A test that fails only shuffled depends on what
+another test left behind; one that fails in only one of the two runs depends on the clock,
+`Math.random` or load. Both runs leave out coverage and the runtime budget, which per-PR CI owns,
+and nothing is retried. The runs sample orders: a green night doesn't prove the suite
+order-independent, and GitHub's schedule is best effort (it has never fired the Hall of Fame inbox
+here), so a night without a run is not a pass.
+
+The seed is the run id modulo 10^9, or the `seed` input of a manual run. The job log
+(`Shuffle seed: ...`) and the run summary record it with the revision. To replay a failure exactly:
+
+```sh
+git checkout <revision> && npm ci
+npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=<seed>
+```
+
+Adding the failing file's path to that command keeps the order of the tests within the file but
+not the order of files, so if the file alone passes, replay the whole suite.
+A failure, timeout or cancel comments on the open `test-order` issue that the workflow opened, or opens one, with the
+seed, revision, run link and replay command. File each root cause as its own issue and link it
+there. Fix the test, never loosen or skip it, and close the issue once a run passes again.
+`scripts/hof-workflows.test.ts` checks the workflow's permissions and runs its seed and report steps,
+in the shell each declares, against a fake `gh`.
 
 ## Performance baseline
 
