@@ -141,6 +141,12 @@ UI. The check reads every `src/` and `scripts/` file with TypeScript's import sc
 `paths` aliases count. Test files (`*.test.*`, `src/test/`, `tests/`) may cross layers, but
 production code can't import them. A new directory under `src/` fails until it is added to the map.
 
+Within a layer, `FILE_ORDER` in the same file lists chains of files that build on each other in one
+direction: a file may import the files before it in its chain, never one after it. The one chain is
+the own-profile code in `src/game` (#699): `myTickets.ts` (the ticket list), then `packCache.ts`
+(reading saved packs), `reopenJob.ts` (re-opening) and `profiles.ts` (proofs and stats). Every path
+in a chain must name a source file, so renaming one fails the check until the chain is updated.
+
 UI packages (`react`, `react-dom`, `framer-motion`, `lucide-react`, `canvas-confetti`) are allowed only
 in `hooks`, `components`, `app` and `scripts` (scripts never import UI code anyway); `engine` allows a
 fixed list of packages, and `content`, `constants`, `styles`, `data`, `workers`, `game`, `types` and `utils`

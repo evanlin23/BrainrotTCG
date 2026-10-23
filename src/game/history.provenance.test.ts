@@ -86,10 +86,10 @@ const setUp = (entries: Entry[]) => {
 /** A page load: fresh game modules, so only what storage holds carries over. */
 const load = async () => {
   vi.resetModules();
-  const [history, player, profiles, saveFile, packStore] = await Promise.all([
-    import('./history'), import('./player'), import('./profiles'), import('./saveFile'), import('./packStore'),
+  const [history, player, profiles, reopenJob, saveFile, packStore] = await Promise.all([
+    import('./history'), import('./player'), import('./profiles'), import('./reopenJob'), import('./saveFile'), import('./packStore'),
   ]);
-  return { history, player, profiles, saveFile, packStore };
+  return { history, player, profiles, reopenJob, saveFile, packStore };
 };
 
 const expectFixtureProof = (proof: string | null, tickets = 4) => {
@@ -161,7 +161,7 @@ describe('original ticket mappings across a mixed-set history', () => {
       app = await load();
       expect(app.player.peekNonce()).toBe(5);
       expect(app.profiles.myProfileInfo()).toMatchObject({ packs: 5, filled: 1, missing: 2 });
-      await app.profiles.reopenMyPacks();
+      await app.reopenJob.reopenMyPacks();
       // The mapped ticket is re-opened in its own set; the unmapped one in none.
       expect(app.packStore.getStoredPack('right-now@1', HEX, 1)).toBe(opened[1].c);
       for (const set of setKeys) expect(app.packStore.getStoredPack(set, HEX, 4)).toBeUndefined();
