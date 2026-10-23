@@ -8,8 +8,8 @@ const NEW = 'https://brainrottcg.pages.dev/';
 const PROOF = 'v4.' + 'A'.repeat(80);
 const PROFILE = 'a'.repeat(120);
 
-/** Opens the old address at `url` and runs the page's script, with `save` in its storage. */
-const visit = (url: string, save: Record<string, string> = {}) => {
+/** Opens the old address at `url` and runs the page's script, with `save` in its storage and `opener` as the window that opened it. */
+const visit = (url: string, save: Record<string, string> = {}, opener: { postMessage: (data: unknown, origin: string) => void } | null = null) => {
   const script = /<script>([\s\S]*)<\/script>/.exec(redirectPage(NEW))![1];
   const { pathname, hash } = new URL(url);
   const elements: Record<string, { hidden?: boolean; textContent?: string; onclick?: () => void }> = {};
@@ -39,7 +39,7 @@ const visit = (url: string, save: Record<string, string> = {}) => {
       setItem: (k: string, v: string) => { save[k] = v; },
     },
     window: {
-      opener: null,
+      opener,
       open: (url: string, target: string, features: string) => {
         openCall = { url, target, features };
         return popup;
@@ -182,6 +182,20 @@ describe('redirectPage', () => {
     expect(page.save['brainrot-moved-v1']).toBeDefined();
     expect(page.target).toBe(`${NEW}#/cards`);
     expect(page.messageListeners).toHaveLength(0);
+  });
+
+  it("sends its save to Save & backup (#/send) without marking it moved: that window can't say it arrived (#1035)", () => {
+    const opener = { postMessage: vi.fn() };
+    const save = { 'brainrot-player-v1': '{"key":"1"}' };
+    const page = visit('https://evanlin23.github.io/BrainrotTCG/#/send', save, opener);
+    expect(opener.postMessage).toHaveBeenCalledExactlyOnceWith({ type: 'brainrot-save', save: { 'brainrot-player-v1': '{"key":"1"}' } }, new URL(NEW).origin);
+    expect(page.elements.status.textContent).toBe('Sent to brainrottcg.pages.dev. You can close this window.');
+    expect(page.target).toBeNull();
+    expect(page.save).toEqual({ 'brainrot-player-v1': '{"key":"1"}' });
+    // The next old link still offers to bring it.
+    const next = visit('https://evanlin23.github.io/BrainrotTCG/#/cards', page.save);
+    expect(next.target).toBeNull();
+    expect(next.elements.choice.hidden).toBe(false);
   });
 
   it('does not mark moved when transfer fails (e.g. storage full), leaving original save untouched for retry', () => {

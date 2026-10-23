@@ -61,9 +61,10 @@ What keeps working:
   a different save at the new address, they're asked first and the replaced save is kept as a backup;
   if the backup can't be stored, nothing is replaced. The old address keeps its copy and marks it
   moved (`brainrot-moved-v1`) once the new address reports that it stored the save or already had
-  that player's save, or as soon as it sends the save to Save & backup; after that, old links go
-  straight to the new address without offering the move. **Go without it** marks nothing, so the
-  next old link offers it again.
+  that player's save; after that, old links go straight to the new address without offering the
+  move. Sending the save to Save & backup marks nothing, since that window is closed before the new
+  address stores it, so old links still offer the move afterwards. **Go without it** marks nothing,
+  so the next old link offers it again.
 - **The Hall of Fame.** The old address keeps serving `hall-of-fame.json` for the scripts, and the
   issue links it files redirect like any other link.
 
