@@ -162,6 +162,9 @@ What keeps staging apart:
    *brainrottcg - Cloudflare Pages* covers `*.brainrottcg.pages.dev`, and it stays), give the checks
    a service token as in [Cloudflare Access on staging](#cloudflare-access-on-staging). Without
    Access, skip this step.
+   To remove an existing preview Access policy instead, delete the Access app in Zero Trust → Access
+   controls → Applications (or turn the policy off in the Pages project's settings), then drop the service
+   token and its two secrets.
 3. After this change is merged and a deploy on `main` succeeds, add the repository **variable** (not a
    secret) `CLOUDFLARE_STAGING_BRANCH` with the value `staging` (**Settings → Secrets and variables →
    Actions → Variables**). The next deploy goes through staging, at

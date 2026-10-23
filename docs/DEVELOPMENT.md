@@ -11,10 +11,10 @@ Use Node 22, as CI does. `npm ci` installs from the lockfile; only change `packa
 dependency change. A fresh checkout or worktree has no `node_modules` and needs `npm ci` before any
 check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
-A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (about 55 MiB
-of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without it, `npm run cards` can't run and `npm run check` can't
-test for placeholder art, so CI is authoritative; run `git sparse-checkout disable` before editing or
-adding a set.
+A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (52-54 MiB
+of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without
+it, `npm run cards` can't run and `npm run check` can't test for placeholder art, so CI is authoritative;
+run `git sparse-checkout disable` before editing or adding a set.
 
 ## Workflow
 
@@ -54,7 +54,7 @@ Closing a reproduced defect takes a short note on the issue, backed by the PR's 
 1. **Root cause**, one sentence naming the code or contract that failed. Separate a pre-existing
    defect from a regression this change introduced. Cite source, test or PR evidence; don't name the
    introducing commit without tracing it.
-2. **Escape class**, why existing controls missed it:
+2. **Escape class**, why existing controls missed it. Cite the test or PR that missed it:
    - *missing_scenario*: an edge, cancellation, storage denial or limit was never exercised.
    - *incorrect_expected_contract*: a test asserted the wrong behaviour or merged two failure kinds.
    - *over_mocked_collaborator*: a mock hid the real boundary (the Review evidence row covers what
@@ -77,7 +77,8 @@ Examples from merged fixes:
 
 - #647 (PR #912), `wrong_test_level`: the Settings import (FileReader) boundary dereferenced parsed
   JSON before checking it was an object. Before 1209cf0 only `null` threw (`incoming.player`);
-  arrays and primitives reached the "Replace ... Yours is kept as a backup?" prompt. The regression
+  arrays and primitives reached the "Replace <saves>? Yours is kept as a backup." prompt (asked only
+  when this browser already has progress). The regression
   is in `SettingsPage.test.tsx` (non-object files give a message and no replacement prompt).
 - #695 (PR #919), `missing_scenario`: `reopenCache.ts` `flush` ran `removeItem` inside its `catch`,
   so a fully denied storage threw from a timer. The regression is in `reopenCache.test.ts` (both
@@ -423,7 +424,7 @@ The run passes only when all three cases are validated and all four meta-cases a
 defect or a wrong meta-case is a `fail`, an inconclusive case is `blocked`, and the exit code is
 non-zero for both. The quality review shows the file as its `defect-replay` signal.
 
-CI runs it on every pull request that changes the gate itself: `vite.config.ts`, `src/test/`, this
+CI runs it on every pull request that changes the gate itself: `vite.config.ts`, `src/test/`, `package.json`, `package-lock.json`, `scripts/test-budget.ts`, this
 script and its test, or a file a case owns or reverts (`GATE_PATHS` in the script). The step is in
 the required `check` job and diffs the merge commit against its base, so a `fail` or `blocked`
 replay turns that check red and blocks the merge until it is fixed or the case is updated to the
@@ -710,6 +711,9 @@ Xeon host with Chromium 141 headless at `819311f` (emulation, not a device), as 
 | Worker idle between tickets, total | 249 ms | 13 ms |
 | Long tasks while checking: count, total | 5, 734 ms | 9, 1001 ms |
 | Peak busy tickets, workers created | 1, 3 | 1, 3 |
+
+The One ahead column is a record of a trial variant: that code isn't in the tree, so the harness
+reproduces only the kept column.
 
 Going one ahead saves about 3% on the last row (the ranges overlap) and costs about 4% on the
 first row. It also adds main-thread long tasks, because the next pull's checks run while the
