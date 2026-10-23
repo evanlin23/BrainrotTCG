@@ -10,10 +10,12 @@ import { monitor } from './support';
 const PLAYS = 'brainrot-open-cue-plays-v1';
 const shell = (page: Page) => page.locator('.pack-shell');
 const plays = (page: Page) => page.evaluate((key) => localStorage.getItem(key), PLAYS);
+// Only the cue's own keyframe animations count: an inherited property can start a brief CSSTransition
+// on any element as the page settles, and under reduced motion that is not motion the cue made.
 const pillAnimations = (page: Page) =>
-  page.locator('.swipe-hint-icon').evaluate((el) => el.getAnimations().filter((a) => a.playState === 'running').length);
-const fingerAnimations = (page: Page) =>
-  page.locator('.open-cue-travel').evaluate((el) => el.getAnimations().length);
+  page.locator('.swipe-hint-icon').evaluate((el) => el.getAnimations().filter((a) => a instanceof CSSAnimation && a.playState === 'running').length);
+const keyframeAnimations = (page: Page, selector: string) =>
+  page.locator(selector).evaluate((el) => el.getAnimations().filter((a) => a instanceof CSSAnimation).length);
 
 /**
  * A reload cancels the art the page is still prefetching for the next pack, and the monitor sees each
@@ -42,9 +44,9 @@ test('a new player sees the cue on the first load, and a touch ends it for good'
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
   await expect(page.locator('.open-cue')).toHaveCount(1);
   await expect(page.locator('.open-cue-finger')).toBeVisible();
-  expect(await plays(page)).toBe('1');
+  await expect.poll(() => plays(page)).toBe('1');
   expect(await pillAnimations(page)).toBe(1);
-  expect(await fingerAnimations(page)).toBeGreaterThan(0);
+  expect(await keyframeAnimations(page, '.open-cue-travel')).toBeGreaterThan(0);
 
   // The first touch stops it, and counts as understood.
   // The pack drops in on a spring and is visible long before it lands. Hovering waits for it to stop
@@ -61,7 +63,7 @@ test('a new player sees the cue on the first load, and a touch ends it for good'
   await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   await expect(page.locator('.open-cue')).toHaveCount(0);
   expect(await pillAnimations(page)).toBe(0);
-  expect(await plays(page)).toBe('2');
+  await expect.poll(() => plays(page)).toBe('2');
   await page.mouse.up();
   expect(errors).toEqual([]);
 });
@@ -72,14 +74,20 @@ test('left alone, the cue plays its twice, comes to rest, and the third load has
   await load(page);
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
 
-  // It plays once through (2.4s) and ends by itself, leaving the pill's arrows still.
-  await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/, { timeout: 8000 });
+  await expect.poll(() => plays(page)).toBe('1');
+
+  // It plays once through and ends by itself, leaving the pill's arrows still. Finishing the finger's
+  // and the tear's animations fires the animationend the cue ends on, without waiting out the 2.4s.
+  await page.evaluate(() => document.querySelectorAll('.open-cue-travel, .open-cue-tear').forEach((target) => target.getAnimations().forEach((animation) => animation.finish())));
+  await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   expect(await pillAnimations(page)).toBe(0);
   expect(await plays(page)).toBe('1');
+  // Nothing has failed yet: a reload's own cancelled art is let through only after the first one.
+  expect(errors).toEqual([]);
 
   await page.reload();
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
-  expect(await plays(page)).toBe('2');
+  await expect.poll(() => plays(page)).toBe('2');
 
   await page.reload();
   await expect(shell(page)).toBeVisible();
@@ -99,8 +107,8 @@ test('with reduced motion the cue is a still frame: arrowheads and caption, noth
   await expect(page.locator('.open-cue-finger')).toBeVisible();
   await expect(page.locator('.swipe-hint-text')).toBeVisible();
   expect(await pillAnimations(page)).toBe(0);
-  expect(await fingerAnimations(page)).toBe(0);
-  expect(await page.locator('.open-cue-tear').evaluate((el) => el.getAnimations().length)).toBe(0);
+  expect(await keyframeAnimations(page, '.open-cue-travel')).toBe(0);
+  expect(await keyframeAnimations(page, '.open-cue-tear')).toBe(0);
   expect(errors).toEqual([]);
 });
 

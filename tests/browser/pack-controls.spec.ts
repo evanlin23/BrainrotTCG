@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectRecordedPack, fingerFor, monitor, snapshot } from './support';
+import { expectDecoded, expectRecordedPack, fingerFor, holdTickets, monitor, releaseTickets, snapshot } from './support';
 
 /**
  * The pack's one control (#312 S4, #628): the pack itself is a button named "Open pack, {set}", and a
@@ -9,7 +9,7 @@ import { expectRecordedPack, fingerFor, monitor, snapshot } from './support';
  * is emulated by doubling the root font size the rem tokens use.
  */
 
-const openPack = (page: Page) => page.getByRole('button', { name: /^Open pack/ });
+const openPack = (page: Page) => page.getByRole('button', { name: /^Open pack, / });
 
 /** Samples, every frame from now on, whether focus has fallen back to the page's body. */
 async function watchFocus(page: Page) {
@@ -30,6 +30,9 @@ async function watchFocus(page: Page) {
 test('clicking Open pack opens the pack through the same reveal and save as a swipe', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
+  // The ticket waits until released, so the opening's busy state is seen and the time to mine it is not
+  // part of any wait below.
+  await holdTickets(page);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
 
@@ -43,8 +46,13 @@ test('clicking Open pack opens the pack through the same reveal and save as a sw
   await expect(page.locator('main button')).toHaveCount(0);
 
   await openPack(page).click();
-  await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
+  await expect(shell).toHaveAttribute('aria-label', 'Opening…');
+  await expect(shell).toHaveAttribute('aria-busy', 'true');
+  await releaseTickets(page);
+  await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5');
   await expect(page.locator('.reveal-card:focus')).toHaveAttribute('aria-label', 'Flip card 1 of 5');
+  // Skip unmounts the reveal, which would abort art still loading: let the dealt card's finish first.
+  await expectDecoded(page.locator('.reveal-card img.card-image:not(.misprint-ghost)'), 1);
 
   await page.locator('button.reveal-skip').click();
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });

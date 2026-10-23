@@ -279,6 +279,9 @@ for (const size of SIZES) {
           await expectStill(packShell, 'the stage to settle at the bottom');
           const scrolled = (await packShell.boundingBox())!;
           const scrolledStage = (await stageEl.boundingBox())!;
+          // The pack is the stage's last content now (no button below it), and its height is fractional
+          // (1346.2px at 1280x800) while scrollTop is whole (592): its bottom rests up to a pixel past
+          // the stage's, 0.58px at 1280x800, which the old button's own box used to absorb.
           expect(scrolled.y + scrolled.height, 'bottom of the pack against the bottom of the stage, scrolled down').toBeLessThanOrEqual(scrolledStage.y + scrolledStage.height + 1);
           expect(scrolled.y + scrolled.height, 'bottom of the pack in the window, scrolled down').toBeLessThanOrEqual(size.height + 0.5);
           expect(scrolled.y + scrolled.height, 'the bottom of the pack is on screen, not above the stage').toBeGreaterThan(scrolledStage.y);

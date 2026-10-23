@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectStill, fingerFor, type Finger } from './support';
+import { monitor, expectDecoded, expectStill, fingerFor, holdTickets, releaseTickets, type Finger } from './support';
 
 /**
  * As a pack opens, the app moves focus by script: onto each card, then the result. Chromium rings
@@ -265,6 +265,8 @@ test('opened with Space alone: no yellow ring, but focus stays visible on the ca
 test('opened by keyboard: Tab rings, Space is quiet, Tab rings again, until a click', async ({ page, baseURL }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'A keyboard check; the desktop project has the keyboard.');
   test.setTimeout(90000);
+  // The ticket is held, so the pack that Space starts opening stays up and keeps the focus Tab gave it.
+  await holdTickets(page);
   const { errors } = await sealedPack(page, baseURL!);
   const pack = page.getByRole('button', { name: /^Open pack/ });
   for (let tabs = 0; !(await pack.evaluate((el) => el === document.activeElement)); tabs++) {
@@ -274,9 +276,15 @@ test('opened by keyboard: Tab rings, Space is quiet, Tab rings again, until a cl
   await expectRing(pack, 'Open pack');
 
   // Space on the pack opens it as it goes down, and from then on the page counts the press as input.
+  // The pack is waiting on its ticket and still holds the focus Tab gave it: it keeps its ring.
+  // Its name changes to Opening…, so it is found by what it is rather than by name from here.
+  const opening = page.locator('[data-pack-open]');
   await page.keyboard.down('Space');
+  await expect(opening).toHaveAttribute('aria-label', 'Opening…');
   expect(await page.evaluate(() => document.documentElement.dataset.input)).toBe('press');
+  await expectRing(opening, 'Open pack while Space is held', 'press');
   await page.keyboard.up('Space');
+  await releaseTickets(page);
   await revealAll(page, () => page.keyboard.press('Space'), expectQuietOutlineAfterPress);
   const title = page.locator('.summary-title');
   await expect(title).toBeFocused();
