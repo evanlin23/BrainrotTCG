@@ -382,6 +382,7 @@ describe('the sealed pack stage on a desktop window', () => {
       // The stage scrolls here (PackOpener.css); the player has wheeled down to the bottom of the pack.
       const stage = document.querySelector<HTMLElement>('.pack-display')!;
       stage.scrollTop = 420;
+      stage.dispatchEvent(new Event('scroll')); // jsdom doesn't scroll on its own; a browser does this
       expect(stage.scrollTop).toBe(420);
 
       act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
@@ -392,6 +393,54 @@ describe('the sealed pack stage on a desktop window', () => {
       expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
       expect(stage.scrollTop).toBe(0);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Writing scrollTop, or measuring the stage and its room, inside the commit that brings the cards in
+  // makes the browser lay the page out there, in the middle of the longest stall between the tear and
+  // the first card on a slow phone (#266). The hold measures once, as the pack is torn.
+  it('does not write the scroll or measure the stage in the commit that brings the cards in', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const set = SETS[0];
+    const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+    vi.mocked(openPack).mockResolvedValue({
+      setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
+    } as unknown as Awaited<ReturnType<typeof openPack>>);
+    const scrollWrites: Element[] = [];
+    const measured: unknown[] = [];
+    const scrollTop = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop')!;
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get: scrollTop.get,
+      set(this: Element, value: number) { scrollWrites.push(this); scrollTop.set!.call(this, value); },
+    });
+    const getComputedStyle = window.getComputedStyle;
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, ...rest) => {
+      measured.push(element);
+      return getComputedStyle.call(window, element, ...rest);
+    });
+    const getBoundingClientRect = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      measured.push(this);
+      return getBoundingClientRect.call(this);
+    });
+    try {
+      await render(false);
+      const stage = document.querySelector<HTMLElement>('.pack-display')!;
+      const room = stage.parentElement!;
+      act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
+      scrollWrites.length = 0;
+      measured.length = 0;
+
+      await act(async () => { vi.advanceTimersByTime(500); });
+      await act(async () => {});
+      expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
+      expect(scrollWrites).not.toContain(stage);
+      expect(measured).not.toContain(stage);
+      expect(measured).not.toContain(room);
+    } finally {
+      Object.defineProperty(Element.prototype, 'scrollTop', scrollTop);
       vi.useRealTimers();
     }
   });

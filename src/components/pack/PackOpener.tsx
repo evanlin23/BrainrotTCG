@@ -328,10 +328,18 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   }, [refusal, handleOpen, packRef, onOpenSave]);
   /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
   const stageRef = useRef<HTMLDivElement>(null);
+  /** Whether the player has scrolled the stage since it was last at the top. */
+  const stageScrolledRef = useRef(false);
+  const markStageScrolled = useCallback(() => { stageScrolledRef.current = true; }, []);
   // The stage is on its way out when the cards come in, and the reveal must not inherit anything it
-  // scrolled to: it goes back to the top as opening starts.
+  // scrolled to: it goes back to the top as opening starts. Setting scrollTop makes the browser lay
+  // the whole page out inside the commit that brings the cards in, which on a slow phone is the
+  // longest stall between the tear and the first card (#266). A stage that never scrolled (every
+  // phone, and most packs on a desktop) is already at the top, so it is left alone.
   useLayoutEffect(() => {
-    if (isOpening && stageRef.current) stageRef.current.scrollTop = 0;
+    if (!isOpening || !stageScrolledRef.current) return;
+    stageScrolledRef.current = false;
+    if (stageRef.current) stageRef.current.scrollTop = 0;
   }, [isOpening]);
   // A refusal replaces the button the player was on: its Try again takes focus.
   const retryButtonRef = useCallback((el: HTMLButtonElement | null) => focusIfFree(el), []);
@@ -731,6 +739,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
           <Motion.div
             key="pack"
             ref={stageRef}
+            onScroll={markStageScrolled}
             {...stageEntrance(landed, reducedMotion)}
             onAnimationStart={(definition) => {
               markLanded();
