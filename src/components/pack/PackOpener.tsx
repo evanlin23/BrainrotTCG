@@ -198,13 +198,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
   }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
 
-  // Fetched once the packs screen is idle, so the first burst isn't held up, and a player who goes
-  // offline before opening a pack still has it.
+  // Fetched as the reveal opens, well before its first flip, so the first burst isn't held up.
   const particlesOn = settings.particlesEnabled;
   useEffect(() => {
-    if (!particlesOn) return;
-    return whenIdle(() => { loadConfetti().catch(() => {}); });
-  }, [particlesOn]);
+    if (isOpening && particlesOn) loadConfetti().catch(() => {});
+  }, [isOpening, particlesOn]);
 
   // Mine the next pack's ticket while this one is on screen.
   useEffect(() => {

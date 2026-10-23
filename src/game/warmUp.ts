@@ -28,12 +28,14 @@ const savingData = () => (navigator as Navigator & { connection?: { saveData?: b
 const canOpenPack = () => pageForHash(location.hash) === null && !isLinkHash(location.hash);
 
 /**
- * Fetch the card back the first reveal shows, unless the visitor saves data or is elsewhere. It waits
+ * Fetch the card back the first reveal shows, unless the visitor saves data or is elsewhere, and run
+ * `alsoWarm` (other code the first reveal needs, which the caller loads) at the same time. It waits
  * for the sealed pack's art, which the first screen needs more.
  */
-export const warmUpFirstPack = (): void => {
+export const warmUpFirstPack = (alsoWarm: () => void = () => {}): void => {
   afterPackArt(() => whenShownAndIdle(() => {
     if (savingData() || !canOpenPack()) return;
     new Image().src = cardBackImage;
+    alsoWarm();
   }));
 };

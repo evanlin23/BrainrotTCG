@@ -103,6 +103,18 @@ describe('warmUpFirstPack', () => {
     expect(images()).toEqual(['/card_back.webp']);
   });
 
+  it('runs what the caller also warms with the card back, and not before', async () => {
+    const images = fetched();
+    const alsoWarm = vi.fn();
+    const { warmUpFirstPack } = await import('./warmUp');
+    warmUpFirstPack(alsoWarm);
+    await load();
+    expect(alsoWarm).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(images()).toEqual(['/card_back.webp']);
+    expect(alsoWarm).toHaveBeenCalledOnce();
+  });
+
   it('waits while the tab is hidden, and starts once it is shown', async () => {
     const images = fetched();
     const { warmUpFirstPack } = await import('./warmUp');
@@ -132,11 +144,13 @@ describe('warmUpFirstPack', () => {
   it('fetches nothing when the visitor saves data', async () => {
     const images = fetched();
     vi.stubGlobal('navigator', { ...navigator, connection: { saveData: true } });
+    const alsoWarm = vi.fn();
     const { warmUpFirstPack } = await import('./warmUp');
-    warmUpFirstPack();
+    warmUpFirstPack(alsoWarm);
     await load();
     vi.runAllTimers();
     expect(images()).toEqual([]);
+    expect(alsoWarm).not.toHaveBeenCalled();
   });
 
   it.each(['#/cards', '#/rankings', '#/profile', '#/settings', '#/pull/abc', '#/profile/abc'])(

@@ -71,5 +71,9 @@ handedOver.then((receiver) => {
     </StrictMode>,
   )
   resumeReopening()
-  warmUpFirstPack()
+  // The confetti library comes with the card back, so a player who goes offline before the first
+  // pack still has it. A failed load is ignored: the reveal tries again at the first flip.
+  warmUpFirstPack(() => {
+    if (readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)).particlesEnabled) import('./components/pack/confettiEffects').catch(() => {})
+  })
 })
