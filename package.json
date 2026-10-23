@@ -23,6 +23,7 @@
     "icons": "tsx scripts/logo-icons.ts",
     "test:performance": "playwright test --config=playwright.performance.config.ts",
     "test:performance:optional-work": "playwright test --config=playwright.optional-work.config.ts",
+    "test:performance:pending-verify": "tsx scripts/pending-verify-fixture.ts && playwright test --config=playwright.pending-verify.config.ts",
     "audit:agent": "tsx scripts/agent-audit/run.ts"
   },
   "dependencies": {
