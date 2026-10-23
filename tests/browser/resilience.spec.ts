@@ -31,7 +31,7 @@ const FEED_DOWN = "Couldn't reach the live feed, so pulls sent recently may be m
 const SEEDED = 'test-resilience-seeded';
 const PLAYER_KEY = 'brainrot-player-v1';
 
-const openPack = (page: Page) => page.getByRole('button', { name: 'Open pack', exact: true });
+const openPack = (page: Page) => page.getByRole('button', { name: /^Open pack/ });
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Main', exact: true });
 
 async function packsScreen(page: Page) {
