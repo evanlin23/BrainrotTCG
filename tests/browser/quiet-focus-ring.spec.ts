@@ -106,13 +106,16 @@ async function swipeOpen(packShell: Locator, finger: Finger) {
   await finger.release();
 }
 
-/** A long press low on the target, then a short drag, as a phone starts its own selections. */
-async function longPressDrag(page: Page, finger: Finger, target: Locator) {
+/**
+ * A press low on the target, then a short drag, as a phone starts its own selections. Chromium's touch
+ * emulation raises no long-press gesture from this event stream (not even on plain text: no context
+ * menu, no selection), so there is nothing to wait for between the press and the drag.
+ */
+async function longPressDrag(finger: Finger, target: Locator) {
   const box = (await target.boundingBox())!;
   const x = box.x + box.width / 2;
   const y = box.y + box.height * 0.7;
   await finger.press(x, y);
-  await page.waitForTimeout(800);
   for (let step = 1; step <= 5; step++) await finger.move(x + step * 6, y);
   await finger.release();
 }
@@ -177,7 +180,7 @@ test.describe('opened by touch, 390px phone emulation', () => {
     await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
     // The case the phone showed: Chromium counts this focus as visible, and only the CSS keeps it quiet.
     expect((await expectNoRing(card, 'card 1')).focusVisible).toBe(true);
-    await longPressDrag(page, finger, card);
+    await longPressDrag(finger, card);
     expect(await selectedText(page)).toBe('');
 
     await revealAll(page, (target) => target.tap(), expectNoRing);
@@ -186,7 +189,7 @@ test.describe('opened by touch, 390px phone emulation', () => {
     const summaryCard = page.locator('.summary-card').first();
     await scriptFocus(summaryCard);
     expect((await expectNoRing(summaryCard, 'a summary card')).focusVisible).toBe(true);
-    await longPressDrag(page, finger, summaryCard);
+    await longPressDrag(finger, summaryCard);
     expect(await selectedText(page)).toBe('');
     expect(errors).toEqual([]);
   });

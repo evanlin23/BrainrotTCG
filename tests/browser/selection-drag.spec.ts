@@ -52,11 +52,10 @@ async function tryDrag(page: Page, target: Locator, dx: number, dy: number) {
   await page.mouse.up();
 }
 
-/** The same with a finger: a long press first, as a phone starts its own drags and selections. */
-async function tryTouchDrag(page: Page, finger: Finger, target: Locator, dx: number, dy: number) {
+/** The same with a finger: a press first, as a phone starts its own drags and selections (no long-press gesture is raised in the emulation, so no pause). */
+async function tryTouchDrag(finger: Finger, target: Locator, dx: number, dy: number) {
   const { x, y } = await pressPoint(target);
   await finger.press(x, y);
-  await page.waitForTimeout(800);
   for (let step = 1; step <= 5; step++) await finger.move(x + (dx * step) / 5, y + (dy * step) / 5);
   await finger.release();
 }
@@ -201,7 +200,7 @@ test.describe('with a touch screen', () => {
     const finger = await fingerFor(page, true);
 
     // Below the tear line, so the press is no cut.
-    await tryTouchDrag(page, finger, packShell.locator('img').first(), 0, 40);
+    await tryTouchDrag(finger, packShell.locator('img').first(), 0, 40);
     expect(await dragStarts()).toBe(0);
     expect(await selectedText(page)).toBe('');
     await expect(packShell).not.toHaveClass(/\bis-cut\b/);
@@ -210,15 +209,15 @@ test.describe('with a touch screen', () => {
     await page.keyboard.press('Space');
     const card = page.locator('.reveal-card').last().locator('.card-wrapper');
     await expect(card).toBeVisible({ timeout: 15000 });
-    await tryTouchDrag(page, finger, card.locator('img').first(), 0, 30);
+    await tryTouchDrag(finger, card.locator('img').first(), 0, 30);
     expect(await dragStarts()).toBe(0);
     expect(await selectedText(page)).toBe('');
-    await tryTouchDrag(page, finger, page.locator('.reveal-rarity'), 0, 0);
+    await tryTouchDrag(finger, page.locator('.reveal-rarity'), 0, 0);
     expect(await selectedText(page)).toBe('');
 
     await page.locator('button.reveal-skip').click({ timeout: 15000 });
     await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
-    await tryTouchDrag(page, finger, page.locator('.summary-cards img').first(), 30, 0);
+    await tryTouchDrag(finger, page.locator('.summary-cards img').first(), 30, 0);
     expect(await dragStarts()).toBe(0);
     expect(await selectedText(page)).toBe('');
     // A swipe up scrolls down, and a swipe down scrolls back up.
@@ -240,12 +239,12 @@ test.describe('with a touch screen', () => {
     const finger = await fingerFor(page, true);
 
     // Across the title letters, the way a long press then a slide would grow a selection.
-    await tryTouchDrag(page, finger, logo, 40, 0);
+    await tryTouchDrag(finger, logo, 40, 0);
     expect(await dragStarts()).toBe(0);
     expect(await selectedText(page)).toBe('');
     const nav = page.getByRole('navigation', { name: 'Main', exact: true });
     for (const name of ['Cards', 'Rankings', 'Profile', 'Open']) {
-      await tryTouchDrag(page, finger, nav.locator('.app-nav-item').filter({ hasText: name }).locator('.app-nav-label'), 20, 0);
+      await tryTouchDrag(finger, nav.locator('.app-nav-item').filter({ hasText: name }).locator('.app-nav-label'), 20, 0);
       expect(await dragStarts(), name).toBe(0);
       expect(await selectedText(page), name).toBe('');
     }
