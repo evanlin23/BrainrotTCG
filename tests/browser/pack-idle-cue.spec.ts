@@ -23,7 +23,7 @@ async function load(page: Page, { cueDone = true } = {}) {
 /** The idle cue's running keyframe animations on the pack's parts, by name. */
 const idleAnimations = (page: Page) =>
   page.evaluate(() =>
-    Array.from(document.querySelectorAll('.pack-half-top, .pack-top-piece, .pack-half-bottom')).flatMap((el) =>
+    Array.from(document.querySelectorAll('.pack-half-top, .pack-top-piece')).flatMap((el) =>
       el.getAnimations().filter((a): a is CSSAnimation => a instanceof CSSAnimation && a.animationName.startsWith('pack-idle-') && a.playState === 'running').map((a) => a.animationName),
     ).sort(),
   );
@@ -35,7 +35,7 @@ test('a sealed pack waiting for a touch lifts its top strip, and puts it down fo
   await shell(page).scrollIntoViewIfNeeded();
 
   await expect(shell(page)).toHaveClass(/\bis-idle\b/);
-  await expect.poll(() => idleAnimations(page)).toEqual(['pack-idle-piece', 'pack-idle-seat', 'pack-idle-strip']);
+  await expect.poll(() => idleAnimations(page)).toEqual(['pack-idle-lift', 'pack-idle-lift']);
 
   // A press on the tear line puts the strip down; a short swipe lets go, and the idle cue waits for the hint to go too.
   const box = (await shell(page).boundingBox())!;
@@ -53,70 +53,94 @@ test('a sealed pack waiting for a touch lifts its top strip, and puts it down fo
 
   // The hint clears by itself and the strip starts lifting again.
   await expect(shell(page)).toHaveClass(/\bis-idle\b/);
-  await expect.poll(() => idleAnimations(page)).toEqual(['pack-idle-piece', 'pack-idle-seat', 'pack-idle-strip']);
+  await expect.poll(() => idleAnimations(page)).toEqual(['pack-idle-lift', 'pack-idle-lift']);
   expect(errors).toEqual([]);
 });
 
-test('at the top of its lift the strip is up and the bottom half has made room, with the pack and its tear line unmoved', async ({ page, baseURL }) => {
-  const errors = await monitor(page, baseURL!);
-  await load(page);
-  await shell(page).scrollIntoViewIfNeeded();
-  await expect.poll(() => idleAnimations(page)).toHaveLength(3);
-
-  const before = (await shell(page).boundingBox())!;
-  const atRest = await page.evaluate(() => {
-    const pick = (selector: string) => {
-      const style = getComputedStyle(document.querySelector(selector)!);
-      return { transform: style.transform, opacity: style.opacity, clip: style.clipPath };
-    };
-    return { strip: pick('.pack-half-top'), bottom: pick('.pack-half-bottom') };
-  });
-
-  // Hold every idle animation at the middle of its lift (about two thirds of the way round).
-  await page.evaluate(() => {
-    for (const el of Array.from(document.querySelectorAll('.pack-half-top, .pack-top-piece, .pack-half-bottom'))) {
+/** Holds every idle animation at a share of its period (0 is the pack at rest, 0.67 the top of the lift). */
+const holdAt = (page: Page, share: number) =>
+  page.evaluate((at) => {
+    for (const el of Array.from(document.querySelectorAll('.pack-half-top, .pack-top-piece'))) {
       for (const animation of el.getAnimations()) {
         if (!(animation instanceof CSSAnimation) || !animation.animationName.startsWith('pack-idle-')) continue;
         animation.pause();
-        animation.currentTime = Number(animation.effect!.getComputedTiming().duration) * 0.67;
+        animation.currentTime = Number(animation.effect!.getComputedTiming().duration) * at;
       }
     }
-  });
-  const lifted = await page.evaluate(() => {
+  }, share);
+
+/** What the browser draws for the pack's parts right now. */
+const drawn = (page: Page) =>
+  page.evaluate(() => {
     const pick = (selector: string) => {
       const style = getComputedStyle(document.querySelector(selector)!);
       return { transform: style.transform, opacity: style.opacity, clip: style.clipPath };
     };
     const tear = document.querySelector('.tear-guide')!.getBoundingClientRect();
     const hit = document.elementFromPoint(tear.left + tear.width / 2, tear.top + tear.height / 2);
-    return { strip: pick('.pack-half-top'), piece: pick('.pack-top-piece'), bottom: pick('.pack-half-bottom'), hitsPack: !!hit?.closest('.pack-shell'), tearTop: tear.top };
+    const shellBox = document.querySelector('.pack-shell')!.getBoundingClientRect();
+    return { strip: pick('.pack-half-top'), piece: pick('.pack-top-piece'), bottom: pick('.pack-half-bottom'), hitsPack: !!hit?.closest('.pack-shell'), tearTop: tear.top, shellHeight: shellBox.height };
   });
 
-  expect(atRest.strip.opacity).toBe('0');
-  expect(lifted.strip.opacity).toBe('1');
-  expect(lifted.strip.transform).not.toBe('none');
-  expect(lifted.strip.transform).toBe(lifted.piece.transform);
-  expect(Number(lifted.strip.transform.replace(/^matrix\(|\)$/g, '').split(',')[5])).toBeLessThan(0);
-  expect(lifted.bottom.clip).not.toBe(atRest.bottom.clip);
+const translateY = (transform: string) => (transform === 'none' ? 0 : Number(transform.replace(/^matrix\(|\)$/g, '').split(',')[5]));
+
+test('at the top of its lift the strip is up by its share of the pack, and the bottom half, the pack and its tear line have not moved', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!);
+  await load(page);
+  await shell(page).scrollIntoViewIfNeeded();
+  await expect.poll(() => idleAnimations(page)).toHaveLength(2);
+
+  // Rest is read with the loop held at its start, so it does not depend on where a slow runner has got to.
+  await holdAt(page, 0);
+  const atRest = await drawn(page);
+  const before = (await shell(page).boundingBox())!;
+  await holdAt(page, 0.67);
+  const lifted = await drawn(page);
+
+  // At rest the strip is seated on the bottom half; at the top of the lift it is up by 1.5% of the pack and the piece is with it.
+  expect(translateY(atRest.strip.transform)).toBe(0);
+  expect(translateY(atRest.piece.transform)).toBe(0);
+  expect(translateY(lifted.strip.transform)).toBeCloseTo(-lifted.shellHeight * 0.015, 0);
+  expect(lifted.piece.transform).toBe(lifted.strip.transform);
+  // Nothing else changes: the strip's opacity and the bottom half's clip are the same, so no frame runs on the main thread.
+  expect(lifted.strip.opacity).toBe(atRest.strip.opacity);
+  expect(lifted.bottom).toEqual(atRest.bottom);
   expect(lifted.hitsPack, 'the tear line still lands on the pack').toBe(true);
+  expect(lifted.tearTop).toBe(atRest.tearTop);
   expect(await shell(page).boundingBox()).toEqual(before);
+
+  // The animation names only transform, so the browser can run it off the main thread.
+  const properties = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.pack-half-top, .pack-top-piece')).flatMap((el) =>
+      el.getAnimations().flatMap((animation) => (animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) => Object.keys(frame))),
+    ),
+  );
+  expect([...new Set(properties)].filter((name) => !['offset', 'easing', 'composite', 'computedOffset'].includes(name))).toEqual(['transform']);
   expect(errors).toEqual([]);
 });
 
-test('under reduced motion nothing animates and the strip is held a hair open along the tear line', async ({ page, baseURL }) => {
+test('under reduced motion nothing animates and the seam shows a still perforation, with no gap', async ({ page, baseURL }) => {
   const errors = await monitor(page, baseURL!);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await load(page);
   await expect(shell(page)).toHaveClass(/\bis-idle\b/);
   expect(await idleAnimations(page)).toEqual([]);
   const still = await page.evaluate(() => {
-    const strip = getComputedStyle(document.querySelector('.pack-half-top')!);
-    const bottom = getComputedStyle(document.querySelector('.pack-half-bottom')!);
-    return { opacity: strip.opacity, transform: strip.transform, bottomClip: bottom.clipPath };
+    const mark = getComputedStyle(document.querySelector('.pack-top-piece')!, '::after');
+    return { strip: getComputedStyle(document.querySelector('.pack-half-top')!).transform, piece: getComputedStyle(document.querySelector('.pack-top-piece')!).transform, content: mark.content, border: mark.borderTopStyle };
   });
-  expect(still.opacity).toBe('1');
-  expect(still.transform).not.toBe('none');
-  expect(still.bottomClip).not.toBe('inset(0px)');
+  expect(still.strip).toBe('none');
+  expect(still.piece).toBe('none');
+  expect(still.content).toBe('""');
+  expect(still.border).toBe('dashed');
+  expect(errors).toEqual([]);
+});
+
+test('with motion the pack draws no perforation of its own: the lift is the cue', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!);
+  await load(page);
+  await expect(shell(page)).toHaveClass(/\bis-idle\b/);
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('.pack-top-piece')!, '::after').content)).toBe('none');
   expect(errors).toEqual([]);
 });
 
@@ -131,6 +155,6 @@ test('a first-time player sees the finger first, and the strip starts lifting wh
   await page.evaluate(() => document.querySelectorAll('.open-cue-travel, .open-cue-tear').forEach((target) => target.getAnimations().forEach((animation) => animation.finish())));
   await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   await expect(shell(page)).toHaveClass(/\bis-idle\b/);
-  await expect.poll(() => idleAnimations(page)).toHaveLength(3);
+  await expect.poll(() => idleAnimations(page)).toHaveLength(2);
   expect(errors).toEqual([]);
 });

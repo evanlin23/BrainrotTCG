@@ -1,6 +1,6 @@
 import { useIsPresent } from 'framer-motion';
 import { MoveHorizontal, Pointer } from 'lucide-react';
-import { useEffect, useRef, type AnimationEvent, type MouseEvent, type PointerEvent, type Ref, type RefObject } from 'react';
+import { useEffect, useRef, useState, type AnimationEvent, type MouseEvent, type PointerEvent, type Ref, type RefObject } from 'react';
 import { useCoarsePointer } from '../../hooks/useCoarsePointer';
 import type { CutPoint } from '../../hooks/usePackCutter';
 import { SPARK_LIFETIME_MS, type Spark } from '../../hooks/useSparks';
@@ -71,8 +71,14 @@ const PackCuttingUI = ({
   // A drag that ends over the pack ends in a click too, which is not a tap: only a press that never
   // strayed past TAP_SLOP_PX, at any point before its release, opens it.
   const press = useRef<{ id: number; x: number; y: number; farthest: number } | null>(null);
+  // A finger is down on the pack, wherever it landed: the idle cue waits for it to lift (a press below the
+  // tear line sets neither `pressing` nor `isCutting`, and its nudge timer can run out under a slow hold).
+  const [held, setHeld] = useState(false);
+  const heldId = useRef<number | null>(null);
   const onPressStart = (event: PointerEvent) => {
     press.current = { id: event.pointerId, x: event.clientX, y: event.clientY, farthest: 0 };
+    heldId.current = event.pointerId;
+    setHeld(true);
     onTouch?.();
   };
   useEffect(() => {
@@ -87,13 +93,22 @@ const PackCuttingUI = ({
       if (!start || event.pointerId !== start.id) return;
       if (event.type === 'pointercancel' || !(event.target instanceof Element && event.target.closest('[data-pack-open]'))) press.current = null;
     };
+    const release = (event: globalThis.PointerEvent) => {
+      if (event.pointerId !== heldId.current) return;
+      heldId.current = null;
+      setHeld(false);
+    };
     window.addEventListener('pointermove', track);
     window.addEventListener('pointerup', forget);
     window.addEventListener('pointercancel', forget);
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
     return () => {
       window.removeEventListener('pointermove', track);
       window.removeEventListener('pointerup', forget);
       window.removeEventListener('pointercancel', forget);
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
     };
   }, []);
   const onPackClick = (event: MouseEvent) => {
@@ -104,9 +119,9 @@ const PackCuttingUI = ({
     onOpen();
   };
   // Sealed and untouched (DESIGN.md Flow 2): the top strip lifts every few seconds and settles back, for as
-  // long as the pack waits. The new player's finger plays first (cue), and a press, a tear, a short swipe or a
-  // missed press each put the strip down until the pack is idle again.
-  const idle = !cue && !isPackCut && !isCutting && !pressing && !nudging && !fellShort && !refusal && !leaving;
+  // long as the pack waits. The new player's finger plays first (cue), and a press, a tear, a short swipe, a
+  // missed press or a finger still down each put the strip down until the pack is idle again.
+  const idle = !cue && !isPackCut && !isCutting && !pressing && !held && !nudging && !fellShort && !refusal && !leaving;
   const onCueAnimationEnd = (event: AnimationEvent) => {
     if (event.target === event.currentTarget) onCueEnd?.();
   };

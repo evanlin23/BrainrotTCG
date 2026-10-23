@@ -23,30 +23,40 @@ const mediaBlocks = (query: string): string[] => {
   return blocks;
 };
 
-const idleRules = (block: string) => [...block.matchAll(/([^{}]*\.is-idle[^{}]*)\{([^{}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body: body.trim() }));
+const idleRules = (block: string) =>
+  [...block.matchAll(/([^{}]*\.is-idle[^{}]*)\{([^{}]*)\}/g)].map(([, selectors, body]) => ({ selectors: selectors.split(',').map((selector) => selector.trim()), body: body.trim() }));
 
 describe('the idle cue styles', () => {
   const calm = mediaBlocks('prefers-reduced-motion: no-preference').flatMap(idleRules);
   const reduced = mediaBlocks('prefers-reduced-motion: reduce').flatMap(idleRules);
 
-  it('animates only where motion is welcome', () => {
-    expect(calm.map((rule) => rule.selector)).toEqual(['.pack-shell.is-idle .pack-half-top', '.pack-shell.is-idle .pack-top-piece', '.pack-shell.is-idle .pack-half-bottom']);
-    expect(calm.every((rule) => /animation:\s*pack-idle-/.test(rule.body))).toBe(true);
+  it('animates only where motion is welcome, and only the strip and what is stuck on it', () => {
+    expect(calm).toHaveLength(1);
+    expect(calm[0].selectors).toEqual(['.pack-shell.is-idle .pack-half-top', '.pack-shell.is-idle .pack-top-piece']);
+    expect(calm[0].body).toMatch(/animation:\s*pack-idle-lift /);
     const outside = css.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '');
     expect(outside).not.toMatch(/\.is-idle[^{}]*\{[^}]*animation/);
   });
 
-  it('holds a still seam under reduced motion, with no animation at all', () => {
-    expect(reduced.map((rule) => rule.selector)).toEqual(['.pack-shell.is-idle .pack-half-top', '.pack-shell.is-idle .pack-top-piece', '.pack-shell.is-idle .pack-half-bottom']);
-    for (const rule of reduced) expect(rule.body).not.toMatch(/animation/);
-    expect(reduced.some((rule) => /translateY\(-0\.\d+%\)/.test(rule.body))).toBe(true);
+  it('runs on the compositor: the one keyframe set changes transform and nothing else', () => {
+    const keyframes = [...css.matchAll(/@keyframes (pack-idle-[\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g)];
+    expect(keyframes.map(([, name]) => name)).toEqual(['pack-idle-lift']);
+    expect(keyframes[0][2]).toMatch(/^(?:[^{}]*\{\s*(?:transform:[^;]*;\s*)+\})+\s*$/);
   });
 
-  it('moves only the picture: no rule for the idle state touches the shell, the tear guide, the hint or the hit area', () => {
-    const selectors = [...calm, ...reduced].map((rule) => rule.selector);
-    for (const selector of selectors) expect(selector).toMatch(/\.pack-half-top$|\.pack-top-piece$|\.pack-half-bottom$/);
-    const keyframes = [...css.matchAll(/@keyframes (pack-idle-[\w-]+)\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g)];
-    expect(keyframes.map(([, name]) => name).sort()).toEqual(['pack-idle-piece', 'pack-idle-seat', 'pack-idle-strip']);
-    for (const [, name, body] of keyframes) expect(body, name).toMatch(/^(?:[^{}]*\{\s*(?:(?:opacity|transform|clip-path):[^;]*;\s*)+\})+\s*$/);
+  it('shows a still perforation under reduced motion, with no animation and no gap', () => {
+    expect(reduced).toHaveLength(1);
+    expect(reduced[0].selectors).toEqual(['.pack-shell.is-idle .pack-top-piece::after']);
+    expect(reduced[0].body).not.toMatch(/animation|transform/);
+    expect(reduced[0].body).toMatch(/border-top:\s*\d+px dashed/);
+  });
+
+  it('leaves the gesture alone: no idle rule touches the shell, the tear guide, the hint or the hit area', () => {
+    for (const selector of [...calm, ...reduced].flatMap((rule) => rule.selectors)) expect(selector).toMatch(/\.pack-half-top$|\.pack-top-piece$|\.pack-top-piece::after$/);
+  });
+
+  it('seats the bottom half under the strip without a hairline, with no keyframes on its clip', () => {
+    expect(css).toMatch(/\.pack-shell:not\(\.is-cut\) \.pack-half-bottom\s*\{\s*clip-path:\s*inset\(calc\(var\(--tear-y\) - 0\.1%\) 0 0 0\);/);
+    expect(css).toMatch(/\.pack-shell:not\(\.is-cut\) \.pack-half-top\s*\{\s*opacity:\s*1;/);
   });
 });
