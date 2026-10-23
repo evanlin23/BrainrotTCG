@@ -36,11 +36,16 @@ const collectionEntry = (item: unknown) => record(item) && card(item.card)
 const collection = (value: unknown) => values(value, collectionEntry);
 const achievements = (value: unknown) => values(value, (item) => number(item) || (record(item) && number(item.unlockedAt)
   && optional(item, 'pack', cards) && optional(item, 'ref', ref)));
-const stats = (value: unknown) => record(value) && optional(value, 'packsOpened', count)
-  && optional(value, 'holoCards', (v) => values(v, boolean))
-  && ['highestPackValue', 'highestPackFlexValue', 'highestPackBaseValue', 'highestPackMultiplier'].every((key) => optional(value, key, number))
-  && optional(value, 'highestPackHandName', text) && optional(value, 'highestPackCards', cards)
-  && optional(value, 'highestPackRef', ref) && optional(value, 'highestPackLegacy', boolean);
+/** Each stats field's rule, for a file and for the stored stats (game/statsRecovery.ts); any field may be missing. */
+export const STATS_FIELDS: Readonly<Record<string, (value: unknown) => boolean>> = {
+  packsOpened: count,
+  holoCards: (v) => values(v, boolean),
+  highestPackValue: number, highestPackFlexValue: number, highestPackBaseValue: number, highestPackMultiplier: number,
+  highestPackHandName: text, highestPackCards: cards, highestPackRef: ref, highestPackLegacy: boolean,
+};
+export const isStats = (value: unknown): value is RecordValue => record(value)
+  && Object.entries(STATS_FIELDS).every(([key, valid]) => optional(value, key, valid));
+const stats = isStats;
 const hallOfFame = (value: unknown) => record(value)
   && ['first4OfAKind', 'firstFullHouse'].every((key) => optional(value, key, (v) => record(v)
     && boolean(v.achieved) && number(v.date) && optional(v, 'cardId', text) && optional(v, 'cards', (c) => values(c, count))));

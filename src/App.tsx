@@ -24,6 +24,7 @@ import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE, 
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
+import { loadStats } from './game/statsRecovery';
 import { readSettings } from './utils/settings';
 import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression';
 import { historyAchievementsReady, myStats, watchMyPacks } from './game/profiles';
@@ -64,7 +65,10 @@ const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be 
 
 function App() {
   const [collection, setCollection] = useState<Record<string, CollectionItem>>(() => hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {})));
-  const [stats, setStats] = useState<Stats>(() => getStoredData(STORAGE_KEYS.STATS, { packsOpened: 0, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
+  // Unreadable stats are kept aside and rebuilt (game/statsRecovery.ts), and the tickets they count from
+  // the history never count again when their packs come off the pending shelf.
+  const [loadedStats] = useState(() => loadStats(collection));
+  const [stats, setStats] = useState<Stats>(loadedStats.stats);
   const [hallOfFame, setHallOfFame] = useState<HallOfFameData>(() => getStoredData(STORAGE_KEYS.HALL_OF_FAME, {}));
 
   const [settings, setSettings] = useState<Settings>(() => readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)));
@@ -331,7 +335,7 @@ function App() {
   useEffect(() => {
     if (pendingTaken.current) return;
     pendingTaken.current = true;
-    const taken = takePendingPacks();
+    const taken = takePendingPacks().map((pack) => (loadedStats.counted.has(pack.nonce) ? { ...pack, counted: true } : pack));
     packsTaken(taken);
     taken.reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
     // Not for a tab already known to be stale: it stores nothing, and the notice would flash before the warning.
