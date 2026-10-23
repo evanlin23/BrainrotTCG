@@ -129,12 +129,22 @@ test('a toast the player saw does not come back each time a card close-up closes
   const viewer = page.locator('.card-viewer');
   await expect(viewer).toBeVisible();
   await expect(page.locator('.toast')).toHaveCount(0);
+  // Every toast shown from here on, since the one it replaces may come and go between two checks.
+  await page.evaluate(() => {
+    const kickers: string[] = [];
+    Object.assign(window, { kickersSince: kickers });
+    new MutationObserver(() => {
+      const kicker = document.querySelector('.toast-kicker')?.textContent;
+      if (kicker && !kickers.includes(kicker)) kickers.push(kicker);
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+  });
   await viewer.getByRole('button', { name: /^Close/ }).first().tap();
   await expect(viewer).toHaveCount(0);
 
   // The grouped toast was seen: the level-up is what follows, not the same toast again.
   await expect(page.locator('.toast-kicker')).toHaveText(/^Level up$/, { timeout: 15000 });
-  await expect(page.locator('.toast-kicker').filter({ hasText: /achievements unlocked/ })).toHaveCount(0);
+  const shown = await page.evaluate(() => (window as unknown as { kickersSince: string[] }).kickersSince);
+  expect(shown.filter((kicker) => /achievements unlocked/.test(kicker)), 'the seen toast came back').toEqual([]);
   expect(errors).toEqual([]);
 });
 
