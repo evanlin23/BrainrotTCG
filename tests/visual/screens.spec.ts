@@ -1,5 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
-import { GROUPED_TOAST_MS, TOAST_MS } from '../../src/constants/config';
+import { test, expect, type Locator, type Page } from '@playwright/test';
+import { GROUPED_TOAST_MS, STORAGE_KEYS, TOAST_MS } from '../../src/constants/config';
 import { monitor, expectDecoded, expectPackDropped, expectSummaryTakesClicks } from '../browser/support';
 
 /**
@@ -14,9 +14,14 @@ import { monitor, expectDecoded, expectPackDropped, expectSummaryTakesClicks } f
  * attribute), then toHaveScreenshot takes shots until two in a row agree before comparing.
  *
  * The first pack's toasts are left out: they leave on their own timers, so a shot with one up would
- * depend on how fast the runner is. The summary is shot once both have gone (a state, waited for
- * like any other), and toast-clearance.spec.ts checks what they cover.
+ * depend on how fast the runner is. The summary is shot once both have been up and gone (a state,
+ * waited for like any other), and toast-clearance.spec.ts checks what they cover.
+ *
+ * A new player gets the newest openable set (DEFAULT_SET_ID), which the next release changes, so the
+ * spec picks a released one and the Cards shot holds only that set's section: a new set, or a draft
+ * flag coming off, leaves these images alone (docs/ADDING_A_SET.md).
  */
+const SET = { id: 'right-now', name: 'Summer of Slop' };
 
 /**
  * A fixed noon for Date, so a date the screens print is the same every run. Timers and animation
@@ -25,12 +30,39 @@ import { monitor, expectDecoded, expectPackDropped, expectSummaryTakesClicks } f
  */
 const NOW = new Date('2026-06-15T12:00:00Z');
 
+/**
+ * Records each toast's kicker as it mounts, from the first script on, so the spec can tell which
+ * toasts have been up without catching any on screen (one can come and go between two looks).
+ */
+function recordToasts() {
+  const seen: string[] = [];
+  (window as unknown as { toastsSeen: string[] }).toastsSeen = seen;
+  new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      mutation.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) return;
+        const kicker = node.matches('.toast-kicker') ? node : node.querySelector('.toast-kicker');
+        // A held toast comes back as a new element; it's the same toast.
+        if (kicker && kicker.textContent !== seen.at(-1)) seen.push(kicker.textContent ?? '');
+      });
+    }
+  }).observe(document, { childList: true, subtree: true });
+}
+
 /** Waits out the first pack's toasts: the grouped unlocks, then the level-up, each on its own timer. */
 async function waitOutToasts(page: Page) {
-  const toast = page.locator('.toast');
-  await expect(toast).toContainText('achievements unlocked');
-  // Bounded by the two toasts' own times plus a margin; it ends as soon as the second has gone.
-  await expect(toast).toHaveCount(0, { timeout: GROUPED_TOAST_MS + TOAST_MS + 10_000 });
+  // Bounded by the two toasts' own times plus a margin; each wait ends as soon as its state holds.
+  const timeout = GROUPED_TOAST_MS + TOAST_MS + 10_000;
+  await expect.poll(() => page.evaluate(() => (window as unknown as { toastsSeen: string[] }).toastsSeen), { timeout })
+    .toEqual([expect.stringMatching(/^\d+ achievements unlocked$/), 'Level up']);
+  await expect(page.locator('.toast')).toHaveCount(0, { timeout });
+}
+
+/** Waits for every image the locator finds, after checking it finds some (the screen is up by now). */
+async function expectAllDecoded(images: Locator) {
+  const count = await images.count();
+  expect(count).toBeGreaterThan(0);
+  await expectDecoded(images, count);
 }
 
 /** Every webfont the page asked for has loaded, so no shot is taken with a fallback face. */
@@ -45,12 +77,14 @@ test('a new player\'s first pack, its summary, the share sheet and the Cards pag
   test.setTimeout(120_000);
   const errors = await monitor(page, baseURL!);
   await page.clock.setFixedTime(NOW);
+  await page.addInitScript(([key, id]) => localStorage.setItem(key, id), [STORAGE_KEYS.SELECTED_SET, SET.id]);
+  await page.addInitScript(recordToasts);
   await page.goto('./');
 
   const packShell = page.getByRole('button', { name: /^Open pack/ });
   await expect(packShell).toBeVisible();
   await expectPackDropped(page);
-  await expectDecoded(page.locator('.pack-display img'), await page.locator('.pack-display img').count());
+  await expectAllDecoded(page.locator('.pack-display img'));
   expect(await fontsLoaded(page)).toBe(0);
   await expect.soft(page).toHaveScreenshot('first-pack.png');
 
@@ -79,11 +113,22 @@ test('a new player\'s first pack, its summary, the share sheet and the Cards pag
   await page.goto('./#/cards');
   const cards = page.getByRole('main', { name: 'Cards', exact: true });
   await expect(cards.locator('.page-skeleton')).toHaveCount(0);
-  await expect(cards.getByRole('button', { name: /, \d+ owned/ }).first()).toBeVisible();
-  const art = cards.locator('img');
-  await expectDecoded(art, await art.count());
+  // Just the set this pack came from: the page's totals and its list of sets not started yet grow
+  // with every release.
+  const section = cards.locator('section.collection-set').filter({ has: page.locator('.collection-set-name', { hasText: SET.name }) });
+  await expect(section).toHaveCount(1);
+  await expect(section.getByRole('button', { name: /, \d+ owned/ }).first()).toBeVisible();
+  await expectAllDecoded(section.locator('img'));
   expect(await fontsLoaded(page)).toBe(0);
-  await expect.soft(page).toHaveScreenshot('cards.png');
+  // The section as a player sees it, scrolled to the top: on a phone, down to the tab bar fixed over it.
+  const clip = await section.evaluate((element) => {
+    element.scrollIntoView({ block: 'start' });
+    const box = element.getBoundingClientRect();
+    const nav = document.querySelector('.app-nav')!.getBoundingClientRect();
+    const bottom = Math.min(box.bottom, window.innerHeight, nav.top > box.top ? nav.top : Infinity);
+    return { x: box.x, y: box.y, width: box.width, height: bottom - box.y };
+  });
+  await expect.soft(page).toHaveScreenshot('cards.png', { clip });
 
   expect(errors).toEqual([]);
 });

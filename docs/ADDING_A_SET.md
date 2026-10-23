@@ -74,6 +74,11 @@ npx tsx scripts/cards/preview.ts my-set /tmp/my-set.png
    open a PR.
 4. Optionally run `npm run og-image` so link previews show the newest sets.
 
+A new set, or one losing its `draft` flag, leaves the visual baselines (`tests/visual`) alone: they
+pick Summer of Slop instead of the newest set and shoot only its part of the Cards page. Changing
+that set's art, captions or layout, or giving it a new version, changes those images, so the PR needs
+a reviewed baseline update (docs/DEVELOPMENT.md, Visual baselines).
+
 ## Archiving a set
 
 If a set can't stay on sale (say a rights holder starts enforcing), add `"archivedAt": "YYYY-MM-DD"`

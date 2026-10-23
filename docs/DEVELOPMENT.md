@@ -287,7 +287,7 @@ once. Before pushing a new or changed spec, run the same locally with
 ### Visual baselines
 
 `tests/visual/screens.spec.ts` compares four screens with reviewed images in `tests/visual/baselines/`:
-a new player's first pack, its summary, the share sheet for that pull and the Cards page it fills, each
+a new player's first pack, its summary, the share sheet for that pull and that set's part of the Cards page, each
 at a phone width (Pixel 5 emulation) and at 1280×800, at scale 1 (#745). It reuses the browser smoke's
 build, fixture player and helpers, and the browser specs still own behaviour (focus, hit-testing,
 keyboard, reflow); an image only says the screen looks as someone last approved it.
@@ -303,15 +303,19 @@ IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20
 docker run --rm --ipc=host -v "$PWD":/work -v /work/node_modules -w /work "$IMAGE" sh -c 'npm ci && npm run test:visual'
 ```
 
-Files it writes come out owned by root on a Linux host. Running `npm run test:visual` outside the
+Files it writes come out owned by root on a Linux host. The job runs as the runner's uid on Node 22
+instead of the image's Node; the browser and fonts, which draw the pixels, are the image's either
+way. Running `npm run test:visual` outside the
 image draws different pixels and fails; that is not a design change.
 
-- **Fixed inputs.** The fixture player and its first ticket, the browser, viewport and scale, locale
-  and time zone, `Date` (timers stay real, see the spec), reduced motion, and CSS animations and the
-  caret at capture. Every wait is for a state (a role, decoded art, loaded fonts, the toasts gone), and
+- **Fixed inputs.** The fixture player and its first ticket, the set it opens (Summer of Slop, not
+  the newest, so a release leaves the images alone; docs/ADDING_A_SET.md), the browser, viewport and
+  scale, the preview's port and base path (the share sheet's QR code encodes the address, so
+  `PREVIEW_PORT`, `BASE_PATH` and `SITE_URL` are ignored here), locale and time zone, `Date` (timers
+  stay real, see the spec), reduced motion, and CSS animations and the caret at capture. Every wait is for a state (a role, decoded art, loaded fonts, the toasts gone), and
   Playwright takes shots until two agree before comparing.
 - **No tolerance.** `threshold: 0` and `maxDiffPixels: 0`: the image draws the same pixels on every
-  run (checked with `--repeat-each=3`), so any difference is a change to look at. Don't add a
+  run (checked with `--repeat-each=10` in the image), so any difference is a change to look at. Don't add a
   tolerance or a mask to get green; if a screen stops being stable, fix what moves.
 - **On a mismatch** the job fails and uploads `visual-baselines-diff` (7 days): the expected, actual
   and diff PNG of each screen that changed, at most 24 images of a few hundred KB. There are no

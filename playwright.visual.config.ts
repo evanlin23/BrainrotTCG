@@ -1,6 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 import base from './playwright.config';
 
+// Fixed, whatever PREVIEW_PORT, BASE_PATH or SITE_URL say locally: the share sheet's QR code encodes
+// location.origin and the path (src/game/pulls.ts), and index.html carries the site's address, so
+// either would draw different pixels.
+const PORT = 4173;
+const BASE_PATH = '/BrainrotTCG/';
+const baseURL = `http://127.0.0.1:${PORT}${BASE_PATH}`;
+
 /**
  * Screenshot baselines for a few core screens (#745), run with `npm run test:visual`. Pixels depend
  * on the browser build and the system's font rasteriser, so they run only in the pinned Playwright
@@ -25,6 +32,7 @@ export default defineConfig({
   updateSnapshots: process.env.CI ? 'none' : 'missing',
   use: {
     ...base.use,
+    baseURL,
     // Only the images are evidence here; traces and videos would hold the fixture's saved data too.
     trace: 'off',
     video: 'off',
@@ -44,6 +52,13 @@ export default defineConfig({
       threshold: 0,
       maxDiffPixels: 0,
     },
+  },
+  webServer: {
+    ...base.webServer,
+    command: `npm run build && npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort`,
+    url: baseURL,
+    // Merged over the runner's environment, so these win; an empty SITE_URL builds production's address.
+    env: { BASE_PATH, SITE_URL: '' },
   },
   projects: [
     { name: 'narrow', use: { ...devices['Pixel 5'], deviceScaleFactor: 1 } },
