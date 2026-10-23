@@ -296,6 +296,9 @@ test.describe('damaged storage', () => {
     await packsScreen(page);
     await releaseTickets(page);
     await openOne(page);
+    // The damaged bytes stay kept aside, for Download, but the restored key unpauses packs.
+    await expect(page.getByRole('alert').filter({ hasText: /^Unreadable player data was kept aside in this browser\./ })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: PLAYER_PAUSED })).toHaveCount(0);
     expect(await tickets(page)).toEqual([0, 1]);
     expect(await nextNonce(page)).toBe(2);
     expect((await snapshot(page)).stats.packsOpened).toBe(2);
@@ -330,6 +333,9 @@ test.describe('damaged storage', () => {
     await packsScreen(page);
     await releaseTickets(page);
     await openOne(page);
+    // The damaged bytes stay kept aside, for Download, but the new key unpauses packs.
+    await expect(page.getByRole('alert').filter({ hasText: /^Unreadable player data was kept aside in this browser\./ })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: PLAYER_PAUSED })).toHaveCount(0);
     const player = JSON.parse((await raw(page, PLAYER_KEY))!) as { secretKey: string; nextNonce: number };
     expect(player.secretKey).toMatch(/^[0-9a-f]{64}$/);
     expect(player.secretKey === JSON.parse(saved[PLAYER_KEY]).secretKey).toBe(false);
