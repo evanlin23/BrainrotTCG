@@ -245,6 +245,31 @@ Browser tests have no retries, so a test that fails once fails CI: fix its cause
 Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
 close-up sets `data-tilt="live"` once it follows the mouse.
 
+### Cross-browser smoke (Firefox and WebKit)
+
+`npm run test:browser:compat` runs the journeys tagged `@cross-browser` on desktop Firefox and WebKit with
+iPhone 13 touch emulation (`playwright.compat.config.ts`); the rest of `tests/browser` stays on Chromium. The tags
+sit on three existing tests, so these run in the Chromium suite and its burn-in too:
+
+- `pack-opener.smoke.spec.ts`: one real pack (Worker and WASM ticket, cards and images, summary) and its exact
+  stats, collection and history after a reload (localStorage and IndexedDB).
+- `card-share.spec.ts`: a card's share sheet from My pulls, with the clipboard stubbed.
+- `share-fallbacks.spec.ts`: a pack's share sheet, its stubbed copies, and the copied link opened in a fresh tab.
+
+Add `{ tag: '@cross-browser' }` to a test to include it, and keep the set small: it is a smoke, not a second
+suite. Every test uses the same network guard as the Chromium suite (no outside HTTP or WebSockets, a disposable
+identity, nothing published, exported or shared natively). The reporter prints each project's engine, version and
+passed, failed, skipped and flaky counts, and adds them to the CI job summary. Install the browsers once with
+`npx playwright install --with-deps firefox webkit`. CI runs the `cross-browser-smoke` job in Playwright's official image
+(`mcr.microsoft.com/playwright`, tag equal to the `@playwright/test` version and pinned by digest), which already holds both
+browsers and their libraries, so it installs nothing; when you bump Playwright, bump the tag and digest with it
+(`scripts/hof-workflows.test.ts` fails until the tag matches).
+
+The job isn't part of `browser-tests` and isn't required; making it required is a separate decision once its
+runs are stable. A failure that shows a real app bug in one engine is reported as one, not worked around in
+the test. This is Playwright's Linux WebKit with touch emulation: it is not iOS Safari, a physical phone or
+the native share sheet, and says nothing about them.
+
 ### Automated axe checks
 
 `tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
