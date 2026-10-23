@@ -807,6 +807,36 @@ worker mines. On a phone the worker slows down as much as the main thread does, 
 saving further: unthrottled, tickets took about 220 ms with 60 ms idle in all. Leaving the page
 aborts the check, so a pack opening never waits behind more than the one ticket already mining.
 
+### Card art placeholders (opt-in)
+
+`npm run test:performance:art-pending` (`tests/performance/art-pending.spec.ts`, report-only, in no
+check or CI job) times how long card art stays a placeholder (#762) on a cold load at 360x640 with
+touch, 120 ms per response, 1.6 Mbps down and the main thread slowed 4x. It opens two shared pulls
+from `spec/vectors-python.json` (one with finishes, one plain) and a 20-row Rankings board, and
+records when the pull shows as verified, when each slot is drawn (decoded, `data-state="ready"`),
+when the first Rankings row and every row on screen have their thumbnails, and the card art's
+requests and bytes. It prints one JSON line per run (`PERF_REPETITIONS`, default 3). Set
+`CHROMIUM_PATH` when Playwright's own browser build isn't installed. Same emulation limits as above
+(#8): the CPU slowdown doesn't reach the worker that re-derives a shared pull.
+
+Before and after #762's changes (slots ready once decoded, visible faces fetched first, the next
+pack's art left until the Open screen shows), n=3 each, ranges, on a 4-vCPU 2.1 GHz Xeon host with
+Chromium 141 headless (emulation, not a device):
+
+| | Before (`8674c13`) | After |
+| --- | --- | --- |
+| Finished pull: verified | 3950 to 3983 ms | 3822 to 4110 ms |
+| Finished pull: last slot drawn after verified | 4849 to 4883 ms | 2433 to 2517 ms |
+| Finished pull: art requests, bytes | 6 to 7, 494 to 657 KB | 5, 442 KB |
+| Plain pull: last slot drawn after verified | 3683 to 3884 ms | 1516 to 1550 ms |
+| Plain pull: art requests, bytes | 3, 317 KB | 2, 264 KB |
+| Rankings: first row's thumbs | 8542 to 8856 ms | 8586 to 8789 ms |
+| Rankings: every on-screen thumb | 13142 to 13339 ms | 12869 to 12972 ms |
+
+Most of the pull saving is bandwidth the next pack's art no longer takes. Rankings is bound by
+bytes: each 30 px thumb downloads the full-size art (about 144 KB), so a smaller plain-card
+thumbnail is what would move it.
+
 ### Proposed budgets (not enforced)
 
 **No fail-on-regression gate exists.** Both harnesses set `timingGate: false`, nothing in

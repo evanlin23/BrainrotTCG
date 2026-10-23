@@ -26,6 +26,7 @@ import { cardPreviewPath, hasModifierPages, headline, modifierTokens, PACK_HEADL
 import { revealOrder } from './reveal';
 import { getTicket, prefetchTicket } from './ticketMiner';
 import { afterPackArt } from './packArt';
+import { whenOnOpenScreen } from './warmUp';
 import type { CardWithMeta } from '../types/card';
 
 /** Enough to re-derive and re-sign a pull later (e.g. to share a past best pack). */
@@ -90,14 +91,14 @@ export const prefetchNextPack = (set: SetDefinition) => {
     .then((ticket) => {
       // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
       // once the sealed pack's own art is in, with the ready-made thumbnail a finished card's summary
-      // tile shows (#620).
+      // tile shows (#620). A shared pull or another page showing its own cards goes first (#762).
       const urls = generatePack(set, packSeedFromTicket(ticket)).flatMap((card) => {
         const image = getCard(`${card.setId}/${card.cardId}`)?.image;
         return image ? [image, cardFinishThumbUrl(image, card.finish)] : [];
       });
-      afterPackArt(() => {
+      afterPackArt(() => whenOnOpenScreen(() => {
         for (const url of urls) if (url) new Image().src = url;
-      });
+      }));
     })
     .catch(() => undefined);
 };

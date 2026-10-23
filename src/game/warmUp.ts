@@ -28,6 +28,20 @@ const savingData = () => (navigator as Navigator & { connection?: { saveData?: b
 const canOpenPack = () => pageForHash(location.hash) === null && !isLinkHash(location.hash);
 
 /**
+ * Run `task` once the Open screen shows (at once if it does). A shared pull, a profile or another page
+ * is drawing its own card art, which a download for a later pack would slow on a thin connection (#762).
+ */
+export const whenOnOpenScreen = (task: () => void): void => {
+  if (canOpenPack()) return task();
+  const check = () => {
+    if (!canOpenPack()) return;
+    window.removeEventListener('hashchange', check);
+    task();
+  };
+  window.addEventListener('hashchange', check);
+};
+
+/**
  * Fetch the card back the first reveal shows, unless the visitor saves data or is elsewhere. It waits
  * for the sealed pack's art, which the first screen needs more.
  */

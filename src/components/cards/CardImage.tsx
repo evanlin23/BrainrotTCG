@@ -112,6 +112,11 @@ const CardImage = ({
   }, [id, needsRender]);
 
   const imageRef = useRef<HTMLImageElement>(null);
+  /** The status this image shows now, for a decode that finishes after the image has moved on. */
+  const current = useRef(id);
+  useLayoutEffect(() => {
+    current.current = id;
+  });
   // A fresh status for a URL the img already shows (a card without a finish switching between its
   // thumbnail and full-size view keeps the same src) gets no new load event: take the load it had.
   useLayoutEffect(() => {
@@ -156,7 +161,15 @@ const CardImage = ({
       src={failed || !shown ? BLANK : shown}
       data-state={state}
       onLoad={(event) => {
-        if (!failed && shown && event.currentTarget.getAttribute('src') === shown) update({ loaded: shown });
+        const img = event.currentTarget;
+        if (!failed && shown && img.getAttribute('src') === shown) {
+          // Ready once the pixels are decoded, so the placeholder never gives way to an empty frame on a
+          // slow device (#762). A decode that fails still leaves the image the load event reported.
+          if (typeof img.decode !== 'function') update({ loaded: shown });
+          else void img.decode().catch(() => undefined).then(() => {
+            if (current.current === id && img.getAttribute('src') === shown) update({ loaded: shown });
+          });
+        }
         onLoad?.(event);
       }}
       onError={(event) => {

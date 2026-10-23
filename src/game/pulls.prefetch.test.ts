@@ -26,4 +26,27 @@ describe('prefetchNextPack', () => {
     expect(images.length).toBeGreaterThan(0);
     expect(images.every((image) => image.src.length > 0)).toBe(true);
   });
+
+  it('leaves the bandwidth to a shared pull until the Open screen shows (#762)', async () => {
+    const images: { src: string }[] = [];
+    vi.stubGlobal('Image', class { src = ''; constructor() { images.push(this); } });
+    history.replaceState(null, '', '#/pull/some-proof');
+    packArtSettled();
+    prefetchNextPack(getSet('right-now', 2)!);
+    await mined;
+    await Promise.resolve();
+    expect(images).toEqual([]);
+
+    // Another page is no better: its cards are on screen too.
+    history.replaceState(null, '', '#/rankings');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(images).toEqual([]);
+
+    history.replaceState(null, '', location.pathname);
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(images.length).toBeGreaterThan(0);
+    const fetched = images.length;
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(images).toHaveLength(fetched);
+  });
 });

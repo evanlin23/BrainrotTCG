@@ -250,6 +250,38 @@ describe('failure and retry', () => {
     expect(img.dataset.state).toBe('loading');
   });
 
+  it('stays a placeholder until the loaded art is decoded, for the card it still shows (#762)', async () => {
+    const decodes: { resolve: () => void; reject: (error: Error) => void }[] = [];
+    Object.defineProperty(HTMLImageElement.prototype, 'decode', {
+      configurable: true,
+      value: () => new Promise<void>((resolve, reject) => decodes.push({ resolve, reject })),
+    });
+    try {
+      const plain = ALL_CARDS[0];
+      await act(async () => root.render(<CardImage src={plain.image} alt="" />));
+      const img = container.querySelector('img')!;
+      await fire(img, 'load');
+      expect(img.dataset.state).toBe('loading');
+      await act(async () => decodes[0].resolve());
+      expect(img.dataset.state).toBe('ready');
+
+      // A decode that finishes after the img moved on to another card leaves that card waiting.
+      await act(async () => root.render(<CardImage src={card.image} alt="" />));
+      await fire(img, 'load');
+      await act(async () => root.render(<CardImage src={plain.image} thumbnail alt="" />));
+      await act(async () => decodes[1].resolve());
+      expect(img.dataset.state).toBe('loading');
+
+      // A decode the browser gives up on still shows what the load event reported.
+      await fire(img, 'load');
+      expect(img.dataset.state).toBe('loading');
+      await act(async () => decodes[2].reject(new Error('EncodingError')));
+      expect(img.dataset.state).toBe('ready');
+    } finally {
+      delete (HTMLImageElement.prototype as { decode?: unknown }).decode;
+    }
+  });
+
   it('keeps a loaded image ready when the same card without a finish switches between thumbnail and full size (#484)', async () => {
     const plain = ALL_CARDS[0];
     await act(async () => root.render(<CardImage src={plain.image} thumbnail alt="" />));

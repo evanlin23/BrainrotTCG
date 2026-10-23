@@ -34,6 +34,8 @@ const HACKATHON_LEGENDS: LegendEntry[] = [
 
 /** How many leaderboard rows show at first, and how many more each "Show more" adds. */
 const PAGE_SIZE = 20;
+/** Rows a phone shows before scrolling. */
+const ON_FIRST_SCREEN = 5;
 /**
  * How long the page waits on the live relays before it stops saying it is checking. Re-deriving recent
  * submissions queues behind pack-opening tickets and can take far longer; the check itself carries on,
@@ -209,7 +211,8 @@ const HallOfFamePage = () => {
           <span className="hof-cards" aria-hidden="true">
             {entry.cards.map((c, i) => {
               const card = getCard(`${entry.setId}/${c.cardId}`);
-              return card ? <CardImage key={i} src={card.image} finish={c.finish} thumbnail alt="" className={`${card.rarity.toLowerCase()} ${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} /> : null;
+              // The top rows are what a phone shows first: their art goes ahead of the rows further down (#762).
+              return card ? <CardImage key={i} src={card.image} finish={c.finish} thumbnail alt="" fetchPriority={rank < ON_FIRST_SCREEN ? 'high' : undefined} className={`${card.rarity.toLowerCase()} ${c.isHolo ? 'holo' : ''} ${modifierClasses(c)}`} /> : null;
             })}
           </span>
           <span className="hof-main">

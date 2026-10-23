@@ -92,7 +92,7 @@ const PackCardViewer = ({
                             onClick={() => handleCardClick(card)}
                             aria-label={`${card.name}${modifierLabel(card) ? ` (${modifierLabel(card)})` : ''}`}
                         >
-                            <CardImage src={card.image} finish={card.finish} thumbnail alt="" />
+                            <CardImage src={card.image} finish={card.finish} thumbnail alt="" fetchPriority="high" />
                             {modifierLabel(card, false) && <span className="mod-label">{modifierLabel(card, false)}</span>}
                         </button>
                     );
