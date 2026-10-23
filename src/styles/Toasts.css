@@ -76,6 +76,16 @@
   font-size: var(--text-xs);
 }
 
+/* Outside focus mode the screen under the header is full of controls (the set picker's chevrons, the
+   pack, the guide link) and has no free band at 360x640, so a toast that overlays it covers one and
+   is a moving target in the tap path (#803). There it takes its own row: the page below shifts down
+   for as long as the toast is up and the pack stage, which flexes, gives the room back. */
+.app:not(.is-focus) .toast-region:has(.toast) {
+  top: 0;
+  height: auto;
+  padding-block: var(--space-1);
+}
+
 /* Focus mode on a phone hides the header, so the region would sit at the very top, over the pack's X
    (and the card count): a toast there intercepts the X's press (#614). Hang it under the pack's top
    bar instead (the bar's padding, the X, and the toast's 12px slide-in, so even mid-entrance it stays

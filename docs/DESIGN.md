@@ -168,8 +168,8 @@ results rules below (#339).
   browser" too: it says what was checked and where, never whose device made the packs, so one
   line is true for the owner and a guest alike without a branch on who is looking.
 - #803: drag failures are never dead ends (tap opens, seam progress shows); 24-30 px targets get
-  44 px hit areas. #803 also still owns the clickable achievement toast as a moving target in
-  the tap path.
+  44 px hit areas; the achievement toast never covers a control on the home screen (it takes its
+  own row there, see Toasts).
 
 ## Looks like a card game, not like an AI demo
 
@@ -334,7 +334,11 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
 - **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss after 8 s (10 s for a grouped toast); hovering or focusing
-  a toast holds it, and it gets its full time again when the pointer or focus leaves.
+  a toast holds it, and it gets its full time again when the pointer or focus leaves. On the home
+  screen the toast is a row of its own under the header and the pack stage gives up that height, so it
+  never covers the set picker, the pack, the guide link or a tab (#803); in pack focus mode it still
+  overlays, under the pack's X. `tests/browser/toast-home.spec.ts` checks every home control at 360,
+  390 and 1280.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
