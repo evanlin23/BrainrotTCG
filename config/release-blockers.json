@@ -16,7 +16,12 @@
       "severityRationale": "Persistent startup blank screen for an affected browser profile, with no in-app way to recover the save.",
       "owner": "evanlin23",
       "requiredEvidence": "a merged fix with a regression test that seeds the damaged legacy record and asserts startup reaches a usable or recovery screen, passing on the final candidate",
-      "disposition": "unresolved"
+      "disposition": "resolved",
+      "resolution": {
+        "fixedInPr": 905,
+        "fixCommit": "c99a52386ab32c0df597e0b9a52d97c26e294242",
+        "regressionTest": "src/test/legacySave.integration.test.ts"
+      }
     },
     {
       "id": "RB-693",
@@ -32,7 +37,12 @@
       "severityRationale": "If the extreme case hangs startup it is a persistent blank or unusable opening screen; the unbounded work is confirmed but that outcome is not yet reproduced, so it stays fail-closed until fixed or reclassified on evidence.",
       "owner": "evanlin23",
       "requiredEvidence": "a merged fix with a regression test showing startup work is bounded by recorded data for a sparse, very large counter, passing on the final candidate",
-      "disposition": "unresolved"
+      "disposition": "resolved",
+      "resolution": {
+        "fixedInPr": 906,
+        "fixCommit": "9508875061491409ea8b2f85a1b6fdd552843649",
+        "regressionTest": "src/game/profiles.test.ts"
+      }
     },
     {
       "id": "RB-668",
@@ -48,7 +58,12 @@
       "severityRationale": "A stale review authorizes overwriting a different, newer current save; the import backup holds the overwritten save, so permanent deletion or identity mixing was not demonstrated.",
       "owner": "evanlin23",
       "requiredEvidence": "a merged fix with a regression test that changes the save in another tab and asserts the pending Replace is refused, passing on the final candidate",
-      "disposition": "unresolved"
+      "disposition": "resolved",
+      "resolution": {
+        "fixedInPr": 915,
+        "fixCommit": "93cd303b81235ef1700bf27651f74c3b69f11925",
+        "regressionTest": "src/test/crossTabSave.integration.test.ts"
+      }
     }
   ]
 }
