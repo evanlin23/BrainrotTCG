@@ -428,6 +428,21 @@ fi
   });
 });
 
+describe('performance-baseline.yml runs in the pinned Playwright image (#658)', () => {
+  const job = jobs(read('performance-baseline.yml')).baseline.join('\n');
+  const image = (text: string) => /^ {6}image: (\S+)$/m.exec(text)?.[1];
+
+  it('uses the image browser-tests.yml uses, pinned by digest, as the runner user', () => {
+    expect(image(job)).toMatch(/^mcr\.microsoft\.com\/playwright:v\d+\.\d+\.\d+-[a-z]+@sha256:[0-9a-f]{64}$/);
+    expect(image(job)).toBe(image(read('browser-tests.yml')));
+    expect(job).toMatch(/^ {6}options: --user 1001/m);
+  });
+
+  it('installs no browsers or system packages', () => {
+    expect(job.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')).not.toMatch(/playwright install|apt-get|apt |--with-deps/);
+  });
+});
+
 describe('ops-health.yml, the operational health report (#715)', () => {
   const text = read('ops-health.yml');
   const all = jobs(text);
