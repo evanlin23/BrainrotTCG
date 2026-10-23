@@ -8,7 +8,7 @@ import '../../styles/CardImage.css';
 interface CardImageProps extends ImgHTMLAttributes<HTMLImageElement> {
   src: string;
   finish?: Finish | null;
-  /** Collection tiles can use ready-made finishes instead of rendering a full-size image. */
+  /** Small views can use ready-made finishes instead of rendering a full-size image. */
   thumbnail?: boolean;
   /** Offer a Retry button when the image fails. Only where a button may sit beside the image (not inside one). */
   retry?: boolean;

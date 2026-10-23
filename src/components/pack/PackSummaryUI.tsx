@@ -94,7 +94,7 @@ const PackSummaryUI = ({ openedCards, set, onClose, onShare, pack, holdOptional 
                   }}
                   aria-label={`View ${card.name} up close, ${CARD_RARITIES[card.rarity].name}${modifierLabel(card) ? `, ${modifierLabel(card)}` : ''}${card.isNew ? ', new' : ''}`}
                 >
-                  <CardImage src={card.image} finish={card.finish} alt="" draggable="false" />
+                  <CardImage src={card.image} finish={card.finish} thumbnail alt="" draggable="false" />
                   <span className="summary-card-expand" aria-hidden="true">⤢</span>
                   {card.isNew && <span className="new-sticker">New</span>}
                   {modifierLabel(card, false) && <span className="mod-label">{modifierLabel(card, false)}</span>}

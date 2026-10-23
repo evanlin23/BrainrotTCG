@@ -45,9 +45,16 @@ test('a shared pull shows no finish captions on pending art, and keeps score and
   const cards = pull.locator('.pack-viewer-cards > button');
   await expect(cards).toHaveCount(vector.cards.length);
   const slots = cards.locator('img.card-image');
-  // Every slot is still waiting for held art; a finish also waits for its inks to be prepared.
+  // Every slot is waiting on its held art. A finished card asks for its small ready-made thumbnail instead
+  // of full-size art plus a canvas render, so no slot is "rendering": it is a plain wait on one request.
   await expect.poll(() => slots.evaluateAll((images) => images.map((img) => (img as HTMLImageElement).dataset.state)))
-    .toEqual(vector.cards.map((card) => (card.finish ? 'rendering' : 'loading')));
+    .toEqual(vector.cards.map(() => 'loading'));
+  const sources = await slots.evaluateAll((images) => images.map((img) => (img as HTMLImageElement).getAttribute('src') ?? ''));
+  sources.forEach((src, index) => {
+    const { finish } = vector.cards[index];
+    // The build names a thumbnail `<card>.<finish>-<hash>.webp`; a plain card's art has no finish in its name.
+    if (finish) expect(src, `card ${index + 1} is finished`).toMatch(new RegExp(`\\.${finish.toLowerCase()}-[\\w-]+\\.webp$`));
+  });
   const captions = cards.locator('.mod-label');
   await expect(captions).toHaveCount(finished);
   for (const caption of await captions.all()) await expect(caption).toBeHidden();
@@ -99,8 +106,8 @@ test('a pack summary hides the finish captions on pending art, and shows them on
   const slots = page.locator('.summary-cards img.card-image');
   await expect(slots).toHaveCount(5);
   const captions = page.locator('.summary-cards .mod-label');
-  // A pending slot is either still being prepared (a finish) or waiting on its art; both are empty frames.
-  await expect.poll(() => slots.evaluateAll((images) => images.every((img) => ['rendering', 'loading'].includes((img as HTMLImageElement).dataset.state ?? '')))).toBe(true);
+  // A pending slot is an empty frame waiting on one request, finished or not: no slot waits on a canvas render.
+  await expect.poll(() => slots.evaluateAll((images) => images.every((img) => (img as HTMLImageElement).dataset.state === 'loading'))).toBe(true);
   expect(await captions.count()).toBeGreaterThan(0);
   for (const caption of await captions.all()) await expect(caption).toBeHidden();
   for (const tile of await page.locator('.summary-card').all()) await expect(tile).toHaveAccessibleName(/^View /);
