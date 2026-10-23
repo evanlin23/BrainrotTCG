@@ -486,7 +486,6 @@ function App() {
         onOpen={(target) => (target === 'collection' ? openPage('cards') : openPage('profile', target === 'achievements' ? 'achievements' : 'rewards'))}
         paused={isAnyModalOpen || onPage || anySheetOpen || packBusy}
         held={packShowcase}
-        layoutKey={`${route}|${packFocus ? 'pack' : ''}`}
       />
 
       {/* Stays mounted under a page, so a pack in progress is still there on the way back. */}

@@ -22,8 +22,21 @@ const PHONES = [
   { width: 844, height: 390 },
 ];
 
-/** A fresh player's first pack, skipped to its summary, with the grouped toast up and held. */
-async function toSummaryWithToast(page: Page, baseURL: string) {
+/**
+ * Holds the toast with focus: a keystroke first, so the focus counts as the keyboard's (a pointer's does
+ * not hold it, and a toast on its own timer would expire between steps).
+ */
+const hold = async (page: Page) => {
+  await page.keyboard.press('Shift');
+  await page.locator('.toast').focus();
+};
+
+/**
+ * A fresh player's first pack, skipped to its summary, with the grouped toast up and held. With `clock`,
+ * the page's clock is Playwright's (still running), so a test can move time on instead of waiting for it.
+ */
+async function toSummaryWithToast(page: Page, baseURL: string, { clock = false } = {}) {
+  if (clock) await page.clock.install();
   const errors = await monitor(page, baseURL);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
@@ -36,7 +49,7 @@ async function toSummaryWithToast(page: Page, baseURL: string) {
   const toast = page.locator('.toast');
   await expect(toast).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.toast-kicker')).toHaveText(/achievements unlocked/);
-  await toast.focus();
+  await hold(page);
   return { errors, toast };
 }
 
@@ -77,7 +90,8 @@ test('a tap on the toast opens what it is for, and the toast is gone', async ({ 
 });
 
 // A thumb drifts: the press moves a few pixels between touching down and lifting, and that is still a tap.
-for (const drift of [4, 8]) {
+// (Chrome's own click slop is about 15px.)
+for (const drift of [4, 12]) {
   test(`a tap that drifts ${drift}px still opens the toast`, async ({ page, baseURL }) => {
     test.setTimeout(120000);
     const { errors, toast } = await toSummaryWithToast(page, baseURL!);
@@ -114,15 +128,49 @@ test('the toast follows the finger, and springs back from a swipe that stops sho
   await expect.poll(async () => Math.abs((await toast.boundingBox())!.y - box.y), { message: 'back where it was' }).toBeLessThan(1);
   await expect(page.locator('.toast-kicker')).toHaveText(/achievements unlocked/);
   await expect(page.locator('#achievements')).toHaveCount(0);
+  // A swipe that stopped short is not a tap, but it does not leave the toast deaf to the keyboard either.
+  await page.keyboard.press('Enter');
+  await onProfile(page);
   expect(errors).toEqual([]);
 });
 
+// The fly-out is only for those who have not asked for less motion: with reduced motion the toast fades
+// where it is, wherever it was sent. Sampled every frame, from the release until the toast is gone.
+for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+  test(`a swiped toast ${reducedMotion === 'reduce' ? 'only fades out with reduced motion' : 'flies off the way it was thrown'}`, async ({ page, baseURL }) => {
+    test.setTimeout(120000);
+    await page.emulateMedia({ reducedMotion });
+    const { errors, toast } = await toSummaryWithToast(page, baseURL!);
+    const { box } = await centre(toast);
+    const finger = await drag(page, toast, [{ dx: -30, dy: 0 }, { dx: -70, dy: 0 }, { dx: -110, dy: 2 }], { lift: false });
+    await settled(page, toast);
+    await page.evaluate(() => {
+      const el = document.querySelector('.toast')!;
+      const lefts: number[] = [];
+      Object.assign(window, { toastLefts: lefts });
+      const frame = () => {
+        if (!el.isConnected) return;
+        lefts.push(el.getBoundingClientRect().left);
+        requestAnimationFrame(frame);
+      };
+      frame();
+    });
+    await finger.release();
+    await expect(page.locator('.toast-kicker').filter({ hasText: /achievements unlocked/ })).toHaveCount(0);
+    const lefts = await page.evaluate(() => (window as unknown as { toastLefts: number[] }).toastLefts);
+    const furthest = Math.max(...lefts.map((left) => Math.abs(left - box.x)));
+    // The finger carried it to about 110px; flying off takes it well past that, to 240px.
+    if (reducedMotion === 'reduce') expect(furthest, 'it moved on after the finger let go').toBeLessThanOrEqual(115);
+    else expect(furthest, 'it flew off').toBeGreaterThan(130);
+    expect(errors).toEqual([]);
+  });
+}
+
 test('a toast the player saw does not come back each time a card close-up closes', async ({ page, baseURL }) => {
   test.setTimeout(120000);
-  const { errors, toast } = await toSummaryWithToast(page, baseURL!);
-  // Held by focus, so it is still the one up when it has been on screen long enough to count as seen.
-  const since = await page.evaluate(() => performance.now());
-  await expect.poll(() => page.evaluate((t) => performance.now() - t, since), { message: 'seen' }).toBeGreaterThan(2000);
+  const { errors, toast } = await toSummaryWithToast(page, baseURL!, { clock: true });
+  // Held by focus, so it is still the one up once the page's clock has moved far enough for it to count as seen.
+  await page.clock.fastForward(2000);
   await expect(toast).toBeVisible();
 
   await page.locator('.summary-card').first().tap();
@@ -154,7 +202,7 @@ test('no toast shows over the pack while it is torn and revealed', async ({ page
   await page.locator('.pack-close').tap();
   await expect(page.getByRole('button', { name: /^Open pack/ })).toBeVisible({ timeout: 10000 });
   await expect(page.locator('.toast')).toBeVisible({ timeout: 15000 });
-  await page.locator('.toast').focus();
+  await hold(page);
 
   await page.getByRole('button', { name: /^Open pack/ }).focus();
   await page.keyboard.press('Space');
@@ -178,7 +226,7 @@ for (const viewport of PHONES) {
     const toast = page.locator('.toast');
     await expect(toast).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.set-current')).toBeVisible();
-    await toast.focus();
+    await hold(page);
     await settled(page, toast);
 
     const box = (await toast.boundingBox())!;
@@ -189,7 +237,7 @@ for (const viewport of PHONES) {
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
 
-    // The pack's stage gives the toast its room as it arrives, so the controls are measured once that has settled.
+    // The toast takes no room, so the page is as it was; still, the controls are measured once it has settled.
     await expect.poll(() => page.evaluate((selectors) => {
       const rect = document.querySelector('.toast')!.getBoundingClientRect();
       const problems: string[] = [];
@@ -223,7 +271,7 @@ for (const viewport of PHONES) {
 
     for (const kicker of [/achievements unlocked/, /^Level up$/]) {
       await expect(page.locator('.toast-kicker')).toHaveText(kicker, { timeout: 15000 });
-      await page.locator('.toast').focus();
+      await hold(page);
       await settled(page, page.locator('.toast'));
       const covered = await page.evaluate((selectors) => {
         const toast = document.querySelector('.toast')!.getBoundingClientRect();

@@ -174,7 +174,7 @@ results rules below (#339).
   closes, Skip, the logo link and the profile's "What do these numbers mean?" summary at 390 px,
   at 195 px and with doubled text). #943 keeps the achievement toast off the pack's X and holds it
   while the pointer or focus is on it; #803 also keeps it from covering a control on the home
-  screen (it takes its own row there, see Toasts).
+  screen (it takes no room and covers nothing there, see Toasts).
 
 ## Looks like a card game, not like an AI demo
 
@@ -344,31 +344,26 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   opens the era you open packs from (else the newest started one), then the other started eras newest
   first while they fit 24 pockets, and collapses the rest. A collapsed grid is unmounted, not hidden,
   so a big collection stays cheap to open (#344).
-- **Toasts** (`achievements/AchievementToasts.tsx`): top centre on mobile, top right under nav on desktop, auto-dismiss after 5 s (6 s for a grouped toast); hovering or focusing
-  a toast holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or
-  sideways follows the finger and sends it away (a press that travels under 10 px is still a tap, a
-  swipe that stops short springs back); Escape on the focused toast does the same without opening it. On the home
-  screen the toast is a row of its own under the header and the pack stage gives up that height, so it
-  never covers the set picker, the pack, the guide link or a tab (#803). The row is kept short (tight
-  padding, a one-line kicker, a two-line clamp on a level-up's line, the full text still the button's
-  name) so at 200% text the pack and set steps stay at least 44 px. The toast itself is at least 44 px
-  tall at every size, so a thumb can hit it. On a phone on its side (420 px tall or less, 899 px wide or
-  less) a row of that height would squeeze the pack under a touch target, so there the toast takes no row:
-  it sits in the header over the wordmark (the home link, on the screen the player is already on) with
-  the Settings button moved to the right edge, and a level-up's line is clamped to one line. It covers
-  no set step, pack or header button, and nothing moves when it comes or goes. Elsewhere the row stays reserved
-  after the toast expires, so nothing moves under a finger at expiry (a shift as it first appears is
-  fine). It can grow when a taller toast arrives; it never shrinks under the player until the screen
-  changes. It is forgotten when the route or pack focus changes (a return to a screen already seen
-  starts with no empty row) and when the window resizes. A card close-up, any other sheet or page, and
-  a pack being torn and revealed hold the toasts until they clear, and a toast the player had 1.5 s to
-  see is let go then, not shown again in full. In pack focus mode it still overlays, under the pack's
-  X, or beside the X at the right on a short screen (520 px tall or less, where the headline below it is
-  kept clear by tight padding).
-  `tests/browser/toast-home.spec.ts` checks every home control at 360, 390, 1280 and 640x360, 200% text
-  at 360, expiry, the return to the screen, and the sheet hold. `tests/browser/toast-touch.spec.ts`
-  checks the tap, the swipe, the seen toast, the pack hold, and the 44 px target, a tap and what the toast
-  covers on the home screen and the summary at five phone sizes, in touch emulation.
+- **Toasts** (`achievements/AchievementToasts.tsx`): auto-dismiss after 5 s (6 s for a grouped toast); hovering
+  a toast, or focusing it from the keyboard (`:focus-visible`; a tap leaves focus on it, which must not hold it
+  for good), holds it, and it gets its full time again when the pointer or focus leaves. A swipe up or
+  sideways follows the finger and sends it away (a press that travels 16 px or less is still a tap, a
+  swipe that stops short springs back); Escape on the focused toast does the same without opening it. With
+  reduced motion it only fades, wherever it is sent. A toast never takes room: the page is laid out the same
+  with a toast up, after one and with none, so the pack's size and place never depend on one (#803). On a
+  phone (899 px wide or less) it lies over the header, bottom-aligned, from the left gutter to the Settings
+  button (the header puts Settings at the right edge), so it covers no set step, pack, guide link or tab; the
+  kicker is one line, a level-up's line is clamped to one line, and the full text is still the button's name.
+  On a wide screen it sits in the free band at the right, clear of the nav. It is at least 44 px tall at every
+  size, so a thumb can hit it. A card close-up, any other sheet or page, and a pack being torn and revealed
+  hold the toasts until they clear, and a toast the player had 1.5 s to see is let go then, not shown again in
+  full. In pack focus mode it still overlays, under the pack's X, or beside the X at the right on a short
+  screen (520 px tall or less, where the headline below it is kept clear by tight padding).
+  `tests/browser/toast-home.spec.ts` checks every home control at 360, 390, 1280, 640x360, 844x390, 900 and
+  1440, 200% text at 360, that nothing moves as the toast goes, the turn to landscape, and the sheet hold.
+  `tests/browser/toast-touch.spec.ts` checks the tap, the swipe, the seen toast, the pack hold, the reduced
+  motion fade, and the 44 px target, a tap and what the toast covers on the home screen and the summary at
+  five phone sizes, in touch emulation.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload

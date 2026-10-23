@@ -4,11 +4,12 @@ import { expectSummaryTakesClicks, monitor } from './support';
 /**
  * The achievement toast on the home screen (#803). The first visit back after a pack's summary still has
  * the toast up, and it used to hang over the set picker, so a tap meant for a set step opened Profile
- * instead. The home screen fills the viewport, so the toast takes a row of its own: with it up, nothing
- * the player can press is under it, and the centre of each control still reaches that control. When it
- * expires the row stays, so nothing moves under a finger. A card close-up (any sheet) holds it. Held by
- * focus (a focused toast never expires), and expiry is waited for on the page's own timers (the exit
- * animation stalls under a fake clock), so no step races one.
+ * instead. It takes no room: on a phone it lies over the header (clear of the Settings button), on a wide
+ * screen it sits in the free band at the right, so with it up nothing the player can press is under it,
+ * the centre of each control still reaches that control, and the page is laid out the same with a toast,
+ * after one and with none. A card close-up (any sheet) holds it. Held by focus (a focused toast never
+ * expires), and expiry is waited for on the page's own timers (the exit animation stalls under a fake
+ * clock), so no step races one.
  */
 
 const VIEWPORTS = [
@@ -17,6 +18,10 @@ const VIEWPORTS = [
   { width: 1280, height: 800 },
   // A phone on its side: the least height, where the pack is already only about 100px tall.
   { width: 640, height: 360 },
+  { width: 844, height: 390 },
+  // Wide screens, from where the nav joins the header up.
+  { width: 900, height: 700 },
+  { width: 1440, height: 900 },
 ];
 
 /** Every control on the home screen, as the page lays it out. */
@@ -76,27 +81,45 @@ async function toSummary(page: Page, baseURL: string) {
   return errors;
 }
 
+/**
+ * Holds the toast with focus: a keystroke first, so the focus counts as the keyboard's (a pointer's does
+ * not hold it, and a toast on its own timer would expire between steps).
+ */
+const hold = async (page: Page) => {
+  await page.keyboard.press('Shift');
+  await page.locator('.toast').focus();
+};
+
 /** Back home from the summary, with the first toast still up and held by focus. */
 async function toHome(page: Page) {
   await page.getByRole('button', { name: /Next pack/ }).click();
   const toast = page.locator('.toast');
   await expect(toast).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.set-current')).toBeVisible();
-  await toast.focus();
+  await hold(page);
   return toast;
 }
 
+/** The toast region's height: it is a zero-height row, so a toast never takes room from the page. */
+const regionHeight = (page: Page) => page.locator('.toast-region').evaluate((el) => Math.round(el.getBoundingClientRect().height));
+
+// Both toasts, the grouped achievements and then the taller level-up with its line, over every size.
 for (const viewport of VIEWPORTS) {
-  test(`a toast on the home screen covers no control at ${viewport.width}px`, async ({ page, baseURL }) => {
-    test.setTimeout(90000);
+  test(`both toasts on the home screen cover no control at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
+    test.setTimeout(120000);
     await page.setViewportSize(viewport);
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
 
-    await expect.poll(() => blocked(page), { message: 'no control is under the toast' }).toEqual([]);
-    expect(await squeezed(page)).toEqual([]);
-    // However little of it a short screen draws, the button's name is still all of it.
-    await expect(toast).toHaveAccessibleName(/^\s*\d+ achievements unlocked\s*\S.*/);
+    for (const kicker of [/achievements? unlocked/i, /^Level up$/]) {
+      await expect(page.locator('.toast-kicker').filter({ hasText: kicker })).toBeVisible({ timeout: 25000 });
+      await expect.poll(() => blocked(page), { message: `no control is under the ${kicker} toast` }).toEqual([]);
+      expect(await squeezed(page), `${kicker}: the pack and set steps are touch targets`).toEqual([]);
+      expect(await regionHeight(page), `${kicker}: the toast takes no room`).toBe(0);
+      // However little of it a short screen draws, the button's name is still all of it.
+      await expect(toast).toHaveAccessibleName(/^\s*(\d+ achievements unlocked|Level up)\s*\S.*/);
+      await toast.blur();
+    }
     expect(errors).toEqual([]);
   });
 }
@@ -122,20 +145,19 @@ test('at 200% text on a 360px phone both toasts leave every control uncovered an
   expect(errors).toEqual([]);
 });
 
-// The row a toast took stays after it expires: the pack and the chevrons are where they were while it was
-// up, so a tap heading for one never lands on the other (#803).
+// Nothing the player is heading for moves as the toasts arrive or leave: the pack and the chevrons are
+// where they were while one was up, so a tap on one never lands on the other (#803).
 for (const viewport of VIEWPORTS) {
-  test(`nothing on the home screen moves when the toasts expire at ${viewport.width}px`, async ({ page, baseURL }) => {
+  test(`nothing on the home screen moves when the toasts expire at ${viewport.width}x${viewport.height}`, async ({ page, baseURL }) => {
     test.setTimeout(120000);
     await page.setViewportSize(viewport);
     const errors = await toSummary(page, baseURL!);
     const toast = await toHome(page);
-    // The taller level-up toast comes second; measure with it up, the largest the row gets here.
+    // The taller level-up toast comes second; measure with it up.
     await toast.blur();
     await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 25000 });
-    await page.locator('.toast').focus();
+    await hold(page);
     const during = await placed(page);
-    expect(await squeezed(page), 'the pack and set steps are touch targets with the largest toast up').toEqual([]);
 
     await page.locator('.toast').blur();
     await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
@@ -144,69 +166,21 @@ for (const viewport of VIEWPORTS) {
   });
 }
 
-// The row is held for the screen it was measured on, not for the next visit to it: a tab away and back
-// leaves no empty row where a toast was, and the pack is the size a fresh load gives it (#803).
-test('the row a toast held is gone when the player comes back to the home screen, at 200% text on a 360px phone', async ({ page, baseURL }) => {
-  test.setTimeout(120000);
-  await page.setViewportSize({ width: 360, height: 640 });
-  const errors = await toSummary(page, baseURL!);
-  await page.addStyleTag({ content: ENLARGED });
-  const toast = await toHome(page);
-  await toast.blur();
-  await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 25000 });
-  await page.locator('.toast').focus();
-  await page.locator('.toast').blur();
-  await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
-  const region = () => page.locator('.toast-region').evaluate((el) => Math.round(el.getBoundingClientRect().height));
-  expect(await region(), 'the row is held while the player is still on the screen').toBeGreaterThan(0);
-
-  await page.locator('.app-nav-item', { hasText: 'Cards' }).click();
-  await expect(page.locator('.app-main')).toBeHidden();
-  await page.locator('.app-nav-item', { hasText: 'Open' }).click();
-  await expect(page.locator('.set-current')).toBeVisible();
-  expect(await region(), 'no empty row where the toast was').toBe(0);
-  const back = await placed(page);
-
-  // The enlarged text is an injected style, so a reload drops it: put it back before comparing.
-  await page.reload();
-  await expect(page.locator('.app-logo')).toBeVisible();
-  await page.addStyleTag({ content: ENLARGED });
-  await expect.poll(() => placed(page), { message: 'the controls are where a fresh load puts them' }).toEqual(back);
-  expect(errors).toEqual([]);
-});
-
-// A phone turned on its side while a toast holds a row: the row goes with the turn (a short screen has none, the
-// toast sits over the header), nothing moves when it expires, and the turn back leaves no empty row (#803).
-test('turning a phone on its side drops the held row, and turning it back leaves none', async ({ page, baseURL }) => {
+// A phone turned on its side with a toast up: nothing is under it either way round, and it takes no room.
+test('turning a phone on its side with a toast up leaves nothing under it, and takes no room', async ({ page, baseURL }) => {
   test.setTimeout(120000);
   await page.setViewportSize({ width: 360, height: 640 });
   const errors = await toSummary(page, baseURL!);
   const toast = await toHome(page);
-  const region = () => page.locator('.toast-region').evaluate((el) => Math.round(el.getBoundingClientRect().height));
-  expect(await region(), 'portrait: the toast has a row of its own').toBeGreaterThan(0);
+  await expect.poll(() => blocked(page), { message: 'portrait: nothing is under the toast' }).toEqual([]);
 
-  await page.setViewportSize({ width: 640, height: 360 });
-  await expect(toast).toBeVisible();
-  await expect.poll(() => blocked(page), { message: 'on its side nothing is under the toast' }).toEqual([]);
-  expect(await squeezed(page)).toEqual([]);
-  // The turn re-lays the page out and the pack eases into its new place: measure once it has held still
-  // for three reads in a row.
-  let during = await placed(page);
-  let still = 0;
-  await expect.poll(async () => {
-    const was = during;
-    during = await placed(page);
-    still = JSON.stringify(was) === JSON.stringify(during) ? still + 1 : 0;
-    return still;
-  }, { message: 'the page has settled on its side', intervals: [250] }).toBeGreaterThanOrEqual(3);
-
-  await toast.blur();
-  await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
-  expect(await placed(page), 'nothing moves when the toast goes').toEqual(during);
-  expect(await region(), 'on its side no row is held').toBe(0);
-
-  await page.setViewportSize({ width: 360, height: 640 });
-  await expect.poll(region, { message: 'turned back, no empty row where the toast was' }).toBe(0);
+  for (const turned of [{ width: 640, height: 360 }, { width: 360, height: 640 }]) {
+    await page.setViewportSize(turned);
+    await expect(toast).toBeVisible();
+    await expect.poll(() => blocked(page), { message: `${turned.width}x${turned.height}: nothing is under the toast` }).toEqual([]);
+    expect(await squeezed(page)).toEqual([]);
+    expect(await regionHeight(page), 'the toast takes no room').toBe(0);
+  }
   expect(errors).toEqual([]);
 });
 

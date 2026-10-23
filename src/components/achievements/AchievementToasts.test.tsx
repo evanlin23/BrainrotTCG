@@ -141,9 +141,10 @@ describe('dismissing a toast with the keyboard', () => {
 describe('how long a toast stays up (#718)', () => {
   const achievement = (n: number): ToastItem => ({ id: `a${n}`, name: `Achievement ${n}`, description: 'Done' });
 
-  it('gives a single toast time to read and tap: at least 5 seconds, and it is still tappable late', async () => {
-    expect(TOAST_MS).toBeGreaterThanOrEqual(5000);
-    expect(GROUPED_TOAST_MS).toBeGreaterThan(TOAST_MS);
+  it('gives a single toast time to read and tap: 5 seconds, and it is still tappable late', async () => {
+    // Pinned: the owner found 8 and 10 seconds too long on a phone.
+    expect(TOAST_MS).toBe(5000);
+    expect(GROUPED_TOAST_MS).toBe(6000);
     expect(TOAST_SEEN_MS).toBeLessThan(TOAST_MS);
     act(() => root.render(<Harness initial={[levelUp]} />));
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS - 100));
@@ -183,6 +184,19 @@ describe('how long a toast stays up (#718)', () => {
     act(() => document.querySelector<HTMLElement>('.toast')!.blur());
     await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
     expect(dismissed).toEqual([['level-2']]);
+  });
+
+  it('is not held by focus a tap or swipe left on it, only by focus from the keyboard', async () => {
+    // Focus a pointer gives the button does not match :focus-visible.
+    const matches = HTMLElement.prototype.matches;
+    vi.spyOn(HTMLElement.prototype, 'matches').mockImplementation(function (this: HTMLElement, selector: string) {
+      return selector === ':focus-visible' ? false : matches.call(this, selector);
+    });
+    act(() => root.render(<Harness initial={[levelUp]} />));
+    act(() => document.querySelector<HTMLElement>('.toast')!.focus());
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
+    expect(dismissed).toEqual([['level-2']]);
+    vi.restoreAllMocks();
   });
 
   it('does not stay held after a sheet hides a toast the pointer was on', async () => {
