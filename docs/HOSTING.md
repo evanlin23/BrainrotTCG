@@ -375,7 +375,7 @@ and migration origins consistent with the selected release.
    and back never redeploys. Any edit to an already-verified issue restores its labels without a new
    comment, unless it carries `rejected`. With neither `verified` nor `daily` left, it gets
    `verified` if the pull makes the all-time list (judged without the issue's own entry), else
-   `daily` (also when the published list can't be read), whatever day it was first verified. And
+   `daily` (also when the published list can't be read), whatever day it was first received. And
    [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
    when a run (dispatched about every 15 minutes) files new entries. Land the forward-fix PR first, or
    pause those workflows, before they redeploy a bad `main`. Avoid overlapping recovery and deploy
