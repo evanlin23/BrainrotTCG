@@ -20,7 +20,6 @@ const render = (xs: number[], { pressing = false, nudging = false, fellShort = f
       isPackCut={isPackCut}
       waiting={waiting}
       cutPoints={xs.map((x) => ({ x, y: 19 }))}
-     
       cue={cue}
     />,
   );

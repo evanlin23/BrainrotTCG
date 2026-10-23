@@ -38,6 +38,7 @@ const runFrame = () => {
 const tick = (ms: number) => { time += ms; };
 
 let drawImage: ReturnType<typeof vi.fn>;
+let clearRect: ReturnType<typeof vi.fn>;
 let getContext: ReturnType<typeof vi.spyOn>;
 
 let root: Root | null = null;
@@ -66,7 +67,8 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id); });
   vi.spyOn(performance, 'now').mockImplementation(() => time);
   drawImage = vi.fn();
-  const context = { globalAlpha: 1, setTransform: vi.fn(), clearRect: vi.fn(), drawImage, createRadialGradient: () => ({ addColorStop: vi.fn() }), fillRect: vi.fn(), fillStyle: '' };
+  clearRect = vi.fn();
+  const context = { globalAlpha: 1, setTransform: vi.fn(), clearRect, drawImage, createRadialGradient: () => ({ addColorStop: vi.fn() }), fillRect: vi.fn(), fillStyle: '' };
   getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as unknown as CanvasRenderingContext2D);
 });
 
@@ -135,6 +137,15 @@ describe('useSparks', () => {
     act(() => root?.unmount());
     root = null;
     expect(frames.size).toBe(0);
+  });
+
+  it('wipes its layer on unmount', () => {
+    render(true);
+    emit();
+    const wipes = clearRect.mock.calls.length;
+    act(() => root?.unmount());
+    root = null;
+    expect(clearRect.mock.calls.length).toBeGreaterThan(wipes);
   });
 
   it('asks for no context, frames or randomness with particles off or reduced motion', () => {

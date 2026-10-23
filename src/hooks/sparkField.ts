@@ -60,6 +60,14 @@ export interface SparkField {
   readonly live: number;
 }
 
+/** The same colour at alpha 0, from a canvas's normalised colour (`#rrggbb` or `rgb(a)(r, g, b[, a])`); null if it is neither. */
+export function withoutAlpha(color: string): string | null {
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color.trim());
+  if (hex) return `rgba(${parseInt(hex[1], 16)}, ${parseInt(hex[2], 16)}, ${parseInt(hex[3], 16)}, 0)`;
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*[\d.]+\s*)?\)$/i.exec(color.trim());
+  return rgb ? `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, 0)` : null;
+}
+
 const browserEnvironment = (): SparkEnvironment => ({
   now: () => performance.now(),
   requestFrame: (callback) => requestAnimationFrame(callback),
@@ -78,7 +86,10 @@ const browserEnvironment = (): SparkEnvironment => ({
     gradient.addColorStop(0.42, `hsl(${hue} 100% 78%)`);
     gradient.addColorStop(0.62, `hsl(${hue} 100% 66% / 0.95)`);
     gradient.addColorStop(0.78, glow);
-    gradient.addColorStop(1, 'transparent');
+    // Canvas gradients interpolate unpremultiplied, so ending on `transparent` (black at alpha 0) would
+    // fade the halo through grey; end on the glow's own colour at alpha 0 instead.
+    context.fillStyle = glow;
+    gradient.addColorStop(1, withoutAlpha(String(context.fillStyle)) ?? withoutAlpha(FALLBACK_GLOW)!);
     context.fillStyle = gradient;
     context.fillRect(0, 0, SPRITE_PX, SPRITE_PX);
     return sprite;

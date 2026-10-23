@@ -738,13 +738,9 @@ describe('usePackCutter frame batching (#266)', () => {
     ['a cancel', () => act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.36))))],
     ['blur or a hidden page', () => act(() => cutter.endCutAttempt())],
     ['a reset', () => act(() => cutter.resetCutState())],
-    ['unmount', () => {
-      act(() => root.unmount());
-      root = createRoot(container);
-    }],
   ];
 
-  it.each(exits)('cancels its frame and wipes its sparks on %s', (exit, end) => {
+  it.each(exits)('cancels its frame and wipes its sparks on %s', (_exit, end) => {
     renderCounting(true);
     down(at(0.3));
     move(at(0.34));
@@ -758,8 +754,25 @@ describe('usePackCutter frame batching (#266)', () => {
     end();
     expect(frames.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
-    // The unmount's wipe belongs to useSparks, which ends its own field (useSparks.test.tsx).
-    if (exit !== 'unmount') expect(sparkCalls.clears).toBeGreaterThan(wiped);
+    expect(sparkCalls.clears).toBeGreaterThan(wiped);
+    expect(sparkCalls.emits).toHaveLength(1);
+    expect(onCutComplete).not.toHaveBeenCalled();
+  });
+
+  it('cancels its frame on unmount and starts nothing after it', () => {
+    renderCounting(true);
+    down(at(0.3));
+    move(at(0.34));
+    runFrame();
+    move(at(0.36));
+    expect(frames.size).toBe(1);
+
+    act(() => root.unmount());
+    root = createRoot(container);
+
+    expect(frames.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    // Wiping the spark layer on unmount belongs to useSparks, which ends its own field (useSparks.test.tsx).
     expect(sparkCalls.emits).toHaveLength(1);
     expect(onCutComplete).not.toHaveBeenCalled();
   });

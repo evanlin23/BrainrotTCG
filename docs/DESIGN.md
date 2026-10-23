@@ -264,7 +264,7 @@ anything verified. Generic app chrome gives a page away as generated. Don't use:
   stops, `--seam-*` and `--pack-gold-*` (pack art), and single effects such as `--shine`, `--sheen`,
   `--glint` and `--holo-aura`. A sheet that needs a new colour adds a token first.
   `tests/style-scan.test.ts` fails on a literal anywhere else; its allowlist names each exception and
-  why (today only the tear sparks' per-spark `hsl(var(--hue) …)`).
+  why (today it is empty).
 - **Canvas.** The share images draw on a canvas, which can't read CSS variables, so
   `src/styles/palette.ts` mirrors the colours code paints with (ink, paper, brand, chip, rarity,
   finish and foil). The same test fails if it drifts from `tokens.css`; change `tokens.css` first.

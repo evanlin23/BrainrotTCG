@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSparkField, MAX_SPARKS, SPARK_LIFETIME_MS, SPARK_THROTTLE_MS, SPARKS_PER_BURST, type SparkEnvironment } from './sparkField';
+import { createSparkField, MAX_SPARKS, SPARK_LIFETIME_MS, SPARK_THROTTLE_MS, SPARKS_PER_BURST, withoutAlpha, type SparkEnvironment } from './sparkField';
 
 interface Draw { x: number; y: number; size: number; alpha: number }
 
@@ -188,5 +188,20 @@ describe('createSparkField (#266)', () => {
     env.runFrame();
     expect(field.live).toBe(0);
     expect(env.pending()).toBe(0);
+  });
+});
+
+describe('withoutAlpha', () => {
+  it.each([
+    ['#ffc864', 'rgba(255, 200, 100, 0)'],
+    ['rgba(255, 200, 100, 0.9)', 'rgba(255, 200, 100, 0)'],
+    ['rgb(255,200,100)', 'rgba(255, 200, 100, 0)'],
+  ])('keeps the colour of %s and drops only its alpha, so the halo fades warm, not through grey', (color, expected) => {
+    expect(withoutAlpha(color)).toBe(expected);
+  });
+
+  it('says so for a colour it cannot read, rather than guessing black', () => {
+    expect(withoutAlpha('transparent')).toBeNull();
+    expect(withoutAlpha('color(display-p3 1 0.8 0.4)')).toBeNull();
   });
 });
