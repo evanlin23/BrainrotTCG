@@ -55,6 +55,8 @@ const evaluate = (blockersRecord: unknown, over: Partial<ReleaseEligibilityOptio
     ...over,
   });
 
+const INCOMPLETE_RESOLUTION = /is marked resolved without fixedInPr, a full fixCommit SHA and a regressionTest path/;
+
 const resolved = (over: Partial<ReleaseBlocker['resolution']> = {}) =>
   blocker({ disposition: 'resolved', resolution: { fixedInPr: 10, fixCommit: FIX, regressionTest: 'src/fix.test.ts', ...over } });
 
@@ -116,8 +118,20 @@ describe('evaluateReleaseEligibility', () => {
     });
 
     it('rejects a short or unchecked SHA and a missing regression test', () => {
-      expect(evaluate(record(resolved({ fixCommit: 'b'.repeat(7) }))).eligible).toBe(false);
+      const short = evaluate(record(resolved({ fixCommit: 'b'.repeat(7) })));
+      expect(short.eligible).toBe(false);
+      expect(short.reasons[0]).toMatch(INCOMPLETE_RESOLUTION);
       expect(evaluate(record(resolved({ regressionTest: 'src/gone.test.ts' }))).reasons[0]).toMatch(/not present/);
+    });
+
+    it('rejects a resolution without a positive fixedInPr', () => {
+      const { fixedInPr: _p, ...noPr } = resolved().resolution!;
+      const missing = evaluate(record(blocker({ disposition: 'resolved', resolution: noPr as never })));
+      const zero = evaluate(record(resolved({ fixedInPr: 0 })));
+      expect(missing.eligible).toBe(false);
+      expect(missing.reasons[0]).toMatch(INCOMPLETE_RESOLUTION);
+      expect(zero.eligible).toBe(false);
+      expect(zero.reasons[0]).toMatch(INCOMPLETE_RESOLUTION);
     });
 
     it('rejects a resolution when the candidate history cannot be checked', () => {
