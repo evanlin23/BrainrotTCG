@@ -105,7 +105,8 @@ results line (`PackSummaryUI.tsx`) that goes.
    strip lifts about 1.5% of the pack's height (roughly 10px on a phone) along the seam every few
    seconds and settles back, a gap opening from nothing, with no slit or clip animated: only
    transform moves, so it runs off the main thread. It stops at a press (the finger's whole time down,
-   wherever it landed) and after the cut, and returns once a short swipe's hint has gone. Only the
+   wherever it landed), the missed-press nudge, the refusal and the finger cue, and after the cut. It
+   returns once a short swipe's hint has gone. Only the
    picture moves; the tear line and the pack's box stay put. Reduced motion has no gap (an open slit
    can read as a damaged pack): a short still dashed perforation shows just above the tear line. A press that
    wanders more than a tap's slop (10px) is a drag and never opens the pack, even back where it began.
