@@ -226,11 +226,13 @@ describe('KeptAsideActions', () => {
     const NOTE = 'Download started — keep the recovery file safe.';
     const status = () => container.querySelector<HTMLElement>('[role="status"]');
     const stubAnchor = () => vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    const at = (variant: 'banner' | 'settings') => (
-      <KeptAsideActions variant={variant} canAct={canAct} onGone={onGone} onChanged={onChanged} onLeave={onLeave} />
-    );
+    // As App renders the banner: inside the save warning, which is a role="alert".
+    const at = (variant: 'banner' | 'settings') => {
+      const actions = <KeptAsideActions variant={variant} canAct={canAct} onGone={onGone} onChanged={onChanged} onLeave={onLeave} />;
+      return variant === 'banner' ? <p role="alert">{actions}</p> : actions;
+    };
 
-    it.each(['settings', 'banner'] as const)('in the %s variant: a polite status region is there before Download and says it started afterwards', async (variant) => {
+    it.each(['settings', 'banner'] as const)('in the %s variant: its own status region is there before Download and says it started afterwards', async (variant) => {
       await act(() => root.render(at(variant)));
       stubAnchor();
       const region = status()!;
@@ -241,7 +243,9 @@ describe('KeptAsideActions', () => {
       expect(status()).toBe(region);
       expect(region.textContent?.trim()).toBe(NOTE);
       expect(region.getAttribute('aria-live')).toBeNull();
-      expect(region.closest('[aria-live="assertive"]')).toBeNull();
+      // Settings has nothing assertive around the note. In the banner it sits inside the warning's own alert,
+      // which is assertive and atomic: a screen reader may read the warning again with it.
+      expect(region.closest('[aria-live="assertive"], [role="alert"]')?.getAttribute('role') ?? null).toBe(variant === 'banner' ? 'alert' : null);
     });
 
     it('announces a repeat Download again: the note is a fresh element each time', async () => {
@@ -256,7 +260,7 @@ describe('KeptAsideActions', () => {
       expect(first?.isConnected).toBe(false);
     });
 
-    it('claims no more than that the download started, and clears when a Download fails, none is left, or Discard asks', async () => {
+    it('claims no more than that the download started, and clears when a Download fails or Discard asks', async () => {
       stubAnchor();
       await click('Download');
       expect(status()!.textContent).not.toMatch(/saved|downloaded|complete/i);
@@ -275,6 +279,16 @@ describe('KeptAsideActions', () => {
       await click('Download');
       expect(status()!.textContent).toBe('');
       expect(container.textContent).toContain("Couldn't read browser storage");
+    });
+
+    it('clears when nothing is left to download', async () => {
+      stubAnchor();
+      await click('Download');
+      expect(status()!.textContent).toBe(NOTE);
+      localStorage.removeItem(STORAGE_KEYS.COLLECTION_RECOVERY);
+      await click('Download');
+      expect(status()!.textContent).toBe('');
+      expect(onGone).toHaveBeenCalledOnce();
     });
 
     it('says nothing when this tab may no longer act', async () => {

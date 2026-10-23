@@ -14,6 +14,7 @@ let externalOrigin: string;
 let primaryAssetHits = 0;
 let primaryWriteHits = 0;
 let externalHits = 0;
+let pings: { port: number | undefined; connection: string | undefined }[] = [];
 
 test.beforeAll(async () => {
   // Primary / local fixture server (simulating the local app fixture)
@@ -32,6 +33,12 @@ test.beforeAll(async () => {
       primaryAssetHits++;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ok', local: true }));
+      return;
+    }
+    if (url.pathname === '/ping' && req.method === 'GET') {
+      pings.push({ port: req.socket.remotePort, connection: req.headers.connection });
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('pong');
       return;
     }
     if (url.pathname === '/write' && req.method === 'POST') {
@@ -96,6 +103,7 @@ test.beforeEach(() => {
   primaryAssetHits = 0;
   primaryWriteHits = 0;
   externalHits = 0;
+  pings = [];
 });
 
 test.afterAll(async () => {
@@ -117,6 +125,24 @@ test('legitimate local read asset loads with 200, zero errors and zero blocked a
   expect(externalHits).toBe(0);
   expect(errors).toEqual([]);
   expect(errors.blocked).toEqual([]);
+});
+
+// missing_scenario (#1025): monitor() fetched through Playwright's keep-alive pool, so a request could reuse a
+// socket the server was closing and fail with ECONNRESET, which the guard turned into an aborted chunk or favicon.
+// Reusing no socket is what a test can pin; the reset itself needs a server that closes at a moment the test can't pick.
+test('each monitored request asks for its own connection, so none reuses a socket the server may be closing', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl);
+  await page.goto(primaryUrl);
+  const bodies = await page.evaluate(async () => {
+    const first = await (await fetch('/ping?n=1')).text();
+    const second = await (await fetch('/ping?n=2')).text();
+    return [first, second];
+  });
+
+  expect(bodies).toEqual(['pong', 'pong']);
+  expect(pings.map((ping) => ping.connection)).toEqual(['close', 'close']);
+  expect(new Set(pings.map((ping) => ping.port)).size, 'the two requests arrived on separate sockets').toBe(2);
+  expect(errors).toEqual([]);
 });
 
 test('redirect escape to external provider is refused with 403 and zero external provider requests', async ({ page }) => {
