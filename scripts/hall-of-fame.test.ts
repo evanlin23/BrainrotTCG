@@ -151,6 +151,7 @@ const fakeGitHub = (fixture: Fixture) => {
         for (const name of body!.labels as string[]) if (!target.labels.some((l) => l.name === name)) target.labels.push({ name });
         return json(target.labels);
       }
+      if (target && !sub[2] && method === 'GET') return json(target);
       if (target && !sub[2] && method === 'PATCH') return json(Object.assign(target, { state: body!.state }));
       return unexpected(`${method} ${url}`);
     }),
@@ -606,6 +607,131 @@ describe('verify-issue (issue workflow)', () => {
       expect(result.comment).not.toContain('hof-verified');
     }
     expect(gh.writes()).toEqual([]);
+  });
+
+  describe('closing a duplicate of an earlier issue (#21)', () => {
+    const NOW = '2026-10-16T12:00:00Z';
+    /** Issue `number` with this event, opened at `created` (and, if edited, edited at `updated`). */
+    const runAs = async (action: string, number: number, { created = NOW, updated = created, labels = ['hall-of-fame'] }: { created?: string; updated?: string; labels?: string[] } = {}) => {
+      rmSync('github-output', { force: true });
+      writeFileSync('event.json', JSON.stringify({ action, issue: { ...issue(number, fourOfAKind, { labels, updated }), created_at: created } }));
+      await verifyIssue();
+      return { comment: readFileSync('hof-comment.md', 'utf8'), outputs: outputs() };
+    };
+    const VERIFIED = { verified: 'true', changed: 'true', redeploy: 'true', label: 'verified', rejected: 'false' };
+    const DUPLICATE = (n: number) => ({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false', duplicate: String(n) });
+    /** Verified a week ago, so only the published list leads to it. */
+    const old = (number: number, labels = ['hall-of-fame', 'verified']) => issue(number, fourOfAKind, { labels, updated: '2026-10-02T00:00:00Z' });
+    /** Verified within the last 8 days, not deployed yet. */
+    const recent = (number: number, labels = ['hall-of-fame', 'verified']) => issue(number, fourOfAKind, { labels, updated: '2026-10-16T11:00:00Z' });
+    const listing = async () => {
+      const pull = await verifyProof(fourOfAKind, getSet);
+      return (issue?: number) => [{ id: idOf(fourOfAKind), setId: pull.set.id, score: pull.score, ...(issue === undefined ? {} : { issue }) }];
+    };
+
+    beforeEach(() => clockAt(NOW));
+
+    it('closes a new issue whose pull an earlier issue holds in the published list, and says how to contest it', async () => {
+      const published = await listing();
+      const gh = fakeGitHub({ issues: [old(3)], comments: { 3: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] }, published: published(3) });
+      const result = await runAs('opened', 7);
+      expect(result.outputs).toEqual(DUPLICATE(3));
+      expect(result.comment).toContain('**Not added.**');
+      expect(result.comment).toContain('\n\nDuplicate of #3\n');
+      expect(result.comment).toContain('reopen this issue');
+      expect(result.comment).toContain('https://github.com/evanlin23/BrainrotTCG/issues/new/choose');
+      expect(result.comment).not.toContain('hof-verified');
+      // The earlier issue is read, never written: only this issue's own step closes it.
+      expect(gh.requests.map((r) => `${r.method} ${r.path}`)).toContain('GET /issues/3');
+      expect(gh.writes()).toEqual([]);
+    });
+
+    it('closes one whose pull an earlier issue verified but no deploy has listed yet, opened or edited in', async () => {
+      const verifiedAt = '2026-10-16T11:00:00Z';
+      fakeGitHub({ issues: [recent(5)], comments: { 5: [comment(BOT, marker(fourOfAKind), verifiedAt)] }, published: [] });
+      expect((await runAs('opened', 7)).outputs).toEqual(DUPLICATE(5));
+      // A placeholder opened before the other issue's verification, edited to hold the pull after it.
+      expect((await runAs('edited', 7, { created: '2026-10-16T10:00:00Z', updated: '2026-10-16T11:30:00Z' })).outputs).toEqual(DUPLICATE(5));
+      // `daily` counts too.
+      fakeGitHub({ issues: [recent(5, ['hall-of-fame', 'daily'])], comments: { 5: [comment(BOT, marker(fourOfAKind), verifiedAt)] }, published: [] });
+      expect((await runAs('opened', 7)).outputs).toEqual(DUPLICATE(5));
+    });
+
+    it("leaves open an issue received before the other issue's verification: of two at the same moment, neither closes", async () => {
+      // #10 and #11 opened at the same second, each run finishing after the other had verified.
+      const both = '2026-10-16T11:59:00Z';
+      const issues = [{ ...recent(10), created_at: both }, { ...recent(11), created_at: both }];
+      const comments = { 10: [comment(BOT, marker(fourOfAKind), '2026-10-16T11:59:30Z')], 11: [comment(BOT, marker(fourOfAKind), '2026-10-16T11:59:40Z')] };
+      const gh = fakeGitHub({ issues, comments, published: [] });
+      // #11's run: #10 is lower but was verified after #11 arrived. #10's run: #11 is higher.
+      expect((await runAs('opened', 11, { created: both })).outputs).toEqual(VERIFIED);
+      expect((await runAs('opened', 10, { created: both })).outputs).toEqual(VERIFIED);
+      // The same instant isn't earlier either.
+      fakeGitHub({ issues: [recent(5)], comments: { 5: [comment(BOT, marker(fourOfAKind), both)] }, published: [] });
+      expect((await runAs('opened', 7, { created: both })).outputs).toEqual(VERIFIED);
+      // An opened issue was received when it was created, whatever its run reads later.
+      expect((await runAs('opened', 7, { created: '2026-10-16T11:58:00Z', updated: NOW })).outputs).toEqual(VERIFIED);
+      expect(gh.writes()).toEqual([]);
+    });
+
+    it('never closes an issue that verified the pull first when it is edited, whatever a later issue holds', async () => {
+      const comments = { 7: [comment(BOT, marker(fourOfAKind), '2026-10-10T00:00:00Z')], 9: [comment(BOT, marker(fourOfAKind), '2026-10-12T00:00:00Z')] };
+      const published = await listing();
+      // #9 even took the published entry (as under an earliest-receipt rule it might).
+      fakeGitHub({ issues: [recent(9)], comments, published: published(9) });
+      const edited = await runAs('edited', 7, { created: '2026-10-10T00:00:00Z', updated: NOW, labels: ['hall-of-fame', 'verified'] });
+      expect(edited.outputs).toEqual({ verified: 'true', changed: 'false', redeploy: 'false', label: 'verified', rejected: 'false' });
+      // Nor one that isn't verified on it yet: a higher-numbered issue never makes a lower one a duplicate.
+      fakeGitHub({ issues: [recent(9)], comments: { 9: comments[9] }, published: published(9) });
+      const placeholder = await runAs('edited', 7, { created: '2026-10-01T00:00:00Z', updated: NOW });
+      expect(placeholder.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+      expect(placeholder.comment).toContain('already in the Hall of Fame');
+    });
+
+    it("doesn't count an issue that is rejected, unverified, holds another pull now, or whose marker someone else pasted", async () => {
+      const published = await listing();
+      const marked = (n: number, login = BOT) => ({ [n]: [comment(login, marker(fourOfAKind), '2026-10-02T00:00:00Z')] });
+      const cases: [string, Parameters<typeof fakeGitHub>[0]][] = [
+        ['rejected', { issues: [old(3, ['hall-of-fame', 'verified', 'rejected'])], comments: marked(3) }],
+        ['not verified', { issues: [old(3, ['hall-of-fame', 'not-verified'])], comments: marked(3) }],
+        ['another pull', { issues: [{ ...old(3), body: link(pair) }], comments: marked(3) }],
+        ['a pasted marker', { issues: [old(3)], comments: marked(3, 'mallory') }],
+        ['no marker', { issues: [old(3)] }],
+        ['a pull request', { issues: [{ ...old(3), pull_request: {} }], comments: marked(3) }],
+      ];
+      for (const [what, fixture] of cases) {
+        fakeGitHub({ ...fixture, published: published(3) });
+        const result = await runAs('opened', 7);
+        expect(result.outputs, what).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+        expect(result.comment, what).toContain('already in the Hall of Fame');
+        expect(result.comment, what).not.toContain('Duplicate of');
+      }
+      // A published entry without an issue number names nothing to be a duplicate of.
+      fakeGitHub({ issues: [], published: published() });
+      expect((await runAs('opened', 7)).outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+    });
+
+    it('closes nothing on a reopened issue, which is how a person contests it', async () => {
+      const published = await listing();
+      const gh = fakeGitHub({ issues: [old(3)], comments: { 3: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] }, published: published(3) });
+      const result = await runAs('reopened', 7, { updated: NOW });
+      expect(result.outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+      expect(result.comment).toContain('already in the Hall of Fame');
+      // Not even looked for.
+      expect(gh.requests.filter((r) => r.path !== '/issues/7/comments')).toEqual([]);
+    });
+
+    it("closes nothing when GitHub can't be read", async () => {
+      const published = await listing();
+      const comments = { 3: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] };
+      for (const fail of [(r: Request) => r.path === '/issues', (r: Request) => r.path === '/issues/3', (r: Request) => r.path === '/issues/3/comments']) {
+        fakeGitHub({ issues: [old(3)], comments, published: published(3), fail });
+        expect((await runAs('opened', 7)).outputs).toEqual({ verified: 'false', changed: 'true', redeploy: 'false', label: 'verified', rejected: 'false' });
+      }
+      // Nor with the published list down and the earlier issue only reachable through it: that pull goes ahead.
+      fakeGitHub({ issues: [old(3)], comments });
+      expect((await runAs('opened', 7)).outputs).toEqual(VERIFIED);
+    });
   });
 });
 

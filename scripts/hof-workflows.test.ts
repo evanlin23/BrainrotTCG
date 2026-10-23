@@ -155,6 +155,10 @@ describe('Hall of Fame workflows (offline contracts)', () => {
     });
   }
 
+  it('closes only what verify-issue calls a duplicate (#21)', () => {
+    expect(jobs(read('hall-of-fame.yml')).verify.join('\n')).toContain('DUPLICATE: ${{ steps.check.outputs.duplicate }}');
+  });
+
   it('labels a pull refused for its display name `rejected`, and never takes that label off', () => {
     const verify = jobs(read('hall-of-fame.yml')).verify.join('\n');
     expect(verify).toContain('REJECTED: ${{ steps.check.outputs.rejected }}');
@@ -204,14 +208,14 @@ fi
     });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-    /** Runs the step as Actions does for its `shell:`; returns its `gh issue` calls. */
-    const runStep = (comment: string) => {
+    /** Runs the step as Actions does for its `shell:`; returns its `gh issue` and `gh api` calls. */
+    const runStep = (comment: string, outputs: Record<string, string> = {}) => {
       writeFileSync(path.join(dir, 'hof-comment.md'), comment);
       const log = path.join(dir, 'gh.log');
-      const env = { PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, ISSUE: '7', VERIFIED: 'true', LABEL: 'verified', REJECTED: 'false' };
+      const env = { PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, GITHUB_REPOSITORY: 'owner/repo', ISSUE: '7', VERIFIED: 'true', LABEL: 'verified', REJECTED: 'false', DUPLICATE: '', ...outputs };
       const ran = spawnSync('bash', [...bashArgs(step), 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
       expect(ran.status, ran.stderr).toBe(0);
-      return readFileSync(log, 'utf8').trim().split('\n').filter((l) => l.startsWith('issue '));
+      return readFileSync(log, 'utf8').trim().split('\n').filter((l) => l.startsWith('issue ') || l.startsWith('api '));
     };
     const LABELLED = ['issue edit 7 --add-label hall-of-fame,verified', 'issue edit 7 --remove-label not-verified', 'issue edit 7 --remove-label daily', 'issue close 7 --reason completed'];
 
@@ -225,6 +229,19 @@ fi
 
     it('comments, then labels, a new verification', () => {
       expect(runStep('**Verified!**')).toEqual(['issue comment 7 --body-file hof-comment.md', ...LABELLED]);
+    });
+
+    const REFUSED = ['issue comment 7 --body-file hof-comment.md', 'issue edit 7 --add-label hall-of-fame,not-verified', 'issue edit 7 --remove-label verified', 'issue edit 7 --remove-label daily'];
+
+    it('leaves a refused pull open, so the submitter can fix the link', () => {
+      expect(runStep('**Not added.**', { VERIFIED: 'false' })).toEqual(REFUSED);
+    });
+
+    it('closes a duplicate as a duplicate, after commenting and labelling, and touches no other issue (#21)', () => {
+      expect(runStep('**Not added.** Duplicate of #3', { VERIFIED: 'false', DUPLICATE: '3' })).toEqual([
+        ...REFUSED,
+        'api --method PATCH repos/owner/repo/issues/7 -f state=closed -f state_reason=duplicate',
+      ]);
     });
   });
 
