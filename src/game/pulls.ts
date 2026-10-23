@@ -82,8 +82,14 @@ export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefi
     return { ...card, rarity, uniqueId: Math.random(), isRevealed: false, isHolo: p.isHolo, ...(p.finish !== undefined ? { finish: p.finish, misprint: !!p.misprint } : {}) };
   });
 
-/** Mine the next pack's ticket in the background. */
-export const prefetchNextPack = (set: SetDefinition) => {
+/**
+ * Mine the next pack's ticket in the background, then fetch its pictures unless the caller said a
+ * page, a shared pull, a profile or a share sheet `covered` the Open screen: that screen draws its own
+ * card art, which a download for a later pack would slow on a thin connection (#762). `covered` is the
+ * value at the call, so a cover that opens while the ticket is mined doesn't stop the fetch. Call
+ * again once it's uncovered (the ticket is cached).
+ */
+export const prefetchNextPack = (set: SetDefinition, covered?: boolean) => {
   // No pack opens while the player record can't be read, so mine nothing for this tab's stand-in key.
   if (playerUnreadable()) return;
   void getTicket(setKey(set), getPlayer().publicKey, peekNonce())
@@ -91,6 +97,7 @@ export const prefetchNextPack = (set: SetDefinition) => {
       // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
       // once the sealed pack's own art is in, with the ready-made thumbnail a finished card's summary
       // tile shows (#620).
+      if (covered) return;
       const urls = generatePack(set, packSeedFromTicket(ticket)).flatMap((card) => {
         const image = getCard(`${card.setId}/${card.cardId}`)?.image;
         return image ? [image, cardFinishThumbUrl(image, card.finish)] : [];

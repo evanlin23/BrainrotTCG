@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ALL_CARDS } from '../../data/cards';
 import type { HallOfFameEntry } from '../../game/hallOfFameList';
 import type { PastDay, PublishedRankings } from '../../game/publishedRankings';
 import { archivedPull, HALL_OF_FAME_MIN_MULTIPLIER, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP } from '../../engine';
@@ -582,6 +583,16 @@ describe('Rankings paging', () => {
     expect(rows().map((a) => a.getAttribute('href'))).toEqual(many.map((e) => `#/pull/${e.proof}`));
     expect(document.activeElement).toBe(rows()[40]);
     expect(showMore()).toBeUndefined();
+  });
+
+  it("fetches the art of the rows a phone shows first ahead, and leaves the rest until they're scrolled near (#762)", async () => {
+    const [setId, cardId] = ALL_CARDS[0].key.split('/');
+    loadHallOfFame.mockResolvedValue(many.map((entry) => ({ ...entry, setId, cards: [{ cardId, isHolo: false }] })));
+    await act(async () => root.render(<HallOfFamePage />));
+    await select('All-time');
+    const art = (row: HTMLAnchorElement) => [...row.querySelectorAll('img')].map((img) => [img.getAttribute('fetchpriority'), img.getAttribute('loading')]);
+    expect(rows().slice(0, 5).flatMap(art)).toEqual(Array(5).fill(['high', null]));
+    expect(rows().slice(5).flatMap(art)).toEqual(Array(15).fill([null, 'lazy']));
   });
 
   it('has no Show more when 20 or fewer pulls are ranked', async () => {
