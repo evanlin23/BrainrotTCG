@@ -195,6 +195,54 @@ describe('loadHallOfFame', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('fetches the list again once it is five minutes old, so an open tab picks up a removal', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+      const { loadHallOfFame } = await import('./hallOfFameList');
+      const mockFetch = vi.fn(async () => mockSuccessResponse([{ id: 'removed-later', proof: 'p' }]));
+      vi.stubGlobal('fetch', mockFetch);
+      await loadHallOfFame();
+
+      vi.setSystemTime(new Date('2026-10-16T12:04:59.999Z'));
+      mockFetch.mockImplementation(async () => mockSuccessResponse([]));
+      await expect(loadHallOfFame()).resolves.toEqual([{ id: 'removed-later', proof: 'p' }]);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date('2026-10-16T12:05:00Z'));
+      await expect(loadHallOfFame()).resolves.toEqual([]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[1]).toEqual([expect.stringMatching(/\/hall-of-fame\.json$/), expect.objectContaining({ cache: 'no-cache' })]);
+      // ...and keeps the new one for the next five minutes.
+      await loadHallOfFame();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the last list that loaded when a refetch fails, and tries again on the next read', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+      const { loadHallOfFame } = await import('./hallOfFameList');
+      const mockFetch = vi.fn(async () => mockSuccessResponse([{ id: 'kept', proof: 'p' }]));
+      vi.stubGlobal('fetch', mockFetch);
+      await loadHallOfFame();
+
+      vi.setSystemTime(new Date('2026-10-16T12:05:00Z'));
+      mockFetch.mockImplementation(async () => mockResponse(null, false, 503));
+      await expect(loadHallOfFame()).resolves.toEqual([{ id: 'kept', proof: 'p' }]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      mockFetch.mockImplementation(async () => mockSuccessResponse([]));
+      await expect(loadHallOfFame()).resolves.toEqual([]);
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('preserves existing legacy-ID behavior intact', async () => {
     const { loadHallOfFame } = await import('./hallOfFameList');
     const { secretKey, publicKey } = generateKeypair();
@@ -220,10 +268,16 @@ describe('loadHallOfFame', () => {
 });
 
 describe('loadPending', () => {
+  // The list of pulls a maintainer rejected (hall-of-fame-withdrawn.json): none, unless a test says.
+  const withdrawnFetch = vi.fn();
   beforeEach(() => {
     fetchEvents.mockReset();
     fetchEvents.mockResolvedValue({ events: [], perRelay: [] });
+    withdrawnFetch.mockReset();
+    withdrawnFetch.mockImplementation(async () => mockResponse([]));
+    vi.stubGlobal('fetch', withdrawnFetch);
   });
+  afterEach(() => vi.unstubAllGlobals());
 
   it('hands its abort signal to the relay read', async () => {
     const { loadPending } = await import('./hallOfFameList');
@@ -269,6 +323,29 @@ describe('loadPending', () => {
       });
       expect(await run(controller.signal)).toBe(true);
     });
+
+    it("is still reported when the list of rejected pulls can't be loaded, and a reached feed says pending went unchecked", async () => {
+      withdrawnFetch.mockImplementation(async () => mockResponse(null, false, 404));
+      fetchEvents.mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'connection failed' }] });
+      expect(await run()).toBe(false);
+      fetchEvents.mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0 }] });
+      expect(await run()).toBe('unchecked');
+    });
+  });
+
+  it('reads the list of rejected pulls fresh, next to the published list, and stops when the page goes', async () => {
+    const { loadPending } = await import('./hallOfFameList');
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    withdrawnFetch.mockImplementation((_url: string, init?: RequestInit) => {
+      seen = init?.signal ?? undefined;
+      controller.abort();
+      return Promise.resolve(mockResponse([]));
+    });
+    await loadPending([], vi.fn(), controller.signal);
+    expect(withdrawnFetch).toHaveBeenCalledTimes(1);
+    expect(withdrawnFetch.mock.calls[0]).toEqual([expect.stringMatching(/\/hall-of-fame-withdrawn\.json$/), expect.objectContaining({ cache: 'no-cache' })]);
+    expect(seen?.aborted).toBe(true);
   });
 
   describe('a pull that only makes today’s top', () => {
@@ -287,11 +364,13 @@ describe('loadPending', () => {
     const sentToday = Date.parse('2026-10-16T09:00:00Z') / 1000;
     const sentTwoDaysAgo = Date.parse('2026-10-14T09:00:00Z') / 1000;
 
-    const pending = async (published: ReturnType<typeof board>, createdAt = sentToday, name = 'Alice') => {
+    const pending = async (published: ReturnType<typeof board>, createdAt = sentToday, name = 'Alice', withdrawn: (id: string) => Promise<Response> = async () => mockResponse([])) => {
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
       const { secretKey, publicKey } = generateKeypair();
-      const proof = encodeProof(signProof({ setId: 'test-set', setVersion: 1, publicKey, nonce: 1, name }, secretKey));
+      const signed = signProof({ setId: 'test-set', setVersion: 1, publicKey, nonce: 1, name }, secretKey);
+      const proof = encodeProof(signed);
+      withdrawnFetch.mockImplementation(() => withdrawn(pullId(signed)));
       const { proofFromEvent } = await import('./nostrInbox');
       const { checkPull } = await import('./pulls');
       vi.mocked(proofFromEvent).mockReturnValue(proof);
@@ -320,6 +399,53 @@ describe('loadPending', () => {
       const before = vi.mocked(checkPull).mock.calls.length;
       expect(await pending(board(0), sentToday, 'xXfuckXx')).not.toHaveBeenCalled();
       expect(vi.mocked(checkPull).mock.calls.length).toBe(before);
+    });
+
+    it('leaves out a pull a maintainer rejected, without checking it', async () => {
+      const { checkPull } = await import('./pulls');
+      const before = vi.mocked(checkPull).mock.calls.length;
+      expect(await pending(board(0), sentToday, 'Alice', async (id) => mockResponse(['another-pull', id]))).not.toHaveBeenCalled();
+      expect(vi.mocked(checkPull).mock.calls.length).toBe(before);
+      // The same pull, while nobody has rejected it.
+      expect(await pending(board(0), sentToday, 'Alice', async () => mockResponse(['another-pull']))).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows nothing pending when the list of rejected pulls can't be loaded, so a removed pull never comes back", async () => {
+      const { checkPull } = await import('./pulls');
+      const before = vi.mocked(checkPull).mock.calls.length;
+      for (const withdrawn of [
+        async () => mockResponse(null, false, 404),
+        async () => Promise.reject(new TypeError('Failed to fetch')),
+        async () => ({ ok: true, status: 200, json: async () => Promise.reject(new SyntaxError('Unexpected token')) }) as unknown as Response,
+        async () => mockResponse({ withdrawn: [] }),
+        async () => mockResponse(['a-pull', 7]),
+      ]) {
+        expect(await pending(board(0), sentToday, 'Alice', withdrawn)).not.toHaveBeenCalled();
+      }
+      expect(vi.mocked(checkPull).mock.calls.length).toBe(before);
+    });
+
+    it('gives up on a list of rejected pulls that never loads within the relays\' 5 s, and shows nothing pending', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+      vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+      const { secretKey, publicKey } = generateKeypair();
+      const proof = encodeProof(signProof({ setId: 'test-set', setVersion: 1, publicKey, nonce: 1, name: 'Alice' }, secretKey));
+      const { proofFromEvent } = await import('./nostrInbox');
+      vi.mocked(proofFromEvent).mockReturnValue(proof);
+      fetchEvents.mockResolvedValue({ events: [{ created_at: sentToday }], perRelay: [] });
+      // A request that hangs until its signal aborts, as a stalled connection would.
+      withdrawnFetch.mockImplementation((_url: string, init?: RequestInit) => new Promise<Response>((_, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }));
+      const { loadPending } = await import('./hallOfFameList');
+      const onEntry = vi.fn();
+      let reached: boolean | 'unchecked' | undefined;
+      void loadPending(board(0), onEntry, new AbortController().signal).then((r) => (reached = r));
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(reached).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(reached).toBe('unchecked');
+      expect(onEntry).not.toHaveBeenCalled();
     });
 
     it('leaves it out once today’s top 50 is full of better pulls', async () => {

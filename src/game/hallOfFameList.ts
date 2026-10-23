@@ -49,13 +49,27 @@ const withId = (entry: Omit<HallOfFameEntry, 'id'> & { id?: unknown }): HallOfFa
 };
 
 let loading: Promise<HallOfFameEntry[] | null> | null = null;
+let loadedAt = 0;
+/** The last list that loaded, which a failed refetch falls back on. */
+let lastLoaded: HallOfFameEntry[] | null = null;
 
 /** A load that hasn't finished by then counts as failed, so the page can offer Retry again. */
 export const LOAD_TIMEOUT_MS = 15_000;
 
-/** The published list, fetched once per visit; null if it couldn't be loaded. */
+/**
+ * How long a loaded list is reused (here and by the rankings loaders in publishedRankings.ts). After
+ * that the next caller fetches it again, so a tab left open picks up a new deploy, and with it a pull
+ * a maintainer removed, the next time it shows the list.
+ */
+export const LIST_TTL_MS = 5 * 60_000;
+
+/**
+ * The published list, fetched at most once every five minutes; null if it has never loaded. A
+ * refetch that fails keeps the last list that loaded, and the next call tries again.
+ */
 export const loadHallOfFame = (): Promise<HallOfFameEntry[] | null> => {
-  if (loading) return loading;
+  if (loading && Date.now() - loadedAt < LIST_TTL_MS) return loading;
+  loadedAt = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
   loading = fetch(`${import.meta.env.BASE_URL}hall-of-fame.json`, { cache: 'no-cache', signal: controller.signal })
@@ -64,10 +78,35 @@ export const loadHallOfFame = (): Promise<HallOfFameEntry[] | null> => {
     .catch(() => null)
     .then((entries) => {
       clearTimeout(timeout);
-      if (entries === null) loading = null;
-      return entries;
+      if (entries) return (lastLoaded = entries);
+      loading = null;
+      return lastLoaded;
     });
   return loading;
+};
+
+/** How long pending waits for the relays, and for the list of rejected pulls read beside them. */
+const PENDING_TIMEOUT_MS = 5000;
+
+/**
+ * The pulls of issues a maintainer rejected (hall-of-fame-withdrawn.json, built next to the list).
+ * They stay on the relays, so pending leaves them out. Null if the file couldn't be loaded.
+ */
+const loadWithdrawn = async (signal: AbortSignal): Promise<ReadonlySet<string> | null> => {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener('abort', abort);
+  const timeout = setTimeout(abort, PENDING_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}hall-of-fame-withdrawn.json`, { cache: 'no-cache', signal: controller.signal });
+    const data: unknown = res.ok ? await res.json() : null;
+    return Array.isArray(data) && data.every((id) => typeof id === 'string') ? new Set(data) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener('abort', abort);
+  }
 };
 
 /** How many unfiled submissions one visit checks (a ticket each), newest first after your own. */
@@ -81,15 +120,23 @@ const PENDING_LIMIT = 10;
  * it was sent today: a daily pull leaves the published list after about two days, and an older
  * event must not come back as today's. Resolves to whether any relay could be read: false when every
  * one failed, so the page can say the live feed is down rather than let that look like an empty board.
+ * A pull a maintainer rejected is never pending, and if the list of those can't be loaded nothing
+ * is: a removed pull must not come back because one file failed to load. Then it resolves to
+ * 'unchecked' (when a relay could be read), so the page can say recent pulls couldn't be checked
+ * rather than let the player's own vanish without a word.
  */
-export const loadPending = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal): Promise<boolean> => {
+export const loadPending = async (published: readonly HallOfFameEntry[], onEntry: (entry: HallOfFameEntry) => void, signal: AbortSignal): Promise<boolean | 'unchecked'> => {
   const { fetchEvents, proofFromEvent, HOF_KIND, HOF_TAG } = await import('./nostrInbox');
   if (signal.aborted) return true;
   const since = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
-  const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: 100 }, undefined, 5000, undefined, 1, signal);
+  const [withdrawn, { events, perRelay }] = await Promise.all([
+    loadWithdrawn(signal),
+    fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: 100 }, undefined, PENDING_TIMEOUT_MS, undefined, 1, signal),
+  ]);
   // An aborted read fails every relay too, but nobody is waiting on that answer.
   const reached = signal.aborted || events.length > 0 || perRelay.some((relay) => !relay.error);
-  const listed = new Set(published.map((e) => e.id));
+  if (!withdrawn) return reached && !signal.aborted ? 'unchecked' : reached;
+  const listed = new Set([...published.map((e) => e.id), ...withdrawn]);
   const seen = new Set<string>();
   const candidates = events
     .sort((a, b) => b.created_at - a.created_at)

@@ -94,6 +94,8 @@ interface Fixture {
   comments?: Record<number, Comment[]>;
   /** The deployed hall-of-fame.json, or undefined for a 404. */
   published?: unknown[];
+  /** The deployed hall-of-fame-withdrawn.json, or undefined for a 404. */
+  withdrawn?: unknown;
   /** The deployed rankings files (and hall-of-fame.json, in place of `published`) by path: a text, or the status the site answers with (else a 404). */
   site?: Record<string, string | number>;
   /** Requests GitHub answers with a 500. */
@@ -129,6 +131,9 @@ const fakeGitHub = (fixture: Fixture) => {
       if (deployed) {
         const file = fixture.site?.[deployed];
         return typeof file === 'string' ? new Response(file) : new Response('Not Found', { status: file ?? 404 });
+      }
+      if (/^https:\/\/[^/]+\.github\.io\/[^/]+\/hall-of-fame-withdrawn\.json$/.test(url)) {
+        return fixture.withdrawn !== undefined ? json(fixture.withdrawn) : json({ message: 'Not Found' }, 404);
       }
       const match = /^https:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+(\/[^?]*)(?:\?(.*))?$/.exec(url);
       if (!match) return unexpected(`${method} ${url}`);
@@ -203,6 +208,8 @@ const outputs = (): Record<string, string> =>
 let home: string;
 let dir: string;
 const output = () => path.join(dir, 'hall-of-fame.json');
+const withdrawnFile = () => path.join(dir, 'hall-of-fame-withdrawn.json');
+const withdrawn = () => JSON.parse(readFileSync(withdrawnFile(), 'utf8')) as string[];
 const entries = () => JSON.parse(readFileSync(output(), 'utf8')) as { issue: number; githubUser: string; submittedAt: string; verifiedAt: string; receipt?: string }[];
 beforeEach(() => {
   home = process.cwd();
@@ -233,9 +240,12 @@ describe('build (deploy workflow)', () => {
     const gh = fakeGitHub({ published: [], issues: [issue(1, fourOfAKind)] });
     await build(output());
     expect(readFileSync(output(), 'utf8')).toBe('[]\n');
+    expect(withdrawn()).toEqual([]);
     writeFileSync(output(), '[{"kept":true}]\n');
+    writeFileSync(withdrawnFile(), '["kept"]\n');
     await build(output());
     expect(readFileSync(output(), 'utf8')).toBe('[{"kept":true}]\n');
+    expect(withdrawn()).toEqual(['kept']);
     expect(gh.requests).toEqual([]);
   });
 
@@ -278,7 +288,8 @@ describe('build (deploy workflow)', () => {
     await build(output());
     expect(entries().map((e) => [e.issue, e.githubUser, e.submittedAt])).toEqual([[1, 'alice', '2026-10-02T00:00:00Z']]);
     expect(entries()[0]).toMatchObject({ id: idOf(fourOfAKind), proof: fourOfAKind, setId: 'lockdown-lore', hand: '4 of a Kind', score: 15000 });
-    expect(gh.requests.map((r) => r.path)).not.toContain('/issues/3/comments');
+    // Issue 3's markers are read once, for the withdrawn list only.
+    expect(gh.requests.filter((r) => r.path === '/issues/3/comments')).toHaveLength(1);
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/4/comments');
     expect(gh.writes()).toEqual([]);
   });
@@ -369,6 +380,99 @@ describe('build (deploy workflow)', () => {
     await build(output());
     expect(entries()).toEqual([]);
     expect(gh.writes()).toEqual([]);
+  });
+
+  it('publishes the pulls of rejected issues, open or closed, so the page leaves them out of pending', async () => {
+    const rejected = { labels: ['hall-of-fame', 'rejected'] };
+    const gh = fakeGitHub({
+      published: [],
+      issues: [
+        issue(1, fourOfAKind),
+        issue(2, pair, rejected), // removed by hand
+        issue(3, fourOfAKind, { labels: ['hall-of-fame', 'verified', 'rejected'] }), // listed until a maintainer removed it
+        issue(5, pair, rejected), // the same pull again
+        issue(6, null, rejected), // no pull to withdraw
+        issue(7, fourOfAKind, { labels: ['rejected'] }), // not a Hall of Fame issue
+      ],
+      comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] },
+    });
+    await build(output());
+    expect(readFileSync(withdrawnFile(), 'utf8')).toBe(`${JSON.stringify([idOf(fourOfAKind), idOf(pair)].sort())}\n`);
+    // Issue 3 is out of the list; issue 1 holds the same pull, so it stays (the list and the withdrawn ids don't mix).
+    expect(entries().map((e) => e.issue)).toEqual([1]);
+    expect(gh.requests.filter((r) => r.path === '/issues').map((r) => r.query)).toContain('state=all&labels=hall-of-fame,rejected&per_page=100&page=1');
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it("withdraws the pull the bot verified, not the one the author's edited body holds now", async () => {
+    const rejected = { labels: ['hall-of-fame', 'rejected'] };
+    fakeGitHub({
+      published: [],
+      issues: [
+        issue(2, pair, rejected), // verified as fourOfAKind, then edited to another pull after the rejection
+        issue(3, null, rejected), // verified as fourOfAKind, then edited to hold no link
+        issue(4, fourOfAKind, rejected), // the author pasted a marker for someone else's pull
+      ],
+      comments: {
+        2: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')],
+        3: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')],
+        4: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z'), comment('mallory', marker(pair), '2026-10-03T00:00:00Z')],
+      },
+    });
+    await build(output());
+    expect(withdrawn()).toEqual([idOf(fourOfAKind)]);
+  });
+
+  it('carries the deployed withdrawn list forward when a rejected issue\'s comments can\'t be read', async () => {
+    writeFileSync(withdrawnFile(), '[]\n');
+    fakeGitHub({
+      published: [],
+      issues: [issue(2, pair, { labels: ['hall-of-fame', 'rejected'] })],
+      withdrawn: [idOf(fourOfAKind)],
+      fail: (r) => r.path === '/issues/2/comments',
+    });
+    await build(output());
+    expect(withdrawn()).toEqual([idOf(fourOfAKind)]);
+  });
+
+  it("doesn't withdraw a pull refused for its display name, which may come back renamed", async () => {
+    fakeGitHub({ published: [], issues: [issue(4, blockedName, { labels: ['hall-of-fame', 'rejected'] })] });
+    await build(output());
+    expect(withdrawn()).toEqual([]);
+  });
+
+  it('carries the deployed withdrawn list forward when GitHub is down, never an empty one', async () => {
+    // The committed file is empty: publishing it would bring every withdrawn pull back as pending.
+    writeFileSync(withdrawnFile(), '[]\n');
+    fakeGitHub({ published: [], issues: [issue(2, pair, { labels: ['hall-of-fame', 'rejected'] })], withdrawn: [idOf(pair)], fail: () => true });
+    await build(output());
+    expect(withdrawn()).toEqual([idOf(pair)]);
+  });
+
+  it('keeps the deployed list and withdrawn list together when only the rejected issues can\'t be listed', async () => {
+    // One listing of the rejected issues serves the rankings and the withdrawn list, with one failure policy.
+    writeFileSync(withdrawnFile(), '[]\n');
+    const published = [{ issue: 9, deployed: true }];
+    const gh = fakeGitHub({
+      published,
+      issues: [issue(1, fourOfAKind), issue(2, pair, { labels: ['hall-of-fame', 'rejected'] })],
+      comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] },
+      withdrawn: [idOf(pair)],
+      fail: (r) => r.path === '/issues' && (r.query ?? '').includes('rejected'),
+    });
+    await build(output());
+    expect(readFileSync(output(), 'utf8')).toBe(JSON.stringify(published));
+    expect(withdrawn()).toEqual([idOf(pair)]);
+    expect(gh.requests.filter((r) => r.path === '/issues' && (r.query ?? '').includes('rejected'))).toHaveLength(1);
+  });
+
+  it('publishes no withdrawn list when neither GitHub nor the deployed one can be read', async () => {
+    for (const deployed of [undefined, { not: 'a list' }, [1, 2]]) {
+      writeFileSync(withdrawnFile(), '[]\n');
+      fakeGitHub({ published: [], issues: [], withdrawn: deployed, fail: () => true });
+      await build(output());
+      expect(existsSync(withdrawnFile())).toBe(false);
+    }
   });
 
   it('fails rather than publish part of the list when there are more issues than it may read', async () => {
@@ -1672,12 +1776,14 @@ describe('retention and intake contracts (offline)', () => {
     // Kept: the qualifying pull. Discarded: one that doesn't qualify, a forgery and a rejected issue.
     const list = JSON.parse(readFileSync('hall-of-fame.json', 'utf8')) as { issue: number }[];
     expect(list.map((e) => e.issue)).toEqual([1]);
-    expect(readdirSync(dir).sort()).toEqual(['hall-of-fame.json', 'hof-build-cache.json', 'rankings.json']);
+    // Next to it, the pulls of rejected issues, which the page leaves out of pending.
+    expect(JSON.parse(readFileSync('hall-of-fame-withdrawn.json', 'utf8'))).toEqual([idOf(fourOfAKind)]);
+    expect(readdirSync(dir).sort()).toEqual(['hall-of-fame-withdrawn.json', 'hall-of-fame.json', 'hof-build-cache.json', 'rankings.json']);
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
     // The run's counts-only summary (#715) is the one other file it leaves.
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json', 'hof-inbox-summary.json', 'rankings.json']);
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame-withdrawn.json', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json', 'hof-inbox-summary.json', 'rankings.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });

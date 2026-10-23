@@ -177,6 +177,23 @@ describe('Hall of Fame loading', () => {
     expect(empty()).toContain('Nothing filed here yet.');
   });
 
+  it("says recent pulls couldn't be checked when the list of rejected pulls didn't load, with Retry", async () => {
+    loadHallOfFame.mockResolvedValue([ENTRY]);
+    loadPending.mockResolvedValueOnce('unchecked').mockResolvedValueOnce(true);
+    await act(async () => root.render(<HallOfFamePage />));
+
+    expect(status().textContent).toBe("Couldn't check pulls sent recently, so they may be missing. Try again.");
+    expect(status().classList.contains('sr-only')).toBe(false);
+    expect(document.querySelector('.hof-empty')?.textContent).toContain('No filed pulls today that we can see.');
+    await select('All-time');
+    expect(labels()).toEqual(['Number 1: Full House by Alice in Original, score 12345']);
+
+    await act(async () => clickRetry());
+    expect(loadPending).toHaveBeenCalledTimes(2);
+    expect(status().textContent).toBe('Rankings loaded.');
+    expect(retryButton()).toBeNull();
+  });
+
   it('keeps the published pulls and the plain empty-board copy when the relays answered', async () => {
     loadHallOfFame.mockResolvedValueOnce([]);
     loadPending.mockResolvedValueOnce(true);

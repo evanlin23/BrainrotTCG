@@ -41,6 +41,11 @@
  *     carried forward from the deployed site (`deployedRankings`).
  *     Without a token it keeps the existing list and writes no rankings; if
  *     GitHub is down, it keeps the deployed list and rankings.
+ *     Also next to it, hall-of-fame-withdrawn.json (WITHDRAWN_FILE) lists the
+ *     pulls of `rejected` issues, which stay on the relays, so the page doesn't
+ *     show them as pending. If GitHub is down it carries the deployed one
+ *     forward, and writes none (the page then shows no pending pulls) rather
+ *     than an empty one.
  *
  * The inbox and the issue verifier only add a pull that would join the list, so
  * the number of entries stays about the same however many people play.
@@ -277,6 +282,22 @@ const firstVerification = async (issue: number, id: string, token: string): Prom
   // anyone can comment, and one busy issue mustn't stop every deploy.
   console.warn(`#${issue}: more than ${19 * 100} comments; stopped looking for the verified marker`);
   return null;
+};
+
+/**
+ * Every pull the bot has verified on this issue, from its marker comments. Only the bot writes
+ * these, and it strips `<` and `>` from the text it quotes, so an issue's author can't add or remove
+ * one by editing the issue.
+ */
+const verifiedMarkerIds = async (issue: number, token: string): Promise<string[]> => {
+  const ids: string[] = [];
+  for (let page = 1; page < 20; page++) {
+    const batch = await github<Comment[]>(`/repos/${REPO}/issues/${issue}/comments?per_page=100&page=${page}`, token);
+    for (const c of batch) if (c.user?.login === BOT) for (const [, id] of c.body?.matchAll(/<!-- hof-verified (\S+) -->/g) ?? []) ids.push(id);
+    if (batch.length < 100) return ids;
+  }
+  console.warn(`#${issue}: more than ${19 * 100} comments; stopped looking for verified markers`);
+  return ids;
 };
 
 /** The bot's latest comment on the issue, or null if there is none or there are too many to read. */
@@ -685,6 +706,59 @@ const listVerifiedIssues = async (token: string, day: string): Promise<Issue[]> 
     ...(await listIssues(`labels=hall-of-fame,daily&since=${previousUtcDay(day)}T00:00:00Z`, token)),
   ]);
 
+/** Next to hall-of-fame.json: the pulls a maintainer withdrew, for the page's pending check (`loadPending`). */
+export const WITHDRAWN_FILE = 'hall-of-fame-withdrawn.json';
+
+/** Each pull once, sorted, as the page reads it. */
+const withdrawnText = (ids: Iterable<string>) => JSON.stringify([...new Set(ids)].sort()) + '\n';
+
+/**
+ * The pulls of every Hall of Fame issue labelled `rejected`, open or closed. Removing an entry can't
+ * take its submission off the public relays, so the page needs this list to stop showing it there.
+ * They come from the bot's marker comments (`verifiedMarkerIds`), not the issue's body: its author
+ * can edit that once it is rejected, and a pull edited away mustn't show again. An issue the bot
+ * never verified has no marker and was never listed; for it the body is the only record, and a pull
+ * refused for its display name isn't taken from it (`listedPullId`): the page leaves blocked names
+ * out itself, and the same pull renamed may be submitted again.
+ */
+const listWithdrawn = async (rejected: readonly Issue[], token: string): Promise<string[]> => {
+  const ids: string[] = [];
+  for (const issue of rejected) {
+    const marked = await verifiedMarkerIds(issue.number, token);
+    const unmarked = marked.length > 0 ? null : listedPullId(issue);
+    ids.push(...marked, ...(unmarked ? [unmarked] : []));
+  }
+  return ids;
+};
+
+/** The withdrawn list as deployed now, or null if it can't be read. */
+const deployedWithdrawn = async (): Promise<string[] | null> => {
+  try {
+    const res = await fetch(`${pagesUrl()}${WITHDRAWN_FILE}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    return Array.isArray(data) && data.every((id) => typeof id === 'string') ? data : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * When the rejected issues can't be listed or read: the deployed list, unchanged. An empty one would show every
+ * withdrawn pull still on the relays as pending again, so if the deployed one can't be read either,
+ * `file` is removed and the page shows no pending pulls until a build can list the issues.
+ */
+const carryWithdrawn = async (file: string) => {
+  const deployed = await deployedWithdrawn();
+  if (deployed) {
+    writeFileSync(file, withdrawnText(deployed));
+    console.warn(`Kept the deployed ${WITHDRAWN_FILE} (${deployed.length} pulls).`);
+  } else {
+    rmSync(file, { force: true });
+    console.warn(`Could not read the deployed ${WITHDRAWN_FILE}; publishing none, so the page shows no pending pulls.`);
+  }
+};
+
 /** Each verified issue's result as of its last change (see `build`). */
 const BUILD_CACHE = 'hof-build-cache.json';
 type BuildCache = Record<string, { updatedAt: string; entry: HallOfFameEntry | null; reason?: string }>;
@@ -704,19 +778,22 @@ export const build = async (output = OUTPUT) => {
   const now = new Date();
   const day = utcDay(now.toISOString());
   const token = process.env.GITHUB_TOKEN;
+  const withdrawn = join(dirname(output), WITHDRAWN_FILE);
   if (!token) {
     if (!existsSync(output)) writeFileSync(output, '[]\n');
+    if (!existsSync(withdrawn)) writeFileSync(withdrawn, '[]\n');
     console.log('No GITHUB_TOKEN; keeping the existing hall-of-fame.json');
     return;
   }
   // Before anything else: a site that can't be read fails the deploy rather than drop past days.
   const deployed = await deployedRankings(fetch, { startNewHistory: process.env[START_NEW_HISTORY] === day });
   let issues: Issue[];
-  let rejected: Set<number>;
+  let rejectedIssues: Issue[];
   try {
     issues = (await listVerifiedIssues(token, day)).filter((i) => !labelNames(i).includes('rejected'));
-    // Every `rejected` issue, also those no longer listed, so their entries leave the archived days.
-    rejected = new Set((await listIssues('labels=hall-of-fame,rejected', token)).map((i) => i.number));
+    // Every `rejected` issue, also those no longer listed, so their entries leave the archived days
+    // and their pulls are withdrawn from the page's pending check (`listWithdrawn`).
+    rejectedIssues = await listIssues('labels=hall-of-fame,rejected', token);
   } catch (error) {
     if (error instanceof TooManyIssues) throw error; // fail the deploy rather than drop entries
     // Don't block a deploy on the Issues API: the deployed list and rankings are a verified snapshot,
@@ -726,6 +803,7 @@ export const build = async (output = OUTPUT) => {
     writeFileSync(output, deployed.list);
     writeRankings(dirname(output), deployedFiles(deployed));
     console.warn(`Could not list Hall of Fame issues; keeping the deployed hall-of-fame.json and rankings. ${error}`);
+    await carryWithdrawn(withdrawn);
     return;
   }
   // A pull's pack can't change, so an issue untouched since the last deploy (same updated_at: no
@@ -768,11 +846,20 @@ export const build = async (output = OUTPUT) => {
   const entries = listToPublish(counted, now);
   for (const e of entries) console.log(`#${e.issue}: ${e.hand} (${e.score}), received ${e.submittedAt}${e.receipt ? ' (when verified)' : ''}`);
   writeFileSync(output, JSON.stringify(entries, null, 1) + '\n');
+  const rejected = new Set(rejectedIssues.map((i) => i.number));
   const keep = (e: ArchivedPull) => !rejected.has(e.issue) && isNameAllowed(e.name);
   const rankings = rankingsFiles(entries, deployed, { generatedAt: now.toISOString(), days, keep });
   writeRankings(dirname(output), rankings);
   console.log(`Rankings: ${rankings.map(([file]) => file).join(', ')}${deployed.index === null ? ' (the first; the deployed site had none)' : ''}`);
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);
+  try {
+    const ids = await listWithdrawn(rejectedIssues, token);
+    writeFileSync(withdrawn, withdrawnText(ids));
+    console.log(`${ids.length} pulls of rejected issues -> ${WITHDRAWN_FILE}`);
+  } catch (error) {
+    console.warn(`Could not read the rejected Hall of Fame issues' comments. ${error}`);
+    await carryWithdrawn(withdrawn);
+  }
 };
 
 export const SEEN_PATH = 'hof-inbox-seen.json';
