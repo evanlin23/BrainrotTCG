@@ -86,6 +86,11 @@ describe('PullViewerPage', () => {
     expect(document.querySelector('.sheet-subtitle')).toBeNull();
   });
 
+  it('shows a player who chose the name Player by that name, not Someone', async () => {
+    await subtitle('Player');
+    expect(document.querySelector('.pull-viewer-whose')!.textContent).toBe('Player pulled this pack in Original.');
+  });
+
   it("says a device that ran out of memory couldn't check the pull, not that it's fake, and tries again", async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const raw = 'RangeError: WebAssembly.instantiate(): Out of memory: Cannot allocate Wasm memory for new instance';
