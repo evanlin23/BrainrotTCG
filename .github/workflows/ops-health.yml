@@ -15,7 +15,8 @@ on:
     # Off the hour, which GitHub delays or drops under load.
     - cron: '23 */6 * * *'
   workflow_run:
-    workflows: ['Deploy to GitHub Pages']
+    workflows:
+      - Deploy to GitHub Pages
     types: [completed]
     branches: [main]
   workflow_dispatch:
