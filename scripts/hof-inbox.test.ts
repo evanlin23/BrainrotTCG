@@ -64,6 +64,23 @@ describe('Hall of Fame inbox', () => {
     expect(filedProofs).toEqual([fourOfAKind]);
   });
 
+  it('reports an unconfirmed pass-over when it stops early, at the budget or on a filing failure', async () => {
+    const passedId = idOf(pair);
+    const passed = hallOfFameEvent(pair, passedId, 1000);
+    const next = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 2000);
+    const over = context({ filed: new Set([passedId]), unconfirmed: new Set([passedId]), budget: 0 });
+    expect(await processInbox([next, passed], over.ctx)).toEqual({ added: 0, deferred: 1, unconfirmedFrom: 1 });
+    const failing = context({
+      filed: new Set([passedId]),
+      unconfirmed: new Set([passedId]),
+      file: async () => {
+        throw new Error('GitHub 502');
+      },
+    });
+    expect(await processInbox([next, passed], failing.ctx)).toEqual({ added: 0, deferred: 1, unconfirmedFrom: 1 });
+    expect(failing.ctx.seen.has(next.id)).toBe(false);
+  });
+
   it('ignores pulls that do not qualify, do not verify, or are already in the Hall of Fame', async () => {
     const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB' : 'AAAA');
     const { ctx, filedProofs } = context({ filed: new Set([idOf(byNote('mined 3 of a Kind'))]) });
