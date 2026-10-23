@@ -336,6 +336,11 @@ function App() {
     if (pendingTaken.current) return;
     pendingTaken.current = true;
     const taken = takePendingPacks().map((pack) => (loadedStats.counted.has(pack.nonce) ? { ...pack, counted: true } : pack));
+    // Rebuilt stats replace the unreadable ones at once (their copy is kept aside first), so a discard
+    // sticks and an export finds them readable; the writer stores them after the packs taken here. Once
+    // per mount, like the packs: a new copy of the same stats is what has the writer store them.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (loadedStats.rebuilt) setStats((current) => ({ ...current }));
     packsTaken(taken);
     taken.reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
     // Not for a tab already known to be stale: it stores nothing, and the notice would flash before the warning.

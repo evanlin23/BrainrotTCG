@@ -89,7 +89,8 @@ src/game/          Browser glue around the engine.
   nostrInbox.ts      Hall of Fame submissions over public Nostr relays (loaded only when used)
   move.ts            hands a save over from the site's old address, window to window (docs/HOSTING.md)
   saveFile.ts        save export and import: validate, back up, write, roll back on failure
-  collectionRecovery.ts  keeps unreadable collection entries aside instead of overwriting them
+  collectionRecovery.ts  keeps unreadable collection entries and stats aside instead of overwriting them
+  statsRecovery.ts   rebuilds unreadable stats from what the save still proves, never from zero
   progressWriter.ts  stores committed progress field by field, behind both save guards, and owes
                      packs to the pending shelf until stored (App uses it via hooks/useProgressWriter.ts)
   selectedSet.ts     the chosen pack set; the choice still works when it can't be saved
@@ -394,8 +395,13 @@ replaced, unreadable entries are archived byte for byte, with the identity snaps
 in `brainrot-collection-recovery-v1`: each distinct payload once, the first and then the newest 10,
 within 1M characters (older ones in between are let go and counted). The archive never blocks the
 save: a payload storage has no room for is kept for that visit only, and the note asks the player to
-download it. Nothing discards kept-aside data silently; the player can download or discard it from the
-save warning or Settings. Export includes that archive. Import
+download it. Stored stats this build can't read go in the same archive, marked with their key, when
+they load; the stats in use are rebuilt from their readable fields, this key's history and the
+collection (`statsRecovery.ts`), and App stores them at once, unless their copy is held only for that
+visit (then the stats stay unsaved and the save warning shows). Nothing discards kept-aside data
+silently; the player can download or discard it from the save warning or Settings, and after a
+discard the next write replaces the bytes it came from. Export includes that archive, and rebuilds
+unreadable stats as a load does, so the file imports again. Import
 (`saveFile.ts`) validates every supplied field and the player first, then copies every `brainrot-*`
 key except earlier `brainrot-before-*` backups to `brainrot-before-import-v1`, replacing an earlier
 import's copy (with no such keys there is nothing to copy, and an earlier import's copy stays; a failed

@@ -29,6 +29,8 @@ export const ARCHIVE_BUDGET = 1_000_000;
 let unsaved: Entry[] = [];
 /** Older payloads let go from `unsaved` to stay within its limit (the stored archive counts its own in `dropped`). */
 let droppedThisVisit = 0;
+/** Stored bytes the player discarded the kept-aside copy of this visit: the next write replaces them without keeping them again. */
+let discarded: Entry[] = [];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -99,6 +101,7 @@ export const keepUnreadableAside = (
     return 'blocked';
   }
   if (raw === null || !unreadable(raw)) return 'clean';
+  if (discarded.some((gone) => sameEntry(gone, withKey({ raw, player: null }, storageKey)))) return 'clean';
 
   let player: string | null = null;
   let stored: string | null;
@@ -142,6 +145,19 @@ export const keepUnreadableAside = (
     console.warn(`Let the ${evicted} oldest later payload(s) go from "${ARCHIVE_KEY}" to keep the first and the newest within its limits.`);
   }
   return 'archived';
+};
+
+/** True when the bytes stored under this key are in the stored archive, not only kept for this visit. */
+export const keptInStorage = (storageKey: typeof STORAGE_KEYS.COLLECTION | typeof STATS_KEY): boolean => {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const stored = localStorage.getItem(ARCHIVE_KEY);
+    if (raw === null || stored === null) return false;
+    const entry = withKey({ raw, player: null }, storageKey);
+    return entriesOf(readArchive(stored)).some((kept) => sameEntry(kept, entry));
+  } catch {
+    return false;
+  }
 };
 
 /** Unparseable bytes are unreadable too. */
@@ -351,9 +367,18 @@ export type DiscardResult = 'discarded' | 'changed' | 'refused';
  * has let go of the stored ones.
  */
 export const discardCollectionRecovery = (shown: string | null): DiscardResult => {
+  let gone: Entry[];
   try {
     const print = currentPrint();
     if (print !== null && print !== shown) return 'changed';
+    const stored = localStorage.getItem(ARCHIVE_KEY);
+    const kept = [...entriesOf(stored === null ? null : readArchive(stored)), ...unsaved];
+    // The stored collection or stats discarded now or before, if a write hasn't replaced them yet.
+    gone = [STORAGE_KEYS.COLLECTION, STATS_KEY].flatMap((key) => {
+      const raw = localStorage.getItem(key);
+      const entry = raw === null ? null : withKey({ raw, player: null }, key);
+      return entry && [...kept, ...discarded].some((k) => sameEntry(k, entry)) ? [entry] : [];
+    });
     localStorage.removeItem(ARCHIVE_KEY);
   } catch (error) {
     console.error(`Failed to remove localStorage key "${ARCHIVE_KEY}":`, error);
@@ -368,5 +393,6 @@ export const discardCollectionRecovery = (shown: string | null): DiscardResult =
   unsaved = [];
   droppedThisVisit = 0;
   hiddenThisVisit = null;
+  discarded = gone;
   return 'discarded';
 };

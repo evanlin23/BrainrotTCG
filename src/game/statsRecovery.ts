@@ -4,12 +4,15 @@
  * data (game/collectionRecovery.ts), whose note tells the player and offers Download and Discard, and the
  * stats in use are rebuilt from what the save still proves: every field that is still readable, the
  * packs this key's history records, and the holo cards and best pack found there and in the collection.
+ * App stores the rebuilt stats as soon as it has loaded (once the copy is stored, not only held for the
+ * visit), so a discard sticks and a backup holds stats it can import; until then an export rebuilds them.
  */
 import { STORAGE_KEYS } from '../constants';
 import { scoreCards } from '../data/cards';
 import type { CollectionItem, Stats } from '../types';
-import { setStoredData } from '../utils/storage';
-import { keepUnreadableAside, type CollectionSaveResult } from './collectionRecovery';
+import { hydrateCollection } from '../utils/migrations';
+import { getStoredData, setStoredData } from '../utils/storage';
+import { keepUnreadableAside, keptInStorage, type CollectionSaveResult } from './collectionRecovery';
 import { byBest, historyCards, historyForKey } from './history';
 import { getPlayer } from './player';
 import { isStats, STATS_FIELDS } from './saveFile';
@@ -24,6 +27,8 @@ export interface LoadedStats {
    * these is in the history already, so it counts as `counted` (it only adds its cards).
    */
   counted: ReadonlySet<number>;
+  /** The stored stats were unreadable and these were rebuilt: App stores them right after load. */
+  rebuilt: boolean;
 }
 
 const NONE: ReadonlySet<number> = new Set();
@@ -42,8 +47,8 @@ export const statsUnreadable = (raw: string): boolean => {
   }
 };
 
-/** The best pack's fields, kept or rebuilt together so they always describe one pack. */
-const BEST_FIELDS = Object.keys(STATS_FIELDS).filter((key) => key.startsWith('highestPack'));
+/** The best pack's fields, kept or rebuilt together so they always describe one pack (read when used: saveFile imports this module). */
+const bestFields = () => Object.keys(STATS_FIELDS).filter((key) => key.startsWith('highestPack'));
 
 /** Unreadable stats, rebuilt from their readable fields, this key's history and the collection. */
 const rebuild = (value: unknown, collection: Record<string, CollectionItem>): LoadedStats => {
@@ -51,19 +56,20 @@ const rebuild = (value: unknown, collection: Record<string, CollectionItem>): Lo
   const kept: Record<string, unknown> = record(value)
     ? Object.fromEntries(Object.entries(value).filter(([key, v]) => valid(key, v)))
     : {};
-  if (record(value) && BEST_FIELDS.some((key) => has(value, key) && !has(kept, key))) {
-    for (const key of BEST_FIELDS) delete kept[key];
+  if (record(value) && bestFields().some((key) => has(value, key) && !has(kept, key))) {
+    for (const key of bestFields()) delete kept[key];
   }
   const stats = { ...kept } as unknown as Stats;
   const publicKeyHex = getPlayer().publicKeyHex;
   const history = historyForKey(publicKeyHex);
 
   // A count still readable stands when the history holds no more packs (an older save's history may
-  // start after its first packs). Otherwise the history's count, and its packs count as counted.
+  // start after its first packs). Otherwise the history's count of tickets, and its packs count as counted.
   let counted = NONE;
-  if (typeof stats.packsOpened !== 'number' || stats.packsOpened < history.length) {
-    stats.packsOpened = history.length;
-    counted = new Set(history.map((entry) => entry.nonce));
+  const tickets = new Set(history.map((entry) => entry.nonce));
+  if (typeof stats.packsOpened !== 'number' || stats.packsOpened < tickets.size) {
+    stats.packsOpened = tickets.size;
+    counted = tickets;
   }
 
   const holoCards = { ...stats.holoCards };
@@ -90,12 +96,20 @@ const rebuild = (value: unknown, collection: Record<string, CollectionItem>): Lo
       break;
     }
   }
-  return { stats, counted };
+  return { stats, counted, rebuilt: true };
+};
+
+const parse = (raw: string): unknown => {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
 };
 
 /**
  * The stats to load. Unreadable ones are kept aside first (a repeat finds them kept already), then
- * rebuilt; the stored bytes stay as they were until persistStats replaces them.
+ * rebuilt; the stored bytes stay as they were until persistStats replaces them (App has it do so at once).
  */
 export const loadStats = (collection: Record<string, CollectionItem>): LoadedStats => {
   let raw: string | null;
@@ -103,21 +117,29 @@ export const loadStats = (collection: Record<string, CollectionItem>): LoadedSta
     raw = localStorage.getItem(STORAGE_KEYS.STATS);
   } catch {
     // Unreadable storage: persistStats won't write over what it couldn't read either.
-    return { stats: emptyStats(), counted: NONE };
+    return { stats: emptyStats(), counted: NONE, rebuilt: false };
   }
-  if (raw === null) return { stats: emptyStats(), counted: NONE };
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch { /* Rebuilt below. */ }
-  if (isStats(value)) return { stats: value as unknown as Stats, counted: NONE };
+  if (raw === null) return { stats: emptyStats(), counted: NONE, rebuilt: false };
+  const value = parse(raw);
+  if (isStats(value)) return { stats: value as unknown as Stats, counted: NONE, rebuilt: false };
   keepUnreadableAside(STORAGE_KEYS.STATS, statsUnreadable);
   return rebuild(value, collection);
 };
 
-/** Stores the stats, keeping unreadable stored stats aside first; 'blocked' when they stay as they were. */
+/** The stored stats as a backup file holds them: unreadable ones rebuilt as loadStats does, so the file imports again. */
+export const exportedStats = (raw: string | null): string | null => {
+  if (raw === null || !statsUnreadable(raw)) return raw;
+  return JSON.stringify(rebuild(parse(raw), hydrateCollection(getStoredData(STORAGE_KEYS.COLLECTION, {}))).stats);
+};
+
+/**
+ * Stores the stats, keeping unreadable stored stats aside first; 'blocked' when they stay as they were.
+ * While their copy is held only for this visit (storage had no room for it), they stay stored for the
+ * rest of it, so a reload keeps them aside again rather than losing them; a discard lets them go.
+ */
 export const persistStats = (next: Stats): CollectionSaveResult => {
   const kept = keepUnreadableAside(STORAGE_KEYS.STATS, statsUnreadable);
-  if (kept === 'blocked' || !setStoredData(STORAGE_KEYS.STATS, next)) return 'blocked';
+  if (kept === 'blocked' || (kept === 'archived' && !keptInStorage(STORAGE_KEYS.STATS))) return 'blocked';
+  if (!setStoredData(STORAGE_KEYS.STATS, next)) return 'blocked';
   return kept === 'archived' ? 'recovered' : 'saved';
 };

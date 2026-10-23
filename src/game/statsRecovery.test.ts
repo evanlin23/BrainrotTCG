@@ -4,12 +4,13 @@ import type { CollectionItem, Stats } from '../types';
 import { getSet } from '../content/sets';
 import { collectionRecoveryFile, collectionRecoveryNote, collectionRecoveryPrint, COLLECTION_RECOVERY_NOTES, discardCollectionRecovery, persistCollection, STATS_REBUILT_NOTE } from './collectionRecovery';
 import { recordPack } from './history';
-import { isStats } from './saveFile';
+import { exportSaveFile, isStats, isValidSaveValue } from './saveFile';
 import { emptyStats, loadStats, persistStats } from './statsRecovery';
+import { CURRENT_DATA_VERSION } from '../utils/migrations';
 import type { OpenedPack } from './pulls';
 
 const KEY = 'ab'.repeat(32);
-vi.mock('./player', () => ({ getPlayer: () => ({ publicKeyHex: 'ab'.repeat(32) }) }));
+vi.mock('./player', async (importOriginal) => ({ ...await importOriginal<typeof import('./player')>(), getPlayer: () => ({ publicKeyHex: 'ab'.repeat(32) }) }));
 
 const PLAYER = JSON.stringify({ secretKey: 'cd'.repeat(32), name: 'Kept', nextNonce: 3, createdAt: 1 });
 let data: Map<string, string>;
@@ -52,7 +53,7 @@ const kept = () => JSON.parse(collectionRecoveryFile()!.text) as { raw: string; 
 
 describe('loadStats', () => {
   it("gives a new player's stats when none are stored, and keeps nothing aside", () => {
-    expect(loadStats({})).toEqual({ stats: emptyStats(), counted: new Set() });
+    expect(loadStats({})).toEqual({ stats: emptyStats(), counted: new Set(), rebuilt: false });
     expect(collectionRecoveryFile()).toBeNull();
   });
 
@@ -60,7 +61,7 @@ describe('loadStats', () => {
     opened(0, 1);
     const stats: Stats = { packsOpened: 7, holoCards: { 'right-now/x': true }, highestPackFlexValue: 9 };
     data.set(STORAGE_KEYS.STATS, JSON.stringify(stats));
-    expect(loadStats({})).toEqual({ stats, counted: new Set() });
+    expect(loadStats({})).toEqual({ stats, counted: new Set(), rebuilt: false });
     expect(collectionRecoveryFile()).toBeNull();
   });
 
@@ -133,6 +134,15 @@ describe('loadStats', () => {
     expect(kept()).toEqual({ raw: 'garbage', player: PLAYER, key: STORAGE_KEYS.STATS });
   });
 
+  it('counts each ticket once, even one the history holds twice', () => {
+    opened(0, 1);
+    const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!) as unknown[];
+    data.set(STORAGE_KEYS.HISTORY, JSON.stringify([...history, history[0]]));
+    data.set(STORAGE_KEYS.STATS, 'garbage');
+    const loaded = loadStats({});
+    expect([loaded.stats.packsOpened, [...loaded.counted], loaded.rebuilt]).toEqual([2, [0, 1], true]);
+  });
+
   it("starts empty when storage can't be read, as before", () => {
     refuseReads = true;
     expect(loadStats({}).stats).toEqual(emptyStats());
@@ -169,6 +179,59 @@ describe('persistStats', () => {
     expect(data.get(STORAGE_KEYS.STATS)).toBe('garbage');
     expect(kept()).toEqual({ raw: 'garbage', player: PLAYER, key: STORAGE_KEYS.STATS });
     expect(collectionRecoveryNote()).toMatch(/^Unreadable stats data was kept aside, but this browser had no room to store it/);
+  });
+
+  it('leaves them stored while their copy is held only for this visit, though the stats would fit', () => {
+    data.set(STORAGE_KEYS.STATS, 'garbage');
+    refuseWrites = new Set([STORAGE_KEYS.COLLECTION_RECOVERY]);
+    expect(persistStats({ packsOpened: 4, holoCards: {} })).toBe('blocked');
+    expect(persistStats({ packsOpened: 5, holoCards: {} })).toBe('blocked');
+    expect(data.get(STORAGE_KEYS.STATS)).toBe('garbage');
+    expect(kept()).toEqual({ raw: 'garbage', player: PLAYER, key: STORAGE_KEYS.STATS });
+  });
+
+  it('replaces discarded stats without keeping them aside again, even ones held only for this visit', () => {
+    opened(0);
+    data.set(STORAGE_KEYS.STATS, 'garbage');
+    refuseWrites = new Set([STORAGE_KEYS.COLLECTION_RECOVERY]);
+    const { stats } = loadStats({});
+    expect(persistStats(stats)).toBe('blocked');
+    expect(discardCollectionRecovery(collectionRecoveryPrint())).toBe('discarded');
+    expect(persistStats(stats)).toBe('saved');
+    expect(collectionRecoveryFile()).toBeNull();
+    // The next load finds them readable: nothing is kept aside again.
+    refuseWrites = new Set();
+    expect(loadStats({})).toEqual({ stats, counted: new Set(), rebuilt: false });
+    expect(collectionRecoveryFile()).toBeNull();
+  });
+
+  it('keeps stored bytes aside again once they differ from the discarded ones', () => {
+    data.set(STORAGE_KEYS.STATS, 'garbage');
+    loadStats({});
+    discardCollectionRecovery(collectionRecoveryPrint());
+    data.set(STORAGE_KEYS.STATS, 'other garbage');
+    expect(persistStats({ packsOpened: 1, holoCards: {} })).toBe('recovered');
+    expect(kept()).toEqual({ raw: 'other garbage', player: PLAYER, key: STORAGE_KEYS.STATS });
+  });
+});
+
+describe('exported stats', () => {
+  it.each([['unparseable', 'garbage'], ['the wrong shape', '{"packsOpened":-1,"holoCards":{"right-now/x":true}}']])(
+    'rebuilds %s stored stats in a backup, so the file imports again', (_, damaged) => {
+      opened(0, 1);
+      data.set(STORAGE_KEYS.STATS, damaged);
+      refuseWrites = new Set([STORAGE_KEYS.COLLECTION_RECOVERY]);
+      const loaded = loadStats({});
+      const file = JSON.parse(exportSaveFile()) as { stats: string };
+      expect(JSON.parse(file.stats)).toEqual(loaded.stats);
+      expect(isValidSaveValue(STORAGE_KEYS.STATS, file.stats, CURRENT_DATA_VERSION)).toBe(true);
+      expect(data.get(STORAGE_KEYS.STATS)).toBe(damaged);
+    });
+
+  it('exports readable stats byte for byte', () => {
+    const raw = JSON.stringify({ packsOpened: 3, holoCards: {} });
+    data.set(STORAGE_KEYS.STATS, raw);
+    expect((JSON.parse(exportSaveFile()) as { stats: string }).stats).toBe(raw);
   });
 });
 
