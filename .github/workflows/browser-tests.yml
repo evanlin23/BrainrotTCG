@@ -16,7 +16,7 @@ permissions:
 # runner image's third-party apt sources is down or unsigned. Bump the tag and digest together with
 # Playwright, in all three jobs (docs/DEVELOPMENT.md).
 # `--user 1001` is the runner's user: Firefox won't run as root without a HOME, and the checkout and
-# the npm cache belong to it.
+# the npm cache belong to it. `--ipc=host` gives Chromium the host's /dev/shm, not Docker's 64 MB.
 jobs:
   # The suite runs in three shards at once to cut wall time; each shard keeps one worker, since the
   # specs were written to run one at a time.
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
-      options: --user 1001
+      options: --user 1001 --ipc=host
     strategy:
       fail-fast: false
       matrix:
@@ -86,7 +86,7 @@ jobs:
     timeout-minutes: 20
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
-      options: --user 1001
+      options: --user 1001 --ipc=host
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -147,7 +147,7 @@ jobs:
     timeout-minutes: 45
     container:
       image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
-      options: --user 1001
+      options: --user 1001 --ipc=host
     strategy:
       fail-fast: false
       matrix:

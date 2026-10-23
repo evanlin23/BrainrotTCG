@@ -595,7 +595,7 @@ describe('browser-tests.yml Playwright jobs (#658)', () => {
     'browser-burn-in': 'browser-burn-in shard ${{ matrix.shard }}/3',
     'cross-browser-smoke': 'cross-browser-smoke',
   };
-  const runners = Object.entries(all).filter(([, job]) => /npx playwright|npm run test:browser/.test(job.join('\n')));
+  const runners = Object.entries(all).filter(([, job]) => /npx playwright|npm run test:(browser|visual)/.test(job.join('\n')));
 
   it('finds exactly the jobs that run Playwright', () => {
     expect(runners.map(([id]) => id).sort()).toEqual(Object.keys(names).sort());
@@ -621,7 +621,8 @@ describe('browser-tests.yml Playwright jobs (#658)', () => {
 
   it.each(Object.keys(names))('%s runs as the runner user and installs no browsers or system packages', (id) => {
     const job = all[id].join('\n');
-    expect(job).toMatch(/^ {6}options: --user 1001$/m);
+    // --ipc=host gives Chromium the host's /dev/shm instead of Docker's 64 MB.
+    expect(job).toMatch(/^ {6}options: --user 1001 --ipc=host$/m);
     expect(job.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')).not.toMatch(/playwright install|apt-get|apt |--with-deps/);
   });
 });
