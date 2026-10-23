@@ -19,6 +19,8 @@ interface KeptAsideActionsProps {
    * fell to the page body. The parent moves it: to Reload if that's shown, else to the section heading.
    */
   onLeave: () => void;
+  /** The Download button's text, when the page shows another Download that fetches a different file. */
+  downloadLabel?: string;
 }
 
 /** The question on screen, and the fingerprint of what was kept aside when it was asked. */
@@ -26,6 +28,9 @@ interface Asked {
   print: string | null;
   changed: boolean;
 }
+
+/** Settings' label while the unreadable-player row shows its own Download, which fetches the whole save. */
+export const KEPT_ASIDE_DOWNLOAD_LABEL = 'Download kept-aside data';
 
 /** Says only that the download started: the browser can still block it or ask where to save. */
 const DOWNLOAD_STARTED_NOTE = 'Download started — keep the recovery file safe.';
@@ -35,7 +40,7 @@ const DOWNLOAD_STARTED_NOTE = 'Download started — keep the recovery file safe.
  * first, in place, like Restore's Keep mine / Replace: the safe answer takes focus and reads the question.
  * If what's kept aside changed after the question, it asks again instead of discarding the new data.
  */
-const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptAsideActionsProps) => {
+const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave, downloadLabel = 'Download' }: KeptAsideActionsProps) => {
   const [asked, setAsked] = useState<Asked | null>(null);
   const [refused, setRefused] = useState(false);
   const [downloadFailed, setDownloadFailed] = useState(false);
@@ -147,7 +152,7 @@ const KeptAsideActions = ({ variant, canAct, onGone, onChanged, onLeave }: KeptA
           {downloadFailed && <span id={noteId} className={note}>{variant === 'banner' && ' '}Couldn&apos;t read browser storage to download your recovery file.</span>}
           {refused && <span id={noteId} className={note}>{variant === 'banner' && ' '}This browser wouldn&apos;t discard it.</span>}
           <button type="button" className={plain} aria-describedby={downloadFailed ? noteId : undefined} onClick={handleDownload}>
-            Download
+            {downloadLabel}
           </button>
           <button type="button" ref={discardRef} className={`${plain} quiet-focus`} aria-describedby={refused ? noteId : undefined} onClick={ask}>
             Discard
