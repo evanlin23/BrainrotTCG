@@ -9,7 +9,10 @@ If this page disagrees with `package.json` or `.github/workflows/`, those win.
 
 Use Node 22, as CI does. `npm ci` installs from the lockfile; only change `package-lock.json` in a
 dependency change. A fresh checkout or worktree has no `node_modules` and needs `npm ci` before any
-check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
+check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). When a subagent stops, the SubagentStop hook
+`.claude/hooks/clean-agent-worktree.sh` deletes `node_modules`, `dist` and Playwright output from its
+`.claude/worktrees/agent-<id>` worktree (unless a process still runs there), so finished worktrees
+don't fill the disk. `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
 A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (52-54 MiB
 of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without
