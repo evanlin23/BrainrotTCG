@@ -209,6 +209,29 @@ Browser tests have no retries, so a test that fails once fails CI: fix its cause
 Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
 close-up sets `data-tilt="live"` once it follows the mouse.
 
+### Automated axe checks
+
+`tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
+browser spec. `axe-critical-states.spec.ts` calls it for four loaded states: the first pack, the pack
+summary, Settings and a card's share sheet over its viewer, in both projects. A scan runs a fixed list of
+rules (names, roles and relationships, the document, and `color-contrast`) after fonts, images and finite
+running animations have settled, with reduced motion emulated for the scan so looping pulses cannot make
+contrast depend on their phase; it is not a tag or the whole rule set, and no rule is disabled. Add a state by
+calling `expectAxeClean(page, testInfo, '<state>')` once its screen is loaded, after listing the state in
+`AXE_STATES`; do not add another scanner.
+
+- A scan fails on any violation, on a scan that passed no nodes, and on a page where contrast or the
+  document checks found nothing to check, so an empty or wrong page cannot pass.
+- Axe cannot judge text on art, gradients, overlapping layers, partly transparent backgrounds or
+  pseudo-element backgrounds, canvas contents or images. It lists those as "needs review"; each scan attaches
+  them to the test report, adds an `axe-needs-review` annotation and prints one line per scan, so the list
+  shows in CI logs. Treat them as unchecked, not as passing.
+- An accepted violation goes in `AXE_EXCEPTIONS` with its state, exact rule and selector, the reason, an
+  owner and what removes it (a test rejects an entry with a blank field or an unknown rule or state). An entry
+  that stops matching fails the scan, so the list only shrinks. It is empty today; use it only with a linked follow-up.
+- A green scan is not a full accessibility audit or a physical-phone check. Keyboard order, focus rings,
+  reduced motion, target sizes and screen-reader wording stay with the specs that own them.
+
 The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
 adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes, in both
 projects:
