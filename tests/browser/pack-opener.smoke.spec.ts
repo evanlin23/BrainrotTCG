@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { monitor, expectDecoded, snapshot, expectRecordedPack } from './support';
 
-test('opens one real pack and preserves its exact cards, counts, modifiers and ticket after reload', async ({ page, baseURL }) => {
+test('opens one real pack and preserves its exact cards, counts, modifiers and ticket after reload', { tag: '@cross-browser' }, async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
