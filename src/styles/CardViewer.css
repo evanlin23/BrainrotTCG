@@ -54,11 +54,12 @@
   font-size: var(--text-sm);
 }
 
-.card-viewer-version {
+/* The one line naming the shown version and its rarity: the rarity pill's look, so the rarity stays
+   a name, a gem and a colour. */
+.card-viewer-version.rarity-pill {
   margin: 0;
-  font-size: var(--text-lg);
+  font-size: var(--text-base);
   font-weight: 800;
-  color: var(--text);
 }
 
 .card-viewer-points {

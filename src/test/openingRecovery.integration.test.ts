@@ -473,7 +473,7 @@ it("offers the save from before as a download, then reloads, when an import with
   app = await mountedApp({ ...SEED, [STORAGE_KEYS.STATS]: JSON.stringify({ packsOpened: 3, holoCards: {} }) });
   await app.mount();
   const reload = vi.spyOn(await import('../game/reload'), 'reloadPage').mockImplementation(() => {});
-  const download = vi.spyOn(await import('../game/saveFile'), 'downloadSaveFile').mockImplementation(() => {});
+  const download = vi.spyOn(await import('../game/saveFile'), 'downloadSaveFile').mockImplementation(() => '');
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
   const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
   await app.interact(() => button('Settings')!.click());

@@ -6,7 +6,7 @@ import { CARD_FLIP_SRC, EFFECT_DELAY_MS } from '../../constants/audio';
 import { SETS } from '../../content/sets';
 import { admitOptional, resetAdmission } from '../../game/admission';
 import { openPack } from '../../game/pulls';
-import { StaleSaveError } from '../../game/player';
+import { PlayerUnreadableError, StaleSaveError } from '../../game/player';
 import { DEFAULT_SETTINGS } from '../../utils/settings';
 import PackOpener from './PackOpener';
 import { REFUSAL_COPY } from './refusal';
@@ -263,6 +263,30 @@ describe('the controls under the pack (#312)', () => {
     await act(async () => { vi.advanceTimersByTime(100); });
   });
 
+  it('names the damaged player record and its three choices, and opens Save & backup (#1052)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(openPack).mockRejectedValueOnce(new PlayerUnreadableError());
+    const onOpenSave = vi.fn();
+    await act(() => root.render(
+      <PackOpener onOpen={() => {}} onShare={() => {}} set={SETS[0]} settings={DEFAULT_SETTINGS} disabled={false} mountedSave={MOUNTED_SAVE} onOpenSave={onOpenSave} />,
+    ));
+    act(() => openButton()!.click());
+    await pastTheTear();
+
+    const message = REFUSAL_COPY.unreadable.message;
+    expect($('.pack-refusal-text')?.textContent).toBe(message);
+    expect(announced()).toBe(message);
+    expect(message).toContain("damaged and can't be read");
+    expect(message).toContain('restore a backup, download the save with the damaged record, or start a new player');
+    expect(retryButton()?.textContent).toBe('Open Save & backup');
+    act(() => retryButton()!.click());
+    expect(onOpenSave).toHaveBeenCalledTimes(1);
+    // Nothing is torn again: the record stays as it is until the player chooses in Settings.
+    expect(cutter.completeCut).toHaveBeenCalledTimes(1);
+    expect(openPack).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(100); });
+  });
+
   it('keeps the pack sealed while another tab holds the save, and says so instead of tearing it', async () => {
     await render(false, true);
     act(() => openButton()!.click());
@@ -446,5 +470,151 @@ describe('the random effect after a flip', () => {
     act(() => root.unmount());
     await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
     expect(plays).toEqual([CARD_FLIP_SRC]);
+  });
+});
+
+describe('one record per pack, whatever order the player and the ticket arrive in', () => {
+  const set = SETS[0];
+  const cards = set.cards.slice(0, set.packSize ?? 5).map((card, i) => ({ ...card, uniqueId: i, isRevealed: false, isHolo: false }));
+  const dealt = { setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0 } as unknown as Awaited<ReturnType<typeof openPack>>;
+  const onOpen = vi.fn();
+  const onLeaveEarly = vi.fn();
+  const show = () => act(() => root.render(
+    <PackOpener onOpen={onOpen} onShare={() => {}} onLeaveEarly={onLeaveEarly} set={set} settings={DEFAULT_SETTINGS} mountedSave={MOUNTED_SAVE} />,
+  ));
+  const press = (code: string, key: string) => document.body.dispatchEvent(new KeyboardEvent('keydown', { code, key, bubbles: true }));
+  /** Tears the pack and lets the 460ms pause pass, so the ticket is being asked for. */
+  const tear = async () => {
+    act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
+    await act(async () => { vi.advanceTimersByTime(500); });
+  };
+  /** The ticket lands when the test says so: `land()` resolves it, outside act. */
+  const holdTicketUntil = () => {
+    let land = () => {};
+    vi.mocked(openPack).mockImplementation(() => new Promise((resolve) => { land = () => resolve(dealt); }));
+    return () => land();
+  };
+  /** The same, landing inside act. */
+  const holdTicket = () => {
+    const land = holdTicketUntil();
+    return () => act(async () => { land(); });
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.stubGlobal('requestIdleCallback', () => 0);
+    vi.stubGlobal('cancelIdleCallback', () => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    onOpen.mockReset();
+    onLeaveEarly.mockReset();
+  });
+  afterEach(() => {
+    // jsdom queues a history step on the faked timers, in more than one turn: run them all before the real ones come back.
+    vi.runAllTimers();
+    vi.useRealTimers();
+  });
+
+  it('records a pack left mid-reveal once, even when two leaves arrive before React renders', async () => {
+    vi.mocked(openPack).mockResolvedValue(dealt);
+    await show();
+    await tear();
+    await act(async () => {});
+    expect(document.querySelector('.card-reveal-area .reveal-card')).not.toBeNull();
+
+    act(() => {
+      press('Escape', 'Escape');
+      press('Escape', 'Escape');
+    });
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen.mock.calls[0][0].cards.every((card: { isRevealed: boolean }) => card.isRevealed)).toBe(true);
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+  });
+
+  /** The ticket lands and `during` runs before React renders what the landing queued. */
+  const landThen = (land: () => Promise<void> | void, during: () => void) => act(async () => {
+    land();
+    // The opener has dealt the pack once its await continues; nothing has rendered, as act holds the render back.
+    for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+    during();
+  });
+  it('records a pack the player leaves in the gap between its ticket landing and the reveal rendering', async () => {
+    const made: HTMLAudioElement[] = [];
+    const RealAudio = window.Audio;
+    vi.stubGlobal('Audio', class extends RealAudio {
+      constructor(src?: string) {
+        super(src);
+        made.push(this);
+      }
+    });
+    const land = holdTicketUntil();
+    await show();
+    await tear();
+    let madeInGap = 0;
+    let readyInGap = false;
+    await landThen(land, () => {
+      // The sounds were fetched when the pack was dealt, before anything rendered: this is the gap.
+      madeInGap = made.length;
+      readyInGap = made.every((audio) => audio.getAttribute('src'));
+      press('Escape', 'Escape');
+    });
+
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen.mock.calls[0][0].cards.every((card: { isRevealed: boolean }) => card.isRevealed)).toBe(true);
+    // Nothing was turned over yet: it is kept, with the notice saying where its cards went.
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+    // The sounds loaded for the reveal that never showed are released, not left fetching.
+    expect(madeInGap).toBeGreaterThan(0);
+    expect(readyInGap).toBe(true);
+    expect(made.every((audio) => audio.getAttribute('src') === '')).toBe(true);
+  });
+
+  it('records a pack whose opener unmounts in the gap between its ticket landing and the reveal rendering', async () => {
+    const land = holdTicketUntil();
+    await show();
+    await tear();
+    await landThen(land, () => root.unmount());
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a pack whose ticket lands after the player left, once', async () => {
+    const land = holdTicket();
+    await show();
+    await tear();
+    act(() => {
+      press('Escape', 'Escape');
+      press('Escape', 'Escape');
+    });
+    // Back on the packs screen, nothing dealt yet.
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    await land();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+  });
+
+  it('keeps a pack whose ticket lands after the opener unmounted', async () => {
+    const land = holdTicket();
+    await show();
+    await tear();
+    act(() => root.unmount());
+    expect(onOpen).not.toHaveBeenCalled();
+
+    await land();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen.mock.calls[0][0].nonce).toBe(0);
+  });
+
+  it('records a pack still being revealed when the opener unmounts, once', async () => {
+    vi.mocked(openPack).mockResolvedValue(dealt);
+    await show();
+    await tear();
+    await act(async () => {});
+    act(() => root.unmount());
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 });

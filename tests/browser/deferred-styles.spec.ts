@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { expectPackDropped, monitor } from './support';
 
 const SETTINGS_CSS = /\/assets\/Settings-[\w-]+\.css$/;
 const SETTINGS_JS = /\/assets\/SettingsPage-[\w-]+\.js$/;
@@ -261,6 +261,7 @@ test('warming Rankings while Settings loads fails neither page nor drops the Ran
 
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
+  await expectPackDropped(page);
   const nav = page.getByRole('navigation', { name: 'Main', exact: true });
   await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click();
   await expect.poll(() => settingsAsked).toBe(true);

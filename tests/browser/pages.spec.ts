@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { expectDecoded, fingerFor, monitor, snapshot } from './support';
+import { expectDecoded, expectPackDropped, fingerFor, monitor, snapshot } from './support';
 
 // Cards, Rankings, Profile and Settings are hash-routed pages over the packs screen (#312). Each one
 // is reached by its address, by its tab and by Back, at a phone and a desktop size; packs and shared
@@ -104,6 +104,7 @@ test('tabs and the gear open each page in turn, and Back walks them back to Open
   const chunks = watchChunks(page);
   await page.goto('./');
   await expect(opener(page)).toBeEnabled();
+  await expectPackDropped(page);
   const openTitle = await page.title();
   // No page chunk at startup: each loads when its tab is pointed at or pressed.
   await page.waitForTimeout(300);
@@ -193,6 +194,7 @@ test('a new player who turns on Show every page gets the tabs and the pack picke
   const errors = await monitor(page, baseURL!);
   await page.goto('./');
   await expect(opener(page)).toBeEnabled();
+  await expectPackDropped(page);
   await expect(nav(page)).toHaveCount(0);
   const picker = page.getByRole('navigation', { name: 'Choose a pack', exact: true });
   await expect(picker).toHaveCount(0);
@@ -229,6 +231,7 @@ test('a returning player has no Show every page switch in Settings, and keeps ev
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   await page.goto('./');
   await expect(tab(page, 'Cards')).toBeVisible();
+  await expectPackDropped(page);
   await gear(page).click();
   const settings = pageNamed(page, 'Settings');
   // The rest of Sound & display is there; the onboarding-only row and its explanation are not.

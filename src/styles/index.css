@@ -75,8 +75,12 @@
   box-shadow: none;
 }
 
+/* The way home from every other page: the header row is already as tall as the 44px buttons beside it, so
+   a touch-sized link adds no height. Padding, not flex, so the logo's pieces stay inline (flex items would
+   drop `vertical-align` and collapse the space between the words at 200% zoom). */
 a.app-logo--link {
   display: inline-block;
+  padding-block: max(0px, calc((var(--touch-target) - 1em) / 2));
   text-decoration: none;
   border-radius: var(--radius-sm);
 }

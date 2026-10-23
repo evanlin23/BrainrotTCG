@@ -78,6 +78,13 @@ jobs:
           path: hof-inbox-seen.json
           key: hof-inbox-seen-${{ github.run_id }}
           restore-keys: hof-inbox-seen-
+      # The pulls of every verified issue, listed once a day instead of on every run. Its own cache,
+      # so adding it didn't change the seen cache's key or lose it.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: hof-inbox-filed.json
+          key: hof-inbox-filed-${{ github.run_id }}
+          restore-keys: hof-inbox-filed-
       # Time ranges each relay was read through, so events past the page cap are read next run. Its
       # own cache, so adding it didn't change the seen cache's key or lose it.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -94,6 +101,11 @@ jobs:
         with:
           path: hof-inbox-seen.json
           key: hof-inbox-seen-${{ github.run_id }}
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always()
+        with:
+          path: hof-inbox-filed.json
+          key: hof-inbox-filed-${{ github.run_id }}
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: always()
         with:

@@ -143,10 +143,11 @@ describe('the controls under the pack (#312)', () => {
   });
 
   it('says why a refused pack stayed sealed, with a button to try again', () => {
-    for (const refusal of ['failed', 'blocked'] as const) {
+    const escaped = (text: string) => text.replace(/&/g, '&amp;').replace(/'/g, '&#x27;');
+    for (const refusal of ['failed', 'blocked', 'unreadable'] as const) {
       const html = render([], { refusal });
-      expect(html).toContain(`<p class="pack-refusal-text">${REFUSAL_COPY[refusal].message.replace(/'/g, '&#x27;')}</p>`);
-      expect(html).toMatch(new RegExp(`<button type="button" class="[^"]*pack-retry-button quiet-focus">${REFUSAL_COPY[refusal].action}</button>`));
+      expect(html).toContain(`<p class="pack-refusal-text">${escaped(REFUSAL_COPY[refusal].message)}</p>`);
+      expect(html).toMatch(new RegExp(`<button type="button" class="[^"]*pack-retry-button quiet-focus">${escaped(REFUSAL_COPY[refusal].action)}</button>`));
     }
     expect(REFUSAL_COPY.failed.action).toBe('Try again');
   });
