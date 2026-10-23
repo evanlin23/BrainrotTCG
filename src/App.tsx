@@ -37,7 +37,7 @@ import { reloadPage } from './game/reload';
 import { isStaging, STAGING_NOTE } from './game/staging';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
-import { useSetLink } from './hooks/useSetLink';
+import { linkedSetAtLoad, useSetLink } from './hooks/useSetLink';
 import { useProgressWriter } from './hooks/useProgressWriter';
 import { useAchievementReconciler } from './hooks/useAchievementReconciler';
 import type { ProgressWriterHost } from './game/progressWriter';
@@ -187,7 +187,7 @@ function App() {
   const [packShowcase, setPackShowcase] = useState(false);
 
   const playableSets = SETS.filter((s) => !s.archivedAt && (!s.draft || settings.showDraftSets));
-  const [selectedSetId, setSelectedSetId] = useState<string>(readSelectedSet);
+  const [selectedSetId, setSelectedSetId] = useState<string>(() => linkedSetAtLoad(playableSets) ?? readSelectedSet());
   const selectedSet = playableSets.find((s) => s.id === selectedSetId) ?? playableSets.find((s) => s.id === DEFAULT_SET_ID) ?? playableSets[0];
   const selectSet = useCallback((setId: string) => {
     setSelectedSetId(setId);

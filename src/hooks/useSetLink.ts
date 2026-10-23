@@ -3,6 +3,23 @@ import { isOpenable } from '../content/sets';
 import type { SetDefinition } from '../engine';
 import { setIdFromHash } from '../game/route';
 
+/** The entry showing was already followed (marked `brainrotSetLink`), so its link isn't followed again. */
+const followedAlready = () => {
+  const state: unknown = history.state;
+  return !!state && typeof state === 'object' && !!(state as { brainrotSetLink?: boolean }).brainrotSetLink;
+};
+
+/**
+ * The set the address links to when the app loads, if it's one of `sets` and released, for the first
+ * render to start on. Otherwise the opener mounts on another set, asks for its pack art and is replaced
+ * by the linked set's (and the first request is cut off). It chooses nothing by itself: the effect in
+ * useSetLink still follows the link and saves the choice, as before.
+ */
+export const linkedSetAtLoad = (sets: readonly SetDefinition[]): string | null => {
+  const setId = setIdFromHash(location.hash);
+  return setId && !followedAlready() && sets.some((s) => s.id === setId && isOpenable(s)) ? setId : null;
+};
+
 /**
  * A set's link (s/<set id>/ forwards to #/set/<set id>) opens the packs screen on that set, if it's
  * one of `sets` and released, and not while a pack is open (`busy`).
@@ -24,9 +41,9 @@ export const useSetLink = (sets: readonly SetDefinition[], busy: boolean, select
     const follow = (loaded: boolean) => {
       const setId = setIdFromHash(location.hash);
       if (!setId) return;
+      if (followedAlready()) return;
       const state: unknown = history.state;
-      const entry = state && typeof state === 'object' ? state as { brainrotSetLink?: boolean } : {};
-      if (entry.brainrotSetLink) return;
+      const entry = state && typeof state === 'object' ? state : {};
       const { sets, busy, select } = latest.current;
       const followed = !busy && sets.some((s) => s.id === setId && isOpenable(s));
       if (followed) select(setId);
