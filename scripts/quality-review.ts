@@ -260,6 +260,8 @@ export const SOURCES: readonly Source[] = [
   { id: 'release-blockers', label: 'Release blockers record', issue: '#759', path: RECORD_PATH, native: 'release-blockers' },
   { id: 'dependency-advisories', label: 'Dependency advisory disposition', issue: 'docs/DEVELOPMENT.md', path: `${EVIDENCE_DIR}/dependency-advisories.json` },
   { id: 'branch-hygiene', label: 'Branch hygiene', issue: '#710', path: `${EVIDENCE_DIR}/branch-hygiene.json` },
+  // Written by scripts/defect-replay.ts: whether the unit gate still stops a few real escaped defects.
+  { id: 'defect-replay', label: 'Escaped-defect replay', issue: '#758', path: `${EVIDENCE_DIR}/defect-replay.json` },
   { id: 'agent-audit', label: 'Agent task audit (simulated reviewers)', issue: '#239', path: 'test-results/agent-audit.json', native: 'agent-audit' },
   // Never inferred from emulation or agent runs: unrun until a person records a result.
   { id: 'physical-device', label: 'Physical device', issue: '#32', path: `${EVIDENCE_DIR}/physical-device.json` },

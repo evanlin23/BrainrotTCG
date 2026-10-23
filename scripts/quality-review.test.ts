@@ -320,7 +320,7 @@ describe('evidence signals', () => {
   it('stays useful when only some evidence exists', () => {
     const result = review({ state: null, now: NOW, git: git({ commitsSinceLast: null }), tools: ALL_TOOLS, read: files({}) });
     expect(result.decision).toMatchObject({ due: true, reason: 'no review recorded' });
-    expect(result.signals).toHaveLength(12);
+    expect(result.signals).toHaveLength(13);
     expect(result.signals.every((signal) => signal.status === 'unrun')).toBe(true);
   });
 });

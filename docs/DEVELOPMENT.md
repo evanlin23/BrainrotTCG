@@ -319,13 +319,57 @@ Reports come from their own tools (`test-results/...`) or a compact `{status, da
 `test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
 saves or secrets). The coordinator writes `ci-review`, `test-runtime`, `dependency-advisories` and
 `branch-hygiene` itself during a due review, from what it already read (PR checks, last CI timings,
-advisory and branch lists), before `record`; a person writes `physical-device`, `screen-reader`,
+advisory and branch lists), before `record`; `scripts/defect-replay.ts` writes `defect-replay`
+(below); a person writes `physical-device`, `screen-reader`,
 `native-share` and `compatibility` when they have a result. The cadence never opens a recurring
 "audit" issue. `record` prints the new ledger line (default cadence, budget and next-due day are omitted and revisions are always 7 characters, to keep it short; it refuses a line over 215 characters and names the optional fields to reset). Only a pass moves the passed date. A fail is a finished review: it
 rotates to the next journey and hotspot and is next due after a full cadence. A blocked or unrun review keeps its slice
 and is retried the next day. The cadence adds to per-PR checks (flow changes still get their reviews at once) and
 does not replace them. `scripts/quality-review.test.ts` holds the dry runs: not due, due success,
 missing tools or exhausted budget, and the evidence, size and argument checks.
+
+### Escaped-defect replay
+
+`npx tsx scripts/defect-replay.ts` (about 40 seconds, never part of `npm run check`) checks that the
+unit gate still stops three defects that once reached main (#758). For each one it checks out HEAD
+into a disposable worktree under the system temp directory, runs the owning test file through the
+same Vitest config, then reverts the fix there and runs it again. The runs get no GitHub token and
+a dead proxy. Nothing in the shared checkout changes except `test-results/quality-evidence/defect-replay.json`.
+
+| Case | Invariant | Fix | Owning test | Reversion | Observed failure |
+| --- | --- | --- | --- | --- | --- |
+| #694 | a failure on this device is operational, never a fabricated pull | 729a8af (#926) | `PullViewerPage.test.tsx`, operational Worker/WASM failures | the catch-all branch sets `invalid` | shows "Not a valid pull" where "Couldn't check this pull" belongs |
+| #647 | a null, array or primitive save file is refused before any field is read | 1209cf0 (#912) | `SettingsPage.test.tsx`, rejects null, array and primitive JSON | the non-object guard removed | the file is reported as "Couldn't read browser storage" |
+| #660 | malformed legacy stats migrate without throwing or fabricating a best pack | c99a523 (#905) | `migrations.test.ts`, null legacy v1 `highestPackCards` | every element hydrated as a card | `runMigrations` throws `TypeError: Cannot read properties of null` |
+
+A case is `validated` only when the named test passes healthy and fails with the reversion, with a
+message matching the reason the case states. It is `ineffective` when the reverted code still
+passes, which happens when the test is vacuous or a mock removes the defect. Everything else is
+`inconclusive`: the test isn't discovered, is skipped or todo, the healthy run isn't clean, the
+fixed code moved so the reversion no longer applies, or the faulty run fails to load or fails for
+another reason. Four meta-cases run the same way and must reach their stated verdict: a test name
+that matches nothing, the #660 reversion against `src/main.test.tsx` (which mocks the migrations,
+so it is `ineffective` there), a reversion that breaks parsing, and a reason no failure produces.
+The run passes only when all three cases are validated and all four meta-cases are right. A missed
+defect or a wrong meta-case is a `fail`, an inconclusive case is `blocked`, and the exit code is
+non-zero for both. The quality review shows the file as its `defect-replay` signal.
+
+Run it when a change touches the gate itself: the `test` block of `vite.config.ts`, the `test`
+script, `src/test/` setup, this script, or one of the owning tests or fixed lines. `scripts/defect-replay.test.ts`
+fails in the normal checks when a reversion no longer applies. A quality review may also pick it
+as a slice. Put its last line in the PR's evidence. On a PR that changes the gate, `fail` or
+`blocked` blocks the merge until it is fixed or the case is updated to the moved code. The case
+stays a gate: it is never made report-only because it catches its defect.
+
+Findings and limits:
+- #741, the browser monitor missing a redirect between two local origins, isn't replayed. Each
+  reversion there needs a Playwright run, which is outside this budget. `tests/browser/network-guard.spec.ts`
+  has redirect-escape tests for an external origin and for another page of the same context, but
+  none for two local origins, so that class is still unproven.
+- `src/main.test.tsx` mocks the migrations, so cold start with malformed legacy stats rests on
+  `migrations.test.ts`. The meta-case shows the startup test alone would miss it.
+- Three cases show these tests stop these reversions. They are not a catch rate for the suite.
+  Agreement between model reviewers is not independent assurance either.
 
 ## Mounted integration tests
 
