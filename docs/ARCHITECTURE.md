@@ -259,7 +259,7 @@ A real GitHub user named `nostr` collides with the relay marker (`scripts/hall-o
 through as is); that is fixed in a later slice.
 
 **Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score. The published file also
-keeps the best 50 pulls filed on the build's UTC day and the day before (`dailyPulls`, by
+keeps the best 50 pulls received on the build's UTC day and the day before (`dailyPulls`, by
 `submittedAt`), which Rankings' Today tab and its "yesterday's best" read. So it holds at most
 `HALL_OF_FAME_MAX_ENTRIES` (200) entries, however many sets or submissions there are: the page loads
 it whole on every visit. Per-set world firsts were dropped (the page no longer shows them, and they
@@ -303,8 +303,20 @@ misses, changed inputs and API failures affect work and freshness.
 
 Issue text is untrusted: it's only parsed by the script, never put into a shell command, and only
 echoed back through a sanitiser. The submitter's GitHub username comes from GitHub.
-Tie order uses the time the bot first verified that exact pull on the issue (a marker in its comment), not
-the issue's creation date, so a placeholder issue edited later can't claim an earlier spot. Each pull
+Tie order and a pull's UTC day use its first receipt (`submittedAt`): when GitHub received the issue
+body that carried that exact pull, which the bot records in the marker of its first verified comment
+(`<!-- hof-verified ID received TIME -->`). An opened issue's receipt is its creation; an edit's is
+the edit, so a placeholder issue edited later can't claim an earlier spot; the inbox's is its own
+issue's creation. A late run, even one after UTC midnight, keeps the pull on the day it was received
+while that day's top is still published. A pull received yesterday joins that day's top only if it
+places within the top 3 the page shows as yesterday's best (`HALL_OF_FAME_YESTERDAY_SHOWN`), and its
+comment names the place; otherwise it's turned down unlisted, so it can be submitted again for
+today. A pull received earlier can only join the top 100. Among the issues a deploy lists with the
+same pull, the earliest receipt keeps the credit; intake turns down a pull that's already published,
+so a copy received later but published first keeps it. Entries also carry `verifiedAt`,
+the marker comment's time. Markers from before receipts were recorded (or with a receipt that isn't a
+time no later than their comment) carry none: those entries use `verifiedAt` as `submittedAt` and say
+so with `receipt: "verification"`. Each pull
 counts once in the top 100, however many times it's submitted or re-signed (the daily
 tops follow the eight-day rule above). A maintainer can drop an entry by adding
 the `rejected` label to its issue. What a submission makes public, and for whom, is in
