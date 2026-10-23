@@ -270,6 +270,10 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const handleCutComplete = useCallback(() => {
     const torn = send({ type: 'tear' });
     if (torn.stage === torn.from) return;
+    // A key can tear the pack mid-fall. The fall's watch reads the stage each frame, which must stop
+    // before the wait for the cards, the longest stall on a slow phone (#266).
+    reachedPlace.current = true;
+    setFalling(false);
     if (openTimeoutRef.current) {
       window.clearTimeout(openTimeoutRef.current);
     }
