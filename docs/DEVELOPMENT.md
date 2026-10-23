@@ -350,10 +350,10 @@ globals and modules. Run one with
 `npm test`, and so `npm run check` and CI, runs the suite once with V8 coverage and enforces two
 budgets, checked in this order:
 
-| Budget | Baseline (October 2026, 1,819 to 1,990 tests, Node 22.23.3) | Enforced | Set in |
+| Budget | Baseline (October 2026, Node 22.23.3) | Enforced | Set in |
 | --- | --- | --- | --- |
-| Wall time of the whole run | 111.2 s on CI (4 vCPU) at 1,819 tests; 112.7 s and 141.2 s at 1,926 tests (PR #941); 157.9 s at 1,990 tests (claude/train-1); median 150.8 s (150.7-155.5 s) on a 2-core container at 1,819 tests | at most 300 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
-| Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 88.76%, statements 90.60%, lines 92.05% | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
+| Wall time of the whole run | 120.9 to 196.3 s (median 167.7 s) on the four latest successful main runs on CI, at 2,388 to 2,667 tests; 111.2 s at 1,819 tests (`2bf6074`); median 150.8 s (150.7-155.5 s) on a 2-core container at 1,819 tests | at most 300 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
+| Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 91.2-91.4%, statements 94.7-94.8%, lines 96.5-96.7% on those main runs | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
 
 After the test summary, and before the coverage summary, the run prints
 `Test budget: N tests in M files took Xs (budget 300s)`, and it fails only past the budget. The
@@ -367,10 +367,31 @@ wall time. Instrumentation makes the CPU-bound engine simulations about 3x slowe
 load two of them once passed the 5 s default timeout, so `npm test` passes `--testTimeout=15000`.
 
 ### Reference runner and runner conditions
-- **Reference runner**: the GitHub-hosted 4-vCPU Linux runner (Node 22.23.3, Vitest 5.0.4). The main
+- **Reference runner**: the GitHub-hosted 4-vCPU Linux runner (Node 22.23.3, Vitest 5.0.4 at first,
+  5.0.5 on the runs below; the job log doesn't print the core count). The main
   deployment run 39059778425 (build job 117475232914, revision `2bf6074`) ran 1,819 tests in 147
   files in 111.2 s with coverage, at 90.60% statements, 88.76% branches and 92.05% lines.
-- **Suite growth**: CI runs at 1,926 tests in 151 files took 141.2 s and 112.7 s on the same head
+- **Main CI baseline (October 22-23, 2026)**: `ci.yml` doesn't run on main; main's `npm run check`
+  runs in the `build` job of `deploy.yml`, so its `Test budget:` line is the main figure. Method: list
+  the latest successful `deploy.yml` runs on main, download each `build` job log and read the
+  `Test budget:` line, the `RUN v...` header and the coverage summary. Four consecutive runs, all on
+  `ubuntu-26.04` image 20261012.163.1, Node 22.23.3, Vitest 5.0.5, `npm test` with coverage and no
+  other workload in the job:
+
+  | Run | Head | Tests / files | Test budget time | Branches / statements / lines | `npm run check` step |
+  | --- | --- | --- | --- | --- | --- |
+  | 39866957487 | `d3b212b` | 2,388 / 171 | 156.3 s | 91.20% / 94.65% / 96.46% | 190 s |
+  | 39870858789 | `88c585b` | 2,452 / 174 | 179.1 s | 91.36% / 94.80% / 96.63% | 216 s |
+  | 39873456480 | `eb35e02` | 2,560 / 179 | 120.9 s | 91.42% / 94.84% / 96.67% | 145 s |
+  | 39876011560 | `819311f` | 2,667 / 181 | 196.3 s | 91.38% / 94.82% / 96.67% | 235 s |
+
+  Median 167.7 s, range 120.9-196.3 s. The spread is not suite growth: the fastest run came after
+  two slower ones with 4-7% fewer tests, and seconds per test ranged from 47 ms to 74 ms. Every run
+  reports the same phase mix (tests 72-74%, import 11-13%, environment 8-9%), so the variation
+  tracks the shared runner and not a slow or hanging file. The whole `npm run check` step took
+  145-235 s, about 24-39 s over the test time for lint, types, set locks and card assets. For
+  comparison, one run on the 2-core container at 2,701 tests took 154.5 s.
+- **Earlier growth**: CI runs at 1,926 tests in 151 files took 141.2 s and 112.7 s on the same head
   (PR #941), and the claude/train-1 integration branch took 157.9 s at 1,990 tests in 155 files
   (job 119941611004), over the old 150 s budget with every test passing. The slowest files there
   ran 8-30 s each, spread across many integration and script tests, with no single outlier.
@@ -388,9 +409,12 @@ load two of them once passed the 5 s default timeout, so `npm test` passes `--te
   integration tests rely on per-file isolation (`dispose()`, `vi.resetModules`). During iteration run
   `npx vitest run <path>`, which skips both budgets.
 
-The coverage floors sit about 12-14 points below the baseline (88.76% branches, 90.60% statements,
-92.05% lines against 75%, 78%, 80%). The runtime budget is 300 s, about 1.9x the slowest CI run (157.9 s),
-leaving roughly 142 s of headroom there. Local runs on a loaded 4-core or 2-core container are
+The coverage floors sit about 13-16 points below the baseline (91.2% branches, 94.7% statements,
+96.5% lines against 75%, 78%, 80%). The runtime budget is 300 s, about 1.5x the slowest main CI run
+(196.3 s) and 1.8x the median (167.7 s), leaving about 104 s of headroom over the slowest. That is
+below the twice-the-slowest rule below, but no run has tripped it and the spread between runs is
+runner noise, so it was left alone: a raise needs a profile that separates slow-test work from policy
+(#702). If a main run passes about 250 s, profile the slowest files first. Local runs on a loaded 4-core or 2-core container are
 slower than CI, so a local overrun alone isn't a regression. Ordinary
 work shouldn't trip the floors. To move one, run `npm test` three
 times on an up-to-date branch, set each floor a few points below the lowest figure and the runtime
