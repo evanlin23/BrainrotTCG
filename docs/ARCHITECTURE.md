@@ -181,7 +181,10 @@ week of events, checks each event's signature, verifies the pull with the same e
 else, and files the ones that qualify as issues in the same verified state the GitHub path ends in.
 Each run re-derives at most 300 pulls and files at most 20. It remembers handled event IDs in an
 Actions cache until their events leave the read window (at most 100,000, oldest first out), so a
-handled event isn't derived again, and skips already verified pulls. Fetching requests up to 50 pages of
+handled event isn't derived again, and skips already verified pulls. Each run saves that cache under
+its own key, so the 15-minute schedule leaves about 670 entries a week; full ones (about 8 MB each)
+would take several GB of the repository's 10 GB Actions cache, where GitHub evicts the least recently
+used first, npm caches included. Fetching requests up to 50 pages of
 100 events per relay within a 60-second connection deadline, over a seven-day window. These are
 client request limits, not guarantees that relays return or retain every event or obey the limits.
 Only valid event signatures are retained, and the exact proof text in the link is accepted. A filing

@@ -164,11 +164,11 @@ const unexpected = (request: string) => {
   throw new Error(`unexpected request: ${request}`);
 };
 
-/** What the run appended to $GITHUB_OUTPUT (the last value of each key). */
 /** When the relay events in these tests were sent: inside the inbox's read window at the tests' clock. */
 const SENT = Date.parse('2026-10-16T11:00:00Z');
 /** The event ids in the inbox's seen cache. */
 const seenIds = () => (JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8')) as [string, number][]).map(([id]) => id);
+/** What the run appended to $GITHUB_OUTPUT (the last value of each key). */
 const outputs = (): Record<string, string> =>
   existsSync('github-output') ? Object.fromEntries(readFileSync('github-output', 'utf8').trim().split('\n').map((line) => line.split('=') as [string, string])) : {};
 

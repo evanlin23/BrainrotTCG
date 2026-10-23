@@ -76,15 +76,17 @@ export const parseSeenCache = (text: string, nowS: number): Map<string, number> 
  * The seen cache to save: `[id, created_at]` for every handled event still inside the read window
  * (`since` on), so a handled event isn't derived again while relays can still serve it, however many
  * others arrive. An event before `since` can't be read again, so it is dropped. Past `cap` the oldest
- * go first, since relays serve the newest events first; an event dated in the future counts as now.
+ * go first, since relays serve the newest events first. An event dated in the future is saved as now:
+ * each run that still reads it dates it again, so it stays while relays serve it and leaves one window
+ * after they stop, instead of outranking every real event until its claimed date.
  */
 export const seenCacheText = (seen: Iterable<string>, createdAt: ReadonlyMap<string, number>, since: number, nowS: number, cap: number): string => {
   const kept: [string, number][] = [];
   for (const id of seen) {
-    const at = createdAt.get(id) ?? nowS;
+    const at = Math.min(createdAt.get(id) ?? nowS, nowS);
     if (at >= since) kept.push([id, at]);
   }
-  kept.sort((a, b) => Math.min(b[1], nowS) - Math.min(a[1], nowS));
+  kept.sort((a, b) => b[1] - a[1]);
   return JSON.stringify(kept.slice(0, cap));
 };
 
