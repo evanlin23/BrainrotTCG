@@ -16,7 +16,7 @@ beforeEach(async () => {
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
   await act(async () => root.render(
-    <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={onOpen} isCutting={false} isPackCut={false} cutPoints={[]} sparks={[]} />,
+    <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={onOpen} isCutting={false} isPackCut={false} cutPoints={[]} />,
   ));
 });
 
@@ -98,7 +98,7 @@ it('keeps a press that ended on the pack for the click that follows it', () => {
 it('tells the cue the pack was touched on a press', () => {
   const onTouch = vi.fn();
   act(() => root.render(
-    <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={onOpen} onTouch={onTouch} isCutting={false} isPackCut={false} cutPoints={[]} sparks={[]} cue="play" />,
+    <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={onOpen} onTouch={onTouch} isCutting={false} isPackCut={false} cutPoints={[]} cue="play" />,
   ));
   expect(container.querySelector('.open-cue')).not.toBeNull();
   press(10, 10);
@@ -108,7 +108,7 @@ it('tells the cue the pack was touched on a press', () => {
 it('ends the cue when its finger finishes, but not when something inside it does', () => {
   const onCueEnd = vi.fn();
   act(() => root.render(
-    <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={onOpen} onCueEnd={onCueEnd} isCutting={false} isPackCut={false} cutPoints={[]} sparks={[]} cue="play" />,
+    <PackCuttingUI packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} onOpen={onOpen} onCueEnd={onCueEnd} isCutting={false} isPackCut={false} cutPoints={[]} cue="play" />,
   ));
   const travel = container.querySelector<HTMLElement>('.open-cue-travel')!;
   act(() => { travel.querySelector('svg')!.dispatchEvent(new Event('animationend', { bubbles: true })); });
