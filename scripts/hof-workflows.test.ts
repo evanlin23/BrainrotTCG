@@ -594,22 +594,25 @@ describe('browser-tests.yml Playwright jobs (#658)', () => {
     'browser-shard': 'browser-tests shard ${{ matrix.shard }}/3',
     'browser-burn-in': 'browser-burn-in shard ${{ matrix.shard }}/3',
     'cross-browser-smoke': 'cross-browser-smoke',
-    'visual-baselines': 'visual-baselines',
   };
+  // Jobs with no `name:` are checked under their id.
+  const unnamed = ['visual-baselines'];
+  const ids = [...Object.keys(names), ...unnamed];
   const runners = Object.entries(all).filter(([, job]) => /npx playwright|npm run test:(browser|visual)/.test(job.join('\n')));
 
   it('finds exactly the jobs that run Playwright', () => {
-    expect(runners.map(([id]) => id).sort()).toEqual(Object.keys(names).sort());
+    expect(runners.map(([id]) => id).sort()).toEqual([...ids].sort());
   });
 
   it.each(Object.entries(names))('%s keeps its name', (id, name) => {
-    const job = all[id].join('\n');
-    // A job without a `name:` is checked under its id.
-    if (!/^ {4}name: /m.test(job)) expect(id).toBe(name);
-    else expect(job).toMatch(new RegExp(`^ {4}name: ${name.replace(/[$.{}/]/g, '\\$&')}$`, 'm'));
+    expect(all[id].join('\n')).toMatch(new RegExp(`^ {4}name: ${name.replace(/[$.{}/]/g, '\\$&')}$`, 'm'));
   });
 
-  it.each(Object.keys(names))(
+  it.each(unnamed)('%s has no name, so its id is the required check', (id) => {
+    expect(all[id].join('\n')).not.toMatch(/^ {4}name: /m);
+  });
+
+  it.each(ids)(
     '%s runs in the Playwright image whose tag is the installed @playwright/test, pinned by digest',
     (id) => {
       expect(/^ {6}image: (\S+)$/m.exec(all[id].join('\n'))?.[1]).toMatch(
@@ -623,7 +626,7 @@ describe('browser-tests.yml Playwright jobs (#658)', () => {
     expect([...images]).toHaveLength(1);
   });
 
-  it.each(Object.keys(names))('%s runs as the runner user and installs no browsers or system packages', (id) => {
+  it.each(ids)('%s runs as the runner user and installs no browsers or system packages', (id) => {
     const job = all[id].join('\n');
     // --ipc=host gives Chromium the host's /dev/shm instead of Docker's 64 MB.
     expect(job).toMatch(/^ {6}options: --user 1001 --ipc=host$/m);
