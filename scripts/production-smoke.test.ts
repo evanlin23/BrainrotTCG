@@ -3,8 +3,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { redirectPage } from './redirect-site.ts';
 import {
-  OLD_LINK, POLLS, POLL_MS, SET_ID, httpGet, main, mainStatus, pageAssets, pickPrevious, rankingProblem, smoke, status, targetFromEnv,
-  type Get, type Got, type Target,
+  OLD_LINK, POLLS, POLL_MS, SET_ID, httpGet, main, mainStatus, pageAssets, pickPrevious, pickTip, rankingProblem, smoke, status,
+  targetFromEnv, type Get, type Got, type MainTip, type Target,
 } from './production-smoke.ts';
 
 // No network: every GET goes to a fake site, a map from address (without the ?smoke= query) to answer.
@@ -271,19 +271,25 @@ describe('waiting for this release', () => {
     expect(pause).not.toHaveBeenCalled();
   });
 
-  it('asks the old address again while GitHub Pages catches up, since what it must serve is exact', async () => {
-    let caughtUp = false;
+  it('asks the old address once, so a fault that a second ask would hide still fails', async () => {
+    const asked: string[] = [];
     const { get } = site();
-    const before = site({ [`${OLD}hall-of-fame.json`]: got('application/json', '[]') });
-    const report = await smoke(TARGET, (url) => (caughtUp || !url.startsWith(OLD) ? get(url) : before.get(url)),
-      { pause: async () => { caughtUp = true; } });
-    expect(report.checks.every((c) => c.ok)).toBe(true);
+    const first = site({ [OLD]: html('<!doctype html>busy', 503) });
+    const pause = vi.fn(async () => {});
+    const report = await smoke(TARGET, (url) => {
+      asked.push(url);
+      return url.startsWith(OLD) && asked.filter((u) => u === url).length === 1 ? first.get(url) : get(url);
+    }, { pause });
+    expect(report.checks.filter((c) => !c.ok).map((c) => c.name)).toEqual(['Old address forwards here']);
+    expect(report.checks.at(-1)?.detail).toContain(`${OLD}: HTTP 503`);
+    expect(pause).not.toHaveBeenCalled();
+    expect(asked.filter((url) => url.startsWith(OLD))).toHaveLength(4);
   });
 });
 
 describe('release status', () => {
-  const statusOf = (http: string, browser: string, prev = previous) =>
-    mainStatus({ ...ENV, HTTP_OUTCOME: http, BROWSER_OUTCOME: browser }, prev);
+  const statusOf = (http: string, browser: string, tip: Awaited<ReturnType<MainTip>> = SHA) =>
+    mainStatus({ ...ENV, HTTP_OUTCOME: http, BROWSER_OUTCOME: browser }, previous, async () => tip);
 
   it('is known-good only once the HTTP and browser checks both passed', async () => {
     const { code, out } = await statusOf('success', 'success');
@@ -316,6 +322,41 @@ describe('release status', () => {
     const out = status(TARGET, 'failure', '', 'gh run list failed: no token');
     expect(out).toContain('| Browser checks | not run |');
     expect(out).toContain('No earlier release on main could be found (gh run list failed: no token): fix forward on main.');
+  });
+
+  it.each([['cancelled', 'cancelled'], ['success', 'cancelled'], ['cancelled', 'skipped'], ['success', '']])(
+    'gives no verdict and no rollback target when a check was cancelled (HTTP %s, browser %s)', async (http, browser) => {
+      const tip = vi.fn(async () => SHA);
+      const { code, out } = await mainStatus({ ...ENV, HTTP_OUTCOME: http, BROWSER_OUTCOME: browser }, previous, tip);
+      expect(code).toBe(0);
+      expect(out).toContain('### Release status: cancelled, no verdict');
+      expect(out).not.toMatch(/FAILING|known-good target|roll back/);
+      expect(previous).not.toHaveBeenCalled();
+      expect(tip).not.toHaveBeenCalled();
+    });
+
+  it("never calls an older commit known-good, or offers a rollback for it, once main has moved past it", async () => {
+    for (const [http, browser] of [['success', 'success'], ['failure', 'skipped']]) {
+      const { out } = await statusOf(http, browser, 'c'.repeat(40));
+      expect(out).toContain('### Release status: superseded, no verdict');
+      expect(out).toContain("main is now at `cccccccccccc`, not this run's commit");
+      expect(out).not.toMatch(/FAILING|known-good target|roll back/);
+    }
+    expect(previous).not.toHaveBeenCalled();
+  });
+
+  it('gives no verdict when the tip of main cannot be read', async () => {
+    const { out } = await statusOf('success', 'success', { problem: 'git ls-remote failed: timeout' });
+    expect(out).toContain('### Release status: no verdict');
+    expect(out).toContain('The tip of main could not be read (git ls-remote failed: timeout)');
+    expect(out).not.toContain('known-good target');
+  });
+
+  it("reads main's commit from git ls-remote, and nothing else", () => {
+    expect(pickTip(`${SHA}\trefs/heads/main\n`)).toBe(SHA);
+    expect(pickTip(`${'b'.repeat(40)}\trefs/heads/mainline\n${SHA}\trefs/heads/main\n`)).toBe(SHA);
+    expect(pickTip('')).toBeNull();
+    expect(pickTip('nope\trefs/heads/main\n')).toBeNull();
   });
 
   it("never offers this run's own commit, or nothing, as the rollback target", () => {

@@ -327,15 +327,19 @@ Then, once each with no retries, it checks each script and stylesheet the page n
 CSS, never HTML), that every ranking proof decodes and that the preview image decodes at its stated
 size. If those pass, on Cloudflare it checks that the old address forwards (its page and an unknown
 link both forward here, keeping the path and hash), serves the same Hall of Fame list, and that its
-copy of a set page keeps production's link preview (`og:image` and its size); what the old address
-must serve is exact, so it is asked again like the marker while GitHub Pages catches up. Then
+copy of a set page keeps production's link preview (`og:image` and its size), also once:
+`deploy-pages` has returned by then, so a wrong answer is a fault, not lag. Then
 `playwright.production.config.ts` runs the shared-pull smoke specs against production in a fresh
 browser context: public proof fixtures, card and share pages, malformed links and every lazy
 screen, with every write and every request to another origin refused, so nothing reaches a relay,
 the Hall of Fame or analytics. A failure turns the deploy run red. A last step always runs
 (`production-smoke.ts --status`): it calls the release known-good only when both the HTTP and the
 browser checks passed, and otherwise names the newest deploy run on `main` that passed on an
-earlier commit as the rollback target, or says to fix forward when there is none. That run may
+earlier commit as the rollback target, or says to fix forward when there is none. It gives no
+verdict, and names no rollback target, when a check was cancelled (a newer push to `main` cancels
+the run) or when `main` has moved past this run's commit (read with `git ls-remote`, as the deploy's
+tip-of-main steps do), since production may then serve a newer release; re-running an old run's
+`smoke` job can't mark an older commit known-good. A named rollback run may
 predate these checks or have been a GitHub Pages run, so check its `smoke` job before trusting it
 (see [Recover on the same origin](#recover-on-the-same-origin); otherwise fix forward on `main`).
 Nothing is uploaded: traces stay on the discarded runner. Use the steps below after a dashboard rollback or

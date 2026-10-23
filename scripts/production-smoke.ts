@@ -348,17 +348,6 @@ export const checkOldAddress = async (target: Target, get: Get, evidence: Eviden
     : pass(name, `${old} and its old links forward to ${target.url}; its set pages keep their link preview`);
 };
 
-/** check, asked again after POLL_MS while it fails, at most polls times in all. Only for checks whose
- * expected answer is exact, so an older release can't pass them. */
-const untilPasses = async (check: () => Promise<Check>, polls: number, pause: (ms: number) => Promise<void>): Promise<Check> => {
-  let result = await check();
-  for (let asked = 1; asked < polls && !result.ok; asked++) {
-    await pause(POLL_MS);
-    result = await check();
-  }
-  return result.ok || polls < 2 ? result : fail(result.name, `${result.detail} (still, after ${polls} tries ${POLL_MS / 1000} s apart)`);
-};
-
 export const smoke = async (target: Target, get: Get, options: { polls?: number; pause?: (ms: number) => Promise<void> } = {}): Promise<Report> => {
   const { polls = POLLS, pause = defaultPause } = options;
   const evidence: Evidence = {};
@@ -371,10 +360,10 @@ export const smoke = async (target: Target, get: Get, options: { polls?: number;
     checkRanking(target, get, evidence),
     checkSetPage(target, get, evidence),
   ]);
-  // The old address is compared with what production serves, so it goes once that is read; what it
-  // must serve is exact, so it is asked again while GitHub Pages catches up.
+  // The old address is compared with what production serves, so it goes once that is read. It is
+  // asked once too: GitHub Pages serves it, and deploy-pages returns once that release is live.
   const old = target.host === 'cloudflare' && target.oldUrl && content.every((c) => c.ok)
-    ? [await untilPasses(() => checkOldAddress(target, get, evidence), polls, pause)] : [];
+    ? [await checkOldAddress(target, get, evidence)] : [];
   return { checks: [...marker, ...content, ...old], evidence };
 };
 
@@ -407,16 +396,42 @@ export const summary = (target: Target, report: Report): string => {
   return `${lines.join('\n')}\n`;
 };
 
+/** Main's commit, or why it couldn't be read. */
+export type MainTip = () => Promise<string | { problem: string }>;
+
+/** Why the checks' outcomes say nothing either way about this release, or null. tip is main's commit,
+ * or why it couldn't be read; without it, only cancelled checks are looked for. */
+export const noVerdict = (target: Target, http: string, browser: string, tip?: string | { problem: string }):
+  { label: string; reason: string } | null => {
+  if ([http, browser].some((o) => o === 'cancelled' || o === '')) {
+    return { label: 'cancelled, no verdict', reason: 'The checks were cancelled or never reported (a newer push to main '
+      + 'cancels this run), so this release is neither known-good nor failing, and has no rollback target.' };
+  }
+  if (tip === undefined) return null;
+  if (typeof tip === 'object') {
+    return { label: 'no verdict', reason: `The tip of main could not be read (${tip.problem}), so which release these checks `
+      + 'read is unknown. Re-run this job once GitHub is reachable.' };
+  }
+  if (tip !== target.sha) {
+    return { label: 'superseded, no verdict', reason: `main is now at \`${short(tip)}\`, not this run's commit, so production `
+      + 'may serve a newer release than this one. That release\'s own deploy run gives its status.' };
+  }
+  return null;
+};
+
 /** The release's status once the HTTP and browser checks are done (each a step outcome). */
-export const status = (target: Target, http: string, browser: string, previous: Release | string | null): string => {
+export const status = (target: Target, http: string, browser: string, previous: Release | string | null,
+  none: { label: string; reason: string } | null = null): string => {
   const good = http === 'success' && browser === 'success';
   const lines = [
-    `### Release status: ${good ? 'known-good' : 'FAILING'}`, '',
+    `### Release status: ${none ? none.label : good ? 'known-good' : 'FAILING'}`, '',
     ...table(target),
     `| HTTP checks | ${http || 'not run'} |`,
     `| Browser checks | ${browser || 'not run'} |`, '',
   ];
-  if (good) {
+  if (none) {
+    lines.push(none.reason);
+  } else if (good) {
     lines.push('This release is the known-good target for the next one to roll back to.');
   } else {
     const rollback = typeof previous === 'object' && previous
@@ -462,6 +477,21 @@ export const previousRelease: PreviousRelease = async (sha) => {
   }
 };
 
+/** From git ls-remote's output: main's commit, or null. */
+export const pickTip = (refs: string): string | null =>
+  refs.split('\n').map((line) => line.split('\t')).find(([, ref]) => ref === 'refs/heads/main')?.[0]?.match(/^[0-9a-f]{40}$/)?.[0] ?? null;
+
+/** Main's commit as the deploy's tip-of-main steps read it (git ls-remote), or why it couldn't be read. */
+export const tipOfMain = async (env: NodeJS.ProcessEnv): Promise<string | { problem: string }> => {
+  const remote = `${env.GITHUB_SERVER_URL || 'https://github.com'}/${env.GITHUB_REPOSITORY ?? ''}.git`;
+  try {
+    const { stdout } = await exec('git', ['ls-remote', remote, 'refs/heads/main'], { timeout: TIMEOUT_MS });
+    return pickTip(stdout) ?? { problem: 'git ls-remote listed no main branch' };
+  } catch (error) {
+    return { problem: `git ls-remote failed: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}` };
+  }
+};
+
 /** The target from the deploy's environment, or why it can't be read. */
 export const targetFromEnv = (env: NodeJS.ProcessEnv): Target | string => {
   const url = env.SITE_URL ?? '';
@@ -490,13 +520,17 @@ export const main = async (env: NodeJS.ProcessEnv, get: Get = httpGet,
 
 /** --status: the release's status from the HTTP_OUTCOME and BROWSER_OUTCOME of the smoke job's steps.
  * It runs whatever they did, and exits 0: a failed step has already turned the run red. */
-export const mainStatus = async (env: NodeJS.ProcessEnv, previous: PreviousRelease = previousRelease): Promise<{ code: number; out: string; errors: string[] }> => {
+export const mainStatus = async (env: NodeJS.ProcessEnv, previous: PreviousRelease = previousRelease,
+  mainTip: MainTip = () => tipOfMain(env)): Promise<{ code: number; out: string; errors: string[] }> => {
   const target = targetFromEnv(env);
   if (typeof target === 'string') return { code: 2, out: '', errors: [`::error::${target}`] };
   const http = env.HTTP_OUTCOME ?? '';
   const browser = env.BROWSER_OUTCOME ?? '';
+  // Which release the checks read is only known while this run's commit is still main's tip: a re-run
+  // of an older run, or a newer push mid-run, says nothing about this commit.
+  const none = noVerdict(target, http, browser) ?? noVerdict(target, http, browser, await mainTip());
   const good = http === 'success' && browser === 'success';
-  return { code: 0, out: status(target, http, browser, good ? null : await previous(target.sha)), errors: [] };
+  return { code: 0, out: status(target, http, browser, none || good ? null : await previous(target.sha), none), errors: [] };
 };
 
 if (isMainModule(import.meta.url)) {
