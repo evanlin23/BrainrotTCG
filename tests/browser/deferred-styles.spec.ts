@@ -1,23 +1,25 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { expectPackDropped, monitor } from './support';
+import { expectPackDropped, holdTickets, monitor } from './support';
 
 const SETTINGS_CSS = /\/assets\/Settings-[\w-]+\.css$/;
 const SETTINGS_JS = /\/assets\/SettingsPage-[\w-]+\.js$/;
 
-// Reload cancels card art still downloading; that is the reload, not a failure.
-const reloadAbortedArt = (error: string) => /^net::ERR_ABORTED \S+\.webp$/.test(error);
+/**
+ * Reload replaces a page whose next-pack art preload may still be in flight, which Chrome reports as
+ * an aborted request. Holding the ticket mining means that preload never starts. Call before load.
+ */
+const holdPreload = holdTickets;
 
 const unexpectedErrors = (errors: string[], expectedUrl: RegExp) =>
   errors.filter(
     (error) =>
       !expectedUrl.test(error) &&
-      !reloadAbortedArt(error) &&
       error !== 'Failed to load resource: net::ERR_FAILED' &&
       error !== 'Failed to load resource: the server responded with a status of 404 (Not Found)',
   );
 
 const unexpectedOfflineErrors = (errors: string[]) =>
-  errors.filter((error) => !error.includes('net::ERR_INTERNET_DISCONNECTED') && !error.includes('Failed to load resource') && !reloadAbortedArt(error));
+  errors.filter((error) => !error.includes('net::ERR_INTERNET_DISCONNECTED') && !error.includes('Failed to load resource'));
 
 /**
  * Real offline for a monitored page. The network guard fulfils same-origin requests with
@@ -132,6 +134,7 @@ test('CSS abort failure: Retry restores stylesheet and row flex layout without d
 });
 
 test('persistent CSS failure: a failed Retry hands over to Reload without leaving stylesheet links, and Reload recovers', async ({ page, baseURL }) => {
+  await holdPreload(page);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   let failing = true;
   await page.route(SETTINGS_CSS, (route) => {
@@ -178,6 +181,7 @@ async function retryOrReload(main: Locator, loaded: Locator) {
 }
 
 test('JavaScript chunk failure control: Settings JS failure offers Retry, which recovers or hands over to Reload', async ({ page, baseURL }) => {
+  await holdPreload(page);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   let failing = true;
   let chunkUrl = '';
@@ -202,6 +206,7 @@ test('JavaScript chunk failure control: Settings JS failure offers Retry, which 
 });
 
 test('whole-graph offline failure: Reload recovery restores the page, keeping saves and route', async ({ page, baseURL }) => {
+  await holdPreload(page);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   const setOffline = await offlineSwitch(page);
   await page.goto('./');
@@ -284,6 +289,7 @@ test('warming Rankings while Settings loads fails neither page nor drops the Ran
 });
 
 test('whole-graph offline failure: after reconnecting, Retry recovers or hands over to Reload, never a dead Retry', async ({ page, baseURL }) => {
+  await holdPreload(page);
   const errors = await monitor(page, baseURL!, 1, { returning: true });
   const setOffline = await offlineSwitch(page);
   await page.goto('./');
