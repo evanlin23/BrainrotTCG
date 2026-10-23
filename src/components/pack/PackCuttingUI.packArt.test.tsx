@@ -20,7 +20,7 @@ beforeEach(() => {
   act(() => root.render(
     <PackCuttingUI
       packRef={createRef<HTMLDivElement>()} packDesign="pack.png" set={SETS[0]} refusal={null} onOpen={() => {}}
-      isCutting={false} pressing={false} nudging={false} tapped={false} fellShort={false} isPackCut={false} waiting={false}
+      isCutting={false} pressing={false} nudging={false} fellShort={false} isPackCut={false} waiting={false}
       cutPoints={[]} sparks={[]}
     />,
   ));
@@ -32,7 +32,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const wrapper = () => container.querySelector('img[alt="Brainrot TCG booster pack wrapper"]')!;
+const wrapper = () => container.querySelector('.pack-half-bottom > img')!;
 
 describe("the sealed pack's art", () => {
   it.each(['load', 'error'])('lets the deferred downloads start once it %ss, not before (#776)', (event) => {

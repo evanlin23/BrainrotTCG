@@ -38,7 +38,7 @@ export interface BestCardSource {
   ref: OwnedPullRef;
   /** Zero-based slot in engine pack order. */
   slot: number;
-  /** The cached card, or null when this build couldn't score it: the check fills it from the engine. */
+  /** The cached card (resolveBestCard only finds a ranked one); null is checked from the engine alone. */
   card: PulledCard | null;
   points: number | null;
   /** Every ticket the key used was weighed (bestCards.ts), so this is the best of all of them, not just the recoverable ones. */
@@ -63,8 +63,10 @@ export interface VerifiedBestCard {
  * - other-player: kept for a different key than the current player's.
  * - unknown-set: this build doesn't have its set version.
  * - player-changed: the player changed while (or after) it was checked: retired, never certified.
+ * - unranked: Best cards has winners but none this build can score yet (say, an imported save with no
+ *   cached cards), so the list falls back to ticket order and its first entry is not known to be best.
  */
-export type UnavailableReason = 'none' | 'legacy' | 'other-player' | 'unknown-set' | 'player-changed';
+export type UnavailableReason = 'none' | 'legacy' | 'other-player' | 'unknown-set' | 'player-changed' | 'unranked';
 
 export type BestSourceState<S, V> =
   | { status: 'unavailable'; reason: UnavailableReason }
@@ -81,6 +83,9 @@ export interface BestSources {
   card: BestCardState;
 }
 
+/** The Stats fields the best pack is found from (the rest of Stats is local progress, never read here). */
+export type BestPackStats = Pick<Stats, 'highestPackRef' | 'highestPackCards' | 'highestPackFlexValue' | 'highestPackLegacy'>;
+
 const FULL_KEY = /^[0-9a-f]{64}$/;
 
 const unavailable = (reason: UnavailableReason) => ({ status: 'unavailable', reason }) as const;
@@ -90,7 +95,7 @@ const ownerOf = (ref: PullRef, player: Player): string | null =>
   !ref.publicKeyHex || player.publicKeyHex.startsWith(ref.publicKeyHex) ? player.publicKeyHex : null;
 
 /** The best pack kept in `stats`, for the current player. Reads only `stats` and the player record. */
-export const resolveBestPack = (stats: Stats, player: Player = getPlayer()): BestPackState => {
+export const resolveBestPack = (stats: BestPackStats, player: Player = getPlayer()): BestPackState => {
   const ref = stats.highestPackRef;
   if (!ref) return unavailable(stats.highestPackCards?.length || stats.highestPackLegacy ? 'legacy' : 'none');
   if (stats.highestPackLegacy) return unavailable('legacy');
@@ -114,6 +119,8 @@ export const resolveBestCard = (snapshot: { player: Player; nextNonce: number } 
   const { cards, complete } = getBestCards(player.publicKeyHex, nextNonce);
   const top = cards[0];
   if (!top) return unavailable('none');
+  // Scored winners rank first, so an unscored first entry means none could be ranked: never call it best.
+  if (!top.card) return unavailable('unranked');
   if (!getSet(top.setId, top.setVersion)) return unavailable('unknown-set');
   return {
     status: 'checking',
@@ -210,7 +217,7 @@ export const forCurrentPlayer = <S extends { ref: OwnedPullRef }, V>(state: Best
  * result is the settled pair. After `signal` aborts, nothing more is reported.
  */
 export const checkBestSources = async (
-  stats: Stats,
+  stats: BestPackStats,
   onChange: (sources: BestSources) => void,
   options: CheckOptions = {},
 ): Promise<BestSources> => {

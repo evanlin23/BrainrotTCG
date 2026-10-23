@@ -26,7 +26,7 @@ test('clicks in one spot through the reveal never open a card or Share from unde
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+  await page.getByRole('button', { name: /^Open pack/ }).focus();
   await page.keyboard.press('Space');
   const card = page.locator('.reveal-card:focus');
   await expect(card).toHaveAttribute('aria-label', 'Flip card 1 of 5', { timeout: 15000 });
@@ -37,13 +37,15 @@ test('clicks in one spot through the reveal never open a card or Share from unde
   // The summary's first frames: from the moment it mounts, and every frame while it is settling, click what
   // is under the spot, then every card, the Card guide and Share, as a stuck finger would.
   await page.evaluate(([px, py]) => {
-    const burst = { settling: 0, dialogs: 0 };
+    const burst = { settling: 0, dialogs: 0, fewest: Infinity };
     (window as unknown as { __burst: typeof burst }).__burst = burst;
     const press = () => {
       const under = document.elementFromPoint(px, py)?.closest('button');
       const named = (label: string) => Array.from(document.querySelectorAll('button')).filter((b) => b.textContent?.includes(label));
       const targets = [under, ...Array.from(document.querySelectorAll('.summary-card')), ...named('Card guide'), ...named('Share')];
-      for (const target of targets) (target as HTMLElement | null | undefined)?.click();
+      const found = targets.filter((target): target is HTMLElement => target instanceof HTMLElement);
+      for (const target of found) target.click();
+      burst.fewest = Math.min(burst.fewest, found.length);
       burst.dialogs = Math.max(burst.dialogs, document.querySelectorAll('[role="dialog"]').length);
     };
     const next = () => {
@@ -71,8 +73,10 @@ test('clicks in one spot through the reveal never open a card or Share from unde
 
   await expect(page.locator('.summary-card')).toHaveCount(5, { timeout: 30000 });
   await expectSummaryTakesClicks(page);
-  const burst = await page.evaluate(() => (window as unknown as { __burst: { settling: number; dialogs: number } }).__burst);
+  const burst = await page.evaluate(() => (window as unknown as { __burst: { settling: number; dialogs: number; fewest: number } }).__burst);
   expect(burst.settling, 'presses landed while the summary was settling').toBeGreaterThan(0);
+  // Every press found its targets: the 5 cards, the Card guide and Share, so none sat out for a missing selector.
+  expect(burst.fewest, 'targets found by the thinnest press').toBeGreaterThanOrEqual(7);
   expect(burst.dialogs, 'the stuck clicks opened something').toBe(0);
   await expect(page.locator('[role="dialog"]')).toHaveCount(0);
 

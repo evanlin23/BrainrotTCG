@@ -100,6 +100,8 @@ export const loadPending = async (published: readonly HallOfFameEntry[], onEntry
   const list: RankableEntry[] = [...published];
   const today = utcDay(new Date().toISOString());
   const todayStart = Date.parse(`${today}T00:00:00.000Z`) / 1000;
+  // One at a time: tickets mine one after another anyway, and starting the next check early saved
+  // little and added main-thread work (measured in #777, docs/DEVELOPMENT.md).
   for (const [i, { event, proof, id, mine }] of candidates.entries()) {
     if (signal.aborted) return true;
     try {
