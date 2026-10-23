@@ -38,9 +38,11 @@ for (const { tab, chunk, skeleton, content } of SCREENS) {
   test(`${tab} holds its page with a skeleton while its chunk is slow, with no sheet`, async ({ page, baseURL }) => {
     const errors = await monitor(page, baseURL!, 0, { returning: true });
     await countEntrances(page);
-    // Page routes run before monitor's context route.
+    // The chunk stays slow until the skeleton has been seen. Page routes run before monitor's context route.
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => { release = resolve; });
     await page.route(chunk, async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      await slow;
       await route.continue();
     });
     await page.goto('./');
@@ -49,6 +51,7 @@ for (const { tab, chunk, skeleton, content } of SCREENS) {
     const main = page.getByRole('main', { name: tab, exact: true });
     await expect(main).toBeVisible();
     await expect(main.locator(skeleton)).toBeVisible();
+    release();
     await expect(main.locator('.page-skeleton')).toHaveCount(0, { timeout: 15000 });
     await expect(main.locator(content).first()).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
