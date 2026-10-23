@@ -383,9 +383,10 @@ blocked, and is left out of the status. History is read from `origin/main` only.
 
 Reports come from their own tools (`test-results/...`) or a compact `{status, date, detail}` JSON in
 `test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
-saves or secrets). The coordinator writes `ci-review`, `test-runtime`, `dependency-advisories` and
-`branch-hygiene` itself during a due review, from what it already read (PR checks, last CI timings,
-advisory and branch lists), before `record`; `scripts/defect-replay.ts` writes `defect-replay`
+saves or secrets). The coordinator writes `ci-review`, `test-runtime` and `dependency-advisories`
+itself during a due review, from what it already read (PR checks, last CI timings, advisory lists),
+before `record`; `scripts/branch-inventory.ts --evidence` writes `branch-hygiene` (Branch hygiene,
+below); `scripts/defect-replay.ts` writes `defect-replay`
 (below; a pass counts only for a replayed commit on `origin/main`, as for performance); a person writes `physical-device`, `screen-reader`,
 `native-share` and `compatibility` when they have a result. The cadence never opens a recurring
 "audit" issue. `record` prints the new ledger line (default cadence, budget and next-due day are omitted and revisions are always 7 characters, to keep it short; it refuses a line over 215 characters and names the optional fields to reset). Only a pass moves the passed date. A fail is a finished review: it
@@ -836,3 +837,96 @@ Actions minor and patch updates as one `github-actions` PR. `hash-wasm` and `@no
 of `prod` and arrive as separate PRs, because they can change pack and proof derivation. Majors and
 `tools/wrangler` updates stay one PR per package. By policy (not enforced by the config), each
 update PR gets a review and green CI before it merges.
+
+## Branch hygiene
+
+Merged work leaves its branch behind, and the repository had 413 branches on 2026-10-23 (#710).
+Retiring them is conservative and runs in the trusted `/work` lifecycle only.
+
+**Who deletes.** Only the Claude coordinator, working under CLAUDE.md and the work ledger, deletes
+branches. Implementers, reviewers, Codex, other agents and bots may run the inventory and
+recommend; they never delete. Don't turn on GitHub's "automatically delete head branches" setting,
+and don't add a scheduled or unattended deletion workflow.
+
+This is a policy, not an enforced permission. Anyone with write access can delete an unprotected
+branch, and the coordinator works through evanlin23's account, as other tools may. Naming a login
+or a workflow "Claude" restricts nothing. The smallest enforceable step is for the owner:
+- Add a repository ruleset that targets all branches with "Restrict deletions", with a bypass for
+  the coordinator's identity only.
+- Give other agents their own identities, with no bypass.
+
+Until that exists, this section and CLAUDE.md are the restriction.
+
+**When.** The weekly quality review's `branch-hygiene` signal (Quality review cadence above). A due
+review spends part of its budget on one batch of at most 25 deletions. Holds and sleep apply as for
+any other work, and there is no separate wake-up.
+
+**Inventory (read-only).** In a scratch directory, outside the checkout:
+
+```sh
+git clone --bare --filter=blob:none https://github.com/evanlin23/BrainrotTCG.git inv.git
+git --git-dir=inv.git fetch --filter=blob:none origin '+refs/pull/*/head:refs/pull/*/head'
+# Every page of GET /repos/evanlin23/BrainrotTCG/pulls?state=all&per_page=100, saved as one JSON
+# list of pages, plus the protected branch names from GET .../branches?protected=true.
+npx tsx scripts/branch-inventory.ts --git-dir=inv.git --pulls=pulls.json --keep=keep.txt \
+  --protected=main --evidence > inventory.md
+```
+
+`keep.txt` names branches to keep whatever their PR says: the branches of active sessions and of
+the ledger's `current` and `order` lines, every branch a ledger hold mentions, and branches that
+docs or open issues refer to. The script also writes the `branch-hygiene` evidence file. It sorts
+each branch into one category; the first that applies wins:
+
+| Category | Kept or retired |
+| --- | --- |
+| protected | kept: the default branch or a protected one |
+| open-pr | kept: the head or the base of an open or draft PR, stacked bases included |
+| kept | kept: on the keep list |
+| dependency | kept: Dependabot manages its own branches |
+| recent | kept: tip committed in the last day, or a `claude/batch-*` branch in the last two days |
+| candidate | retired: the tip is a merged PR's head, or an ancestor of it |
+| merged-newer | kept: a merged PR, but the branch has commits after the merged head |
+| closed-unmerged | kept: a closed PR that never merged may hold unique work |
+| no-pr | kept: no PR from this repository, so its intent is unknown |
+
+How these rules hold up:
+- A squash or rebase merge leaves the tip outside `main`'s history, so ancestry with `main`
+  proves nothing. The script compares the tip with the PR's merged head instead.
+- A merged PR doesn't make later commits on its branch disposable.
+- Age alone is not evidence of abandonment. The `recent` rule reads commit dates, so a just-pushed
+  old commit can look old; the confirmation step below catches any tip that moves.
+- Closed-unmerged, no-PR and merged-newer branches stay listed with their disposition. Ask the owner
+  only when intent can't be recovered from the PR or issue.
+
+**Delete (coordinator only).** Each candidate line reads `branch|tip|merged-PR#|merged-head`.
+1. Re-read the ledger issue's holds. If they can't be loaded, delete nothing.
+2. Refresh the clone and the PR list, then re-run with `--confirm=<candidate lines>`. It prints
+   only the lines whose branch, tip, PR and merged head are all unchanged. A skipped line is
+   reclassified by the next inventory, not deleted.
+3. Delete at most 25 confirmed lines, each with a lease on its recorded tip, so a push since the
+   check makes the delete fail rather than lose work:
+   `git push --force-with-lease=refs/heads/<branch>:<tip> origin :refs/heads/<branch>`.
+4. Record the deletion manifest (branch, former tip, PR, merged head) and the before and after
+   totals on #710.
+Never issue a broad or age-based delete. Never delete tags, releases, set or proof files, deploy
+artifacts, issues or anyone's local work. Other cleanup gets its own issue.
+
+**Restore.** GitHub keeps `refs/pull/<n>/head` for every PR, so a retired candidate's tip stays
+fetchable. Use the PR page's "Restore branch" button, or:
+
+```sh
+git fetch origin refs/pull/<n>/head
+git push origin <tip>:refs/heads/<branch>
+```
+
+A bare SHA is not a backup. A commit that no ref reaches can be garbage-collected, and is gone if
+the repository is deleted or replaced. That is why only branches whose tip a merged PR head reaches
+are candidates. `scripts/branch-inventory.test.ts` shows the restore on a disposable local
+repository and holds the dry runs:
+- open, draft and stacked PRs;
+- a held branch;
+- a squash merge;
+- a merged branch with newer commits;
+- a closed-unmerged branch;
+- a fork that reuses a name;
+- a tip that changed before confirmation.
