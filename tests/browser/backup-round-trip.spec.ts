@@ -96,7 +96,7 @@ test('a backup exported in one profile restores exactly in another, after a canc
     const packShell = page.locator('.pack-shell');
     await expect(packShell).toBeVisible();
     await expectDecoded(packShell.locator('img'), 2);
-    await page.getByRole('button', { name: 'Open pack', exact: true }).click();
+    await page.getByRole('button', { name: /^Open pack/ }).click();
     await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
     await page.locator('button.reveal-skip').click({ timeout: 15000 });
     await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });

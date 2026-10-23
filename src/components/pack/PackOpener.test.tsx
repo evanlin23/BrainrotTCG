@@ -166,7 +166,7 @@ describe('a stroke cut short by leaving the page (#266)', () => {
 
 describe('the controls under the pack (#312)', () => {
   const $ = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
-  const openButton = () => $<HTMLButtonElement>('.pack-open-button');
+  const openButton = () => $<HTMLElement>('[data-pack-open]');
   const retryButton = () => $<HTMLButtonElement>('.pack-retry-button');
   const announced = () => $('.pack-opener-container > [aria-live="polite"]')?.textContent;
   /** Past the tear's 460ms pause, to where the ticket is asked for, and let a refused one settle. */
@@ -182,14 +182,18 @@ describe('the controls under the pack (#312)', () => {
 
   it('opens the pack with one press, through the same cut and ticket as a swipe', async () => {
     await render(false);
-    expect(openButton()?.textContent).toBe('Open pack');
-    expect($('.pack-shell')?.getAttribute('role')).toBeNull();
-    expect($('.pack-shell')?.hasAttribute('tabindex')).toBe(false);
+    // The pack is the one control: named for its set, a Tab stop, no other Open pack button.
+    expect(openButton()).toBe($('.pack-shell'));
+    expect(openButton()?.getAttribute('role')).toBe('button');
+    expect(openButton()?.getAttribute('aria-label')).toBe(`Open pack, ${SETS[0].name}`);
+    expect(openButton()?.tabIndex).toBe(0);
+    expect(document.querySelectorAll('button')).toHaveLength(0);
 
     act(() => openButton()!.click());
     expect(cutter.completeCut).toHaveBeenCalledOnce();
-    // Torn: a second press does nothing while the ticket is on its way.
+    // Torn: it says so, and a second press does nothing while the ticket is on its way.
     expect(openButton()?.getAttribute('aria-disabled')).toBe('true');
+    expect(openButton()?.getAttribute('aria-label')).toBe('Opening…');
     act(() => openButton()!.click());
     expect(cutter.completeCut).toHaveBeenCalledOnce();
 
@@ -202,21 +206,19 @@ describe('the controls under the pack (#312)', () => {
     await render(false);
     const shell = $('.pack-shell')!;
     const hint = () => $('.swipe-hint-text')?.textContent;
-    expect(hint()).toBe('Drag across to open');
+    expect(hint()).toBe('Drag across, or click');
     expect(shell.classList.contains('is-short')).toBe(false);
 
     act(() => cutter.shortSwipe());
     expect(shell.classList.contains('is-short')).toBe(true);
-    expect(hint()).toBe('Drag farther or tap Open');
-    expect(openButton()?.classList.contains('is-prompted')).toBe(true);
+    expect(hint()).toBe('Drag farther, or click the pack');
 
     // The feedback lasts a moment, then the usual cue is back.
     await act(async () => { vi.advanceTimersByTime(1900); });
     expect(shell.classList.contains('is-short')).toBe(false);
-    expect(hint()).toBe('Drag across to open');
-    expect(openButton()?.classList.contains('is-prompted')).toBe(false);
+    expect(hint()).toBe('Drag across, or click');
 
-    // And the button the hint names opens the pack.
+    // And the tap the hint names opens the pack.
     act(() => cutter.shortSwipe());
     act(() => openButton()!.click());
     expect(cutter.completeCut).toHaveBeenCalledOnce();
@@ -233,15 +235,14 @@ describe('the controls under the pack (#312)', () => {
     expect($('.pack-refusal-text')?.textContent).toBe(REFUSAL_COPY.failed.message);
     expect(announced()).toBe(REFUSAL_COPY.failed.message);
     expect(retryButton()?.textContent).toBe('Try again');
-    expect(openButton()).toBeNull();
-    // The button the player pressed went: focus moved to Try again, not the page.
+    // The pack stays tappable too, but the player's place moved to Try again, not the page.
     expect(document.activeElement).toBe(retryButton());
 
     act(() => retryButton()!.click());
     expect(cutter.completeCut).toHaveBeenCalledTimes(2);
     expect($('.pack-refusal-text')).toBeNull();
     expect(announced()).toBe('');
-    // Try again went with the refusal: focus is on the Open pack button that came back, not the page.
+    // Try again went with the refusal: focus is on the pack, torn again, not the page.
     expect(retryButton()).toBeNull();
     expect(document.activeElement).toBe(openButton());
     await pastTheTear();
@@ -303,7 +304,7 @@ describe('the reveal sounds on a first pack', () => {
     } as unknown as Awaited<ReturnType<typeof openPack>>);
     try {
       await render(false, false, settings);
-      act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+      act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
       await act(async () => { vi.advanceTimersByTime(500); });
       await act(async () => {});
       // Dealt, and the reveal is drawn while the torn pack is still leaving, with no empty stage between.
@@ -358,7 +359,7 @@ describe('the sealed pack stage on a desktop window', () => {
       stage.scrollTop = 420;
       expect(stage.scrollTop).toBe(420);
 
-      act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+      act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
       // Tearing and waiting on the ticket leave the stage where the player scrolled it.
       expect(stage.scrollTop).toBe(420);
       await act(async () => { vi.advanceTimersByTime(500); });
@@ -390,7 +391,7 @@ describe('the random effect after a flip', () => {
       setId: set.id, setVersion: set.version, nonce: 0, cards, openedAt: 0,
     } as unknown as Awaited<ReturnType<typeof openPack>>);
     await render(false);
-    act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
+    act(() => document.querySelector<HTMLElement>('[data-pack-open]')!.click());
     await act(async () => { vi.advanceTimersByTime(500); });
     await act(async () => {});
     return { plays, pause, play };

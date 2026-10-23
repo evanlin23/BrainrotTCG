@@ -17,7 +17,7 @@ test.describe('critical states', () => {
     const errors = await monitor(page, baseURL!);
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Open pack/ })).toBeVisible();
     await expectDecoded(page.locator('.pack-shell img'), 2);
     await expectAxeClean(page, testInfo, 'first-pack');
     expect(errors).toEqual([]);
@@ -28,7 +28,7 @@ test.describe('critical states', () => {
     const errors = await monitor(page, baseURL!);
     await page.goto('./');
     await expect(page.locator('.app-logo')).toBeVisible();
-    const pack = page.getByRole('button', { name: 'Open pack', exact: true });
+    const pack = page.getByRole('button', { name: /^Open pack/ });
     await pack.focus();
     await page.keyboard.press('Space');
     await page.locator('button.reveal-skip').click({ timeout: 15000 });
