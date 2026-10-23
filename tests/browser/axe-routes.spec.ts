@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import ts from 'typescript';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import { PAGE_TITLES } from '../../src/game/route';
@@ -106,15 +107,64 @@ async function expectRouteContract(page: Page, name: string, content: (main: Loc
 test('the stranded-control check sees a button parked off the page, but not one in a scroller', async ({ page }) => {
   await page.setContent('<main><button type="button">Here</button><button type="button" style="position:absolute;left:-9999px">Gone</button>'
     + '<button type="button" style="position:absolute;left:-9999px" hidden>Hidden</button>'
-    + '<div style="width:200px;overflow-x:auto;display:flex"><button type="button" style="flex:none;width:300px">Scrolls</button><button type="button" style="flex:none;width:300px">Also scrolls</button></div></main>');
+    + '<div style="width:200px;overflow-x:auto;display:flex"><button type="button" style="flex:none;width:300px">Scrolls</button><button type="button" style="flex:none;width:300px;margin-left:3000px">Also scrolls</button></div></main>');
   expect(await stranded(page)).toEqual(['button "Gone"']);
+});
+
+/**
+ * The states a spec really scans: an `await expectAxeClean(page, testInfo, '<state>')` statement that sits
+ * directly in the body of a `test(...)` callback. A mention in a comment or a string, a call wrapped in
+ * `expect(...).rejects`, one under an `if`, or one in a test that is skipped is not a scan.
+ */
+function scannedStates(source: string): string[] {
+  const file = ts.createSourceFile('owner.spec.ts', source, ts.ScriptTarget.Latest, true);
+  const skipped = /^test\.(describe(\.\w+)*\.)?(skip|fixme)$/;
+  const isSkip = (node: ts.Node) => ts.isCallExpression(node) && skipped.test(node.expression.getText(file));
+  const states: string[] = [];
+  const visit = (node: ts.Node) => {
+    ts.forEachChild(node, visit);
+    if (!ts.isExpressionStatement(node) || !ts.isAwaitExpression(node.expression)) return;
+    const call = node.expression.expression;
+    if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || call.expression.text !== 'expectAxeClean') return;
+    const state = call.arguments[2];
+    if (!state || !(ts.isStringLiteral(state) || ts.isNoSubstitutionTemplateLiteral(state))) return;
+    const body = node.parent;
+    const callback = body.parent;
+    const test = callback?.parent;
+    const isTestCallback = ts.isBlock(body) && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))
+      && ts.isCallExpression(test) && ts.isIdentifier(test.expression) && test.expression.text === 'test';
+    if (!isTestCallback) return;
+    const skippedBy = (from: ts.Node | undefined): boolean => !!from && (isSkip(from) || skippedBy(from.parent));
+    const skipsItself = body.statements.some((statement) => ts.isExpressionStatement(statement) && isSkip(statement.expression));
+    if (!skippedBy(test) && !skipsItself) states.push(state.text);
+  };
+  visit(file);
+  return states;
+}
+
+test('the coverage check counts only a real scan', () => {
+  const scan = "await expectAxeClean(page, testInfo, 'cards');";
+  const inTest = (body: string) => `test.describe('d', () => { test('t', async ({ page }, testInfo) => { ${body} }); });`;
+  expect(scannedStates(inTest(scan))).toEqual(['cards']);
+  expect(scannedStates(inTest(`await page.goto('./'); ${scan} expect(errors).toEqual([]);`))).toEqual(['cards']);
+  expect(scannedStates(inTest(`// ${scan}`)), 'a comment').toEqual([]);
+  expect(scannedStates(inTest(`/* ${scan} */ const note = "${scan}";`)), 'a comment and a string').toEqual([]);
+  expect(scannedStates(inTest("await expect(expectAxeClean(page, testInfo, 'cards')).rejects.toThrow(/x/);")), 'the .rejects wrapper').toEqual([]);
+  expect(scannedStates(inTest("expect(expectAxeClean(page, testInfo, 'cards')).rejects.toThrow(/x/);")), 'the .rejects wrapper, not awaited').toEqual([]);
+  expect(scannedStates(inTest(`if (process.env.CI) { ${scan} }`)), 'under an if').toEqual([]);
+  expect(scannedStates(inTest(`expectAxeClean(page, testInfo, 'cards');`)), 'not awaited').toEqual([]);
+  expect(scannedStates(`test.skip('t', async ({ page }, testInfo) => { ${scan} });`), 'test.skip').toEqual([]);
+  expect(scannedStates(`test.fixme('t', async ({ page }, testInfo) => { ${scan} });`), 'test.fixme').toEqual([]);
+  expect(scannedStates(`test.describe.skip('d', () => { test('t', async ({ page }, testInfo) => { ${scan} }); });`), 'a skipped describe').toEqual([]);
+  expect(scannedStates(inTest(`test.skip(true, 'later'); ${scan}`)), 'a test that skips itself').toEqual([]);
+  expect(scannedStates(`const scanIt = async () => { ${scan} };`), 'outside a test').toEqual([]);
 });
 
 test('every page has a scan, and every listed state is scanned by the spec that owns it', () => {
   expect(Object.keys(PAGE_SCANS).sort()).toEqual(Object.keys(PAGE_TITLES).sort());
   for (const state of AXE_STATES) {
     const owner = readFileSync(new URL(`./${AXE_STATE_SPECS[state]}`, import.meta.url), 'utf8');
-    expect(owner, `${AXE_STATE_SPECS[state]} scans "${state}"`).toContain(`expectAxeClean(page, testInfo, '${state}'`);
+    expect(scannedStates(owner), `${AXE_STATE_SPECS[state]} scans "${state}"`).toContain(state);
   }
   for (const state of Object.values(PAGE_SCANS)) expect(AXE_STATES).toContain(state);
 });

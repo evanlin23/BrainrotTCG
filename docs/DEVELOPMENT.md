@@ -222,8 +222,8 @@ placeholder is never judged; Cards runs on a saved whole-set collection. A cover
 rules (names, roles and relationships, the document, and `color-contrast`) after fonts, images and finite
 running animations have settled, with reduced motion emulated for the scan so looping pulses cannot make
 contrast depend on their phase; it is not a tag or the whole rule set, and no rule is disabled. Add a state by
-calling `expectAxeClean(page, testInfo, '<state>')` once its screen is loaded, after listing the state in
-`AXE_STATES`; do not add another scanner.
+awaiting `expectAxeClean(page, testInfo, '<state>')` directly in a test body once its screen is loaded, after
+naming the state and its owner spec in `AXE_STATE_SPECS`; do not add another scanner.
 
 - A scan fails on any violation, on a scan that passed no nodes, and on a page where contrast or the
   document checks found nothing to check, so an empty or wrong page cannot pass.
