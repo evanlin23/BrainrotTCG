@@ -494,6 +494,17 @@ export async function expectStill(target: Locator, message: string) {
   }, { message, intervals: [150] }).toBe(true);
 }
 
+/**
+ * Waits until the pack stage has finished dropping in. It falls from above the header on a spring and, below 900px,
+ * paints and hit-tests over the Settings gear on the way, so a tap in that window lands on the stage instead.
+ */
+export async function expectPackDropped(page: Page) {
+  await expect.poll(() => page.locator('.pack-display').evaluate((el) => {
+    const { transform, opacity } = getComputedStyle(el);
+    return transform === 'none' && opacity === '1';
+  }), { message: 'the pack has finished dropping in' }).toBe(true);
+}
+
 export async function snapshot(page: Page) {
   return page.evaluate((keys) => ({
     stats: JSON.parse(localStorage.getItem(keys.STATS) ?? 'null'),
