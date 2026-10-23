@@ -4,6 +4,7 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
+import { BEACON_URL } from '../../scripts/cloudflare-analytics';
 import type { Finish, Rarity } from '../../src/engine/types';
 
 // On-disk boundary shapes: importing UI Stats pulls TSX/Vite assets into the Node test project.
@@ -79,6 +80,12 @@ function originOf(urlString: string): string {
 /** The relays the product itself dials; browser fixtures close them unconnected without recording. */
 const productRelayOrigins = new Set(HOF_RELAYS.map(originOf));
 const CSP_REPORT_PATH = '/__network-guard/csp-report';
+/**
+ * Stands in for Cloudflare Web Analytics' beacon, which a production build adds to the app's page
+ * (scripts/cloudflare-analytics.ts), so checks against the real site are never counted as visits. It
+ * does nothing, so nothing is sent; Cloudflare's endpoints stay blocked like any other origin.
+ */
+export const BEACON_STUB = '/* network guard: inert stand-in for Cloudflare Web Analytics */\n';
 
 function sanitizeUrl(urlString: string): string {
   try {
@@ -103,6 +110,7 @@ function sanitizeAttempt(method: string, urlString: string, note?: string): stri
  * - Only intended local read requests/paths are permitted; writes are refused with 403.
  * - Redirects are inspected with maxRedirects: 0; any redirect escape outside allowed origin/path is refused with 403.
  * - CSP is applied to enforce boundaries inside workers.
+ * - Cloudflare Web Analytics' beacon script, exactly that URL, gets an inert stand-in (BEACON_STUB).
  * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence.
  * - routeHttp: false preserves the HTTP cache for warm performance measurements (baseline.spec.ts).
  */
@@ -254,7 +262,7 @@ export async function monitor(
   const imgOrigins = ["'self'", 'data:', 'blob:', ...allowedOrigins].join(' ');
   const csp = [
     "default-src 'self' data: blob:",
-    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' ${BEACON_URL}`,
     "style-src 'self' 'unsafe-inline'",
     `connect-src ${connectOrigins}`,
     "font-src 'self' data:",
@@ -353,6 +361,10 @@ export async function monitor(
           // A malformed report carries no evidence
         }
         return route.fulfill({ status: 204 });
+      }
+
+      if (method === 'GET' && reqUrl.href === BEACON_URL) {
+        return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: BEACON_STUB });
       }
 
       const refusal = refuse(method, reqUrl);

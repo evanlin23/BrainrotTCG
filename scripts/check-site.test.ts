@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { isOpenable, SETS } from '../src/content/sets/index.ts';
 import { checkCacheContract, checkCrawlerFiles, checkFileCount, checkFirstLoad, checkSite, firstLoadFiles, MAX_FIRST_LOAD_BYTES, MAX_SITE_FILES, metaTags, pageUrl, type SiteCheckOptions } from './check-site.ts';
+import { BEACON_URL, withAnalytics } from './cloudflare-analytics.ts';
 import { robotsTxt, sitemapXml } from './crawler-files.ts';
 import { generatePreviews } from './preview-pages.ts';
 
@@ -23,6 +24,7 @@ const CLOUDFLARE: Host = { name: 'Cloudflare Pages', base: '/', site: 'https://b
 // a set page, and no card art drawn.
 const OPENABLE = SETS.find(isOpenable)!;
 const SET = { ...OPENABLE, cards: OPENABLE.cards.slice(0, 2) };
+const TOKEN = '0123456789abcdef0123456789abcdef';
 
 const picture = (width = 1200, height = 630) => sharp({ create: { width, height, channels: 3, background: '#121114' } });
 let JPEG: Buffer;
@@ -316,6 +318,18 @@ describe('checkSite', () => {
       { path: 'index.html', error: "Loads https://cdn.example/x.css, outside /BrainrotTCG/assets/, so it isn't hashed" },
       { path: 'assets/logo.png', error: "Has no content hash in its name, but assets/ is cached as if it never changes" },
       { path: 'cards/a.webp', error: 'Keeps its name between deploys outside the top level, p/ and s/ (the cache contract in docs/HOSTING.md)' },
+    ]);
+  });
+
+  it("takes Cloudflare Web Analytics' beacon on the app's page, and nowhere else", async () => {
+    const { options, outDir } = await build(GITHUB);
+    const app = `${outDir}index.html`;
+    writeFileSync(app, withAnalytics(readFileSync(app, 'utf8'), TOKEN));
+    expect((await checkSite(options)).errors).toEqual([]);
+    const preview = `s/${SET.id}/index.html`;
+    writeFileSync(`${outDir}${preview}`, withAnalytics(readFileSync(`${outDir}${preview}`, 'utf8'), TOKEN));
+    expect((await checkSite(options)).errors).toEqual([
+      { path: preview, error: `Loads ${BEACON_URL}, outside /BrainrotTCG/assets/, so it isn't hashed` },
     ]);
   });
 

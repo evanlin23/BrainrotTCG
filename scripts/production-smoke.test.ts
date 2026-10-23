@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
+import { analyticsSnippet } from './cloudflare-analytics.ts';
 import { redirectPage } from './redirect-site.ts';
 import {
   OLD_LINK, POLLS, POLL_MS, SET_ID, httpGet, main, mainStatus, pageAssets, pickPrevious, pickTip, rankingProblem, smoke, status,
@@ -28,6 +29,7 @@ const ENTRY = `<!doctype html><html><head>
 <link rel="stylesheet" crossorigin href="/assets/index-Zz99Yy88.css">
 <link rel="icon" href="/favicon.svg">
 </head><body><div id="root"></div></body></html>`;
+const BEACON = analyticsSnippet('0123456789abcdef0123456789abcdef');
 const RANKING = JSON.stringify([{ proof: vectors.valid[0].proof, name: 'x', issue: 1 }]);
 const SET_PAGE = `<!doctype html><meta property="og:image" content="${URL_}s/${SET_ID}/preview.jpg">
 <meta property="og:image:width" content="8"><meta property="og:image:height" content="4">`;
@@ -100,6 +102,14 @@ describe('a healthy production', () => {
     expect(asked.filter((url) => !url.includes('/assets/')).every((url) => url.endsWith('smoke=42-2'))).toBe(true);
   });
 
+  it("takes Cloudflare Web Analytics' beacon as the one script from elsewhere, and never fetches it", async () => {
+    const { get, asked } = site({ [URL_]: html(ENTRY.replace('</body>', `${BEACON}\n</body>`)) });
+    const report = await smoke(TARGET, get, { pause: noPause });
+    expect(report.checks.every((c) => c.ok)).toBe(true);
+    expect(report.evidence.assets).toBe(3);
+    expect(asked.some((url) => url.includes('cloudflareinsights'))).toBe(false);
+  });
+
   it('exits 0 saying the HTTP checks passed, without yet calling the release known-good', async () => {
     const { code, out, errors } = await run();
     expect(code).toBe(0);
@@ -144,6 +154,8 @@ describe('a broken production fails loudly', () => {
     ['an address that is not HTML', { [URL_]: got('text/plain', ENTRY) }, 'served as text/plain, not HTML'],
     ['no hashed entry', { [URL_]: html(ENTRY.replace('index-AbCd1234.js', 'main.js')) }, 'names no hashed assets/index-*.js entry script'],
     ['code from another origin', { [URL_]: html(ENTRY.replace('/assets/vendor-Xy12Ab34.js', 'https://cdn.example/x.js')) }, 'loads code from outside'],
+    ['another script from the analytics host', { [URL_]: html(ENTRY.replace('</body>', `${BEACON.replace('beacon.min.js', 'beacon.min.js?token=x')}</body>`)) },
+      'loads code from outside https://brainrottcg.pages.dev/: https://static.cloudflareinsights.com/beacon.min.js?token=x'],
     ['a missing stylesheet', { [`${URL_}assets/index-Zz99Yy88.css`]: html('<!doctype html>the app', 404) }, 'assets/index-Zz99Yy88.css: HTTP 404'],
     ['the app page served as a script', { [`${URL_}assets/vendor-Xy12Ab34.js`]: html('<!doctype html>the app') },
       'assets/vendor-Xy12Ab34.js: served as text/html; charset=utf-8, not JavaScript'],

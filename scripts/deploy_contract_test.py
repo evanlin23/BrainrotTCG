@@ -293,6 +293,40 @@ class Workflows(unittest.TestCase):
                                   '      - run: npm ci\n        env:\n          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}\n',
                                   'uses a secret outside', job)
 
+    ANALYTICS = "          CLOUDFLARE_ANALYTICS_TOKEN: ${{ needs.site.outputs.host == 'cloudflare' && vars.CLOUDFLARE_ANALYTICS_TOKEN || '' }}\n"
+
+    def test_analytics_token_outside_the_production_build(self):
+        for job in ('build', 'smoke'):
+            with self.subTest(job):
+                self.setUp()
+                self.assertBroken('deploy.yml', '      - run: npm ci\n', f'      - run: npm ci\n        env:\n{self.ANALYTICS}',
+                                  "/env/CLOUDFLARE_ANALYTICS_TOKEN names CLOUDFLARE_ANALYTICS_TOKEN outside the env of the build's npm run build",
+                                  job)
+        with self.subTest('in the build step, not its env'):
+            self.setUp()
+            self.assertBroken('deploy.yml', '      - run: npm run build\n', '      - run: CLOUDFLARE_ANALYTICS_TOKEN=x npm run build\n',
+                              'names CLOUDFLARE_ANALYTICS_TOKEN outside the env of the build', 'build')
+
+    def test_analytics_token_value(self):
+        for value in ('${{ vars.CLOUDFLARE_ANALYTICS_TOKEN }}', '${{ secrets.CLOUDFLARE_ANALYTICS_TOKEN }}', "''",
+                      "${{ needs.site.outputs.host == 'cloudflare' && vars.CLOUDFLARE_PROJECT || '' }}"):
+            with self.subTest(value):
+                self.setUp()
+                self.assertBroken('deploy.yml', self.ANALYTICS, f'          CLOUDFLARE_ANALYTICS_TOKEN: {value}\n',
+                                  'build must pass CLOUDFLARE_ANALYTICS_TOKEN to npm run build once, for Cloudflare only')
+        with self.subTest('missing'):
+            self.setUp()
+            self.assertBroken('deploy.yml', self.ANALYTICS, '', 'build must pass CLOUDFLARE_ANALYTICS_TOKEN to npm run build once')
+
+    def test_analytics_token_in_another_workflow(self):
+        for file in ('ci.yml', 'browser-tests.yml', 'performance-baseline.yml'):
+            with self.subTest(file):
+                self.setUp()
+                path = self.tmp / 'workflows' / file
+                path.write_text(path.read_text(encoding='utf-8') + '# CLOUDFLARE_ANALYTICS_TOKEN\n', encoding='utf-8')
+                self.assertIn(f"{file}: names CLOUDFLARE_ANALYTICS_TOKEN, which only deploy.yml's production build may have",
+                              dc.check_workflows(self.tmp / 'workflows'))
+
     def test_smoke_before_deploy(self):
         self.assertBroken('deploy.yml', '    needs: [site, deploy]\n', '    needs: [site, publish]\n',
                           'job smoke must need exactly', 'smoke')

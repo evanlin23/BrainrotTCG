@@ -198,9 +198,12 @@ jobs:
       # (src/game/move.ts); a build that hasn't moved has no old address and takes nothing.
       # The same files serve production and staging; at run time a page at a subdomain of the
       # Cloudflare project host knows it is staging (src/game/staging.ts). With staging off the
-      # suffix is empty, so no address is staging.
+      # suffix is empty, so no address is staging. Cloudflare Web Analytics' snippet goes into the
+      # app's page when the owner has set the repository variable (docs/HOSTING.md#web-analytics),
+      # so production serves the bytes sealed below; no other build ever gets it.
       - run: npm run build
         env:
+          CLOUDFLARE_ANALYTICS_TOKEN: ${{ needs.site.outputs.host == 'cloudflare' && vars.CLOUDFLARE_ANALYTICS_TOKEN || '' }}
           BASE_PATH: ${{ needs.site.outputs.base }}
           SITE_URL: ${{ needs.site.outputs.url }}
           VITE_STAGING_HOST_SUFFIX: ${{ needs.site.outputs.pages }}

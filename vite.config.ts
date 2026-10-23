@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { testBudget } from './scripts/test-budget.ts'
+import { cloudflareAnalytics } from './scripts/cloudflare-analytics.ts'
 import { CANONICAL_SITE_URL, robotsTxt, siteFromEnv, sitemapXml } from './scripts/crawler-files.ts'
 
 const buildRevision = () => {
@@ -68,7 +69,7 @@ const preloadRecovery = (): Plugin => {
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/BrainrotTCG/',
   define: { __BUILD_REVISION__: JSON.stringify(buildRevision()) },
-  plugins: [react(), siteUrl(), preloadRecovery(), testBudget()],
+  plugins: [react(), siteUrl(), preloadRecovery(), cloudflareAnalytics(), testBudget()],
   test: {
     // Vitest's defaults (any node_modules, .git) plus the Playwright suites, build output and the
     // agent worktrees nested under .claude/worktrees (each a full checkout with its own tests).

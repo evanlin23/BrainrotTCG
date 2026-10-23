@@ -153,8 +153,9 @@ What keeps staging apart:
 1. Nothing new on Cloudflare: staging is a preview in the same project, with the same token. The token
    needs **Account → Cloudflare Pages → Edit** (step 3 of the move); its scope can't be checked from
    this repository. Don't put an **Access policy** on the project's preview deployments, and keep
-   Cloudflare features that rewrite HTML (Web Analytics' automatic setup, for example) off: the
-   checks fetch staging without signing in and compare every file byte for byte.
+   Cloudflare features that rewrite HTML off (for Web Analytics, use the JS snippet as in
+   [Web analytics](#web-analytics), never automatic setup): the checks fetch staging without
+   signing in and compare every file byte for byte.
 2. After this change is merged and a deploy on `main` succeeds, add the repository **variable** (not a
    secret) `CLOUDFLARE_STAGING_BRANCH` with the value `staging` (**Settings → Secrets and variables →
    Actions → Variables**). The next deploy goes through staging, at
@@ -175,6 +176,39 @@ What keeps staging apart:
 
 Rollback is unchanged ([Recover on the same origin](#recover-on-the-same-origin)): roll back to an
 earlier *production* deployment. A staging preview is never a rollback target.
+
+## Web analytics
+
+Production can count visits with Cloudflare Web Analytics. Our build adds Cloudflare's JS snippet,
+so production serves exactly the bytes the deploy sealed; Cloudflare's *automatic setup* injects
+its beacon on the way out instead, and then every release fails the byte-for-byte checks
+("Check production serves this release"). To turn it on:
+
+1. In the Cloudflare dashboard, open **Web Analytics**, then the site's **Manage site**, and switch
+   to **Enable with JS Snippet installation**.
+2. Copy the token from the snippet it shows (`data-cf-beacon='{"token": "..."}'`: 32 lowercase hex
+   digits) into the repository **variable** (not a secret) `CLOUDFLARE_ANALYTICS_TOKEN`
+   (**Settings → Secrets and variables → Actions → Variables**).
+3. The next deploy carries it. To turn analytics off, delete the variable, then switch Web
+   Analytics off for the site in the dashboard (or back to the snippet, never automatic setup).
+
+What the build does with it (`scripts/cloudflare-analytics.ts`):
+
+- Only the deploy's production build on Cloudflare gets the variable; PR CI, test builds and a
+  GitHub Pages fallback build never do (`deploy_contract.py check-workflows` fails any other step or
+  workflow that names it). Unset, the build is byte for byte what it is without analytics.
+- Set, `index.html` gets the snippet once, before `</body>`. The `p/` and `s/` preview pages and the
+  old address's pages only forward there, so they don't carry it and a visit counts once.
+- Anything but 32 lowercase hex digits fails the build: the value is written into HTML.
+- The snippet is sealed and compared like every other byte; nothing is stripped or special-cased.
+- Browser checks that load the real site (staging checks, the production smoke) answer the beacon
+  script's exact address with an inert stand-in, so they aren't counted as visits; any other request
+  to Cloudflare's analytics hosts is still refused. The site sends no Content Security Policy today;
+  if one is added, it must allow `https://static.cloudflareinsights.com/beacon.min.js` in
+  `script-src` and `https://cloudflareinsights.com` in `connect-src`.
+- The beacon is Cloudflare's script, loaded unpinned from its host, and runs with full access to the
+  page, browser storage included: saves and the player's signing key. Turning analytics on trusts
+  Cloudflare with that, as hosting already does. [POLICIES.md](POLICIES.md) says what it collects.
 
 ## Release evidence
 
@@ -332,7 +366,8 @@ copy of a set page keeps production's link preview (`og:image` and its size), al
 `playwright.production.config.ts` runs the shared-pull smoke specs against production in a fresh
 browser context: public proof fixtures, card and share pages, malformed links and every lazy
 screen, with every write and every request to another origin refused, so nothing reaches a relay,
-the Hall of Fame or analytics. A failure turns the deploy run red. A last step always runs
+the Hall of Fame or analytics (Web Analytics' beacon script gets an inert stand-in, so the checks
+aren't counted as visits). A failure turns the deploy run red. A last step always runs
 (`production-smoke.ts --status`): it calls the release known-good only when both the HTTP and the
 browser checks passed, and when one of them failed names the newest deploy run on `main` that
 passed on an earlier commit as the rollback target, or says to fix forward when there is none. It

@@ -164,8 +164,9 @@ def served(release, env, digest, url, get=fetch, tries=3, pause=5.0):
     with ThreadPoolExecutor(max_workers=32) as pool:
         problems = [p for p in pool.map(problem, names) if p]
     require(not problems, '\n  '.join(
-        [f"{base} doesn't serve {len(problems)} of the {len(names)} sealed files as sealed. If only pages differ, "
-         'turn off Cloudflare Web Analytics (and any other setting that edits pages) for the project:']
+        [f"{base} doesn't serve {len(problems)} of the {len(names)} sealed files as sealed. If only pages differ, something "
+         "at Cloudflare edits them: set Web Analytics to JS snippet installation, not automatic setup (docs/HOSTING.md#web-analytics), "
+         'and turn off any other setting that rewrites HTML:']
         + problems[:20] + ([f'and {len(problems) - 20} more'] if len(problems) > 20 else [])))
     marker_ = sealed['marker']
     return '\n'.join([
@@ -522,6 +523,9 @@ SITE_URL_OUTPUT = ('while [ "${url%/}" != "$url" ]; do url=${url%/}; done\n'
                    '{ echo "host=cloudflare"; echo "url=$url/"; echo "base=/"; echo "pages=$pages"; '
                    'echo "staging_branch=$STAGING_BRANCH"; echo "staging_url=$staging_url"; } >> "$GITHUB_OUTPUT"\n')
 SITE_OUTPUTS = ('host', 'url', 'base', 'pages', 'staging_branch', 'staging_url')
+# Cloudflare Web Analytics (scripts/cloudflare-analytics.ts): the production build's env, and nowhere else.
+ANALYTICS = 'CLOUDFLARE_ANALYTICS_TOKEN'
+ANALYTICS_VALUE = "${{ needs.site.outputs.host == 'cloudflare' && vars.CLOUDFLARE_ANALYTICS_TOKEN || '' }}"
 
 
 def check_deploy(workflow):
@@ -565,6 +569,12 @@ def check_deploy(workflow):
             and smoke_status(path[1], path[3], jobs[path[1]]['steps'][path[3]], jobs)
         if re.search(r'\b(?:always|cancelled|failure)\(\)', text) and not status:
             problems.append(f'deploy.yml: {"/".join(map(str, path))} runs after a failure or cancel')
+        if ANALYTICS in text:
+            in_build = len(path) == 6 and path[:3] == ('jobs', 'build', 'steps') and path[4:] == ('env', ANALYTICS) \
+                and jobs['build']['steps'][path[3]].get('run') == 'npm run build'
+            problem = f'deploy.yml: {"/".join(map(str, path))} names {ANALYTICS} outside the env of the build\'s npm run build'
+            if not in_build and problem not in problems:
+                problems.append(problem)
         if re.search(r'\bsecrets\b', text):
             # Only as a value in the env of the site lookup or a Wrangler deploy: jobs/J/steps/N/env/KEY.
             in_env = len(path) == 6 and path[0] == 'jobs' and path[2] == 'steps' and path[4] == 'env'
@@ -587,6 +597,8 @@ def check_deploy(workflow):
     for run in ('npm run check', 'npm run build'):
         if not any(step.get('run') == run and 'if' not in step for step in build):
             problems.append(f'deploy.yml: build must always run {run}')
+    if sum((step.get('env') or {}).get(ANALYTICS) == ANALYTICS_VALUE for step in build if step.get('run') == 'npm run build') != 1:
+        problems.append(f'deploy.yml: build must pass {ANALYTICS} to npm run build once, for Cloudflare only ({ANALYTICS_VALUE})')
     if sum(match(step, HISTORY) for step in build) != 1:
         problems.append('deploy.yml: build must always run npm run check:history once, against main before the push')
     seal = [s for s in build if s.get('id') == 'seal']
@@ -651,6 +663,8 @@ def check_workflows(directory=ROOT / '.github/workflows'):
                         problems.append(f'{path.name}: {label} must upload only on failure() and keep it 7 days')
         if path.name == 'deploy.yml':
             problems += check_deploy(workflow)
+        elif ANALYTICS in path.read_text(encoding='utf-8'):
+            problems.append(f"{path.name}: names {ANALYTICS}, which only deploy.yml's production build may have")
     return problems
 
 

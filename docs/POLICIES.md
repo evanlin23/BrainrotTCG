@@ -11,7 +11,9 @@ code does today (paths in brackets); change this file in the same PR as any chan
   card, in any set, whatever the odds shown.
 - If money is ever needed, only non-random things: donations, cosmetics sold as exactly what the
   buyer sees, or merch. Nothing sold changes pack odds, rarity, tickets or Hall of Fame standing.
-- Today the game has no payment code, ads or analytics, and takes no money.
+- Today the game has no payment code or ads, and takes no money. Production counts visits with
+  Cloudflare Web Analytics when the owner has turned it on (see
+  [What becomes public or reaches other services](#what-becomes-public-or-reaches-other-services)).
 
 Why the line is firm: regulators treat paid randomised items differently from country to country,
 and the rules keep changing.
@@ -49,15 +51,18 @@ between the two addresses window to window, never in a URL [`src/game/move.ts`].
 | Someone files the Hall of Fame issue form by hand (not linked from the game) | The proof, plus their GitHub login on the issue and in `hall-of-fame.json` | GitHub; needs an account |
 | Player opens a bug report on GitHub | Only what they paste. The generated report excludes keys, saves, names, proof links and raw errors. | GitHub; needs an account |
 | Any visit | IP address, user agent and requested paths, as for any website | The host, Cloudflare Pages (the old GitHub Pages address redirects). Both keep logs under their own policies. |
+| Any visit to the game's page, while Web Analytics is on [`scripts/cloudflare-analytics.ts`, HOSTING: Web analytics] | Cloudflare's beacon script reports the page view and page-load timings | Cloudflare. Cloudflare says Web Analytics uses no cookies or localStorage to collect usage metrics, doesn't "fingerprint" individuals by IP address, user agent or other data, and doesn't collect or use visitors' personal data ([Web Analytics](https://www.cloudflare.com/web-analytics/), [about](https://developers.cloudflare.com/web-analytics/about/), [privacy policy](https://www.cloudflare.com/privacypolicy/)). |
 | Visiting Rankings, or a pack summary that checks the board | A read request to the same five relays for recent pulls, with no name attached | Relay operators can see the visitor's IP address (inferred from how WebSocket connections work), even if the visitor never submits. |
 
 Submitted pulls are effectively permanent: this project can hide an entry from the published list
 (a maintainer adds the `rejected` label) but cannot recall copies held by relays, GitHub or others.
 Renaming only changes future signatures; old proofs keep the name they were signed with.
 
-The game loads no third-party scripts, fonts or images: fonts, art and audio are bundled and served
-from the same origin, and the only other `fetch` is `hall-of-fame.json` from that origin
-[`src/styles/tokens.css`, `src/game/hallOfFameList.ts`]. An imported backup or old save can keep a
+The game loads no third-party fonts or images, and no third-party scripts but Cloudflare's Web
+Analytics beacon while that is on: fonts, art and audio are bundled and served from the same origin,
+and the only other `fetch` is `hall-of-fame.json` from that origin [`src/styles/tokens.css`,
+`src/game/hallOfFameList.ts`]. The beacon runs with the page's access, browser storage (saves and
+the signing key) included, so turning it on trusts Cloudflare with that, as hosting the page does. An imported backup or old save can keep a
 historical card the game no longer ships, with whatever image address it was saved with. The save
 keeps it as it is, but the game requests that art only when the address is on this site and shows a
 placeholder for any other address, so importing a file can't make the page contact another host
