@@ -345,6 +345,15 @@ const closedDayJoin = (pull: VerifiedPull, list: readonly RankableEntry[], recei
   };
 };
 
+/**
+ * The day whose top a pull received at `receivedAt` is judged by on `day`, as verify-issue judges it:
+ * today's, or yesterday's (under `closedDayJoin`), or none for an earlier day (only the top pulls).
+ */
+const joinDayOf = (receivedAt: string, day: string): string | undefined => {
+  const receivedDay = utcDay(receivedAt);
+  return receivedDay === day || receivedDay === previousUtcDay(day) ? receivedDay : undefined;
+};
+
 export const verifyIssue = async () => {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { action?: string; issue: Issue };
   // When GitHub received the body this event carries (its first receipt, if the pull is new here):
@@ -381,9 +390,8 @@ export const verifyIssue = async () => {
     const original = received && token ? await duplicateOf(result.entry.id, event.issue.number, received, list, token) : null;
     if (original) result = { ok: false, reason: duplicateReason(original), duplicateOf: original };
     else {
-      const receivedDay = utcDay(receivedAt);
-      const closed = receivedDay === previousUtcDay(day);
-      const joinDay = receivedDay === day || closed ? receivedDay : undefined;
+      const closed = utcDay(receivedAt) === previousUtcDay(day);
+      const joinDay = joinDayOf(receivedAt, day);
       const placed = list && closed ? closedDayJoin(result.pull, list, receivedAt) : null;
       if (placed && 'where' in placed) where = placed.where;
       const reason = placed ? ('reason' in placed ? placed.reason : null) : list && joinRefusal(result.pull, list, joinDay);
@@ -808,13 +816,21 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
   }
 
   // Only pulls that would join the list are filed; each one filed raises the bar for the next. Each
-  // pull is judged by the UTC day its entry is stamped with: its unfinished issue's, or else today's
-  // (a new issue is stamped as it opens), so after midnight a run judges by the new day's top. The
-  // floor is today's, so it doesn't apply to an unfinished issue, which may be judged by an earlier day.
+  // pull is judged by when its entry is stamped: its unfinished issue's creation, or else now (a new
+  // issue is stamped as it opens), so after midnight a run judges by the new day's top. As in
+  // verify-issue, one stamped yesterday joins that closed day's top only as high as the page shows it
+  // (`closedDayJoin`), and one stamped earlier only the top pulls. The floor is today's, so it doesn't
+  // apply to an unfinished issue, which may be judged by an earlier day.
   run.stage = 'list';
   const list = await publishedList();
   if (!list) console.log("Couldn't read the published list; filing every qualifying pull");
-  const stampDay = (pull: VerifiedPull) => utcDay(unfinished.get(pullId(pull.proof))?.created_at ?? new Date().toISOString());
+  const stampedAt = (pull: VerifiedPull) => unfinished.get(pullId(pull.proof))?.created_at ?? new Date().toISOString();
+  const placing = (pull: VerifiedPull, list: readonly RankableEntry[], receivedAt: string): { where?: string; reason?: string } => {
+    const day = today();
+    if (utcDay(receivedAt) === previousUtcDay(day)) return closedDayJoin(pull, list, receivedAt);
+    const reason = joinRefusal(pull, list, joinDayOf(receivedAt, day));
+    return reason ? { reason } : {};
+  };
 
   run.stage = 'process';
   const { added, deferred, unconfirmedFrom } = await processInbox(events, {
@@ -822,7 +838,7 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
     seen,
     filed,
     unconfirmed,
-    accepts: (pull) => (list ? joinRefusal(pull, list, stampDay(pull)) === null : qualifiesForHallOfFame(pull.score)),
+    accepts: (pull) => (list ? !placing(pull, list, stampedAt(pull)).reason : qualifiesForHallOfFame(pull.score)),
     floor: (id) => (list && !unfinished.has(id) ? hallOfFameFloor(list, today()) : null),
     budget: INBOX_BUDGET,
     maxFiled: INBOX_MAX_FILED,
@@ -845,9 +861,10 @@ const readInbox = async (run: InboxRun, ticketFn?: TicketFn) => {
         }));
       const entry = toEntry(pull, proof, issue, issue.created_at);
       if (!earlier || !(await firstVerification(issue.number, id, token))) {
-        await github(`/repos/${REPO}/issues/${issue.number}/comments`, token, { body: verifiedComment(entry, pull, issue.created_at) });
+        const where = list ? placing(pull, list, issue.created_at).where : undefined;
+        await github(`/repos/${REPO}/issues/${issue.number}/comments`, token, { body: verifiedComment(entry, pull, issue.created_at, where) });
       }
-      await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: [joinLabel(pull, list, utcDay(issue.created_at))] });
+      await github(`/repos/${REPO}/issues/${issue.number}/labels`, token, { labels: [joinLabel(pull, list, joinDayOf(issue.created_at, today()))] });
       unfinished.delete(id);
       // Done: closed issues stay in the Hall of Fame (the deploy reads every state); this keeps the
       // issue list for things that need attention.

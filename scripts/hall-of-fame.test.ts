@@ -1384,28 +1384,50 @@ describe('retention and intake contracts (offline)', () => {
   });
 
   describe("an issue a stopped run left unlabelled on the 16th, finished on the 17th", () => {
-    // The 16th's top has one place left and the 17th's is full: the entry is stamped the 16th, so it joins there.
-    const stamped = '2026-10-16T23:00:00Z';
-    const unfinishedRun = () => {
+    // The entry is stamped the 16th, a closed day by the 17th, so it joins the 16th's top only as high as
+    // the page shows it (HALL_OF_FAME_YESTERDAY_SHOWN); the 17th's top is full.
+    const stamped = '2026-10-16T23:59:50Z';
+    const unfinishedRun = (ahead: number, created = stamped) => {
       clockAt('2026-10-17T12:00:00Z');
       const seventeenth = dailyOnlyBoard('2026-10-17', HALL_OF_FAME_DAILY_TOP).filter((e) => e.id.startsWith('today-')).map((e) => ({ ...e, id: `17-${e.id}` }));
-      const left = { ...issue(5, fourOfAKind, { labels: ['hall-of-fame'], login: BOT, updated: stamped }), created_at: stamped };
-      return fakeGitHub({ issues: [left], published: [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP - 1), ...seventeenth] });
+      const left = { ...issue(5, fourOfAKind, { labels: ['hall-of-fame'], login: BOT, updated: created }), created_at: created };
+      return fakeGitHub({ issues: [left], published: [...dailyOnlyBoard(created.slice(0, 10), ahead), ...seventeenth] });
     };
     const FINISHED = ['POST /issues/5/comments', 'POST /issues/5/labels', 'PATCH /issues/5'];
+    const relaysHoldIt = () => vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
 
-    it("is judged and labelled by the 16th's top", async () => {
-      const gh = unfinishedRun();
-      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
+    it("is judged and labelled by the 16th's top, and the comment names its place", async () => {
+      const gh = unfinishedRun(HALL_OF_FAME_YESTERDAY_SHOWN - 1);
+      relaysHoldIt();
       await inbox();
       expect(gh.writes()).toEqual(FINISHED);
       expect(gh.requests.find((r) => r.path === '/issues/5/labels')!.body).toEqual({ labels: ['daily'] });
+      expect(gh.requests.find((r) => r.method === 'POST' && r.path === '/issues/5/comments')!.body!.body).toContain(
+        `It will appear in the Hall of Fame, at #${HALL_OF_FAME_YESTERDAY_SHOWN} of 2026-10-16's top (UTC), among yesterday's best, after the next deploy`,
+      );
       expect(outputs()).toEqual({ added: '1' });
+    });
+
+    it("isn't filed below the places the page shows for the 16th", async () => {
+      // It would be the 16th's 50th: listed, but on no board anyone sees.
+      const gh = unfinishedRun(HALL_OF_FAME_DAILY_TOP - 1);
+      relaysHoldIt();
+      await inbox();
+      expect(gh.writes()).toEqual([]);
+      expect(outputs()).toEqual({ added: '0' });
+    });
+
+    it("isn't judged by an earlier day's top, which is no longer published", async () => {
+      const gh = unfinishedRun(0, '2026-10-15T23:59:50Z');
+      relaysHoldIt();
+      await inbox();
+      expect(gh.writes()).toEqual([]);
+      expect(outputs()).toEqual({ added: '0' });
     });
 
     it("isn't turned away by today's floor", async () => {
       // Today's floor is the 17th's 50th (20,000); the claim of 15,000 is at or below it.
-      const gh = unfinishedRun();
+      const gh = unfinishedRun(HALL_OF_FAME_YESTERDAY_SHOWN - 1);
       const event = hinted(fourOfAKind, 15_000, SENT);
       vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
       await inbox();
