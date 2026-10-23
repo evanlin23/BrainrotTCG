@@ -822,24 +822,25 @@ requests and bytes. It prints one JSON line per run (`PERF_REPETITIONS`, default
 
 Before and after #762's changes, n=3 each, ranges, on a 4-vCPU 2.1 GHz Xeon host with Chromium 141
 headless (emulation, not a device). The changes: the faces a screen shows first are fetched at high
-priority, Rankings rows below the first screen load lazily, and the next pack's art waits while a page,
-a shared pull, a profile or a share sheet covers the Open screen.
+priority, Rankings rows below the first screen load lazily, and the next pack's art isn't fetched if a
+page, a shared pull, a profile or a share sheet covers the Open screen when its ticket is asked for.
+The After column was measured with the timing spec as it stands, on `86ede13`'s code (later commits
+change only comments, docs and unit tests).
 
-| | Before (`8674c13`) | After (`899d991`) |
+| | Before (`8674c13`) | After (`86ede13`) |
 | --- | --- | --- |
-| Finished pull: verified | 3950 to 3983 ms | 3987 to 4346 ms |
-| Finished pull: last slot drawn after verified | 4849 to 4883 ms | 2400 to 2433 ms |
+| Finished pull: verified | 3950 to 3983 ms | 3946 to 5257 ms |
+| Finished pull: last slot drawn after verified | 4849 to 4883 ms | 2400 ms (all three) |
 | Finished pull: art requests, bytes | 6 to 7, 494 to 657 KB | 5, 442 KB |
-| Plain pull: last slot drawn after verified | 3683 to 3884 ms | 1533 to 1600 ms |
+| Plain pull: last slot drawn after verified | 3683 to 3884 ms | 1533 to 1650 ms |
 | Plain pull: art requests, bytes | 3, 317 KB | 2, 264 KB |
-| Rankings: first row's thumbs | 8542 to 8856 ms | 8659 to 8899 ms |
-| Rankings: every on-screen thumb | 13142 to 13339 ms | 12909 to 13166 ms |
+| Rankings: first row's thumbs | 8542 to 8856 ms | 8601 to 8925 ms |
+| Rankings: every on-screen thumb | 13142 to 13339 ms | 12900 to 12952 ms |
 
 Most of the pull saving is bandwidth the next pack's art no longer takes. Rankings is bound by
 bytes: each 30 px thumb downloads the full-size art (about 144 KB), and 12 of them (1.73 MB) are
-in by the time the screen's thumbs show, with or without the lazy rows (probably because Chromium's
-lazy-load margin on a slow connection reaches the bottom of a 20-row board). A smaller plain-card thumbnail
-is what would move it.
+in by the time the screen's thumbs show, with or without the lazy rows. A smaller plain-card
+thumbnail is what would move it.
 
 ### Proposed budgets (not enforced)
 

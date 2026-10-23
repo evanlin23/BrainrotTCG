@@ -196,7 +196,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     return whenIdle(() => loadDeferred([preloadedAssets.cardFlip, ...preloadedAssets.effects, ...preloadedAssets.brainrotVoices]));
   }, [isOpening, preloadedAssets, loadDeferred, effectsOn]);
 
-  // Mine the next pack's ticket while this one is on screen, and fetch its art once nothing covers it.
+  // Mine the next pack's ticket while this one is on screen. Its art is fetched only if nothing covers
+  // Open when this runs, so a cover's change runs it again.
   useEffect(() => {
     if (!isOpening) prefetchNextPack(set, disabled);
   }, [isOpening, set, disabled]);

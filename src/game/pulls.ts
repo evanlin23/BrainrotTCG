@@ -83,9 +83,11 @@ export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefi
   });
 
 /**
- * Mine the next pack's ticket in the background. While a page, a shared pull, a profile or a share
- * sheet `covers` the Open screen, its pictures wait: that screen is drawing its own card art, which a
- * download for a later pack would slow on a thin connection (#762). Call again once it's uncovered.
+ * Mine the next pack's ticket in the background, then fetch its pictures unless the caller said a
+ * page, a shared pull, a profile or a share sheet `covered` the Open screen: that screen draws its own
+ * card art, which a download for a later pack would slow on a thin connection (#762). `covered` is the
+ * value at the call, so a cover that opens while the ticket is mined doesn't stop the fetch. Call
+ * again once it's uncovered (the ticket is cached).
  */
 export const prefetchNextPack = (set: SetDefinition, covered?: boolean) => {
   // No pack opens while the player record can't be read, so mine nothing for this tab's stand-in key.
