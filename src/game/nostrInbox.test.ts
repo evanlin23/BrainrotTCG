@@ -265,6 +265,37 @@ describe('nostr inbox', () => {
     expect((await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, relays, 20)).perRelay[0].more).toBeUndefined();
     expect((await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://down'], 500, fakeRelays({ 'wss://down': 'fail' }), 1)).perRelay[0]).toEqual({ relay: 'wss://down', count: 0, error: 'connection failed' });
   });
+
+  it('says how far a relay that failed partway was read, from the pages it finished (#999)', async () => {
+    const events = Array.from({ length: 9 }, (_, i) => hallOfFameEvent(PROOF, `e${i}`, 1_000_000 + i * 1000));
+    const pages = fakeRelays({ 'wss://a': 'accept' }, events);
+    // Serves two pages, then drops the connection when asked for a third.
+    const dropsThird: SocketFactory = (url) => {
+      const socket = pages(url);
+      const send = socket.send.bind(socket);
+      let reqs = 0;
+      socket.send = (raw: string) => (JSON.parse(raw)[0] === 'REQ' && ++reqs === 3 ? queueMicrotask(() => socket.onclose?.({})) : send(raw));
+      return socket;
+    };
+    const partway = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, dropsThird, 5);
+    // Pages 1008..1006 and 1006..1004 finished: everything above 1004 was read.
+    expect(partway.perRelay).toEqual([{ relay: 'wss://a', count: 6, error: 'closed', more: 1004 }]);
+    // Failing within the first page reaches nowhere.
+    const firstPage: SocketFactory = (url) => {
+      const socket = pages(url);
+      socket.send = () => queueMicrotask(() => socket.onclose?.({}));
+      return socket;
+    };
+    expect((await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, firstPage, 5)).perRelay).toEqual([{ relay: 'wss://a', count: 0, error: 'closed' }]);
+  });
+
+  it("doesn't call a relay read through when a full page brings nothing new (#999)", async () => {
+    // More events at one second than a page holds: the next page, from that second, is the same one.
+    const crowd = Array.from({ length: 4 }, (_, i) => hallOfFameEvent(PROOF, `c${i}`, 2_000_000));
+    const older = [hallOfFameEvent(PROOF, 'o0', 1_000_000), hallOfFameEvent(PROOF, 'o1', 1_001_000)];
+    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, fakeRelays({ 'wss://a': 'accept' }, [...crowd, ...older]), 5);
+    expect(read.perRelay).toEqual([{ relay: 'wss://a', count: 6, error: undefined, more: 2000 }]);
+  });
 });
 
 type MockSocketHandlers = {

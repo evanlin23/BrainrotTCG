@@ -4,7 +4,7 @@ import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { decodeProof, encodeProof, pullId, signProof, utf8 } from '../src/engine/index.ts';
 import { hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { addRanges, buildSkipLine, clipRanges, deferredFrom, logSafeError, newestGap, olderReadLine, parseReadRanges, probeLine, processInbox, rangeRead, relayReadLine, type InboxContext } from './hof-inbox.ts';
+import { addRanges, buildSkipLine, clipRanges, deferredFrom, logSafeError, newestGap, oldestGap, olderReadLine, parseReadRanges, probeLine, processInbox, rangeRead, relayReadLine, type InboxContext } from './hof-inbox.ts';
 
 const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.proof;
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
@@ -254,12 +254,22 @@ describe('read ranges (#999)', () => {
     expect(newestGap([[-50, 150]], 0, 100)).toBeUndefined();
   });
 
-  it('counts a read capped at `more` from just above it, a full read all the way, and a failed one nowhere', () => {
+  it('finds the oldest part of the window not read through', () => {
+    expect(oldestGap([], 0, 100)).toEqual([0, 100]);
+    expect(oldestGap([[60, 100]], 0, 100)).toEqual([0, 59]);
+    expect(oldestGap([[0, 20], [60, 100]], 0, 100)).toEqual([21, 59]);
+    expect(oldestGap([[0, 20], [40, 50], [60, 80]], 0, 100)).toEqual([21, 39]);
+    expect(oldestGap([[0, 20], [21, 100]], 0, 100)).toBeUndefined();
+    expect(oldestGap([[-50, 150]], 0, 100)).toBeUndefined();
+  });
+
+  it('counts a read stopped at `more` from just above it, a full read all the way, and one that failed before a page nowhere', () => {
     expect(rangeRead({}, 0, 100)).toEqual([[0, 100]]);
     expect(rangeRead({ more: 60 }, 0, 100)).toEqual([[61, 100]]);
     expect(rangeRead({ more: 100 }, 0, 100)).toEqual([]);
     expect(rangeRead({ error: 'timed out' }, 0, 100)).toEqual([]);
-    expect(rangeRead({ error: 'timed out', more: 60 }, 0, 100)).toEqual([]);
+    // The pages it finished before it failed.
+    expect(rangeRead({ error: 'timed out', more: 60 }, 0, 100)).toEqual([[61, 100]]);
   });
 
   it('reads the ranges file for the given relays only, and anything malformed as nothing read', () => {

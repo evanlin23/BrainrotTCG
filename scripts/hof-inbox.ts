@@ -85,12 +85,23 @@ export const newestGap = (read: Ranges, lo: number, hi: number): [number, number
   return top >= lo ? [lo, top] : undefined;
 };
 
+/** The oldest part of [lo, hi] that `read` doesn't cover. */
+export const oldestGap = (read: Ranges, lo: number, hi: number): [number, number] | undefined => {
+  let bottom = lo;
+  for (const [a, b] of clipRanges(read, lo, hi)) {
+    if (a > bottom) return [bottom, a - 1];
+    bottom = b + 1;
+  }
+  return bottom <= hi ? [bottom, hi] : undefined;
+};
+
 /**
- * What one read of a relay covered, given the range it asked for: all of it, or from just above
- * where the page cap stopped it (`more`). A relay that failed counts as read nowhere.
+ * What one read of a relay covered, given the range it asked for: from just above where it stopped
+ * (`more`: the page cap, a full page of nothing new, or a failure after some pages), or else all of
+ * it. A relay that failed before finishing a page counts as read nowhere.
  */
 export const rangeRead = (r: { error?: string; more?: number }, lo: number, hi: number): Ranges =>
-  r.error !== undefined ? [] : clipRanges([[r.more === undefined ? lo : r.more + 1, hi]], lo, hi);
+  r.more !== undefined ? clipRanges([[r.more + 1, hi]], lo, hi) : r.error !== undefined ? [] : [[lo, hi]];
 
 /** The read ranges file: relay URL to ranges. Only the given relays and well-formed ranges are kept; anything else reads as nothing read. */
 export const parseReadRanges = (text: string, relays: readonly string[]): Map<string, Ranges> => {

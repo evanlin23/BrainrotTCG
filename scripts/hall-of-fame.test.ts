@@ -746,6 +746,49 @@ describe('inbox (scheduled workflow)', () => {
       expect(filters()).toEqual([{ since, until: undefined }]);
     });
 
+    it('keeps the pages a read of older events finished before it timed out, and goes on below them', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = junk(9);
+      const capped = cappedRelay(events, 3).getMockImplementation()!;
+      // Older reads finish one page, then time out, as fetchEvents reports it.
+      vi.mocked(fetchEvents).mockImplementation(async (filter, ...rest) => {
+        const read = await capped(filter, ...rest);
+        return filter.until === undefined ? read : { ...read, perRelay: read.perRelay.map((r) => ({ ...r, error: 'timed out' })) };
+      });
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[6]) }]);
+      vi.mocked(fetchEvents).mockClear();
+      await inbox();
+      // Below the page it finished, not that page again.
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(events[4]) }]);
+    });
+
+    it("keeps what a relay was read through when its read fails, and asks it for nothing older", async () => {
+      fakeGitHub({ issues: [], published: [] });
+      cappedRelay(junk(7), 3);
+      await inbox();
+      const before = JSON.parse(readFileSync('hof-inbox-read.json', 'utf8')) as Record<string, unknown>;
+      expect(before['wss://a']).not.toEqual([]);
+      vi.mocked(fetchEvents).mockClear();
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [{ relay: 'wss://a', count: 0, error: 'timed out' }, { relay: 'wss://b', count: 0 }] });
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }]);
+      expect(JSON.parse(readFileSync('hof-inbox-read.json', 'utf8'))).toEqual({ 'wss://a': before['wss://a'], 'wss://b': [[since, since + 7 * 86_400]] });
+    });
+
+    it('in odd hours reads the oldest range not read through, so an older one is not left behind', async () => {
+      fakeGitHub({ issues: [], published: [] });
+      const events = junk(9);
+      cappedRelay(events, 3);
+      // Read through: the newest three and a middle stretch, with a gap above it and one below.
+      writeFileSync('hof-inbox-read.json', JSON.stringify({ 'wss://a': [[at(events[1]), at(events[3])], [at(events[6]), since + 7 * 86_400]] }));
+      clockAt('2026-10-16T13:00:00Z');
+      await inbox();
+      // The window moved up an hour. The head read stops at the cap; of the two gaps left, the oldest
+      // is read, not the newest one an even hour would take.
+      expect(filters()).toEqual([{ since: since + 3600, until: undefined }, { since: since + 3600, until: at(events[1]) - 1 }]);
+    });
+
     it('files a qualifying pull from past the cap, and reads it again after a run that had to leave it', async () => {
       const fixture: Fixture = { issues: [], published: [], fail: (r) => r.method === 'POST' && r.path === '/issues' };
       const gh = fakeGitHub(fixture);

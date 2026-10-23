@@ -79,7 +79,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { addRanges, buildSkipLine, clipRanges, deferredFrom, newestGap, olderReadLine, parseReadRanges, probeLine, processInbox, rangeRead, relayReadLine, type Ranges } from './hof-inbox.ts';
+import { addRanges, buildSkipLine, clipRanges, deferredFrom, newestGap, oldestGap, olderReadLine, parseReadRanges, probeLine, processInbox, rangeRead, relayReadLine, type Ranges } from './hof-inbox.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -524,14 +524,17 @@ export const inbox = async (ticketFn?: TicketFn) => {
   const filter = { kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE };
   const head = await fetchEvents(filter, undefined, 60000, undefined, INBOX_PAGES);
   for (const r of head.perRelay) console.log(relayReadLine(r));
-  // Then, from each relay that answered, the newest older range not yet read through: the page cap
-  // stopped this run or an earlier one above it. The newest pages are always read again above, so
-  // nothing published late is skipped.
+  // Then, from each relay that answered, an older range not yet read through: the page cap stopped
+  // this run or an earlier one above it. The newest pages are always read again above, so nothing
+  // published late is skipped. In even hours (UTC) that is the newest such range, so a burst is read on
+  // down from where the cap stopped; in odd hours the oldest, so under steady overload an older range
+  // isn't left until it leaves the window, and one a relay can't page past doesn't hold up the rest.
+  const gapFor = Math.floor(nowS / 3600) % 2 === 0 ? newestGap : oldestGap;
   const readBefore = existsSync(READ_PATH) ? parseReadRanges(readFileSync(READ_PATH, 'utf8'), head.perRelay.map((r) => r.relay)) : new Map<string, Ranges>();
   const readNow = new Map(head.perRelay.map((r) => [r.relay, rangeRead(r, since, nowS)]));
   const older = await Promise.all(
     head.perRelay.map(async (r) => {
-      const gap = r.error === undefined ? newestGap(addRanges(readBefore.get(r.relay) ?? [], readNow.get(r.relay)!), since, nowS) : undefined;
+      const gap = r.error === undefined ? gapFor(addRanges(readBefore.get(r.relay) ?? [], readNow.get(r.relay)!), since, nowS) : undefined;
       if (!gap) return [];
       const [lo, hi] = gap;
       const read = await fetchEvents({ ...filter, since: lo, until: hi }, [r.relay], 60000, undefined, INBOX_PAGES);
