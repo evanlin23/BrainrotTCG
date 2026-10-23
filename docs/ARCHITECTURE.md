@@ -172,6 +172,7 @@ by hand  ─► GitHub issue form (pull link; needs an account; not linked from 
                                    │
                     .github/workflows/deploy.yml
                     scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + two days' daily top 50)
+                                                    public/rankings.json + rankings/daily-YYYY-MM.json
                                    │
                     Rankings page shows it as published; pull links verify individually
 ```
@@ -324,8 +325,8 @@ the `rejected` label to its issue. What a submission makes public, and for whom,
 
 ### Ranking boards (`src/engine/rankings.ts`)
 
-This is an engine contract only (#223, #338). Nothing publishes or shows these boards yet, and the
-Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with these fields:
+The deploy publishes Best packs boards (#223, "Published rankings" below), but nothing shows them
+yet: the Rankings page still reads `topPulls`. Every board is a `RankingSnapshot` with these fields:
 
 - the schema version, scope and capacity;
 - the `SCORING_ERA` its scores came from;
@@ -344,7 +345,7 @@ order; the shared-pull page keeps engine order.
 
 | Board | Ranks | Identity | Size | Where |
 | --- | --- | --- | --- | --- |
-| Best packs (#223) | pulls by Brainrot Score | pull id | 100 | planned: Rankings page |
+| Best packs (#223) | pulls by Brainrot Score | pull id | 100 (10 published) | `rankings.json`; planned: Rankings page |
 | Best cards (#338) | card instances by their own points | `pullId#slot` | 10 | planned: Rankings page |
 | Best versions of this card (#224) | one card's instances, all set versions | `pullId#slot` | 10 each | card details (later) |
 
@@ -388,7 +389,58 @@ destinations. Best versions of this card opens from a card's details.
   the highest such bar (the lower of the two) intake has enforced. Pass that as the `min-score` coverage; below it the board is partial
   (`below-intake-minimum`). So the card board lists only cards worth at least 20,000 and stays
   partial until intake has filed enough of them to fill it.
-- **Daily boards** come later.
+- **Daily boards.** Best packs has one per UTC day ("Published rankings" below); card boards don't
+  yet.
+
+#### Published rankings (`src/engine/rankingsArchive.ts`)
+
+The Hall of Fame build writes two more files next to `hall-of-fame.json`:
+
+- `rankings.json`: Best packs boards of all time and of the build's UTC day and the day before, 10
+  places each, without proofs (an entry's issue links to it). Each is certified as far as
+  `hall-of-fame.json`'s own cut (its top 100, or that day's top 50). It also lists the months that
+  have a daily archive.
+- `rankings/daily-YYYY-MM.json`: each past UTC day's top 10, in one canonical text.
+
+A day is rebuilt while it is open (today or yesterday), because the build still lists every issue
+that could rank on it. After that, each build copies the day from the deployed archive, byte for byte,
+less entries since removed: a `rejected` issue (every one, listed or not) or a display name no longer
+allowed. A removed entry's place isn't refilled, since the runners-up were never kept, and an entry
+restored later doesn't come back to a closed day. A day with no deploy while it was open is never
+archived.
+
+Carrying days forward means reading the deployed site (GitHub Pages, which keeps serving these files
+after a move). The build reads it before anything else, with a `?run=` query the CDN hasn't cached (as
+the smoke check does), and the deploy fails rather than drop a day:
+
+- Every deploy writes `hall-of-fame.json`, so a 404 for it fails: it may be a new site, but also a
+  site whose files can't be read there, such as GitHub Pages turned off or the repository renamed,
+  where starting again would lose every closed day for good. Those need the deployed files kept. A
+  new site opts in with the repository variable `HOF_START_NEW_HISTORY` set to that UTC day
+  (docs/HOSTING.md). Then the build lists everything again from the issues, and the log says
+  `No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks`.
+- Only a 404 for `rankings.json` means a site from before these files. The history starts with the
+  open days, and the log says `No rankings.json deployed: starting the rankings history`.
+- Any other answer fails, and so does a list that isn't a JSON list, or an archive that is listed but
+  not deployed or that fails its strict check (`parseRankingsFile`, `parseDailyArchive`). That covers
+  an error status, a network error, or a page in place of the file, such as a fallback.
+
+The two signals move together, since every path writes both files or neither:
+
+- The deploy's build step writes both into `public/`, and `npm run build` copies them into `dist/`.
+- If GitHub is down, it keeps the deployed `hall-of-fame.json` and rankings as they are. With no
+  `hall-of-fame.json` deployed there is nothing to keep, and the deploy fails rather than publish the
+  committed empty list.
+- After a move, the old address's pages (`scripts/redirect-site.ts`) copy both.
+- Only a local build without a token writes no rankings.
+
+The edge is rollback. Deploying code from before these files publishes a site without
+`rankings.json`, and the next build starts the history again: the closed days archived until then
+are lost. Keep the deployed `rankings.json` and archives before deploying such code if the history
+matters. A Cloudflare rollback serves its older archives only until the next deploy: it doesn't
+revert the GitHub Pages redirect's copy, which the build reads, so that build carries the current
+archives forward, not the rolled-back ones. GitHub Pages has no rollback in this workflow
+(docs/HOSTING.md).
 
 ## Sharing and link previews
 

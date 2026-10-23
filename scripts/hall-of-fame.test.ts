@@ -11,9 +11,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, HALL_OF_FAME_YESTERDAY_SHOWN, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
+import {
+  DAILY_ARCHIVE_VERSION,
+  dailyPulls,
+  decodeProof,
+  encodeProof,
+  HALL_OF_FAME_DAILY_TOP,
+  HALL_OF_FAME_TOP,
+  HALL_OF_FAME_YESTERDAY_SHOWN,
+  hallOfFameList,
+  pullId,
+  rankingsFile,
+  serializeDailyArchive,
+  signProof,
+  topPulls,
+  utf8,
+  verifyProof,
+  type ArchivedPull,
+  type RankableEntry,
+} from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
-import { build, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
+import { archivePath, build, deployedRankings, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, RANKINGS_INDEX, verifyIssue } from './hall-of-fame.ts';
 import { parseInboxSummary } from './ops-health.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
@@ -76,6 +94,8 @@ interface Fixture {
   comments?: Record<number, Comment[]>;
   /** The deployed hall-of-fame.json, or undefined for a 404. */
   published?: unknown[];
+  /** The deployed rankings files (and hall-of-fame.json, in place of `published`) by path: a text, or the status the site answers with (else a 404). */
+  site?: Record<string, string | number>;
   /** Requests GitHub answers with a 500. */
   fail?: (request: Request) => boolean;
 }
@@ -104,8 +124,11 @@ const fakeGitHub = (fixture: Fixture) => {
     vi.fn(async (input: string | URL, init: RequestInit = {}) => {
       const url = String(input);
       const method = init.method ?? 'GET';
-      if (/^https:\/\/[^/]+\.github\.io\/[^/]+\/hall-of-fame\.json$/.test(url)) {
-        return fixture.published ? json(fixture.published) : json({ message: 'Not Found' }, 404);
+      const deployed = /^https:\/\/[^/]+\.github\.io\/[^/]+\/(hall-of-fame\.json|rankings\.json|rankings\/daily-\d{4}-\d{2}\.json)\?run=\d+-\d+$/.exec(url)?.[1];
+      if (deployed === 'hall-of-fame.json' && fixture.site?.[deployed] === undefined) return fixture.published ? json(fixture.published) : json({ message: 'Not Found' }, 404);
+      if (deployed) {
+        const file = fixture.site?.[deployed];
+        return typeof file === 'string' ? new Response(file) : new Response('Not Found', { status: file ?? 404 });
       }
       const match = /^https:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+(\/[^?]*)(?:\?(.*))?$/.exec(url);
       if (!match) return unexpected(`${method} ${url}`);
@@ -207,7 +230,7 @@ afterEach(() => {
 describe('build (deploy workflow)', () => {
   it('keeps the existing list without a token, or starts an empty one', async () => {
     vi.stubEnv('GITHUB_TOKEN', undefined);
-    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)] });
+    const gh = fakeGitHub({ published: [], issues: [issue(1, fourOfAKind)] });
     await build(output());
     expect(readFileSync(output(), 'utf8')).toBe('[]\n');
     writeFileSync(output(), '[{"kept":true}]\n');
@@ -216,17 +239,27 @@ describe('build (deploy workflow)', () => {
     expect(gh.requests).toEqual([]);
   });
 
-  it('keeps the existing list when GitHub is down', async () => {
-    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], fail: () => true });
-    writeFileSync(output(), '[{"kept":true}]\n');
+  it('keeps the deployed list when GitHub is down', async () => {
+    const gh = fakeGitHub({ published: [{ deployed: true }], issues: [issue(1, fourOfAKind)], fail: () => true });
+    writeFileSync(output(), '[]\n');
     await build(output());
-    expect(readFileSync(output(), 'utf8')).toBe('[{"kept":true}]\n');
+    expect(readFileSync(output(), 'utf8')).toBe('[{"deployed":true}]');
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it('fails the deploy, writing nothing, when GitHub is down and no list is deployed, even for a new site', async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    vi.stubEnv('HOF_START_NEW_HISTORY', '2026-10-16');
+    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], fail: () => true });
+    await expect(build(output())).rejects.toThrow('Could not list Hall of Fame issues, and the deployed site has no hall-of-fame.json to keep');
+    expect(existsSync(output())).toBe(false);
     expect(gh.writes()).toEqual([]);
   });
 
   it('lists pulls the bot verified, credited from its first marker comment, and never writes to GitHub', async () => {
     const early = '2026-09-01T00:00:00Z';
     const gh = fakeGitHub({
+      published: [],
       issues: [
         issue(1, fourOfAKind),
         issue(2, pair), // real, but doesn't qualify
@@ -253,6 +286,7 @@ describe('build (deploy workflow)', () => {
   it('credits a pull to its earliest receipt among the issues it lists, even when another was verified first', async () => {
     // Both verified before a deploy listed either (verify-issue turns down a pull already published).
     const gh = fakeGitHub({
+      published: [],
       issues: [issue(1, fourOfAKind), issue(2, fourOfAKind, { login: 'bob' })],
       comments: {
         1: [comment(BOT, markerAt(fourOfAKind, '2026-10-01T23:30:00Z'), '2026-10-01T23:31:00Z')],
@@ -270,20 +304,20 @@ describe('build (deploy workflow)', () => {
     { marked: 'a receipt after its comment', body: markerAt(fourOfAKind, '2026-10-02T00:00:01.000Z') },
     { marked: "a receipt that isn't a time", body: `<!-- hof-verified ${idOf(fourOfAKind)} received soon -->` },
   ])('stamps a pull whose marker has $marked with its verification, and says so', async ({ body }) => {
-    fakeGitHub({ issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, body, '2026-10-02T00:00:00Z')] } });
+    fakeGitHub({ published: [], issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, body, '2026-10-02T00:00:00Z')] } });
     await build(output());
     expect(entries().map((e) => [e.issue, e.submittedAt, e.verifiedAt, e.receipt])).toEqual([[1, '2026-10-02T00:00:00Z', '2026-10-02T00:00:00Z', 'verification']]);
   });
 
   it("leaves out a verified pull whose display name isn't allowed", async () => {
-    const gh = fakeGitHub({ issues: [issue(1, blockedName)], comments: { 1: [comment(BOT, marker(blockedName), '2026-10-02T00:00:00Z')] } });
+    const gh = fakeGitHub({ published: [], issues: [issue(1, blockedName)], comments: { 1: [comment(BOT, marker(blockedName), '2026-10-02T00:00:00Z')] } });
     await build(output());
     expect(entries()).toEqual([]);
     expect(gh.writes()).toEqual([]);
   });
 
   it('reuses the result for an issue unchanged since the last deploy, and checks an edited one again', async () => {
-    const fixture: Fixture = { issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } };
+    const fixture: Fixture = { published: [], issues: [issue(1, fourOfAKind)], comments: { 1: [comment(BOT, marker(fourOfAKind), '2026-10-02T00:00:00Z')] } };
     const gh = fakeGitHub(fixture);
     await build(output());
     expect(entries().map((e) => e.issue)).toEqual([1]);
@@ -292,7 +326,7 @@ describe('build (deploy workflow)', () => {
     gh.requests.length = 0;
     await build(output());
     expect(entries().map((e) => e.issue)).toEqual([1]);
-    expect(gh.requests.map((r) => r.path)).toEqual(['/issues', '/issues']); // `verified` and `daily` listed, nothing re-checked
+    expect(gh.requests.map((r) => r.path)).toEqual(['/issues', '/issues', '/issues']); // `verified`, `daily` and `rejected` listed, nothing re-checked
 
     // An edit swapped the pull for one that doesn't qualify.
     fixture.issues[0] = issue(1, pair, { updated: '2026-10-03T00:00:00Z' });
@@ -303,6 +337,7 @@ describe('build (deploy workflow)', () => {
   it('lists `daily` issues changed since the day before, and counts each only on the day it was verified', async () => {
     const daily = { labels: ['hall-of-fame', 'daily'] };
     const gh = fakeGitHub({
+      published: [],
       issues: [
         issue(2, fourOfAKind, { ...daily, updated: '2026-10-16T09:00:00Z' }), // verified today
         issue(3, fourOfAKind, { ...daily, updated: '2026-10-16T08:00:00Z' }), // verified on the 10th, commented on today
@@ -319,7 +354,11 @@ describe('build (deploy workflow)', () => {
     await build(output());
     expect(entries().map((e) => [e.issue, e.submittedAt])).toEqual([[2, '2026-10-16T09:00:00Z']]);
     const listings = gh.requests.filter((r) => r.path === '/issues').map((r) => r.query);
-    expect(listings).toEqual(['state=all&labels=hall-of-fame,verified&per_page=100&page=1', 'state=all&labels=hall-of-fame,daily&since=2026-10-15T00:00:00Z&per_page=100&page=1']);
+    expect(listings).toEqual([
+      'state=all&labels=hall-of-fame,verified&per_page=100&page=1',
+      'state=all&labels=hall-of-fame,daily&since=2026-10-15T00:00:00Z&per_page=100&page=1',
+      'state=all&labels=hall-of-fame,rejected&per_page=100&page=1',
+    ]);
     expect(gh.requests.map((r) => r.path)).not.toContain('/issues/4/comments');
 
     // Still on the board the next day (the day before is kept), and gone the day after.
@@ -333,7 +372,7 @@ describe('build (deploy workflow)', () => {
   });
 
   it('fails rather than publish part of the list when there are more issues than it may read', async () => {
-    fakeGitHub({ issues: Array.from({ length: ISSUE_PAGES * 100 }, (_, i) => issue(i + 1, null)) });
+    fakeGitHub({ published: [], issues: Array.from({ length: ISSUE_PAGES * 100 }, (_, i) => issue(i + 1, null)) });
     writeFileSync(output(), '[{"kept":true}]\n');
     await expect(build(output())).rejects.toThrow(`More than ${ISSUE_PAGES * 100} issues match`);
     expect(readFileSync(output(), 'utf8')).toBe('[{"kept":true}]\n');
@@ -362,6 +401,190 @@ describe('published list', () => {
     // A build a minute before midnight keeps the 15th and the 14th instead.
     const before = listToPublish(verified, new Date('2026-10-15T23:59:00.000Z')).slice(plain.length);
     expect(new Set(before.map((e) => e.submittedAt.slice(0, 10)))).toEqual(new Set(['2026-10-15', '2026-10-14']));
+  });
+});
+
+describe('rankings (#223)', () => {
+  /** An archived pull: issue `n` received on `day`, scored `score`. */
+  const archived = (n: number, day: string, score: number, name = `player ${n}`): ArchivedPull => ({
+    id: `other-set@1/${n}`,
+    issue: n,
+    setId: 'other-set',
+    hand: 'Full House',
+    score,
+    name,
+    submittedAt: `${day}T0${n % 10}:00:00Z`,
+  });
+  const month = (m: string, days: Record<string, ArchivedPull[]>) => serializeDailyArchive({ schemaVersion: DAILY_ARCHIVE_VERSION, month: m, days });
+  const september = month('2026-09', { '2026-09-30': [archived(40, '2026-09-30', 50_000)] });
+  // The 3rd has closed: 51 has been rejected since, and 52's display name isn't allowed. The 16th is open.
+  const october = month('2026-10', {
+    '2026-10-03': [archived(50, '2026-10-03', 30_000), archived(51, '2026-10-03', 20_000), archived(52, '2026-10-03', 10_000, 'xXfuckXx')],
+    '2026-10-16': [archived(60, '2026-10-16', 40_000)],
+  });
+  const index = (archive: string[]) => JSON.stringify(rankingsFile([], { generatedAt: '2026-10-16T11:00:00.000Z', days: ['2026-10-16', '2026-10-15'], archive }), null, 1) + '\n';
+  const deployed = { [RANKINGS_INDEX]: index(['2026-09', '2026-10']), [archivePath('2026-09')]: september, [archivePath('2026-10')]: october };
+
+  describe('reading the deployed site', () => {
+    /** The deployed site at GitHub Pages: a file's text, the status it answers, or an error the request throws (else a 404). */
+    const site = (files: Record<string, string | number | Error>) => {
+      const requested: string[] = [];
+      const get = vi.fn(async (input: string | URL) => {
+        const file = String(input)
+          .replace(/^https:\/\/[^/]+\.github\.io\/[^/]+\//, '')
+          .replace(/\?run=4242-1$/, '');
+        requested.push(file);
+        const answer = files[file];
+        if (answer instanceof Error) throw answer;
+        return typeof answer === 'string' ? new Response(answer) : new Response('Not Found', { status: answer ?? 404 });
+      });
+      return { get: get as unknown as typeof fetch, requested };
+    };
+
+    beforeEach(() => {
+      vi.stubEnv('GITHUB_RUN_ID', '4242');
+      vi.stubEnv('GITHUB_RUN_ATTEMPT', '1');
+    });
+
+    it('starts the history, and says so, when the site has a list but no rankings.json', async () => {
+      const { get, requested } = site({ 'hall-of-fame.json': '[]\n' });
+      expect(await deployedRankings(get)).toEqual({ list: '[]\n', index: null, archives: new Map() });
+      expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX]);
+      expect(console.log).toHaveBeenCalledWith('No rankings.json deployed: starting the rankings history');
+    });
+
+    it('fails on a site with no hall-of-fame.json, naming the opt-in for a new site', async () => {
+      const { get, requested } = site({});
+      await expect(deployedRankings(get)).rejects.toThrow(
+        "The deployed site has no hall-of-fame.json. For a new site, set the repository variable HOF_START_NEW_HISTORY to today's UTC date and deploy again",
+      );
+      expect(requested).toEqual(['hall-of-fame.json']);
+    });
+
+    it('reads a site with neither file as a new one when told to start a new history', async () => {
+      const { get, requested } = site({});
+      expect(await deployedRankings(get, { startNewHistory: true })).toEqual({ list: null, index: null, archives: new Map() });
+      expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX]);
+      expect(console.log).toHaveBeenCalledWith("No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks");
+    });
+
+    it("asks GitHub Pages past its CDN's cache, with the run in the query", async () => {
+      const urls: string[] = [];
+      const get = vi.fn(async (input: string | URL) => {
+        urls.push(String(input));
+        return new Response('Not Found', { status: 404 });
+      }) as unknown as typeof fetch;
+      await deployedRankings(get, { startNewHistory: true });
+      expect(urls).toEqual([
+        'https://evanlin23.github.io/BrainrotTCG/hall-of-fame.json?run=4242-1',
+        'https://evanlin23.github.io/BrainrotTCG/rankings.json?run=4242-1',
+      ]);
+    });
+
+    it('reads rankings.json and every archive it lists', async () => {
+      const { get, requested } = site({ 'hall-of-fame.json': '[]\n', ...deployed });
+      const read = await deployedRankings(get);
+      expect(read.index).toBe(deployed[RANKINGS_INDEX]);
+      expect([...read.archives].map(([m, a]) => [m, a.text, Object.keys(a.archive.days)])).toEqual([
+        ['2026-09', september, ['2026-09-30']],
+        ['2026-10', october, ['2026-10-03', '2026-10-16']],
+      ]);
+      expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX, archivePath('2026-09'), archivePath('2026-10')]);
+      expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('starting the rankings history'));
+    });
+
+    it.each([
+      ['hall-of-fame.json answering 500', { 'hall-of-fame.json': 500 }, 'The deployed hall-of-fame.json answered 500'],
+      ['hall-of-fame.json as a page', { 'hall-of-fame.json': '<!doctype html><title>Brainrot TCG</title>' }, "isn't a JSON list"],
+      ["hall-of-fame.json that isn't a list", { 'hall-of-fame.json': '{}' }, "isn't a JSON list"],
+      ['hall-of-fame.json out of reach', { 'hall-of-fame.json': new TypeError('fetch failed') }, 'fetch failed'],
+      ['rankings.json answering 503', { 'hall-of-fame.json': '[]', [RANKINGS_INDEX]: 503 }, 'The deployed rankings.json answered 503'],
+      ['rankings.json out of reach', { 'hall-of-fame.json': '[]', [RANKINGS_INDEX]: new TypeError('fetch failed') }, 'fetch failed'],
+      ['rankings.json as a page (a fallback)', { 'hall-of-fame.json': '[]', [RANKINGS_INDEX]: '<!doctype html><title>Brainrot TCG</title>' }, "The deployed rankings.json isn't JSON"],
+      ['rankings.json of another shape', { 'hall-of-fame.json': '[]', [RANKINGS_INDEX]: '{"archive":[]}' }, "The deployed rankings.json doesn't have exactly"],
+      ['a listed archive missing', { 'hall-of-fame.json': '[]', ...deployed, [archivePath('2026-09')]: 404 }, 'The deployed rankings.json lists rankings/daily-2026-09.json, which isn\'t deployed'],
+      ['a listed archive answering 500', { 'hall-of-fame.json': '[]', ...deployed, [archivePath('2026-09')]: 500 }, 'The deployed rankings/daily-2026-09.json answered 500'],
+      ['a listed archive that fails its check', { 'hall-of-fame.json': '[]', ...deployed, [archivePath('2026-10')]: october.trimEnd() }, "The daily archive for 2026-10 isn't written in its one form"],
+    ])('fails on %s', async (_, files, error) => {
+      await expect(deployedRankings(site(files).get)).rejects.toThrow(error);
+    });
+  });
+
+  describe('build', () => {
+    const rankingsDir = () => path.join(dir, 'rankings');
+    const read = (file: string) => readFileSync(path.join(dir, file), 'utf8');
+    /** Issue 1, the 4 of a Kind received today, and 51, rejected since it was archived. */
+    const github = (fixture: Partial<Fixture> = {}) =>
+      fakeGitHub({
+        issues: [issue(1, fourOfAKind), issue(51, null, { labels: ['hall-of-fame', 'rejected'] })],
+        comments: { 1: [comment(BOT, markerAt(fourOfAKind, '2026-10-16T10:00:00Z'), '2026-10-16T10:01:00Z')] },
+        published: [],
+        ...fixture,
+      });
+
+    it('starts the rankings with no rankings.json deployed', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      github();
+      await build(output());
+      const file = JSON.parse(read(RANKINGS_INDEX));
+      expect(file.archive).toEqual(['2026-10']);
+      expect(file.days.map((d: { day: string; board: { entries: ArchivedPull[] } }) => [d.day, d.board.entries.map((e) => e.issue)])).toEqual([
+        ['2026-10-16', [1]],
+        ['2026-10-15', []],
+      ]);
+      expect(read(archivePath('2026-10'))).toBe(month('2026-10', { '2026-10-16': file.days[0].board.entries }));
+      expect(readdirSync(rankingsDir())).toEqual(['daily-2026-10.json']);
+      expect(console.log).toHaveBeenCalledWith('No rankings.json deployed: starting the rankings history');
+    });
+
+    it('carries closed days forward byte for byte, less removed entries, and ranks the open days again', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      github({ site: deployed });
+      await build(output());
+      const file = JSON.parse(read(RANKINGS_INDEX));
+      expect(file.archive).toEqual(['2026-09', '2026-10']);
+      expect(read(archivePath('2026-09'))).toBe(september);
+      // The 3rd keeps its bytes less 51 and 52, with no refill; the 16th is ranked from the list (60 isn't on it).
+      expect(read(archivePath('2026-10'))).toBe(month('2026-10', { '2026-10-03': [archived(50, '2026-10-03', 30_000)], '2026-10-16': file.days[0].board.entries }));
+      expect(file.days[0].board.entries.map((e: ArchivedPull) => e.issue)).toEqual([1]);
+    });
+
+    it('keeps the deployed list and rankings unchanged when GitHub is down', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      const published = [{ issue: 1, deployed: true }];
+      github({ site: deployed, published, fail: (r) => r.path === '/issues' });
+      writeFileSync(output(), '[]\n');
+      await build(output());
+      expect(read(RANKINGS_INDEX)).toBe(deployed[RANKINGS_INDEX]);
+      expect(read(archivePath('2026-09'))).toBe(september);
+      expect(read(archivePath('2026-10'))).toBe(october);
+      expect(readFileSync(output(), 'utf8')).toBe(JSON.stringify(published));
+    });
+
+    it('builds a new site, with nothing deployed, from the issues when HOF_START_NEW_HISTORY names the day', async () => {
+      clockAt('2026-10-16T12:00:00Z');
+      vi.stubEnv('HOF_START_NEW_HISTORY', '2026-10-16');
+      github({ published: undefined });
+      await build(output());
+      expect(JSON.parse(readFileSync(output(), 'utf8')).map((e: { issue: number }) => e.issue)).toEqual([1]);
+      expect(JSON.parse(read(RANKINGS_INDEX)).archive).toEqual(['2026-10']);
+      expect(console.log).toHaveBeenCalledWith("No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks");
+    });
+
+    it.each([
+      ['the site has no hall-of-fame.json', { published: undefined }, 'set the repository variable HOF_START_NEW_HISTORY'],
+      ['the site has no hall-of-fame.json and HOF_START_NEW_HISTORY names another day', { published: undefined, startNewHistory: '2026-10-15' }, 'set the repository variable HOF_START_NEW_HISTORY'],
+      ['hall-of-fame.json answers 500', { site: { 'hall-of-fame.json': 500 } }, 'The deployed hall-of-fame.json answered 500'],
+      ['rankings.json is deployed but an archive it lists is not', { site: { [RANKINGS_INDEX]: deployed[RANKINGS_INDEX], [archivePath('2026-10')]: october } }, "which isn't deployed"],
+      ['rankings.json answers with a page', { site: { [RANKINGS_INDEX]: '<!doctype html><title>Brainrot TCG</title>' } }, "The deployed rankings.json isn't JSON"],
+    ])('fails the deploy, writing nothing, when %s', async (_, { startNewHistory, ...fixture }: Partial<Fixture> & { startNewHistory?: string }, error) => {
+      clockAt('2026-10-16T12:00:00Z');
+      if (startNewHistory) vi.stubEnv('HOF_START_NEW_HISTORY', startNewHistory);
+      const gh = github(fixture);
+      await expect(build(output())).rejects.toThrow(error);
+      expect(readdirSync(dir)).toEqual([]);
+      expect(gh.requests).toEqual([]);
+    });
   });
 });
 
@@ -1437,7 +1660,7 @@ describe('retention and intake contracts (offline)', () => {
     });
   });
 
-  it('keeps only the published list and the run caches, and never writes to public/', async () => {
+  it('keeps only the published list, the rankings and the run caches, and never writes to public/', async () => {
     const tracked = path.join(home, 'public', 'hall-of-fame.json');
     const before = existsSync(tracked) ? readFileSync(tracked, 'utf8') : null;
     const gh = fakeGitHub({
@@ -1449,12 +1672,12 @@ describe('retention and intake contracts (offline)', () => {
     // Kept: the qualifying pull. Discarded: one that doesn't qualify, a forgery and a rejected issue.
     const list = JSON.parse(readFileSync('hall-of-fame.json', 'utf8')) as { issue: number }[];
     expect(list.map((e) => e.issue)).toEqual([1]);
-    expect(readdirSync(dir).sort()).toEqual(['hall-of-fame.json', 'hof-build-cache.json']);
+    expect(readdirSync(dir).sort()).toEqual(['hall-of-fame.json', 'hof-build-cache.json', 'rankings.json']);
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
     // The run's counts-only summary (#715) is the one other file it leaves.
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json', 'hof-inbox-summary.json']);
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json', 'hof-inbox-summary.json', 'rankings.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });
