@@ -756,6 +756,9 @@ describe('inbox (scheduled workflow)', () => {
       expect(logged()).toContain('wss://a: 3 events, stopped at the page cap');
       expect(logged()).toContain(`wss://a: 3 older events up to ${new Date(at(events[4]) * 1000).toISOString()}, stopped at the page cap`);
       expect(seenIds().sort()).toEqual(events.slice(2).map((e) => e.id).sort());
+      // Each kept with its own event's time, the older read's included, so it leaves with its event.
+      const seenEntries = () => (JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8')) as [string, number][]).sort(([a], [b]) => a.localeCompare(b));
+      expect(seenEntries()).toEqual(events.slice(2).map((e) => [e.id, at(e)]).sort(([a], [b]) => String(a).localeCompare(String(b))));
 
       vi.mocked(fetchEvents).mockClear();
       await inbox();
@@ -865,12 +868,18 @@ describe('inbox (scheduled workflow)', () => {
     expect(gh.writes()).toEqual(FILED);
   });
 
-  it('fails the run when every relay failed, leaving the seen cache as it was', async () => {
+  it('fails the run when every relay failed, leaving the seen cache and read ranges as they were', async () => {
     const gh = fakeGitHub({ issues: [], published: [] });
     writeFileSync('hof-inbox-seen.json', JSON.stringify(['earlier']));
+    // Across the window's start (2026-10-09T12:00), so a run that wrote the ranges back would clip it.
+    const readThrough = JSON.stringify({ 'wss://a': [[Date.parse('2026-10-09T11:00:00Z') / 1000, Date.parse('2026-10-10T00:00:00Z') / 1000]] });
+    writeFileSync('hof-inbox-read.json', readThrough);
     const down = (relay: string) => ({ relay, count: 0, error: 'connection failed' });
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [down('wss://a'), down('wss://b'), { relay: 'wss://c', count: 0, error: 'timed out' }] });
     await expect(inbox()).rejects.toThrow('every relay failed (3 of 3); nothing was read');
+    // No older range is read, and what was read through stays as it was.
+    expect(fetchEvents).toHaveBeenCalledTimes(1);
+    expect(readFileSync('hof-inbox-read.json', 'utf8')).toBe(readThrough);
     expect(gh.requests).toEqual([]);
     expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(['earlier']);
     expect(outputs()).toEqual({});
