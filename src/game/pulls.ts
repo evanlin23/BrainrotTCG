@@ -15,6 +15,7 @@ import {
   type SetDefinition,
   type VerifiedPull,
 } from '../engine';
+import { cardFinishThumbUrl } from '../content/art';
 import { ALL_SET_VERSIONS, getSet } from '../content/sets';
 import { claimNonce, getPlayer, peekNonce, sameSave, saveMark, StaleSaveError, type SaveMark } from './player';
 import { recordPack, recordTicket } from './history';
@@ -84,10 +85,11 @@ export const toCardsWithMeta = (pulled: readonly PulledCardLike[], set?: SetDefi
 export const prefetchNextPack = (set: SetDefinition) => {
   void getTicket(setKey(set), getPlayer().publicKey, peekNonce())
     .then((ticket) => {
-      // And its cards' pictures, so they're cached before the tear (and there if the connection drops).
+      // And its cards' pictures, so they're cached before the tear (and there if the connection drops),
+      // with the ready-made thumbnail a finished card's summary tile shows (#620).
       for (const card of generatePack(set, packSeedFromTicket(ticket))) {
         const image = getCard(`${card.setId}/${card.cardId}`)?.image;
-        if (image) new Image().src = image;
+        for (const url of [image, image && cardFinishThumbUrl(image, card.finish)]) if (url) new Image().src = url;
       }
     })
     .catch(() => undefined);

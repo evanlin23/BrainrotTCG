@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cardFinishThumbUrl } from '../../content/art';
 import { getSet } from '../../content/sets';
 import { getSetCards, scoreCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
@@ -16,6 +17,12 @@ vi.mock('../share/CardShareSheet', () => ({
     return <div role="dialog">Sharing {props.card.name}</div>;
   },
 }));
+
+// jsdom has no canvas: the full-size finish renderer is stubbed to a recognisable URL.
+const { holdFinishedCardImage } = vi.hoisted(() => ({
+  holdFinishedCardImage: vi.fn((src: string, finish: string) => ({ image: Promise.resolve(`rendered:${finish}:${src}`), release: () => {} })),
+}));
+vi.mock('../../game/finishImage', async (importOriginal) => ({ ...await importOriginal<object>(), holdFinishedCardImage }));
 
 const set = getSet('genesis', 1)!;
 const cards: CardWithMeta[] = getSetCards(set.id).slice(0, 5).map((card, i) => ({
@@ -169,5 +176,43 @@ describe('sharing a card', () => {
     act(() => close.click());
     await vi.waitFor(() => expect(shareCard()).toBeUndefined());
     await vi.waitFor(() => expect(document.activeElement).toBe(gold));
+  });
+});
+
+describe('finished card tiles (#620)', () => {
+  const finished = cards.map((card, i) => ({ ...card, finish: (['SILVER', 'GOLD', 'PLATINUM', 'DIAMOND', null] as const)[i], isHolo: i === 2, misprint: i === 3 }) as CardWithMeta);
+  const tileImage = (i: number) => container.querySelectorAll<HTMLImageElement>('.summary-cards li img')[i];
+
+  beforeEach(() => {
+    holdFinishedCardImage.mockClear();
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    act(() => root.render(<PackSummaryUI openedCards={finished} set={set} onClose={() => {}} />));
+  });
+
+  it("show each finish's ready-made thumbnail, with no full-size render, and keep holo and misprint marks", () => {
+    for (const [i, card] of finished.entries()) {
+      expect(tileImage(i).getAttribute('src')).toBe(card.finish ? cardFinishThumbUrl(card.image, card.finish) : card.image);
+    }
+    expect(finished.slice(0, 4).every((card) => cardFinishThumbUrl(card.image, card.finish))).toBe(true);
+    expect(holdFinishedCardImage).not.toHaveBeenCalled();
+    const tiles = container.querySelectorAll('.summary-card');
+    expect(tiles[2].classList.contains('holo')).toBe(true);
+    expect(container.querySelector('.summary-cards .mod-label')).not.toBeNull();
+  });
+
+  it('render the finish full size when its thumbnail fails to load', async () => {
+    act(() => { tileImage(1).dispatchEvent(new Event('error')); });
+    expect(holdFinishedCardImage).toHaveBeenCalledExactlyOnceWith(finished[1].image, 'GOLD');
+    await vi.waitFor(() => expect(tileImage(1).getAttribute('src')).toBe(`rendered:GOLD:${finished[1].image}`));
+  });
+
+  it('render the finish full size up close, once the tile is opened', async () => {
+    const tile = container.querySelectorAll<HTMLButtonElement>('.summary-card')[1];
+    act(() => tile.click());
+    expect(holdFinishedCardImage).toHaveBeenCalledExactlyOnceWith(finished[1].image, 'GOLD');
+    await vi.waitFor(() => expect(document.querySelector(`[role="dialog"] img[src="rendered:GOLD:${finished[1].image}"]`)).not.toBeNull());
+    // The tile behind the viewer keeps its thumbnail.
+    expect(tileImage(1).getAttribute('src')).toBe(cardFinishThumbUrl(finished[1].image, 'GOLD'));
   });
 });
