@@ -117,18 +117,21 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
     const region = regionRef.current;
     if (!region) return;
     setSlot((was) => (was.for === layoutKey ? was : { for: layoutKey, height: 0 }));
-    const measure = () => {
-      const height = Math.ceil(region.getBoundingClientRect().height);
-      if (height <= 0) return;
-      setSlot((was) => (was.for === layoutKey && was.height >= height ? was : { for: layoutKey, height }));
-    };
-    // The region's height without the row held for it: what the toast up now needs after a resize.
-    const forget = () => {
+    // The region's height without the row held for it: what the toast up now needs. Read this way so the
+    // held row never feeds back into itself, and a reading taken between a resize and the re-render that
+    // drops the old row cannot bring that row back.
+    const needed = () => {
       region.style.minHeight = '0px';
       const height = Math.ceil(region.getBoundingClientRect().height);
       region.style.minHeight = '';
-      setSlot({ for: layoutKey, height });
+      return height;
     };
+    const measure = () => {
+      const height = needed();
+      if (height <= 0) return;
+      setSlot((was) => (was.for === layoutKey && was.height >= height ? was : { for: layoutKey, height }));
+    };
+    const forget = () => setSlot({ for: layoutKey, height: needed() });
     const observer = new ResizeObserver(measure);
     observer.observe(region);
     window.addEventListener('resize', forget);

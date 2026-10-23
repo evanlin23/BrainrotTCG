@@ -189,14 +189,16 @@ test('turning a phone on its side drops the held row, and turning it back leaves
   await expect(toast).toBeVisible();
   await expect.poll(() => blocked(page), { message: 'on its side nothing is under the toast' }).toEqual([]);
   expect(await squeezed(page)).toEqual([]);
-  // The turn re-lays the page out (the pack stage resizes); measure once it has stopped moving.
+  // The turn re-lays the page out and the pack eases into its new place: measure once it has held still
+  // for three reads in a row.
   let during = await placed(page);
+  let still = 0;
   await expect.poll(async () => {
     const was = during;
     during = await placed(page);
-    return JSON.stringify(was) === JSON.stringify(during);
-  }, { message: 'the page has settled on its side' }).toBe(true);
-  console.log('DURING', JSON.stringify(during.slice(2, 4)), 'region', await region());
+    still = JSON.stringify(was) === JSON.stringify(during) ? still + 1 : 0;
+    return still;
+  }, { message: 'the page has settled on its side', intervals: [250] }).toBeGreaterThanOrEqual(3);
 
   await toast.blur();
   await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
