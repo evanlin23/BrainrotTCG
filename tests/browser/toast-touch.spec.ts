@@ -7,11 +7,10 @@ import { expectSummaryTakesClicks, fingerFor, monitor } from './support';
  * or sideways follows the finger and sends it away for good, as does its own X (which opens nothing); a toast the player has seen does not come back
  * every time a sheet closes; and none shows over the pack while it is torn and revealed, or covers the pack's X,
  * the headline, the cards or the buttons at any phone size. Phone emulation (touch, Chromium), not a physical
- * phone. A toast is held with focus while it is measured, so none times out between steps, and the page's own
- * clock is waited on, never a fixed pause.
+ * phone; the mobile-chromium project runs it (the desktop one leaves it out, in playwright.config.ts). A toast
+ * is held with focus while it is measured, so none times out between steps, and the page's own clock is
+ * waited on, never a fixed pause.
  */
-
-test.skip(({ hasTouch }) => !hasTouch, 'touch only');
 
 const TOUCH_TARGET = 44;
 

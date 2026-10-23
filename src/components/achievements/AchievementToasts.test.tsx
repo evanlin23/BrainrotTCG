@@ -5,6 +5,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TOAST_SEEN_MS } from '../../constants/toast';
 import AchievementToasts, { GROUPED_TOAST_MS, TOAST_MS, type ToastItem } from './AchievementToasts';
 
+// The real framer-motion, except that the toast's drag handlers are kept, so a swipe can be played into it
+// (jsdom has no pointer gestures to drag with).
+const drag: { onDrag?: (event: unknown, info: unknown) => void; onDragEnd?: (event: unknown, info: unknown) => void } = {};
+vi.mock('framer-motion', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('framer-motion')>();
+  const { createElement, forwardRef } = await import('react');
+  const Div = actual.motion.div;
+  const Spy = forwardRef<HTMLDivElement, Record<string, unknown>>((props, ref) => {
+    drag.onDrag = props.onDrag as typeof drag.onDrag;
+    drag.onDragEnd = props.onDragEnd as typeof drag.onDragEnd;
+    return createElement(Div, { ...props, ref });
+  });
+  return { ...actual, motion: { ...actual.motion, div: Spy } };
+});
+
 // The app's own queue: dismissing removes ids, and re-rendering with `held` holds it as a big pull's
 // showcase does, or with `paused` as an open sheet does (the queue's state survives the re-render).
 const dismissed: string[][] = [];
@@ -134,6 +149,88 @@ describe('dismissing a toast with the keyboard', () => {
     expect(key.defaultPrevented).toBe(true);
     await act(() => vi.advanceTimersByTimeAsync(400));
     expect(toasts()).toEqual(['Level 2']);
+  });
+});
+
+describe('swiping a toast away', () => {
+  const thrown = { offset: { x: 120, y: 0 }, velocity: { x: 900, y: 0 } };
+
+  it('does not leave the next toast deaf to its first tap, which a screen reader makes with no press before it', async () => {
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    act(() => {
+      drag.onDrag!(null, thrown);
+      drag.onDragEnd!(null, thrown);
+    });
+    expect(dismissed).toEqual([['pack-kept-1']]);
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(toasts()).toEqual(['Level 2']);
+    // No pointerdown or key first: the toast is activated as an assistive technology does.
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
+    expect(opened).toEqual(['profile']);
+    expect(dismissed).toEqual([['pack-kept-1'], ['level-2']]);
+  });
+
+  it('still swallows the click that ends a swipe which stopped short, once', () => {
+    act(() => root.render(<Harness initial={[kept]} />));
+    const short = { offset: { x: 30, y: 0 }, velocity: { x: 0, y: 0 } };
+    act(() => {
+      drag.onDrag!(null, short);
+      drag.onDragEnd!(null, short);
+    });
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
+    expect(opened).toEqual([]);
+    expect(dismissed).toEqual([]);
+    act(() => document.querySelector<HTMLElement>('.toast-open')!.click());
+    expect(opened).toEqual(['collection']);
+  });
+});
+
+describe('where the focus goes when the keyboard dismisses a toast', () => {
+  const dismissButton = () => document.querySelector<HTMLButtonElement>('button.toast-dismiss')!;
+  // Outside the toasts' own root, which clears what it was given.
+  const outside = () => document.body.appendChild(document.createElement('button'));
+  afterEach(() => document.querySelectorAll('body > button').forEach((el) => el.remove()));
+  const before = () => {
+    const button = outside();
+    act(() => button.focus());
+    return button;
+  };
+
+  it('hands it back to the element that had it before the toast took it, from its X', () => {
+    const origin = before();
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    act(() => dismissButton().focus());
+    expect(document.activeElement).toBe(dismissButton());
+    act(() => dismissButton().click());
+    expect(dismissed).toEqual([['pack-kept-1']]);
+    expect(document.activeElement).toBe(origin);
+  });
+
+  it('does the same for Escape on the body', () => {
+    const origin = before();
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    const toast = document.querySelector<HTMLElement>('.toast-open')!;
+    act(() => toast.focus());
+    act(() => toast.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(origin);
+  });
+
+  it('leaves focus alone when the toast did not have it (a tap, or a toast timing out)', async () => {
+    const origin = before();
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    expect(document.activeElement).toBe(origin);
+    await act(() => vi.advanceTimersByTimeAsync(TOAST_MS));
+    expect(document.activeElement).toBe(origin);
+  });
+
+  it('does not pull focus back from where the player moved it since', () => {
+    before();
+    act(() => root.render(<Harness initial={[kept, levelUp]} />));
+    act(() => dismissButton().focus());
+    const elsewhere = outside();
+    act(() => elsewhere.focus());
+    act(() => dismissButton().click());
+    expect(document.activeElement).toBe(elsewhere);
   });
 });
 

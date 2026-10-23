@@ -103,6 +103,10 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   // Set by a swipe, cleared by the click it ends in (or the next press or key): a swipe that stops short
   // is not a tap, and does not leave the toast deaf to Enter and Space.
   const swiped = useRef(false);
+  // The toast's element, and the one that had the focus before the keyboard moved it onto the toast: its
+  // X (or Escape) hands the focus back there, since the toast it was on is gone.
+  const toastEl = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
 
   // The toast up now and since when. A sheet, page or pack that takes the screen after it has been seen
   // lets it go; one that arrives first only holds it. Declared before the key effect, so it still reads
@@ -117,6 +121,9 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
   useEffect(() => {
     liveKey.current = key;
     upSince.current = key ? { key, at: Date.now() } : null;
+    // A swipe that sent the last toast away is over: the next one's first activation (a screen reader's
+    // sends no press or key first) is a tap.
+    swiped.current = false;
   }, [key]);
 
   useEffect(() => {
@@ -128,6 +135,14 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
     return () => window.clearTimeout(timer);
   }, [key, grouped, holding, onDismiss]);
 
+  // The keyboard dismissed the toast it was on: the focus goes back to where it was before, not to the page.
+  const handBackFocus = () => {
+    const active = document.activeElement;
+    const back = returnFocus.current;
+    returnFocus.current = null;
+    if (active instanceof HTMLElement && toastEl.current?.contains(active) && focusVisible(active) && back?.isConnected) back.focus();
+  };
+
   // A click on the body (open it) or on the X (just dismiss). Neither counts after a swipe, or on a toast
   // already fading out.
   const leave = (open: boolean) => {
@@ -136,6 +151,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
       swiped.current = false;
       return;
     }
+    if (!open) handBackFocus();
     setAway(STAY);
     onDismiss(shown.map((a) => a.id));
     if (open) onOpen(shown[0].opens ?? 'achievements');
@@ -159,15 +175,21 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
           {key && (
             <motion.div
               key={key}
+              ref={toastEl}
               className={`toast ${!grouped && shown[0].kicker ? 'toast--detail' : ''}`}
               onPointerEnter={() => setPointerOn(key)}
               onPointerLeave={() => setPointerOn('')}
               // Only focus from the keyboard holds it: a click or swipe leaves focus on a button, which
               // would otherwise hold it up for good. Focus bubbles up from either button.
               onFocus={(event) => {
+                const from = event.relatedTarget;
+                if (from instanceof HTMLElement && !event.currentTarget.contains(from)) returnFocus.current = from;
                 if (focusVisible(event.target as HTMLElement)) setFocusOn(key);
               }}
-              onBlur={() => setFocusOn('')}
+              onBlur={(event) => {
+                setFocusOn('');
+                if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) returnFocus.current = null;
+              }}
               onPointerDown={() => {
                 swiped.current = false;
               }}
@@ -176,6 +198,7 @@ const AchievementToasts = ({ queue, onDismiss, onOpen, paused = false, held = fa
                 if (event.key !== 'Escape' || liveKey.current !== key) return;
                 // The pack's own Escape (leave the pack) is for when no toast has the focus.
                 event.preventDefault();
+                handBackFocus();
                 setAway(STAY);
                 onDismiss(shown.map((a) => a.id));
               }}

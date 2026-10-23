@@ -28,7 +28,6 @@ const savingData = () => (navigator as Navigator & { connection?: { saveData?: b
 const canOpenPack = () => pageForHash(location.hash) === null && !isLinkHash(location.hash);
 
 /**
-/**
  * Run `task` ahead of the first pack: once the sealed pack's art has settled and the page is shown and
  * idle, unless the visitor saves data or is on a page or link that can't open a pack. It waits for the
  * sealed pack's art, which the first screen needs more.
