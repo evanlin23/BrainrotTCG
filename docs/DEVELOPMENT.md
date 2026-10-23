@@ -819,23 +819,26 @@ requests and bytes. It prints one JSON line per run (`PERF_REPETITIONS`, default
 `CHROMIUM_PATH` when Playwright's own browser build isn't installed. Same emulation limits as above
 (#8): the CPU slowdown doesn't reach the worker that re-derives a shared pull.
 
-Before and after #762's changes (slots ready once decoded, visible faces fetched first, the next
-pack's art left until the Open screen shows), n=3 each, ranges, on a 4-vCPU 2.1 GHz Xeon host with
-Chromium 141 headless (emulation, not a device):
+Before and after #762's changes, n=3 each, ranges, on a 4-vCPU 2.1 GHz Xeon host with Chromium 141
+headless (emulation, not a device). The changes: a slot is ready once decoded (or a second after a
+decode that never settles), the faces a screen shows first are fetched at high priority, Rankings rows
+below the first screen load lazily, and the next pack's art waits until the route shows the Open screen.
 
-| | Before (`8674c13`) | After |
+| | Before (`8674c13`) | After (`87b044a`) |
 | --- | --- | --- |
-| Finished pull: verified | 3950 to 3983 ms | 3822 to 4110 ms |
-| Finished pull: last slot drawn after verified | 4849 to 4883 ms | 2433 to 2517 ms |
+| Finished pull: verified | 3950 to 3983 ms | 3661 to 4028 ms |
+| Finished pull: last slot drawn after verified | 4849 to 4883 ms | 2467 to 2616 ms |
 | Finished pull: art requests, bytes | 6 to 7, 494 to 657 KB | 5, 442 KB |
-| Plain pull: last slot drawn after verified | 3683 to 3884 ms | 1516 to 1550 ms |
+| Plain pull: last slot drawn after verified | 3683 to 3884 ms | 1583 to 1667 ms |
 | Plain pull: art requests, bytes | 3, 317 KB | 2, 264 KB |
-| Rankings: first row's thumbs | 8542 to 8856 ms | 8586 to 8789 ms |
-| Rankings: every on-screen thumb | 13142 to 13339 ms | 12869 to 12972 ms |
+| Rankings: first row's thumbs | 8542 to 8856 ms | 8697 to 8946 ms |
+| Rankings: every on-screen thumb | 13142 to 13339 ms | 12997 to 13046 ms |
 
 Most of the pull saving is bandwidth the next pack's art no longer takes. Rankings is bound by
-bytes: each 30 px thumb downloads the full-size art (about 144 KB), so a smaller plain-card
-thumbnail is what would move it.
+bytes: each 30 px thumb downloads the full-size art (about 144 KB), and 12 of them (1.73 MB) are
+in by the time the screen's thumbs show, with or without the lazy rows (probably because Chromium's
+lazy-load margin on a slow connection reaches the bottom of a 20-row board). A smaller plain-card thumbnail
+is what would move it.
 
 ### Proposed budgets (not enforced)
 

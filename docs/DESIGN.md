@@ -68,10 +68,14 @@ from a 390 px wide screen.
    visible focus ring; touch targets are at least 44 px; panels trap focus and close with Escape;
    motion is reduced when the OS asks for it.
 10. **Fast and steady.** Images have fixed aspect ratios so nothing jumps while loading. Card art shows a
-    placeholder while it loads (a shimmer only when motion is allowed; the 26-30px thumbs in Rankings and pull rows use a lighter wash so they don't read as dark boxes; a finish caption waits for the art, and the placeholder gives way only once the art is decoded, #762) and a hatched slot if it fails. The faces a screen shows first are fetched at high priority, and the next pack's art waits until the Open screen shows; the
-    card viewer offers Retry, and failed art also retries when the device comes back online. Standard UI transitions
-    are 120–320 ms (rare pull celebrations and card shimmers run longer, and specific card/reveal effects animate
-    properties like box-shadow or clip-path).
+    placeholder while it loads: a shimmer only when motion is allowed, and a lighter wash on the
+    26-30px thumbs in Rankings and pull rows so they don't read as dark boxes. A finish caption waits
+    for the art. The placeholder gives way once the art is decoded, or a second after the load if
+    decoding never settles (#762). Art that fails becomes a hatched slot. The faces a screen shows
+    first are fetched at high priority, and the next pack's art waits until the app shows the Open
+    screen. The card viewer offers Retry, and failed art also retries when the device comes back
+    online. Standard UI transitions are 120–320 ms (rare pull celebrations and card shimmers run
+    longer, and specific card/reveal effects animate properties like box-shadow or clip-path).
 
 ## First-pack flow decision (#898)
 
