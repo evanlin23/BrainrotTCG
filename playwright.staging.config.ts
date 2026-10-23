@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { stagingAccess } from './tests/browser/stagingAccess';
 
 /*
  * Staging checks (docs/HOSTING.md#staging).
@@ -12,8 +13,16 @@ import { defineConfig, devices } from '@playwright/test';
  * subdomain of the build's VITE_STAGING_HOST_SUFFIX) and at http://127.0.0.1:PORT/ (a production one,
  * checked by staging-local.check.ts, which the deploy leaves out: its production still serves the
  * previous release).
+ *
+ * Real staging may sit behind Cloudflare Access (docs/HOSTING.md#staging). With the Access service
+ * token in CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET, the network guard (monitor in
+ * tests/browser/support.ts) sends its headers on each request to the staging origin and nowhere else:
+ * no extraHTTPHeaders, which would reach every host. The global setup stops the run first, with an
+ * error naming the token, when Access refuses it. Traces record request headers, so they stay off
+ * while the token is set.
  */
 const STAGING_URL = process.env.STAGING_URL?.replace(/\/*$/, '/');
+const ACCESS = STAGING_URL ? stagingAccess() : null;
 const PORT = 4176;
 
 export default defineConfig({
@@ -27,9 +36,10 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   outputDir: 'test-results/staging',
+  globalSetup: STAGING_URL ? './tests/browser/staging-access.setup.ts' : undefined,
   use: {
     baseURL: STAGING_URL ?? `http://staging.localhost:${PORT}/`,
-    trace: 'retain-on-failure',
+    trace: ACCESS ? 'off' : 'retain-on-failure',
     screenshot: 'only-on-failure',
     serviceWorkers: 'block',
   },

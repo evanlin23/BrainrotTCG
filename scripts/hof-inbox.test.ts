@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { schnorr } from '@noble/curves/secp256k1.js';
+import { describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { decodeProof, encodeProof, pullId, signProof, utf8 } from '../src/engine/index.ts';
 import { hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { addRanges, buildSkipLine, clipRanges, deferredFrom, everyRelayFailed, logSafeError, newestGap, oldestGap, olderReadLine, parseReadRanges, parseSeenCache, probeLine, processInbox, rangeRead, relayReadLine, seenCacheText, type InboxContext } from './hof-inbox.ts';
+import { addRanges, buildSkipLine, clipRanges, deferredFrom, everyRelayFailed, logSafeError, newestGap, oldestGap, olderReadLine, parseFiledIndex, parseReadRanges, parseSeenCache, probeLine, processInbox, rangeRead, relayReadLine, seenCacheText, type InboxContext } from './hof-inbox.ts';
+
+// Count signature checks (schnorr is frozen, so it can't be spied on in place).
+vi.mock('@noble/curves/secp256k1.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@noble/curves/secp256k1.js')>();
+  return { ...actual, schnorr: { ...actual.schnorr, verify: vi.fn(actual.schnorr.verify) } };
+});
 
 const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.proof;
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
@@ -42,6 +49,38 @@ describe('Hall of Fame inbox', () => {
     expect((await processInbox(events, ctx)).added).toBe(0);
   });
 
+  it("passes over a pull only a kept index calls filed, but doesn't mark its event seen", async () => {
+    const id = idOf(fourOfAKind);
+    const { ctx, filedProofs } = context({ filed: new Set([id]), unconfirmed: new Set([id]) });
+    const event = hallOfFameEvent(fourOfAKind, id, 1000);
+    const later = hallOfFameEvent(fourOfAKind, 'later', 2000);
+    // The oldest one passed over is reported, so the caller doesn't count its time as handled.
+    expect(await processInbox([later, event], ctx)).toEqual({ added: 0, deferred: 0, unconfirmedFrom: 1 });
+    expect(ctx.seen.has(event.id)).toBe(false);
+    // Once a full listing no longer has it, the same event is filed.
+    ctx.filed.clear();
+    ctx.unconfirmed!.clear();
+    expect((await processInbox([event], ctx)).added).toBe(1);
+    expect(filedProofs).toEqual([fourOfAKind]);
+  });
+
+  it('reports an unconfirmed pass-over when it stops early, at the budget or on a filing failure', async () => {
+    const passedId = idOf(pair);
+    const passed = hallOfFameEvent(pair, passedId, 1000);
+    const next = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 2000);
+    const over = context({ filed: new Set([passedId]), unconfirmed: new Set([passedId]), budget: 0 });
+    expect(await processInbox([next, passed], over.ctx)).toEqual({ added: 0, deferred: 1, unconfirmedFrom: 1 });
+    const failing = context({
+      filed: new Set([passedId]),
+      unconfirmed: new Set([passedId]),
+      file: async () => {
+        throw new Error('GitHub 502');
+      },
+    });
+    expect(await processInbox([next, passed], failing.ctx)).toEqual({ added: 0, deferred: 1, unconfirmedFrom: 1 });
+    expect(failing.ctx.seen.has(next.id)).toBe(false);
+  });
+
   it('ignores pulls that do not qualify, do not verify, or are already in the Hall of Fame', async () => {
     const forged = fourOfAKind.slice(0, -4) + (fourOfAKind.endsWith('AAAA') ? 'BBBB' : 'AAAA');
     const { ctx, filedProofs } = context({ filed: new Set([idOf(byNote('mined 3 of a Kind'))]) });
@@ -53,6 +92,21 @@ describe('Hall of Fame inbox', () => {
     ];
     expect((await processInbox(events, ctx)).added).toBe(0);
     expect(filedProofs).toEqual([]);
+  });
+
+  it('checks signatures only of events not handled yet, and a failing one stays unhandled (#1000)', async () => {
+    const { ctx, filedProofs } = context();
+    const good = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind));
+    const badSig = { ...good, sig: (good.sig[0] === '0' ? '1' : '0') + good.sig.slice(1) };
+    const handled = hallOfFameEvent(pair, idOf(pair));
+    ctx.seen.add(handled.id);
+    vi.mocked(schnorr.verify).mockClear();
+    expect(await processInbox([handled, badSig], ctx)).toEqual({ added: 0, deferred: 0 });
+    expect(vi.mocked(schnorr.verify).mock.calls.length).toBe(1);
+    expect(ctx.seen.has(badSig.id)).toBe(false);
+    // The copy that verifies, read later, is still filed.
+    expect(await processInbox([good], ctx)).toEqual({ added: 1, deferred: 0 });
+    expect(filedProofs).toEqual([fourOfAKind]);
   });
 
   it("sets aside a pull whose display name isn't allowed without checking it or spending budget", async () => {
@@ -282,6 +336,35 @@ describe('Hall of Fame log lines and the legacy ##[command] form', () => {
   });
 });
 
+describe('parseFiledIndex (#1000)', () => {
+  const now = 1_800_000_000_000;
+  const day = 86_400_000;
+  const id = idOf(fourOfAKind);
+  const text = (data: unknown) => JSON.stringify(data);
+
+  it('reads an index listed within the max age', () => {
+    const index = { listedAt: now - day, issues: { 1: [id, 'Combo Miner'], 20: [id, 'xXfuckXx'] } };
+    expect(parseFiledIndex(text(index), now, day)).toEqual(index);
+    expect(parseFiledIndex(text({ listedAt: now, issues: {} }), now, day)).toEqual({ listedAt: now, issues: {} });
+  });
+
+  it.each([
+    ['not JSON', '{'],
+    ['not an object', '[]'],
+    ['too old', text({ listedAt: now - day - 1, issues: {} })],
+    ['from the future', text({ listedAt: now + 1, issues: {} })],
+    ['without a time', text({ issues: {} })],
+    ['without issues', text({ listedAt: now })],
+    ['issues as a list', text({ listedAt: now, issues: [] })],
+    ['an issue number that is not one', text({ listedAt: now, issues: { '01': [id, 'a'] } })],
+    ['an entry without a name', text({ listedAt: now, issues: { 1: [id] } })],
+    ['an empty pull id', text({ listedAt: now, issues: { 1: ['', 'a'] } })],
+    ['a name that is not text', text({ listedAt: now, issues: { 1: [id, 5] } })],
+  ])('reads nothing from an index %s', (_, raw) => {
+    expect(parseFiledIndex(raw, now, day)).toBeNull();
+  });
+});
+
 describe('read ranges (#999)', () => {
   it('merges ranges that overlap or touch, and clips them', () => {
     expect(addRanges([[10, 20], [40, 50]], [[21, 25], [30, 45], [5, 3]])).toEqual([[10, 25], [30, 50]]);
@@ -338,8 +421,16 @@ describe('read ranges (#999)', () => {
     expect(relayReadLine({ relay: 'wss://a', count: 4942, more: 60 })).toBe('wss://a: 4942 events, stopped at the page cap');
     expect(olderReadLine({ relay: 'wss://a', count: 258 }, 60)).toBe('wss://a: 258 older events up to 1970-01-01T00:01:00.000Z');
     expect(olderReadLine({ relay: 'wss://a', count: 5000, more: 50 }, 60)).toBe('wss://a: 5000 older events up to 1970-01-01T00:01:00.000Z, stopped at the page cap');
-    for (const line of [relayReadLine({ relay: 'wss://a', count: 1, more: 1 }), olderReadLine({ relay: 'wss://a', count: 0, error: 'timed out' }, 60)]) {
+    for (const line of [relayReadLine({ relay: 'wss://a', count: 1, more: 1 }), olderReadLine({ relay: 'wss://a', count: 0, error: 'timed out' }, 60), relayReadLine({ relay: 'wss://a', count: 1, crowded: [60] })]) {
       expect(line).not.toMatch(/^wss:\/\/\S+: \d+ events \(/);
     }
+  });
+
+  it('names the crowded seconds a read paged past, and counts them as read (#1057)', () => {
+    expect(relayReadLine({ relay: 'wss://a', count: 202, crowded: [120, 60] })).toBe('wss://a: 202 events, read past 2 seconds with more events than a page (newest 1970-01-01T00:02:00.000Z)');
+    expect(olderReadLine({ relay: 'wss://a', count: 5000, more: 50, crowded: [60] }, 60)).toBe('wss://a: 5000 older events up to 1970-01-01T00:01:00.000Z, stopped at the page cap, read past 1 second with more events than a page (newest 1970-01-01T00:01:00.000Z)');
+    // A crowd can't be paged into, so it is read through rather than a gap every later run would pick.
+    expect(rangeRead({ crowded: [60] }, 0, 100)).toEqual([[0, 100]]);
+    expect(rangeRead({ more: 50, crowded: [60] }, 0, 100)).toEqual([[51, 100]]);
   });
 });

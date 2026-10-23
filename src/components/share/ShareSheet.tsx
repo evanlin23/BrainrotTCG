@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Crown, ShieldCheck } from 'lucide-react';
+import { Crown, Info, ShieldCheck } from 'lucide-react';
 import type { CardWithMeta } from '../cards/Card';
 import type { PackScore } from '../../engine';
 import { decodeProof, pullId, qualifiesForHallOfFame, utcDay, wouldJoinHallOfFame } from '../../engine';
@@ -11,6 +11,7 @@ import { bragText } from '../../game/share';
 import { useHallOfFameSubmit } from './useHallOfFameSubmit';
 import { renderPoster } from '../../game/bragImage';
 import Sheet from '../ui/Sheet';
+import { NOT_QUALIFYING } from '../ui/rankingsRule';
 import PackCardViewer from '../ui/PackCardViewer';
 import { revealOrder } from '../../game/reveal';
 import SharePreviewSheet from './SharePreviewSheet';
@@ -41,12 +42,13 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
   const id = useMemo(() => (proof ? pullId(decodeProof(proof)) : ''), [proof]);
   // Submit only what would make the list (the top pulls or today's top in UTC); until it loads,
   // anything that qualifies.
+  const qualifies = qualifiesForHallOfFame(target.score);
   const [list, setList] = useState<HallOfFameEntry[] | null>(null);
   useEffect(() => {
-    if (qualifiesForHallOfFame(target.score)) loadHallOfFame().then(setList);
-  }, [target.score]);
+    if (qualifies) loadHallOfFame().then(setList);
+  }, [qualifies]);
   const listed = !!list?.some((e) => e.id === id);
-  const joins = qualifiesForHallOfFame(target.score) && (!list || wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())));
+  const joins = qualifies && (!list || wouldJoinHallOfFame({ id, setId: target.ref.setId, score: target.score }, list, utcDay(new Date().toISOString())));
 
   if (!shareable) {
     return (
@@ -86,10 +88,14 @@ const ShareSheet = ({ target, onClose }: ShareSheetProps) => {
       actions={
         listed ? (
           <p className="share-note">
-            <Crown aria-hidden="true" /> This pull is in the Hall of Fame.
+            <Crown aria-hidden="true" /> This pull is in Rankings.
           </p>
-        ) : (
+        ) : qualifies ? (
           joins && <HallOfFameSubmit proof={proof} id={id} score={target.score.score} />
+        ) : (
+          <p className="share-note">
+            <Info aria-hidden="true" /> {NOT_QUALIFYING}
+          </p>
         )
       }
     >
@@ -121,16 +127,16 @@ const HallOfFameSubmit = ({ proof, id, score }: { proof: string; id: string; sco
 
   const note =
     state === 'sent'
-      ? `It shows in the Hall of Fame now, checked on each visitor's device, and is filed for good within the hour.`
+      ? `It shows in Rankings now, checked on each visitor's device, and is filed for good within the hour.`
       : state === 'failed'
         ? "Couldn't reach any relay. Try again."
-        : 'No account needed. It shows in the Hall of Fame right away.';
+        : 'No account needed. It shows in Rankings right away.';
 
   return (
     <div className="share-hof">
       <Crown aria-hidden="true" />
       <span>
-        <strong>This makes the Hall of Fame</strong>
+        <strong>This makes Rankings</strong>
         <span role="status">{note}</span>
         <span className="share-hof-public">Your display name and public key become public.</span>
       </span>

@@ -5,6 +5,7 @@ import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
 import type { Finish, Rarity } from '../../src/engine/types';
+import { accessHeaders, stagingAccess, type StagingAccess } from './stagingAccess';
 
 // On-disk boundary shapes: importing UI Stats pulls TSX/Vite assets into the Node test project.
 interface RecordedCard {
@@ -45,20 +46,33 @@ export interface MonitorOptions {
    * product's own Hall of Fame relays are the one exception: closed unconnected and not recorded.
    */
   allowWebSocket?: boolean | string[] | ((socket: WebSocketRoute) => boolean | void);
-  /** Fail the running test at teardown when the guard recorded an attempt. Default true. */
+  /** Fail the running test at teardown when the guard recorded an attempt or a failed fetch. Default true. */
   failOnUnexpected?: boolean;
   /**
    * Keep the original same-origin `route.continue()` (after the origin, method and path checks)
    * instead of fetching and fulfilling the response. Cold performance runs need it: fulfilled
    * responses skip CDP network throttling and change byte accounting. Redirects and CSP are then
-   * only observed, never enforced.
+   * only observed, never enforced. With a staging Access token (`access`) every request is still
+   * fetched: a continued request would send the token on to wherever a redirect leads, and Chromium
+   * stalls a continued cross-origin request from a page whose document was fulfilled.
    */
   continueAllowed?: boolean;
+  /**
+   * The Cloudflare Access service token for real staging (stagingAccess.ts): its headers go on every
+   * request to its origin, from the page and its workers, and to no other origin. Defaults to the
+   * one in the environment, which is null unless STAGING_URL and the token are set.
+   */
+  access?: StagingAccess | null;
 }
 
 export type MonitorErrors = string[] & {
   /** Sanitized unexpected network attempts (at most 40), kept apart from product errors. */
   blocked: string[];
+  /**
+   * Sanitized monitored requests whose fetch failed (at most 40): the method, the URL without its
+   * query and the reason, for a page that only saw net::ERR_FAILED.
+   */
+  failed: string[];
   /**
    * The monitor's HTTP policy for guards that cannot use `page.route` (warm runs, which keep the
    * HTTP cache): null when the request is allowed, otherwise the status and body to answer with.
@@ -95,6 +109,18 @@ function sanitizeAttempt(method: string, urlString: string, note?: string): stri
 }
 
 /**
+ * Why a fetch failed: the first line of the error without Playwright's `route.fetch:` prefix, URLs in
+ * it sanitized and the given secrets redacted. The call log under that line repeats the full URL and
+ * every request header, the Access token included, so none of it is kept.
+ */
+export function fetchFailureReason(error: unknown, secrets: readonly string[]): string {
+  const message = error instanceof Error ? error.message : String(error);
+  let reason = message.split('\n', 1)[0].replace(/^[\w.]+: /, '').replace(/\b(?:https?|wss?):\/\/[^\s'"()]+/g, sanitizeUrl);
+  for (const secret of secrets) if (secret) reason = reason.split(secret).join('[redacted]');
+  return reason.slice(0, 200) || 'no reason given';
+}
+
+/**
  * Collects page errors, enforces network guard isolation, and seeds a fixture player.
  * `returning` also records saved packs, so the tabs show: a new player sees only the packs screen
  * until their first pack is saved (#222).
@@ -103,7 +129,9 @@ function sanitizeAttempt(method: string, urlString: string, note?: string): stri
  * - Only intended local read requests/paths are permitted; writes are refused with 403.
  * - Redirects are inspected with maxRedirects: 0; any redirect escape outside allowed origin/path is refused with 403.
  * - CSP is applied to enforce boundaries inside workers.
- * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence.
+ * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence, and on monitored
+ *   requests whose fetch failed, named the same way (one failing because the page or context closed
+ *   is teardown itself, and isn't recorded).
  * - routeHttp: false preserves the HTTP cache for warm performance measurements (baseline.spec.ts).
  */
 export async function monitor(
@@ -123,6 +151,7 @@ export async function monitor(
     allowWebSocket,
     failOnUnexpected = true,
     continueAllowed = false,
+    access = stagingAccess(),
   } = options;
 
   const errors = [] as unknown as MonitorErrors;
@@ -137,6 +166,11 @@ export async function monitor(
     if (blocked.length < MAX_BLOCKED_ENTRIES && !blocked.includes(entry)) {
       blocked.push(entry);
     }
+  };
+  const failed: string[] = [];
+  Object.defineProperty(errors, 'failed', { value: failed, enumerable: false });
+  const noteFailed = (entry: string) => {
+    if (failed.length < MAX_BLOCKED_ENTRIES && !failed.includes(entry)) failed.push(entry);
   };
 
   const base = new URL(baseURL);
@@ -197,16 +231,21 @@ export async function monitor(
 
   let failedTeardown = false;
   const checkUnexpectedTeardown = () => {
-    if (failedTeardown) return;
-    if (failOnUnexpected && blocked.length > 0) {
+    if (failedTeardown || !failOnUnexpected) return;
+    const messages = [];
+    if (blocked.length > 0) {
+      messages.push(`Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`);
+    }
+    if (failed.length > 0) {
+      messages.push(`Monitored request${failed.length === 1 ? '' : 's'} failed in the network guard (${failed.length}):\n${failed.join('\n')}`);
+    }
+    if (messages.length > 0) {
       failedTeardown = true;
       try {
         const currentTest = test.info();
         if (currentTest) {
           currentTest.status = 'failed';
-          currentTest.errors.push({
-            message: `Unexpected browser I/O blocked by network guard (${blocked.length} attempt${blocked.length === 1 ? '' : 's'}):\n${blocked.join('\n')}`,
-          });
+          for (const message of messages) currentTest.errors.push({ message });
         }
       } catch {
         // test.info() unavailable outside active test runner
@@ -272,6 +311,8 @@ export async function monitor(
   // responses are fetched; with continueAllowed the browser follows redirects itself, so the
   // hop is only observed here.
   const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+  // As many redirects as Chromium follows for one request.
+  const MAX_ACCESS_HOPS = 20;
   const redirectTarget = (from: string, location: string | undefined): URL | null => {
     if (!location) return null;
     try {
@@ -360,28 +401,44 @@ export async function monitor(
         return route.fulfill({ status: refusal.status, contentType: 'text/plain', body: refusal.body });
       }
 
-      if (continueAllowed) return route.continue();
+      if (continueAllowed && !access) return route.continue();
+      const token = accessHeaders(request.url(), access);
 
       let response;
+      let url = request.url();
       try {
         // One connection per request: a kept-alive socket the preview server closes while the machine is
         // busy fails the next request with ECONNRESET, which aborted a chunk or the favicon and failed the test.
-        // The catch below still aborts without saying why, and page.request shares the pool: see #1046.
-        response = await route.fetch({ maxRedirects: 0, headers: { ...request.headers(), connection: 'close' } });
-      } catch {
+        const headers = { headers: { ...request.headers(), connection: 'close', ...token } };
+        response = await route.fetch({ maxRedirects: 0, ...headers });
+        // The browser sends the hop after a fulfilled redirect itself, past this handler, so on
+        // staging it would go without the token: follow staging's redirects to its own origin here.
+        // The page then gets the last response at the URL it asked for.
+        for (let hop = 0; token && hop < MAX_ACCESS_HOPS && REDIRECTS.has(response.status()); hop++) {
+          const target = redirectTarget(url, response.headers()['location']);
+          if (!target || target.origin !== access?.origin || !isAllowedUrl(target)) break;
+          url = target.href;
+          response = await route.fetch({ url, maxRedirects: 0, ...headers });
+        }
+      } catch (error) {
+        // The page only sees net::ERR_FAILED, so name the request and why for teardown (#1046). A fetch
+        // cut off because the page or context closed is teardown itself.
+        if (!(error instanceof Error && error.name === 'TargetClosedError')) {
+          noteFailed(sanitizeAttempt(method, url, `fetch failed: ${fetchFailureReason(error, Object.values(access?.headers ?? {}))}`));
+        }
         return route.abort();
       }
 
       if (REDIRECTS.has(response.status())) {
-        const target = redirectTarget(request.url(), response.headers()['location']);
+        const target = redirectTarget(url, response.headers()['location']);
         if (target && !isAllowedUrl(target)) {
-          noteBlocked(sanitizeAttempt(method, request.url(), `blocked redirect escape: ${sanitizeUrl(target.href)}`));
+          noteBlocked(sanitizeAttempt(method, url, `blocked redirect escape: ${sanitizeUrl(target.href)}`));
           return route.fulfill({ status: 403, contentType: 'text/plain', body: 'Redirect blocked by network guard' });
         }
       }
 
       try {
-        await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': csp } });
+        await route.fulfill({ response, headers: continueAllowed ? response.headers() : { ...response.headers(), 'content-security-policy': csp } });
       } catch {
         // In-flight requests aborted by page navigation or close
       }
@@ -530,6 +587,55 @@ export async function snapshot(page: Page) {
     history: { s: string; v: number; n: number; k: string; c: string; h: string; x: number; t: number }[];
   }>;
 }
+
+type SavedStorage = Record<string, string | null>;
+
+/** Every key in this origin's storage, sorted. Compare it with `sameStorage`, never in a diff: it holds secret keys. */
+export const storageOf = (page: Page) => page.evaluate(() => Object.fromEntries(
+  Object.keys(localStorage).sort().map((key) => [key, localStorage.getItem(key)]),
+)) as Promise<SavedStorage>;
+
+/** Byte-for-byte equality as a boolean, so a failure prints `false` and not the storage (secret keys included). */
+export const sameStorage = (a: SavedStorage, b: SavedStorage) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Settings' Back up and Restore rows, and Restore's note and buttons. */
+export const settingsOf = (page: Page) => {
+  const main = page.getByRole('main', { name: 'Settings', exact: true });
+  const row = (label: string) => main.locator('.settings-row').filter({ has: page.locator('.settings-label', { hasText: new RegExp(`^${label}$`) }) });
+  const restore = row('Restore');
+  return {
+    main,
+    backUp: row('Back up'),
+    restore,
+    restoreNote: restore.locator('.settings-desc'),
+    importButton: restore.getByRole('button', { name: 'Import', exact: true }),
+    keep: restore.getByRole('button', { name: 'Keep mine', exact: true }),
+    replace: restore.getByRole('button', { name: 'Replace', exact: true }),
+  };
+};
+
+/** Picks `file` (a path, or bytes) through the chooser the Import button opens: the real hidden input. */
+export async function pickWithImport(page: Page, file: string | { name: string; buffer: Buffer }) {
+  const { importButton } = settingsOf(page);
+  const chooser = page.waitForEvent('filechooser');
+  await importButton.click();
+  const picked = await chooser;
+  expect(picked.isMultiple()).toBe(false);
+  await picked.setFiles(typeof file === 'string' ? file : { ...file, mimeType: 'text/plain' });
+}
+
+/**
+ * Stand-in relays that answer every read with "nothing stored". `monitor` closes every socket, which the
+ * page reads as the live feed being down; this is a relay that works and has nothing, so an empty board
+ * is a real one. Nothing leaves the browser. `down`, when given, closes each socket opened while it is true.
+ */
+export const relaysAnswerEmpty = (page: Page, down: () => boolean = () => false) => page.routeWebSocket(/.*/, (socket) => {
+  if (down()) return socket.close();
+  socket.onMessage((message) => {
+    const [type, subscription] = JSON.parse(String(message)) as [string, string];
+    if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
+  });
+});
 
 export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1) {
   const before = await snapshot(page);

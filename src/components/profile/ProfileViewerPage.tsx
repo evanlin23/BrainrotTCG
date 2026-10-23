@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link2, Loader2, RotateCcw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { levelForXp, profileStats, visitorName } from '../../engine';
-import { profileUrl, verifyProfileLive, type ProfileProgress } from '../../game/profiles';
+import { profileUrl } from '../../game/profiles';
+import { verifyProfileLive, type ProfileProgress } from '../../game/profileVerification';
 import ProfileSummary from './ProfileSummary';
 import Sheet from '../ui/Sheet';
 import '../../styles/Share.css';

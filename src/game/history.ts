@@ -11,7 +11,7 @@ import { getSet } from '../content/sets';
 import { decodeCards, encodeCard, isCachedCards, toPulled, type StoredCard } from './cardCode';
 import { getStoredPack, packStoreVersion } from './packStore';
 import type { OpenedPack } from './pulls';
-import type { CardWithMeta } from '../components/cards/Card';
+import type { CardWithMeta } from '../types/card';
 import { getCard } from '../data/cards';
 
 export interface HistoryEntry {
