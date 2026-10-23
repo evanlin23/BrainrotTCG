@@ -12,13 +12,14 @@ import CardGuideButton from '../ui/CardGuideButton';
 import DiagnosticReport from '../ui/DiagnosticReport';
 import KeptAsideActions from '../ui/KeptAsideActions';
 import '../../styles/Settings.css';
-import { downloadSaveFile, NO_ROOM_FOR_COPY_NOTE } from '../../game/saveFile';
+import { downloadSaveFile, EXPORT_DONE_NOTE, EXPORT_KEY_NOTE, NO_ROOM_FOR_COPY_NOTE, STALE_SAVE_WARNING } from '../../game/saveFile';
+import { sameSave, saveMark, type SaveMark } from '../../game/player';
 
 interface SettingsPageProps {
     settings: Settings;
     onSettingsChange: (settings: Settings) => void;
     /** Returns an error to show, or null (the page then reloads with the imported save). keepCopy false skips the copy of the current save. */
-    onImportSave: (data: string, keepCopy?: boolean) => string | null;
+    onImportSave: (data: string, keepCopy?: boolean, expectedSave?: SaveMark) => string | null;
     saveWarning?: string;
     /** Shown beside the warning when only a reload fixes it (the save changed in another tab). */
     onReload?: () => void;
@@ -30,21 +31,32 @@ interface SettingsPageProps {
     onRecoveryChanged?: () => void;
     /** The pack being opened: Help's card guide shows its odds. */
     guideSet?: SetDefinition;
+    /** The tabs and pack picker already show on their own (a saved pack or a collected card): "Show every page" would change nothing, so it is left out. */
+    pagesUnlocked?: boolean;
 }
 
 /** The Settings page (#/settings): Sound & display, Save & backup (the 'save' link scrolls to it) and Help (card guide, report a problem). */
-const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet }: SettingsPageProps) => {
+const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, onReload, recoveryNote, recoveryAllowed, onRecoveryChanged, guideSet, pagesUnlocked = false }: SettingsPageProps) => {
     const [reporting, setReporting] = useState(false);
-    const [exportNote, setExportNote] = useState('Includes your secret player key. Keep the file private.');
+    const [exportNote, setExportNote] = useState(EXPORT_KEY_NOTE);
+    // Counts successful exports; it keys the note's text so a repeat Export is announced again.
+    const [exportCount, setExportCount] = useState(0);
     const saveHeadingRef = useRef<HTMLHeadingElement>(null);
     const reloadRef = useRef<HTMLButtonElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const importRef = useRef<HTMLButtonElement>(null);
+    /** Set when an answer to the Replace question removes its buttons: Import takes the focus they held. */
+    const refocusImport = useRef(false);
+    const restoreKeepRef = useRef<HTMLButtonElement>(null);
+    /** Set when the Replace question opens while the focus was on Import (or on the page): Keep mine takes it. */
+    const focusRestoreKeep = useRef(false);
     const activeImportTokenRef = useRef(0);
     const activeReaderRef = useRef<FileReader | null>(null);
     const handleExportSave = () => {
         try {
             downloadSaveFile();
-            setExportNote('Includes your secret player key. Keep the file private.');
+            setExportNote(EXPORT_DONE_NOTE);
+            setExportCount((n) => n + 1);
         } catch {
             setExportNote("Couldn't read browser storage to export your save.");
         }
@@ -72,6 +84,25 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [oldSaveNote, setOldSaveNote] = useState('Played at the old address? Bring that save here.');
     const [oldSave, setOldSave] = useState<{ save: unknown } | null>(null);
     const keepRef = useRef<HTMLButtonElement>(null);
+    const bringRef = useRef<HTMLButtonElement>(null);
+    /** Set when an answer to the old address's Replace question removes its buttons: Bring it takes the focus they held. */
+    const refocusBring = useRef(false);
+    // The Replace / Keep mine buttons leave with the answer: focus goes to Import, which stays in the row, not to the page.
+    useEffect(() => {
+        if (!refocusImport.current) return;
+        refocusImport.current = false;
+        importRef.current?.focus();
+    });
+    useEffect(() => {
+        if (!focusRestoreKeep.current) return;
+        focusRestoreKeep.current = false;
+        restoreKeepRef.current?.focus();
+    });
+    useEffect(() => {
+        if (!refocusBring.current) return;
+        refocusBring.current = false;
+        bringRef.current?.focus();
+    });
     // Leaving the page drops a preview still waiting to play.
     useEffect(() => () => clearTimeout(samplePending), []);
     useEffect(() => {
@@ -116,6 +147,13 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
     const [withoutCopy, setWithoutCopy] = useState(false);
     /** "this browser's save (X) with the file's (Y)" while the player is asked to replace a save. */
     const [replacing, setReplacing] = useState<string | null>(null);
+    /** Snapshot of the save identity when the replacement prompt was prepared. */
+    const [reviewedSave, setReviewedSave] = useState<SaveMark | null>(null);
+
+    const isStale = Boolean(saveWarning && onReload);
+    const activePendingImport = isStale ? null : pendingImport;
+    const activeWithoutCopy = isStale ? false : withoutCopy;
+    const activeReplacing = isStale ? null : replacing;
 
     /** "Name, 14 packs" for a save's player and stats (as stored, or as in a backup file). */
     const describe = (player: string | null | undefined, stats: string | null | undefined) => {
@@ -128,18 +166,38 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         }
     };
 
+    /** Import leaves with the question that replaces it: its focus, or the page's after a file pick, moves to Keep mine. A focus the player has moved elsewhere stays there. */
+    const askInPlaceOfImport = (content: string) => {
+        const held = document.activeElement;
+        if (importRef.current && (!held || held === document.body || held === importRef.current)) focusRestoreKeep.current = true;
+        setPendingImport(content);
+    };
+
     /** `saves` names the two saves the player agreed to swap; null when nothing asked first. */
-    const runImport = (content: string, keepCopy = true, saves: string | null = null) => {
+    const runImport = (content: string, keepCopy = true, saves: string | null = null, expectedSave: SaveMark | null = reviewedSave) => {
+        if (isStale || (expectedSave && !sameSave(expectedSave, saveMark()))) {
+            setPendingImport(null);
+            setReplacing(null);
+            setWithoutCopy(false);
+            setReviewedSave(null);
+            setImportNote(STALE_SAVE_WARNING);
+            return;
+        }
         setPendingImport(null);
         setWithoutCopy(false);
-        const error = onImportSave(content, keepCopy);
+        const error = onImportSave(content, keepCopy, expectedSave ?? undefined);
         if (!error) return;
         // Nothing changed; the player may export first, then choose to replace without the copy.
         if (keepCopy && error === NO_ROOM_FOR_COPY_NOTE) {
+            // "Replace without a copy" must refuse if storage changes from the save this attempt checked.
+            setReviewedSave(expectedSave);
             setImportNote(saves ? `${error} Replace ${saves} without keeping a copy?` : error);
-            setPendingImport(content);
+            askInPlaceOfImport(content);
             setWithoutCopy(true);
-        } else setImportNote(error);
+        } else {
+            setReviewedSave(null);
+            setImportNote(error);
+        }
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -159,6 +217,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
         setPendingImport(null);
         setReplacing(null);
         setWithoutCopy(false);
+        setReviewedSave(null);
         setImportNote('Load a backup file');
 
         const reader = new FileReader();
@@ -208,13 +267,17 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                 return setImportNote("Couldn't read browser storage to check your current save.");
             }
 
+            // The save this prompt describes: Replace refuses to write if storage changes from it before then.
+            const mark = saveMark();
             if (!progressExists || (sameKey && currentDesc === incomingDesc)) {
                 setReplacing(null);
-                return runImport(content);
+                setReviewedSave(null);
+                return runImport(content, true, null, mark);
             }
             const saves = `this browser's save (${currentDesc}) with the file's (${incomingDesc})`;
+            setReviewedSave(mark);
             setReplacing(saves);
-            setPendingImport(content);
+            askInPlaceOfImport(content);
             setImportNote(`Replace ${saves}? Yours is kept as a backup.`);
         };
 
@@ -264,7 +327,7 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                     />
                     <SwitchRow
                         label="Particles"
-                        desc="Sparks and confetti"
+                        desc="Confetti on Epic and better pulls, finishes and misprints; sparkles on holos; sparks as you swipe a pack open. Plain cards just flip."
                         checked={settings.particlesEnabled}
                         onChange={() => onSettingsChange({ ...settings, particlesEnabled: !settings.particlesEnabled })}
                     />
@@ -280,12 +343,14 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                         checked={!!settings.showDraftSets}
                         onChange={() => onSettingsChange({ ...settings, showDraftSets: !settings.showDraftSets })}
                     />
-                    <SwitchRow
-                        label="Show every page"
-                        desc="Cards, Rankings, Profile and the pack picker, before your first pack is saved"
-                        checked={settings.showAllPages === true}
-                        onChange={() => onSettingsChange({ ...settings, showAllPages: settings.showAllPages !== true })}
-                    />
+                    {!pagesUnlocked && (
+                        <SwitchRow
+                            label="Show every page"
+                            desc="Cards, Rankings, Profile and the pack picker, before your first pack is saved"
+                            checked={settings.showAllPages === true}
+                            onChange={() => onSettingsChange({ ...settings, showAllPages: settings.showAllPages !== true })}
+                        />
+                    )}
                 </div>
             </section>
 
@@ -307,39 +372,46 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             }} />
                         </div>
                     )}
-                    <div className="settings-row">
+                    <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Back up</span>
-                            <span className="settings-desc" role="status">{exportNote}</span>
+                            <span className="settings-desc" role="status"><span key={exportCount}>{exportNote}</span></span>
                         </span>
                         <button type="button" className="btn btn--secondary btn--sm" onClick={handleExportSave}>
                             <Download aria-hidden="true" /> Export
                         </button>
                     </div>
-                    <div className={pendingImport ? 'settings-row settings-row--wrap' : 'settings-row'}>
+                    <div className="settings-row settings-row--reflow">
                         <span className="settings-text">
                             <span className="settings-label">Restore</span>
-                            <span className="settings-desc" role="status">{importNote}</span>
+                            <span className="settings-desc" role="status">{isStale ? STALE_SAVE_WARNING : importNote}</span>
                         </span>
-                        {pendingImport ? (
+                        {activePendingImport ? (
                             <span className="settings-actions">
                                 <button
                                     type="button"
+                                    ref={restoreKeepRef}
                                     className="btn btn--secondary btn--sm"
                                     onClick={() => {
+                                        refocusImport.current = true;
                                         setPendingImport(null);
                                         setWithoutCopy(false);
+                                        setReviewedSave(null);
                                         setImportNote('Kept your save.');
                                     }}
                                 >
                                     Keep mine
                                 </button>
-                                <button type="button" className="btn btn--primary btn--sm" onClick={() => runImport(pendingImport, !withoutCopy, replacing)}>
-                                    {withoutCopy ? 'Replace without a copy' : 'Replace'}
+                                <button type="button" className="btn btn--primary btn--sm" onClick={() => {
+                                    // A no-room answer asks again with the same buttons, so they keep the focus; anything else removes them.
+                                    refocusImport.current = true;
+                                    runImport(activePendingImport, !activeWithoutCopy, activeReplacing, reviewedSave);
+                                }}>
+                                    {activeWithoutCopy ? 'Replace without a copy' : 'Replace'}
                                 </button>
                             </span>
                         ) : (
-                            <button type="button" className="btn btn--secondary btn--sm" onClick={handleImportClick}>
+                            <button type="button" ref={importRef} className="btn btn--secondary btn--sm" onClick={handleImportClick}>
                                 <Upload aria-hidden="true" /> Import
                             </button>
                         )}
@@ -353,15 +425,21 @@ const SettingsPage = ({ settings, onSettingsChange, onImportSave, saveWarning, o
                             </span>
                             {oldSave ? (
                                 <span className="settings-actions">
-                                    <button type="button" ref={keepRef} className="btn btn--secondary btn--sm quiet-focus" onClick={() => showBringResult('kept')}>
+                                    <button type="button" ref={keepRef} className="btn btn--secondary btn--sm quiet-focus" onClick={() => {
+                                        refocusBring.current = true;
+                                        showBringResult('kept');
+                                    }}>
                                         Keep mine
                                     </button>
-                                    <button type="button" className="btn btn--primary btn--sm" onClick={() => showBringResult(importSave(oldSave.save, () => true))}>
+                                    <button type="button" className="btn btn--primary btn--sm" onClick={() => {
+                                        refocusBring.current = true;
+                                        showBringResult(importSave(oldSave.save, () => true));
+                                    }}>
                                         Replace
                                     </button>
                                 </span>
                             ) : (
-                                <button type="button" className="btn btn--secondary btn--sm" onClick={handleBringOldSave}>
+                                <button type="button" ref={bringRef} className="btn btn--secondary btn--sm" onClick={handleBringOldSave}>
                                     <History aria-hidden="true" /> Bring it
                                 </button>
                             )}

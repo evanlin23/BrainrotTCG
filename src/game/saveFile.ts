@@ -6,7 +6,9 @@ import { collectionNeedsRecovery, CURRENT_DATA_VERSION, DATA_VERSION_KEY, migrat
 import { isArchive } from './collectionRecovery';
 import { isBestCardsStore, resetBestCards } from './bestCards';
 import { isLegacyPull, isStored, withReadableCache } from './history';
-import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY } from './player';
+import { exportPlayer, importPlayer, isCurrentPlayer, newSaveStamp, parsePlayer, SAVE_STAMP_KEY, sameSave, saveMark, type SaveMark } from './player';
+
+export const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -153,7 +155,7 @@ export const NO_ROOM_FOR_COPY_NOTE = "There's no room in this browser's storage 
  */
 export const FILE_TOO_BIG_NOTE = "This file is too big for this browser's storage, so it can't be imported here. Nothing changed.";
 
-const NO_ROOM_NOTE = "This browser's storage has no room for this file. Your previous save data was restored.";
+export const NO_ROOM_NOTE = "This browser's storage has no room for this file. Your previous save data was restored.";
 
 /** Added to a no-room answer while copies of earlier saves (brainrot-before-*) take room too. */
 export const COPIES_NOTE = ' Copies of earlier saves, kept from past imports or moves, take room in it too.';
@@ -173,6 +175,12 @@ export const exportSaveFile = (): string => JSON.stringify({
   version: 2,
   dataVersion: CURRENT_DATA_VERSION,
 }, null, 2);
+
+/** Under Export before it is used: what the file holds. */
+export const EXPORT_KEY_NOTE = 'Includes your secret player key. Keep the file private.';
+
+/** Under Export once the file has been handed to the browser: the download has no other sign it happened. */
+export const EXPORT_DONE_NOTE = 'Backup downloaded — keep it private. It includes your secret player key.';
 
 /** Download a save file (by default this browser's save, as exportSaveFile writes it). */
 export const downloadSaveFile = (content = exportSaveFile()) => {
@@ -216,7 +224,10 @@ const restoreFields = (changed: string[], previous: Map<string, string | null>):
  * A copy refused for another reason is NO_COPY_NOTE: no room was shown to be missing, so no offer to go on.
  * This validates structure, not the authenticity of cached cards/scores, and is not an atomic commit.
  */
-export const importSaveFile = (raw: string, { keepCopy = true }: { keepCopy?: boolean } = {}): string | null => {
+export const importSaveFile = (raw: string, { keepCopy = true, expectedSave }: { keepCopy?: boolean; expectedSave?: SaveMark } = {}): string | null => {
+  if (expectedSave && !sameSave(expectedSave, saveMark())) {
+    return STALE_SAVE_WARNING;
+  }
   try {
     const save: unknown = JSON.parse(raw);
     if (!record(save) || (save.version !== 1 && save.version !== 2)

@@ -21,7 +21,7 @@ import { canOpenSharedSet } from './game/sharedPullSet';
 import { isCardOwned } from './game/versions';
 import { takePendingPacks, type OpenedPack, type PullRef } from './game/pulls';
 import { recordPack, type PackProgress } from './game/packProgress';
-import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE } from './game/saveFile';
+import { downloadSaveFile, exportSaveFile, importSaveFile, PARTIAL_IMPORT_NOTE, STALE_SAVE_WARNING } from './game/saveFile';
 import { getStoredData } from './utils/storage';
 import { readSelectedSet, saveSelectedSet } from './game/selectedSet';
 import { collectionRecoveryDismissed, collectionRecoveryNote, collectionRecoveryState, dismissCollectionRecovery } from './game/collectionRecovery';
@@ -30,9 +30,10 @@ import { CARD_BACKS, PACK_FOILS, levelUpLine, usable } from './game/progression'
 import { historyAchievementsReady, historyPacksState, myStats, onReopenProgress, watchMyPacks } from './game/profiles';
 import { usePackCacheVersion } from './hooks/usePackCache';
 import { getHistory } from './game/history';
-import { sameSave, saveMark, watchPlayer } from './game/player';
+import { sameSave, saveMark, watchPlayer, type SaveMark } from './game/player';
 import { guardProgress, watchProgress } from './game/progressGuard';
 import { reloadPage } from './game/reload';
+import { isStaging, STAGING_NOTE } from './game/staging';
 import { PAGE_TITLES, type Page } from './game/route';
 import { useRoute } from './hooks/useRoute';
 import { useSetLink } from './hooks/useSetLink';
@@ -66,7 +67,6 @@ const PREFETCH: Partial<Record<Page, () => Promise<unknown>>> = {
 const OPEN_TITLE = document.title;
 
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
-const STALE_SAVE_WARNING = "This save changed in another tab, so this tab can't open packs or save anything now. Reload to continue with that save.";
 /** What adding a pack changes, so several packs can be added before React renders. */
 
 function App() {
@@ -337,6 +337,21 @@ function App() {
     setNotificationQueue((prev) => [notice, ...prev]);
   }, []);
 
+  // Packs the last visit left mid-reveal, added to the collection on this load: one notice for all of
+  // them, not one each. Shown like the early-close one, so a failed or refused save hides it too.
+  const noticeRecoveredPacks = useCallback((count: number) => {
+    if (count < 1) return;
+    keptNotices.current += 1;
+    const notice: ToastItem = {
+      id: `pack-kept-${keptNotices.current}`,
+      kicker: 'Pack kept',
+      name: count === 1 ? 'A pack from your last visit is in Cards' : `${count} packs from your last visit are in Cards`,
+      description: count === 1 ? 'Tap to see it.' : 'Tap to see them.',
+      opens: 'collection',
+    };
+    setNotificationQueue((prev) => [notice, ...prev]);
+  }, []);
+
   const dismissNotifications = useCallback((ids: string[]) => {
     setNotificationQueue(prev => prev.filter(a => !ids.includes(a.id)));
   }, []);
@@ -358,11 +373,15 @@ function App() {
   }, []);
 
   /** Load a backup file (Settings asks first if it would replace a different save). Returns an error to show, if any. */
-  const handleImportSave = useCallback((data: string, keepCopy = true): string | null => {
+  const handleImportSave = useCallback((data: string, keepCopy = true, expectedSave?: SaveMark): string | null => {
+    if (!samePlayer() || (expectedSave && !sameSave(expectedSave, saveMark()))) {
+      setStaleSave(true);
+      return STALE_SAVE_WARNING;
+    }
     // Without a copy in storage, this file is all that would keep the save if the import is left half done.
     const before = keepCopy ? null : exportSaveFile();
-    const error = importSaveFile(data, { keepCopy });
-    if (!error) window.location.reload();
+    const error = importSaveFile(data, { keepCopy, expectedSave });
+    if (!error) reloadPage();
     else if (error.startsWith(PARTIAL_IMPORT_NOTE)) {
       // The app still holds the save from before; only a reload shows what storage now holds.
       if (before !== null && window.confirm(`${error}\n\nDownload the save from before the import first? OK downloads it, then reloads.`)) {
@@ -374,7 +393,7 @@ function App() {
       }
     }
     return error;
-  }, []);
+  }, [samePlayer]);
 
   const handlePackOpened = useCallback((pack: OpenedPack, from: PackProgress = { stats, collection, hallOfFame }): PackProgress => {
     packAdded(pack);
@@ -398,6 +417,8 @@ function App() {
     const taken = takePendingPacks();
     packsTaken(taken);
     taken.reduce<PackProgress | undefined>((from, pack) => handlePackOpened(pack, from), undefined);
+    // Not for a tab already known to be stale: it stores nothing, and the notice would flash before the warning.
+    if (samePlayer() && progressCurrent()) noticeRecoveredPacks(taken.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -421,11 +442,11 @@ function App() {
     return out;
   }, [stats.packsOpened, collection]);
 
-  // A collection write can fail after its pack's notice is queued: once the save warning shows, the
-  // "Pack kept" notice would contradict it, so it never shows (the warning never clears).
+  // A collection write can fail, or be refused for a stale tab, after its pack's notice is queued: once
+  // a save warning shows, the "Pack kept" notice would contradict it, so it never shows (neither clears).
   const visibleNotifications = useMemo(
-    () => (saveFailed ? notificationQueue.filter((toast) => !toast.id.startsWith('pack-kept-')) : notificationQueue),
-    [saveFailed, notificationQueue],
+    () => (saveFailed || staleSave ? notificationQueue.filter((toast) => !toast.id.startsWith('pack-kept-')) : notificationQueue),
+    [saveFailed, staleSave, notificationQueue],
   );
   const isAnyModalOpen = !!shareTarget || !!viewProof || !!viewProfile;
   // A sheet (Share, or a shared link) leaves no tab current; Settings is none of the tabs either.
@@ -438,9 +459,10 @@ function App() {
   // A pack whose save failed still counts in memory, so its cards stay reachable this session. If the
   // pending shelf kept it, the next load restores and counts it, so the tabs show at once; only a total
   // storage refusal makes the next load a new player's. Settings' "Show every page" switch brings both
-  // back at once for someone who knows the game (#222).
-  const showNav = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus)
-    || settings.showAllPages === true;
+  // back at once for someone who knows the game (#222); once the pages are there on their own, Settings
+  // leaves the switch out (#902), so it asks the same question.
+  const pagesUnlocked = (stats.packsOpened || 0) > 0 || Object.values(collection).some(isCardOwned) || (packBusy && !packFocus);
+  const showNav = pagesUnlocked || settings.showAllPages === true;
   const onPage = route !== 'open';
   const logoMark = (
     <svg className="app-logo-mark" viewBox={LOGO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
@@ -459,6 +481,7 @@ function App() {
 
   return (
     <div className={`app${packFocus && !onPage ? ' is-focus' : ''}${showNav ? '' : ' no-nav'}`}>
+      {isStaging() && <p role="note" className="save-warning staging-banner">{STAGING_NOTE}</p>}
       {bannerWarning && route !== 'settings' && (
         <p role="alert" className="save-warning">
           {bannerWarning}
@@ -593,6 +616,7 @@ function App() {
           recoveryAllowed: recoveryCurrent,
           onRecoveryChanged: recoveryChanged,
           guideSet: selectedSet,
+          pagesUnlocked,
         }} />
       )}
 

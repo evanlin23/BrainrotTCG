@@ -11,6 +11,11 @@ Use Node 22, as CI does. `npm ci` installs from the lockfile; only change `packa
 dependency change. A fresh checkout or worktree has no `node_modules` and needs `npm ci` before any
 check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it when the folder is missing). `npm run dev` starts the app; `npm run build && npm run preview` serves the built site.
 
+A full clone is about 230 MiB. [REPO_SIZE.md](REPO_SIZE.md) has a blobless, sparse recipe (about 55 MiB
+of `.git` plus about 58 MiB of working tree on disk, in about 3 s) that skips the PNG source art. Without it, `npm run cards` can't run and `npm run check` can't
+test for placeholder art, so CI is authoritative; run `git sparse-checkout disable` before editing or
+adding a set.
+
 ## Workflow
 
 1. Search open issues and PRs first and reuse the existing issue. New work starts from the
@@ -22,6 +27,61 @@ check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it
 5. A merge needs a reviewer's approval of the head and green CI on a branch that is up to date with
    main. Only the owner approves new card sets or removing a set's draft flag. Merges to main deploy
    automatically. Never deploy, or submit real data such as Hall of Fame entries, as a test.
+
+## Review evidence
+
+The reviewer (`.claude/agents/reviewer.md`) picks evidence from the diff, by risk, and records the
+head, the evidence checked and remaining risks. Missing required evidence is `changes-needed` or an
+external blocker, never an implied pass. Don't trust the author's summary.
+
+| Change | Evidence |
+| --- | --- |
+| Docs, low risk | Links and `git diff --check`. |
+| Behaviour, storage, proof, engine, spec, migration, workflow | A counterexample from the contract, independent of the author's tests. Mocks keep the real boundary's types, error kinds and lifecycle. Migrations: the real startup entry. |
+| Visible flow | Player problem, observable acceptance, the screen's job, primary fact and next action. Empty, loading and error states; fit with existing navigation, components and tokens. Narrow, short and enlarged text, keyboard, reduced motion as relevant. Repeated facts: keep, merge, demote, disclose or remove. A screenshot or test count alone isn't approval. |
+| Architecture, public-resource growth | Responsibility owner, simpler existing option, async and resource lifetime, bounded untrusted data, compatibility. No speculative frameworks. |
+
+The reviewer can't render the PR. For a visible flow, the implementer gives bounded, sanitized
+before/after observations on the exact head, using the [DESIGN.md](DESIGN.md) rules and, for a
+meaningful flow change, [`npm run audit:agent`](#local-agent-usability-audit). Tests must be
+deterministic: reviewers block fixed sleeps, timing-dependent waits, and retries or skips a PR adds.
+
+## Defect learning and issue closure
+
+Closing a reproduced defect takes a short note on the issue, backed by the PR's final-head evidence
+(the evidence tiers above apply):
+
+1. **Root cause**, one sentence naming the code or contract that failed. Separate a pre-existing
+   defect from a regression this change introduced. Cite source, test or PR evidence; don't name the
+   introducing commit without tracing it.
+2. **Escape class**, why existing controls missed it:
+   - *missing_scenario*: an edge, cancellation, storage denial or limit was never exercised.
+   - *incorrect_expected_contract*: a test asserted the wrong behaviour or merged two failure kinds.
+   - *over_mocked_collaborator*: a mock hid the real boundary (the Review evidence row covers what
+     mocks must keep).
+   - *wrong_test_level*: the defect lives at a boundary or startup entry that only unit tests touched.
+   - *stale_evidence*: results came from an earlier head, or a failure was skipped.
+   - *missing_release_decision*: a deferral or specification gap nobody owned.
+3. **Regression test** at the lowest useful level, asserting observable behaviour. Show it fails on
+   the faulty behaviour and passes on the fix. Say whether it runs in a real browser or against an
+   injected boundary. Add the storage-denial, cancellation or resource-limit cases only where the
+   defect calls for them. A setup failure or skip isn't a detected failure.
+4. **Sibling scan**: search directly related paths for the same failure class. Link an existing issue
+   or file a bounded follow-up; don't widen the fix PR. If a durable invariant (guard, validation
+   boundary or fixture) would prevent recurrence, even for a first-time defect, name one small
+   verifiable prevention action with its canonical owner and link the existing check or issue. Don't
+   add overlapping tests. A recurring defect gets that task instead of another local patch.
+5. **Pending external checks** (physical device, external API) stay marked pending.
+
+Examples from merged fixes:
+
+- #647 (PR #912), `wrong_test_level`: the Settings import (FileReader) boundary dereferenced parsed
+  JSON before checking it was an object. Before 1209cf0 only `null` threw (`incoming.player`);
+  arrays and primitives reached the "Replace ... Yours is kept as a backup?" prompt. The regression
+  is in `SettingsPage.test.tsx` (non-object files give a message and no replacement prompt).
+- #695 (PR #919), `missing_scenario`: `reopenCache.ts` `flush` ran `removeItem` inside its `catch`,
+  so a fully denied storage threw from a timer. The regression is in `reopenCache.test.ts` (both
+  `setItem` and `removeItem` fail).
 
 ## Checks
 
@@ -39,7 +99,8 @@ check (the Claude Code SessionStart hook `.claude/hooks/install-deps.sh` runs it
 CI runs `npm run check`, `npm run build` and `npm run check:site` for both base paths, the Python verifier, the browser smoke, actionlint and the
 deploy contract test (`python3 scripts/deploy_contract_test.py`) on every pull request and on pushes
 to branches other than main. The deploy workflow runs the verifier and `npm run check` again before
-deploying main. CI uploads files only from failed runs, kept for 7 days.
+deploying main. CI uploads files only from failed runs, kept for 7 days. A nightly workflow, not
+part of PR CI, runs the unit suite in shuffled order twice (see Shuffled and repeat runs).
 A skipped or unrun check isn't a pass; list it in the PR. Never regenerate vectors or set locks to
 make a failing check pass.
 
@@ -92,6 +153,39 @@ runs the real relay reader, inbox and build against in-memory GitHub and relays
 issues and byte-identical output. Whether Discord, Slack or X
 actually unfurl a page is still checked by hand, against a deployed address.
 
+### Intake capacity harness (offline)
+
+`npx tsx scripts/hof-capacity.ts` runs the real `inbox()` for many scheduled runs against the same
+in-memory fakes, to see backlog, age and API calls under bursts, backlogs and outages, with the
+shipped caps (300 attempts and 20 filings a run, paging, the 7-day window, the seen cache). It sends
+nothing to GitHub, a relay or Pages. What is real and what is not:
+
+- Ticket verification is **stubbed** (two pre-mined stand-in tickets); proof and event signatures are
+  real. Time is a **fake clock** in model seconds (nothing sleeps). Run times are **modeled**:
+  derivations x a small real Argon2 sample (`--argon-samples`, default 3) plus requests x placeholder
+  latencies. They are not observed production throughput; timing under `timing` is report-only.
+- Inputs per scenario: arrival phases, cadence, duplicate, invalid and qualifying fractions, relay
+  retention, relay or GitHub outages, write limits or failures, existing issues, seen-cache filler,
+  modeled costs and the bounds (events, runs, wall time, heap). Hitting a bound ends the scenario with
+  `exit: aborted: ...` and fails a check. Window or retention expiry is counted apart from delivery.
+- Limits, also in the report's `labels.limits`: the published list is assumed to be a 404, so the
+  floor and `joinRefusal` paths do not run; event and proof keys come from 16-key pools. A scenario
+  asking for a `measured` Argon2 time without a sample reports `meta.argon.source` as
+  `measured-missing` and uses the default. Per run, `beyondPaging` counts events past the paging cap
+  and `unreadable` counts in-window events no relay could serve (every relay down).
+
+```
+npx tsx scripts/hof-capacity.ts --list
+npx tsx scripts/hof-capacity.ts [--scenario name]... [--seed text] [--out report.json]
+npx tsx scripts/hof-capacity.ts --include-slow          # also paging-cap, a minute or two
+npx tsx scripts/hof-capacity.ts --scenario synthetic-30-packs-per-second --include-synthetic-225
+```
+
+The default scenarios take about a minute. The report holds the seed, config, runner metadata and the
+raw per-run summaries; it exits 1 if a deterministic check or bound fails. The 30 packs/second
+scenario is #225's synthetic future opt-in, not a claim the service supports it, and needs its flag.
+`scripts/hof-capacity.test.ts` (`npx vitest run scripts/hof-capacity.test.ts`) covers small versions.
+
 ## Browser smoke
 
 `npm run test:browser` (Playwright, Chromium) builds the checkout and owns a strict-port preview at
@@ -110,6 +204,20 @@ once if the browser is missing) only when fixing a browser-test failure or when 
 can't be checked otherwise, and grep `tests/browser` for any constant you changed. Owner decision, 2026-10-16/17 (#8 and #211, both closed: "own phone fine, weaker = emulation"):
 Pixel 5 emulation counts as phone evidence when the PR labels it as emulation; a physical-device check is
 stronger, and is done by hand against the preview and described in the PR.
+
+Browser tests have no retries, so a test that fails once fails CI: fix its cause rather than re-running.
+Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
+close-up sets `data-tilt="live"` once it follows the mouse.
+
+The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
+adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes, in both
+projects:
+- 10 more times when few specs changed;
+- fewer as the list grows (see `scripts/burn-in-plan.ts`), but never fewer than 2, and no spec is dropped.
+
+Changes to `playwright.config.ts` or app code burn in nothing; the regular shards still run every spec
+once. Before pushing a new or changed spec, run the same locally with
+`npx playwright test <spec> --repeat-each=10`.
 
 ## Local agent usability audit
 
@@ -169,6 +277,55 @@ Using the results:
    reproduced findings go into an issue or PR.
 3. The write-up gives the revision, conditions, task outcomes and what could not be checked. One
    agent's result is an observation, not a rate.
+
+## Quality review cadence
+
+The trusted `/work` lifecycle (`.claude/skills/work/SKILL.md`) runs `npx tsx scripts/quality-review.ts
+check` at setup and at checkpoints (#713), only between tasks (never to wake an implementer or start a
+workflow). Not due, it prints the one due line plus any flow-change line and nothing else. It reads the one `quality review:` ledger line and decides
+due or not due: due when the next-due day (default 7 days after a finished review, 1 day after a
+blocked or unrun one) has come and `main` changed since the last passed review. It never runs the
+suite or an audit, makes no network calls and wakes no one. When due it names one slice and its
+budget (default 3 tasks, 45 minutes, 2 provider runs):
+
+- one player journey, rotating through opening, collection and detail, sharing, own and shared
+  Profile, Rankings, Settings and help, and recovery, with a journey whose code changed since the
+  last review first. Opening, sharing and recovery use the task audit above (Claude only, a fresh
+  task-only reviewer, no coaching); the rest use fixture-based browser checks. Judge it with the
+  player job, primary fact, next action check (#712). Separate same-scope duplication from necessary
+  repeated context, accessible text and exported artifacts. A screenshot baseline (#745) never
+  stands in for that review.
+- one recently changed code hotspot (commits times lines from `git log`), rotating away from the last pick;
+- the status and age of existing signals: CI and review failures, test runtime and performance
+  (#702, report-only), capacity (#708/#709/#242), compatibility (#658), release blockers
+  (the #759 record only: pass needs the current record version and every entry valid and `resolved`
+  by the `release-blockers.ts` rules, its fix commit and regression test on `origin/main`; anything
+  else is open or invalid. Dated by its last commit on `origin/main`, or undated in a shallow clone
+  when that commit is the shallow boundary), dependency advisories, branch hygiene (#710) and the last task audit. Each is
+  pass, fail, blocked or unrun. A missing report is unrun, and a physical device, a screen reader
+  and native sharing stay unrun until a person records a result. Only a date the report states
+  counts: a file mtime is shown as `date: unknown (mtime only: ...)` and never reads as fresh.
+  Performance shows its measured commit and is a pass only for a clean run (`trackedSourceDirty:
+  false`) of a commit that is an ancestor of `origin/main`.
+
+When due, spend at most the budget on that slice with the existing tools, search issues and PRs
+first, comment evidence on the canonical issue, and open one bounded task only for a reproduced,
+non-duplicate gap. Then run `record --status=<pass|fail|blocked|unrun> --journey=<id> --hotspot=<file>
+--issues=#n` (journey is an id above, hotspot a repo path of at most 60 characters) and replace the
+ledger's one `quality review:` line with its output. A hotspot with no changed code is `n/a`, not
+blocked, and is left out of the status. History is read from `origin/main` only.
+
+Reports come from their own tools (`test-results/...`) or a compact `{status, date, detail}` JSON in
+`test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
+saves or secrets). The coordinator writes `ci-review`, `test-runtime`, `dependency-advisories` and
+`branch-hygiene` itself during a due review, from what it already read (PR checks, last CI timings,
+advisory and branch lists), before `record`; a person writes `physical-device`, `screen-reader`,
+`native-share` and `compatibility` when they have a result. The cadence never opens a recurring
+"audit" issue. `record` prints the new ledger line (default cadence, budget and next-due day are omitted and revisions are always 7 characters, to keep it short; it refuses a line over 215 characters and names the optional fields to reset). Only a pass moves the passed date. A fail is a finished review: it
+rotates to the next journey and hotspot and is next due after a full cadence. A blocked or unrun review keeps its slice
+and is retried the next day. The cadence adds to per-PR checks (flow changes still get their reviews at once) and
+does not replace them. `scripts/quality-review.test.ts` holds the dry runs: not due, due success,
+missing tools or exhausted budget, and the evidence, size and argument checks.
 
 ## Mounted integration tests
 
@@ -240,6 +397,33 @@ times on an up-to-date branch, set each floor a few points below the lowest figu
 budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor
 only for removed or unreachable code, never to land untested code. When the runtime budget trips,
 look for a slow or hanging test before raising it.
+
+## Shuffled and repeat runs
+
+`.github/workflows/test-order.yml` runs the unit suite on a schedule (06:41 UTC) or by hand from the
+Actions tab, never for a pull request. It runs `vitest run` with files and tests shuffled by one
+seed, then again with the same seed in the same job. A test that fails only shuffled depends on what
+another test left behind; one that fails in only one of the two runs depends on the clock,
+`Math.random` or load. Both runs leave out coverage and the runtime budget, which per-PR CI owns,
+and nothing is retried. The runs sample orders: a green night doesn't prove the suite
+order-independent, and GitHub's schedule is best effort (it has never fired the Hall of Fame inbox
+here), so a night without a run is not a pass.
+
+The seed is the run id modulo 10^9, or the `seed` input of a manual run. The job log
+(`Shuffle seed: ...`) and the run summary record it with the revision. To replay a failure exactly:
+
+```sh
+git checkout <revision> && npm ci
+npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=<seed>
+```
+
+Adding the failing file's path to that command keeps the order of the tests within the file but
+not the order of files, so if the file alone passes, replay the whole suite.
+A failure, timeout or cancel comments on the open `test-order` issue that the workflow opened, or opens one, with the
+seed, revision, run link and replay command. File each root cause as its own issue and link it
+there. Fix the test, never loosen or skip it, and close the issue once a run passes again.
+`scripts/hof-workflows.test.ts` checks the workflow's permissions and runs its seed and report steps,
+in the shell each declares, against a fake `gh`.
 
 ## Performance baseline
 

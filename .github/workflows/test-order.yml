@@ -1,0 +1,137 @@
+name: Nightly test order
+
+# Samples whether the unit suite depends on test order or on the run (#768). Every night it runs
+# `vitest run` with files and tests shuffled by a recorded seed, then again with the same seed. A
+# test that fails only shuffled leans on another test's leftovers; one that fails only once of the
+# two leans on time, randomness or load. Neither proves the suite deterministic, and neither blocks
+# a pull request: per-PR CI (ci.yml) and its budgets are unchanged. There are no retries. Replay a
+# failure with the seed and revision the run records (docs/DEVELOPMENT.md, Shuffled and repeat runs).
+#
+# A failure, timeout or cancel comments on the one open "test-order" issue this workflow opened, or opens it.
+# GitHub's schedule has never fired for this repository (see hall-of-fame-inbox.yml), so a night
+# without a run is not a pass; run it by hand from the Actions tab, optionally with a seed.
+on:
+  schedule:
+    # Off the hour, which GitHub delays or drops under load.
+    - cron: '41 6 * * *'
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'Shuffle seed to replay (1-9 digits); empty picks one from the run id'
+        required: false
+        default: ''
+
+# Each job gets only what it uses.
+permissions: {}
+
+concurrency:
+  group: test-order
+  cancel-in-progress: false
+
+jobs:
+  shuffled:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      seed: ${{ steps.seed.outputs.seed }}
+      first: ${{ steps.first.outcome }}
+      repeat: ${{ steps.repeat.outcome }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - id: seed
+        name: Pick the seed
+        env:
+          INPUT_SEED: ${{ inputs.seed }}
+        run: |
+          seed="${INPUT_SEED:-$(( GITHUB_RUN_ID % 1000000000 ))}"
+          if ! [[ "$seed" =~ ^[0-9]{1,9}$ ]]; then
+            echo "::error::The seed must be 1-9 digits."
+            exit 1
+          fi
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "Shuffle seed: $seed (revision $GITHUB_SHA)"
+      - run: npm ci
+      # The unit suite as `npm test` runs it, without coverage or the runtime budget, which per-PR
+      # CI owns. Both runs use the same order.
+      - id: first
+        name: Shuffled run
+        env:
+          SEED: ${{ steps.seed.outputs.seed }}
+        run: npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed="$SEED"
+      - id: repeat
+        name: Repeat run, same seed
+        if: ${{ !cancelled() && (steps.first.outcome == 'success' || steps.first.outcome == 'failure') }}
+        env:
+          SEED: ${{ steps.seed.outputs.seed }}
+        run: npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed="$SEED"
+      - name: Summary
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        env:
+          SEED: ${{ steps.seed.outputs.seed }}
+          FIRST: ${{ steps.first.outcome }}
+          REPEAT: ${{ steps.repeat.outcome }}
+        run: |
+          {
+            echo "### Nightly test order"
+            echo
+            echo "| Seed | Revision | Shuffled run | Repeat run |"
+            echo "| --- | --- | --- | --- |"
+            echo "| $SEED | \`$GITHUB_SHA\` | $FIRST | $REPEAT |"
+            echo
+            echo "Replay: \`git checkout $GITHUB_SHA && npm ci && npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=$SEED\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Runs when the test job did not pass. It never checks out or runs the repository's code.
+  report:
+    needs: shuffled
+    # Past timeout-minutes GitHub cancels a job rather than failing it, so cancelled counts too.
+    if: ${{ always() && needs.shuffled.result != 'success' && needs.shuffled.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Comment on or open the test-order issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # No checkout here, so gh is told the repository.
+          GH_REPO: ${{ github.repository }}
+          SEED: ${{ needs.shuffled.outputs.seed }}
+          FIRST: ${{ needs.shuffled.outputs.first }}
+          REPEAT: ${{ needs.shuffled.outputs.repeat }}
+          RESULT: ${{ needs.shuffled.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # pipefail: a failed issue lookup fails the step instead of opening a duplicate issue.
+        shell: bash
+        run: |
+          {
+            echo "Nightly test order failed: $RUN_URL"
+            echo
+            echo "- Test job: $RESULT (cancelled includes hitting its timeout)"
+            echo "- Revision: \`$GITHUB_SHA\`"
+            echo "- Seed: ${SEED:-none (failed before the tests ran)}"
+            echo "- Shuffled run: ${FIRST:-not run}; repeat run, same seed: ${REPEAT:-not run}"
+            if [ -n "$SEED" ]; then
+              echo
+              echo "Replay: \`git checkout $GITHUB_SHA && npm ci && npx vitest run --testTimeout=15000 --sequence.shuffle --sequence.seed=$SEED\`"
+            fi
+            echo
+            echo "The failing tests are in the run's log. File each root cause as its own issue and link it here."
+          } > report.md
+          gh label create test-order --color d93f0b --description 'Nightly shuffled or repeat unit-test run failed' --force
+          # Only an issue this workflow opened counts: the repository takes public issues.
+          issue=$(gh issue list --state open --label test-order --json number,author \
+            | jq -r '[.[] | select(.author.login | test("^(app/)?github-actions(\\[bot\\])?$"))] | sort_by(.number) | .[0].number // empty')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body-file report.md
+          else
+            gh issue create --title 'Nightly test-order run failed' --label test-order --body-file report.md
+          fi

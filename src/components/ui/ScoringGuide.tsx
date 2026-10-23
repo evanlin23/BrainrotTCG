@@ -9,12 +9,15 @@ import {
   POKER_HANDS,
   RARITIES_RAREST_FIRST,
   RARITY_POINTS,
+  handFromCounts,
   handOdds,
   oneIn,
   type HandKey,
+  type Rarity,
   type SetDefinition,
 } from '../../engine';
 import { CARD_RARITIES } from '../../data/cards';
+import { SETS, getLatestSet, isOpenable } from '../../content/sets';
 import { formatOneIn } from '../../game/cardStats';
 import { FINISH_INFO } from '../../game/modifiers';
 import RarityBadge from './RarityBadge';
@@ -28,12 +31,44 @@ interface ScoringGuideProps {
 
 const HAND_ORDER: HandKey[] = ['PAIR', 'TWO_PAIR', 'THREE_OF_A_KIND', 'FULL_HOUSE', 'FOUR_OF_A_KIND', 'FIVE_OF_A_KIND'];
 
+/**
+ * Small packs that show what a combo is. Each number is how many copies of one card the pack holds;
+ * the combo name and multiplier come from the engine's `handFromCounts`, so the examples can't drift from the rules.
+ */
+const COMBO_EXAMPLES: number[][] = [[1, 1, 1, 1, 1], [2, 1, 1, 1], [3, 2]];
+
+const cardLetter = (i: number) => String.fromCharCode(65 + i);
+
+/** "A A B C D": one letter per distinct card, repeated for each copy. */
+const exampleCards = (counts: readonly number[]) => counts.flatMap((n, i) => Array<string>(n).fill(cardLetter(i))).join(' ');
+
+/** What repeats in an example: "2 copies of A", or "no card repeats". */
+const exampleRepeats = (counts: readonly number[]) => {
+  const repeats = counts.flatMap((n, i) => (n > 1 ? [`${n} copies of ${cardLetter(i)}`] : []));
+  return repeats.length > 0 ? repeats.join(' and ') : 'no card repeats';
+};
 
 /** "Silver up to Diamond": the commonest finish to the rarest. */
 const FINISH_RANGE = `${FINISH_INFO[FINISHES_RAREST_FIRST[FINISHES_RAREST_FIRST.length - 1]].name} up to ${FINISH_INFO[FINISHES_RAREST_FIRST[0]].name}`;
 
 /** A per-card chance in basis points, as the tables show it: "2.5%". */
 const formatPerCard = (basisPoints: number) => `${(basisPoints / 100).toLocaleString()}%`;
+
+/** How many of a set's cards have each rarity: handOdds splits a rarity's chance across them, so it shapes the combo table. */
+const cardsOfRarity = (set: SetDefinition, rarity: Rarity) => set.cards.filter((c) => c.rarity === rarity).length;
+
+/**
+ * Whether two sets roll packs the same way as far as the tables show: pack size, holo odds, modifier table,
+ * and for each rarity its chance and how many cards share it. Field by field, so key order doesn't matter.
+ */
+const sameRolls = (a: SetDefinition, b: SetDefinition) =>
+  a.packSize === b.packSize &&
+  a.holoOdds === b.holoOdds &&
+  a.modifiers === b.modifiers &&
+  RARITIES_RAREST_FIRST.every((r) => a.odds[r] === b.odds[r] && cardsOfRarity(a, r) === cardsOfRarity(b, r));
+
+/** Whether every set you can open today rolls its packs the way this one does. */
+const allSetsShareOdds = (set: SetDefinition) => SETS.filter(isOpenable).every((other) => sameRolls(other, set));
 
 /** The finish the worked example uses. */
 const EXAMPLE_FINISH = 'GOLD' as const;
@@ -51,8 +86,31 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
   const exampleModifierChance = (set.holoOdds / ODDS_TOTAL) * (hasModifiers ? MODIFIERS_V1.finishOdds[EXAMPLE_FINISH] / ODDS_TOTAL : 1);
   const exampleMultiplier = HOLO_MULTIPLIER * (hasModifiers ? FINISH_MULTIPLIER[EXAMPLE_FINISH] : 1);
 
+  const packSize = set.packSize;
+  const latestVersion = getLatestSet(set.id)?.version ?? set.version;
+  const isLatest = set.version === latestVersion;
+  const sharedOdds = isLatest && allSetsShareOdds(set);
+
   return (
     <Sheet title="Card guide" subtitle={`Rarity, modifiers and scoring for ${set.name}`} onClose={onClose} size="sm" scrollingHeading className="scoring-guide">
+        <h3>Packs and sets</h3>
+        <p className="scoring-note">
+          Every pack holds <strong>{packSize} cards</strong>, all from {set.name}: a pack never mixes sets, so to pull a card from
+          another set, open a pack in that set.
+        </p>
+        {isLatest && (
+          <p className="scoring-note">
+            {sharedOdds
+              ? 'Every set you can open uses these same odds, pack size and scoring, so the tables below hold for all of them.'
+              : `Odds or pack size differ between sets; these tables are for ${set.name}.`}
+          </p>
+        )}
+        <p className="scoring-note">
+          {set.name} is on <strong>version {set.version}</strong>. A set gets a new version when its cards, rarities, odds or pack size change.
+          A pack stays on the version it was opened in, so older packs and shared links still check out exactly as they did.
+          {!isLatest && ` This guide shows the older version ${set.version}; the current one is version ${latestVersion}.`}
+        </p>
+
         <h3>Rare, holo or extra?</h3>
         <p className="scoring-note">
           <strong>Rarity</strong> is which card you pulled, from {CARD_RARITIES[commonest].name} up to {CARD_RARITIES[rarest].name}. Rarer cards are worth more points.
@@ -76,7 +134,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         <p className="scoring-formula">
           Brainrot Score = <strong>card points</strong> added up × <strong>combo multiplier</strong>
         </p>
-        <p className="scoring-note">Add up the points of your five cards, then multiply by your combo. A higher score is better.</p>
+        <p className="scoring-note">Add up the points of your {packSize} cards, then multiply by your combo. A higher score is better.</p>
 
         <h3>Card rarity</h3>
         <table className="scoring-table">
@@ -137,6 +195,19 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
         </p>
 
         <h3>Combos</h3>
+        <p className="scoring-note">
+          A combo counts copies of the <strong>same card</strong> in your pack. {hasModifiers ? 'Rarity, holo, finish and misprint' : 'Rarity and holo'} don&apos;t make a card different: a plain and a {hasModifiers ? finishName : 'holo'} copy of the same card still match, but two different cards of the same rarity don&apos;t.
+        </p>
+        <ul className="scoring-note scoring-examples" aria-label="Combo examples">
+          {COMBO_EXAMPLES.map((counts) => {
+            const hand = POKER_HANDS[handFromCounts(counts)];
+            return (
+              <li key={hand.name}>
+                <strong>{hand.name}</strong>: <span className="scoring-example-cards">{exampleCards(counts)}</span> ({exampleRepeats(counts)}), combo ×{hand.multiplier.toLocaleString()}
+              </li>
+            );
+          })}
+        </ul>
         <table className="scoring-table">
           <thead>
             <tr><th>Combo</th><th>Chance per pack</th><th>Multiplier</th></tr>
@@ -151,6 +222,7 @@ const ScoringGuide = ({ set, onClose }: ScoringGuideProps) => {
             ))}
           </tbody>
         </table>
+        <p className="scoring-note">Combo chances are for one {packSize}-card pack.</p>
     </Sheet>
   );
 };

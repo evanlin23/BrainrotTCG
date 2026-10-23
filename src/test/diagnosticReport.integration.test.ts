@@ -139,3 +139,154 @@ it('opens from the real Settings page as a labelled dialog that never touches th
   expect(document.querySelector('main.page .settings-group')).not.toBeNull();
   expect(document.activeElement).toBe(button('Report a problem'));
 });
+
+const mountReport = async (capturing = false) => {
+  app = await mountedApp({});
+  await app.mount(async () => {
+    if (capturing) (await import('../game/diagnostics')).setBrowserDiagnosticCapture(true);
+    const { createElement } = await import('react');
+    const { default: DiagnosticReport } = await import('../components/ui/DiagnosticReport');
+    return { default: () => createElement(DiagnosticReport, { onClose() {} }) };
+  });
+  const text = document.querySelector('textarea')!;
+  const checkbox = document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+  const edit = (value: string) => app!.interact(() => { nativeSet.call(text, value); text.dispatchEvent(new Event('input', { bubbles: true })); });
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  return { text, checkbox, edit, writeText };
+};
+
+it('keeps a reviewed report when capture consent changes, and still removes recorded steps when opting out', async () => {
+  const { text, checkbox, edit, writeText } = await mountReport();
+  const diagnostics = await import('../game/diagnostics');
+  await app!.interact(() => checkbox.click());
+  window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
+  await app!.interact(() => button('Refresh details').click());
+  const recorded = JSON.parse(text.value);
+  expect(recorded.events).toEqual([{ step: 1, event: 'unhandled-error' }]);
+
+  // Redact the route and add a note, then opt out: the edits stay, the recorded steps go.
+  await edit(JSON.stringify({ ...recorded, route: 'REDACTED', notes: 'Pack opened twice' }, null, 2));
+  await app!.interact(() => checkbox.click());
+  expect(JSON.parse(text.value)).toMatchObject({ route: 'REDACTED', notes: 'Pack opened twice', captureEnabled: false, events: [] });
+  expect(document.body.textContent).toContain('Event capture is off');
+  expect(document.body.textContent).toContain('Your edits were kept');
+  expect(diagnostics.diagnosticSnapshot({}).events).toEqual([]);
+  await app!.interact(() => button('Copy report').click());
+  const copied = writeText.mock.calls[0][0] as string;
+  expect(copied).toBe(text.value);
+  expect(copied).not.toContain('unhandled-error');
+  expect(JSON.parse(copied)).toMatchObject({ route: 'REDACTED', captureEnabled: false });
+
+  // Opting back in keeps the edits too and states the new consent truthfully.
+  await app!.interact(() => checkbox.click());
+  expect(JSON.parse(text.value)).toMatchObject({ route: 'REDACTED', notes: 'Pack opened twice', captureEnabled: true, events: [] });
+  expect(document.body.textContent).not.toContain('Event capture is off');
+
+  // Explicit Refresh details still regenerates the whole report.
+  window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
+  await app!.interact(() => button('Refresh details').click());
+  expect(JSON.parse(text.value)).toMatchObject({ route: 'opening', captureEnabled: true, events: [{ step: 1, event: 'unhandled-error' }] });
+  expect(text.value).not.toContain('REDACTED');
+
+  // Clear recorded steps still empties them.
+  await app!.interact(() => button('Clear recorded steps').click());
+  expect(JSON.parse(text.value).events).toEqual([]);
+  expect(diagnostics.diagnosticSnapshot({}).events).toEqual([]);
+});
+
+it('keeps a redacted events field redacted when capture changes', async () => {
+  const { text, checkbox, edit } = await mountReport();
+  await app!.interact(() => checkbox.click());
+  const { events: _events, ...withoutEvents } = JSON.parse(text.value);
+  await edit(JSON.stringify(withoutEvents));
+  await app!.interact(() => checkbox.click());
+  expect(JSON.parse(text.value)).not.toHaveProperty('events');
+  expect(JSON.parse(text.value).captureEnabled).toBe(false);
+});
+
+it('blocks copying edited text that is no longer JSON until recorded steps are removed from it', async () => {
+  const { text, checkbox, edit, writeText } = await mountReport();
+  await app!.interact(() => checkbox.click());
+  window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
+  await app!.interact(() => button('Refresh details').click());
+  await edit(`I tapped open twice\n${text.value.slice(text.value.indexOf('"events"'))}`);
+  expect(button('Copy report').disabled).toBe(false);
+
+  await app!.interact(() => checkbox.click());
+  expect(text.value).toContain('I tapped open twice');
+  expect(text.value).toContain('unhandled-error');
+  expect(button('Copy report').disabled).toBe(true);
+  expect(document.body.textContent).toContain('still has recorded steps');
+  expect(text.getAttribute('aria-describedby')!.split(' ').every((target) => document.getElementById(target))).toBe(true);
+  expect(writeText).not.toHaveBeenCalled();
+
+  // Removing the steps by hand unblocks it, and the edit is what gets copied.
+  await edit('I tapped open twice');
+  expect(button('Copy report').disabled).toBe(false);
+  expect(document.body.textContent).not.toContain('still has recorded steps');
+  await app!.interact(() => button('Copy report').click());
+  expect(writeText).toHaveBeenCalledWith('I tapped open twice');
+});
+
+it('replaces a blocked draft only when the player refreshes details', async () => {
+  const { text, checkbox, edit } = await mountReport();
+  await app!.interact(() => checkbox.click());
+  window.dispatchEvent(new ErrorEvent('error', { message: 'PRIVATE_KEY_NEVER_SHARE' }));
+  await edit('notes "event": "unhandled-error"');
+  await app!.interact(() => checkbox.click());
+  expect(button('Copy report').disabled).toBe(true);
+  await app!.interact(() => button('Refresh details').click());
+  expect(JSON.parse(text.value)).toMatchObject({ captureEnabled: false, events: [] });
+  expect(button('Copy report').disabled).toBe(false);
+});
+
+const before = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+it('puts the privacy notice, the editable draft and Copy report before the optional recording controls', async () => {
+  const { text, checkbox } = await mountReport();
+  const privacy = [...document.querySelectorAll('p')].find((p) => p.textContent!.includes('Never attach a private save'))!;
+  const posting = [...document.querySelectorAll('p')].find((p) => p.textContent!.includes('Posting requires a GitHub account'))!;
+  const record = document.querySelector<HTMLDetailsElement>('details.diagnostic-record')!;
+  const summary = record.querySelector('summary')!;
+  const link = document.querySelector<HTMLAnchorElement>('a')!;
+
+  // Essential privacy copy, the draft and its actions come first and are never inside the disclosure.
+  expect(before(privacy, text)).toBe(true);
+  expect(before(text, button('Copy report'))).toBe(true);
+  expect(before(button('Copy report'), record)).toBe(true);
+  for (const node of [privacy, posting, text, button('Copy report'), button('Refresh details'), link]) expect(record.contains(node)).toBe(false);
+  // The one live region sits between Copy/Refresh and the recording area, beside what triggers it.
+  const statuses = document.querySelectorAll('[role="status"]');
+  expect(statuses).toHaveLength(1);
+  expect(before(button('Refresh details'), statuses[0])).toBe(true);
+  expect(before(statuses[0], record)).toBe(true);
+  expect(record.contains(statuses[0])).toBe(false);
+  // Posting stays secondary: after the recording area, with its disclosure right before the link.
+  expect(before(record, posting)).toBe(true);
+  expect(before(posting, link)).toBe(true);
+
+  // The recording controls are collapsed, clearly named, and hold the consent and its explanation.
+  expect(record.open).toBe(false);
+  expect(summary.textContent).toBe('Record steps to reproduce');
+  expect(record.contains(checkbox)).toBe(true);
+  expect(record.contains(button('Clear recorded steps'))).toBe(true);
+  expect(record.textContent).toContain('Capture is optional and starts off');
+  expect(checkbox.checked).toBe(false);
+  expect(document.body.textContent).toContain('Event capture is off');
+
+  // Opening it is a normal disclosure, and the summary reports the capture state while it is on.
+  await app!.interact(() => summary.click());
+  expect(record.open).toBe(true);
+  await app!.interact(() => checkbox.click());
+  expect(summary.textContent).toBe('Record steps to reproduce (on)');
+  expect(JSON.parse(text.value).captureEnabled).toBe(true);
+});
+
+it('opens the recording area when capture is already on for this tab', async () => {
+  await mountReport(true);
+  expect(document.querySelector<HTMLDetailsElement>('details.diagnostic-record')!.open).toBe(true);
+  expect(document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(document.querySelector('summary')!.textContent).toBe('Record steps to reproduce (on)');
+});

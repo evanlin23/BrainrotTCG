@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { fingerFor, monitor, snapshot } from './support';
+import { expectDecoded, fingerFor, monitor, snapshot } from './support';
 
 // Cards, Rankings, Profile and Settings are hash-routed pages over the packs screen (#312). Each one
 // is reached by its address, by its tab and by Back, at a phone and a desktop size; packs and shared
@@ -230,6 +230,21 @@ test('a new player who turns on Show every page gets the tabs and the pack picke
   expect(errors).toEqual([]);
 });
 
+test('a returning player has no Show every page switch in Settings, and keeps every page (#902)', async ({ page, baseURL }) => {
+  const errors = await monitor(page, baseURL!, 1, { returning: true });
+  await page.goto('./');
+  await expect(tab(page, 'Cards')).toBeVisible();
+  await gear(page).click();
+  const settings = pageNamed(page, 'Settings');
+  // The rest of Sound & display is there; the onboarding-only row and its explanation are not.
+  await expect(settings.getByRole('switch', { name: 'Particles', exact: true })).toBeVisible();
+  await expect(settings.getByRole('switch', { name: 'Show every page', exact: true })).toHaveCount(0);
+  await expect(settings.getByText('before your first pack is saved')).toHaveCount(0);
+  await expect(settings.getByRole('heading', { name: 'Save & backup', exact: true })).toBeVisible();
+  await expect(nav(page)).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('the card guide link fits a 320 px phone at 200% text, under the pack it leaves alone', async ({ page, baseURL, hasTouch }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
   await page.setViewportSize({ width: 320, height: 568 });
@@ -310,6 +325,8 @@ test('Back from a page opened over a pack returns to the pack, and the next Back
   await expect(opener(page)).toBeEnabled();
   const start = page.url();
   await openPackSummary(page);
+  // A finish caption (GOLD) is printed only once its card's art is drawn (#762): read the text after that.
+  await expectDecoded(page.locator('.summary-cards img'), 5);
   const cards = await page.locator('.pack-summary').innerText();
 
   // Focus mode hides the tabs for the whole pack (#312), so a page reaches a pack's summary by its address.
@@ -372,7 +389,7 @@ test('closing a shared pull opened over a pack keeps the pack, and one Back then
   await openPackSummary(page);
 
   await page.evaluate((proof) => { location.hash = `#/pull/${proof}`; }, vector.proof);
-  const viewer = page.getByRole('dialog').filter({ hasText: 'Verified on this device' });
+  const viewer = page.getByRole('dialog').filter({ hasText: 'This pull checks out — re-verified in your browser just now' });
   await expect(viewer).toBeVisible({ timeout: 30000 });
   await viewer.getByRole('button', { name: 'Close', exact: true }).first().click();
   await expect(page.getByRole('dialog')).toHaveCount(0);

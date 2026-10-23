@@ -4,10 +4,14 @@
  *
  *   npx tsx scripts/hall-of-fame.ts verify-issue   (Actions, on an issue event)
  *     Reads the issue from $GITHUB_EVENT_PATH, verifies its pull link and writes
- *     hof-comment.md plus `verified`, `changed`, `label` and `rejected` to $GITHUB_OUTPUT. A
- *     verified comment carries a marker with the pull id. `label` is `verified`
+ *     hof-comment.md plus `verified`, `changed`, `redeploy`, `label` and `rejected` to
+ *     $GITHUB_OUTPUT. A verified comment carries a marker with the pull id. `label` is `verified`
  *     for a pull that makes the all-time top pulls, or `daily`
- *     for one that only makes the day's top (see "Labels" below).
+ *     for one that only makes the day's top (see "Labels" below). An edit that keeps a pull
+ *     the bot already verified on the issue writes an empty comment file and, if its labels are
+ *     incomplete, repairs them (`changed`). `redeploy` is set for a new verification, and for a
+ *     repair only when the bot's latest comment is that pull's verified one (the run stopped
+ *     before labelling) and the next build would list a pull the published list doesn't have.
  *
  *   npx tsx scripts/hall-of-fame.ts inbox           (Actions, on a schedule)
  *     Reads submissions sent without a GitHub account through public Nostr relays
@@ -68,6 +72,7 @@ import {
   utcDay,
   verifyProof,
   type RankableEntry,
+  type TicketFn,
   type VerifiedPull,
   type Finish,
 } from '../src/engine/index.ts';
@@ -196,6 +201,17 @@ const firstVerifiedAt = async (issue: number, id: string, token: string): Promis
   return null;
 };
 
+/** The bot's latest comment on the issue, or null if there is none or there are too many to read. */
+const latestBotComment = async (issue: number, token: string): Promise<Comment | null> => {
+  let latest: Comment | null = null;
+  for (let page = 1; page < 20; page++) {
+    const batch = await github<Comment[]>(`/repos/${REPO}/issues/${issue}/comments?per_page=100&page=${page}`, token);
+    for (const c of batch) if (c.user?.login === BOT) latest = c;
+    if (batch.length < 100) return latest;
+  }
+  return null;
+};
+
 const FOOTER = '\n\n---\n_Verified automatically by re-deriving the pack from its proof (`scripts/hall-of-fame.ts`)._';
 
 /** The bot's comment on a verified pull; its marker is what `build` looks for. */
@@ -209,7 +225,7 @@ const pagesUrl = () => {
 };
 
 /** The list as deployed now, or null if it can't be read (then nothing is held back). */
-const publishedList = async (): Promise<RankableEntry[] | null> => {
+const publishedList = async (): Promise<(RankableEntry & { issue?: number })[] | null> => {
   try {
     const res = await fetch(`${pagesUrl()}hall-of-fame.json`, { cache: 'no-store' });
     if (!res.ok) return null;
@@ -247,19 +263,21 @@ export const verifyIssue = async () => {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { issue: Issue };
   let result = await checkIssue(event.issue);
   const token = process.env.GITHUB_TOKEN;
-  // An edit that keeps the same verified pull needs no new comment or redeploy.
-  let already = false;
+  // An edit that keeps the same verified pull needs no new comment.
+  let verifiedAt: string | null = null;
   if (result.ok && token) {
     try {
-      already = (await firstVerifiedAt(event.issue.number, pullId(result.pull.proof), token)) !== null;
+      verifiedAt = await firstVerifiedAt(event.issue.number, pullId(result.pull.proof), token);
     } catch (error) {
       console.warn(`Could not read earlier comments; treating this as a new verification. ${error}`);
     }
   }
-  // A new verification only goes in if it would join the list (the top pulls or today's
-  // top), and one that only makes today's top only if it isn't already on an earlier day's. The same
-  // pull verified again keeps the label it has.
+  const already = verifiedAt !== null;
+  // A new verification only goes in if it would join the list (the top pulls or today's top), and
+  // one that only makes today's top only if it isn't already on an earlier day's. The same pull
+  // verified again keeps the label it has.
   let label: 'verified' | 'daily' = isDailyOnly(event.issue) ? 'daily' : 'verified';
+  const currentLabels = labelNames(event.issue);
   if (result.ok && !already) {
     const list = await publishedList();
     const day = today();
@@ -269,10 +287,55 @@ export const verifyIssue = async () => {
     else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
     else label = 'daily';
   }
+
+  // Only a verified pull can be `already` (a refused one always gets a new comment), so only its
+  // labels need checking. `rejected` is the owner's: a repair never relabels, closes or redeploys
+  // over it.
+  const labelsComplete = (l: 'verified' | 'daily') =>
+    currentLabels.includes('hall-of-fame') &&
+    currentLabels.includes(l) &&
+    !currentLabels.includes('not-verified') &&
+    !currentLabels.includes(l === 'daily' ? 'verified' : 'daily');
+  const repair = result.ok && already && !labelsComplete(label) && !currentLabels.includes('rejected');
+  // One left without `verified` or `daily` (a run that stopped after commenting, or an edit away and
+  // back) isn't judged by any day's top again: it is `verified` if it would make the top pulls
+  // without this issue's own entry, else `daily` (also when the published list can't be read), so a
+  // repair never makes it permanent. A repair redeploys only when the bot's latest comment is this
+  // pull's verified one (the run stopped before labelling: an edit away always gets a comment) and
+  // the next build would list it while the published list doesn't yet. So editing away and back
+  // can't start deploys, even for a pull that isn't live (an expired daily, or one outside the top).
+  let redeploy = result.ok && !already;
+  if (repair && result.ok && verifiedAt && token) {
+    const { id } = result.entry;
+    const list = await publishedList();
+    const others = list?.filter((e) => e.issue !== event.issue.number) ?? null;
+    if (!currentLabels.includes('verified') && !currentLabels.includes('daily')) {
+      label = others && hallOfFameJoin(candidateOf(result.pull), others) === 'all-time' ? 'verified' : 'daily';
+    }
+    if (list && others && !list.some((e) => e.id === id)) {
+      const now = new Date();
+      const day = utcDay(now.toISOString());
+      const counts = label === 'verified' || [day, previousUtcDay(day)].includes(utcDay(verifiedAt));
+      const listed = counts && listToPublish([...others, { ...result.entry, submittedAt: verifiedAt }], now).some((e) => e.id === id);
+      try {
+        redeploy = listed && (await latestBotComment(event.issue.number, token))?.body?.includes(markerFor(id)) === true;
+      } catch (error) {
+        console.warn(`Could not read the bot's latest comment; not redeploying. ${error}`);
+      }
+    }
+  }
+  // `changed` runs the label step; an empty comment file makes it skip the comment.
+  const changed = !already || repair;
+
   const body = result.ok ? verifiedComment(result.entry, result.pull) : `❌ **Not added.** ${result.reason}${FOOTER}`;
-  writeFileSync('hof-comment.md', body);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `verified=${result.ok}\nchanged=${!already}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`);
-  console.log(already ? 'Already verified this pull on this issue; nothing to do.' : body);
+  writeFileSync('hof-comment.md', already ? '' : body);
+  if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `verified=${result.ok}\nchanged=${changed}\nredeploy=${redeploy}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`,
+    );
+  }
+  console.log(!already ? body : changed ? `Already verified this pull on this issue; repairing missing labels${redeploy ? ' and redeploying' : ''}.` : 'Already verified this pull on this issue; nothing to do.');
 };
 
 /** Pages one issue listing may read (100 issues each). */
@@ -423,25 +486,27 @@ export const build = async (output = OUTPUT) => {
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);
 };
 
-const SEEN_PATH = 'hof-inbox-seen.json';
+export const SEEN_PATH = 'hof-inbox-seen.json';
 /** How far back to read the relays. Seen events are skipped, so a long window only costs a download. */
-const INBOX_WINDOW_S = 7 * 24 * 60 * 60;
+export const INBOX_WINDOW_S = 7 * 24 * 60 * 60;
 /** Pulls re-derived per run (about 0.1 s each), so a flood of submissions can't run the job forever. */
-const INBOX_BUDGET = 300;
+export const INBOX_BUDGET = 300;
 /** Entries filed per run (two GitHub requests each), well under GitHub's limits on creating content. */
-const INBOX_MAX_FILED = 20;
+export const INBOX_MAX_FILED = 20;
 /**
  * Events per request. Relays advertise their own maximum (NIP-11 `max_limit`), and asking for more
  * can get the connection dropped: relay.nostr.net allows 100, and relay.damus.io hangs up at 500.
  */
-const INBOX_PAGE_SIZE = 100;
+export const INBOX_PAGE_SIZE = 100;
 /** Requests per relay for older events, so a burst of junk can't push real submissions out of reach. */
-const INBOX_PAGES = 50;
+export const INBOX_PAGES = 50;
+/** Event ids remembered between runs; the newest are kept. */
+export const INBOX_SEEN_CAP = 20000;
 
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
 const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
 
-export const inbox = async () => {
+export const inbox = async (ticketFn?: TicketFn) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('inbox needs GITHUB_TOKEN to file issues');
   const seen = new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
@@ -482,6 +547,7 @@ export const inbox = async () => {
     budget: INBOX_BUDGET,
     maxFiled: INBOX_MAX_FILED,
     lookup: getSet,
+    ticketFn,
     log: console.log,
     // Filed by the bot, so the issue-opened workflow doesn't run on it again; the marker comment is
     // the "first verified" time, exactly as for issues people open themselves. The marker goes on
@@ -517,7 +583,7 @@ export const inbox = async () => {
   if (deferred) console.log(`${deferred} events left for the next run`);
 
   // Keep the cache bounded; the newest ids matter (older events fall out of the window anyway).
-  writeFileSync(SEEN_PATH, JSON.stringify([...seen].slice(-20000)));
+  writeFileSync(SEEN_PATH, JSON.stringify([...seen].slice(-INBOX_SEEN_CAP)));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `added=${added}\n`);
   console.log(`${events.length} events read, ${added} added`);
 };

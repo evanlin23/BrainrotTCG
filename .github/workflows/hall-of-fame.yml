@@ -24,8 +24,9 @@ jobs:
     outputs:
       verified: ${{ steps.check.outputs.verified }}
       changed: ${{ steps.check.outputs.changed }}
+      redeploy: ${{ steps.check.outputs.redeploy }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -43,13 +44,16 @@ jobs:
           VERIFIED: ${{ steps.check.outputs.verified }}
           LABEL: ${{ steps.check.outputs.label }}
           REJECTED: ${{ steps.check.outputs.rejected }}
+        shell: bash
         run: |
           gh label create hall-of-fame --color FF3DF2 --description "Hall of Fame submission" 2>/dev/null || true
           gh label create verified --color 2BFF6A --description "Pull verified" 2>/dev/null || true
           gh label create daily --color 2BD9FF --description "Pull verified for the daily top" 2>/dev/null || true
           gh label create not-verified --color 999999 --description "Pull did not verify or qualify" 2>/dev/null || true
           gh label create rejected --color B60205 --description "Kept out of the Hall of Fame" 2>/dev/null || true
-          gh issue comment "$ISSUE" --body-file hof-comment.md
+          if [ -s hof-comment.md ]; then
+            gh issue comment "$ISSUE" --body-file hof-comment.md
+          fi
           if [ "$VERIFIED" = "true" ]; then
             # `daily`: it only made the day's top, so deploys list it for a day or two. Anything
             # else is `verified`, which every deploy lists.
@@ -69,11 +73,12 @@ jobs:
             if [ "$REJECTED" = "true" ]; then gh issue edit "$ISSUE" --add-label rejected; fi
           fi
 
-  # The only job that can start a deploy, and all it can do. It runs only if verify succeeded.
+  # The only job that can start a deploy, and all it can do. It runs only if verify succeeded, for a
+  # new verification, or a label repair after a run that stopped before labelling (see verify-issue).
   redeploy:
     name: Redeploy so the entry goes live
     needs: verify
-    if: needs.verify.outputs.verified == 'true' && needs.verify.outputs.changed == 'true'
+    if: needs.verify.outputs.verified == 'true' && needs.verify.outputs.redeploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

@@ -52,7 +52,14 @@ const CardViewerModal = ({ card, versions, onClose, canShare = false, pack }: Ca
     };
     const mouse = (e: MouseEvent) => onMove(e.clientX, e.clientY);
     window.addEventListener('mousemove', mouse);
-    return () => window.removeEventListener('mousemove', mouse);
+    // data-tilt="live" marks the moment the card follows the mouse. The listener attaches in a
+    // passive effect, after the render that shows the card, so a mouse move just before it is lost.
+    const el = cardRef.current;
+    el?.setAttribute('data-tilt', 'live');
+    return () => {
+      window.removeEventListener('mousemove', mouse);
+      el?.removeAttribute('data-tilt');
+    };
   }, [reducedMotion]);
   // Turning reduced motion on levels the card and forgets the angle, so turning it back off doesn't
   // snap the card to where the mouse last was.

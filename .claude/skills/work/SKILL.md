@@ -31,6 +31,9 @@ merges, so a compaction or lost container costs little, and don't reimpose a cap
 3. Refresh: `git fetch origin main`, list open PRs (fields: number, title, draft, head, base) and the
    check runs of PRs you opened. Red CI on your own PRs comes before new work.
 4. More than about five open PRs and no triage recorded? Run /triage-prs first.
+5. Quality review: between tasks, `npx tsx scripts/quality-review.ts check --state-file=.claude/state/NOW.md`
+   at setup and each checkpoint. Not due prints one or two lines: carry on. Due: follow its slice and
+   `record` as in docs/DEVELOPMENT.md (Quality review cadence), then replace the ledger's `quality review:` line.
 
 ## 2. Keep the ledger (budget: under 80 lines, 3,600 characters / ~900 tokens)
 
@@ -45,6 +48,7 @@ done: count merged this run, then the last five: PR, merge commit, one line
 needs owner: one line each; keep working around them
 current: item, branch or PR, step
 blockers: unresolved dependencies or environment gaps
+quality review: one line from scripts/quality-review.ts (cadence, budget, last, passed, next, scope, issues)
 ```
 
 The ledger is compact state, not history: git log and the merged PRs are the permanent record.
@@ -90,7 +94,10 @@ authority and holds) and for the holds check before a merge.
    checkpoint state to NOW.md with the pending run identifier and explicit resumption action, and end the
    turn cleanly. No `sleep` loops or repeated status polling calls; each one re-reads the whole context.
 6. Comment on the canonical issue in a few lines (what shipped, PR, what remains). Close it only if
-   its whole scope shipped.
+   its whole scope shipped, with a linked PR and regression/check evidence from the final head. For a
+   reproduced defect, copy the PR body's "Defect learning and issue closure" note (docs/DEVELOPMENT.md,
+   checked by the reviewer before the merge) to the issue. Missing external verification (physical device, external API) stays
+   pending, never complete.
 7. Update NOW.md, mirror it if this is a checkpoint, then continue.
 
 Stop early when a change could lose saves or break old proofs or published data: hold it and report.
