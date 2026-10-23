@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { holdTickets, monitor } from './support';
 
 /**
  * The opening cue (#628, #898): a finger and a partial tear play along the pack's seam, at most twice
@@ -16,12 +16,6 @@ const pillAnimations = (page: Page) =>
   page.locator('.swipe-hint-icon').evaluate((el) => el.getAnimations().filter((a) => a instanceof CSSAnimation && a.playState === 'running').length);
 const keyframeAnimations = (page: Page, selector: string) =>
   page.locator(selector).evaluate((el) => el.getAnimations().filter((a) => a instanceof CSSAnimation).length);
-
-/**
- * A reload cancels the art the page is still prefetching for the next pack, and the monitor sees each
- * cancelled image as a failed request. Nothing else that fails is let through.
- */
-const notReloadAborts = (errors: string[]) => errors.filter((error) => !/^net::ERR_ABORTED \S+\.webp$/.test(error));
 
 async function load(page: Page) {
   await page.goto('./');
@@ -71,6 +65,9 @@ test('a new player sees the cue on the first load, and a touch ends it for good'
 test('left alone, the cue plays its twice, comes to rest, and the third load has none', async ({ page, baseURL }) => {
   test.setTimeout(60000);
   const errors = await monitor(page, baseURL!);
+  // The page mines the next pack's ticket and then prefetches its art; a reload would abort that art
+  // and the monitor would count it. With the ticket held, nothing is prefetched before a reload.
+  await holdTickets(page);
   await load(page);
   await expect(shell(page)).toHaveAttribute('data-open-cue', 'play');
 
@@ -82,7 +79,6 @@ test('left alone, the cue plays its twice, comes to rest, and the third load has
   await expect(shell(page)).not.toHaveAttribute('data-open-cue', /.+/);
   expect(await pillAnimations(page)).toBe(0);
   expect(await plays(page)).toBe('1');
-  // Nothing has failed yet: a reload's own cancelled art is let through only after the first one.
   expect(errors).toEqual([]);
 
   await page.reload();
@@ -95,7 +91,7 @@ test('left alone, the cue plays its twice, comes to rest, and the third load has
   await expect(page.locator('.open-cue')).toHaveCount(0);
   expect(await pillAnimations(page)).toBe(0);
   expect(await plays(page)).toBe('2');
-  expect(notReloadAborts(errors)).toEqual([]);
+  expect(errors).toEqual([]);
 });
 
 test('with reduced motion the cue is a still frame: arrowheads and caption, nothing moving', async ({ page, baseURL }) => {
