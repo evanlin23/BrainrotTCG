@@ -463,10 +463,15 @@ describe('one record per pack, whatever order the player and the ticket arrive i
     act(() => document.querySelector<HTMLButtonElement>('.pack-open-button')!.click());
     await act(async () => { vi.advanceTimersByTime(500); });
   };
-  /** The ticket lands when the test says so. */
-  const holdTicket = () => {
+  /** The ticket lands when the test says so: `land()` resolves it, outside act. */
+  const holdTicketUntil = () => {
     let land = () => {};
     vi.mocked(openPack).mockImplementation(() => new Promise((resolve) => { land = () => resolve(dealt); }));
+    return () => land();
+  };
+  /** The same, landing inside act. */
+  const holdTicket = () => {
+    const land = holdTicketUntil();
     return () => act(async () => { land(); });
   };
 
@@ -500,6 +505,34 @@ describe('one record per pack, whatever order the player and the ticket arrive i
     expect(onOpen.mock.calls[0][0].cards.every((card: { isRevealed: boolean }) => card.isRevealed)).toBe(true);
     expect(onLeaveEarly).toHaveBeenCalledOnce();
     expect(document.querySelector('.card-reveal-area')).toBeNull();
+  });
+
+  /** The ticket lands and `during` runs before React renders what the landing queued. */
+  const landThen = (land: () => Promise<void> | void, during: () => void) => act(async () => {
+    land();
+    // The opener has dealt the pack once its await continues; nothing has rendered, as act holds the render back.
+    for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+    during();
+  });
+  it('records a pack the player leaves in the gap between its ticket landing and the reveal rendering', async () => {
+    const land = holdTicketUntil();
+    await show();
+    await tear();
+    await landThen(land, () => press('Escape', 'Escape'));
+
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onOpen.mock.calls[0][0].cards.every((card: { isRevealed: boolean }) => card.isRevealed)).toBe(true);
+    // Nothing was turned over yet: it is kept, with the notice saying where its cards went.
+    expect(onLeaveEarly).toHaveBeenCalledOnce();
+    expect(document.querySelector('.card-reveal-area')).toBeNull();
+  });
+
+  it('records a pack whose opener unmounts in the gap between its ticket landing and the reveal rendering', async () => {
+    const land = holdTicketUntil();
+    await show();
+    await tear();
+    await landThen(land, () => root.unmount());
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 
   it('keeps a pack whose ticket lands after the player left, once', async () => {

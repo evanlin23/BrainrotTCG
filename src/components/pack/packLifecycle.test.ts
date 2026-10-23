@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { OpenedPack } from '../../game/pulls';
 import { SEALED, transition, type PackEvent, type PackStage } from './packLifecycle';
 
 /** Plays events from a stage; returns where it ended and how many times a pack was recorded. */
@@ -11,18 +12,30 @@ const play = (events: PackEvent[], from: PackStage = SEALED) =>
     { stage: from, records: 0 },
   );
 
+/** Only identity matters here: the lifecycle carries the pack, it never looks inside. */
+const PACK = { nonce: 3 } as OpenedPack;
+const landed: PackEvent = { type: 'landed', pack: PACK };
+const REVEALING: PackStage = { kind: 'revealing', pack: PACK };
+
 const WAITING: PackStage = { kind: 'waiting', leaving: false };
 
 describe('the pack lifecycle', () => {
   it('goes sealed, torn, waiting, revealing, summary and back, recording when the reveal ends', () => {
-    const toReveal = play([{ type: 'tear' }, { type: 'spend', blocked: false }, { type: 'landed' }]);
-    expect(toReveal).toEqual({ stage: { kind: 'revealing' }, records: 0 });
+    const toReveal = play([{ type: 'tear' }, { type: 'spend', blocked: false }, landed]);
+    expect(toReveal).toEqual({ stage: REVEALING, records: 0 });
     expect(play([{ type: 'finish' }], toReveal.stage)).toEqual({ stage: { kind: 'summary' }, records: 1 });
     expect(play([{ type: 'finish' }, { type: 'close' }], toReveal.stage)).toEqual({ stage: SEALED, records: 1 });
   });
 
+  it('hands over the pack it was dealt, from the stage, whichever way the reveal ends', () => {
+    for (const end of [{ type: 'finish' }, { type: 'leave' }, { type: 'unmount' }] as PackEvent[]) {
+      expect(transition(transition(SEALED, { type: 'tear' }).stage, end).record).toBeNull();
+      expect(transition(REVEALING, end).record).toBe(PACK);
+    }
+  });
+
   it('records a pack once however the reveal ends', () => {
-    const revealing: PackStage = { kind: 'revealing' };
+    const revealing = REVEALING;
     for (const ends of [
       [{ type: 'leave' }, { type: 'leave' }],
       [{ type: 'finish' }, { type: 'leave' }],
@@ -41,17 +54,17 @@ describe('the pack lifecycle', () => {
   it('keeps a pack left while its ticket is on its way, once, when the ticket lands', () => {
     const left = play([{ type: 'leave' }, { type: 'leave' }], WAITING);
     expect(left).toEqual({ stage: { kind: 'waiting', leaving: 'left' }, records: 0 });
-    const first = transition(left.stage, { type: 'landed' });
-    expect(first).toMatchObject({ stage: SEALED, record: true });
+    const first = transition(left.stage, landed);
+    expect(first).toMatchObject({ stage: SEALED, record: PACK });
     expect(first.from).toEqual({ kind: 'waiting', leaving: 'left' });
     // A second arrival has nothing to land on.
-    expect(play([{ type: 'landed' }], first.stage).records).toBe(0);
+    expect(play([landed], first.stage).records).toBe(0);
   });
 
   it('keeps a pack whose opener unmounted while the ticket was on its way, and does not call that leaving', () => {
     const gone = play([{ type: 'unmount' }, { type: 'unmount' }, { type: 'leave' }], WAITING);
     expect(gone).toEqual({ stage: { kind: 'waiting', leaving: 'unmounted' }, records: 0 });
-    expect(transition(gone.stage, { type: 'landed' })).toMatchObject({ stage: SEALED, record: true });
+    expect(transition(gone.stage, landed)).toMatchObject({ stage: SEALED, record: PACK });
   });
 
   it('leaves a player who left on the packs screen when the ticket fails, and tells a player who stayed', () => {
@@ -73,21 +86,21 @@ describe('the pack lifecycle', () => {
   it('ignores an event that does not fit the stage, returning the same stage object', () => {
     const summary: PackStage = { kind: 'summary' };
     for (const [stage, event] of [
-      [SEALED, { type: 'landed' }],
+      [SEALED, landed],
       [SEALED, { type: 'finish' }],
       [SEALED, { type: 'close' }],
       [SEALED, { type: 'leave' }],
       [{ kind: 'tearing' }, { type: 'tear' }],
-      [{ kind: 'tearing' }, { type: 'landed' }],
+      [{ kind: 'tearing' }, landed],
       [WAITING, { type: 'finish' }],
       [WAITING, { type: 'spend', blocked: false }],
-      [{ kind: 'revealing' }, { type: 'tear' }],
-      [{ kind: 'revealing' }, { type: 'close' }],
+      [REVEALING, { type: 'tear' }],
+      [REVEALING, { type: 'close' }],
       [summary, { type: 'finish' }],
       [summary, { type: 'unmount' }],
     ] as [PackStage, PackEvent][]) {
       expect(transition(stage, event).stage).toBe(stage);
-      expect(transition(stage, event).record).toBe(false);
+      expect(transition(stage, event).record).toBeNull();
     }
   });
 });

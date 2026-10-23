@@ -40,6 +40,9 @@ const focusIfFree = (el: HTMLElement | null) => {
   if (!active || active === document.body || active.closest('.pack-opener-container')) el.focus({ preventScroll: true });
 };
 
+/** The pack as the engine dealt it, face up: what's recorded and shared (the reveal order is only for show). */
+const faceUp = (pack: OpenedPack): OpenedPack => ({ ...pack, cards: pack.cards.map((card) => ({ ...card, isRevealed: true })) });
+
 interface PreloadedAssets {
   brainrotVoices: HTMLAudioElement[];
   cardFlip: HTMLAudioElement;
@@ -107,6 +110,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   const effectTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const skippingRef = useRef(false);
   /** What a ticket that lands after the player left needs, as of the latest render. */
+  const preloadedRef = useRef<PreloadedAssets | null>(null);
   const landingRef = useRef({ onOpen, onLeaveEarly, resetCutState: () => {} });
   /** Whether a tear may still spend its ticket, as of the latest render (see handleCutComplete). */
   const openBlockedRef = useRef(openBlocked);
@@ -123,13 +127,13 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       if (from.kind === 'waiting' && from.leaving === 'left') landingRef.current.resetCutState();
       return;
     }
-    const landed = send({ type: 'landed' });
+    const landed = send({ type: 'landed', pack });
     if (landed.record) {
       // The player left while it was on its way: the pack is recorded face up, as leaving a reveal
       // early does, and the "Pack kept" notice says where its cards went. An opener that unmounted
       // has no packs screen to go back to or notice to show: only the record is left.
       const { onOpen: record, onLeaveEarly: kept, resetCutState: reset } = landingRef.current;
-      const dealt: OpenedPack = { ...pack, cards: pack.cards.map((card) => ({ ...card, isRevealed: true })) };
+      const dealt = faceUp(landed.record);
       record(dealt);
       if (landed.from.kind === 'waiting' && landed.from.leaving === 'left') {
         kept?.(dealt);
@@ -143,7 +147,9 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     const cardFlip = preloadAudio([CARD_FLIP_SRC], { defer: true })[0];
     const effects = preloadAudio(EFFECT_SOUNDS, { defer: true });
 
-    setPreloadedAssets({ brainrotVoices, cardFlip, effects });
+    // Also kept in a ref: a leave before React renders this still cleans them up (finishPack).
+    preloadedRef.current = { brainrotVoices, cardFlip, effects };
+    setPreloadedAssets(preloadedRef.current);
     setOpenedPack(pack);
     // Shown rarest last, with NEW on cards the collection didn't have yet. The pack itself (and its
     // proof and history) keeps the engine's order.
@@ -319,10 +325,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setRevealLocked(false);
     setCelebratingCardId(null);
     stopAll();
-    if (preloadedAssets) {
-      cleanupAudio(preloadedAssets.brainrotVoices);
-      cleanupAudio([preloadedAssets.cardFlip]);
-      cleanupAudio(preloadedAssets.effects);
+    const assets = preloadedRef.current;
+    preloadedRef.current = null;
+    if (assets) {
+      cleanupAudio(assets.brainrotVoices);
+      cleanupAudio([assets.cardFlip]);
+      cleanupAudio(assets.effects);
     }
     setPreloadedAssets(null);
     setOpenedPack(null);
@@ -331,27 +339,25 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     setHasMovedMouse(false);
     resetCutState();
     focusOpenRef.current = true;
-  }, [resetCutState, preloadedAssets, cleanupAudio, stopAll, clearEffectTimers]);
+  }, [resetCutState, cleanupAudio, stopAll, clearEffectTimers]);
 
   // What a card shared from the summary links to: this pull (one object, so its proof is signed once).
   const pullRef = useMemo((): PullRef | undefined => openedPack
     ? { setId: openedPack.setId, setVersion: openedPack.setVersion, nonce: openedPack.nonce, publicKeyHex: openedPack.publicKeyHex }
     : undefined, [openedPack]);
-  /** The pack as the engine dealt it, face up: what's recorded and shared (the reveal order is only for show). */
-  const dealtPack = useCallback((): OpenedPack | null => (openedPack ? { ...openedPack, cards: openedPack.cards.map((card) => ({ ...card, isRevealed: true })) } : null), [openedPack]);
+  /** The shown pack, face up (see faceUp). */
+  const dealtPack = useCallback((): OpenedPack | null => (openedPack ? faceUp(openedPack) : null), [openedPack]);
 
-  /** Hands the pack to the collection, for a transition that says to (packLifecycle gives it once). */
-  const recordPack = useCallback(() => {
-    const pack = dealtPack();
-    if (pack) onOpen(pack);
-  }, [dealtPack, onOpen]);
+  /** Hands the pack a transition gave to the collection (packLifecycle gives it once, from the stage, not from what React last rendered). */
+  const recordPack = useCallback((pack: OpenedPack) => onOpen(faceUp(pack)), [onOpen]);
 
   const nextCard = useCallback(() => {
     if (pauseBigPulls && performance.now() < revealLockedUntilRef.current) return;
     if (currentIndex < openedCards.length - 1) {
       setCurrentIndex(currentIndex + 1);
-    } else if (send({ type: 'finish' }).record) {
-      recordPack();
+    } else {
+      const { record } = send({ type: 'finish' });
+      if (record) recordPack(record);
     }
   }, [currentIndex, openedCards, recordPack, pauseBigPulls, send]);
 
@@ -360,7 +366,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     if (disabled || skippingRef.current || (pauseBigPulls && performance.now() < revealLockedUntilRef.current)) return;
     if (!pauseBigPulls) {
       setOpenedCards(openedCards.map((card) => ({ ...card, isRevealed: true })));
-      if (send({ type: 'finish' }).record) recordPack();
+      const { record } = send({ type: 'finish' });
+      if (record) recordPack(record);
       return;
     }
     skippingRef.current = true;
@@ -445,11 +452,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     switch (left.from.kind) {
       case 'revealing': {
         // Mid-reveal: the pack is recorded with every card, as finishing it would.
-        const leftEarly = openedCards.some((card) => !card.isRevealed);
-        const pack = dealtPack();
-        recordPack();
+        // Before React has rendered the reveal there are no cards shown yet: that is leaving early too.
+        const leftEarly = openedCards.length === 0 || openedCards.some((card) => !card.isRevealed);
+        const pack = faceUp(left.record!);
+        recordPack(left.record!);
         finishPack();
-        if (leftEarly && pack) onLeaveEarly?.(pack);
+        if (leftEarly) onLeaveEarly?.(pack);
         break;
       }
       case 'summary':
@@ -474,7 +482,7 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
         focusOpenRef.current = true;
         break;
     }
-  }, [send, openedCards, dealtPack, recordPack, finishPack, onLeaveEarly, resetCutState]);
+  }, [send, openedCards, recordPack, finishPack, onLeaveEarly, resetCutState]);
 
   // Back on the sealed pack with its button already there (a torn pack put back, a refusal dismissed):
   // the X the player left by has gone, so focus goes to Open pack rather than the page.
@@ -545,7 +553,8 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       const nextIndex = pauseBigPulls ? nextSpecialRevealIndex(openedCards) : -1;
       if (nextIndex === -1) {
         setOpenedCards(openedCards.map((card) => ({ ...card, isRevealed: true })));
-        if (send({ type: 'finish' }).record) recordPack();
+        const { record } = send({ type: 'finish' });
+        if (record) recordPack(record);
         skippingRef.current = false;
         setSkipping(false);
       } else if (currentIndex !== nextIndex) {
@@ -629,13 +638,17 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
 
   // Unmounted mid-reveal (the set list changed under it): the pack still goes to the collection. One
   // still waiting for its ticket is kept when the ticket lands (startOpening).
+  // It records through the onOpen of its last render. App's handlePackOpened then has a stale default
+  // progress, but the App can't unmount an opener holding a pack: the opener is keyed by set, and
+  // switching sets, set links and Settings are disabled while a pack is busy.
   const recordOnUnmountRef = useRef(recordPack);
   useEffect(() => {
     recordOnUnmountRef.current = recordPack;
   }, [recordPack]);
 
   useEffect(() => () => {
-    if (send({ type: 'unmount' }).record) recordOnUnmountRef.current();
+    const { record } = send({ type: 'unmount' });
+    if (record) recordOnUnmountRef.current(record);
   }, [send]);
 
   // Cleanup on unmount

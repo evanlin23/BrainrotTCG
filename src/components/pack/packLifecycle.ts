@@ -1,3 +1,4 @@
+import type { OpenedPack } from '../../game/pulls';
 import type { PackRefusal } from './refusal';
 
 /**
@@ -8,14 +9,15 @@ import type { PackRefusal } from './refusal';
  * - tearing: cut, the ticket not spent yet. Leaving puts the pack back sealed.
  * - waiting: the ticket is spent and on its way. `leaving` is set once the player is gone (they pressed
  *   leave, or the opener unmounted): the pack is kept when it lands, not shown.
- * - revealing: the cards are being turned over.
+ * - revealing: the cards are being turned over. It holds the pack as dealt, so leaving (or unmounting) records
+ *   it even before React has rendered the reveal.
  * - summary: every card is up and the pack is recorded.
  */
 export type PackStage =
   | { kind: 'sealed'; refusal: PackRefusal | null }
   | { kind: 'tearing' }
   | { kind: 'waiting'; leaving: false | 'left' | 'unmounted' }
-  | { kind: 'revealing' }
+  | { kind: 'revealing'; pack: OpenedPack }
   | { kind: 'summary' };
 
 export type PackEvent =
@@ -24,7 +26,7 @@ export type PackEvent =
   /** The pause after the tear is over: spend the ticket, unless the save changed under it. */
   | { type: 'spend'; blocked: boolean }
   /** The ticket arrived with its cards. */
-  | { type: 'landed' }
+  | { type: 'landed'; pack: OpenedPack }
   /** The ticket could not be had. */
   | { type: 'failed'; refusal: PackRefusal }
   /** The reveal reached its last card, or was skipped to it. */
@@ -42,13 +44,16 @@ export interface PackTransition {
   from: PackStage;
   /** The same object as `from` when the event changed nothing (it did not apply, or it came twice). */
   stage: PackStage;
-  /** The pack just stopped being revealed, so it goes to the collection now. Only this leaves `revealing`, so a pack is recorded once. */
-  record: boolean;
+  /**
+   * The pack, as dealt, that goes to the collection now (the caller turns it face up): it just stopped being
+   * revealed, or landed after the player left. Only these give it, so a pack is recorded once.
+   */
+  record: OpenedPack | null;
 }
 
 export const SEALED: PackStage = { kind: 'sealed', refusal: null };
 
-const to = (from: PackStage, stage: PackStage, record = false): PackTransition => ({ from, stage, record });
+const to = (from: PackStage, stage: PackStage, record: OpenedPack | null = null): PackTransition => ({ from, stage, record });
 
 /** The next stage for an event; an event that does not fit the stage changes nothing. */
 export const transition = (from: PackStage, event: PackEvent): PackTransition => {
@@ -61,13 +66,13 @@ export const transition = (from: PackStage, event: PackEvent): PackTransition =>
       return to(from, event.blocked ? { kind: 'sealed', refusal: 'blocked' } : { kind: 'waiting', leaving: false });
     case 'landed':
       if (from.kind !== 'waiting') return same;
-      return from.leaving ? to(from, SEALED, true) : to(from, { kind: 'revealing' });
+      return from.leaving ? to(from, SEALED, event.pack) : to(from, { kind: 'revealing', pack: event.pack });
     case 'failed':
       if (from.kind !== 'waiting') return same;
       // Already back on the packs screen: nothing was dealt, so there is nothing to say.
       return to(from, from.leaving ? SEALED : { kind: 'sealed', refusal: event.refusal });
     case 'finish':
-      return from.kind === 'revealing' ? to(from, { kind: 'summary' }, true) : same;
+      return from.kind === 'revealing' ? to(from, { kind: 'summary' }, from.pack) : same;
     case 'refuse':
       return from.kind === 'sealed' ? to(from, { kind: 'sealed', refusal: event.refusal }) : same;
     case 'leave':
@@ -75,7 +80,7 @@ export const transition = (from: PackStage, event: PackEvent): PackTransition =>
         case 'sealed': return from.refusal ? to(from, SEALED) : same;
         case 'tearing': return to(from, SEALED);
         case 'waiting': return from.leaving ? same : to(from, { kind: 'waiting', leaving: 'left' });
-        case 'revealing': return to(from, SEALED, true);
+        case 'revealing': return to(from, SEALED, from.pack);
         case 'summary': return to(from, SEALED);
       }
       return same;
@@ -86,6 +91,6 @@ export const transition = (from: PackStage, event: PackEvent): PackTransition =>
       // when it lands, and a reveal is recorded. (A reveal that goes on after this was a remount, which
       // finds the summary of a pack already recorded.)
       if (from.kind === 'waiting') return from.leaving ? same : to(from, { kind: 'waiting', leaving: 'unmounted' });
-      return from.kind === 'revealing' ? to(from, { kind: 'summary' }, true) : same;
+      return from.kind === 'revealing' ? to(from, { kind: 'summary' }, from.pack) : same;
   }
 };
