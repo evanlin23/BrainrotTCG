@@ -147,7 +147,7 @@ for (const size of SIZES) {
       const packShell = await landedPack(page);
       const rest = (await packShell.boundingBox())!;
       await startFrames(page);
-      await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+      await page.getByRole('button', { name: /^Open pack/ }).focus();
       await page.keyboard.press('Space');
       await expect(page.locator('.pack-hint.is-waiting')).toBeVisible({ timeout: 15000 });
       await sampledFrame(page, (frame) => frame.cut && frame.focus, 'torn, in focus mode');
@@ -178,7 +178,7 @@ for (const size of SIZES) {
       const packShell = await landedPack(page);
       const rest = (await packShell.boundingBox())!;
       await expect(page.locator('.set-picker')).toHaveCount(0);
-      await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+      await page.getByRole('button', { name: /^Open pack/ }).focus();
       await page.keyboard.press('Space');
       await expect(page.locator('.pack-hint.is-waiting')).toBeVisible({ timeout: 15000 });
       await expectSameBox(packShell, rest, 'torn, waiting on its ticket');
@@ -215,7 +215,7 @@ for (const size of SIZES) {
       await page.goto('./');
       await expect(page.locator('.app-logo')).toBeVisible();
       const packShell = await landedPack(page);
-      await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+      await page.getByRole('button', { name: /^Open pack/ }).focus();
       await page.keyboard.press('Space');
       await expect(page.locator('.pack-hint.is-waiting')).toBeVisible({ timeout: 15000 });
 

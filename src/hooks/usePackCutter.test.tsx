@@ -36,7 +36,6 @@ let container: HTMLDivElement;
 let cutter: Cutter;
 let onCutComplete: ReturnType<typeof vi.fn<() => void>>;
 let onMiss: ReturnType<typeof vi.fn<() => void>>;
-let onSeamTap: ReturnType<typeof vi.fn<() => void>>;
 let onShortSwipe: ReturnType<typeof vi.fn<() => void>>;
 
 interface ProbeProps {
@@ -49,7 +48,7 @@ interface ProbeProps {
 }
 
 const Probe = ({ hold, disabled = false, isOpening = false, isPackCut = false, particles = false, volume = 0 }: ProbeProps) => {
-  const latest = usePackCutter({ onCutComplete, onMiss, onSeamTap, onShortSwipe, isOpening, isPackCut, volume, particlesEnabled: particles, disabled });
+  const latest = usePackCutter({ onCutComplete, onMiss, onShortSwipe, isOpening, isPackCut, volume, particlesEnabled: particles, disabled });
   const { packRef } = latest;
   useEffect(() => hold(latest));
   return <div ref={packRef} />;
@@ -93,7 +92,6 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   onCutComplete = vi.fn<() => void>();
   onMiss = vi.fn<() => void>();
-  onSeamTap = vi.fn<() => void>();
   onShortSwipe = vi.fn<() => void>();
   mount();
 });
@@ -984,7 +982,6 @@ describe('usePackCutter forgiving swipes (#626)', () => {
       up(at(0.52, below[below.length - 1]));
       expect(onCutComplete).not.toHaveBeenCalled();
       expect(onMiss).not.toHaveBeenCalled();
-      expect(onSeamTap).not.toHaveBeenCalled();
     });
 
     it('a sideways sweep after a scroll does not open it', () => {
@@ -996,54 +993,24 @@ describe('usePackCutter forgiving swipes (#626)', () => {
       expect(onCutComplete).not.toHaveBeenCalled();
     });
 
-    it('a tap at the low edge of the band only shows the swipe', () => {
+    it('a tap at the low edge of the band cuts nothing and says nothing', () => {
       swipe(at(0.5, 80), at(0.5, 80));
-      expect(onSeamTap).toHaveBeenCalledTimes(1);
       expect(onMiss).not.toHaveBeenCalled();
+      expect(onShortSwipe).not.toHaveBeenCalled();
       expect(onCutComplete).not.toHaveBeenCalled();
     });
 
-    it('a tap with a jittering finger only shows the swipe', () => {
+    it('a tap with a jittering finger cuts nothing and says nothing', () => {
       swipe(at(0.5, 20), at(0.51, 24), at(0.49, 18), at(0.5, 22));
-      expect(onSeamTap).toHaveBeenCalledTimes(1);
+      expect(onShortSwipe).not.toHaveBeenCalled();
       expect(onCutComplete).not.toHaveBeenCalled();
     });
 
     it('a tap below the band is a miss, and shows where to swipe', () => {
       swipe(at(0.5, 90), at(0.5, 90));
       expect(onMiss).toHaveBeenCalledTimes(1);
-      expect(onSeamTap).not.toHaveBeenCalled();
       expect(onCutComplete).not.toHaveBeenCalled();
     });
-  });
-});
-
-describe('usePackCutter seam taps (#485)', () => {
-  it('shows the swipe for a tap on the seam, without counting it as a miss', () => {
-    swipe(at(0.5), at(0.5));
-    expect(onSeamTap).toHaveBeenCalledTimes(1);
-    expect(onMiss).not.toHaveBeenCalled();
-    expect(onCutComplete).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['a swipe that opens', () => swipe(at(0.3), at(0.5), at(0.65))],
-    ['a swipe too short to open', () => swipe(at(0.4), at(0.47), at(0.51))],
-    ['a scroll down from the seam', () => swipe(at(0.5), at(0.5, 20), at(0.5, 40))],
-    ['a press below the start band', () => swipe(at(0.5, 200), at(0.5, 200))],
-    ['a cancelled press', () => {
-      down(at(0.5));
-      act(() => cutter.handlePointerEnd(pointer('pointercancel', at(0.5))));
-    }],
-  ])('does not show it for %s', (_, gesture) => {
-    gesture();
-    expect(onSeamTap).not.toHaveBeenCalled();
-  });
-
-  it('does not show it while a sheet is open over the pack', () => {
-    render(true);
-    swipe(at(0.5), at(0.5));
-    expect(onSeamTap).not.toHaveBeenCalled();
   });
 });
 
@@ -1055,7 +1022,6 @@ describe('usePackCutter swipes let go short (#803)', () => {
     gesture();
     expect(onShortSwipe).toHaveBeenCalledTimes(1);
     expect(onCutComplete).not.toHaveBeenCalled();
-    expect(onSeamTap).not.toHaveBeenCalled();
     expect(onMiss).not.toHaveBeenCalled();
   });
 

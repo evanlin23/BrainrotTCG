@@ -45,7 +45,7 @@ it('records and awards one real pack, preserving exact cards/modifiers and keepi
   await app.mount();
   await app.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();
@@ -128,10 +128,10 @@ const fillStorage = (keys: string[] = [STORAGE_KEYS.COLLECTION]) => {
   });
 };
 const openOnePack = async () => {
-  await app!.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await app!.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await app!.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();
@@ -147,10 +147,10 @@ it('keeps an opened pack on the pending shelf until a collection holding it is s
   app = await mountedApp({ ...SEED, [STORAGE_KEYS.STATS]: packsOpened(8) });
   await app.mount();
   const full = fillStorage();
-  await app.until('the pack shell is ready', () => expect(document.querySelector('.pack-open-button')).not.toBeNull());
+  await app.until('the pack shell is ready', () => expect(document.querySelector('[data-pack-open]')).not.toBeNull());
   await app.interact(() => {
     // The Open pack button under the pack: the same opening as a finished swipe (#312).
-    const open = document.querySelector<HTMLButtonElement>('.pack-open-button')!;
+    const open = document.querySelector<HTMLElement>('[data-pack-open]')!;
     expect(open).not.toBeNull();
     open.focus();
     open.click();

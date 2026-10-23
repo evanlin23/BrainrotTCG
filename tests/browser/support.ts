@@ -27,6 +27,13 @@ export interface MonitorOptions {
   returning?: boolean;
   allowedOrigins?: string[];
   allowedPaths?: string[];
+  /**
+   * Other local sites the test serves itself (a second app, an old address, a stranger's page),
+   * each origin with the only path prefixes it may load. Unlike `allowedOrigins`, these never share
+   * `allowedPaths`, and every one must be plain http on a loopback host (127.0.0.1, localhost or
+   * [::1]): anything else throws before the page is guarded, so no public origin can be let in.
+   */
+  localOrigins?: Record<string, string[]>;
   allowedMethods?: string[];
   allowWrites?: boolean;
   /**
@@ -61,6 +68,7 @@ export type MonitorErrors = string[] & {
 };
 
 const MAX_BLOCKED_ENTRIES = 40;
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 function originOf(urlString: string): string {
   try {
     return new URL(urlString).origin;
@@ -109,6 +117,7 @@ export async function monitor(
     returning = false,
     allowedOrigins: extraOrigins = [],
     allowedPaths: customPaths,
+    localOrigins = {},
     allowedMethods: customMethods,
     allowWrites = false,
     allowWebSocket,
@@ -132,20 +141,33 @@ export async function monitor(
 
   const base = new URL(baseURL);
   const origin = base.origin;
-  const allowedOrigins = new Set<string>([origin, ...extraOrigins]);
+  const localPaths = new Map<string, string[]>();
+  for (const [local, paths] of Object.entries(localOrigins)) {
+    let url: URL | null = null;
+    try {
+      url = new URL(local);
+    } catch {
+      // Reported below
+    }
+    if (!url || url.origin !== local || url.protocol !== 'http:' || !LOOPBACK_HOSTS.has(url.hostname) || paths.length === 0) {
+      throw new Error(`localOrigins takes http loopback origins with at least one path, got "${local}"`);
+    }
+    localPaths.set(local, paths);
+  }
+  const allowedOrigins = new Set<string>([origin, ...extraOrigins, ...localPaths.keys()]);
   const allowedPaths = customPaths ?? [base.pathname];
   const allowedMethods = new Set<string>(
     (customMethods ?? (allowWrites ? ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH'] : ['GET', 'HEAD'])).map((m) => m.toUpperCase()),
   );
 
-  const isAllowedPath = (pathname: string): boolean => {
-    return allowedPaths.some(
+  const isAllowedPath = (pathname: string, from: string): boolean => {
+    return (localPaths.get(from) ?? allowedPaths).some(
       (p) => pathname.startsWith(p) || pathname === p.replace(/\/$/, '') || p === '/',
     );
   };
 
   const isAllowedUrl = (url: URL): boolean => {
-    return allowedOrigins.has(url.origin) && isAllowedPath(url.pathname);
+    return allowedOrigins.has(url.origin) && isAllowedPath(url.pathname, url.origin);
   };
 
   page.on('pageerror', (error) => errors.push(error.message));
@@ -304,7 +326,7 @@ export async function monitor(
     let refusal: { status: number; body: string; note: string };
     if (!allowedOrigins.has(url.origin)) refusal = { status: 204, body: '', note: 'blocked cross-origin request' };
     else if (!allowedMethods.has(method)) refusal = { status: 403, body: 'Forbidden write', note: 'disallowed write' };
-    else if (!isAllowedPath(url.pathname)) refusal = { status: 403, body: 'Forbidden path', note: 'disallowed path' };
+    else if (!isAllowedPath(url.pathname, url.origin)) refusal = { status: 403, body: 'Forbidden path', note: 'disallowed path' };
     else return null;
     noteBlocked(sanitizeAttempt(method, url.href, refusal.note));
     return refusal;
@@ -342,7 +364,10 @@ export async function monitor(
 
       let response;
       try {
-        response = await route.fetch({ maxRedirects: 0 });
+        // One connection per request: a kept-alive socket the preview server closes while the machine is
+        // busy fails the next request with ECONNRESET, which aborted a chunk or the favicon and failed the test.
+        // The catch below still aborts without saying why, and page.request shares the pool: see #1046.
+        response = await route.fetch({ maxRedirects: 0, headers: { ...request.headers(), connection: 'close' } });
       } catch {
         return route.abort();
       }
@@ -569,7 +594,13 @@ export interface Finger {
   release(): Promise<void>;
 }
 
-export async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
+/**
+ * With `settled`, a touch's events carry their own timestamps (16 ms apart) and a release comes after
+ * a dragged finger has rested 400 ms at its last point. Sent back to back with no time between them, a drag
+ * ends as a fling, and the browser swallows the next tap (it only stops the fling), so the tap that
+ * follows a drag gets no click.
+ */
+export async function fingerFor(page: Page, touch: boolean, { settled = false } = {}): Promise<Finger> {
   if (!touch) {
     return {
       press: async (x, y) => { await page.mouse.move(x, y); await page.mouse.down(); },
@@ -578,11 +609,19 @@ export async function fingerFor(page: Page, touch: boolean): Promise<Finger> {
     };
   }
   const cdp = await page.context().newCDPSession(page);
-  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) =>
-    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points }).then(() => {});
+  let clock = Date.now() / 1000;
+  let last = { x: 0, y: 0 };
+  let moved = false;
+  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[], after = 0.016) => {
+    clock += after;
+    return cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points, ...(settled ? { timestamp: clock } : {}) }).then(() => {});
+  };
   return {
-    press: (x, y) => send('touchStart', [{ x, y }]),
-    move: (x, y) => send('touchMove', [{ x, y }]),
-    release: () => send('touchEnd', []),
+    press: (x, y) => { last = { x, y }; moved = false; return send('touchStart', [last]); },
+    move: (x, y) => { last = { x, y }; moved = true; return send('touchMove', [last]); },
+    release: async () => {
+      if (settled && moved) await send('touchMove', [last], 0.4);
+      await send('touchEnd', []);
+    },
   };
 }

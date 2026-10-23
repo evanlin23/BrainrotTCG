@@ -80,10 +80,12 @@ describe('dry run: due success', () => {
       ['journey', 'sharing', true],
       // move.ts was last time's hotspot, so it rotates to the next one.
       ['hotspot', 'src/components/share/SharePanel.tsx', true],
+      ['replay', 'defect-replay', true],
     ]);
     expect(result.criteria).toBe(REVIEW_CRITERIA);
     const text = formatReview(result);
     expect(text).toContain('fresh task-only reviewer');
+    expect(text).toContain('  replay defect-replay: planned; npx tsx scripts/defect-replay.ts');
     expect(text).toContain('signals (existing evidence only, nothing rerun):');
   });
 
@@ -119,8 +121,10 @@ describe('dry run: missing tools or budget exhausted', () => {
 
   it('stops at each exhausted budget with the reason', () => {
     const sharing = JOURNEYS.find((journey) => journey.id === 'sharing')!;
-    expect(planSlice(sharing, changes[0], { tasks: 1, minutes: 45, providerRuns: 2 }, ALL_TOOLS).map((item) => item.reason)).toEqual(['planned', 'task budget exhausted']);
-    expect(planSlice(sharing, changes[0], { tasks: 3, minutes: 15, providerRuns: 2 }, ALL_TOOLS).map((item) => item.reason)).toEqual(['planned', 'time budget exhausted']);
+    expect(planSlice(sharing, changes[0], { tasks: 1, minutes: 45, providerRuns: 2 }, ALL_TOOLS).map((item) => item.reason)).toEqual(['planned', 'task budget exhausted', 'planned']);
+    expect(planSlice(sharing, changes[0], { tasks: 3, minutes: 15, providerRuns: 2 }, ALL_TOOLS).map((item) => item.reason)).toEqual(['planned', 'time budget exhausted', 'planned']);
+    // The defect replay takes no task or provider run, but it still has to fit the time left.
+    expect(planSlice(sharing, changes[0], { tasks: 3, minutes: 21, providerRuns: 2 }, ALL_TOOLS).map((item) => item.reason)).toEqual(['planned', 'planned', 'time budget exhausted']);
     expect(planSlice(sharing, changes[0], { tasks: 3, minutes: 45, providerRuns: 0 }, ALL_TOOLS)[0].reason).toBe('provider-use budget exhausted');
   });
 
@@ -320,7 +324,7 @@ describe('evidence signals', () => {
   it('stays useful when only some evidence exists', () => {
     const result = review({ state: null, now: NOW, git: git({ commitsSinceLast: null }), tools: ALL_TOOLS, read: files({}) });
     expect(result.decision).toMatchObject({ due: true, reason: 'no review recorded' });
-    expect(result.signals).toHaveLength(12);
+    expect(result.signals).toHaveLength(13);
     expect(result.signals.every((signal) => signal.status === 'unrun')).toBe(true);
   });
 });

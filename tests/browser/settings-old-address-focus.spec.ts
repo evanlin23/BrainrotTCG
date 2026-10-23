@@ -57,7 +57,8 @@ test.describe('Settings: the old address Replace question hands the focus back',
     const warm = await browser.newContext();
     const page = await warm.newPage();
     await page.goto(NEW_URL);
-    await expect(page.locator('#root')).not.toBeEmpty({ timeout: 90000 });
+    // index.html's placeholder is there from the start; wait for what the app renders in its place.
+    await expect(page.locator('#root > :not(.boot-status)')).toBeAttached({ timeout: 90000 });
     await warm.close();
   });
 

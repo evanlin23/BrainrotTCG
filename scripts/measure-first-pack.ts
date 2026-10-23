@@ -86,7 +86,7 @@ const run = async (waterfall: boolean) => {
   });
   page.on('request', (r) => { if (new URL(r.url()).origin !== origin && !r.url().startsWith('data:') && !r.url().startsWith('blob:')) console.warn('outside', r.url()); });
   await page.goto(BASE);
-  const open = page.getByRole('button', { name: 'Open pack', exact: true });
+  const open = page.getByRole('button', { name: /^Open pack/ });
   await open.waitFor({ state: 'visible', timeout: 60_000 });
   // TAP_DELAY_MS waits before the tap, to separate the tap-to-reveal floor from mining.
   if (process.env.TAP_DELAY_MS) await page.waitForTimeout(Number(process.env.TAP_DELAY_MS));
