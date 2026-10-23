@@ -135,6 +135,7 @@ for (const viewport of VIEWPORTS) {
     await expect(page.locator('.toast-kicker').filter({ hasText: /^Level up$/ })).toBeVisible({ timeout: 25000 });
     await page.locator('.toast').focus();
     const during = await placed(page);
+    expect(await squeezed(page), 'the pack and set steps are touch targets with the largest toast up').toEqual([]);
 
     await page.locator('.toast').blur();
     await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
@@ -171,6 +172,32 @@ test('the row a toast held is gone when the player comes back to the home screen
   await expect(page.locator('.app-logo')).toBeVisible();
   await page.addStyleTag({ content: ENLARGED });
   await expect.poll(() => placed(page), { message: 'the controls are where a fresh load puts them' }).toEqual(back);
+  expect(errors).toEqual([]);
+});
+
+// A phone turned on its side while a toast holds a row: the row goes with the turn (a short screen has none, the
+// toast sits over the header), nothing moves when it expires, and the turn back leaves no empty row (#803).
+test('turning a phone on its side drops the held row, and turning it back leaves none', async ({ page, baseURL }) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 360, height: 640 });
+  const errors = await toSummary(page, baseURL!);
+  const toast = await toHome(page);
+  const region = () => page.locator('.toast-region').evaluate((el) => Math.round(el.getBoundingClientRect().height));
+  expect(await region(), 'portrait: the toast has a row of its own').toBeGreaterThan(0);
+
+  await page.setViewportSize({ width: 640, height: 360 });
+  await expect(toast).toBeVisible();
+  await expect.poll(() => blocked(page), { message: 'on its side nothing is under the toast' }).toEqual([]);
+  expect(await squeezed(page)).toEqual([]);
+  const during = await placed(page);
+
+  await toast.blur();
+  await expect(page.locator('.toast')).toHaveCount(0, { timeout: 25000 });
+  expect(await placed(page), 'nothing moves when the toast goes').toEqual(during);
+  expect(await region(), 'on its side no row is held').toBe(0);
+
+  await page.setViewportSize({ width: 360, height: 640 });
+  await expect.poll(region, { message: 'turned back, no empty row where the toast was' }).toBe(0);
   expect(errors).toEqual([]);
 });
 
