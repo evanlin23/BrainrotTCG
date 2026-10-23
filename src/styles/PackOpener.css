@@ -597,7 +597,6 @@
     padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
     border-radius: var(--radius-pill);
     background: var(--chip-bg-ink);
-    backdrop-filter: blur(6px);
     box-shadow: var(--shadow-1);
     z-index: var(--z-stage-fx);
     pointer-events: none;

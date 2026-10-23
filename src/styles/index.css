@@ -163,6 +163,9 @@ a.app-logo--link:focus-visible {
        drop to a second line rather than past the edge of the window (#615). At normal size nothing wraps. */
     flex-wrap: wrap;
     row-gap: var(--space-2);
+    /* The full-size logo row comes to 85.5px, which put the pack stage on a half pixel: its fade could
+       then paint it rounded either way from run to run (#1129). A whole-pixel floor keeps it still. */
+    min-height: 86px;
   }
 
   /* The logo shares the row with the tabs and the gear (about 28rem with their gaps), so it scales
