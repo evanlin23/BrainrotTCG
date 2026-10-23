@@ -35,8 +35,10 @@ coverage
 __pycache__/
 hof-build-cache.json
 hof-inbox-seen.json
+hof-inbox-summary.json
 hof-inbox-filed.json
 hof-inbox-read.json
+ops-health.json
 hof-comment.md
 /pages/
 /.cache/

@@ -793,6 +793,67 @@
     }
 }
 
+/*
+ * The idle cue (DESIGN.md Flow 2): while a sealed pack sits untouched, its top strip lifts a few px and
+ * settles back, every few seconds, for as long as the pack waits (the finger cue above retires; this
+ * one never does). .is-idle is on only when nothing else is going on (PackCuttingUI), so a press, a tear,
+ * a short swipe or a missed press each put the strip down and it starts again when the pack is idle.
+ * Only the picture moves, and only by transform, which the browser runs off the main thread: the tear
+ * line, the hit area and the gesture geometry stay where they are.
+ *
+ * A sealed pack is its two halves laid edge to edge (the bottom reaches 0.1% up under the strip, so no
+ * hairline shows between them), which is the one picture the pack always was. The strip then lifts on its
+ * own and the gap between the halves opens from nothing and closes again. Reduced motion shows no gap (a
+ * slit can read as a damaged pack); it draws a short perforation along the seam instead.
+ */
+.pack-shell {
+    --idle-lift: 1.5%;
+}
+
+.pack-shell:not(.is-cut) .pack-half-top {
+    opacity: 1;
+}
+
+.pack-shell:not(.is-cut) .pack-half-bottom {
+    clip-path: inset(calc(var(--tear-y) - 0.1%) 0 0 0);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .pack-shell.is-idle .pack-half-top,
+    .pack-shell.is-idle .pack-top-piece {
+        animation: pack-idle-lift var(--dur-idle) ease-in-out infinite;
+    }
+}
+
+@keyframes pack-idle-lift {
+    0%,
+    55% {
+        transform: none;
+    }
+
+    63%,
+    72% {
+        transform: translateY(calc(var(--idle-lift) * -1));
+    }
+
+    84%,
+    100% {
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pack-shell.is-idle .pack-top-piece::after {
+        content: '';
+        position: absolute;
+        left: 32%;
+        right: 32%;
+        top: calc(var(--tear-y) - max(1.6%, 8px));
+        border-top: 2px dashed var(--cut-line);
+        opacity: 0.75;
+    }
+}
+
 .pack-shell.is-cutting .swipe-hint {
     opacity: 0;
     transition: opacity var(--dur-slow) ease;

@@ -8,7 +8,8 @@ import { defineConfig, devices } from '@playwright/test';
  * Read-only: shared-pull.smoke.spec.ts opens public proof fixtures (spec/vectors*.json), their
  * share and card pages, malformed links and every lazy screen in a fresh browser context, and its
  * network guard (tests/browser/support.ts) refuses every write and every request to another origin,
- * so nothing reaches a relay, the Hall of Fame or analytics. It opens no pack and imports no save.
+ * so nothing reaches a relay, the Hall of Fame or analytics (Cloudflare Web Analytics' beacon script
+ * gets an inert stand-in, so the smoke isn't counted as a visit). It opens no pack and imports no save.
  * Traces and screenshots stay on the runner, which is discarded with the job.
  */
 const PRODUCTION_URL = process.env.PRODUCTION_URL?.replace(/\/*$/, '/');

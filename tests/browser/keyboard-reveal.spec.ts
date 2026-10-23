@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor } from './support';
+import { expectRecordedPack, monitor } from './support';
 
 /**
  * A whole pack by keyboard alone (#12): Tab reaches the Open pack button, Space tears the pack, and the
@@ -304,3 +304,120 @@ test('levels a tilted card as soon as reduced motion turns on mid-reveal, and ke
   }
   expect(errors).toEqual([]);
 });
+
+/**
+ * The same pack in each motion mode (#765): the fixture key's nonce 21, so every mode deals the same five
+ * cards and the same pack is scored and saved. Tear, flip and summary are driven by keyboard, and every
+ * animation the page starts is logged as it starts: calm modes (the Motion setting on Reduced, or the
+ * device asking for less motion under Auto) start only short opacity fades from Framer Motion and nothing
+ * longer than a frame from the stylesheets, and nothing is left running or looping once the summary has
+ * settled. Auto with no device preference is the control: its log holds the tear's and flip's transform
+ * transitions and an endless animation, so the probe would have caught them.
+ */
+/** What nonce 21 saves, in the history log's own format (the key is a card's id, then its finish marks). */
+const SAVED_PACK = { cards: 'remember-november,niu-lai*,black-cat-clapping,remember-novemberP,pirate-gaster', score: 8530, hand: 'Pair' };
+type MotionEntry = { kind: string; what: string; ms: number; iterations: number; target: string };
+declare global { interface Window { motionLog: MotionEntry[] } }
+
+/** Logs every animation as it starts: Framer Motion's (Element.animate) and the stylesheets' (animationstart, transitionrun). */
+const logMotion = (page: Page) => page.addInitScript(() => {
+  const log: MotionEntry[] = [];
+  window.motionLog = log;
+  const className = (el: unknown) => (el instanceof Element ? el.className.toString().split(' ')[0] : '');
+  const animate = Element.prototype.animate;
+  Element.prototype.animate = function (this: Element, keyframes: Keyframe[] | PropertyIndexedKeyframes | null, options?: number | KeyframeAnimationOptions) {
+    const props = new Set(Array.isArray(keyframes) ? keyframes.flatMap((frame) => Object.keys(frame)) : Object.keys(keyframes ?? {}));
+    props.delete('offset');
+    props.delete('easing');
+    const timing = typeof options === 'number' ? { duration: options } : options ?? {};
+    log.push({ kind: 'waapi', what: [...props].join('+'), ms: Number(timing.duration ?? 0), iterations: timing.iterations ?? 1, target: className(this) });
+    return animate.call(this, keyframes as Keyframe[], options);
+  };
+  const started = (event: Event) => {
+    const el = event.target as Element;
+    const name = (event as AnimationEvent).animationName ?? (event as TransitionEvent).propertyName;
+    const timing = el.getAnimations()
+      .find((a) => ((a as CSSAnimation).animationName ?? (a as CSSTransition).transitionProperty) === name)?.effect?.getComputedTiming();
+    log.push({ kind: event.type, what: name, ms: Number(timing?.duration ?? -1), iterations: Number(timing?.iterations ?? 1), target: className(el) });
+  };
+  document.addEventListener('animationstart', started, true);
+  document.addEventListener('transitionrun', started, true);
+});
+
+const MOTION_MODES = [
+  { name: 'Auto with a device that allows motion', reducedMotion: 'no-preference', motion: undefined, calm: false },
+  { name: 'Auto with a device that asks for reduced motion', reducedMotion: 'reduce', motion: undefined, calm: true },
+  { name: 'Reduced with a device that allows motion', reducedMotion: 'no-preference', motion: 'reduced', calm: true },
+] as const;
+
+for (const mode of MOTION_MODES) {
+  test.describe(`the fixed pack, ${mode.name}`, () => {
+    test.use({ reducedMotion: mode.reducedMotion });
+
+    test('deals, scores and saves the same pack and settles', async ({ page, baseURL }) => {
+      test.setTimeout(90000);
+      await page.addInitScript(({ origin, motion }) => {
+        if (window.location.origin !== origin || localStorage.getItem('brainrot-player-v1')) return;
+        localStorage.setItem('brainrot-player-v1', JSON.stringify({ secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: 21, createdAt: 1 }));
+        localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0, ...(motion ? { motion } : {}) }));
+      }, { origin: new URL(baseURL!).origin, motion: mode.motion });
+      await logMotion(page);
+      const errors = await monitor(page, baseURL!);
+      await page.goto('./');
+      await expect(page.locator('.app-logo')).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.dataset.motion)).toBe(mode.motion);
+
+      await page.getByRole('button', { name: /^Open pack/ }).focus();
+      await page.keyboard.press('Space');
+      await expect(page.locator('.pack-top-count')).toHaveText('Card 1 of 5', { timeout: 15000 });
+      const card = page.locator('.reveal-card:focus');
+      const labels: string[] = [];
+      for (let n = 1; n <= 5; n++) {
+        await expect(card).toHaveAttribute('aria-label', `Flip card ${n} of 5`, { timeout: 10000 });
+        await page.keyboard.press('Space');
+        await expect(card).toHaveAttribute('aria-label', n < 5 ? /^Next card/ : /^See the pack summary/, { timeout: 10000 });
+        labels.push((await card.getAttribute('aria-label'))!);
+        await page.keyboard.press('Space');
+      }
+      await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('.summary-card')).toHaveCount(5);
+
+      // The same five cards in the same order, scored and saved as one pack at the fixture's nonce 21.
+      expect(labels).toEqual([
+        'Next card. Card 1 of 5: Pirate Gaster, Common',
+        'Next card. Card 2 of 5: Remember November, Uncommon',
+        'Next card. Card 3 of 5: Black Cat Clapping, Rare',
+        'Next card. Card 4 of 5: Niu Lai, Holo Common',
+        'See the pack summary. Card 5 of 5: Remember November, Uncommon',
+      ]);
+      const saved = await expectRecordedPack(page, 21);
+      expect({ cards: saved.history[0].c, score: saved.history[0].x, hand: saved.stats.highestPackHandName }).toEqual(SAVED_PACK);
+
+      // Settled: the first pack unlocks an achievement, and its toast fades in after the save. Wait for it, then
+      // let what is finite finish, including a fade that only starts while another ends; then nothing loops or
+      // runs on. The last look follows the check that found no finite animation in the same task, so nothing can
+      // start between them. The motion log is read only after this, so it holds everything that ran.
+      await expect(page.locator('.toast-region .toast')).toBeVisible();
+      const left = await page.evaluate(async () => {
+        const timing = (a: Animation) => a.effect!.getComputedTiming();
+        const finite = () => document.getAnimations().filter((a) => timing(a).iterations !== Infinity && a.playState === 'running');
+        for (let pending = finite(); pending.length > 0; pending = finite()) await Promise.all(pending.map((a) => a.finished.catch(() => undefined)));
+        return document.getAnimations().filter((a) => a.playState === 'running').map((a) => `${(a as CSSAnimation).animationName ?? (a as CSSTransition).transitionProperty ?? 'animate'} x${timing(a).iterations}`);
+      });
+      if (mode.calm) expect(left, 'the summary left animations running').toEqual([]);
+
+      const log = await page.evaluate(() => window.motionLog);
+      if (mode.calm) {
+        expect(log.filter((entry) => entry.kind === 'waapi' && entry.what !== 'opacity'), 'Framer Motion moved something').toEqual([]);
+        expect(log.filter((entry) => entry.kind !== 'waapi' && (entry.ms > 50 || entry.iterations > 1)), 'a stylesheet animation or transition ran long').toEqual([]);
+        expect(log.filter((entry) => entry.ms > 1000), 'a fade ran longer than a second').toEqual([]);
+        expect(log.length, 'the probe saw the fades').toBeGreaterThan(0);
+      } else {
+        expect(log.some((entry) => entry.kind === 'transitionrun' && entry.what === 'transform' && entry.target === 'pack-half'), 'the tear slid').toBe(true);
+        expect(log.some((entry) => entry.kind === 'transitionrun' && entry.what === 'transform' && entry.target === 'card-inner'), 'the cards flipped').toBe(true);
+        expect(log.some((entry) => entry.iterations === Infinity), 'nothing looped').toBe(true);
+      }
+      expect(errors).toEqual([]);
+    });
+  });
+}

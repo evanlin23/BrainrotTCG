@@ -55,7 +55,9 @@ const settings = (value: unknown) => record(value)
   // readSettings clamps any finite slider value into 0..1, so accept what it can read. musicVolume is the
   // removed music slider: older saves still carry it and readSettings drops it.
   && ['musicVolume', 'effectsVolume'].every((key) => optional(value, key, (v) => typeof v === 'number' && Number.isFinite(v)))
-  && ['cardBack', 'packFoil'].every((key) => optional(value, key, text));
+  // Any text for the choices: a save from a build with more of them still imports, and readSettings reads one it
+  // doesn't know as the default (Motion: Auto).
+  && ['cardBack', 'packFoil', 'motion'].every((key) => optional(value, key, text));
 // Same rule as recordPack: an entry it would refuse must never be imported, or every later pack write fails.
 // Stricter here only: no build stores a negative score or opening time, but a stored one mustn't block writes.
 const history = (value: unknown) => Array.isArray(value) && value.every((entry) => isStored(entry) && number(entry.x) && number(entry.t));

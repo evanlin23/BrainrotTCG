@@ -238,6 +238,15 @@ read as "Someone"), beside the key fingerprint in Rankings, shared pull links an
   Appeal).
 - A name the check refused: the player renames in Profile, shares the pull again (a new link to the
   same pull) and submits it again.
+- Duplicates (#21): `verify-issue` closes an opened or edited issue, as a duplicate, when a
+  lower-numbered issue that isn't `rejected` already holds the same pull (same `pullId`) under
+  `verified` or `daily`, and the bot verified it there before GitHub received this issue's body. It
+  says which issue, and how to contest it: comment asking a maintainer to reopen it, or file a new
+  issue (the submitter can't reopen an issue the bot closed). It never touches the other issue, and
+  never closes one a maintainer reopened, on `reopened` or any later edit: reopening is the owner's
+  override. It closes nothing when GitHub can't be read. Of two issues
+  received at once, neither closes: the earlier-numbered one never yields to a later one, and the
+  later one was received before the other was verified.
 - An entry verified before the word list blocked its name drops out at the next deploy and no longer
   counts as filed (for the relay inbox or a day's top), so the player can resubmit it under a new name.
 - Appeal: the player opens an issue. The owner takes `rejected` off a wrongly removed entry, or fixes
