@@ -207,6 +207,7 @@ const BestCardsSection = ({ refreshKey, cacheReady, onListChange, onSettledChang
                       <CardImage
                         src={row.card.image}
                         finish={row.version.finish}
+                        thumbnail
                         alt=""
                         loading="lazy"
                         className={`${row.version.isHolo ? 'holo' : ''} ${modifierClasses(row.version)}`}

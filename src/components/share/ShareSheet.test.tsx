@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { pullId, wouldJoinHallOfFame, type PackScore } from '../../engine';
+import { HALL_OF_FAME_MIN_SCORE, pullId, qualifiesForHallOfFame, wouldJoinHallOfFame, type PackScore } from '../../engine';
 import { DEFAULT_SET_ID, getSet } from '../../content/sets';
 import { getSetCards } from '../../data/cards';
 import type { CardWithMeta } from '../cards/Card';
@@ -96,8 +96,33 @@ describe('Hall of Fame in the pack share sheet', () => {
     vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
     await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
     expect(document.querySelector('.share-hof')).toBeNull();
-    const listed = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('in the Hall of Fame'));
+    const listed = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('in Rankings'));
     expect(inOrder(['.share-actions-main', listed, '.share-preview', '.share-pack-cards'])).toBe(true);
+  });
+
+  it('says why there is no Submit for a pull that does not qualify, in the words Rankings uses (#1004)', async () => {
+    vi.mocked(qualifiesForHallOfFame).mockReturnValue(false);
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    vi.mocked(qualifiesForHallOfFame).mockReturnValue(true);
+    expect(document.querySelector('.share-hof')).toBeNull();
+    const why = [...document.querySelectorAll('.share-note')].find((el) => el.textContent?.includes('qualify'))!;
+    expect(why.textContent?.trim()).toBe(
+      `Doesn't qualify for Rankings, which take a Full House or better, or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+. See How Rankings work.`,
+    );
+    expect(inOrder(['.share-actions-main', why, '.share-preview', '.share-pack-cards'])).toBe(true);
+    expect(loadHallOfFame).not.toHaveBeenCalled();
+  });
+
+  it('offers Submit, with no qualifying note, for a pull that qualifies', async () => {
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    expect(document.querySelector('.share-hof button')).not.toBeNull();
+    expect([...document.querySelectorAll('.share-note')].some((el) => /qualif|How Rankings work/.test(el.textContent ?? ''))).toBe(false);
+  });
+
+  it('keeps the already-listed note, not the qualifying one, for a pull in Rankings', async () => {
+    vi.mocked(loadHallOfFame).mockResolvedValueOnce([{ id: `pull-${pull}` } as HallOfFameEntry]);
+    await act(async () => root.render(<ShareSheet target={target} onClose={() => {}} />));
+    expect([...document.querySelectorAll('.share-note')].some((el) => /qualif/.test(el.textContent ?? ''))).toBe(false);
   });
 
   const clickSubmit = async () => {
@@ -114,7 +139,7 @@ describe('Hall of Fame in the pack share sheet', () => {
     expect(button.textContent).toBe('Submitted');
     expect(button.disabled).toBe(true);
     const status = document.querySelector('.share-hof [role="status"]')!.textContent!;
-    expect(status).toContain('It shows in the Hall of Fame now');
+    expect(status).toContain('It shows in Rankings now');
     expect(status).not.toMatch(/relays?\b/);
   });
 

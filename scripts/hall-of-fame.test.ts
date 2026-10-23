@@ -13,7 +13,7 @@ import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent, matchesFilter, type NostrEvent } from '../src/game/nostrInbox.ts';
-import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
+import { build, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
 
@@ -681,7 +681,8 @@ describe('inbox (scheduled workflow)', () => {
     await inbox();
     expect(gh.writes()).toEqual([]);
 
-    rmSync('hof-inbox-seen.json');
+    // A fresh run (no caches), so only the published list can hold the pull back.
+    for (const cache of ['hof-inbox-seen.json', FILED_PATH]) rmSync(cache);
     const pull = await verifyProof(fourOfAKind, getSet);
     const listed = fakeGitHub({ issues: [], published: [{ id: idOf(fourOfAKind), setId: pull.set.id, score: pull.score }] });
     await inbox();
@@ -689,7 +690,7 @@ describe('inbox (scheduled workflow)', () => {
     expect(outputs()).toEqual({ added: '0' });
 
     // A `daily` issue counts too: it was changed within the relay window, so it is read.
-    rmSync('hof-inbox-seen.json');
+    for (const cache of ['hof-inbox-seen.json', FILED_PATH]) rmSync(cache);
     const daily = fakeGitHub({ issues: [issue(1, fourOfAKind, { labels: ['hall-of-fame', 'daily'], updated: '2026-10-12T00:00:00Z' })], published: [] });
     await inbox();
     expect(daily.writes()).toEqual([]);
@@ -755,6 +756,9 @@ describe('inbox (scheduled workflow)', () => {
       expect(logged()).toContain('wss://a: 3 events, stopped at the page cap');
       expect(logged()).toContain(`wss://a: 3 older events up to ${new Date(at(events[4]) * 1000).toISOString()}, stopped at the page cap`);
       expect(seenIds().sort()).toEqual(events.slice(2).map((e) => e.id).sort());
+      // Each kept with its own event's time, the older read's included, so it leaves with its event.
+      const seenEntries = () => (JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8')) as [string, number][]).sort(([a], [b]) => a.localeCompare(b));
+      expect(seenEntries()).toEqual(events.slice(2).map((e) => [e.id, at(e)]).sort(([a], [b]) => String(a).localeCompare(String(b))));
 
       vi.mocked(fetchEvents).mockClear();
       await inbox();
@@ -839,6 +843,22 @@ describe('inbox (scheduled workflow)', () => {
       expect(gh.writes()).toEqual(FILED);
       expect(outputs()).toEqual({ added: '1' });
     });
+
+    it("files a pull when an older read brings a tampered copy of it after the newest pages brought the real one", async () => {
+      const gh = fakeGitHub({ issues: [], published: [] });
+      const pull = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT - 60_000);
+      // Same id and content, so only the signature differs; neither read checks signatures.
+      const tampered = { ...pull, sig: pull.sig.replace(/^./, pull.sig.startsWith('0') ? '1' : '0') };
+      vi.mocked(fetchEvents).mockImplementation(async (_filter, relays) =>
+        relays
+          ? { events: [tampered], perRelay: [{ relay: 'wss://b', count: 1 }] }
+          : { events: [pull], perRelay: [{ relay: 'wss://a', count: 1 }, { relay: 'wss://b', count: 3, more: at(pull) }] },
+      );
+      await inbox();
+      expect(filters()).toEqual([{ since, until: undefined }, { since, until: at(pull) }]);
+      expect(gh.writes()).toEqual(FILED);
+      expect(seenIds()).toContain(pull.id);
+    });
   });
 
   it("doesn't take over an unlabelled issue someone else opened", async () => {
@@ -848,12 +868,18 @@ describe('inbox (scheduled workflow)', () => {
     expect(gh.writes()).toEqual(FILED);
   });
 
-  it('fails the run when every relay failed, leaving the seen cache as it was', async () => {
+  it('fails the run when every relay failed, leaving the seen cache and read ranges as they were', async () => {
     const gh = fakeGitHub({ issues: [], published: [] });
     writeFileSync('hof-inbox-seen.json', JSON.stringify(['earlier']));
+    // Across the window's start (2026-10-09T12:00), so a run that wrote the ranges back would clip it.
+    const readThrough = JSON.stringify({ 'wss://a': [[Date.parse('2026-10-09T11:00:00Z') / 1000, Date.parse('2026-10-10T00:00:00Z') / 1000]] });
+    writeFileSync('hof-inbox-read.json', readThrough);
     const down = (relay: string) => ({ relay, count: 0, error: 'connection failed' });
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [down('wss://a'), down('wss://b'), { relay: 'wss://c', count: 0, error: 'timed out' }] });
     await expect(inbox()).rejects.toThrow('every relay failed (3 of 3); nothing was read');
+    // No older range is read, and what was read through stays as it was.
+    expect(fetchEvents).toHaveBeenCalledTimes(1);
+    expect(readFileSync('hof-inbox-read.json', 'utf8')).toBe(readThrough);
     expect(gh.requests).toEqual([]);
     expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(['earlier']);
     expect(outputs()).toEqual({});
@@ -880,6 +906,121 @@ describe('inbox (scheduled workflow)', () => {
     const gh = fakeGitHub({ issues: [] });
     await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
     expect(gh.requests).toEqual([]);
+  });
+});
+
+describe('the filed index (#1000)', () => {
+  const FILED = ['POST /issues', 'POST /issues/100/comments', 'POST /issues/100/labels', 'PATCH /issues/100'];
+  const VERIFIED = 'labels=hall-of-fame,verified';
+  /** The issue listings a run made, without their paging. */
+  const listings = (gh: ReturnType<typeof fakeGitHub>) => gh.requests.filter((r) => r.method === 'GET' && r.path === '/issues').map((r) => r.query!.replace(/^state=all&|&per_page=100&page=1$/g, ''));
+  /** A later run, handling the relays' events again. */
+  const runAt = async (gh: ReturnType<typeof fakeGitHub>, time: string) => {
+    vi.setSystemTime(new Date(time));
+    rmSync('hof-inbox-seen.json');
+    gh.requests.length = 0;
+    await inbox();
+  };
+  beforeEach(() => {
+    clockAt('2026-10-16T12:00:00Z');
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+  });
+
+  it('lists every verified issue once a day, and only the recent ones on the runs between', async () => {
+    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], published: [] });
+    await inbox();
+    expect(listings(gh)).toEqual([VERIFIED, 'labels=hall-of-fame&since=2026-10-08T12:00:00Z']);
+    expect(gh.writes()).toEqual([]);
+
+    // The pull still counts as filed, from the index.
+    await runAt(gh, '2026-10-16T12:15:00Z');
+    expect(listings(gh)).toEqual(['labels=hall-of-fame&since=2026-10-08T12:15:00Z']);
+    expect(gh.writes()).toEqual([]);
+
+    await runAt(gh, '2026-10-17T12:00:01Z');
+    expect(listings(gh)).toEqual([VERIFIED, 'labels=hall-of-fame&since=2026-10-09T12:00:01Z']);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it('takes an issue as it is now over what the index says of it', async () => {
+    const issues = [issue(1, fourOfAKind)];
+    const gh = fakeGitHub({ issues, published: [] });
+    await inbox();
+    expect(gh.writes()).toEqual([]);
+    // A maintainer takes the label off: the pull isn't in the Hall of Fame any more, so it can be filed.
+    issues[0] = issue(1, fourOfAKind, { labels: ['hall-of-fame'], updated: '2026-10-16T12:10:00Z' });
+    await runAt(gh, '2026-10-16T12:15:00Z');
+    expect(listings(gh)).not.toContain(VERIFIED);
+    expect(gh.writes()).toEqual(FILED);
+  });
+
+  it('files a pull whose issue was deleted after the index was listed, once the next full listing has it gone', async () => {
+    const issues = [issue(1, fourOfAKind)];
+    const gh = fakeGitHub({ issues, published: [] });
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [], perRelay: [] });
+    await inbox();
+    issues.length = 0; // deleted: it isn't in any listing, and the index still has it
+    const event = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [{ relay: 'wss://a', count: 1 }] });
+    const readRanges = () => JSON.parse(readFileSync('hof-inbox-read.json', 'utf8')) as unknown;
+    vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
+    gh.requests.length = 0;
+    await inbox();
+    expect(gh.writes()).toEqual([]);
+    expect(seenIds()).not.toContain(event.id);
+    // Not read through from the passed-over event up, so a later run reads it again.
+    const now = Date.parse('2026-10-16T12:15:00Z') / 1000;
+    expect(readRanges()).toEqual({ 'wss://a': [[now - 7 * 86_400, SENT / 1000 - 1]] });
+
+    vi.setSystemTime(new Date('2026-10-17T12:30:00Z'));
+    gh.requests.length = 0;
+    await inbox();
+    expect(listings(gh)[0]).toBe(VERIFIED);
+    expect(gh.writes()).toEqual(FILED);
+    const later = Date.parse('2026-10-17T12:30:00Z') / 1000;
+    expect(readRanges()).toEqual({ 'wss://a': [[later - 7 * 86_400, later]] });
+  });
+
+  it('marks an event seen when a recent issue confirms what the kept index says', async () => {
+    const issues = [issue(1, fourOfAKind)];
+    const gh = fakeGitHub({ issues, published: [] });
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [], perRelay: [] });
+    await inbox();
+    // The same pull verified again under a new issue: it's in the recent listing, the first one isn't.
+    issues.push(issue(2, fourOfAKind, { updated: '2026-10-16T12:10:00Z' }));
+    const event = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
+    vi.setSystemTime(new Date('2026-10-16T12:15:00Z'));
+    gh.requests.length = 0;
+    await inbox();
+    expect(listings(gh)).not.toContain(VERIFIED);
+    expect(gh.writes()).toEqual([]);
+    expect(seenIds()).toContain(event.id);
+  });
+
+  it('counts a pull verified after the index was listed', async () => {
+    const issues: Issue[] = [];
+    const gh = fakeGitHub({ issues, published: [] });
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [], perRelay: [] });
+    await inbox();
+    issues.push(issue(7, fourOfAKind, { updated: '2026-10-16T12:10:00Z' }));
+    await runAt(gh, '2026-10-16T12:15:00Z');
+    expect(listings(gh)).not.toContain(VERIFIED);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it.each([
+    ['not JSON', 'nope'],
+    ['from the future', JSON.stringify({ listedAt: Date.parse('2026-10-16T12:00:01Z'), issues: {} })],
+    ['a day old', JSON.stringify({ listedAt: Date.parse('2026-10-15T11:59:59Z'), issues: {} })],
+    ['malformed', JSON.stringify({ listedAt: Date.parse('2026-10-16T11:00:00Z'), issues: { 1: 'x' } })],
+  ])('lists every verified issue again when the index is %s', async (_, text) => {
+    writeFileSync(FILED_PATH, text);
+    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], published: [] });
+    await inbox();
+    expect(listings(gh)[0]).toBe(VERIFIED);
+    expect(gh.writes()).toEqual([]);
+    expect(JSON.parse(readFileSync(FILED_PATH, 'utf8'))).toEqual({ listedAt: Date.parse('2026-10-16T12:00:00Z'), issues: { 1: [idOf(fourOfAKind), 'Combo Miner'] } });
   });
 });
 
@@ -984,7 +1125,7 @@ describe('retention and intake contracts (offline)', () => {
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-read.json', 'hof-inbox-seen.json']);
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-read.json', 'hof-inbox-seen.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });
