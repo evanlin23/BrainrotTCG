@@ -11,7 +11,7 @@ export const REFUSAL_COPY: Record<PackRefusal, { message: string; action: string
   blocked: { message: 'Your save changed in another tab, so this pack stayed sealed. Reload to keep opening packs here.', action: 'Reload and try again' },
   unreadable: {
     message: "Your player record in this browser is damaged and can't be read, so this pack stayed sealed. Nothing was lost."
-      + ' In Save & backup you can restore a backup, download the damaged record, or start a new player.',
+      + ' In Save & backup you can restore a backup, download the save with the damaged record, or start a new player.',
     action: 'Open Save & backup',
   },
 };

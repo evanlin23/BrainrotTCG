@@ -89,12 +89,41 @@ describe('a record with no key that can be read', () => {
     // A backup holds the damaged bytes as they are, never the stand-in key, so importing it is refused.
     const file = saveFile.exportSaveFile();
     expect(JSON.parse(file).player).toBe(DAMAGED);
-    expect(saveFile.importSaveFile(file)).toBe('The player identity in this save is invalid. Nothing was imported.');
+    // Import says what such a file is, and nothing changes.
+    expect(saveFile.importSaveFile(file)).toBe(saveFile.DAMAGED_IMPORT_NOTE);
+    expect(store.get(PLAYER_KEY)).toBe(DAMAGED);
   });
 
-  it('starts a new player who never inherits the old collection, keeping the damaged bytes', () => {
+  it('downloads the damaged bytes under a file name and note of their own, promising no key', () => {
+    const click = vi.fn();
+    const anchor = { href: '', download: '', click };
+    vi.stubGlobal('document', { createElement: () => anchor, body: { appendChild: () => undefined, removeChild: () => undefined } });
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:x', revokeObjectURL: () => undefined });
+    expect(saveFile.downloadSaveFile()).toBe(saveFile.DAMAGED_EXPORT_DONE_NOTE);
+    expect(anchor.download).toMatch(/^brainrot-tcg-damaged-player-.*\.txt$/);
+    expect(saveFile.DAMAGED_EXPORT_DONE_NOTE).not.toContain(saveFile.EXPORT_DONE_NOTE);
+    expect(saveFile.DAMAGED_EXPORT_DONE_NOTE).toContain('no player key that works');
+    expect(click).toHaveBeenCalledOnce();
+
+    // A readable save keeps the backup name and note.
+    store.set(PLAYER_KEY, JSON.stringify({ secretKey: SECRET, name: 'Fine', nextNonce: 0, createdAt: 1 }));
+    expect(saveFile.downloadSaveFile()).toBe(saveFile.EXPORT_DONE_NOTE);
+    expect(anchor.download).toMatch(/^brainrot-tcg-save-.*\.txt$/);
+  });
+
+  it('starts a new player who never inherits the old progress, keeping the damaged bytes', () => {
     const mark = player.saveMark();
-    store.set(STORAGE_KEYS.STATS, '{"packsOpened":3,"holoCards":{}}');
+    // Every key the old player's packs made, each with a value of its own.
+    const moved = {
+      [STORAGE_KEYS.STATS]: '{"packsOpened":3,"holoCards":{}}',
+      [STORAGE_KEYS.HISTORY]: '[{"n":1}]',
+      [STORAGE_KEYS.BEST_CARDS]: '[{"key":"best"}]',
+      [STORAGE_KEYS.ACHIEVEMENTS]: '{"first":1}',
+      [STORAGE_KEYS.HALL_OF_FAME]: '[{"proof":"hof"}]',
+      [STORAGE_KEYS.PULLS]: '[{"proof":"pull"}]',
+      [STORAGE_KEYS.STORED_PACKS]: '{"n":[[0,3]]}',
+    };
+    for (const [key, value] of Object.entries(moved)) store.set(key, value);
     store.set(STORAGE_KEYS.SETTINGS, '{"particlesEnabled":false}');
 
     expect(saveFile.startNewPlayer({ expectedSave: mark })).toBeNull();
@@ -102,12 +131,13 @@ describe('a record with no key that can be read', () => {
     const fresh = JSON.parse(store.get(PLAYER_KEY)!) as { secretKey: string; nextNonce: number };
     expect(fresh.secretKey).toMatch(/^[0-9a-f]{64}$/);
     expect(fresh.nextNonce).toBe(0);
-    expect(store.has(STORAGE_KEYS.COLLECTION)).toBe(false);
-    expect(store.has(STORAGE_KEYS.STATS)).toBe(false);
-    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe('{"particlesEnabled":false}');
     // The old progress went to a copy, the damaged bytes with it, and they stay kept aside for Download.
     const copy = JSON.parse(store.get(NEW_PLAYER_BACKUP_KEY)!) as Record<string, string>;
-    expect(Object.values(copy)).toEqual(expect.arrayContaining([COLLECTION, DAMAGED]));
+    for (const [key, value] of Object.entries({ ...moved, [STORAGE_KEYS.COLLECTION]: COLLECTION, [PLAYER_KEY]: DAMAGED })) {
+      expect(copy[key], key).toBe(value);
+      if (key !== PLAYER_KEY) expect(store.has(key), key).toBe(false);
+    }
+    expect(store.get(STORAGE_KEYS.SETTINGS)).toBe('{"particlesEnabled":false}');
     expect(archived()).toEqual([expect.objectContaining({ raw: DAMAGED, key: PLAYER_KEY })]);
 
     // The next visit reads the new key, with an empty collection under it.
@@ -117,6 +147,53 @@ describe('a record with no key that can be read', () => {
       expect(next.getPlayer().publicKeyHex).toBe(toHex(publicKeyFromSecret(fromHex(fresh.secretKey))));
       expect(store.has(STORAGE_KEYS.COLLECTION)).toBe(false);
     });
+  });
+
+  it('moves owed packs that name no key aside, so the new player never takes them as its own', async () => {
+    const other = 'ab'.repeat(32);
+    const pack = (n: number, k?: string) => ({ s: 'right-now', v: 2, n, ...(k ? { k } : {}), c: 'x', t: 1 });
+    const shelf = JSON.stringify([pack(2), pack(3, other)]);
+    const legacy = JSON.stringify(pack(4));
+    store.set(STORAGE_KEYS.PENDING_PACKS, shelf);
+    store.set(STORAGE_KEYS.PENDING_PACK, legacy);
+
+    expect(saveFile.startNewPlayer({ expectedSave: player.saveMark() })).toBeNull();
+
+    // Another key's pack stays for that key; the ones with no key are only in the copy.
+    expect(JSON.parse(store.get(STORAGE_KEYS.PENDING_PACKS)!)).toEqual([pack(3, other)]);
+    expect(store.has(STORAGE_KEYS.PENDING_PACK)).toBe(false);
+    const copy = JSON.parse(store.get(NEW_PLAYER_BACKUP_KEY)!) as Record<string, string>;
+    expect(copy[STORAGE_KEYS.PENDING_PACKS]).toBe(shelf);
+    expect(copy[STORAGE_KEYS.PENDING_PACK]).toBe(legacy);
+
+    vi.resetModules();
+    const pulls = await import('./pulls');
+    expect(pulls.onShelf(2)).toBe(false);
+    expect(pulls.onShelf(3)).toBe(false);
+  });
+
+  it('keeps a copy from an earlier start as it was, in a slot of its own', () => {
+    store.set(NEW_PLAYER_BACKUP_KEY, '{"earlier":"copy"}');
+    store.set(`${NEW_PLAYER_BACKUP_KEY}:2`, '{"second":"copy"}');
+    expect(saveFile.startNewPlayer({ expectedSave: player.saveMark() })).toBeNull();
+    expect(store.get(NEW_PLAYER_BACKUP_KEY)).toBe('{"earlier":"copy"}');
+    expect(store.get(`${NEW_PLAYER_BACKUP_KEY}:2`)).toBe('{"second":"copy"}');
+    const copy = JSON.parse(store.get(`${NEW_PLAYER_BACKUP_KEY}:3`)!) as Record<string, string>;
+    expect(copy[STORAGE_KEYS.COLLECTION]).toBe(COLLECTION);
+    // The copy holds no older copies.
+    expect(Object.keys(copy).some((key) => key.startsWith('brainrot-before-'))).toBe(false);
+  });
+
+  it('says an earlier copy is kept when there is no room for another', () => {
+    store.set(NEW_PLAYER_BACKUP_KEY, '{"earlier":"copy"}');
+    const mark = player.saveMark();
+    const before = new Map(store);
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key.startsWith(NEW_PLAYER_BACKUP_KEY)) throw new DOMException('full', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    expect(saveFile.startNewPlayer({ expectedSave: mark })).toBe(saveFile.NEW_PLAYER_NO_ROOM_NOTE + saveFile.NEW_PLAYER_EARLIER_COPY_NOTE);
+    expect(store).toEqual(before);
   });
 
   it.each([
@@ -141,7 +218,7 @@ describe('a record with no key that can be read', () => {
     }
 
     expect(saveFile.startNewPlayer({ expectedSave: mark })).toBe(saveFile.NEW_PLAYER_NO_ROOM_NOTE);
-    expect(saveFile.NEW_PLAYER_NO_ROOM_NOTE).toContain('Download the damaged record, or restore a backup');
+    expect(saveFile.NEW_PLAYER_NO_ROOM_NOTE).toContain('Download the save with the damaged record, or restore a backup');
     expect(store).toEqual(before);
     expect(player.playerUnreadable()).toBe(true);
   });

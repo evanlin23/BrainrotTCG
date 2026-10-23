@@ -4,11 +4,15 @@ import { downloadSaveFile } from '../../game/saveFile';
 
 /** The row's note before anything is chosen: the reason, and the three ways on. */
 export const UNREADABLE_PLAYER_NOTE = "This browser's player record is damaged and can't be read, so packs are paused. Nothing was lost."
-  + ' Restore a backup, download the damaged record, or start a new player.';
+  + ' Restore a backup, download the save with the damaged record, or start a new player.';
 
-/** Asked before a new player is started: what moves, and what to do first. */
-export const START_NEW_PLAYER_QUESTION = 'Start a new player? Your collection, stats, pack history, best cards and achievements move aside'
-  + ' to a copy in this browser, and you start over with a new key. Download the damaged record first to keep it.';
+/** Asked before a new player is started: what is cleared, what is kept and where, and what to do first. */
+export const START_NEW_PLAYER_QUESTION = 'Start a new player? You start over with a new key, and your collection, stats, pack history,'
+  + " best cards, achievements and Hall of Fame entries are cleared. A copy stays in this browser's storage for recovery by hand,"
+  + " but the app can't restore it. Download first to keep a file of the damaged record and your progress. Your settings stay.";
+
+/** The button that downloads the whole save with the damaged record in it (saveFile's downloadSaveFile). */
+export const DOWNLOAD_DAMAGED_LABEL = 'Download save with damaged record';
 
 interface UnreadablePlayerRowProps {
     /** Opens the file picker of Restore (the save file's Import). */
@@ -19,8 +23,8 @@ interface UnreadablePlayerRowProps {
 
 /**
  * Settings > Save & backup, first, while this browser's player record can't be read (#1052): restore a
- * backup, download the damaged record (the backup file, which holds its bytes as they are), or start a
- * new player, asked in place.
+ * backup, download the save with the damaged record's bytes as they are (a file named as a copy for
+ * recovery, never as a backup), or start a new player, asked in place.
  */
 const UnreadablePlayerRow = ({ onRestore, onStartNewPlayer }: UnreadablePlayerRowProps) => {
     const [note, setNote] = useState(UNREADABLE_PLAYER_NOTE);
@@ -39,10 +43,9 @@ const UnreadablePlayerRow = ({ onRestore, onStartNewPlayer }: UnreadablePlayerRo
     });
     const handleDownload = () => {
         try {
-            downloadSaveFile();
-            setNote('Downloaded the damaged record with the rest of your save. Keep the file private.');
+            setNote(downloadSaveFile());
         } catch {
-            setNote("Couldn't read browser storage to download the damaged record.");
+            setNote("Couldn't read browser storage to download the save with the damaged record.");
         }
     };
     const answer = (start: boolean) => {
@@ -73,7 +76,7 @@ const UnreadablePlayerRow = ({ onRestore, onStartNewPlayer }: UnreadablePlayerRo
                         <Upload aria-hidden="true" /> Restore a backup
                     </button>
                     <button type="button" className="btn btn--secondary btn--sm" onClick={handleDownload}>
-                        <Download aria-hidden="true" /> Download the damaged record
+                        <Download aria-hidden="true" /> {DOWNLOAD_DAMAGED_LABEL}
                     </button>
                     <button type="button" ref={startRef} className="btn btn--secondary btn--sm" onClick={() => setAsking(true)}>
                         Start a new player

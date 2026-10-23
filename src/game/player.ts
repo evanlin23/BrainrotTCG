@@ -166,7 +166,9 @@ const pastStoredPacks = (publicKeyHex: string): number => {
  * A damaged record whose key can be read (#1052): the key stays, and only the broken fields are
  * repaired. The ticket count goes past every ticket the history, the stored collection's packs and the
  * owed packs show that key used, so no number is handed out twice. The original bytes are kept aside
- * before the repaired record replaces them (see write); if they can't be, the repair lives in this tab only.
+ * before the repaired record replaces them (see write). With no room to store that copy, it is kept
+ * for this visit only (the note says to download it), and the repaired record is still stored, as a
+ * collection is (collectionRecovery.ts). Only a refused write of the record leaves the repair in this tab.
  */
 const repair = ({ raw, fields }: { raw: string; fields: Record<string, unknown> & { secretKey: string } }): StoredPlayer => {
   // Repaired once per damaged value: when storage refused the repaired record, this tab plays on from memory.

@@ -277,7 +277,7 @@ describe('the controls under the pack (#312)', () => {
     expect($('.pack-refusal-text')?.textContent).toBe(message);
     expect(announced()).toBe(message);
     expect(message).toContain("damaged and can't be read");
-    expect(message).toContain('restore a backup, download the damaged record, or start a new player');
+    expect(message).toContain('restore a backup, download the save with the damaged record, or start a new player');
     expect(retryButton()?.textContent).toBe('Open Save & backup');
     act(() => retryButton()!.click());
     expect(onOpenSave).toHaveBeenCalledTimes(1);
