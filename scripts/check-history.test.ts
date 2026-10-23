@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { canonical, checkHistory, compareCorpus, entryId, parseCorpus, resolveBase, type Retirement } from './check-history.ts';
+import { canonical, checkHistory, compareCorpus, exactNumber, parseCorpus, resolveBase } from './check-history.ts';
 
 /**
  * Synthetic base/candidate pairs in scripts/fixtures/history stand in for the vector files and the
@@ -59,21 +59,6 @@ describe('compareCorpus', () => {
     ]);
   });
 
-  it('lets a retired entry go, and reports it, only when its file, list and hash all match', () => {
-    const base = fixture('vectors-base.json') as { packs: unknown[] };
-    const retire = (r: Partial<Retirement>): Retirement[] => [
-      { file: 'v.json', list: 'packs', sha256: entryId(base.packs[1]), reason: 'proof v2', approvedIn: '#1', ...r },
-    ];
-    const notes: string[] = [];
-    expect(compareCorpus('v.json', base, fixture('vectors-removed.json'), retire({}), notes)).toEqual([]);
-    expect(notes).toEqual([expect.stringMatching(/^v\.json: packs\[1\] RETIRED \(proof v2; approved in #1\)/)]);
-    for (const wrong of [{ file: 'other.json' }, { list: 'rng' }, { sha256: entryId(base.packs[0]) }]) {
-      expect(compareCorpus('v.json', base, fixture('vectors-removed.json'), retire(wrong))).toEqual([
-        expect.stringMatching(/^v\.json: packs\[1\] was removed or changed/),
-      ]);
-    }
-  });
-
   it('fails a changed field outside the lists', () => {
     expect(vectors('vectors-field-changed.json')).toEqual([expect.stringMatching(/^v\.json: testKey changed from/)]);
   });
@@ -114,6 +99,13 @@ describe('parseCorpus', () => {
     for (const n of ['9007199254740991.0', '9007199254740993', '9007199254740992', '1e3', '-0', '0.5']) {
       expect(() => parseCorpus(`{"n": [${n}]}`, 'v.json')).toThrow(/^v\.json is refused: the number .* is not a safe integer/);
     }
+  });
+
+  it('says it needs Node 22 when the reviver gets no source text (Node 20 passes no context)', () => {
+    expect(() => exactNumber('n', 1)).toThrow('check-history needs Node 22 (JSON.parse reviver context)');
+    expect(() => exactNumber('n', 1, {})).toThrow('check-history needs Node 22 (JSON.parse reviver context)');
+    expect(exactNumber('s', 'text')).toBe('text');
+    expect(exactNumber('n', 1, { source: '1' })).toBe(1);
   });
 });
 
@@ -193,23 +185,12 @@ describe('checkHistory', () => {
     expect(() => checkHistory(dir, big, ['lock.json'])).toThrow(/^lock\.json at [0-9a-f]+ is refused: the number 9007199254740993/);
   });
 
-  it('reads retirements from the working tree and refuses a malformed list', () => {
+  it('has no retirement path: a file in the working tree naming the removed entry changes nothing', () => {
     const base = repo();
     const removed = (fixture('vectors-base.json') as { packs: unknown[] }).packs[1];
     put('spec/v.json', 'vectors-removed.json');
-    const retirement = { file: 'spec/v.json', list: 'packs', sha256: entryId(removed), reason: 'proof v2', approvedIn: '#1' };
-    const retired = path.join(dir, 'spec/retired-vectors.json');
-    writeFileSync(retired, JSON.stringify({ retired: [retirement] }));
-    const notes: string[] = [];
-    expect(checkHistory(dir, base, FILES, notes)).toEqual([]);
-    expect(notes).toEqual([expect.stringMatching(/^spec\/v\.json: packs\[1\] RETIRED/)]);
-    const bad = [{ file: 'spec/vectors.json' }, { sha256: 'abc' }, { reason: ' ' }, { extra: 'x' }];
-    for (const change of bad) {
-      writeFileSync(retired, JSON.stringify({ retired: [{ ...retirement, ...change }] }));
-      expect(() => checkHistory(dir, base, FILES)).toThrow(/retired\[0\] must have exactly/);
-    }
-    writeFileSync(retired, '[]');
-    expect(() => checkHistory(dir, base, FILES)).toThrow(/must be an object with a "retired" list/);
+    writeFileSync(path.join(dir, 'spec/retired-vectors.json'), JSON.stringify({ retired: [{ file: 'spec/v.json', list: 'packs', entry: removed }] }));
+    expect(checkHistory(dir, base, FILES)).toEqual([expect.stringMatching(/^spec\/v\.json: packs\[1\] was removed or changed/)]);
   });
 
   it('fails when the base lacks a file or the working tree deleted one', () => {
