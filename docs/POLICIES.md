@@ -60,7 +60,8 @@ Renaming only changes future signatures; old proofs keep the name they were sign
 Apart from Cloudflare Web Analytics' beacon script, which Cloudflare Pages adds to the live site's
 pages and which loads from `static.cloudflareinsights.com` and reports to Cloudflare, the game loads
 no third-party scripts, fonts or images: fonts, art and audio are bundled and served
-from the same origin, and the only other `fetch` is `hall-of-fame.json` from that origin
+from the same origin, and the only other fetches are `hall-of-fame.json` and
+`hall-of-fame-withdrawn.json` from that origin
 [`src/styles/tokens.css`, `src/game/hallOfFameList.ts`]. An imported backup or old save can keep a
 historical card the game no longer ships, with whatever image address it was saved with. The save
 keeps it as it is, but the game requests that art only when the address is on this site and shows a

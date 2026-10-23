@@ -9,7 +9,8 @@
  *   npx tsx scripts/redirect-site.ts <new-url> <out-dir>     (deploy, when the site lives elsewhere)
  *
  * Writes index.html and 404.html (GitHub Pages serves 404.html for every other path) and copies
- * hall-of-fame.json and the rankings, which the Hall of Fame scripts read from the old address.
+ * hall-of-fame.json, the pulls of rejected issues and the rankings, which the Hall of Fame scripts read
+ * from the old address.
  */
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -135,10 +136,12 @@ button{display:block;width:100%;margin:.75rem 0 0;padding:.85rem 1rem;border-rad
 
 /**
  * Copies what the Hall of Fame scripts read from the old address out of a build: hall-of-fame.json,
- * rankings.json and the rankings folder, those the build has.
+ * hall-of-fame-withdrawn.json (a build carries it forward from here when GitHub is down),
+ * rankings.json and the rankings folder, those the build has. One the build didn't write isn't
+ * copied, so the old address never serves a stale one.
  */
 export const copyHallOfFame = (dist: string, outDir: string) => {
-  for (const file of ['hall-of-fame.json', 'rankings.json', 'rankings']) {
+  for (const file of ['hall-of-fame.json', 'hall-of-fame-withdrawn.json', 'rankings.json', 'rankings']) {
     if (existsSync(`${dist}/${file}`)) cpSync(`${dist}/${file}`, `${outDir}/${file}`, { recursive: true });
   }
 };
