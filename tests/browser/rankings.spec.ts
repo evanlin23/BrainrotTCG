@@ -166,7 +166,8 @@ for (const { width, height, text, label, score = 546_000, stacked } of [
       const rankings = page.getByRole('main', { name: 'Rankings', exact: true });
       await rankings.getByRole('tab', { name: 'All-time', exact: true }).click();
       const row = rankings.locator('.hof-list .hof-entry').first();
-      await expect(row).toHaveAttribute('aria-label', `Number 1: Full House by Collector in Right Now, score ${score}`);
+      await expect(row).toHaveAttribute('aria-label', `Number 1: Full House by Collector in Right Now, score ${score}, via GitHub`);
+      await expect(row.locator('.hof-meta')).toHaveText('Right Now · via GitHub');
       await row.scrollIntoViewIfNeeded();
       // Four columns is the compact row; two is the restacked one.
       const tracks = await row.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
