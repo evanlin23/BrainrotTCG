@@ -50,6 +50,40 @@ export const logSafeError = (error: unknown, max = 200): string => {
 export const relayReadLine = (r: { relay: string; count: number; error?: string }): string =>
   `${r.relay}: ${r.count} events${r.error ? ` (${logSafeError(r.error)})` : ''}`;
 
+/**
+ * Every `verified` Hall of Fame issue as of one full listing (`listedAt`, ms): issue number to the
+ * pull id its proof holds and that proof's display name (kept so name rules apply as they are when
+ * it is read). Intake keeps it between runs so it doesn't list every `verified` issue each time.
+ */
+export interface FiledIndex {
+  listedAt: number;
+  issues: Record<string, [id: string, name: string]>;
+}
+
+/**
+ * The filed index from its file, or null (list every `verified` issue again) if it is malformed, from
+ * the future, or older than `maxAgeMs`: changes that leave no trace in a later listing (an issue
+ * deleted, or its `hall-of-fame` label removed) last at most that long.
+ */
+export const parseFiledIndex = (text: string, nowMs: number, maxAgeMs: number): FiledIndex | null => {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== 'object') return null;
+  const { listedAt, issues } = data as Record<string, unknown>;
+  if (!Number.isSafeInteger(listedAt) || (listedAt as number) > nowMs || (listedAt as number) < nowMs - maxAgeMs) return null;
+  if (!issues || typeof issues !== 'object' || Array.isArray(issues)) return null;
+  const entries = Object.entries(issues);
+  const ok = entries.every(
+    ([number, entry]) =>
+      /^[1-9]\d*$/.test(number) && Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string' && entry[0] !== '' && typeof entry[1] === 'string',
+  );
+  return ok ? { listedAt: listedAt as number, issues: Object.fromEntries(entries) as FiledIndex['issues'] } : null;
+};
+
 /** The probe's line for one relay; a relay's OK message and reason for closing are its own text. */
 export const probeLine = (relay: string, sent: PublishResult, read: { count: number; error?: string }): string =>
   `${relay}: write ${sent.ok ? 'ok' : `failed (${logSafeError(sent.message)})`}, read ${read.count > 0 ? 'ok' : `failed (${logSafeError(read.error ?? 'not found')})`}`;
@@ -64,7 +98,11 @@ export const processInbox = async (events: readonly NostrEvent[], ctx: InboxCont
   const ordered = [...events].sort((a, b) => a.created_at - b.created_at);
   for (const [i, event] of ordered.entries()) {
     if (ctx.seen.has(event.id)) continue;
-    const proof = verifyEvent(event) ? proofFromEvent(event) : null;
+    // The inbox reads relays with lazySignatures, so this is where an event's signature is checked:
+    // only for events not handled yet. One that fails isn't marked seen, as fetchEvents never kept it
+    // before, so a good copy read on a later run still counts.
+    if (!verifyEvent(event)) continue;
+    const proof = proofFromEvent(event);
     let decoded: PullProof | null;
     let id: string | null;
     try {

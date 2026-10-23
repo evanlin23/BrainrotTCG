@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { schnorr } from '@noble/curves/secp256k1.js';
+import { describe, expect, it, vi } from 'vitest';
 import vectors from '../spec/vectors.json';
 import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { decodeProof, encodeProof, pullId, signProof, utf8 } from '../src/engine/index.ts';
 import { hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, logSafeError, probeLine, processInbox, relayReadLine, type InboxContext } from './hof-inbox.ts';
+import { buildSkipLine, logSafeError, parseFiledIndex, probeLine, processInbox, relayReadLine, type InboxContext } from './hof-inbox.ts';
+
+// Count signature checks (schnorr is frozen, so it can't be spied on in place).
+vi.mock('@noble/curves/secp256k1.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@noble/curves/secp256k1.js')>();
+  return { ...actual, schnorr: { ...actual.schnorr, verify: vi.fn(actual.schnorr.verify) } };
+});
 
 const byNote = (note: string) => vectors.valid.find((v) => v.note === note)!.proof;
 const fourOfAKind = byNote('mined 4 of a Kind'); // qualifies
@@ -53,6 +60,21 @@ describe('Hall of Fame inbox', () => {
     ];
     expect((await processInbox(events, ctx)).added).toBe(0);
     expect(filedProofs).toEqual([]);
+  });
+
+  it('checks signatures only of events not handled yet, and a failing one stays unhandled (#1000)', async () => {
+    const { ctx, filedProofs } = context();
+    const good = hallOfFameEvent(fourOfAKind, idOf(fourOfAKind));
+    const badSig = { ...good, sig: (good.sig[0] === '0' ? '1' : '0') + good.sig.slice(1) };
+    const handled = hallOfFameEvent(pair, idOf(pair));
+    ctx.seen.add(handled.id);
+    vi.mocked(schnorr.verify).mockClear();
+    expect(await processInbox([handled, badSig], ctx)).toEqual({ added: 0, deferred: 0 });
+    expect(vi.mocked(schnorr.verify).mock.calls.length).toBe(1);
+    expect(ctx.seen.has(badSig.id)).toBe(false);
+    // The copy that verifies, read later, is still filed.
+    expect(await processInbox([good], ctx)).toEqual({ added: 1, deferred: 0 });
+    expect(filedProofs).toEqual([fourOfAKind]);
   });
 
   it("sets aside a pull whose display name isn't allowed without checking it or spending budget", async () => {
@@ -236,5 +258,34 @@ describe('Hall of Fame log lines and the legacy ##[command] form', () => {
     expect(lines[2]).toBe("#42: skipped (This pull didn't verify: x## [error title=x]y)");
     expect(lines[3]).toMatch(/^[0-9a-f]{64}: didn't verify \(Unknown set x## \[error title=x\]y\)$/);
     for (const line of lines) inert(line);
+  });
+});
+
+describe('parseFiledIndex (#1000)', () => {
+  const now = 1_800_000_000_000;
+  const day = 86_400_000;
+  const id = idOf(fourOfAKind);
+  const text = (data: unknown) => JSON.stringify(data);
+
+  it('reads an index listed within the max age', () => {
+    const index = { listedAt: now - day, issues: { 1: [id, 'Combo Miner'], 20: [id, 'xXfuckXx'] } };
+    expect(parseFiledIndex(text(index), now, day)).toEqual(index);
+    expect(parseFiledIndex(text({ listedAt: now, issues: {} }), now, day)).toEqual({ listedAt: now, issues: {} });
+  });
+
+  it.each([
+    ['not JSON', '{'],
+    ['not an object', '[]'],
+    ['too old', text({ listedAt: now - day - 1, issues: {} })],
+    ['from the future', text({ listedAt: now + 1, issues: {} })],
+    ['without a time', text({ issues: {} })],
+    ['without issues', text({ listedAt: now })],
+    ['issues as a list', text({ listedAt: now, issues: [] })],
+    ['an issue number that is not one', text({ listedAt: now, issues: { '01': [id, 'a'] } })],
+    ['an entry without a name', text({ listedAt: now, issues: { 1: [id] } })],
+    ['an empty pull id', text({ listedAt: now, issues: { 1: ['', 'a'] } })],
+    ['a name that is not text', text({ listedAt: now, issues: { 1: [id, 5] } })],
+  ])('reads nothing from an index %s', (_, raw) => {
+    expect(parseFiledIndex(raw, now, day)).toBeNull();
   });
 });

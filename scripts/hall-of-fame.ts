@@ -19,7 +19,9 @@
  *     qualifies as a bot-authored Hall of Fame issue with the same verified
  *     marker, so `build` treats it like any other entry. Writes `added` to
  *     $GITHUB_OUTPUT. Event ids it has seen are kept in hof-inbox-seen.json
- *     (cached between runs) so junk isn't re-checked every time.
+ *     (cached between runs) so junk isn't re-checked every time, and the pulls
+ *     of verified issues in hof-inbox-filed.json (FILED_PATH), so every
+ *     verified issue is listed once a day rather than on every run.
  *
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
  *     Lists verified Hall of Fame issues (and `daily` ones from the day before
@@ -77,7 +79,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, probeLine, processInbox, relayReadLine } from './hof-inbox.ts';
+import { buildSkipLine, parseFiledIndex, probeLine, processInbox, relayReadLine, type FiledIndex } from './hof-inbox.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -373,11 +375,17 @@ const recentIssuesSince = () => new Date(Date.now() - (INBOX_WINDOW_S + 24 * 60 
  * a new name.
  */
 const listedPullId = (issue: Issue): string | null => {
+  const pull = listedPull(issue);
+  return pull && isNameAllowed(pull.name) ? pull.id : null;
+};
+
+/** The pull id and display name an issue's proof holds, or null if it holds no valid proof. */
+const listedPull = (issue: Issue): { id: string; name: string } | null => {
   const proof = extractProof(issue.body ?? '');
   if (!proof) return null;
   try {
     const decoded = decodeProof(proof);
-    return isNameAllowed(decoded.name) ? pullId(decoded) : null;
+    return { id: pullId(decoded), name: decoded.name };
   } catch {
     return null;
   }
@@ -502,6 +510,28 @@ export const INBOX_PAGE_SIZE = 100;
 export const INBOX_PAGES = 50;
 /** Event ids remembered between runs; the newest are kept. */
 export const INBOX_SEEN_CAP = 20000;
+/** The filed index (FiledIndex in scripts/hof-inbox.ts), kept between runs. */
+export const FILED_PATH = 'hof-inbox-filed.json';
+/** How long a filed index is used before every `verified` issue is listed again. */
+export const FILED_INDEX_MAX_AGE_S = 24 * 60 * 60;
+
+/**
+ * Every `verified` issue: from the filed index while it is fresh enough, or else listed in full (and
+ * the index written). Issues changed since the index was listed are in intake's listing of recent
+ * issues (`recentIssuesSince` goes back further than FILED_INDEX_MAX_AGE_S), which updates it.
+ */
+const verifiedIndex = async (token: string): Promise<FiledIndex> => {
+  const now = Date.now();
+  const kept = existsSync(FILED_PATH) ? parseFiledIndex(readFileSync(FILED_PATH, 'utf8'), now, FILED_INDEX_MAX_AGE_S * 1000) : null;
+  if (kept) return kept;
+  const index: FiledIndex = { listedAt: now, issues: {} };
+  for (const issue of await listIssues('labels=hall-of-fame,verified', token)) {
+    const pull = listedPull(issue);
+    if (pull) index.issues[issue.number] = [pull.id, pull.name];
+  }
+  writeFileSync(FILED_PATH, JSON.stringify(index));
+  return index;
+};
 
 /** Where players open the site (SITE_URL once it moves off GitHub Pages; the old address redirects). */
 const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
@@ -512,19 +542,25 @@ export const inbox = async (ticketFn?: TicketFn) => {
   const seen = new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
 
   const since = Math.floor(Date.now() / 1000) - INBOX_WINDOW_S;
-  const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES);
+  // Signatures are left to processInbox, which checks only the events it hasn't handled yet.
+  const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES, undefined, undefined, true);
   for (const r of perRelay) console.log(relayReadLine(r));
 
   // Pulls already in the Hall of Fame: only verified issues count (`verified`, or `daily`), so an
   // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't
-  // keep a pull out. Every `verified` issue is read; for the rest, the ones changed within the relay
-  // window and a day: a `daily` pull or an unfinished issue from the events read now is among them.
-  // An issue whose display name isn't allowed counts as neither (see `listedPullId`).
+  // keep a pull out. Every `verified` issue counts (from the filed index, see `verifiedIndex`); for
+  // the rest, the ones changed within the relay window and a day: a `daily` pull or an unfinished
+  // issue from the events read now is among them. An issue whose display name isn't allowed counts
+  // as neither (see `listedPullId`).
   const filed = new Set<string>();
   // Issues this job opened but didn't finish (it stopped before labelling them): finished next.
   const unfinished = new Map<string, Issue>();
-  const listed = byNumber([...(await listIssues('labels=hall-of-fame,verified', token)), ...(await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token))]);
-  for (const issue of listed) {
+  const { issues: verified } = await verifiedIndex(token);
+  const recent = await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token);
+  // A recent issue as it is now replaces what the index says of it.
+  for (const issue of recent) delete verified[issue.number];
+  for (const [id, name] of Object.values(verified)) if (isNameAllowed(name)) filed.add(id);
+  for (const issue of byNumber(recent)) {
     const id = listedPullId(issue);
     if (!id) continue; // no valid proof, or a name that's out of the list; nothing to dedupe against
     if (labelNames(issue).includes('verified') || labelNames(issue).includes('daily')) filed.add(id);

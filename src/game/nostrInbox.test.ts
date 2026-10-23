@@ -442,3 +442,38 @@ describe('publish replies', () => {
     expect(await publishEvent(event, ['wss://a'], 5000, socket)).toEqual([{ relay: 'wss://a', ok: true, message: '' }]);
   });
 });
+
+describe('lazy signatures (#1000)', () => {
+  beforeEach(() => { vi.mocked(schnorr.verify).mockClear(); });
+  const read = (stored: Record<string, NostrEvent[]>) =>
+    fetchEvents({ kinds: [HOF_KIND] }, Object.keys(stored), 500, fakeRelays(Object.fromEntries(Object.keys(stored).map((r) => [r, 'accept' as const])), stored), 1, undefined, {}, true);
+
+  it('keeps events without checking signatures, so the caller pays only for the ones it uses', async () => {
+    const events = Array.from({ length: 5 }, (_, i) => hallOfFameEvent(PROOF, `pull-${i}`, 1_000_000 + i * 1000));
+    const result = await read({ 'wss://a': events, 'wss://b': events });
+    expect(result.events.map((e) => e.id).sort()).toEqual(events.map((e) => e.id).sort());
+    expect(verifyCalls()).toBe(0);
+    // Without it, each event is checked once.
+    await fetchEvents({ kinds: [HOF_KIND] }, ['wss://a', 'wss://b'], 500, fakeRelays({ 'wss://a': 'accept', 'wss://b': 'accept' }, events));
+    expect(verifyCalls()).toBe(5);
+  });
+
+  it('still drops a copy whose content does not match its id', async () => {
+    const good = hallOfFameEvent(PROOF, 'x');
+    const tampered = { ...good, content: good.content.replace('AQ', 'AR') };
+    expect((await read({ 'wss://bad': [tampered] })).events).toEqual([]);
+    expect((await read({ 'wss://bad': [tampered], 'wss://good': [good] })).events).toEqual([good]);
+    expect(verifyCalls()).toBe(0);
+  });
+
+  it('keeps the copy that verifies when relays send one event with different signatures', async () => {
+    const good = hallOfFameEvent(PROOF, 'x');
+    const badSig = { ...good, sig: (good.sig[0] === '0' ? '1' : '0') + good.sig.slice(1) };
+    expect((await read({ 'wss://bad': [badSig], 'wss://good': [good] })).events).toEqual([good]);
+    expect((await read({ 'wss://good': [good], 'wss://bad': [badSig], 'wss://bad2': [{ ...badSig }] })).events).toEqual([good]);
+    // Kept alone, the bad copy is returned for the caller's own check to turn down.
+    const alone = (await read({ 'wss://bad': [badSig] })).events;
+    expect(alone).toEqual([badSig]);
+    expect(verifyEvent(alone[0])).toBe(false);
+  });
+});

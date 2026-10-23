@@ -13,7 +13,7 @@ import { getSet } from '../src/content/sets/index.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { dailyPulls, decodeProof, encodeProof, HALL_OF_FAME_DAILY_TOP, HALL_OF_FAME_TOP, hallOfFameList, pullId, signProof, topPulls, utf8, verifyProof, type RankableEntry } from '../src/engine/index.ts';
 import { fetchEvents, hallOfFameEvent } from '../src/game/nostrInbox.ts';
-import { build, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
+import { build, FILED_PATH, inbox, ISSUE_PAGES, listToPublish, verifyIssue } from './hall-of-fame.ts';
 
 vi.mock('../src/game/nostrInbox.ts', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), fetchEvents: vi.fn() }));
 
@@ -659,7 +659,8 @@ describe('inbox (scheduled workflow)', () => {
     await inbox();
     expect(gh.writes()).toEqual([]);
 
-    rmSync('hof-inbox-seen.json');
+    // A fresh run (no caches), so only the published list can hold the pull back.
+    for (const cache of ['hof-inbox-seen.json', FILED_PATH]) rmSync(cache);
     const pull = await verifyProof(fourOfAKind, getSet);
     const listed = fakeGitHub({ issues: [], published: [{ id: idOf(fourOfAKind), setId: pull.set.id, score: pull.score }] });
     await inbox();
@@ -667,7 +668,7 @@ describe('inbox (scheduled workflow)', () => {
     expect(outputs()).toEqual({ added: '0' });
 
     // A `daily` issue counts too: it was changed within the relay window, so it is read.
-    rmSync('hof-inbox-seen.json');
+    for (const cache of ['hof-inbox-seen.json', FILED_PATH]) rmSync(cache);
     const daily = fakeGitHub({ issues: [issue(1, fourOfAKind, { labels: ['hall-of-fame', 'daily'], updated: '2026-10-12T00:00:00Z' })], published: [] });
     await inbox();
     expect(daily.writes()).toEqual([]);
@@ -720,6 +721,77 @@ describe('inbox (scheduled workflow)', () => {
     const gh = fakeGitHub({ issues: [] });
     await expect(inbox()).rejects.toThrow('GITHUB_TOKEN');
     expect(gh.requests).toEqual([]);
+  });
+});
+
+describe('the filed index (#1000)', () => {
+  const FILED = ['POST /issues', 'POST /issues/100/comments', 'POST /issues/100/labels', 'PATCH /issues/100'];
+  const VERIFIED = 'labels=hall-of-fame,verified';
+  /** The issue listings a run made, without their paging. */
+  const listings = (gh: ReturnType<typeof fakeGitHub>) => gh.requests.filter((r) => r.method === 'GET' && r.path === '/issues').map((r) => r.query!.replace(/^state=all&|&per_page=100&page=1$/g, ''));
+  /** A later run, handling the relays' events again. */
+  const runAt = async (gh: ReturnType<typeof fakeGitHub>, time: string) => {
+    vi.setSystemTime(new Date(time));
+    rmSync('hof-inbox-seen.json');
+    gh.requests.length = 0;
+    await inbox();
+  };
+  beforeEach(() => {
+    clockAt('2026-10-16T12:00:00Z');
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+  });
+
+  it('lists every verified issue once a day, and only the recent ones on the runs between', async () => {
+    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], published: [] });
+    await inbox();
+    expect(listings(gh)).toEqual([VERIFIED, 'labels=hall-of-fame&since=2026-10-08T12:00:00Z']);
+    expect(gh.writes()).toEqual([]);
+
+    // The pull still counts as filed, from the index.
+    await runAt(gh, '2026-10-16T12:15:00Z');
+    expect(listings(gh)).toEqual(['labels=hall-of-fame&since=2026-10-08T12:15:00Z']);
+    expect(gh.writes()).toEqual([]);
+
+    await runAt(gh, '2026-10-17T12:00:01Z');
+    expect(listings(gh)).toEqual([VERIFIED, 'labels=hall-of-fame&since=2026-10-09T12:00:01Z']);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it('takes an issue as it is now over what the index says of it', async () => {
+    const issues = [issue(1, fourOfAKind)];
+    const gh = fakeGitHub({ issues, published: [] });
+    await inbox();
+    expect(gh.writes()).toEqual([]);
+    // A maintainer takes the label off: the pull isn't in the Hall of Fame any more, so it can be filed.
+    issues[0] = issue(1, fourOfAKind, { labels: ['hall-of-fame'], updated: '2026-10-16T12:10:00Z' });
+    await runAt(gh, '2026-10-16T12:15:00Z');
+    expect(listings(gh)).not.toContain(VERIFIED);
+    expect(gh.writes()).toEqual(FILED);
+  });
+
+  it('counts a pull verified after the index was listed', async () => {
+    const issues: Issue[] = [];
+    const gh = fakeGitHub({ issues, published: [] });
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [], perRelay: [] });
+    await inbox();
+    issues.push(issue(7, fourOfAKind, { updated: '2026-10-16T12:10:00Z' }));
+    await runAt(gh, '2026-10-16T12:15:00Z');
+    expect(listings(gh)).not.toContain(VERIFIED);
+    expect(gh.writes()).toEqual([]);
+  });
+
+  it.each([
+    ['not JSON', 'nope'],
+    ['from the future', JSON.stringify({ listedAt: Date.parse('2026-10-16T12:00:01Z'), issues: {} })],
+    ['a day old', JSON.stringify({ listedAt: Date.parse('2026-10-15T11:59:59Z'), issues: {} })],
+    ['malformed', JSON.stringify({ listedAt: Date.parse('2026-10-16T11:00:00Z'), issues: { 1: 'x' } })],
+  ])('lists every verified issue again when the index is %s', async (_, text) => {
+    writeFileSync(FILED_PATH, text);
+    const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], published: [] });
+    await inbox();
+    expect(listings(gh)[0]).toBe(VERIFIED);
+    expect(gh.writes()).toEqual([]);
+    expect(JSON.parse(readFileSync(FILED_PATH, 'utf8'))).toEqual({ listedAt: Date.parse('2026-10-16T12:00:00Z'), issues: { 1: [idOf(fourOfAKind), 'Combo Miner'] } });
   });
 });
 
@@ -824,7 +896,7 @@ describe('retention and intake contracts (offline)', () => {
 
     vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
     await inbox();
-    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-seen.json']);
+    expect(readdirSync(dir).sort()).toEqual(['github-output', 'hall-of-fame.json', 'hof-build-cache.json', 'hof-inbox-filed.json', 'hof-inbox-seen.json']);
     expect(gh.writes()).toEqual([]);
     expect(existsSync(tracked) ? readFileSync(tracked, 'utf8') : null).toBe(before);
   });
