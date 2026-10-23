@@ -151,8 +151,7 @@ package such as `react`, and needs a reason, an owner issue and a removal condit
 limits it to a type import (`import type`, or `import { type X }` for every name): a run-time import of
 the same target still fails. It fails the check once the import is gone, so remove the entry in the PR
 that fixes the import. There is no wildcard or per-directory exception. Current exceptions: six
-`CardWithMeta` type imports (#700), `game/modifiers.ts` importing a React type and
-`utils/confettiEffects.ts` using `canvas-confetti` (#1042).
+`CardWithMeta` type imports (#700).
 
 `src/engine` also has ESLint rules for browser globals (`window`, `document`, storage, `fetch`,
 `XMLHttpRequest`, `Worker` and so on), including `globalThis.<name>` and `self.<name>`. An alias such as
@@ -208,8 +207,8 @@ nothing to GitHub, a relay or Pages. What is real and what is not:
 - Limits, also in the report's `labels.limits`: the published list is assumed to be a 404, so the
   floor and `joinRefusal` paths do not run; event and proof keys come from 16-key pools. A scenario
   asking for a `measured` Argon2 time without a sample reports `meta.argon.source` as
-  `measured-missing` and uses the default. Per run, `beyondPaging` counts events past the paging cap
-  and `unreadable` counts in-window events no relay could serve (every relay down).
+  `measured-missing` and uses the default. Per run, `beyondPaging` counts in-window events the run
+  didn't read (past the paging cap; since #999, only ones an earlier run already read through), and `unreadable` counts in-window events no relay could serve (every relay down).
 
 ```
 npx tsx scripts/hof-capacity.ts --list

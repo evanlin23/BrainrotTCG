@@ -27,7 +27,8 @@ concurrency:
 #   with no secrets; otherwise every step of both is skipped;
 # - publish deploys the same sealed files with Wrangler from its own lockfile, then waits until the
 #   new address serves exactly them;
-# - deploy holds the GitHub Pages write scopes and runs no repository dependencies.
+# - deploy holds the GitHub Pages write scopes and runs no repository dependencies;
+# - smoke then checks production read-only, with no secrets and a read-only token, within 15 minutes.
 # The jobs holding the Cloudflare secrets run in the cloudflare-production environment.
 jobs:
   independent-verifier:
@@ -480,3 +481,54 @@ jobs:
           fi
       - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
         id: deployment
+
+  smoke:
+    # Read-only checks that production (and, on Cloudflare, the old address) serves this release,
+    # once publish and deploy are done (scripts/production-smoke.ts, docs/HOSTING.md). GETs only:
+    # the browser checks refuse every write and every request to another origin. A failure turns
+    # this run red; the last step always runs, and calls the release known-good only when both
+    # checks passed, or else, when one failed, names the release to go back to. It gives no verdict
+    # when a check didn't finish (cancelled or skipped), main has moved past this commit, or
+    # production serves a newer run. Nothing is uploaded or kept.
+    needs: [site, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The app's dependencies run here, with no secrets and a read-only token.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Check production serves this release
+        id: http
+        env:
+          SITE_URL: ${{ needs.site.outputs.url }}
+          HOST: ${{ needs.site.outputs.host }}
+          OLD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: npx tsx scripts/production-smoke.ts >> "$GITHUB_STEP_SUMMARY"
+      - run: npx playwright install --with-deps chromium
+      - name: Browser checks on production
+        id: browser
+        env:
+          PRODUCTION_URL: ${{ needs.site.outputs.url }}
+        run: npx playwright test -c playwright.production.config.ts
+      # Runs whatever the checks did: names the rollback target when either failed, and gives no
+      # verdict when one didn't finish, this commit is no longer main's tip (git ls-remote), or the
+      # marker names a newer run.
+      - name: Record the release status
+        if: always()
+        env:
+          SITE_URL: ${{ needs.site.outputs.url }}
+          HOST: ${{ needs.site.outputs.host }}
+          OLD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          GH_TOKEN: ${{ github.token }}
+          HTTP_OUTCOME: ${{ steps.http.outcome }}
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
+        run: npx tsx scripts/production-smoke.ts --status >> "$GITHUB_STEP_SUMMARY"
