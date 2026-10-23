@@ -525,6 +525,17 @@ export async function expectDecoded(images: Locator, count: number) {
   }
 }
 
+/**
+ * Resolves once the page has painted a frame and then gone idle. Input events hand React their state
+ * synchronously, so whatever a gesture or an event was going to show has been rendered by then: use it
+ * to check that nothing followed, in place of a pause.
+ */
+export function untilIdle(page: Page) {
+  return page.evaluate(() => new Promise<void>((done) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestIdleCallback(() => done())));
+  }));
+}
+
 /** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
 export async function scaleText(page: Page, percent: number) {
   await page.addStyleTag({ content: `html { font-size: ${percent}% !important; }` });

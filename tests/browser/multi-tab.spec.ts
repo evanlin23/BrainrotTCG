@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { fromHex, publicKeyFromSecret, pullId } from '../../src/engine';
-import { expectDecoded, expectRecordedPack, monitor, snapshot } from './support';
+import { expectDecoded, expectRecordedPack, monitor, snapshot, untilIdle } from './support';
 
 // Two tabs of one player (#73). The tab that opens a pack stores it; the other tab hears about it,
 // says its save changed, keeps its pack sealed and writes nothing, until a reload brings it current.
@@ -41,7 +41,7 @@ test('a second tab of the same player stops opening packs once the first stores 
   await openPack(other).click();
   await expect(other.locator('.pack-refusal-text')).toHaveText(/^Your save changed in another tab, so this pack stayed sealed\./);
   await expect(other.locator('.card-reveal-area')).toHaveCount(0);
-  await other.waitForTimeout(500);
+  await untilIdle(other);
   expect(await snapshot(other)).toEqual(stored);
 
   // A reload brings it current: no warning, the stored pack counted once, and the next ticket opens.
