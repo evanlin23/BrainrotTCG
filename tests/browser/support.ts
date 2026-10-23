@@ -342,7 +342,9 @@ export async function monitor(
 
       let response;
       try {
-        response = await route.fetch({ maxRedirects: 0 });
+        // One connection per request: a kept-alive socket the preview server closes while the machine is
+        // busy fails the next request with ECONNRESET, which aborted a chunk or the favicon and failed the test.
+        response = await route.fetch({ maxRedirects: 0, headers: { ...request.headers(), connection: 'close' } });
       } catch {
         return route.abort();
       }
