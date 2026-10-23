@@ -248,8 +248,11 @@ test.describe('offline mid-session', () => {
     // The next pack's ticket mines only once the connection is down, so prefetchNextPack can't put this
     // pack's art in the memory cache first (it fetches the pictures as soon as the ticket is in).
     await holdTickets(page);
+    // The confetti library is fetched once the packs screen idles; the connection only drops after it is in.
+    const confettiLoaded = page.waitForResponse((response) => /\/confettiEffects-[^/]+\.js$/.test(response.url()));
     await page.goto('./');
     await packsScreen(page);
+    await confettiLoaded;
 
     // Offline: the pack opens and is recorded; only pictures fail to load. It opens before any card art
     // has shown on this page (Rankings shows the saved pack's), and its prefetch ran offline, so none of
@@ -295,6 +298,26 @@ test.describe('offline mid-session', () => {
       ...cut.flatMap((url) => [`net::ERR_INTERNET_DISCONNECTED ${url}`, 'Failed to load resource: net::ERR_INTERNET_DISCONNECTED']),
       ...finishes,
     ].sort());
+  });
+});
+
+test.describe('confetti library cut', () => {
+  test('a pack still opens, is recorded and throws nothing when the confetti chunk never arrives', async ({ page, baseURL }) => {
+    const errors = await seedSave(page, baseURL!);
+    const cut: string[] = [];
+    await page.route('**/confettiEffects-*.js', (route) => {
+      cut.push(route.request().url());
+      return route.abort('failed');
+    });
+    await page.goto('./');
+    await packsScreen(page);
+    await openOne(page);
+
+    expect(cut.length).toBeGreaterThan(0);
+    expect(await tickets(page)).toEqual([0, 1]);
+    expect(cardCount((await snapshot(page)).collection)).toBe(10);
+    // The only errors are the cut requests themselves: nothing thrown or rejected unhandled.
+    expect([...errors].sort()).toEqual(cut.flatMap((url) => [`net::ERR_FAILED ${url}`, 'Failed to load resource: net::ERR_FAILED']).sort());
   });
 });
 
