@@ -13,7 +13,7 @@ import { resumeReopening } from './game/reopenJob'
 import { warmUpFirstPack } from './game/warmUp'
 import { markStaging } from './game/staging'
 import { STORAGE_KEYS } from './constants'
-import { setMotionSetting } from './utils/motion'
+import { prefersReducedMotion, setMotionSetting } from './utils/motion'
 import { readSettings } from './utils/settings'
 import { getStoredData } from './utils/storage'
 
@@ -71,9 +71,11 @@ handedOver.then((receiver) => {
     </StrictMode>,
   )
   resumeReopening()
-  // The confetti library comes with the card back, so a player who goes offline before the first
-  // pack still has it. A failed load is ignored: the reveal tries again at the first flip.
+  // The confetti library and Argon2 come with the card back, so a player who goes offline before the
+  // first pack still has them (Argon2 is what the main-thread fallback mines with when the worker
+  // can't). A failed load is ignored: the reveal tries confetti again at the first flip.
   warmUpFirstPack(() => {
-    if (readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)).particlesEnabled) import('./components/pack/confettiEffects').catch(() => {})
+    import('./engine/argon2').catch(() => {})
+    if (readSettings(getStoredData<unknown>(STORAGE_KEYS.SETTINGS, null)).particlesEnabled && !prefersReducedMotion()) import('./components/pack/confettiEffects').catch(() => {})
   })
 })

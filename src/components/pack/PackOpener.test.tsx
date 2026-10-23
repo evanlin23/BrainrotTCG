@@ -38,7 +38,23 @@ vi.mock('../../hooks/usePackCutter', () => ({
   },
 }));
 vi.mock('../../game/pulls', () => ({ openPack: vi.fn(() => new Promise(() => {})), prefetchNextPack: vi.fn(), siteLabel: () => 'example.test/BrainrotTCG' }));
-vi.mock('./confettiEffects', () => ({ triggerRarityConfetti: vi.fn(), triggerHoloSparkles: vi.fn() }));
+// The confetti chunk is a dynamic import: `loads` says how this test's import goes. A mock's module is
+// cached once built, so the tests that need a different outcome register it again (see `load`).
+const confetti = vi.hoisted(() => {
+  const state = {
+    loads: 'arrives' as 'arrives' | 'fails' | Promise<void>,
+    fetches: 0,
+    bursts: [] as string[],
+    module: async () => {
+      state.fetches += 1;
+      if (state.loads === 'fails') throw new Error('Failed to fetch dynamically imported module');
+      if (typeof state.loads !== 'string') await state.loads;
+      return { triggerRarityConfetti: (rarity: string) => state.bursts.push(rarity), triggerHoloSparkles: () => {} };
+    },
+  };
+  return state;
+});
+vi.mock('./confettiEffects', () => confetti.module());
 vi.mock('../../game/reload', () => ({ reloadPage: vi.fn() }));
 
 let root: Root;
@@ -397,7 +413,7 @@ describe('the sealed pack stage on a desktop window', () => {
   });
 });
 
-describe('the random effect after a flip', () => {
+describe('what a flip sets off', () => {
   const deal = async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     vi.stubGlobal('requestIdleCallback', (task: () => void) => task());
@@ -471,6 +487,61 @@ describe('the random effect after a flip', () => {
     act(() => root.unmount());
     await act(async () => { vi.advanceTimersByTime(EFFECT_DELAY_MS * 2); });
     expect(plays).toEqual([CARD_FLIP_SRC]);
+  });
+
+  describe('and the confetti that comes with it (#776)', () => {
+    let arrive = () => {};
+    const load = (how: 'arrives' | 'fails' | 'later') => {
+      vi.doMock('./confettiEffects', () => confetti.module());
+      confetti.fetches = 0;
+      confetti.bursts = [];
+      confetti.loads = how === 'later' ? new Promise<void>((resolve) => { arrive = resolve; }) : how;
+    };
+    afterEach(() => {
+      confetti.loads = 'arrives';
+    });
+
+    it('bursts for the card flipped once the chunk is in', async () => {
+      load('arrives');
+      await deal();
+      flip();
+      await vi.waitFor(() => expect(confetti.bursts).toHaveLength(1));
+    });
+
+    it('still flips the card, and the next one, when the chunk never loads', async () => {
+      load('fails');
+      await deal();
+      // The last card on stage: the one before it may still be leaving.
+      const faceUp = () => document.querySelectorAll('.reveal-card .card-back').item(document.querySelectorAll('.reveal-card .card-back').length - 1)?.getAttribute('aria-hidden') === 'true';
+      expect(faceUp()).toBe(false);
+      flip();
+      await act(async () => {});
+      expect(faceUp()).toBe(true);
+      // On to the next card: the import is tried again, fails again, and the flip still lands.
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(false));
+      flip();
+      await vi.waitFor(() => expect(faceUp()).toBe(true));
+      expect(confetti.fetches).toBeGreaterThan(0);
+      expect(confetti.bursts).toEqual([]);
+    });
+
+    it('bursts for the card flipped when a slow chunk lands while it is still the card on show', async () => {
+      load('later');
+      await deal();
+      flip();
+      await act(async () => { arrive(); });
+      await vi.waitFor(() => expect(confetti.bursts).toHaveLength(1));
+    });
+
+    it('fetches nothing when the device asks for less motion, since nothing would burst', async () => {
+      load('arrives');
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: /reduce/.test(query), addEventListener() {}, removeEventListener() {} }));
+      await deal();
+      flip();
+      await act(async () => {});
+      expect(confetti.fetches).toBe(0);
+    });
   });
 });
 
