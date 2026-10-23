@@ -300,7 +300,14 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   problem).
 - **Profile** (`profile/ProfilePage.tsx`), top to bottom: the name and Player ID once, with "Edit
   name" opening the field in place (Enter saves, Escape cancels and returns focus to the button);
-  level and stats; best pulls; the collection score and sets; Achievements (`#achievements`, the
+  Best pack and Best card (`profile/BestHighlights.tsx`, #680), each verified on its own by opening
+  its one pack again from its ticket: "Checking…", then the engine's cards with a green "Verified"
+  mark, or a short reason it can't be checked, or "Couldn't check" with "Try again" (a ticket that
+  opens to other cards says so and offers no retry). Stored cards and scores are never shown as
+  verified, and Verified covers that pack only: the level and totals stay this device's progress, as
+  the footnote under them says. Best pack shares through its pull proof, Best card opens the card
+  viewer; level and stats (your own profile drops the best-score stat and Best pulls, which would
+  repeat them; a shared profile keeps both); the collection score and sets; Achievements (`#achievements`, the
   three newest with "Show all achievements" folded below; achievement toasts link here and open it);
   "Card back and foil" (`#rewards`, a closed `<details>` whose summary counts what is unlocked;
   level-up toasts open it); All packs; then a one-line "Saved in this browser · Back up" footnote.

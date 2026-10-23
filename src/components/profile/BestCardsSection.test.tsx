@@ -393,6 +393,131 @@ describe('winners an older save never scored', () => {
   });
 });
 
+describe('the settled signal', () => {
+  /** How an older build stored them: the reference only, no cached card. */
+  const unscored = () => {
+    localStorage.setItem(
+      STORAGE_KEYS.BEST_CARDS,
+      JSON.stringify({ [KEY]: { w: 1, b: [{ s: SET.id, v: SET.version, n: 0, i: 0, t: 1000 }, { s: SET.id, v: SET.version, n: 0, i: 1, t: 1000 }] } }),
+    );
+    used.value = 1;
+  };
+  const retryButton = () => [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again');
+  const status = () => container.querySelector('[role="status"]');
+  const settledCalls = () => onSettled.mock.calls.map(([settled]) => settled);
+  const onSettled = vi.fn();
+  const renderWith = (cacheReady: boolean) =>
+    act(() => root.render(<BestCardsSection refreshKey="a" cacheReady={cacheReady} onSettledChange={onSettled} />));
+  beforeEach(() => onSettled.mockClear());
+
+  it('is false while the saved packs are still being read, then true once they are and nothing is unscored', async () => {
+    used.value = 1;
+    offer(weak(0));
+    await renderWith(false);
+    expect(settledCalls()).toEqual([false]);
+    await renderWith(true);
+    expect(settledCalls()).toEqual([false, true]);
+  });
+
+  it('is false while the rebuild runs for unscored winners, and true once they are scored', async () => {
+    unscored();
+    const gate: { open: () => void } = { open: () => {} };
+    const opened = new Promise<void>((resolve) => (gate.open = resolve));
+    const real = rebuild.getMockImplementation()!;
+    rebuild.mockImplementationOnce(async (...args: Parameters<typeof real>) => {
+      await opened;
+      return real(...args);
+    });
+    await renderWith(true);
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    // Unscored, then rebuilding: never settled meanwhile.
+    expect(settledCalls().length).toBeGreaterThan(0);
+    expect(settledCalls().every((settled) => settled === false)).toBe(true);
+
+    await act(async () => gate.open());
+    expect(getBestCards(KEY, 1).cards.every((c) => c.card)).toBe(true);
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+  });
+
+  it('is true once the rebuild is lost (a pack could not be derived), since no card is on its way', async () => {
+    unscored();
+    derive.failing.add(0);
+    await renderWith(true);
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+    expect(getBestCards(KEY, 1).cards.some((c) => !c.card)).toBe(true); // still unscored, yet settled
+  });
+
+  it('is true when the rebuild rejects', async () => {
+    unscored();
+    rebuild.mockRejectedValueOnce(new Error('Argon2 unavailable'));
+    await renderWith(true);
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+  });
+
+  it('does not wait on an unscored winner this build cannot rebuild (a set version it lacks), so it settles with no rebuild', async () => {
+    // A backup from a newer build: no cached card, and a set version this build doesn't have.
+    localStorage.setItem(
+      STORAGE_KEYS.BEST_CARDS,
+      JSON.stringify({ [KEY]: { w: 1, b: [{ s: SET.id, v: SET.version + 50, n: 0, i: 0, t: 1000 }] } }),
+    );
+    used.value = 1;
+    await renderWith(true);
+    expect(getBestCards(KEY, 1).cards.some((c) => !c.card)).toBe(true); // still unscored, yet nothing is on its way
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+    expect(status()).toBeNull();
+    expect(text(container)).toContain('None on this device yet.');
+  });
+
+  it('still waits on a rebuildable winner that sits beside one this build cannot rebuild', async () => {
+    localStorage.setItem(
+      STORAGE_KEYS.BEST_CARDS,
+      JSON.stringify({
+        [KEY]: { w: 1, b: [{ s: SET.id, v: SET.version + 50, n: 1, i: 0, t: 1001 }, { s: SET.id, v: SET.version, n: 0, i: 0, t: 1000 }] },
+      }),
+    );
+    used.value = 2;
+    const real = rebuild.getMockImplementation()!;
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => (open = resolve));
+    rebuild.mockImplementationOnce(async (...args: Parameters<typeof real>) => {
+      await opened;
+      return real(...args);
+    });
+    await renderWith(true);
+    expect(settledCalls().every((settled) => settled === false)).toBe(true);
+    await act(async () => open());
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+  });
+
+  it('stays settled through Try again after the rebuild was lost, with the note kept in place until the retry ends', async () => {
+    unscored();
+    derive.failing.add(0);
+    await renderWith(true);
+    expect(settledCalls()).toEqual([false, true]);
+    expect(text(status()!)).toContain("couldn't be loaded just now");
+
+    const real = rebuild.getMockImplementation()!;
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => (open = resolve));
+    rebuild.mockImplementationOnce(async (...args: Parameters<typeof real>) => {
+      await opened;
+      return real(...args);
+    });
+    derive.failing.clear();
+    await act(async () => retryButton()!.click());
+    expect(rebuild).toHaveBeenCalledTimes(2);
+    // Mid-retry: still the note (now saying so), and never unsettled, so nothing below it shifts.
+    expect(text(status()!)).toContain('Trying again…');
+    expect(settledCalls()).toEqual([false, true]);
+
+    await act(async () => open());
+    expect(rows().length).toBeGreaterThan(0);
+    expect(status()).toBeNull();
+    expect(settledCalls()).toEqual([false, true]);
+  });
+});
+
 describe('opening a card', () => {
   const open = async (row: HTMLButtonElement) => {
     await act(async () => row.click());
