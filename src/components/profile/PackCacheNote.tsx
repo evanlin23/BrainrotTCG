@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from 'react';
-import { hydrateMyPacks, myPackCacheState } from '../../game/profiles';
+import { hydrateMyPacks, myPackCacheState } from '../../game/packCache';
 import { usePackCacheVersion } from '../../hooks/usePackCache';
 
 interface PackCacheNoteProps {
@@ -11,7 +11,7 @@ interface PackCacheNoteProps {
 }
 
 /**
- * Saved packs still being read on this device (game/profiles.ts, hydrateMyPacks), or a read that
+ * Saved packs still being read on this device (game/packCache.ts, hydrateMyPacks), or a read that
  * failed. Shown instead of stats that would leave them out: progress never reads as zero.
  * The note itself stays mounted across both states and takes focus on "Try again", so focus isn't
  * dropped to the page when the button goes away while the read runs.

@@ -76,7 +76,11 @@ src/game/          Browser glue around the engine.
   ticketMiner.ts     serial opening-ticket queue, worker/main-thread fallback, next-pack prefetch
   ticketPool.ts      separate verification/reconstruction pool, up to 8 workers (32 MiB each)
   history.ts         compact localStorage ticket metadata/cards; quota can discard old records
-  profiles.ts        signed profile construction and background own-pack reconstruction
+  myTickets.ts       your tickets as this device knows them: one list per change, shared read-only
+  packCache.ts       reading your saved packs into memory a page at a time, and whether they're in
+  reopenJob.ts       background own-pack reconstruction, resumed on the next visit
+  profiles.ts        signed profile construction, profile info, stats and progress; each of these
+                     four imports only those above it (FILE_ORDER in check-import-boundaries.ts)
   profileVerification.ts   verifying a shared profile link (verifyProfileLive)
   packStore.ts       reconstructed own-pack card codes in memory and IndexedDB
   reopenCache.ts     localStorage cache for packs derived while viewing public profiles
@@ -608,8 +612,9 @@ that no other keys were used, or when packs were opened.
 
 `src/game/profileVerification.ts` checks decoding/signature first, then derives highlights before the
 remaining tickets and validates XP/highlights. It imports no player, history, pack store or
-own-profile code (`profiles.ts`, which re-exports it for older imports), so checking someone else's
-profile never reads or waits on your own save; it shares only the engine rules, `reopenCache.ts`,
+own-profile code (`myTickets.ts`, `packCache.ts`, `reopenJob.ts`, and `profiles.ts`, which
+re-exports it for older imports), so checking someone else's profile never reads or waits on your
+own save; it shares only the engine rules, `reopenCache.ts`,
 `ticketPool.ts` and optional-work admission (`admission.ts`), never a scheduler of its own. A displayed claim is not verified merely because the signature
 passes. Work uses `ticketPool.ts`, separate from foreground `ticketMiner.ts`, with a hardware-based
 pool size up to eight workers. Separation avoids sharing the opening queue but does not remove CPU,
@@ -632,7 +637,7 @@ Own-pack reconstruction runs independently of the profile screen, batches up to 
 clears only once every batch is on disk: an IndexedDB open that fails or is blocked, or a failed write,
 keeps it and backs off (#1023); a browser without IndexedDB has only memory, so its writes count as saved.
 The IndexedDB card-code cache is no longer loaded before rendering: after mount, `watchMyPacks`
-(`profiles.ts`, via `usePackCache`) reads the current player's packs in pages of 64, one page in
+(`packCache.ts`, via `usePackCache`) reads the current player's packs in pages of 64, one page in
 flight, and aborts on unmount or when another tab changes the save; a read whose player changed is
 dropped. Then it reads the rest of the history's saved packs (other players on this device), which
 only history achievements wait on: your level and stats never depend on another player's packs.

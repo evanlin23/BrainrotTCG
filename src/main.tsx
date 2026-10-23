@@ -9,7 +9,7 @@ import { trackInputModality } from './components/ui/inputModality'
 import { runMigrations } from './utils/migrations'
 import { migratePullLog } from './game/history'
 import { receiveSave } from './game/move'
-import { resumeReopening } from './game/profiles'
+import { resumeReopening } from './game/reopenJob'
 import { warmUpFirstPack } from './game/warmUp'
 import { markStaging } from './game/staging'
 import { STORAGE_KEYS } from './constants'
@@ -53,7 +53,7 @@ handedOver.then((receiver) => {
   }
 
   // Packs re-opened on this device (IndexedDB) aren't loaded here: the app reads the ones it needs
-  // a page at a time once it runs (watchMyPacks in game/profiles.ts).
+  // a page at a time once it runs (watchMyPacks in game/packCache.ts).
 
   // AppErrorBoundary covers render errors once React has mounted; the startup steps above have
   // their own handling (the hand-over is skipped, migrations show the screens above).

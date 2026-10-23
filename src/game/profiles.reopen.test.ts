@@ -4,7 +4,7 @@ import { getSet } from '../content/sets';
 import { holdLive, waitingOptional } from './admission';
 import { putStoredPacks, resetPackStore, type StoredPack } from './packStore';
 import { getPlayer } from './player';
-import { reopenMyPacks, reopenStatus, resumeReopening } from './profiles';
+import { reopenMyPacks, reopenStatus, resumeReopening } from './reopenJob';
 import { createTicketPool } from './ticketPool';
 
 // Re-opening as optional work: tickets come from a pool the test answers by hand, and writes to
@@ -133,6 +133,36 @@ describe('re-opening as optional work', () => {
     // Unfinished, so the flag stays with the first player; the new one's next visit clears it.
     expect(data.get(PENDING)).toBe(before);
     resumeReopening();
+    expect(data.has(PENDING)).toBe(false);
+  });
+});
+
+describe('resuming while a run is going', () => {
+  it.each([
+    ['once it mines', true],
+    ['while saved packs are still being read first', false],
+  ])('joins the run already going %s instead of starting a second one (#699)', async (_when, mined) => {
+    // A run left unfinished on an earlier visit.
+    data.set(PENDING, getPlayer().publicKeyHex);
+    const run = reopenMyPacks();
+    if (mined) await vi.waitFor(() => expect(mining).toHaveLength(2));
+    let resumedDone = false;
+    const resumed = resumeReopening();
+    expect(resumed).toBeDefined();
+    void resumed!.then(() => { resumedDone = true; });
+    await mineAll(3);
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    // The resumed call waits for the run it joined: it hasn't settled while that run's packs are still being written.
+    await flush();
+    expect(resumedDone).toBe(false);
+    writes[0].done(true);
+    await Promise.all([run, resumed]);
+    expect(resumedDone).toBe(true);
+    // One pool, three tickets: nothing was mined twice.
+    expect(mining.map((m) => m.nonce).sort()).toEqual([0, 1, 2]);
+    expect(closed).toBe(1);
+    expect(writes).toHaveLength(1);
+    expect(reopenStatus()).toMatchObject({ done: 3, total: 3, running: false });
     expect(data.has(PENDING)).toBe(false);
   });
 });

@@ -8,7 +8,8 @@ import { readSettings } from '../utils/settings';
 import { exportPlayer, importPlayer, peekNonce, SAVE_STAMP_KEY, saveMark } from './player';
 import { recordPack } from './history';
 import type { OpenedPack } from './pulls';
-import { myProfileInfo, myStats, myTickets, resetTicketList } from './profiles';
+import { myProfileInfo, myStats } from './profiles';
+import { myTickets, resetTicketList } from './myTickets';
 
 const player = (secretKey = 'aa'.repeat(32), nextNonce = 7) => JSON.stringify({ secretKey, name: 'Combo Miner', nextNonce, createdAt: 1 });
 const fixture = () => ({
