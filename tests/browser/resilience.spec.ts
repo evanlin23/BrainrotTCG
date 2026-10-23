@@ -281,7 +281,7 @@ test.describe('damaged storage', () => {
     const chooser = page.waitForEvent('filechooser');
     await settings.main.getByRole('button', { name: 'Restore a backup', exact: true }).click();
     await (await chooser).setFiles({ name: 'backup.txt', mimeType: 'text/plain', buffer: backup });
-    await expect(settings.restoreNote).toHaveText("Replace this browser's save (unknown) with the file's (Browser smoke fixture, 1 pack)? Yours is kept as a backup.");
+    await expect(settings.restoreNote).toHaveText("Replace this browser's save (1 pack) with the file's (Browser smoke fixture, 1 pack)? Yours is kept as a backup.");
     // The import reloads the page; everything after is checked in the new document.
     const restored = page.waitForEvent('load');
     await settings.replace.click();
