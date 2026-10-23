@@ -23,6 +23,10 @@ interface Stats {
   highestPackHandName?: string; highestPackFlexValue?: number;
 }
 
+/** The fixture player `monitor` seeds: its secret key (01 x32) and the key prefix its history records carry. */
+export const PLAYER_SECRET = '01'.repeat(32);
+export const PLAYER_KEY_PREFIX = '8a88e3dd7409f195';
+
 export interface MonitorOptions {
   routeHttp?: boolean;
   returning?: boolean;
@@ -445,12 +449,12 @@ export async function monitor(
     });
   }
 
-  await page.addInitScript(({ historyRecords, returning, keys, origin }) => {
+  await page.addInitScript(({ historyRecords, returning, keys, origin, player }) => {
     if (window.location.origin !== origin) return;
     // Fresh smoke seeds identity/audio only; optional performance history below is synthetic.
     if (!localStorage.getItem('brainrot-player-v1')) {
       localStorage.setItem('brainrot-player-v1', JSON.stringify({
-        secretKey: '01'.repeat(32), name: 'Browser smoke fixture', nextNonce: historyRecords, createdAt: 1,
+        secretKey: player.secret, name: 'Browser smoke fixture', nextNonce: historyRecords, createdAt: 1,
       }));
       localStorage.setItem('brainrot-settings-v1', JSON.stringify({ effectsVolume: 0 }));
       if (returning) {
@@ -460,12 +464,12 @@ export async function monitor(
         // Performance shape only: repeated nonce0 cached cards at synthetic nonces. This is
         // intentionally NOT a verified history/profile, and never enters a proof verifier.
         localStorage.setItem(keys.HISTORY, JSON.stringify(Array.from({ length: historyRecords }, (_, n) => ({
-          s: 'right-now', v: 2, n, k: '8a88e3dd7409f195', c: 'bukangi,niu-laiG,bukangi,la-peace,verity', h: 'Pair', x: 1020, t: 1,
+          s: 'right-now', v: 2, n, k: player.keyPrefix, c: 'bukangi,niu-laiG,bukangi,la-peace,verity', h: 'Pair', x: 1020, t: 1,
         }))));
         localStorage.setItem('brainrot-data-version', '3');
       }
     }
-  }, { historyRecords, returning, keys: STORAGE_KEYS, origin });
+  }, { historyRecords, returning, keys: STORAGE_KEYS, origin, player: { secret: PLAYER_SECRET, keyPrefix: PLAYER_KEY_PREFIX } });
   return errors;
 }
 
