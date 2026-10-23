@@ -684,11 +684,43 @@ or finishes regenerate their thumbnails while unchanged assets are skipped.
    checks its file exists, and `check:card-assets` decodes every registered card WebP and checks
    pack wrappers, finish thumbnails, the frame mask and card back (docs/DEVELOPMENT.md). Preview
    outputs and built hosting paths are outside it.
+4. **Vectors and set locks are append-only.** `npm run check:history` (`scripts/check-history.ts`)
+   compares `spec/vectors.json`, `spec/vectors-python.json` and `src/content/sets.lock.json` in the
+   working tree with a base commit. Every top-level field of the base must remain; a list keeps
+   every old entry unchanged and in its order, with new entries allowed anywhere; any other value
+   (a set key's hash, `version`, `testKey`) must be identical. New top-level fields are allowed.
+   Whitespace, indentation and key order inside objects don't count. Every number must be a safe
+   integer written as JavaScript prints it (no `1.0`, `1e3`, `-0` or values past 2^53), since
+   `JSON.parse` would make different texts equal; anything else fails. Reading each number's text
+   needs Node 22 (the reviver's `context.source`); older Node fails saying so. Regenerating the
+   files can't pass it by rewriting the expected values, and neither can the lock's `--update`.
+   - **Base.** Locally, the merge base of `HEAD` and `origin/main`, or `--base <rev>`. In pull
+     request CI, the first parent of GitHub's merge commit, the base the PR merges onto (the
+     checkout fetches 2 commits). In deploys from main, the commit main was at before the push,
+     or the parent for a manual run, fetched by SHA from the public repository without a token.
+     A base missing from a shallow checkout fails with how to fetch it; nothing is skipped. Fork
+     PRs work the same, since the base is fetched from this repository. Gap: deploy.yml's
+     `concurrency` cancels an in-progress run when another push or a Hall of Fame
+     `gh workflow run deploy.yml` dispatch starts. The next run compares only with its own base
+     (`github.event.before`, or the parent for a dispatch), so the cancelled push's range is never
+     checked on main. The pull request gate still covers every PR that was up to date with main
+     when CI ran; a push straight to main, or a PR merged while behind main, is the uncovered case.
+   - **Trust.** The base files are read as data with `git show` and `JSON.parse`; nothing from the
+     base is imported or run, and no secret is used. The script that runs is the candidate's, so a
+     change to the script or its CI step is a change to the gate and needs its own review.
+   - **Protocol changes.** Old vectors are never removed. A new proof or ticket version adds new
+     vectors beside the old ones, and a new set version adds a lock key. There is no retirement
+     path, and any change that weakens the gate is the owner's decision. Note that `invalid` and
+     `invalidProfiles` have "unsupported proof version" and "unsupported profile version" cases
+     that encode version 2, so making version 2 valid would fail the verifier or this gate; how to
+     handle that is the owner's call. If the file layout itself has to change, start a new vector
+     file and leave the old one, and its check, in place.
 
 `npm run check` runs lint, types, all tests, set locks and card assets; `npm run build` packages the
 site and static previews. On every pull request and non-main push, CI runs both, the independent
 verifier (`python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json`), the
-browser smoke and actionlint; deploys from main rerun the verifier and `npm run check`. These checks
+browser smoke and actionlint, and pull requests also run `check:history`; deploys from main rerun
+the verifier, `npm run check` and `check:history`. These checks
 do not establish real-device performance, live service availability or complete UI/persistence
 coverage.
 

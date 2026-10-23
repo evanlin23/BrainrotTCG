@@ -15,6 +15,7 @@
     "cards": "tsx scripts/cards/build.ts",
     "cards:finish-thumbs": "tsx scripts/cards/build-finish-thumbs.ts",
     "check:card-assets": "tsx scripts/check-card-assets.ts",
+    "check:history": "tsx scripts/check-history.ts",
     "check:sets": "tsx scripts/check-sets.ts",
     "check:site": "tsx scripts/check-site.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run check:sets && npm run check:card-assets",
