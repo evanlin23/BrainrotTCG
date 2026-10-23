@@ -29,6 +29,8 @@ test('opens one real pack and preserves its exact cards, counts, modifiers and t
   await page.reload();
   await expect(page.locator('.app-logo')).toBeVisible();
   await expect(picker).toBeVisible();
+  // The reloaded stage is still fetching its art; leaving it for another screen sooner would cancel the request.
+  await expectDecoded(packShell.locator('img'), 2);
   const tabs = page.getByRole('navigation', { name: 'Main', exact: true });
   await tabs.getByRole('button', { name: 'Profile', exact: true }).click();
   await expect(page.getByRole('main', { name: 'Profile', exact: true })).toContainText('All packs · 1');
