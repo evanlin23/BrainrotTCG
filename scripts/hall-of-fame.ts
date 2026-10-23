@@ -12,6 +12,8 @@
  *     incomplete, repairs them (`changed`). `redeploy` is set for a new verification, and for a
  *     repair only when the bot's latest comment is that pull's verified one (the run stopped
  *     before labelling) and the next build would list a pull the published list doesn't have.
+ *     An opened or edited issue whose pull an earlier issue already holds (see `duplicateOf`) is
+ *     refused with `duplicate` set to that issue's number, and the workflow closes it as a duplicate.
  *
  *   npx tsx scripts/hall-of-fame.ts inbox           (Actions, on a schedule)
  *     Reads submissions sent without a GitHub account through public Nostr relays
@@ -120,6 +122,8 @@ interface Issue {
   user: { login: string } | null;
   labels: ({ name?: string } | string)[];
   pull_request?: unknown;
+  /** `reopened` once a maintainer has reopened it, and it stays so through later edits. */
+  state_reason?: string | null;
 }
 
 const labelNames = (issue: Issue) => issue.labels.map((l) => (typeof l === 'string' ? l : l.name ?? ''));
@@ -155,8 +159,11 @@ const toEntry = (pull: VerifiedPull, proof: string, issue: Issue, verifiedAt: st
   submittedAt: verifiedAt,
 });
 
-/** `rejected` marks a refusal that also gets the `rejected` label (a display name that isn't allowed). */
-type Checked = { ok: true; entry: HallOfFameEntry; pull: VerifiedPull } | { ok: false; reason: string; rejected?: true };
+/**
+ * `rejected` marks a refusal that also gets the `rejected` label (a display name that isn't allowed);
+ * `duplicateOf`, one closed as a duplicate of that issue (see `duplicateOf`).
+ */
+type Checked = { ok: true; entry: HallOfFameEntry; pull: VerifiedPull } | { ok: false; reason: string; rejected?: true; duplicateOf?: number };
 
 const checkIssue = async (issue: Issue): Promise<Checked> => {
   const proof = extractProof(issue.body ?? '');
@@ -266,7 +273,7 @@ const joinRefusal = (pull: VerifiedPull, list: readonly RankableEntry[], day: st
 };
 
 export const verifyIssue = async () => {
-  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { issue: Issue };
+  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')) as { action?: string; issue: Issue };
   let result = await checkIssue(event.issue);
   const token = process.env.GITHUB_TOKEN;
   // An edit that keeps the same verified pull needs no new comment.
@@ -288,7 +295,13 @@ export const verifyIssue = async () => {
     const list = await publishedList();
     const day = today();
     const reason = list && joinRefusal(result.pull, list, day);
-    if (reason) result = { ok: false, reason };
+    // Only an issue opened or edited is closed. Reopening one (only a maintainer can, once the bot has
+    // closed it) keeps it open, through later edits too.
+    const reopened = event.issue.state_reason === 'reopened';
+    const received = reopened ? null : event.action === 'opened' ? event.issue.created_at : event.action === 'edited' ? event.issue.updated_at : null;
+    const original = received && token ? await duplicateOf(result.entry.id, event.issue.number, received, list, token) : null;
+    if (original) result = { ok: false, reason: duplicateReason(original), duplicateOf: original };
+    else if (reason) result = { ok: false, reason };
     else if (joinLabel(result.pull, list, day) === 'verified') label = 'verified';
     else if (token && (await filedDailyElsewhere(result.entry.id, event.issue.number, token))) result = { ok: false, reason: 'This pull is already in the Hall of Fame on a day’s top, and a pull counts on one day only.' };
     else label = 'daily';
@@ -338,7 +351,7 @@ export const verifyIssue = async () => {
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `verified=${result.ok}\nchanged=${changed}\nredeploy=${redeploy}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n`,
+      `verified=${result.ok}\nchanged=${changed}\nredeploy=${redeploy}\nlabel=${label}\nrejected=${!result.ok && result.rejected === true}\n${!result.ok && result.duplicateOf ? `duplicate=${result.duplicateOf}\n` : ''}`,
     );
   }
   console.log(!already ? body : changed ? `Already verified this pull on this issue; repairing missing labels${redeploy ? ' and redeploying' : ''}.` : 'Already verified this pull on this issue; nothing to do.');
@@ -409,6 +422,39 @@ const filedDailyElsewhere = async (id: string, number: number, token: string): P
     return false;
   }
 };
+
+/**
+ * The issue this one (`number`, whose body GitHub received at `received`) duplicates for pull `id`,
+ * or null. That is a lower-numbered issue the bot verified this pull on before `received`: labelled
+ * `verified` or `daily` and not `rejected`, its body still holding the pull, and its marker comment
+ * earlier. So it already holds the pull's credit (the first verification keeps it, see
+ * `listToPublish`), and of two issues it can only ever be the later one that is closed. Candidates
+ * are the published list's entry for the pull and the issues changed since `recentIssuesSince` (one
+ * verified but not deployed yet). If GitHub can't be read, it says null: nothing is closed unchecked.
+ */
+const duplicateOf = async (id: string, number: number, received: string, list: readonly (RankableEntry & { issue?: number })[] | null, token: string): Promise<number | null> => {
+  try {
+    const recent = await listIssues(`labels=hall-of-fame&since=${recentIssuesSince()}`, token);
+    const listed = list?.find((e) => e.id === id)?.issue;
+    const candidates = new Set(recent.filter((i) => listedPullId(i) === id).map((i) => i.number));
+    if (Number.isSafeInteger(listed)) candidates.add(listed!);
+    for (const n of [...candidates].filter((n) => n < number).sort((a, b) => a - b)) {
+      const other = recent.find((i) => i.number === n) ?? (await github<Issue>(`/repos/${REPO}/issues/${n}`, token));
+      const labels = labelNames(other);
+      if (other.pull_request || listedPullId(other) !== id || labels.includes('rejected') || !(labels.includes('verified') || labels.includes('daily'))) continue;
+      const verifiedAt = await firstVerifiedAt(n, id, token);
+      if (verifiedAt && Date.parse(verifiedAt) < Date.parse(received)) return n;
+    }
+    return null;
+  } catch (error) {
+    console.warn(`Could not look for an earlier issue with this pull; not closing this one as a duplicate. ${error}`);
+    return null;
+  }
+};
+
+/** Why a duplicate is closed, and how to contest it. `original` is a number from GitHub, not issue text. */
+const duplicateReason = (original: number) =>
+  `#${original} already holds this pull and its place in the Hall of Fame, so this issue is closed as a duplicate. If that's wrong, comment here asking a maintainer to reopen it, or tell the maintainers through a [new issue](https://github.com/${REPO}/issues/new/choose).\n\nDuplicate of #${original}`;
 
 /**
  * Issues the bot has verified (it adds the labels; submitters can't add labels themselves): every
