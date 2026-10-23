@@ -196,6 +196,28 @@ describe('a record with no key that can be read', () => {
     expect(store).toEqual(before);
   });
 
+  it('names the copies of earlier saves when storage fills after this copy was written (#1052)', () => {
+    store.set('brainrot-before-import-v1', '{"import":"copy"}');
+    const mark = player.saveMark();
+    const before = new Map(store);
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key === PLAYER_KEY) throw new DOMException('full', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    expect(saveFile.startNewPlayer({ expectedSave: mark })).toBe(saveFile.NEW_PLAYER_NO_ROOM_NOTE + saveFile.NEW_PLAYER_EARLIER_COPY_NOTE);
+    expect(store).toEqual(before);
+  });
+
+  it('names an import copy when there is no room for this copy', () => {
+    store.set('brainrot-before-import-v1', '{"import":"copy"}');
+    const mark = player.saveMark();
+    setItem.mockImplementation((key: string, value: string) => {
+      if (key.startsWith(NEW_PLAYER_BACKUP_KEY)) throw new DOMException('full', 'QuotaExceededError');
+      store.set(key, value);
+    });
+    expect(saveFile.startNewPlayer({ expectedSave: mark })).toBe(saveFile.NEW_PLAYER_NO_ROOM_NOTE + saveFile.NEW_PLAYER_EARLIER_COPY_NOTE);
+  });
+
   it.each([
     ['writing the new record', (key: string) => key === PLAYER_KEY, 'set'],
     ['moving the stats aside', (key: string) => key === STORAGE_KEYS.STATS, 'remove'],

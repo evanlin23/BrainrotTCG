@@ -189,8 +189,8 @@ export const DAMAGED_EXPORT_KEY_NOTE = "Your player record is damaged, so the fi
 export const DAMAGED_EXPORT_DONE_NOTE = "Copy of your damaged player record downloaded, with the rest of your save. It has no player key that works, so it can't be restored as a backup."
   + ' Keep it private, for recovering the record by hand.';
 
-/** importSaveFile's answer for such a file: what it is, rather than the generic refusal. */
-export const DAMAGED_IMPORT_NOTE = 'That file is a copy of a damaged player record, kept for recovery. It has no player key that works, so it can\'t be restored. Nothing was imported.';
+/** importSaveFile's answer for such a file: what is wrong with it (wherever it came from), rather than the generic refusal. */
+export const DAMAGED_IMPORT_NOTE = "That file's player record can't be read, so it has no player key that works and can't be restored. Nothing was imported.";
 
 /**
  * Whether a save file (parsed) holds a damaged player record as its bytes (see exportPlayer), not a
@@ -410,10 +410,17 @@ const NEW_PLAYER_MOVES = [
 ] as const;
 
 /** startNewPlayer's answers when nothing changed. Each offers what's still there: the download and Restore. */
-export const NEW_PLAYER_NO_ROOM_NOTE = "This browser's storage has no room to keep a copy of your old progress, so no new player was started and nothing changed."
+export const NEW_PLAYER_NO_ROOM_NOTE = "This browser's storage ran out of room, so no new player was started and nothing changed."
   + ' Download the save with the damaged record, or restore a backup, instead.';
-/** Added to the no-room answer while a copy kept by an earlier start takes room: it is kept, never written over. */
-export const NEW_PLAYER_EARLIER_COPY_NOTE = ' A copy kept when a new player was started before stays as it was, and takes room too.';
+/** Added to the no-room answer while copies of earlier saves (brainrot-before-*) take room: they are kept, never written over. */
+export const NEW_PLAYER_EARLIER_COPY_NOTE = ' Copies of earlier saves, kept from past imports, moves or new players, stay as they were and take room too.';
+
+/** The no-room answer, naming the copies of earlier saves when any take room (said without them when storage can't be listed). */
+const newPlayerNoRoom = (): string => {
+  let copies = false;
+  try { copies = storedKeys().some((key) => key.startsWith(COPY_PREFIX)); } catch { /* Said without them. */ }
+  return NEW_PLAYER_NO_ROOM_NOTE + (copies ? NEW_PLAYER_EARLIER_COPY_NOTE : '');
+};
 export const NEW_PLAYER_FAILED_NOTE = "Couldn't start a new player, so nothing changed: your progress and the damaged record are as they were."
   + ' Download the save with the damaged record, or restore a backup, instead.';
 /** startNewPlayer's answer when it stopped partway and couldn't put everything back (the page then reloads). */
@@ -438,10 +445,7 @@ export const startNewPlayer = ({ expectedSave }: { expectedSave?: SaveMark } = {
     if (copy === null) return NEW_PLAYER_FAILED_NOTE;
     localStorage.setItem(slot, copy);
   } catch (error) {
-    if (!isQuotaError(error)) return NEW_PLAYER_FAILED_NOTE;
-    let earlier = false;
-    try { earlier = localStorage.getItem(NEW_PLAYER_BACKUP_KEY) !== null; } catch { /* Said without it. */ }
-    return NEW_PLAYER_NO_ROOM_NOTE + (earlier ? NEW_PLAYER_EARLIER_COPY_NOTE : '');
+    return isQuotaError(error) ? newPlayerNoRoom() : NEW_PLAYER_FAILED_NOTE;
   }
   const staged: [string, string | null][] = [[SAVE_STAMP_KEY, newSaveStamp()], ...NEW_PLAYER_MOVES.map((key): [string, null] => [key, null])];
   try {
@@ -483,7 +487,7 @@ export const startNewPlayer = ({ expectedSave }: { expectedSave?: SaveMark } = {
     }
     if (!restoreFields(changed, previous)) return NEW_PLAYER_PARTIAL_NOTE;
     putBack(slot, null);
-    return isQuotaError(error) ? NEW_PLAYER_NO_ROOM_NOTE : NEW_PLAYER_FAILED_NOTE;
+    return isQuotaError(error) ? newPlayerNoRoom() : NEW_PLAYER_FAILED_NOTE;
   }
   // A list this tab couldn't store belongs to the old player: never write it into the new one.
   resetBestCards();

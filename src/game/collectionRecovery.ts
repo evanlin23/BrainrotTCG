@@ -8,14 +8,10 @@ const ARCHIVE_KEY = STORAGE_KEYS.COLLECTION_RECOVERY;
 
 export type CollectionSaveResult = 'saved' | 'recovered' | 'blocked';
 
-/**
- * Stats (game/statsRecovery.ts) and player records (game/player.ts) kept aside are marked with their
- * storage key; an entry without one is a collection.
- */
-const STATS_KEY = STORAGE_KEYS.STATS;
-type KeptKey = typeof STATS_KEY | typeof PLAYER_KEY;
+/** Player records (game/player.ts) kept aside are marked with their storage key; an entry without one is a collection. */
+type KeptKey = typeof PLAYER_KEY;
 
-/** One kept-aside collection (or stats, or player record): its exact bytes and the identity snapshot they belonged to. */
+/** One kept-aside collection (or player record): its exact bytes and the identity snapshot they belonged to. */
 type Entry = { raw: string; player: string | null; key?: KeptKey };
 /**
  * The first payload kept, then the newest ones under `later`; `dropped` counts later payloads let go
@@ -38,7 +34,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const isEntry = (value: unknown): value is Entry => isRecord(value) && typeof value.raw === 'string'
-  && (value.player === null || typeof value.player === 'string') && (value.key === undefined || value.key === STATS_KEY || value.key === PLAYER_KEY);
+  && (value.player === null || typeof value.player === 'string') && (value.key === undefined || value.key === PLAYER_KEY);
 
 const sameEntry = (a: Entry, b: Entry) => a.raw === b.raw && a.key === b.key;
 
@@ -63,9 +59,9 @@ const readArchive = (stored: string): Archive => {
 const entriesOf = (archive: Archive | null): Entry[] => (archive ? [archive, ...(archive.later ?? [])] : []);
 
 const withKey = (entry: Entry, storageKey: string): Entry =>
-  (storageKey === STATS_KEY || storageKey === PLAYER_KEY ? { ...entry, key: storageKey } : entry);
+  (storageKey === PLAYER_KEY ? { ...entry, key: storageKey } : entry);
 
-const WHAT: Record<KeptKey | 'collection', string> = { collection: 'collection data is', [STATS_KEY]: 'stats are', [PLAYER_KEY]: 'player data is' };
+const WHAT: Record<KeptKey | 'collection', string> = { collection: 'collection data is', [PLAYER_KEY]: 'player data is' };
 
 const withLater = (first: Archive, later: Entry[], dropped: number): Archive => {
   const archive: Archive = { ...first, later, dropped };
@@ -89,7 +85,7 @@ const keepForThisVisit = (entry: Entry, why: unknown): 'archived' => {
 };
 
 /**
- * Before the stored collection (or stats) is replaced: if `unreadable` says this build can't read all of
+ * Before the stored collection (or player record) is replaced: if `unreadable` says this build can't read all of
  * it, keep its exact bytes (with the identity they belonged to) aside. The archive never blocks the save:
  * past its limits it lets the oldest later payloads go, and when even the first and newest won't fit, it
  * keeps the newest for this visit. 'blocked' only means the stored value couldn't be read, so it must stay.
@@ -210,9 +206,6 @@ export const COLLECTION_RECOVERY_NOTES: Record<KeptState, string> = {
   unsaved: `Unreadable collection data ${KEPT.unsaved} ${PRIVATE}`,
 };
 
-/** Added to the note while stats are kept aside: the ones in use were rebuilt (game/statsRecovery.ts), not started over. */
-export const STATS_REBUILT_NOTE = 'Your stats were rebuilt from your pack history and collection.';
-
 /** Added while a damaged player record is kept aside and the one stored now has its key: only the broken fields were repaired (game/player.ts). */
 export const PLAYER_REPAIRED_NOTE = 'Your player key was kept, and its ticket count was repaired.';
 
@@ -254,12 +247,11 @@ const noteFor = (state: KeptState): string => {
   const players = entries.filter((entry) => entry.key === PLAYER_KEY);
   const kinds = [
     entries.some((entry) => entry.key === undefined) && 'collection',
-    entries.some((entry) => entry.key === STATS_KEY) && 'stats',
     players.length > 0 && 'player',
   ].filter((kind): kind is string => !!kind);
-  if (kinds.length <= 1 && kinds[0] !== 'stats' && kinds[0] !== 'player') return COLLECTION_RECOVERY_NOTES[state];
+  if (kinds.length <= 1 && kinds[0] !== 'player') return COLLECTION_RECOVERY_NOTES[state];
   const what = `Unreadable ${kinds.length === 1 ? kinds[0] : `${kinds.slice(0, -1).join(', ')} and ${kinds[kinds.length - 1]}`} data`;
-  const added = [kinds.includes('stats') && STATS_REBUILT_NOTE, playerNote(players)].filter(Boolean).join(' ');
+  const added = playerNote(players);
   return `${what} ${KEPT[state]}${added ? ` ${added}` : ''} ${PRIVATE}`;
 };
 
