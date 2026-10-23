@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import {
@@ -15,8 +15,7 @@ import {
  *
  * Elsewhere: the export, wipe and import round trip and a cut-short or tampered-collection file
  * (backup-round-trip.spec.ts, #1020), two tabs racing (multi-tab.spec.ts), Rankings' chunk offline
- * (deferred-styles.spec.ts) and art offline (card-image-*.spec.ts). Left out until they're fixed: a
- * damaged player record (#1052) and damaged stats (#1053).
+ * (deferred-styles.spec.ts) and art offline (card-image-*.spec.ts).
  */
 
 // Backup files hold the player's secret key: keep them out of traces and videos.
@@ -26,6 +25,11 @@ const GARBAGE = '\u0000ÿ{not json';
 const COLLECTION_NOTE = /^Unreadable collection data was kept aside in this browser\./;
 const SAVE_WARNING = "Some changes couldn't be saved in this browser and may be lost when you close or reload. Backups only include data already saved.";
 const FEED_DOWN = "Couldn't reach the live feed, so pulls sent recently may be missing. Try again.";
+const STATS_NOTE = /^Unreadable stats data was kept aside in this browser\..* Your stats were rebuilt from your pack history and collection\./;
+const PLAYER_REPAIRED = /^Unreadable player data was kept aside in this browser\..* Your player key was kept, and its ticket count was repaired\./;
+const PLAYER_PAUSED = /^Unreadable player data was kept aside in this browser\..* Packs are paused until you restore a backup or start a new player in Settings > Save & backup\./;
+const PLAYER_SEALED = "Your player record in this browser is damaged and can't be read, so this pack stayed sealed. Nothing was lost."
+  + ' In Save & backup you can restore a backup, download the save with the damaged record, or start a new player.';
 
 /** Marks a browser whose save was seeded, so a reload keeps what storage holds by then. */
 const SEEDED = 'test-resilience-seeded';
@@ -50,6 +54,20 @@ const nextNonce = (page: Page) => page.evaluate(() => (JSON.parse(localStorage.g
 const tickets = async (page: Page) => (await snapshot(page)).history.map((record) => record.n).sort();
 const cardCount = (collection: Record<string, { normalCount: number; holoCount: number }> | null) =>
   Object.values(collection ?? {}).reduce((total, entry) => total + entry.normalCount + entry.holoCount, 0);
+/**
+ * Stats as they score: the best pack's cards by key and finish (rebuilt stats rebuild their display
+ * fields from the card registry), without the legacy pack value that only older saves need.
+ */
+const scored = (stats: Awaited<ReturnType<typeof snapshot>>['stats'] & { highestPackValue?: number }) => {
+  const rest: Partial<typeof stats> = { ...stats };
+  delete rest.highestPackValue;
+  return { ...rest, highestPackCards: stats.highestPackCards?.map((card) => ({ key: card.key, finish: card.finish ?? null, isHolo: card.isHolo })) };
+};
+/** What the kept-aside archive holds: each payload's storage key (none for the collection) and its exact bytes. */
+const keptAside = async (page: Page) => {
+  const archive = JSON.parse((await raw(page, STORAGE_KEYS.COLLECTION_RECOVERY))!) as { raw: string; key?: string; later?: { raw: string; key?: string }[] };
+  return [archive, ...(archive.later ?? [])].map((entry) => ({ key: entry.key, raw: entry.raw }));
+};
 
 /** A real save of one pack (ticket 0), opened once by monitor()'s fixture player and read back. */
 let saved: Record<string, string>;
@@ -96,6 +114,25 @@ async function loadSave(page: Page, baseURL: string, changes: Record<string, str
 }
 
 const withPlayer = (changes: Record<string, unknown>) => JSON.stringify({ ...JSON.parse(saved[PLAYER_KEY]) as object, ...changes });
+
+/** The saved pack's backup file, exported through Settings in a browser profile of its own. */
+async function exportedBackup(browser: Browser, baseURL: string) {
+  const context = await browser.newContext({ baseURL, serviceWorkers: 'block' });
+  const page = await context.newPage();
+  await holdTickets(page);
+  const errors = await seedSave(page, baseURL);
+  await page.goto('./#/settings');
+  const settings = settingsOf(page);
+  await expect(settings.main).toBeVisible();
+  const downloaded = page.waitForEvent('download');
+  await settings.backUp.getByRole('button', { name: 'Export', exact: true }).click();
+  const download = await downloaded;
+  const backup = await readFile((await download.path())!);
+  await download.delete();
+  expect(errors).toEqual([]);
+  await context.close();
+  return backup;
+}
 
 test.describe('damaged storage', () => {
   for (const [kind, value] of [['unreadable', GARBAGE], ['the wrong shape', '[1,2,3]']] as const) {
@@ -179,6 +216,137 @@ test.describe('damaged storage', () => {
     expect(after.stats.packsOpened).toBe(1_000_000_000);
     expect(after.history.map((record) => record.n).sort()).toEqual([0, 1]);
     expect(cardCount(after.collection)).toBe(10);
+    expect(errors).toEqual([]);
+  });
+
+  for (const [kind, value] of [['unreadable', GARBAGE], ['the wrong shape', '{"packsOpened":"many"}']] as const) {
+    test(`stats that are ${kind} are kept aside, rebuilt from the history and collection, and keep counting`, async ({ page, baseURL }) => {
+      const errors = await loadSave(page, baseURL!, { [STORAGE_KEYS.STATS]: value });
+      // The damaged bytes are kept aside, exactly, and said so. The stats in use are rebuilt from the
+      // saved pack, not started over, and stored at once.
+      await expect(page.getByRole('alert').filter({ hasText: STATS_NOTE })).toBeVisible();
+      expect(await keptAside(page)).toEqual([{ key: STORAGE_KEYS.STATS, raw: value }]);
+      await expect.poll(() => raw(page, STORAGE_KEYS.STATS)).not.toBe(value);
+      expect(scored((await snapshot(page)).stats)).toEqual(scored(JSON.parse(saved[STORAGE_KEYS.STATS])));
+
+      await openOne(page);
+      const after = await snapshot(page);
+      expect(after.stats.packsOpened).toBe(2);
+      expect(after.history.map((record) => record.n).sort()).toEqual([0, 1]);
+      expect(cardCount(after.collection)).toBe(10);
+      expect(await nextNonce(page)).toBe(2);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test('a player record whose key reads but whose ticket count does not keeps its key and counts on past the opened tickets', async ({ page, baseURL }) => {
+    const damaged = withPlayer({ nextNonce: 'twelve' });
+    const errors = await loadSave(page, baseURL!, { [PLAYER_KEY]: damaged });
+    // The damaged bytes are kept aside, exactly, and said so; the stored record keeps everything that
+    // read and counts past ticket 0, the one the history shows this key used.
+    await expect(page.getByRole('alert').filter({ hasText: PLAYER_REPAIRED })).toBeVisible();
+    expect(await keptAside(page)).toEqual([{ key: PLAYER_KEY, raw: damaged }]);
+    expect(JSON.parse((await raw(page, PLAYER_KEY))!)).toEqual({ ...JSON.parse(saved[PLAYER_KEY]) as object, nextNonce: 1 });
+
+    await openOne(page);
+    expect(await tickets(page)).toEqual([0, 1]);
+    expect(await nextNonce(page)).toBe(2);
+    expect((await snapshot(page)).stats.packsOpened).toBe(2);
+    expect(errors).toEqual([]);
+  });
+
+  test('a player record with no key that reads pauses packs and keeps its bytes, and restoring a backup carries on from the next ticket', async ({ page, browser, baseURL }) => {
+    test.setTimeout(90000);
+    const backup = await exportedBackup(browser, baseURL!);
+    // Nothing mines a ticket until the restored save is loaded, so the import's reload aborts no request.
+    await holdTickets(page);
+    const errors = await loadSave(page, baseURL!, { [PLAYER_KEY]: GARBAGE });
+
+    // The bytes stay where they are, a copy is kept aside, and the player is told packs are paused.
+    await expect(page.getByRole('alert').filter({ hasText: PLAYER_PAUSED })).toBeVisible();
+    expect(await raw(page, PLAYER_KEY)).toBe(GARBAGE);
+    expect(await keptAside(page)).toEqual([{ key: PLAYER_KEY, raw: GARBAGE }]);
+    const paused = await storageOf(page);
+
+    // A pack stays sealed, says why and where to go, and changes nothing.
+    await openPack(page).click();
+    await expect(page.locator('.pack-refusal-text').first()).toHaveText(PLAYER_SEALED);
+    await expect(page.locator('.summary-card')).toHaveCount(0);
+    expect(sameStorage(await storageOf(page), paused)).toBe(true);
+
+    // Save & backup offers Restore first; the backup brings the player and its pack back.
+    await page.getByRole('button', { name: 'Open Save & backup', exact: true }).click();
+    const settings = settingsOf(page);
+    await expect(settings.main).toBeVisible();
+    const chooser = page.waitForEvent('filechooser');
+    await settings.main.getByRole('button', { name: 'Restore a backup', exact: true }).click();
+    await (await chooser).setFiles({ name: 'backup.txt', mimeType: 'text/plain', buffer: backup });
+    await expect(settings.restoreNote).toHaveText("Replace this browser's save (unknown) with the file's (Browser smoke fixture, 1 pack)? Yours is kept as a backup.");
+    // The import reloads the page; everything after is checked in the new document.
+    const restored = page.waitForEvent('load');
+    await settings.replace.click();
+    await restored;
+    await expect(settings.main).toBeVisible();
+    await expect(settings.restoreNote).toHaveText('Load a backup file');
+    expect(await raw(page, PLAYER_KEY)).toBe(saved[PLAYER_KEY]);
+
+    // The next pack takes ticket 1: none lost, none reused. The damaged bytes stay in the copy the
+    // import kept of the save it replaced.
+    await page.goto('./');
+    await packsScreen(page);
+    await releaseTickets(page);
+    await openOne(page);
+    // The damaged bytes stay kept aside, for Download, but the restored key unpauses packs.
+    await expect(page.getByRole('alert').filter({ hasText: /^Unreadable player data was kept aside in this browser\./ })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: PLAYER_PAUSED })).toHaveCount(0);
+    expect(await tickets(page)).toEqual([0, 1]);
+    expect(await nextNonce(page)).toBe(2);
+    expect((await snapshot(page)).stats.packsOpened).toBe(2);
+    expect(cardCount((await snapshot(page)).collection)).toBe(10);
+    expect((JSON.parse((await raw(page, 'brainrot-before-import-v1'))!) as Record<string, string>)[PLAYER_KEY]).toBe(GARBAGE);
+    // The sealed pack's refusal, logged once.
+    expect(errors).toEqual([expect.stringMatching(/^Could not open pack PlayerUnreadableError: The player record can't be read, so no ticket can be claimed/)]);
+  });
+
+  test('a player record with no key that reads can give way to a new player, and the old save is kept whole in a copy', async ({ page, baseURL }) => {
+    // Nothing mines a ticket until the new player is loaded, so the reload after the switch aborts no request.
+    await holdTickets(page);
+    const errors = await loadSave(page, baseURL!, { [PLAYER_KEY]: GARBAGE });
+    await expect(page.getByRole('alert').filter({ hasText: PLAYER_PAUSED })).toBeVisible();
+    const old = Object.fromEntries(Object.entries(await storageOf(page)).filter(([key]) => key.startsWith('brainrot-')));
+
+    await page.goto('./#/settings');
+    const settings = settingsOf(page);
+    const row = settings.main.locator('.settings-row').filter({ has: page.locator('.settings-label', { hasText: /^Player record$/ }) });
+    await row.getByRole('button', { name: 'Start a new player', exact: true }).click();
+    await expect(row.getByRole('status')).toHaveText(/^Start a new player\? You start over with a new key/);
+    // The page reloads with the new player, and Save & backup has nothing left to ask.
+    const reloaded = page.waitForEvent('load');
+    await row.getByRole('button', { name: 'Start a new player', exact: true }).click();
+    await reloaded;
+    await expect(settings.main).toBeVisible();
+    await expect(row).toHaveCount(0);
+
+    // The new key starts at ticket 0 with none of the old player's progress, and the old save, damaged
+    // bytes and its pack included, is kept as it was.
+    await page.goto('./');
+    await packsScreen(page);
+    await releaseTickets(page);
+    await openOne(page);
+    // The damaged bytes stay kept aside, for Download, but the new key unpauses packs.
+    await expect(page.getByRole('alert').filter({ hasText: /^Unreadable player data was kept aside in this browser\./ })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: PLAYER_PAUSED })).toHaveCount(0);
+    const player = JSON.parse((await raw(page, PLAYER_KEY))!) as { secretKey: string; nextNonce: number };
+    expect(player.secretKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(player.secretKey === JSON.parse(saved[PLAYER_KEY]).secretKey).toBe(false);
+    expect(player.nextNonce).toBe(1);
+    const after = await snapshot(page);
+    expect(after.history.map((record) => record.n)).toEqual([0]);
+    expect(after.history[0].k).not.toBe(JSON.parse(saved[STORAGE_KEYS.HISTORY])[0].k);
+    expect(after.stats.packsOpened).toBe(1);
+    expect(cardCount(after.collection)).toBe(5);
+    const copy = JSON.parse((await raw(page, 'brainrot-before-new-player-v1'))!) as Record<string, string>;
+    expect(sameStorage(Object.fromEntries(Object.keys(copy).sort().map((key) => [key, copy[key]])), old)).toBe(true);
     expect(errors).toEqual([]);
   });
 });
