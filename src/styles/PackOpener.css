@@ -125,6 +125,12 @@
     -webkit-touch-callout: none;
 }
 
+/* The leaving pack is lifted out of the flow (AnimatePresence popLayout) and fades over the reveal for a
+   quarter second; it must not take a tap meant for the reveal's Skip or its first card. */
+.pack-display[data-motion-pop-id] {
+    pointer-events: none;
+}
+
 /*
  * The whole pack fits the stage, so on a phone nothing needs scrolling or reaching. The wrapper image is
  * 1536:2752 with clear space above the crimp, so it's pulled up by a tenth of its width to put the
