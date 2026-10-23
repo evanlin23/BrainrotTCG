@@ -3,11 +3,15 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dailyRank, pullId, qualifiesForHallOfFame, wouldJoinHallOfFame, type PackScore } from '../../engine';
-import { DEFAULT_SET_ID } from '../../content/sets';
+import { DEFAULT_SET_ID, getSet } from '../../content/sets';
+import { getSetCards } from '../../data/cards';
+import { STAGE_CLICK_GUARD_MS } from '../../hooks/useStageClickGuard';
+import type { CardWithMeta } from '../cards/Card';
 import { loadHallOfFame, loadPending, type HallOfFameEntry } from '../../game/hallOfFameList';
 import { publishUntilAccepted } from '../../game/nostrInbox';
 import { submitToHallOfFame } from '../../game/share';
 import ShareSheet from '../share/ShareSheet';
+import PackSummaryUI from './PackSummaryUI';
 import SummaryHallOfFame from './SummaryHallOfFame';
 
 // The proof and the list are stand-ins: this checks each state of the line, not the join rules. The
@@ -236,5 +240,31 @@ describe('one send per pull, however it is sent', () => {
     await act(async () => answer(true));
     expect(line()).toBe('🏆 Submitted · #1 today');
     expect(publishUntilAccepted).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the Hall of Fame line in the summary's first moments (#627)", () => {
+  const set = getSet(DEFAULT_SET_ID, 1)!;
+  const cards = getSetCards(set.id).slice(0, 5).map((card, i) => ({
+    ...card, uniqueId: i + 1, isRevealed: true, isHolo: false, finish: null,
+  }) as CardWithMeta);
+
+  afterEach(() => vi.useRealTimers());
+
+  it('ignores a Submit click until the summary has settled, so a stuck click never publishes the name and key', async () => {
+    vi.useFakeTimers();
+    await act(async () => root.render(<PackSummaryUI openedCards={cards} set={set} onClose={() => {}} pack={pack} />));
+    expect(button()?.textContent).toBe('Submit to the Hall of Fame');
+
+    await act(async () => { button()!.click(); });
+    await act(async () => { vi.advanceTimersByTime(STAGE_CLICK_GUARD_MS - 1); });
+    await act(async () => { button()!.click(); });
+    expect(publishUntilAccepted).not.toHaveBeenCalled();
+    expect(line()).toBe("🏆 Makes today's Rankings · Submit to the Hall of Fame");
+
+    await act(async () => { vi.advanceTimersByTime(1); });
+    await act(async () => { button()!.click(); });
+    expect(publishUntilAccepted).toHaveBeenCalledTimes(1);
+    expect(line()).toBe('🏆 Submitted · #1 today');
   });
 });
