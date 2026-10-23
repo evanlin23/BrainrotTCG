@@ -8,12 +8,24 @@ on:
 permissions:
   contents: read
 
+# Every job here that runs Playwright (the shards, the burn-in and the cross-browser smoke) runs in
+# Playwright's official image, whose tag must equal the installed @playwright/test (a test in
+# scripts/hof-workflows.test.ts checks it and that the digest is pinned like the actions). The image
+# already holds the browsers and their system libraries, so no run installs packages from an outside
+# mirror: `playwright install --with-deps` runs apt-get update, which fails whenever one of the
+# runner image's third-party apt sources is down or unsigned. Bump the tag and digest together with
+# Playwright, in all three jobs (docs/DEVELOPMENT.md).
+# `--user 1001` is the runner's user: Firefox won't run as root without a HOME, and the checkout and
+# the npm cache belong to it.
 jobs:
   # The suite runs in three shards at once to cut wall time; each shard keeps one worker, since the
   # specs were written to run one at a time.
   browser-shard:
     name: browser-tests shard ${{ matrix.shard }}/3
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
+      options: --user 1001
     strategy:
       fail-fast: false
       matrix:
@@ -25,7 +37,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       # Link-preview pictures (scripts/preview-pages.ts) take minutes to draw from scratch; keep them.
       # The key covers everything that decides which pictures there are and how they look. Their
       # cache contract (the script, sharp's versions, PREVIEW_CACHE_VERSION) starts the restore
@@ -64,13 +75,7 @@ jobs:
   # Cross-browser smoke (#658): the few journeys tagged @cross-browser (the first pack with its reload,
   # a card share, a pack share with its link opened again) on Firefox and WebKit, through
   # playwright.compat.config.ts.
-  # - It runs in Playwright's official image, whose tag must equal the installed @playwright/test (a
-  #   test in scripts/hof-workflows.test.ts checks it), pinned by digest like the actions. The image
-  #   already holds the browsers and their system libraries, so no run installs packages from an
-  #   outside mirror: a slow one used to use up the whole job's budget (the shards and burn-in still
-  #   use `--with-deps`, whose libraries mostly ship with the runner image).
-  # - `--user 1001` is the runner's user: Firefox won't run as root without a HOME, and the checkout
-  #   and the npm cache belong to it.
+  # - It runs in the same Playwright image as the shards (see the top of this file).
   # - Not part of `browser-tests` below and not required: it reports on its own. Making it a
   #   requirement is a separate decision once its runs have been stable (add it to that job's needs).
   # - WebKit is Playwright's Linux build with iPhone touch emulation, not iOS Safari or a phone.
@@ -140,6 +145,9 @@ jobs:
     name: browser-burn-in shard ${{ matrix.shard }}/3
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea
+      options: --user 1001
     strategy:
       fail-fast: false
       matrix:
@@ -151,7 +159,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       - id: previews
         run: |
           contract=$(npx tsx scripts/preview-pages.ts --cache-contract)
