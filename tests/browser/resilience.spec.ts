@@ -2,8 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import {
-  expectDecoded, expectRecordedPack, holdTickets, monitor, pickWithImport, relaysAnswerEmpty, sameStorage, settingsOf,
-  snapshot, storageOf,
+  expectDecoded, expectRecordedPack, holdTickets, monitor, pickWithImport, relaysAnswerEmpty, releaseTickets, sameStorage,
+  settingsOf, snapshot, storageOf,
 } from './support';
 
 /**
@@ -245,13 +245,17 @@ test.describe('offline mid-session', () => {
       offline = value;
       await page.context().setOffline(value);
     };
+    // The next pack's ticket mines only once the connection is down, so prefetchNextPack can't put this
+    // pack's art in the memory cache first (it fetches the pictures as soon as the ticket is in).
+    await holdTickets(page);
     await page.goto('./');
     await packsScreen(page);
 
     // Offline: the pack opens and is recorded; only pictures fail to load. It opens before any card art
-    // has shown on this page (Rankings shows the saved pack's), so none of it can come from the page's
-    // memory cache without a request.
+    // has shown on this page (Rankings shows the saved pack's), and its prefetch ran offline, so none of
+    // it can come from the page's memory cache without a request.
     await setOffline(true);
+    await releaseTickets(page);
     await openOne(page);
     expect(await tickets(page)).toEqual([0, 1]);
     expect(await nextNonce(page)).toBe(2);
