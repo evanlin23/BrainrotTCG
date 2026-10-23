@@ -365,8 +365,8 @@ describe('provenanceText', () => {
 
   it('says GitHub issue for an issue author, without naming the login', async () => {
     const { provenanceText } = await import('./hallOfFameList');
-    expect(provenanceText('alice')).toBe('via GitHub issue');
-    expect(provenanceText('a-b-9')).toBe('via GitHub issue');
+    expect(provenanceText('alice')).toBe('via GitHub');
+    expect(provenanceText('a-b-9')).toBe('via GitHub');
   });
 
   it('says nothing for a missing, unknown or odd value', async () => {

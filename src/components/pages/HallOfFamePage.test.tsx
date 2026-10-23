@@ -54,7 +54,7 @@ const tab = (label: string) => [...document.querySelectorAll<HTMLElement>('[role
 const select = async (label: string) => act(async () => tab(label).click());
 const rows = () => [...document.querySelectorAll<HTMLAnchorElement>('.hof-list .hof-entry')];
 // The row's accessible name without the trailing source ("…, via relay"), which has its own test.
-const labels = () => rows().map((a) => a.getAttribute('aria-label')?.replace(/, via (?:relay|GitHub issue)$/, ''));
+const labels = () => rows().map((a) => a.getAttribute('aria-label')?.replace(/, via (?:relay|GitHub)$/, ''));
 const showMore = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Show more');
 /** jsdom's click() doesn't focus the button the way a real click does. */
 const clickRetry = () => {
@@ -86,7 +86,7 @@ describe('Hall of Fame loading', () => {
     expect(document.activeElement).toBe(status());
     expect(retryButton()).toBeNull();
     await select('All-time');
-    expect(document.querySelector('a[aria-label="Number 1: Full House by Alice in Original, score 12345, via GitHub issue"]')).not.toBeNull();
+    expect(document.querySelector('a[aria-label="Number 1: Full House by Alice in Original, score 12345, via GitHub"]')).not.toBeNull();
     expect(loadPending).toHaveBeenCalledTimes(1);
     expect(loadPending.mock.calls[0][0]).toEqual([ENTRY]);
     expect((loadPending.mock.calls[0][2] as AbortSignal).aborted).toBe(false);
@@ -782,9 +782,9 @@ describe('Where it started', () => {
       { ...ENTRY, id: 'pull-3', proof: 'proof-3', issue: 9, score: 1_000, githubUser: 'unknown' },
     ]);
     await act(async () => root.render(<HallOfFamePage />));
-    expect([...document.querySelectorAll('.hof-meta')].map((el) => el.textContent)).toEqual(['Original · via GitHub issue', 'Original · via relay', 'Original']);
+    expect([...document.querySelectorAll('.hof-meta')].map((el) => el.textContent)).toEqual(['Original · via GitHub', 'Original · via relay', 'Original']);
     expect(rows().map((a) => a.getAttribute('aria-label'))).toEqual([
-      'Number 1: Full House by Alice in Original, score 12345, via GitHub issue',
+      'Number 1: Full House by Alice in Original, score 12345, via GitHub',
       'Number 2: Full House by Alice in Original, score 5000, via relay',
       'Number 3: Full House by Alice in Original, score 1000',
     ]);

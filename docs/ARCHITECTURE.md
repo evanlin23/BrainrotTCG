@@ -220,11 +220,6 @@ issue `rejected`, the build leaves `rejected` issues and blocked names out, and 
 check skips them. Other players' names show through `visitorName` (`publicName`, with a blank or blocked one
 read as "Someone"), beside the key fingerprint in Rankings, shared pull links and shared profiles.
 
-Each Rankings row also says where the entry was submitted from, on its muted set line (`provenanceText`
-in `src/game/hallOfFameList.ts`): "via relay" when `githubUser` is `nostr`, "via GitHub issue" for an
-issue author's login, and nothing for a missing, `unknown` or malformed value. It never shows or links
-the login, since `githubUser` is just the issue author as recorded and not a verified identity.
-
 - Removal, including a reported name the check missed: the owner adds the `rejected` label to the
   entry's issue and the next deploy leaves it out. The workflows never take that label off, and the
   issue still counts as filed, so the relays can't file the same pull again. To restore an entry,
@@ -236,6 +231,13 @@ the login, since `githubUser` is just the issue author as recorded and not a ver
   counts as filed (for the relay inbox or a day's top), so the player can resubmit it under a new name.
 - Appeal: the player opens an issue. The owner takes `rejected` off a wrongly removed entry, or fixes
   the word list for a wrongly blocked name so the pull can be submitted again.
+
+Each Rankings row also says where the entry was submitted from, on its muted set line (`provenanceText`
+in `src/game/hallOfFameList.ts`): "via relay" when `githubUser` is `nostr`, "via GitHub" for an
+issue author's login, and nothing for a missing, `unknown` or malformed value. It never shows or links
+the login, since `githubUser` is just the issue author as recorded and not a verified identity.
+A real GitHub user named `nostr` collides with the relay marker (`scripts/hall-of-fame.ts` passes the login
+through as is); that is fixed in a later slice.
 
 **Published list.** The Hall of Fame is the top 100 pulls by Brainrot Score. The published file also
 keeps the best 50 pulls filed on the build's UTC day and the day before (`dailyPulls`, by

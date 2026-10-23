@@ -323,6 +323,8 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   player's own clock) and rolls over while the page is open. On an empty day it says "No pulls filed
   today yet", shows up to 3 of yesterday's best and how to submit. All-time is the published top 100
   by Brainrot Score. Rows aren't re-checked on the page: each links to its pull, which re-derives it.
+  Each row's muted set line ends with where it was submitted from, "via relay" or "via GitHub"
+  (nothing when unknown; never a login, so it is text, not a link inside the row's link).
   A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
   before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
   A closed "How Rankings work" disclosure sits above the lists in every state (loading, failed,
