@@ -195,7 +195,8 @@ for (const viewport of PHONES) {
       return problems;
     }, HOME_CONTROLS), { message: 'no control is under the toast' }).toEqual([]);
 
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    const { x, y } = await centre(toast);
+    await page.touchscreen.tap(x, y);
     await onProfile(page);
     expect(errors).toEqual([]);
   });

@@ -340,20 +340,24 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   screen the toast is a row of its own under the header and the pack stage gives up that height, so it
   never covers the set picker, the pack, the guide link or a tab (#803). The row is kept short (tight
   padding, a one-line kicker, a two-line clamp on a level-up's line, the full text still the button's
-  name) so at 200% text the pack and set steps stay at least 44 px. On a short screen (420 px tall or
-  less, a phone on its side) the row is one thin line: the icon goes and the kicker stays in the name
-  but isn't drawn, so the pack and set steps stay at least 44 px there too. The row stays reserved
+  name) so at 200% text the pack and set steps stay at least 44 px. The toast itself is at least 44 px
+  tall at every size, so a thumb can hit it. On a phone on its side (420 px tall or less, 899 px wide or
+  less) a row of that height would squeeze the pack under a touch target, so there the toast takes no row:
+  it sits in the header over the wordmark (the home link, on the screen the player is already on) with
+  the Settings button moved to the right edge, and a level-up's line is clamped to one line. It covers
+  no set step, pack or header button, and nothing moves when it comes or goes. Elsewhere the row stays reserved
   after the toast expires, so nothing moves under a finger at expiry (a shift as it first appears is
   fine). It can grow when a taller toast arrives; it never shrinks under the player until the screen
   changes. It is forgotten when the route or pack focus changes (a return to a screen already seen
   starts with no empty row) and when the window resizes. A card close-up, any other sheet or page, and
   a pack being torn and revealed hold the toasts until they clear, and a toast the player had 1.5 s to
   see is let go then, not shown again in full. In pack focus mode it still overlays, under the pack's
-  X, or beside the X at the right on a short screen (520 px tall or less).
+  X, or beside the X at the right on a short screen (520 px tall or less, where the headline below it is
+  kept clear by tight padding).
   `tests/browser/toast-home.spec.ts` checks every home control at 360, 390, 1280 and 640x360, 200% text
   at 360, expiry, the return to the screen, and the sheet hold. `tests/browser/toast-touch.spec.ts`
-  checks the tap, the swipe, the seen toast, the pack hold, and what the toast covers on the summary at
-  five phone sizes, in touch emulation.
+  checks the tap, the swipe, the seen toast, the pack hold, and the 44 px target, a tap and what the toast
+  covers on the home screen and the summary at five phone sizes, in touch emulation.
 - **Chips and badges**: era chips in the picker; rarity badges show name, colour and points.
 - **Empty states**: one icon, one sentence that says what to do next.
 - **Crash screen** (`ui/AppErrorBoundary.tsx`): if a render throws, a plain page with a Reload
