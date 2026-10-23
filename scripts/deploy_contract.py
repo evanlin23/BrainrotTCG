@@ -115,6 +115,23 @@ def verify(release, env, digest):
 
 UNSERVED = {'_headers', '_redirects'}  # Pages reads these as settings and doesn't serve them
 
+# Cloudflare Pages' automatic Web Analytics setup (docs/HOSTING.md#web-analytics) adds this tag, byte
+# for byte as Pages serves it, just before each page's </body>. Our build never writes it.
+BEACON_TAG = re.compile(
+    rb"<!-- Cloudflare Pages Analytics --><script defer src='https://static\.cloudflareinsights\.com/beacon\.min\.js' "
+    rb"data-cf-beacon='\{\"token\": \"([0-9a-f]{32})\"\}'></script><!-- Cloudflare Pages Analytics --></body>")
+
+
+def without_beacon(name, body):
+    """body with the one Web Analytics tag Pages adds to a page taken out, and that tag's token, or
+    (body, None) when it has none. Only that exact tag, once, right before </body>, in an .html file: a
+    second tag, a tag elsewhere or changed, or one in any other file stays in, so the file then differs
+    from its sealed copy. Not an HTML normaliser."""
+    tag = BEACON_TAG.search(body) if name.endswith('.html') else None
+    if not tag:
+        return body, None
+    return body[:tag.start()] + b'</body>' + body[tag.end():], tag.group(1).decode()
+
 
 def served_path(name):
     """Where Cloudflare Pages serves dist/<name>, relative to the site's root."""
@@ -224,13 +241,18 @@ def served(release, env, digest, url, get=None, tries=3, pause=5.0):
     get = get or partial(fetch, headers=token)
     files = sealed['files']
 
+    tokens = {}  # page -> the Web Analytics token Pages added to it
+
     def problem(name):
         why = ''
         for attempt in range(tries):
             if attempt:
                 time.sleep(pause)  # a new deployment can take a moment to reach every edge
             try:
-                if hashlib.sha256(get(base + served_path(name))).hexdigest() == files[name]:
+                body, beacon_token = without_beacon(name, get(base + served_path(name)))
+                if hashlib.sha256(body).hexdigest() == files[name]:
+                    if beacon_token:
+                        tokens[name] = beacon_token
                     return None
                 why = 'different content'
             except HTTPError as error:
@@ -244,9 +266,14 @@ def served(release, env, digest, url, get=None, tries=3, pause=5.0):
     with ThreadPoolExecutor(max_workers=32) as pool:
         problems = [p for p in pool.map(problem, names) if p]
     require(not problems, '\n  '.join(
-        [f"{base} doesn't serve {len(problems)} of the {len(names)} sealed files as sealed. If only pages differ, "
-         'turn off Cloudflare Web Analytics (and any other setting that edits pages) for the project:']
+        [f"{base} doesn't serve {len(problems)} of the {len(names)} sealed files as sealed, with Web Analytics' one tag "
+         'taken out of each page. If only pages differ, turn off any other Cloudflare setting that edits pages, and '
+         "keep Web Analytics on automatic setup (docs/HOSTING.md#web-analytics):"]
         + problems[:20] + ([f'and {len(problems) - 20} more'] if len(problems) > 20 else [])))
+    require(len(set(tokens.values())) <= 1, f'{base} adds Web Analytics tags with different tokens to its pages')
+    pages = sum(name.endswith('.html') for name in names)
+    beacon = f'tag seen on {len(tokens)} of {pages} pages and taken out before comparing' if tokens else 'no tag seen'
+    print(f'Cloudflare Web Analytics: {beacon}.', file=sys.stderr)
     marker_ = sealed['marker']
     return '\n'.join([
         f'### Release served at {base}', '',
@@ -256,7 +283,8 @@ def served(release, env, digest, url, get=None, tries=3, pause=5.0):
         f"| Built for | {marker_['url']} (base path /) |",
         f'| Manifest sha256 | `{digest}` |',
         f'| Files | {len(names)}, each served with its sealed hash |',
-        f"| hall-of-fame.json sha256 | `{files.get('hall-of-fame.json', 'none')}` |", ''])
+        f"| hall-of-fame.json sha256 | `{files.get('hall-of-fame.json', 'none')}` |",
+        f'| Cloudflare Web Analytics | {beacon} |', ''])
 
 
 # --- Workflow files ------------------------------------------------------------------------------

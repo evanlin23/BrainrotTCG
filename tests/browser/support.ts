@@ -4,6 +4,7 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { cardPoints } from '../../src/engine/scoring';
 import { decodeCard } from '../../src/game/cardCode';
 import { HOF_RELAYS } from '../../src/game/nostrInbox';
+import { BEACON_URL } from '../../scripts/cloudflare-analytics';
 import type { Finish, Rarity } from '../../src/engine/types';
 import { accessHeaders, stagingAccess, type StagingAccess } from './stagingAccess';
 
@@ -97,6 +98,13 @@ function originOf(urlString: string): string {
 /** The relays the product itself dials; browser fixtures close them unconnected without recording. */
 const productRelayOrigins = new Set(HOF_RELAYS.map(originOf));
 const CSP_REPORT_PATH = '/__network-guard/csp-report';
+/**
+ * Stands in for Cloudflare Web Analytics' beacon, which Cloudflare Pages adds to production's pages
+ * (scripts/cloudflare-analytics.ts), so checks against the real site are never counted as visits. It
+ * does nothing. Its reporting endpoint and every other address at Cloudflare's analytics hosts are
+ * refused and recorded like any other origin, so a request to them fails the test at teardown.
+ */
+export const BEACON_STUB = '/* network guard: inert stand-in for Cloudflare Web Analytics */\n';
 
 function sanitizeUrl(urlString: string): string {
   try {
@@ -133,6 +141,8 @@ export function fetchFailureReason(error: unknown, secrets: readonly string[]): 
  * - Only intended local read requests/paths are permitted; writes are refused with 403.
  * - Redirects are inspected with maxRedirects: 0; any redirect escape outside allowed origin/path is refused with 403.
  * - CSP is applied to enforce boundaries inside workers.
+ * - Cloudflare Web Analytics' beacon script (a GET of exactly that URL) gets an inert stand-in
+ *   (BEACON_STUB). Its reporting endpoint is refused like any other origin; the stand-in never calls it.
  * - Teardown fails on unexpected I/O attempts with bounded sanitized evidence, and on monitored
  *   requests whose fetch failed, named the same way (one failing because the page or context closed
  *   is teardown itself, and isn't recorded).
@@ -297,7 +307,7 @@ export async function monitor(
   const imgOrigins = ["'self'", 'data:', 'blob:', ...allowedOrigins].join(' ');
   const csp = [
     "default-src 'self' data: blob:",
-    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' ${BEACON_URL}`,
     "style-src 'self' 'unsafe-inline'",
     `connect-src ${connectOrigins}`,
     "font-src 'self' data:",
@@ -398,6 +408,10 @@ export async function monitor(
           // A malformed report carries no evidence
         }
         return route.fulfill({ status: 204 });
+      }
+
+      if (method === 'GET' && reqUrl.href === BEACON_URL) {
+        return route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: BEACON_STUB });
       }
 
       const refusal = refuse(method, reqUrl);
