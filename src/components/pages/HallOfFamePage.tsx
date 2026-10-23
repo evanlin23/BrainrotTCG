@@ -1,7 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Crown, History, ShieldCheck } from 'lucide-react';
+import { CalendarDays, Crown, History, ShieldCheck } from 'lucide-react';
 import CardImage from '../cards/CardImage';
 import Sheet from '../ui/Sheet';
+import PastDaysSheet from './PastDaysSheet';
 import Tabs from '../ui/Tabs';
 import { tabPanelProps } from '../ui/tabPanel';
 import { QUALIFY_HAND, QUALIFY_RULE, QUALIFY_SCORE, RANKINGS_HELP } from '../ui/rankingsRule';
@@ -9,7 +10,8 @@ import '../../styles/HallOfFame.css';
 import { getCard } from '../../data/cards';
 import { modifierClasses } from '../../game/modifiers';
 import { loadHallOfFame, loadPending, provenanceText, type HallOfFameEntry } from '../../game/hallOfFameList';
-import { dailyPulls, HALL_OF_FAME_TOP, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
+import { loadPublishedRankings, type PublishedRankings } from '../../game/publishedRankings';
+import { dailyPulls, HALL_OF_FAME_TOP, HALL_OF_FAME_YESTERDAY_SHOWN, previousUtcDay, topPulls, utcDay, visitorName } from '../../engine';
 
 // Hackathon legends ("Where it started"): screenshots from before pulls were verifiable.
 import adiImage from '../../assets/images/hall_of_fame/adi-four-of-a-kind.webp';
@@ -32,8 +34,6 @@ const HACKATHON_LEGENDS: LegendEntry[] = [
 
 /** How many leaderboard rows show at first, and how many more each "Show more" adds. */
 const PAGE_SIZE = 20;
-/** How many of yesterday's best show when nothing has been filed today. */
-const YESTERDAY_SHOWN = 3;
 /**
  * How long the page waits on the live relays before it stops saying it is checking. Re-deriving recent
  * submissions queues behind pack-opening tickets and can take far longer; the check itself carries on,
@@ -65,6 +65,13 @@ const useUtcToday = () => {
 const localResetTime = (day: string) =>
   new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
+/**
+ * When the published lists were built, from rankings.json's own time and in UTC (the days they rank
+ * are UTC days). It says when, not how long ago: that would lean on this device's clock.
+ */
+const publishedTime = (iso: string) =>
+  `${new Date(iso).toLocaleString(undefined, { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })} UTC`;
+
 /** Today ranks the current UTC day's pulls; All-time ranks the best ever. */
 type RankingsTab = 'today' | 'all';
 
@@ -73,6 +80,9 @@ const HallOfFamePage = () => {
   const [entries, setEntries] = useState<HallOfFameEntry[] | null>(null);
   const [tab, setTab] = useState<RankingsTab>('today');
   const [legendsOpen, setLegendsOpen] = useState(false);
+  const [pastOpen, setPastOpen] = useState(false);
+  // rankings.json: undefined while loading, null when missing or malformed (no archive, no time shown).
+  const [rankings, setRankings] = useState<PublishedRankings | null | undefined>(undefined);
   const tabsId = useId();
   const day = useUtcToday();
 
@@ -127,6 +137,15 @@ const HallOfFamePage = () => {
       clearTimeout(deadline);
     };
   }, [attempt]);
+  useEffect(() => {
+    let live = true;
+    loadPublishedRankings().then((loaded) => {
+      if (live) setRankings(loaded);
+    });
+    return () => {
+      live = false;
+    };
+  }, [attempt]);
   const retry = () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
@@ -157,7 +176,7 @@ const HallOfFamePage = () => {
   const ranked = useMemo(() => topPulls(all ?? []), [all]);
   // Today: pulls filed on the current UTC day (the same day for everyone), plus any just submitted.
   const today = useMemo(() => dailyPulls(all ?? [], day), [all, day]);
-  const yesterday = useMemo(() => dailyPulls(all ?? [], previousUtcDay(day)).slice(0, YESTERDAY_SHOWN), [all, day]);
+  const yesterday = useMemo(() => dailyPulls(all ?? [], previousUtcDay(day)).slice(0, HALL_OF_FAME_YESTERDAY_SHOWN), [all, day]);
   // The leaderboard shows a page at a time so the page stays short on a phone. Only what's drawn
   // changes: the order is the same whatever is shown.
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -376,12 +395,22 @@ const HallOfFamePage = () => {
         )}
       </div>
 
-      {/* Where it started: the hackathon's screenshots, kept apart from the verified rankings. */}
+      {rankings && (
+        <p className="hof-updated">
+          Lists last updated <time dateTime={rankings.generatedAt}>{publishedTime(rankings.generatedAt)}</time>
+        </p>
+      )}
+      {/* Past days from the monthly archives, and where it started: the hackathon's screenshots, kept
+          apart from the verified rankings. */}
       <div className="hof-origins">
+        <button type="button" className="btn btn--ghost btn--sm" aria-haspopup="dialog" onClick={() => setPastOpen(true)}>
+          <CalendarDays aria-hidden="true" /> Past days
+        </button>
         <button type="button" className="btn btn--ghost btn--sm" aria-haspopup="dialog" onClick={() => setLegendsOpen(true)}>
           <History aria-hidden="true" /> Where it started
         </button>
       </div>
+      {pastOpen && <PastDaysSheet rankings={rankings} onClose={() => setPastOpen(false)} />}
       {legendsOpen && (
         <Sheet title="Where it started" subtitle="Screenshots from the hackathon, before pulls could be verified, so they aren't ranked." onClose={() => setLegendsOpen(false)} className="hof-legends-sheet">
           <ul className="hof-legends">

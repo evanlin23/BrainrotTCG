@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { clearDiagnostics, diagnosticSnapshot, isDiagnosticCaptureEnabled, observeDiagnosticEvents, recordDiagnostic, setDiagnosticCapture, type DiagnosticEvent } from './diagnostics';
+import { clearDiagnostics, diagnosticSnapshot, hasRecordedSteps, isDiagnosticCaptureEnabled, observeDiagnosticEvents, recordDiagnostic, setDiagnosticCapture, type DiagnosticEvent } from './diagnostics';
 
 afterEach(() => setDiagnosticCapture(false));
 
@@ -95,5 +95,19 @@ describe('allowlisted optional diagnostics', () => {
     ['slow-2g', 'slow'], ['2g', 'slow'], ['3g', 'medium'], ['4g', 'fast'], ['5g', 'unknown'], [undefined, 'unknown'],
   ])('reduces connection type %s to %s', (effectiveType, connection) => {
     expect(diagnosticSnapshot({ effectiveType }).connection).toBe(connection);
+  });
+});
+
+describe('hasRecordedSteps', () => {
+  it('sees steps in the events array, in free text, and under another key of valid JSON', () => {
+    expect(hasRecordedSteps(JSON.stringify({ events: [{ step: 1, event: 'pack-open' }] }))).toBe(true);
+    expect(hasRecordedSteps('1. {"step":1,"event":"pack-open"}')).toBe(true);
+    expect(hasRecordedSteps(JSON.stringify({ notes: [{ step: 1, event: 'pack-open' }] }))).toBe(true);
+  });
+
+  it('does not mistake an empty report or plain words for steps', () => {
+    expect(hasRecordedSteps(JSON.stringify({ events: [] }))).toBe(false);
+    expect(hasRecordedSteps('Reviewed report')).toBe(false);
+    expect(hasRecordedSteps('the events are gone')).toBe(false);
   });
 });

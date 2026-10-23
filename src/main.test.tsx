@@ -13,7 +13,7 @@ const startup = vi.hoisted(() => ({
 vi.mock('./game/move', () => ({ receiveSave: startup.receiveSave }));
 vi.mock('./utils/migrations', () => ({ runMigrations: startup.runMigrations }));
 vi.mock('./game/history', () => ({ migratePullLog: startup.migratePullLog }));
-vi.mock('./game/profiles', () => ({ resumeReopening: startup.resumeReopening }));
+vi.mock('./game/reopenJob', () => ({ resumeReopening: startup.resumeReopening }));
 vi.mock('./game/warmUp', () => ({ warmUpFirstPack: startup.warmUpFirstPack }));
 vi.mock('./App', () => ({ default: () => <p data-testid="app">The game</p> }));
 

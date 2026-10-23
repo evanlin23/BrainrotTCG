@@ -80,7 +80,7 @@ async function cutAndRead(page: Page, packShell: Locator, touch: boolean) {
 
   const finger = await fingerFor(page, touch);
   await finger.press(from, y);
-  await page.waitForTimeout(50);
+  await expect(packShell).toHaveClass(/\bis-pressed\b/);
   await finger.move(to, y);
   await expect(packShell).toHaveClass(/\bis-cutting\b/);
   const reading = await page.waitForFunction((burst) => {
@@ -143,7 +143,7 @@ test.describe('with reduced motion', () => {
     await recordSparkStarts(page);
     const finger = await fingerFor(page, hasTouch);
     await finger.press(box.x + box.width * 0.4, y);
-    await page.waitForTimeout(50);
+    await expect(packShell).toHaveClass(/\bis-pressed\b/);
     await finger.move(box.x + box.width * 0.5, y);
     await expect(packShell.locator('.cut-line')).toHaveCount(1);
     // Let the frames after the cut run: nothing is drawn on the spark layer in any of them.

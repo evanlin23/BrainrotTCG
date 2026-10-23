@@ -185,8 +185,13 @@ async function harnessed(page: Page, baseURL: string) {
 /** A pack written natively, read back on a fresh load: absent stays absent, never a failure. */
 const readFresh = (page: Page, refs: object[]) => page.evaluate((refs) => window.__storeHealthy.readStoredPacks(refs as PackStore.StoredPackRef[]), refs);
 
-test('a committed pack survives a reload and a relaunched profile, with its exact key and cards', async ({ playwright, browserName, launchOptions, headless, baseURL }, testInfo) => {
+test('a committed pack survives a reload and a relaunched profile, with its exact key and cards', async ({ playwright, browser, browserName, launchOptions, headless, baseURL }, testInfo) => {
   test.setTimeout(60000);
+  // What a plain context of this project reports: the project's own user agent when it sets one, the browser's default otherwise.
+  const expectedUserAgent = await (async () => {
+    const plain = await browser.newContext();
+    try { return await (await plain.newPage()).evaluate(() => navigator.userAgent); } finally { await plain.close(); }
+  })();
   // One disposable profile, launched twice: the second browser only has what the first left on disk.
   const profile = await mkdtemp(join(tmpdir(), 'brainrot-idb-'));
   try {
@@ -197,11 +202,12 @@ test('a committed pack survives a reload and a relaunched profile, with its exac
       // Playwright applies the project's device settings (and its trace and screenshot policy) to a
       // persistent context too; assert it, so a "mobile" run can never silently be a desktop copy.
       // Measured on the loaded site: a blank page reports the 980px default layout width on mobile.
-      const { viewport, hasTouch, userAgent } = testInfo.project.use;
+      const { viewport, hasTouch, deviceScaleFactor } = testInfo.project.use;
       expect(page.viewportSize()).toEqual(viewport);
-      const seen = await page.evaluate(() => ({ width: innerWidth, touch: navigator.maxTouchPoints > 0, userAgent: navigator.userAgent }));
+      const seen = await page.evaluate(() => ({ width: innerWidth, touch: navigator.maxTouchPoints > 0, userAgent: navigator.userAgent, pixelRatio: devicePixelRatio }));
       expect(seen).toMatchObject({ width: viewport!.width, touch: !!hasTouch });
-      if (userAgent) expect(seen.userAgent).toBe(userAgent);
+      expect(seen.pixelRatio).toBe(deviceScaleFactor ?? 1);
+      expect(seen.userAgent).toBe(expectedUserAgent);
       return { context, page, errors };
     };
     const pack = fixture(PLAYER_A, 7);

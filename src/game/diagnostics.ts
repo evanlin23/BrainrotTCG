@@ -89,9 +89,10 @@ export function hasRecordedSteps(text: string) {
     const report: unknown = JSON.parse(text);
     if (report && typeof report === 'object' && !Array.isArray(report)) {
       const { events: recorded } = report as { events?: unknown };
-      return Array.isArray(recorded) && recorded.length > 0;
+      if (Array.isArray(recorded) && recorded.length > 0) return true;
     }
   } catch { /* free text: fall through to the pattern */ }
+  // Also steps moved under another key by an edit that left the text valid JSON.
   return /"event"\s*:/.test(text);
 }
 

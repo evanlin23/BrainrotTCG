@@ -51,7 +51,7 @@ const withId = (entry: Omit<HallOfFameEntry, 'id'> & { id?: unknown }): HallOfFa
 let loading: Promise<HallOfFameEntry[] | null> | null = null;
 
 /** A load that hasn't finished by then counts as failed, so the page can offer Retry again. */
-const LOAD_TIMEOUT_MS = 15_000;
+export const LOAD_TIMEOUT_MS = 15_000;
 
 /** The published list, fetched once per visit; null if it couldn't be loaded. */
 export const loadHallOfFame = (): Promise<HallOfFameEntry[] | null> => {

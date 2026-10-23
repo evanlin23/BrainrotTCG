@@ -50,6 +50,17 @@ const VIEWER_TIMEOUT = 20000;
 const JOURNEY_TIMEOUT = 60000;
 
 /**
+ * Every pack picture on the page has downloaded, the sealed pack's two halves among them. Leaving the screen
+ * or the document while one is still on its way cancels the request (net::ERR_ABORTED): a real CDN's
+ * latency makes that likely and a local preview's never does. Waiting on the page's own state keeps every
+ * journey the same on both.
+ */
+const packArtLoaded = (page: Page) => page.waitForFunction(() => {
+  const art = Array.from(document.images).filter((image) => /\/assets\/pack-[\w-]+\.webp$/.test(image.src));
+  return document.querySelectorAll('.pack-shell img').length === 2 && art.every((image) => image.complete && image.naturalWidth > 0);
+}, undefined, { timeout: VIEWER_TIMEOUT });
+
+/**
  * Shared journey setup: records load failures and returns `openRoute`, which enters the app at `route`
  * as a cold load (or reloads it when no route is given) and waits until it is ready. Every entry leaves
  * the current document first, so the app reads the route's fragment when it mounts rather than as a
@@ -105,9 +116,18 @@ async function startJourney(page: Page, baseURL: string, { returning = false } =
   page.on('requestfinished', (request) => inFlight.delete(request));
   page.on('requestfailed', (request) => inFlight.delete(request));
   const fontsSettled = () => page.evaluate(async () => { await document.fonts.ready; });
+  /**
+   * Nothing is still downloading: the pack art in the page's images has loaded, and so has every request,
+   * the pictures a stylesheet draws (the foil swatches' mask) among them. Moving on sooner cancels the rest.
+   */
+  const settle = async () => {
+    await packArtLoaded(page);
+    await expect.poll(() => [...inFlight].map((request) => request.url()), { timeout: VIEWER_TIMEOUT }).toEqual([]);
+  };
   async function openRoute(route?: string) {
     if (page.url() !== 'about:blank') {
       await fontsSettled();
+      await packArtLoaded(page);
       await page.waitForFunction(() => (window as unknown as { __journeyIdle: () => boolean }).__journeyIdle(), undefined, { timeout: VIEWER_TIMEOUT });
       await expect.poll(() => [...inFlight].map((request) => request.url())).toEqual([]);
       if (route !== undefined) await page.goto('about:blank');
@@ -117,7 +137,7 @@ async function startJourney(page: Page, baseURL: string, { returning = false } =
     await expect(page.locator('.app-logo')).toBeVisible();
     await fontsSettled();
   }
-  return { errors, openRoute };
+  return { errors, openRoute, settle };
 }
 
 const proofState = async (page: Page) => ({
@@ -136,7 +156,7 @@ const proofState = async (page: Page) => ({
  * Settings gear. Each is a page at its own address that gives the opener back when it closes or on
  * Back. Nothing here saves, imports, exports or submits.
  */
-async function walkDestinations(page: Page, baseURL: string) {
+async function walkDestinations(page: Page, baseURL: string, settle: () => Promise<void>) {
   const main = page.getByRole('navigation', { name: 'Main', exact: true });
   const navItem = (name: string) => main.getByRole('button', { name, exact: true });
   const opener = page.getByRole('button', { name: /^Open pack/ });
@@ -147,11 +167,14 @@ async function walkDestinations(page: Page, baseURL: string) {
     await expect(navItem('Open')).toHaveAttribute('aria-current', 'page');
     await expect(page).toHaveURL(baseURL);
     await expect(opener).toBeEnabled();
+    await settle();
   };
   const arrive = async (name: string, hash: string) => {
     await expect(page).toHaveURL(`${baseURL}${hash}`);
     await expect(page).toHaveTitle(`${name} - Brainrot TCG`);
     await expect(pageNamed(name).getByRole('heading', { level: 1, name, exact: true })).toBeFocused();
+    // A page can show pack art of its own (Profile's foils); it loads before the walk moves on from it.
+    await settle();
   };
   const close = async (name: string) => {
     await pageNamed(name).getByRole('button', { name: `Close ${name}`, exact: true }).click();
@@ -213,7 +236,7 @@ for (const { vector, entry } of cases) {
   test(`verifies ${vector.note} from ${entry}, inspects exact cards, returns to opening and reaches every destination`, async ({ page, baseURL }) => {
     test.setTimeout(JOURNEY_TIMEOUT);
     // A player who has saved a pack before, so the tabs show (#222); the journey itself saves nothing.
-    const { errors, openRoute } = await startJourney(page, baseURL!, { returning: true });
+    const { errors, openRoute, settle } = await startJourney(page, baseURL!, { returning: true });
     await openRoute('./');
     const before = await proofState(page);
     const [setId, version] = vector.set.split('@');
@@ -313,7 +336,9 @@ for (const { vector, entry } of cases) {
     await expect(page).toHaveURL(baseURL!);
     if (openable) await expect(page.locator('.set-picker .set-current-name')).toHaveText(set.name);
     await expect(page.getByRole('button', { name: /^Open pack/ })).toBeEnabled();
-    await walkDestinations(page, baseURL!);
+    // The packs screen now shows the chased (or own) set's pack: let its art arrive before the walk leaves it.
+    await settle();
+    await walkDestinations(page, baseURL!, settle);
     await expect(page).toHaveURL(baseURL!);
     expect(await proofState(page)).toEqual(before);
     await openRoute();

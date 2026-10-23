@@ -191,7 +191,7 @@ const ProfileViewer = ({ proof, onClose }: ProfileViewerPageProps) => {
         </p>
         <p>
           {fake
-            ? "The packs re-opened on this device don't match what the link claims, so this isn't a real profile and nothing about it counts as verified."
+            ? "The packs your device re-opened don't match what the link claims, so this isn't a real profile and nothing about it counts as verified."
             : done
               ? "Your device re-opened each of those packs itself, and the claims match: the level, cards and best pulls above are what those tickets actually hold, so they can't be edited, and bad packs can't be left out."
               : interrupted

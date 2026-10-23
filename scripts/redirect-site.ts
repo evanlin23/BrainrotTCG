@@ -9,9 +9,9 @@
  *   npx tsx scripts/redirect-site.ts <new-url> <out-dir>     (deploy, when the site lives elsewhere)
  *
  * Writes index.html and 404.html (GitHub Pages serves 404.html for every other path) and copies
- * hall-of-fame.json, which the Hall of Fame scripts read from the old address.
+ * hall-of-fame.json and the rankings, which the Hall of Fame scripts read from the old address.
  */
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ROUTE_HASH } from '../src/game/route.ts';
 import { isMainModule } from './main-module.ts';
@@ -133,6 +133,16 @@ button{display:block;width:100%;margin:.75rem 0 0;padding:.85rem 1rem;border-rad
 </html>
 `;
 
+/**
+ * Copies what the Hall of Fame scripts read from the old address out of a build: hall-of-fame.json,
+ * rankings.json and the rankings folder, those the build has.
+ */
+export const copyHallOfFame = (dist: string, outDir: string) => {
+  for (const file of ['hall-of-fame.json', 'rankings.json', 'rankings']) {
+    if (existsSync(`${dist}/${file}`)) cpSync(`${dist}/${file}`, `${outDir}/${file}`, { recursive: true });
+  }
+};
+
 if (isMainModule(import.meta.url)) {
   const [newUrl, outDir] = process.argv.slice(2);
   if (!/^https?:\/\//.test(newUrl ?? '') || !newUrl.endsWith('/') || !outDir) {
@@ -143,7 +153,6 @@ if (isMainModule(import.meta.url)) {
   mkdirSync(outDir, { recursive: true });
   writeFileSync(`${outDir}/index.html`, page);
   writeFileSync(`${outDir}/404.html`, page);
-  const hof = `${ROOT}dist/hall-of-fame.json`;
-  if (existsSync(hof)) copyFileSync(hof, `${outDir}/hall-of-fame.json`);
+  copyHallOfFame(`${ROOT}dist`, outDir);
   console.log(`${outDir}: redirects to ${newUrl}`);
 }

@@ -19,7 +19,7 @@
  * - the code and styles index.html loads before the app can first render come to at most
  *   MAX_FIRST_LOAD_BYTES gzipped (#776).
  *
- *   npm run build && npm run check:site                      (GitHub Pages, /BrainrotTCG/)
+ *   npm run build && npm run check:site                      (no env: under /BrainrotTCG/, as GitHub Pages serves it)
  *   BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/ npm run build    (Cloudflare Pages)
  *   BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/ npm run check:site
  *

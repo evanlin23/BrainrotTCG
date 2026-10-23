@@ -1,7 +1,7 @@
 /**
  * Verifying someone else's shared profile (`#/profile/<proof>`): check it, re-open its packs on a
  * pool of workers, and check its claims. This is the public verifier's own module: it reads no
- * player, history, pack store or own-profile re-open job (profiles.ts), so verifying a shared
+ * player, history, pack store or own-profile re-open job (reopenJob.ts), so verifying a shared
  * profile never touches or waits on your own save. What it shares is deliberate: the engine's
  * profile rules, the re-open cache (packs this device derived itself, keyed by set version), the
  * ticket pool, and optional-work admission, so it never runs a scheduler of its own.

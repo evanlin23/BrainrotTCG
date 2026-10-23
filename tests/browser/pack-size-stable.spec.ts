@@ -8,13 +8,16 @@ import { monitor, expectDecoded, expectStill, fingerFor, holdTickets, releaseTic
 // way keeps its size too, unless chrome it didn't have at rest comes back with the player (a new
 // player's first pack), and a real resize while the pack is torn still fits it to the new window. The
 // sampled frames are checked once each state they cover has been seen, never by how many there are.
-// Phone and desktop results here are Chromium emulation.
+// Each size runs with and without reduced motion. Phone and desktop results here are Chromium emulation.
 
 const SIZES = [
   { width: 390, height: 844, project: 'mobile-chromium', turned: { width: 844, height: 390 } },
   { width: 844, height: 390, project: 'mobile-chromium', turned: { width: 390, height: 844 } },
   { width: 1440, height: 900, project: 'desktop-chromium', turned: { width: 1280, height: 800 } },
 ];
+
+/** Reduced motion has no tween to hide behind, so the pack must hold its size and place there too. */
+const MOTIONS = ['no-preference', 'reduce'] as const;
 
 /** One frame of the pack: its box in layout pixels, so the stage's scale-up as it flies off is left out. */
 interface Frame { width: number; top: number; left: number; focus: boolean; cut: boolean; leaving: boolean; guide: boolean }
@@ -88,9 +91,9 @@ async function expectSameBox(packShell: Locator, rest: Box, when: string) {
   }
 }
 
-for (const size of SIZES) {
-  test.describe(`${size.width}x${size.height}`, () => {
-    test.use({ viewport: { width: size.width, height: size.height }, reducedMotion: 'no-preference' });
+for (const [size, motion] of SIZES.flatMap((one) => MOTIONS.map((mode) => [one, mode] as const))) {
+  test.describe(`${size.width}x${size.height}${motion === 'reduce' ? ' with reduced motion' : ''}`, () => {
+    test.use({ viewport: { width: size.width, height: size.height }, reducedMotion: motion });
 
     test('the pack keeps its size and place from rest until it has flown off, and the next one rests the same', async ({ page, baseURL, hasTouch }, testInfo) => {
       test.skip(testInfo.project.name !== size.project, `A ${size.width}px window check; the ${size.project} project runs it.`);

@@ -171,6 +171,12 @@ it('says the odds hold for every set only while every openable set rolls packs t
     expect(text()).toContain(SCOPED);
   }
 
+  // Same card counts but 100 bp moved from Common to Uncommon: the rarity chances differ, not the counts.
+  registry.sets = [base, { ...base, odds: { ...base.odds, COMMON: base.odds.COMMON - 100, UNCOMMON: base.odds.UNCOMMON + 100 } }];
+  render(base);
+  expect(text()).not.toContain('Every set you can open uses these same odds');
+  expect(text()).toContain(SCOPED);
+
   // Same odds, pack size and modifiers but fewer cards of a rarity: handOdds splits that rarity's chance across its cards, so the combo table differs.
   registry.sets = [base, withoutACard('COMMON')];
   render(base);

@@ -6,8 +6,8 @@ import PackCacheNote from './PackCacheNote';
 
 const cache = vi.hoisted(() => ({ state: 'failed', listeners: new Set<() => void>(), version: 0 }));
 const hydrateMyPacks = vi.hoisted(() => vi.fn());
-vi.mock('../../game/profiles', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../game/profiles')>()),
+vi.mock('../../game/packCache', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/packCache')>()),
   myPackCacheState: () => cache.state,
   packCacheVersion: () => cache.version,
   onPackCacheChange: (listener: () => void) => {

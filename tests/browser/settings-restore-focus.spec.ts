@@ -67,6 +67,8 @@ test('the question opening hands focus from Import to Keep mine (#978)', async (
 
 test('the question opening leaves focus on another control (#978)', async ({ page, baseURL }) => {
   const { errors, keep } = await askToReplace(page, baseURL!, 'Export');
+  // Let the commit's passive effect (the focus handoff) run first: before it, Keep mine is not focused either.
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
   await expect(keep).not.toBeFocused();
   await expect(page.getByRole('main', { name: 'Settings', exact: true }).getByRole('button', { name: 'Export', exact: true })).toBeFocused();
   expect(errors).toEqual([]);

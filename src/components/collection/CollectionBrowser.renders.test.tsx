@@ -83,6 +83,15 @@ describe('CollectionBrowser renders', () => {
     expect(tileRenders).toEqual([]);
   });
 
+  it('a changed collection renders the open era it changed', () => {
+    tileRenders.length = 0;
+    const [firstKey] = Object.keys(ownedIn(ERAS[0].id));
+    const changed = { ...collection, [firstKey]: { ...collection[firstKey], normalCount: 2 } };
+    act(() => root.render(<CollectionBrowser collection={changed} recentSetId={ERAS[0].id} />));
+
+    expect(tilesOf(ERAS[0].id)).toBeGreaterThan(0);
+  });
+
   it('tapping a card renders no era again', () => {
     toggle(closed()[0].id);
     tileRenders.length = 0;
