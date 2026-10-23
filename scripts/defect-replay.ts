@@ -16,13 +16,16 @@
  * reason that doesn't match. Their own verdicts never count as a validated defect.
  *
  * No network or provider writes: the runs get no GitHub token and a dead proxy, and nothing outside
- * the temporary worktree changes except the compact evidence file the quality review reads.
+ * the temporary worktree changes except the compact evidence file the quality review reads. A run
+ * that is interrupted leaves its worktree behind; the next run removes it first.
  *
  *   npx tsx scripts/defect-replay.ts            # all cases and meta-cases; exit 0 only on pass
  *   npx tsx scripts/defect-replay.ts --list     # the cases, without running anything
+ *   git diff --name-only ... | npx tsx scripts/defect-replay.ts --if-gate-changed
+ *                                               # CI: replay only when a listed file is in GATE_PATHS
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -154,6 +157,19 @@ export const META: readonly MetaCase[] = [
   },
 ];
 
+/**
+ * What the replay guards: the unit gate's config and setup, this harness, and each case's owning
+ * test and fixed code. CI runs the replay on a pull request that changes any of them.
+ */
+export const GATE_PATHS: readonly string[] = [...new Set([
+  'vite.config.ts', 'src/test/', 'scripts/defect-replay.ts', 'scripts/defect-replay.test.ts',
+  ...[...CASES, ...META].flatMap((c) => [c.test.file, c.fault.file]),
+])];
+
+/** The changed files (one per line) that touch the gate. */
+export const gateChanges = (changed: string): string[] =>
+  changed.split('\n').map((line) => line.trim()).filter((file) => GATE_PATHS.some((p) => (p.endsWith('/') ? file.startsWith(p) : file === p)));
+
 // ---- Classification (pure) ----
 
 /** The part of Vitest's JSON reporter output this reads. */
@@ -191,7 +207,8 @@ export const classify = (c: Pick<ReplayCase, 'test' | 'reason'>, healthy: Run, f
 };
 
 export interface CaseResult { id: string; verdict: Verdict; detail: string; expect?: Verdict }
-export interface Summary { status: 'pass' | 'fail' | 'blocked'; date: string; detail: string }
+/** `revision` is the full commit replayed: the quality review counts a pass only for a commit on main. */
+export interface Summary { status: 'pass' | 'fail' | 'blocked'; date: string; detail: string; revision: string }
 
 /**
  * pass: every case validated and every meta-case reached its expected verdict. fail: a case the gate
@@ -213,7 +230,7 @@ export const summarize = (results: CaseResult[], date: string, revision: string)
     ...(wrongMeta.length ? [`harness wrong: ${wrongMeta.join(',')}`] : []),
     ...(unknown.length ? [`inconclusive: ${unknown.join(',')}`] : []),
   ];
-  return { status, date, detail: notes.join('; ') };
+  return { status, date, detail: notes.join('; '), revision };
 };
 
 // ---- Running ----
@@ -248,9 +265,38 @@ const applyFault = (tree: string, fault: Fault): string | null => {
   return null;
 };
 
-export const replay = (repo: string, cases: readonly (ReplayCase | MetaCase)[], log: (line: string) => void = () => {}): { revision: string; results: CaseResult[] } => {
+const SCRATCH = /^defect-replay-(\d+)-[^/\\]+$/;
+
+const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+};
+
+/**
+ * Removes what an interrupted run left in `tmp` (its worktree, temp dir and the repository's
+ * worktree entry). Each run's directory names its process, so a run still going is left alone.
+ */
+export const sweepStale = (repo: string, tmp = os.tmpdir(), alive: (pid: number) => boolean = isAlive): string[] => {
+  const stale = readdirSync(tmp).filter((name) => {
+    const pid = SCRATCH.exec(name)?.[1];
+    return pid !== undefined && !alive(Number(pid));
+  });
+  for (const name of stale) {
+    spawnSync('git', ['worktree', 'remove', '--force', path.join(tmp, name, 'tree')], { cwd: repo });
+    rmSync(path.join(tmp, name), { recursive: true, force: true });
+  }
+  spawnSync('git', ['worktree', 'prune'], { cwd: repo });
+  return stale;
+};
+
+export const replay = (repo: string, cases: readonly (ReplayCase | MetaCase)[], log: (line: string) => void = () => {}, tmp = os.tmpdir()): { revision: string; results: CaseResult[] } => {
   const revision = git(repo, ['rev-parse', 'HEAD']);
-  const scratch = mkdtempSync(path.join(os.tmpdir(), 'defect-replay-'));
+  for (const name of sweepStale(repo, tmp)) log(`removed ${name}, left by an interrupted run`);
+  const scratch = mkdtempSync(path.join(tmp, `defect-replay-${process.pid}-`));
   const tree = path.join(scratch, 'tree');
   git(repo, ['worktree', 'add', '--quiet', '--detach', tree, revision]);
   try {
@@ -277,6 +323,15 @@ export const replay = (repo: string, cases: readonly (ReplayCase | MetaCase)[], 
 
 export const EVIDENCE_PATH = 'test-results/quality-evidence/defect-replay.json';
 
+/** What the evidence file says while a run is going, and after one that never finished. */
+export const started = (revision: string, date: string): Summary =>
+  ({ status: 'blocked', date, detail: `started at ${revision.slice(0, 7)}, no result: running or interrupted`, revision });
+
+const writeEvidence = (summary: Summary) => {
+  mkdirSync(path.dirname(EVIDENCE_PATH), { recursive: true });
+  writeFileSync(EVIDENCE_PATH, `${JSON.stringify(summary)}\n`);
+};
+
 const main = (argv: string[]): number => {
   const repo = process.cwd();
   if (argv.includes('--list')) {
@@ -284,10 +339,20 @@ const main = (argv: string[]): number => {
     for (const m of META) console.log(`${m.id} (expect ${m.expect}): ${m.why}`);
     return 0;
   }
+  if (argv.includes('--if-gate-changed')) {
+    const touched = gateChanges(readFileSync(0, 'utf8'));
+    if (!touched.length) {
+      console.log('defect replay: not run, no changed file touches the gate (GATE_PATHS)');
+      return 0;
+    }
+    console.log(`defect replay: the gate changed (${touched.slice(0, 5).join(', ')}${touched.length > 5 ? ', ...' : ''})`);
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  // Until this run finishes, an older result must not read as current: a crash leaves this behind.
+  writeEvidence(started(git(repo, ['rev-parse', 'HEAD']), date));
   const { revision, results } = replay(repo, [...CASES, ...META], console.log);
-  const summary = summarize(results, new Date().toISOString().slice(0, 10), revision);
-  mkdirSync(path.dirname(EVIDENCE_PATH), { recursive: true });
-  writeFileSync(EVIDENCE_PATH, `${JSON.stringify(summary)}\n`);
+  const summary = summarize(results, date, revision);
+  writeEvidence(summary);
   console.log(`defect replay: ${summary.status}: ${summary.detail} (${EVIDENCE_PATH})`);
   return summary.status === 'pass' ? 0 : 1;
 };

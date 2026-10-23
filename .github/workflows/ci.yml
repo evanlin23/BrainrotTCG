@@ -13,12 +13,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The pull request's merge commit and its first parent (the base), for the gate diff below.
+          fetch-depth: 2
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run check
+      # A pull request that changes the unit gate (vite.config.ts, src/test/, or a file the
+      # escaped-defect replay reverts or owns; GATE_PATHS in the script) must still stop those real
+      # defects. Inside this job so a miss turns a required check red (docs/DEVELOPMENT.md).
+      - name: Replay escaped defects when the gate changes
+        if: github.event_name == 'pull_request'
+        # Explicit bash runs with pipefail, so a failed diff fails the step instead of skipping it.
+        shell: bash
+        run: git diff --name-only HEAD^1 HEAD | npx tsx scripts/defect-replay.ts --if-gate-changed
       # Link-preview pictures (scripts/preview-pages.ts) take minutes to draw from scratch; keep them.
       # The key covers everything that decides which pictures there are and how they look. Their
       # cache contract (the script, sharp's versions, PREVIEW_CACHE_VERSION) starts the restore
