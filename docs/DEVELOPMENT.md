@@ -88,7 +88,7 @@ Examples from merged fixes:
 | When | Run |
 | --- | --- |
 | While iterating | `npx vitest run <path>`, `npx tsc --noEmit -p .` |
-| Before pushing | `npm run check` (lint, typecheck, all tests within the test budgets, set locks, card assets), once |
+| Before pushing | `npm run check` (lint, import boundaries, typecheck, all tests within the test budgets, set locks, card assets), once |
 | Changed `src/engine` or `spec/` | also `python3 -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json` (Python 3.13, `cryptography==50.0.1`) |
 | Changed the build or link previews | also `npm run build && npm run check:site`, and the same with `BASE_PATH=/ SITE_URL=https://brainrottcg.pages.dev/` |
 | Changed UI, storage or the build | also `npm run test:browser` (see Browser smoke) |
@@ -127,6 +127,41 @@ platform's release asset checked against the release's published checksums. With
 `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12 -shellcheck=''` runs the same release,
 but the image isn't hash-checked. Both ignore ShellCheck (`-shellcheck=''`), as CI does.
 
+### Import boundaries
+
+`npm run check:imports` (part of `npm run check`) enforces the layers in
+[ARCHITECTURE.md](ARCHITECTURE.md). The map is `ALLOWED_LAYERS` in
+[`scripts/check-import-boundaries.ts`](../scripts/check-import-boundaries.ts): each layer lists the
+layers its non-test files may import, and everything else fails with the file, line and import. In
+short, `src/engine` imports nothing from another layer and only `hash-wasm` and `@noble/*` from
+outside, `src/game` never imports `components`, `hooks` or `App`, `hooks` never import `components`,
+`components` never import `App`, and `scripts` import engine, game, content and style code but never
+UI. The check reads every `src/` and `scripts/` file with TypeScript's import scanner, so
+`import type`, `export ... from` (a barrel is checked as the file it is), `import()` and tsconfig
+`paths` aliases count. Test files (`*.test.*`, `src/test/`, `tests/`) may cross layers, but
+production code can't import them. A new directory under `src/` fails until it is added to the map.
+
+UI packages (`react`, `react-dom`, `framer-motion`, `lucide-react`, `canvas-confetti`) are allowed only
+in `hooks`, `components`, `app` and `scripts` (scripts never import UI code anyway); `engine` allows a
+fixed list of packages, and `content`, `constants`, `styles`, `data`, `workers`, `game`, `types` and `utils`
+allow none.
+
+An exception (`EXCEPTIONS` in the same file) names one file's import of one target, a repo file or a
+package such as `react`, and needs a reason, an owner issue and a removal condition. `typeOnly: true`
+limits it to a type import (`import type`, or `import { type X }` for every name): a run-time import of
+the same target still fails. It fails the check once the import is gone, so remove the entry in the PR
+that fixes the import. There is no wildcard or per-directory exception. Current exceptions: six
+`CardWithMeta` type imports (#700), `game/modifiers.ts` importing a React type and
+`utils/confettiEffects.ts` using `canvas-confetti` (#1042).
+
+`src/engine` also has ESLint rules for browser globals (`window`, `document`, storage, `fetch`,
+`XMLHttpRequest`, `Worker` and so on), including `globalThis.<name>` and `self.<name>`. An alias such as
+`const g = globalThis; g.localStorage` or a bracket lookup still gets past them.
+
+Not covered: browser globals and DOM types used without an import outside `src/engine`,
+`import.meta.glob`, and import cycles between layers that allow each other (`game` and `utils`, `game`
+and `types`). It doesn't measure file size or complexity.
+
 The card asset check (`npm run check:card-assets`) decodes every registered card WebP and checks
 generated geometry. It covers openable pack wrappers/thumbnails, retained pack art when present,
 finish thumbnails declared by the generator manifest (or present for registered cards), the
@@ -139,7 +174,9 @@ The site check (`npm run check:site`, after a build, about 30 s) reads `dist/` w
 `BASE_PATH` and `SITE_URL`. Every page's local links and stylesheet `url()`s must stay under
 `BASE_PATH` and be in the build, every share and set page the set registry gets must be there and
 forward to `BASE_PATH`, and each page's `og:image` must be under `SITE_URL` and decode as a JPEG of
-its `og:image:width`x`og:image:height`. `scripts/check-site.test.ts` covers it offline with fixtures.
+its `og:image:width`x`og:image:height`. It also holds `index.html` and the code and styles it loads up
+front to `MAX_FIRST_LOAD_BYTES` gzipped (#776): what a first visit downloads before the pack can show.
+`scripts/check-site.test.ts` covers it offline with fixtures.
 
 Three fixture suites in `npm run check` cover the hosting and Hall of Fame contracts without a build,
 a token or the network. `scripts/preview-pages.test.ts` writes the share pages (`p/`) and set pages
@@ -171,8 +208,8 @@ nothing to GitHub, a relay or Pages. What is real and what is not:
 - Limits, also in the report's `labels.limits`: the published list is assumed to be a 404, so the
   floor and `joinRefusal` paths do not run; event and proof keys come from 16-key pools. A scenario
   asking for a `measured` Argon2 time without a sample reports `meta.argon.source` as
-  `measured-missing` and uses the default. Per run, `beyondPaging` counts events past the paging cap
-  and `unreadable` counts in-window events no relay could serve (every relay down).
+  `measured-missing` and uses the default. Per run, `beyondPaging` counts in-window events the run
+  didn't read (past the paging cap; since #999, only ones an earlier run already read through), and `unreadable` counts in-window events no relay could serve (every relay down).
 
 ```
 npx tsx scripts/hof-capacity.ts --list
@@ -208,6 +245,29 @@ stronger, and is done by hand against the preview and described in the PR.
 Browser tests have no retries, so a test that fails once fails CI: fix its cause rather than re-running.
 Wait on a state the page exposes (an attribute, a role, text) rather than on time; for example the card
 close-up sets `data-tilt="live"` once it follows the mouse.
+
+### Automated axe checks
+
+`tests/browser/axe-scan.ts` is the one place that runs axe (`@axe-core/playwright`, a devDependency) in a
+browser spec. `axe-critical-states.spec.ts` calls it for four loaded states: the first pack, the pack
+summary, Settings and a card's share sheet over its viewer, in both projects. A scan runs a fixed list of
+rules (names, roles and relationships, the document, and `color-contrast`) after fonts, images and finite
+running animations have settled, with reduced motion emulated for the scan so looping pulses cannot make
+contrast depend on their phase; it is not a tag or the whole rule set, and no rule is disabled. Add a state by
+calling `expectAxeClean(page, testInfo, '<state>')` once its screen is loaded, after listing the state in
+`AXE_STATES`; do not add another scanner.
+
+- A scan fails on any violation, on a scan that passed no nodes, and on a page where contrast or the
+  document checks found nothing to check, so an empty or wrong page cannot pass.
+- Axe cannot judge text on art, gradients, overlapping layers, partly transparent backgrounds or
+  pseudo-element backgrounds, canvas contents or images. It lists those as "needs review"; each scan attaches
+  them to the test report, adds an `axe-needs-review` annotation and prints one line per scan, so the list
+  shows in CI logs. Treat them as unchecked, not as passing.
+- An accepted violation goes in `AXE_EXCEPTIONS` with its state, exact rule and selector, the reason, an
+  owner and what removes it (a test rejects an entry with a blank field or an unknown rule or state). An entry
+  that stops matching fails the scan, so the list only shrinks. It is empty today; use it only with a linked follow-up.
+- A green scan is not a full accessibility audit or a physical-phone check. Keyboard order, focus rings,
+  reduced motion, target sizes and screen-reader wording stay with the specs that own them.
 
 The `browser-burn-in` jobs run on every push and every pull request. They re-run each spec the branch
 adds or changes, plus every spec that imports a helper under `tests/browser` the branch changes, in both
@@ -296,6 +356,8 @@ budget (default 3 tasks, 45 minutes, 2 provider runs):
   repeated context, accessible text and exported artifacts. A screenshot baseline (#745) never
   stands in for that review.
 - one recently changed code hotspot (commits times lines from `git log`), rotating away from the last pick;
+- the escaped-defect replay below (about 2 minutes, no task or provider run). Its `defect-replay`
+  signal, written by that run, is the item's result;
 - the status and age of existing signals: CI and review failures, test runtime and performance
   (#702, report-only), capacity (#708/#709/#242), compatibility (#658), release blockers
   (the #759 record only: pass needs the current record version and every entry valid and `resolved`
@@ -319,13 +381,63 @@ Reports come from their own tools (`test-results/...`) or a compact `{status, da
 `test-results/quality-evidence/<id>.json` (gitignored, one file per source, overwritten, no logs,
 saves or secrets). The coordinator writes `ci-review`, `test-runtime`, `dependency-advisories` and
 `branch-hygiene` itself during a due review, from what it already read (PR checks, last CI timings,
-advisory and branch lists), before `record`; a person writes `physical-device`, `screen-reader`,
+advisory and branch lists), before `record`; `scripts/defect-replay.ts` writes `defect-replay`
+(below; a pass counts only for a replayed commit on `origin/main`, as for performance); a person writes `physical-device`, `screen-reader`,
 `native-share` and `compatibility` when they have a result. The cadence never opens a recurring
 "audit" issue. `record` prints the new ledger line (default cadence, budget and next-due day are omitted and revisions are always 7 characters, to keep it short; it refuses a line over 215 characters and names the optional fields to reset). Only a pass moves the passed date. A fail is a finished review: it
 rotates to the next journey and hotspot and is next due after a full cadence. A blocked or unrun review keeps its slice
 and is retried the next day. The cadence adds to per-PR checks (flow changes still get their reviews at once) and
 does not replace them. `scripts/quality-review.test.ts` holds the dry runs: not due, due success,
 missing tools or exhausted budget, and the evidence, size and argument checks.
+
+### Escaped-defect replay
+
+`npx tsx scripts/defect-replay.ts` (about 40 seconds, never part of `npm run check`) checks that the
+unit gate still stops three defects that once reached main (#758). For each one it checks out HEAD
+into a disposable worktree under the system temp directory, runs the owning test file through the
+same Vitest config, then reverts the fix there and runs it again. The runs get no GitHub token and
+a dead proxy. Nothing in the shared checkout changes except `test-results/quality-evidence/defect-replay.json`.
+That file is `{status, date, detail, revision}`. It reads `blocked` from the moment a run starts,
+so a crashed run never leaves an older pass standing. A run that is interrupted leaves its worktree
+behind; each scratch directory names its process, and the next run removes those whose process is gone.
+
+| Case | Invariant | Fix | Owning test | Reversion | Observed failure |
+| --- | --- | --- | --- | --- | --- |
+| #694 | a failure on this device is operational, never a fabricated pull | 729a8af (#926) | `PullViewerPage.test.tsx`, operational Worker/WASM failures | the catch-all branch sets `invalid` | shows "Not a valid pull" where "Couldn't check this pull" belongs |
+| #647 | a null, array or primitive save file is refused before any field is read | 1209cf0 (#912) | `SettingsPage.test.tsx`, rejects null, array and primitive JSON | the non-object guard removed | the file is reported as "Couldn't read browser storage" |
+| #660 | malformed legacy stats migrate without throwing or fabricating a best pack | c99a523 (#905) | `migrations.test.ts`, null legacy v1 `highestPackCards` | every element hydrated as a card | `runMigrations` throws `TypeError: Cannot read properties of null` |
+
+A case is `validated` only when the named test passes healthy and fails with the reversion, with a
+message matching the reason the case states. It is `ineffective` when the reverted code still
+passes, which happens when the test is vacuous or a mock removes the defect. Everything else is
+`inconclusive`: the test isn't discovered, is skipped or todo, the healthy run isn't clean, the
+fixed code moved so the reversion no longer applies, or the faulty run fails to load or fails for
+another reason. Four meta-cases run the same way and must reach their stated verdict: a test name
+that matches nothing, the #660 reversion against `src/main.test.tsx` (which mocks the migrations,
+so it is `ineffective` there), a reversion that breaks parsing, and a reason no failure produces.
+The run passes only when all three cases are validated and all four meta-cases are right. A missed
+defect or a wrong meta-case is a `fail`, an inconclusive case is `blocked`, and the exit code is
+non-zero for both. The quality review shows the file as its `defect-replay` signal.
+
+CI runs it on every pull request that changes the gate itself: `vite.config.ts`, `src/test/`, this
+script and its test, or a file a case owns or reverts (`GATE_PATHS` in the script). The step is in
+the required `check` job and diffs the merge commit against its base, so a `fail` or `blocked`
+replay turns that check red and blocks the merge until it is fixed or the case is updated to the
+moved code. Other pull requests skip it with one line. Each quality review runs it as a slice item
+(above). `scripts/defect-replay.test.ts` fails in the normal checks when a reversion no longer
+applies, and pins the CI step. The case stays a gate: it is never made report-only because it
+catches its defect.
+
+Findings and limits:
+- #741, the browser monitor missing a redirect between two local origins, isn't replayed because
+  its reversion needs a Playwright run, outside this unit-suite harness. It is probed:
+  `tests/browser/network-guard.spec.ts` ("redirect escape to external provider is refused with 403")
+  redirects to a second `127.0.0.1` server. A bounded Playwright replay slice could cover it later.
+- #660 has more than one gate. Besides `migrations.test.ts`, the #660 tests in
+  `src/test/legacySave.integration.test.ts` (the real App and migrations) fail with the reversion.
+  Only `src/main.test.tsx` mocks the migrations; the meta-case shows that one test alone would miss it.
+- Three cases show these tests stop these reversions. They are not a catch rate for the suite.
+  Agreement between model reviewers is not independent assurance either.
 
 ## Mounted integration tests
 
@@ -350,13 +462,13 @@ globals and modules. Run one with
 `npm test`, and so `npm run check` and CI, runs the suite once with V8 coverage and enforces two
 budgets, checked in this order:
 
-| Budget | Baseline (October 2026, 1,819 to 1,990 tests, Node 22.23.3) | Enforced | Set in |
+| Budget | Baseline (October 2026, Node 22.23.3) | Enforced | Set in |
 | --- | --- | --- | --- |
-| Wall time of the whole run | 111.2 s on CI (4 vCPU) at 1,819 tests; 112.7 s and 141.2 s at 1,926 tests (PR #941); 157.9 s at 1,990 tests (claude/train-1); median 150.8 s (150.7-155.5 s) on a 2-core container at 1,819 tests | at most 300 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
-| Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 88.76%, statements 90.60%, lines 92.05% | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
+| Wall time of the whole run | 120.9 to 196.3 s (median 167.7 s) on the four latest successful main runs on CI, at 2,388 to 2,667 tests; 111.2 s at 1,819 tests (`2bf6074`); median 150.8 s (150.7-155.5 s) on a 2-core container at 1,819 tests, 150.0 s at 2,667 | at most 400 s | `RUNTIME_BUDGET_SECONDS` in `scripts/test-budget.ts` |
+| Coverage of `src/` app code, excluding tests, `src/test/` helpers and `.d.ts` | branches 91.2-91.4%, statements 94.7-94.8%, lines 96.5-96.7% on those main runs | at least branches 75%, statements 78%, lines 80% | `test.coverage.thresholds` in `vite.config.ts` |
 
 After the test summary, and before the coverage summary, the run prints
-`Test budget: N tests in M files took Xs (budget 300s)`, and it fails only past the budget. The
+`Test budget: N tests in M files took Xs (budget 400s)`, and it fails only past the budget. The
 runtime budget holds for every `npm test` run, whatever flags follow `--`: the `testBudget()` plugin
 in `vite.config.ts` adds its reporter after `--reporter` flags replace the configured ones, so
 `npm test -- --reporter=dot` keeps it, and `npm test -- --coverage.enabled=false` drops only the
@@ -367,18 +479,46 @@ wall time. Instrumentation makes the CPU-bound engine simulations about 3x slowe
 load two of them once passed the 5 s default timeout, so `npm test` passes `--testTimeout=15000`.
 
 ### Reference runner and runner conditions
-- **Reference runner**: the GitHub-hosted 4-vCPU Linux runner (Node 22.23.3, Vitest 5.0.4). The main
+- **Reference runner**: the GitHub-hosted 4-vCPU Linux runner (Node 22.23.3, Vitest 5.0.4 at first,
+  5.0.5 on the runs below; the job log doesn't print the core count). The main
   deployment run 39059778425 (build job 117475232914, revision `2bf6074`) ran 1,819 tests in 147
   files in 111.2 s with coverage, at 90.60% statements, 88.76% branches and 92.05% lines.
-- **Suite growth**: CI runs at 1,926 tests in 151 files took 141.2 s and 112.7 s on the same head
+- **Main CI baseline (October 22-23, 2026)**: `ci.yml` doesn't run on main; main's `npm run check`
+  runs in the `build` job of `deploy.yml`, so its `Test budget:` line is the main figure. Method: list
+  the latest successful `deploy.yml` runs on main, download each `build` job log and read the
+  `Test budget:` line, the `RUN v...` header and the coverage summary. Four consecutive runs, all on
+  `ubuntu-26.04` image 20261012.163.1, Node 22.23.3, Vitest 5.0.5, `npm test` with coverage and no
+  other workload in the job:
+
+  | Run | Head | Tests / files | Test budget time | Branches / statements / lines | `npm run check` step |
+  | --- | --- | --- | --- | --- | --- |
+  | 39866957487 | `d3b212b` | 2,388 / 171 | 156.3 s | 91.20% / 94.65% / 96.46% | 190 s |
+  | 39870858789 | `88c585b` | 2,452 / 174 | 179.1 s | 91.36% / 94.80% / 96.63% | 216 s |
+  | 39873456480 | `eb35e02` | 2,560 / 179 | 120.9 s | 91.42% / 94.84% / 96.67% | 145 s |
+  | 39876011560 | `819311f` | 2,667 / 181 | 196.3 s | 91.38% / 94.82% / 96.67% | 235 s |
+
+  Median 167.7 s, range 120.9-196.3 s. The spread is not suite growth: the fastest run came after
+  two slower ones with 4-7% fewer tests, and seconds per test ranged from 47 ms to 74 ms. The same
+  commit (`819311f`) took 196.3 s in the push run above and 190.6 s in main run 39880083163 (a
+  `workflow_dispatch` run, build job 120175204245: 2,667 tests in 181 files, `npm run check` step
+  about 226 s), so the slow end is a stable runner class and not a one-off tail. It is not a slow
+  or hanging file either: the per-file profile is the same in every run. `check-sets.test.ts` is
+  8.4-9.4% of the summed file time in the three runs that include it (it was added at `eb35e02`),
+  the top 10 files are about 51%, and they are mostly the same files. Every file scales by roughly
+  1.5-2x between the fast and the slow runs, so no file is an outlier. The whole `npm run check`
+  step took 145-235 s, about 24-39 s over the test time for lint, types, set locks and card assets.
+- **Earlier growth**: CI runs at 1,926 tests in 151 files took 141.2 s and 112.7 s on the same head
   (PR #941), and the claude/train-1 integration branch took 157.9 s at 1,990 tests in 155 files
   (job 119941611004), over the old 150 s budget with every test passing. The slowest files there
   ran 8-30 s each, spread across many integration and script tests, with no single outlier.
 - **2-core container**: three serial `npm test` runs at `2bf6074` (Node 22.23.3, Vitest 5.0.4, 2 CPU
   cores by cgroup quota, 8 GiB memory, nothing else running) took 155.5 s, 150.7 s and 150.8 s
   (median 150.8 s, mean 152.3 s). All 1,819 assertions and the coverage floors passed, but every run
-  exited 1 on the 150 s budget. The cause of the gap to CI is not isolated: no profile was taken, so
-  it could be CPU count, per-file worker startup, hardware differences or something else.
+  exited 1 on the 150 s budget. That gap (150.8 s against 111.2 s at the same revision, `2bf6074`)
+  has not been isolated. It did not reproduce in two later local runs at `819311f` (2,667 tests),
+  which took 150.0 s and 150.6 s, inside the CI range of 120.9-196.3 s; their core count and
+  versions were not recorded. For another local data point, `npm run check` on a 4-core, 15 GiB
+  container (Node 22.22.0, Vitest 5.0.5) took 137.8 s at `e9de5f2` (2,680 tests).
 - **Developer workstations**: no figure has been measured here. To get one, run `npm test` three
   times on an idle machine and record Node version, core count, memory and the `Test budget:` line.
 - **On 2 cores or a loaded machine**: the budget line can fail while every assertion and floor
@@ -388,10 +528,18 @@ load two of them once passed the 5 s default timeout, so `npm test` passes `--te
   integration tests rely on per-file isolation (`dispose()`, `vi.resetModules`). During iteration run
   `npx vitest run <path>`, which skips both budgets.
 
-The coverage floors sit about 12-14 points below the baseline (88.76% branches, 90.60% statements,
-92.05% lines against 75%, 78%, 80%). The runtime budget is 300 s, about 1.9x the slowest CI run (157.9 s),
-leaving roughly 142 s of headroom there. Local runs on a loaded 4-core or 2-core container are
-slower than CI, so a local overrun alone isn't a regression. Ordinary
+The coverage floors sit about 13-16 points below the baseline (91.2% branches, 94.7% statements,
+96.5% lines against 75%, 78%, 80%). The runtime budget is 400 s, about 2.0x the slowest main CI run
+(196.3 s) and 2.4x the median (167.7 s), which is the twice-the-slowest rule below. It was 300 s,
+but the hosted runner took 1.6x as long in one main run as in the one before it (196.3 s against
+120.9 s, on different commits 4% apart in test count; the one same-commit pair, 196.3 s and 190.6 s,
+differs by 1.03x). The suite has also grown 47% (1,819 to 2,667 tests) since audit revision
+`2bf6074`, and 34% since the 300 s budget was set at 1,990 tests (#947). So 300 s was about 1.5x the
+slowest run and would trip at about 4,000 tests (74 ms per test at the slowest rate) on an ordinary
+run. At 400 s the budget trips at about 5,400 tests at that rate. A hung test is caught by the 15 s
+per-test timeout, not by this budget. If a main run passes about 300 s, profile the slowest files
+first. Local runs on a loaded 4-core or 2-core container are slower than CI, so a local overrun
+alone isn't a regression. Ordinary
 work shouldn't trip the floors. To move one, run `npm test` three
 times on an up-to-date branch, set each floor a few points below the lowest figure and the runtime
 budget to about twice the slowest run, and give the old and new numbers in the PR. Lower a floor

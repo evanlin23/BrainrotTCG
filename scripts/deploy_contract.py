@@ -353,6 +353,16 @@ TIP = {'name': 'Require the tip of main', 'run': (
     '  exit 1\n'
     'fi\n')}
 VERIFIER = 'python -I spec/verify_pull.py --vectors spec/vectors.json spec/vectors-python.json'
+# Old vectors and set locks stay (scripts/check-history.ts), compared with main before the push.
+HISTORY = {'env': {'BEFORE': '${{ github.event.before }}'}, 'run': (
+    'if [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then\n'
+    '  git fetch --no-tags --depth=2 origin "$GITHUB_SHA"\n'
+    '  base=$(git rev-parse "$GITHUB_SHA^1")\n'
+    'else\n'
+    '  git fetch --no-tags --depth=1 origin "$BEFORE"\n'
+    '  base=$BEFORE\n'
+    'fi\n'
+    'npm run check:history -- --base "$base"\n')}
 PERMISSIONS = {
     'independent-verifier': {'contents': 'read'},
     'site': None,  # inherits the workflow's empty set
@@ -545,6 +555,8 @@ def check_deploy(workflow):
     for run in ('npm run check', 'npm run build'):
         if not any(step.get('run') == run and 'if' not in step for step in build):
             problems.append(f'deploy.yml: build must always run {run}')
+    if sum(match(step, HISTORY) for step in build) != 1:
+        problems.append('deploy.yml: build must always run npm run check:history once, against main before the push')
     seal = [s for s in build if s.get('id') == 'seal']
     handoff = [s for s in build if s.get('id') == 'handoff']
     if len(seal) != 1 or not match(seal[0], cloudflare({'env': {'SITE_URL': '${{ needs.site.outputs.url }}'},

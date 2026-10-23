@@ -36,6 +36,7 @@ __pycache__/
 hof-build-cache.json
 hof-inbox-seen.json
 hof-inbox-filed.json
+hof-inbox-read.json
 hof-comment.md
 /pages/
 /.cache/

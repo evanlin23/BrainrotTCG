@@ -19,9 +19,11 @@
  *     qualifies as a bot-authored Hall of Fame issue with the same verified
  *     marker, so `build` treats it like any other entry. Writes `added` to
  *     $GITHUB_OUTPUT. Event ids it has seen are kept in hof-inbox-seen.json
- *     (cached between runs) so junk isn't re-checked every time, and the pulls
- *     of verified issues in hof-inbox-filed.json (FILED_PATH), so every
- *     verified issue is listed once a day rather than on every run.
+ *     (cached between runs) so junk isn't re-checked every time, the pulls of
+ *     verified issues in hof-inbox-filed.json (FILED_PATH), so every verified
+ *     issue is listed once a day rather than on every run, and the time ranges
+ *     each relay was read through in hof-inbox-read.json (cached too), so events
+ *     past the page cap are read by a later run.
  *
  *   npx tsx scripts/hall-of-fame.ts build           (deploy, before vite build)
  *     Lists verified Hall of Fame issues (and `daily` ones from the day before
@@ -79,7 +81,7 @@ import {
   type Finish,
 } from '../src/engine/index.ts';
 import { fetchEvents, HOF_KIND, HOF_RELAYS, HOF_TAG, probeEvent, publishEvent } from '../src/game/nostrInbox.ts';
-import { buildSkipLine, parseFiledIndex, probeLine, processInbox, relayReadLine, type FiledIndex } from './hof-inbox.ts';
+import { addRanges, buildSkipLine, clipRanges, deferredFrom, everyRelayFailed, newestGap, oldestGap, olderReadLine, parseFiledIndex, parseReadRanges, parseSeenCache, probeLine, processInbox, rangeRead, relayReadLine, seenCacheText, type FiledIndex, type Ranges } from './hof-inbox.ts';
 import { isMainModule } from './main-module.ts';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -495,6 +497,8 @@ export const build = async (output = OUTPUT) => {
 };
 
 export const SEEN_PATH = 'hof-inbox-seen.json';
+/** Per relay, the ranges of the window read through and handled (see Ranges in scripts/hof-inbox.ts). */
+export const READ_PATH = 'hof-inbox-read.json';
 /** How far back to read the relays. Seen events are skipped, so a long window only costs a download. */
 export const INBOX_WINDOW_S = 7 * 24 * 60 * 60;
 /** Pulls re-derived per run (about 0.1 s each), so a flood of submissions can't run the job forever. */
@@ -506,10 +510,19 @@ export const INBOX_MAX_FILED = 20;
  * can get the connection dropped: relay.nostr.net allows 100, and relay.damus.io hangs up at 500.
  */
 export const INBOX_PAGE_SIZE = 100;
-/** Requests per relay for older events, so a burst of junk can't push real submissions out of reach. */
+/**
+ * Requests per relay for older events, so a burst of junk can't push real submissions out of reach.
+ * Each run reads this many pages from the newest down, and as many again from one range it hasn't
+ * read through (READ_PATH): the newest in even UTC hours, the oldest in odd ones. A read that fails
+ * keeps the pages it finished, so a backlog bigger than the cap is read over several runs.
+ */
 export const INBOX_PAGES = 50;
-/** Event ids remembered between runs; the newest are kept. */
-export const INBOX_SEEN_CAP = 20000;
+/**
+ * Handled event ids remembered between runs. Each is kept while its event is in the read window, so
+ * this is only a bound on the cache (about 8 MB): twice what one run can read (two reads of 50 pages
+ * of 100 from each of five relays), and well above a week of #225's expected traffic.
+ */
+export const INBOX_SEEN_CAP = 100_000;
 /** The filed index (FiledIndex in scripts/hof-inbox.ts), kept between runs. */
 export const FILED_PATH = 'hof-inbox-filed.json';
 /** How long a filed index is used before every `verified` issue is listed again. */
@@ -539,14 +552,44 @@ const siteUrl = () => process.env.SITE_URL ?? pagesUrl();
 export const inbox = async (ticketFn?: TicketFn) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('inbox needs GITHUB_TOKEN to file issues');
-  const seen = new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
+  const nowS = Math.floor(Date.now() / 1000);
+  // Handled event ids with their events' times, so each is kept until it leaves the read window.
+  const seenAt = existsSync(SEEN_PATH) ? parseSeenCache(readFileSync(SEEN_PATH, 'utf8'), nowS) : new Map<string, number>();
+  const seen = new Set(seenAt.keys());
 
-  const since = Math.floor(Date.now() / 1000) - INBOX_WINDOW_S;
+  const since = nowS - INBOX_WINDOW_S;
+  const filter = { kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE };
   // Signatures are left to processInbox, which checks only the events it hasn't handled yet: up to
-  // INBOX_PAGES * INBOX_PAGE_SIZE (5,000) Schnorr checks per hostile relay a run, about 18 s, outside
-  // the 60 s read timer and well inside the job's 10 minutes.
-  const { events, perRelay } = await fetchEvents({ kinds: [HOF_KIND], '#t': [HOF_TAG], since, limit: INBOX_PAGE_SIZE }, undefined, 60000, undefined, INBOX_PAGES, undefined, undefined, true);
-  for (const r of perRelay) console.log(relayReadLine(r));
+  // twice INBOX_PAGES * INBOX_PAGE_SIZE (10,000: the newest pages and one older range) Schnorr checks
+  // per hostile relay a run, about 36 s, outside the 60 s read timers and well inside the job's 10 minutes.
+  const head = await fetchEvents(filter, undefined, 60000, undefined, INBOX_PAGES, undefined, undefined, true);
+  for (const r of head.perRelay) console.log(relayReadLine(r));
+  // Nothing was read, so a run that carried on would look fine while unread events age out of the
+  // window. Fail it instead; the seen cache and what was read through are left as they were.
+  if (everyRelayFailed(head.perRelay)) throw new Error(`every relay failed (${head.perRelay.length} of ${head.perRelay.length}); nothing was read`);
+  // Then, from each relay that answered, an older range not yet read through: the page cap stopped
+  // this run or an earlier one above it. The newest pages are always read again above, so nothing
+  // published late is skipped. In even hours (UTC) that is the newest such range, so a burst is read on
+  // down from where the cap stopped; in odd hours the oldest, so under steady overload an older range
+  // isn't left until it leaves the window, and one a relay can't page past doesn't hold up the rest.
+  const gapFor = Math.floor(nowS / 3600) % 2 === 0 ? newestGap : oldestGap;
+  const readBefore = existsSync(READ_PATH) ? parseReadRanges(readFileSync(READ_PATH, 'utf8'), head.perRelay.map((r) => r.relay)) : new Map<string, Ranges>();
+  const readNow = new Map(head.perRelay.map((r) => [r.relay, rangeRead(r, since, nowS)]));
+  const older = await Promise.all(
+    head.perRelay.map(async (r) => {
+      const gap = r.error === undefined ? gapFor(addRanges(readBefore.get(r.relay) ?? [], readNow.get(r.relay)!), since, nowS) : undefined;
+      if (!gap) return [];
+      const [lo, hi] = gap;
+      const read = await fetchEvents({ ...filter, since: lo, until: hi }, [r.relay], 60000, undefined, INBOX_PAGES, undefined, undefined, true);
+      console.log(olderReadLine(read.perRelay[0], hi));
+      readNow.set(r.relay, addRanges(readNow.get(r.relay)!, rangeRead(read.perRelay[0], lo, hi)));
+      return read.events;
+    }),
+  );
+  // One of each copy. Reads don't check signatures, so two reads can bring one event with different
+  // signatures: both are kept, and processInbox handles the first that verifies (a tampered copy from
+  // one relay can't hide the real one another read found). That is no more checks than the reads' own.
+  const events = [...new Map([...head.events, ...older.flat()].map((e) => [`${e.id} ${e.sig}`, e])).values()];
 
   // Pulls already in the Hall of Fame: only verified issues count (`verified`, or `daily`), so an
   // issue that never verified (wrong title, a failed run, or a copy someone opened to block it) can't
@@ -630,8 +673,12 @@ export const inbox = async (ticketFn?: TicketFn) => {
   });
   if (deferred) console.log(`${deferred} events left for the next run`);
 
-  // Keep the cache bounded; the newest ids matter (older events fall out of the window anyway).
-  writeFileSync(SEEN_PATH, JSON.stringify([...seen].slice(-INBOX_SEEN_CAP)));
+  for (const event of events) seenAt.set(event.id, event.created_at);
+  writeFileSync(SEEN_PATH, seenCacheText(seen, seenAt, since, nowS, INBOX_SEEN_CAP));
+  // Read through: what was read now and handled, below the first event left for the next run.
+  const handledTo = deferredFrom(events, deferred) - 1;
+  const readAfter = head.perRelay.map((r) => [r.relay, clipRanges(addRanges(readBefore.get(r.relay) ?? [], clipRanges(readNow.get(r.relay)!, since, handledTo)), since, nowS)]);
+  writeFileSync(READ_PATH, JSON.stringify(Object.fromEntries(readAfter)));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `added=${added}\n`);
   console.log(`${events.length} events read, ${added} added`);
 };

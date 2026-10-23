@@ -304,7 +304,11 @@ export interface FetchEventsBounds {
  * verifies; the caller then checks each event (verifyEvent) before trusting it, and pays only for
  * the ones it uses (a Schnorr check costs far more than the hash). Relays
  * send the newest `limit` events per request; with `maxPages` > 1 it keeps asking for older ones
- * (`until` the oldest so far), so a burst of new events can't push older ones out of reach.
+ * (`until` the oldest so far), so a burst of new events can't push older ones out of reach. A relay
+ * that didn't read to the end reports `more`: the `until` to go on from (everything newer than it was
+ * read; some events at that second may not have been). That is a relay the page cap stopped while it
+ * still had new events, one that sent a full page of nothing new (more than `limit` events share a
+ * second, which the sender picks), and one that failed after finishing a page.
  *
  * Relays are untrusted, so each is held to `bounds`: frames are size-checked before parsing, events
  * bigger than a Hall of Fame event needs (isRetainable) or off the filter are skipped before any
@@ -341,22 +345,27 @@ export const fetchEvents = async (
   const perRelay = await Promise.all(
     relays.map(
       (relay) =>
-        new Promise<{ relay: string; count: number; error?: string }>((resolve) => {
+        new Promise<{ relay: string; count: number; error?: string; more?: number }>((resolve) => {
           let sub = '';
           let count = 0;
           let pages = 0;
           let pageNew = 0;
+          let pageEvents = 0;
           let oldest = Infinity;
+          /** Where the pages finished so far reach down to, for a relay that fails partway. */
+          let readTo: number | undefined;
           let messages = 0;
           let invalid = 0;
           let keptEvents = 0;
           let keptBytes = 0;
           const fromHere = new Set<string>();
           let done = false;
+          let more: number | undefined;
           let socket: Socket | null = null;
           const finish = (error?: string) => {
             if (done) return;
             done = true;
+            if (error !== undefined) more ??= readTo;
             clearTimeout(timer);
             signal?.removeEventListener('abort', onAbort);
             try {
@@ -366,7 +375,7 @@ export const fetchEvents = async (
               // already closed
             }
             try { socket?.close(); } catch { /* Already closed. */ }
-            resolve({ relay, count, error });
+            resolve(more === undefined ? { relay, count, error } : { relay, count, error, more });
           };
           /** A frame no honest relay sends; too many of them closes the relay. */
           const malformed = () => {
@@ -376,6 +385,7 @@ export const fetchEvents = async (
             sub = `hof-${Math.random().toString(36).slice(2, 10)}`;
             pages++;
             pageNew = 0;
+            pageEvents = 0;
             socket!.send(JSON.stringify(['REQ', sub, until === undefined ? filter : { ...filter, until }]));
           };
           const timer = setTimeout(() => finish('timed out'), timeoutMs);
@@ -412,6 +422,7 @@ export const fetchEvents = async (
             if (data[0] === 'EVENT') {
               const e: unknown = data[2];
               count++;
+              pageEvents++;
               if (!isEventShape(e)) return malformed();
               if (fromHere.has(e.id)) return;
               if (fromHere.size >= maxRelayEvents) return finish('relay event budget exceeded');
@@ -445,8 +456,12 @@ export const fetchEvents = async (
               // `limit` at different sizes, so a short page doesn't prove there's nothing older.)
               if (pageNew > 0 && pages < maxPages && Number.isFinite(oldest)) {
                 socket!.send(JSON.stringify(['CLOSE', sub]));
+                readTo = oldest;
                 request(oldest);
-              } else finish();
+              } else {
+                if ((pageNew > 0 || pageEvents >= pageLimit) && Number.isFinite(oldest)) more = oldest;
+                finish();
+              }
             } else if (data[0] === 'CLOSED') {
               finish(String(data[2] ?? 'closed'));
             }

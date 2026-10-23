@@ -85,6 +85,13 @@ jobs:
           path: hof-inbox-filed.json
           key: hof-inbox-filed-${{ github.run_id }}
           restore-keys: hof-inbox-filed-
+      # Time ranges each relay was read through, so events past the page cap are read next run. Its
+      # own cache, so adding it didn't change the seen cache's key or lose it.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: hof-inbox-read.json
+          key: hof-inbox-read-${{ github.run_id }}
+          restore-keys: hof-inbox-read-
       - id: inbox
         run: npx tsx scripts/hall-of-fame.ts inbox
         env:
@@ -99,6 +106,11 @@ jobs:
         with:
           path: hof-inbox-filed.json
           key: hof-inbox-filed-${{ github.run_id }}
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always()
+        with:
+          path: hof-inbox-read.json
+          key: hof-inbox-read-${{ github.run_id }}
 
   # The only job that can start a deploy, and all it can do. It runs only if inbox succeeded.
   redeploy:
