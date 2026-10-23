@@ -13,7 +13,7 @@ const cache = vi.hoisted(() => ({
   subscribed: 0,
   unsubscribed: 0,
 }));
-vi.mock('../game/profiles', () => ({
+vi.mock('../game/packCache', () => ({
   packCacheVersion: () => cache.version,
   onPackCacheChange: (listener: () => void) => {
     cache.listeners.add(listener);

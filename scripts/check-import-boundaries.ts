@@ -69,6 +69,16 @@ export interface BoundaryException {
 
 export const EXCEPTIONS: readonly BoundaryException[] = [];
 
+/**
+ * Files of one layer that build on each other in one direction, as chains of repo paths without
+ * their extensions: a file may import the files before it in its chain, never one after it. Every
+ * path must name a source file, so a rename can't switch a chain off unnoticed.
+ */
+export const FILE_ORDER: readonly (readonly string[])[] = [
+  // Profile proofs and stats sit on re-opening, which sits on the pack cache, which sits on the ticket list (#699).
+  ['src/game/myTickets', 'src/game/packCache', 'src/game/reopenJob', 'src/game/profiles'],
+];
+
 const SOURCE_EXTENSIONS = /\.(?:[cm]?[jt]sx?)$/;
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'dist', 'coverage', '.git', '.claude']);
@@ -168,7 +178,11 @@ type Resolved = { kind: 'file'; path: string } | { kind: 'package'; name: string
 const packageName = (specifier: string) => (specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]);
 const packageMatches = (specifier: string, allowed: string) => specifier === allowed || specifier.startsWith(`${allowed}/`);
 
-export const checkImportBoundaries = (root: string, exceptions: readonly BoundaryException[] = EXCEPTIONS): BoundaryResult => {
+export const checkImportBoundaries = (
+  root: string,
+  exceptions: readonly BoundaryException[] = EXCEPTIONS,
+  order: readonly (readonly string[])[] = FILE_ORDER,
+): BoundaryResult => {
   const options = compilerOptionsFor(root);
   const cache = ts.createModuleResolutionCache(root, (name) => name, options);
   const violations: Violation[] = [];
@@ -195,6 +209,16 @@ export const checkImportBoundaries = (root: string, exceptions: readonly Boundar
   const files: string[] = [];
   for (const dir of SCANNED_ROOTS) listSourceFiles(root, dir, files);
   let checked = 0;
+
+  /** Each ordered file's chain and place in it. */
+  const places = new Map<string, { chain: readonly string[]; at: number }>();
+  const sources = new Set(files.map(withoutExtension));
+  for (const chain of order) {
+    chain.forEach((listed, at) => {
+      if (!sources.has(listed)) violations.push({ file: listed, line: 0, message: 'is in FILE_ORDER but is no source file: update FILE_ORDER in scripts/check-import-boundaries.ts' });
+      places.set(listed, { chain, at });
+    });
+  }
 
   for (const file of files) {
     if (isTestFile(file)) continue;
@@ -237,6 +261,13 @@ export const checkImportBoundaries = (root: string, exceptions: readonly Boundar
       const to = layerOf(target.path);
       if (to === undefined) {
         fail(`${target.path} belongs to no layer: add it to SRC_DIRECTORY_LAYERS in scripts/check-import-boundaries.ts`);
+        continue;
+      }
+      const mine = places.get(withoutExtension(file));
+      const theirs = places.get(withoutExtension(target.path));
+      if (mine && theirs?.chain === mine.chain && theirs.at > mine.at && !excepted(withoutExtension(target.path))) {
+        const before = mine.chain.slice(0, mine.at);
+        fail(`${withoutExtension(target.path)} comes after this file in FILE_ORDER, so this file may import ${before.length ? `only ${before.join(', ')}` : 'nothing'} from that chain`);
         continue;
       }
       if (to === from) continue;

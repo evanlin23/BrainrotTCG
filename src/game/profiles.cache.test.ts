@@ -5,10 +5,10 @@ import { computeTicket, derivePack, profileStats, scorePulled, setKey, type Prof
 import { encodeCard } from './cardCode';
 import { getStoredPack, hydratePackStore, packRefKey, putStoredPacks, resetPackStore, type StoredPack, type StoredPackRef } from './packStore';
 import { getPlayer } from './player';
-import {
-  historyAchievementsReady, historyPacksState, hydrateMyPacks, myPackCacheState, myProfileInfo, myProgress, myStats, reopenStatus, resetTicketList,
-  resumeReopening, watchMyPacks,
-} from './profiles';
+import { myProfileInfo, myProgress, myStats } from './profiles';
+import { resetTicketList } from './myTickets';
+import { historyAchievementsReady, historyPacksState, hydrateMyPacks, myPackCacheState, watchMyPacks } from './packCache';
+import { reopenStatus, resumeReopening } from './reopenJob';
 
 // Saved packs are read through hydratePackStore alone. Here it stands in for IndexedDB, and each read
 // waits for the test to finish or fail it. packStore.test.ts covers the pages, aborts and owner
@@ -194,6 +194,46 @@ describe('saved packs read on demand', () => {
     expect(await next).toBe('ready');
     expect(historyPacksState()).toBe('ready');
   }, 30_000);
+
+  it.each(['finishes', 'fails'] as const)(
+    "leaves the new player's read alone when the old player's read %s after it started (#699)",
+    async (ending) => {
+      setUp([RIGHT_NOW]);
+      await savePack(RIGHT_NOW, 0);
+      const old = hydrateMyPacks();
+      await vi.waitFor(() => expect(reads).toHaveLength(1));
+
+      // Another tab imports a different save, and this tab starts reading it before the old read ends.
+      storePlayer('fd'.repeat(32), 1);
+      const after = getPlayer();
+      const history = JSON.parse(data.get(STORAGE_KEYS.HISTORY)!);
+      history.push({ ...history[0], k: after.publicKeyHex.slice(0, 16), t: 9 });
+      data.set(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+      const next = hydrateMyPacks();
+      expect(myPackCacheState()).toBe('loading');
+
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      if (ending === 'finishes') await reads[0].finish();
+      else reads[0].fail(new Error('IndexedDB went away'));
+      expect(await old).toBe('loading');
+      // Neither ready nor failed: the old read says nothing about the new player's packs.
+      expect(errors).not.toHaveBeenCalled();
+      expect(myPackCacheState()).toBe('loading');
+      expect(myStats()).toBeNull();
+      expect(myProfileInfo()).toMatchObject({ packs: 1, cache: 'loading' });
+
+      await vi.waitFor(() => expect(reads).toHaveLength(2));
+      expect(reads[1].refs).toEqual([{ setKey: 'right-now@2', publicKeyHex: after.publicKeyHex, nonce: 0 }]);
+      await reads[1].finish();
+      await vi.waitFor(() => expect(reads).toHaveLength(3));
+      expect(myPackCacheState()).toBe('ready');
+      await reads[2].finish();
+      expect(await next).toBe('ready');
+      expect(historyPacksState()).toBe('ready');
+      expect(errors).not.toHaveBeenCalled();
+    },
+    30_000,
+  );
 
   it("keeps your own stats when another player's saved pack can't be read, and holds back only the history", async () => {
     const before = setUp([RIGHT_NOW]);
