@@ -138,6 +138,14 @@ describe('checkHistory', () => {
     return git('rev-parse', 'HEAD');
   };
 
+  // vite.config.ts test.env: without it a detached auto-maintenance child of `git commit` can still be
+  // writing in .git when afterEach deletes the repository (ENOTEMPTY).
+  it('runs git in its scratch repositories with auto maintenance off', () => {
+    repo();
+    expect(git('config', '--get', 'maintenance.auto')).toBe('false');
+    expect(git('config', '--get', 'gc.auto')).toBe('0');
+  });
+
   it('passes a working tree that only added to the base', () => {
     const base = repo();
     put('spec/v.json', 'vectors-additive.json');
