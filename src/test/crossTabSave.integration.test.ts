@@ -459,19 +459,22 @@ it('refuses stale replacement import when another tab imported a save, and allow
   };
   const { importSaveFile } = await import('../game/saveFile');
   expect(importSaveFile(JSON.stringify(switchedSave))).toBeNull();
+  const afterTabBImport = { ...localStorage };
 
   // Tab A receives storage event from Tab B
   await storageEvent(PLAYER_KEY);
 
-  // 3. Stale prompt/Replace in Tab A causes zero replacement writes against Switched
-  const replaceBtn = button(document, 'Replace');
-  if (replaceBtn) {
-    await app.interact(() => replaceBtn.click());
-  }
-  // Switched save remains intact in storage
+  // 3. Contract: Tab A dismisses the stale Replace prompt as soon as Tab B's import reaches it (Settings drops a pending
+  // import while the tab is stale), so no Replace can be clicked against Switched Player. The click that races the event
+  // is the next test (#668).
+  expect(button(document, 'Replace')).toBeUndefined();
+  expect(button(document, 'Keep mine')).toBeUndefined();
+  expect(restoreNote()?.textContent).toContain(STALE);
+  expect(restoreNote()?.textContent).not.toContain("Replace this browser's save");
+  // Zero replacement writes: the Switched save remains intact in storage
   expect(JSON.parse(localStorage.getItem(PLAYER_KEY)!).name).toBe('Switched Player');
   expect((JSON.parse(localStorage.getItem(STORAGE_KEYS.STATS)!) as Stats).packsOpened).toBe(20);
-  expect(button(document, 'Replace')).toBeUndefined();
+  expect({ ...localStorage }).toEqual(afterTabBImport);
 
   // 4. Refreshed/reconfirmed import succeeds
   await app.reload();
