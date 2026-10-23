@@ -79,6 +79,7 @@ export const EXCEPTIONS: readonly BoundaryException[] = [
   { from: 'src/game/bestSources.ts', ...CARD_WITH_META },
   { from: 'src/game/history.ts', ...CARD_WITH_META },
   { from: 'src/game/pulls.ts', ...CARD_WITH_META },
+  { from: 'src/hooks/useAchievementReconciler.ts', ...CARD_WITH_META },
   { from: 'src/types/index.ts', ...CARD_WITH_META },
   { from: 'src/utils/achievementChecks.ts', ...CARD_WITH_META },
   {
