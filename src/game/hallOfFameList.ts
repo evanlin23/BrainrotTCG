@@ -57,10 +57,11 @@ let lastLoaded: HallOfFameEntry[] | null = null;
 export const LOAD_TIMEOUT_MS = 15_000;
 
 /**
- * How long a loaded list is reused. After that the next caller fetches it again, so a tab left open
- * picks up a new deploy, and with it a pull a maintainer removed, the next time it shows the list.
+ * How long a loaded list is reused (here and by the rankings loaders in publishedRankings.ts). After
+ * that the next caller fetches it again, so a tab left open picks up a new deploy, and with it a pull
+ * a maintainer removed, the next time it shows the list.
  */
-const LIST_TTL_MS = 5 * 60_000;
+export const LIST_TTL_MS = 5 * 60_000;
 
 /**
  * The published list, fetched at most once every five minutes; null if it has never loaded. A

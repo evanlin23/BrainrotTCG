@@ -264,6 +264,11 @@ that shows it drops it separately:
 
 - The published list: the deploy the label starts rebuilds `hall-of-fame.json` without it, and the
   old address's copy with it (`copyHallOfFame` in `scripts/redirect-site.ts`).
+- Rankings: the same build writes the rankings files again (`rankingsFiles` in
+  `scripts/hall-of-fame.ts`). `rankings.json`'s boards and the open days are ranked from the rebuilt
+  list, and every other archived day is copied from the deployed `rankings/daily-YYYY-MM.json` less
+  the entries `keep` turns down: those of `rejected` issues and blocked names. A month left with no
+  day is no longer listed.
 - Pending: the same build writes `hall-of-fame-withdrawn.json`, the pull ids of `rejected` issues,
   open or closed, from the same listing that takes their entries out of the rankings, and
   `loadPending` never shows one of those as pending. The ids come from the bot's
@@ -275,10 +280,11 @@ that shows it drops it separately:
   says recent pulls couldn't be checked. A build that can't list the issues keeps the deployed list and
   rankings, and one that can't read the issues or their comments carries the deployed file forward
   (read from the old address), and otherwise publishes none, never an empty one.
-- Open tabs: `loadHallOfFame` reuses a loaded list for at most five minutes, so a tab left open
-  drops the entry the next time it shows the list after that. If that refetch fails, it keeps the
-  list it had and tries again on the next read. Both files are fetched with `cache: 'no-cache'`, and
-  the client keeps no other copy (no service worker, nothing in storage).
+- Open tabs: `loadHallOfFame`, `loadPublishedRankings` and `loadPastMonth` (`src/game/publishedRankings.ts`)
+  each reuse what they loaded for at most five minutes (`LIST_TTL_MS`), so a tab left open drops the
+  entry the next time it shows the list, the rankings or a past day after that. If a refetch fails,
+  the loader keeps what it had and tries again on the next read. Every one of these files is fetched
+  with `cache: 'no-cache'`, and the client keeps no other copy (no service worker, nothing in storage).
 - Shared pull links: a link is the signed proof itself, so it still verifies anywhere, by design.
   Removal only decides what the Hall of Fame lists.
 
