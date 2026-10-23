@@ -520,6 +520,12 @@ export async function expectDecoded(images: Locator, count: number) {
   }
 }
 
+/** Scales the root font like a player's text-size setting, and waits for fonts to settle. */
+export async function scaleText(page: Page, percent: number) {
+  await page.addStyleTag({ content: `html { font-size: ${percent}% !important; }` });
+  await page.evaluate(() => document.fonts.ready);
+}
+
 /** The summary ignores clicks on its cards and Share for its first moments (#627); a deliberate click waits for that to end. */
 export async function expectSummaryTakesClicks(page: Page) {
   await expect(page.locator('.summary-cards')).toBeVisible();
