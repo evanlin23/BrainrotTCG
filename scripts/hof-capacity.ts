@@ -35,6 +35,7 @@ import {
 import { HOF_KIND, HOF_RELAYS, HOF_TAG, signEvent, type NostrEvent } from '../src/game/nostrInbox.ts';
 import { FakeGitHub, FakeRelays, type FakeIssue } from './fixtures/hof/fakes.ts';
 import { inbox, INBOX_BUDGET, INBOX_MAX_FILED, INBOX_PAGE_SIZE, INBOX_PAGES, INBOX_SEEN_CAP, INBOX_WINDOW_S, SEEN_PATH } from './hall-of-fame.ts';
+import { parseSeenCache, seenCacheText } from './hof-inbox.ts';
 import { isMainModule } from './main-module.ts';
 
 export const SCHEMA = 'hof-intake-capacity/1';
@@ -73,7 +74,7 @@ export interface Scenario {
   githubFailWrites?: number[];
   /** Verified Hall of Fame issues that already exist, so issue listing needs several pages. */
   existingIssues?: number;
-  /** Ids appended to the seen cache after each run, as other traffic would (to reach INBOX_SEEN_CAP). */
+  /** Ids added to the seen cache after each run, dated then, as other traffic's handled events would be (past INBOX_SEEN_CAP, the oldest drop out). */
   seenFillerPerRun?: number;
   /** Modeled provider costs. `argonMs: 'measured'` takes the median of a small real Argon2 sample. */
   model: { argonMs: number | 'measured'; githubLatencyMs: number; relayLatencyMs: number; jobTimeoutS: number };
@@ -406,13 +407,15 @@ export const runScenario = async (input: ScenarioInput, opts: { argon?: Awaited<
         error = (e instanceof Error ? e.message : String(e)).slice(0, 120);
       }
       const requests = github.requests.slice(before.gh);
-      const readSeen = () => new Set<string>(existsSync(SEEN_PATH) ? (JSON.parse(readFileSync(SEEN_PATH, 'utf8')) as string[]) : []);
-      for (const id of readSeen()) handled.add(id);
+      const readSeen = () => (existsSync(SEEN_PATH) ? parseSeenCache(readFileSync(SEEN_PATH, 'utf8'), nowS) : new Map<string, number>());
+      for (const id of readSeen().keys()) handled.add(id);
       if (cfg.seenFillerPerRun) {
-        const filler = Array.from({ length: cfg.seenFillerPerRun }, (_, i) => `filler-${run}-${i}`);
-        writeFileSync(SEEN_PATH, JSON.stringify([...readSeen(), ...filler].slice(-INBOX_SEEN_CAP)));
+        // Other traffic's events, handled as they arrived (now), kept as the inbox keeps its own.
+        const cache = readSeen();
+        for (let i = 0; i < cfg.seenFillerPerRun; i++) cache.set(`filler-${run}-${i}`, nowS);
+        writeFileSync(SEEN_PATH, seenCacheText(cache.keys(), cache, nowS - INBOX_WINDOW_S, nowS, INBOX_SEEN_CAP));
       }
-      const seen = readSeen();
+      const seen = new Set(readSeen().keys());
 
       const unhandled = events.filter((e) => !seen.has(e.id) && !expired.has(e.id));
       const read = Number(/^(\d+) events read, /.exec(logs.find((l) => / events read, /.test(l)) ?? '')?.[1] ?? 0);
@@ -529,7 +532,7 @@ export const SCENARIOS: ScenarioInput[] = [
   { name: 'relay-retention-expiry', note: 'relays keep events one hour but runs are two hours apart: some are gone before any run reads them', runs: 8, cadenceS: 7200, phases: [{ fromS: 0, toS: 28_800, ratePerS: 0.005 }], qualifyingFraction: 1, relayRetentionS: 3600 },
   { name: 'interrupted-filing', note: 'filing writes fail part-way (250 issues already exist, so listing takes 3 pages): the next run finishes the same issues without filing twice', runs: 6, phases: [{ fromS: 0, toS: 900, ratePerS: 0.02 }], qualifyingFraction: 1, githubFailWrites: [2, 3, 7], existingIssues: 250 },
   { name: 'write-limit', note: 'GitHub answers 500 to writes past 30 a run (a modeled provider limit): filing is slower than the 20-a-run cap', runs: 8, phases: [{ fromS: 0, toS: 900, ratePerS: 0.1 }], qualifyingFraction: 1, githubWriteLimitPerRun: 30 },
-  { name: 'seen-cache-overflow', note: 'other traffic fills the 20,000-id seen cache, so handled events fall out of it and are derived again', runs: 4, phases: [{ fromS: 0, toS: 900, ratePerS: 0.05 }], invalidFraction: 0.5, qualifyingFraction: 0.3, seenFillerPerRun: 20_000 },
+  { name: 'seen-cache-overflow', note: 'other traffic adds 20,000 handled ids a run: the cache keeps every id inside the read window, so handled events are not derived again', runs: 4, phases: [{ fromS: 0, toS: 900, ratePerS: 0.05 }], invalidFraction: 0.5, qualifyingFraction: 0.3, seenFillerPerRun: 20_000 },
   { name: 'paging-cap', slow: true, note: 'about 5,200 events on the relays, more than 50 pages x 100 can reach: the oldest are not read (slow: about two minutes)', runs: 2, cadenceS: 2000, phases: [{ fromS: 0, toS: 2000, ratePerS: 2.6 }] },
   { name: 'synthetic-30-packs-per-second', slow: true, note: "#225's synthetic future opt-in: every generated pack submitted, 30 a second for 3 minutes, about 1 in 70 qualifying (slow: about two minutes)", futureOptIn225: true, runs: 2, cadenceS: 180, phases: [{ fromS: 0, toS: 180, ratePerS: 30 }], qualifyingFraction: 1 / 70 },
 ];

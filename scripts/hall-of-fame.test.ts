@@ -164,6 +164,10 @@ const unexpected = (request: string) => {
   throw new Error(`unexpected request: ${request}`);
 };
 
+/** When the relay events in these tests were sent: inside the inbox's read window at the tests' clock. */
+const SENT = Date.parse('2026-10-16T11:00:00Z');
+/** The event ids in the inbox's seen cache. */
+const seenIds = () => (JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8')) as [string, number][]).map(([id]) => id);
 /** What the run appended to $GITHUB_OUTPUT (the last value of each key). */
 const outputs = (): Record<string, string> =>
   existsSync('github-output') ? Object.fromEntries(readFileSync('github-output', 'utf8').trim().split('\n').map((line) => line.split('=') as [string, string])) : {};
@@ -607,7 +611,7 @@ describe('verify-issue (issue workflow)', () => {
 
 describe('inbox (scheduled workflow)', () => {
   const relaysHold = (...proofs: string[]) => {
-    const events = proofs.map((proof, i) => hallOfFameEvent(proof, idOf(proof), 1_000_000 + i * 1000));
+    const events = proofs.map((proof, i) => hallOfFameEvent(proof, idOf(proof), SENT + i * 1000));
     vi.mocked(fetchEvents).mockResolvedValue({ events, perRelay: [] });
     return events;
   };
@@ -627,13 +631,31 @@ describe('inbox (scheduled workflow)', () => {
     expect(labelled.body).toEqual({ labels: ['verified'] });
     expect(closed.body).toEqual({ state: 'closed', state_reason: 'completed' });
     expect(outputs()).toEqual({ added: '1' });
-    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(expect.arrayContaining(events.map((e) => e.id)));
+    expect(seenIds()).toEqual(expect.arrayContaining(events.map((e) => e.id)));
 
     // The next run has seen both events and files nothing.
     gh.requests.length = 0;
     await inbox();
     expect(gh.writes()).toEqual([]);
     expect(outputs()).toEqual({ added: '0' });
+  });
+
+  it('reads a seen cache of bare ids from before ids carried a time, and keeps ids until they leave the window', async () => {
+    const gh = fakeGitHub({ issues: [], published: [] });
+    const [handled, fresh] = relaysHold(pair, fourOfAKind);
+    writeFileSync('hof-inbox-seen.json', JSON.stringify([handled.id, fresh.id, 'gone']));
+    await inbox();
+    expect(gh.writes()).toEqual([]); // both were handled already
+    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual([['gone', Date.parse('2026-10-16T12:00:00Z') / 1000], [fresh.id, fresh.created_at], [handled.id, handled.created_at]]);
+
+    // A week on, the events have left the window and are dropped; the bare id, dated when it was read, goes a run later.
+    clockAt('2026-10-23T11:59:59Z');
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [], perRelay: [] });
+    await inbox();
+    expect(seenIds()).toEqual(['gone']);
+    clockAt('2026-10-23T12:00:01Z');
+    await inbox();
+    expect(seenIds()).toEqual([]);
   });
 
   it("files nothing for a pull whose display name isn't allowed", async () => {
@@ -760,7 +782,7 @@ describe('retention and intake contracts (offline)', () => {
     const old = dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP).map((e) => (e.id === 'first' ? { ...e, id: undefined, proof: fourOfAKind } : e));
     const published = [...old, { setId: 'x', score: 1, submittedAt: '2026-01-01T00:00:00.000Z', proof: 'not a proof' }];
     const gh = fakeGitHub({ issues: [], published });
-    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
     await inbox();
     // Its id comes from the proof, so the pull counts as listed and isn't filed again.
     expect(gh.writes()).toEqual([]);
@@ -774,15 +796,15 @@ describe('retention and intake contracts (offline)', () => {
   it('turns away a pull whose claimed score is at or below the floor without checking it', async () => {
     // Both boards full: the floor is the day's 50th (20,000), below the all-time 100th.
     const gh = fakeGitHub({ issues: [], published: dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP) });
-    const low = hinted(fourOfAKind, 20_000, 1_000_000);
-    const lying = hinted(fourOfAKind, 1e9, 1_001_000);
+    const low = hinted(fourOfAKind, 20_000, SENT);
+    const lying = hinted(fourOfAKind, 1e9, SENT + 1000);
     vi.mocked(fetchEvents).mockResolvedValue({ events: [low, lying], perRelay: [] });
     await inbox();
     expect(logged()).toContain(`${low.id}: claims 20000, at or below the floor of 20000; not checked`);
     // A higher claim is only a reason to check: the real score (15,000) still doesn't join.
     expect(logged().some((l) => l.startsWith(`${lying.id}:`) && l.includes('not checked'))).toBe(false);
     expect(gh.writes()).toEqual([]);
-    expect(JSON.parse(readFileSync('hof-inbox-seen.json', 'utf8'))).toEqual(expect.arrayContaining([low.id, lying.id]));
+    expect(seenIds()).toEqual(expect.arrayContaining([low.id, lying.id]));
   });
 
   it('judges each pull by the day its entry is stamped with, so a run that crosses UTC midnight moves to the new day', async () => {
@@ -792,8 +814,8 @@ describe('retention and intake contracts (offline)', () => {
     const published = [...dailyOnlyBoard('2026-10-16', HALL_OF_FAME_DAILY_TOP), ...tomorrow.map((e) => ({ ...e, id: `tomorrow-${e.id}` }))];
     const gh = fakeGitHub({ issues: [], published });
     // Filing it fills the 17th's top, which raises the floor to its 15,000 for the events after it.
-    const after = hinted(pair, 15_000, 1_002_000);
-    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(pair, idOf(pair), 1_000_000), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_001_000), after], perRelay: [] });
+    const after = hinted(pair, 15_000, SENT + 2000);
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(pair, idOf(pair), SENT), hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT + 1000), after], perRelay: [] });
     // The first line logged (turning the pair away) comes after the run read the list: midnight passes there.
     vi.mocked(console.log).mockImplementation(() => vi.setSystemTime(new Date('2026-10-17T00:00:05Z')));
     await inbox();
@@ -816,7 +838,7 @@ describe('retention and intake contracts (offline)', () => {
 
     it("is judged and labelled by the 16th's top", async () => {
       const gh = unfinishedRun();
-      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), 1_000_000)], perRelay: [] });
+      vi.mocked(fetchEvents).mockResolvedValue({ events: [hallOfFameEvent(fourOfAKind, idOf(fourOfAKind), SENT)], perRelay: [] });
       await inbox();
       expect(gh.writes()).toEqual(FINISHED);
       expect(gh.requests.find((r) => r.path === '/issues/5/labels')!.body).toEqual({ labels: ['daily'] });
@@ -826,7 +848,7 @@ describe('retention and intake contracts (offline)', () => {
     it("isn't turned away by today's floor", async () => {
       // Today's floor is the 17th's 50th (20,000); the claim of 15,000 is at or below it.
       const gh = unfinishedRun();
-      const event = hinted(fourOfAKind, 15_000, 1_000_000);
+      const event = hinted(fourOfAKind, 15_000, SENT);
       vi.mocked(fetchEvents).mockResolvedValue({ events: [event], perRelay: [] });
       await inbox();
       expect(logged().some((l) => l.startsWith(`${event.id}:`) && l.includes('not checked'))).toBe(false);
