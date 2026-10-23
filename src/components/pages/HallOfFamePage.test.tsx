@@ -3,11 +3,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HallOfFameEntry } from '../../game/hallOfFameList';
-import { HALL_OF_FAME_MIN_MULTIPLIER, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP } from '../../engine';
+import type { PastDay, PublishedRankings } from '../../game/publishedRankings';
+import { archivedPull, HALL_OF_FAME_MIN_MULTIPLIER, HALL_OF_FAME_MIN_SCORE, HALL_OF_FAME_TOP } from '../../engine';
 import HallOfFamePage from './HallOfFamePage';
 
 const { loadHallOfFame, loadPending, checkPull } = vi.hoisted(() => ({ loadHallOfFame: vi.fn(), loadPending: vi.fn(), checkPull: vi.fn() }));
 vi.mock('../../game/hallOfFameList', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../game/hallOfFameList')>()), loadHallOfFame, loadPending }));
+const { loadPublishedRankings, loadPastMonth } = vi.hoisted(() => ({ loadPublishedRankings: vi.fn(), loadPastMonth: vi.fn() }));
+vi.mock('../../game/publishedRankings', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../game/publishedRankings')>()), loadPublishedRankings, loadPastMonth }));
 // Re-deriving a pull mines its ticket. The page must never do that for published entries.
 vi.mock('../../game/pulls', () => ({ checkPull }));
 
@@ -37,6 +40,9 @@ beforeEach(() => {
   loadHallOfFame.mockReset();
   loadPending.mockReset().mockResolvedValue(undefined);
   checkPull.mockReset().mockResolvedValue({ ok: true });
+  // No rankings.json unless a test serves one, as on a site from before the archives.
+  loadPublishedRankings.mockReset().mockResolvedValue(null);
+  loadPastMonth.mockReset().mockResolvedValue(null);
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -789,5 +795,161 @@ describe('Where it started', () => {
       'Number 3: Full House by Alice in Original, score 1000',
     ]);
     expect(container.querySelector('.hof-entry a')).toBeNull();
+  });
+});
+
+describe('Past days and the last update', () => {
+  const RANKINGS: PublishedRankings = { generatedAt: '2026-10-16T12:04:00.000Z', openFrom: '2026-10-15', months: ['2026-10', '2026-09'] };
+  const archived = (n: number, score: number, day: string, name = `Player ${n}`, setId = 'genesis') =>
+    archivedPull({ id: `pull-${n}`, issue: 100 + n, setId, hand: 'Full House', score, name, submittedAt: `${day}T09:00:00Z` });
+  const OCTOBER: PastDay[] = [
+    { day: '2026-10-14', entries: [archived(1, 9_000, '2026-10-14'), archived(2, 8_000, '2026-10-14', '', 'no-such-set')] },
+    { day: '2026-10-01', entries: [archived(3, 7_000, '2026-10-01')] },
+  ];
+  const SEPTEMBER: PastDay[] = [{ day: '2026-09-30', entries: [archived(4, 6_000, '2026-09-30')] }];
+
+  const opener = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Past days');
+  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+  const open = async () => {
+    opener()!.focus();
+    await act(async () => opener()!.click());
+  };
+  const picker = (label: string) => {
+    const el = [...dialog()!.querySelectorAll('label')].find((l) => l.textContent === label);
+    return el ? document.getElementById(el.htmlFor) as HTMLSelectElement : null;
+  };
+  const pick = async (label: string, value: string) =>
+    act(async () => {
+      const select = picker(label)!;
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  const pastRows = () => [...dialog()!.querySelectorAll<HTMLAnchorElement>('.hof-list .hof-entry')];
+  const pastStatus = () => dialog()!.querySelector<HTMLElement>('[role="status"]')!;
+  const updated = () => document.querySelector<HTMLElement>('.hof-updated');
+  const utcText = (iso: string) =>
+    `${new Date(iso).toLocaleString(undefined, { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })} UTC`;
+
+  it("says when the lists were last updated, in rankings.json's own time and not this device's", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // The device's clock is far from the build's: the line doesn't move with it.
+    vi.setSystemTime(Date.UTC(2031, 0, 1));
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    loadPublishedRankings.mockResolvedValue(RANKINGS);
+    await act(async () => root.render(<HallOfFamePage />));
+    const time = updated()!.querySelector('time')!;
+    expect(time.dateTime).toBe('2026-10-16T12:04:00.000Z');
+    expect(updated()!.textContent).toBe(`Lists last updated ${utcText(RANKINGS.generatedAt)}`);
+    expect(updated()!.textContent).toMatch(/2026.*UTC$/);
+    expect(updated()!.textContent).not.toMatch(/ago|2031/);
+  });
+
+  it('shows no time when rankings.json is missing or malformed, and the lists as before', async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    await act(async () => root.render(<HallOfFamePage />));
+    expect(loadPublishedRankings).toHaveBeenCalledTimes(1);
+    expect(updated()).toBeNull();
+    await select('All-time');
+    expect(rows()).toHaveLength(1);
+    expect(opener()?.getAttribute('aria-haspopup')).toBe('dialog');
+  });
+
+  it("opens the newest closed day of the newest month, and moves between days and months", async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    loadPublishedRankings.mockResolvedValue(RANKINGS);
+    loadPastMonth.mockImplementation((_: PublishedRankings, month: string) => Promise.resolve(month === '2026-10' ? OCTOBER : SEPTEMBER));
+    await act(async () => root.render(<HallOfFamePage />));
+    expect(loadPastMonth).not.toHaveBeenCalled();
+    await open();
+    const sheet = dialog()!;
+    expect(document.getElementById(sheet.getAttribute('aria-labelledby')!)?.textContent).toBe('Past days');
+    expect(loadPastMonth).toHaveBeenCalledWith(RANKINGS, '2026-10');
+    expect([...picker('Month')!.options].map((o) => o.value)).toEqual(['2026-10', '2026-09']);
+    expect([...picker('Day')!.options].map((o) => o.value)).toEqual(['2026-10-14', '2026-10-01']);
+    expect(picker('Day')!.value).toBe('2026-10-14');
+    expect(pastRows().map((a) => a.getAttribute('aria-label'))).toEqual([
+      'Number 1: Full House by Player 1 in Genesis, score 9000, issue 101 on GitHub',
+      // A blank name reads as Someone; a set this build doesn't have shows its id.
+      'Number 2: Full House by Someone in no-such-set, score 8000, issue 102 on GitHub',
+    ]);
+    // No proof is archived: each row opens the issue that holds it.
+    expect(pastRows()[0].getAttribute('href')).toBe('https://github.com/evanlin23/BrainrotTCG/issues/101');
+    expect(pastRows()[0].target).toBe('_blank');
+    expect(pastRows()[0].rel).toBe('noopener noreferrer');
+    expect(sheet.textContent).toContain("A pull removed since is left out, and its place isn't refilled.");
+    // The archive's rows stay in the sheet: the Today and All-time lists don't take them.
+    expect(rows().filter((a) => !sheet.contains(a))).toHaveLength(0);
+
+    await pick('Day', '2026-10-01');
+    expect(pastRows().map((a) => a.getAttribute('href'))).toEqual(['https://github.com/evanlin23/BrainrotTCG/issues/103']);
+    expect(pastStatus().textContent).toContain(': 1 pull.');
+
+    await pick('Month', '2026-09');
+    expect(loadPastMonth).toHaveBeenLastCalledWith(RANKINGS, '2026-09');
+    expect([...picker('Day')!.options].map((o) => o.value)).toEqual(['2026-09-30']);
+    expect(pastRows().map((a) => a.getAttribute('href'))).toEqual(['https://github.com/evanlin23/BrainrotTCG/issues/104']);
+
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(opener());
+  });
+
+  it('says quietly that there is no archive when rankings.json is missing or malformed', async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    await act(async () => root.render(<HallOfFamePage />));
+    await open();
+    expect(pastStatus().textContent).toBe("Past days aren't available right now.");
+    expect(picker('Month')).toBeNull();
+    expect(dialog()!.querySelector('.hof-list')).toBeNull();
+    expect(loadPastMonth).not.toHaveBeenCalled();
+  });
+
+  it("says quietly when a month's archive is missing or malformed, and still offers the other months", async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    loadPublishedRankings.mockResolvedValue(RANKINGS);
+    loadPastMonth.mockImplementation((_: PublishedRankings, month: string) => Promise.resolve(month === '2026-10' ? null : SEPTEMBER));
+    await act(async () => root.render(<HallOfFamePage />));
+    await open();
+    expect(pastStatus().textContent).toBe("This month's past days aren't available right now.");
+    expect(picker('Day')).toBeNull();
+    expect(dialog()!.querySelector('.hof-list')).toBeNull();
+    await pick('Month', '2026-09');
+    expect(pastRows()).toHaveLength(1);
+  });
+
+  it('says when nothing has closed yet, or a month kept no day', async () => {
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    loadPublishedRankings.mockResolvedValue({ ...RANKINGS, months: [] });
+    await act(async () => root.render(<HallOfFamePage />));
+    await open();
+    expect(pastStatus().textContent).toBe('No past days yet.');
+    expect(picker('Month')).toBeNull();
+    act(() => root.unmount());
+
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    loadPublishedRankings.mockResolvedValue(RANKINGS);
+    loadPastMonth.mockResolvedValue([]);
+    root = createRoot(container);
+    await act(async () => root.render(<HallOfFamePage />));
+    await open();
+    expect(pastStatus().textContent).toBe('No past days for this month.');
+    expect(picker('Month')).not.toBeNull();
+  });
+
+  it('says it is loading until rankings.json and the month arrive', async () => {
+    let settleRankings!: (r: PublishedRankings | null) => void;
+    let settleMonth!: (days: PastDay[] | null) => void;
+    loadHallOfFame.mockResolvedValueOnce([ENTRY]);
+    loadPublishedRankings.mockImplementation(() => new Promise((resolve) => { settleRankings = resolve; }));
+    loadPastMonth.mockImplementation(() => new Promise((resolve) => { settleMonth = resolve; }));
+    await act(async () => root.render(<HallOfFamePage />));
+    await open();
+    expect(pastStatus().textContent).toBe('Loading past days…');
+    expect(updated()).toBeNull();
+    await act(async () => settleRankings(RANKINGS));
+    expect(updated()).not.toBeNull();
+    expect(pastStatus().textContent).toBe('Loading past days…');
+    await act(async () => settleMonth(OCTOBER));
+    expect(pastRows()).toHaveLength(2);
   });
 });
