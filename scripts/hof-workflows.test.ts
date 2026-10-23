@@ -598,20 +598,53 @@ fi
   });
 });
 
-describe('browser-tests.yml cross-browser-smoke (#658)', () => {
-  const job = jobs(read('browser-tests.yml'))['cross-browser-smoke'].join('\n');
+describe('browser-tests.yml Playwright jobs (#658)', () => {
+  const lines = read('browser-tests.yml').split('\n');
+  const all = jobs(read('browser-tests.yml'));
   const playwright = (JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8')) as {
     packages: Record<string, { version: string }>;
   }).packages['node_modules/@playwright/test'].version;
+  // The jobs that run Playwright. Names are required checks, so they are pinned here as well.
+  const names = {
+    'browser-shard': 'browser-tests shard ${{ matrix.shard }}/3',
+    'browser-burn-in': 'browser-burn-in shard ${{ matrix.shard }}/3',
+    'cross-browser-smoke': 'cross-browser-smoke',
+  };
+  // Jobs with no `name:` are checked under their id.
+  const unnamed = ['visual-baselines'];
+  const ids = [...Object.keys(names), ...unnamed];
+  const runners = Object.entries(all).filter(([, job]) => /npx playwright|npm run test:(browser|visual)/.test(job.join('\n')));
 
-  it('runs in the Playwright image whose tag is the installed @playwright/test, pinned by digest', () => {
-    expect(/^ {6}image: (\S+)$/m.exec(job)?.[1]).toMatch(
-      new RegExp(`^mcr\\.microsoft\\.com/playwright:v${playwright.replaceAll('.', '\\.')}-[a-z]+@sha256:[0-9a-f]{64}$`),
-    );
+  it('finds exactly the jobs that run Playwright', () => {
+    expect(runners.map(([id]) => id).sort()).toEqual([...ids].sort());
   });
 
-  it('runs as the runner user and installs no browsers or system packages', () => {
-    expect(job).toMatch(/^ {6}options: --user 1001$/m);
-    expect(job).not.toMatch(/playwright install|apt-get/);
+  it.each(Object.entries(names))('%s keeps its name', (id, name) => {
+    expect(all[id].join('\n')).toMatch(new RegExp(`^ {4}name: ${name.replace(/[$.{}/]/g, '\\$&')}$`, 'm'));
+  });
+
+  it.each(unnamed)('%s has no name, so its id is the required check', (id) => {
+    expect(all[id].join('\n')).not.toMatch(/^ {4}name: /m);
+  });
+
+  it.each(ids)(
+    '%s runs in the Playwright image whose tag is the installed @playwright/test, pinned by digest',
+    (id) => {
+      expect(/^ {6}image: (\S+)$/m.exec(all[id].join('\n'))?.[1]).toMatch(
+        new RegExp(`^mcr\\.microsoft\\.com/playwright:v${playwright.replaceAll('.', '\\.')}-[a-z]+@sha256:[0-9a-f]{64}$`),
+      );
+    },
+  );
+
+  it('uses one image in every job', () => {
+    const images = new Set(lines.flatMap((l) => /^ {6}image: (\S+)$/.exec(l)?.[1] ?? []));
+    expect([...images]).toHaveLength(1);
+  });
+
+  it.each(ids)('%s runs as the runner user and installs no browsers or system packages', (id) => {
+    const job = all[id].join('\n');
+    // --ipc=host gives Chromium the host's /dev/shm instead of Docker's 64 MB.
+    expect(job).toMatch(/^ {6}options: --user 1001 --ipc=host$/m);
+    expect(job.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')).not.toMatch(/playwright install|apt-get|apt |--with-deps/);
   });
 });
