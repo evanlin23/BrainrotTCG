@@ -246,7 +246,9 @@ describe('build (deploy workflow)', () => {
     expect(gh.writes()).toEqual([]);
   });
 
-  it('fails the deploy, writing nothing, when GitHub is down and no list is deployed', async () => {
+  it('fails the deploy, writing nothing, when GitHub is down and no list is deployed, even for a new site', async () => {
+    clockAt('2026-10-16T12:00:00Z');
+    vi.stubEnv('HOF_START_NEW_HISTORY', '2026-10-16');
     const gh = fakeGitHub({ issues: [issue(1, fourOfAKind)], fail: () => true });
     await expect(build(output())).rejects.toThrow('Could not list Hall of Fame issues, and the deployed site has no hall-of-fame.json to keep');
     expect(existsSync(output())).toBe(false);
@@ -450,11 +452,19 @@ describe('rankings (#223)', () => {
       expect(console.log).toHaveBeenCalledWith('No rankings.json deployed: starting the rankings history');
     });
 
-    it('reads a new site, with neither file, as one to start', async () => {
+    it('fails on a site with no hall-of-fame.json, naming the opt-in for a new site', async () => {
       const { get, requested } = site({});
-      expect(await deployedRankings(get)).toEqual({ list: null, index: null, archives: new Map() });
+      await expect(deployedRankings(get)).rejects.toThrow(
+        "The deployed site has no hall-of-fame.json. For a new site, set the repository variable HOF_START_NEW_HISTORY to today's UTC date and deploy again",
+      );
+      expect(requested).toEqual(['hall-of-fame.json']);
+    });
+
+    it('reads a site with neither file as a new one when told to start a new history', async () => {
+      const { get, requested } = site({});
+      expect(await deployedRankings(get, { startNewHistory: true })).toEqual({ list: null, index: null, archives: new Map() });
       expect(requested).toEqual(['hall-of-fame.json', RANKINGS_INDEX]);
-      expect(console.log).toHaveBeenCalledWith('No hall-of-fame.json deployed: a new site');
+      expect(console.log).toHaveBeenCalledWith("No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks");
     });
 
     it("asks GitHub Pages past its CDN's cache, with the run in the query", async () => {
@@ -463,7 +473,7 @@ describe('rankings (#223)', () => {
         urls.push(String(input));
         return new Response('Not Found', { status: 404 });
       }) as unknown as typeof fetch;
-      await deployedRankings(get);
+      await deployedRankings(get, { startNewHistory: true });
       expect(urls).toEqual([
         'https://evanlin23.github.io/BrainrotTCG/hall-of-fame.json?run=4242-1',
         'https://evanlin23.github.io/BrainrotTCG/rankings.json?run=4242-1',
@@ -550,21 +560,25 @@ describe('rankings (#223)', () => {
       expect(readFileSync(output(), 'utf8')).toBe(JSON.stringify(published));
     });
 
-    it('builds a new site, with nothing deployed, from the issues', async () => {
+    it('builds a new site, with nothing deployed, from the issues when HOF_START_NEW_HISTORY names the day', async () => {
       clockAt('2026-10-16T12:00:00Z');
+      vi.stubEnv('HOF_START_NEW_HISTORY', '2026-10-16');
       github({ published: undefined });
       await build(output());
       expect(JSON.parse(readFileSync(output(), 'utf8')).map((e: { issue: number }) => e.issue)).toEqual([1]);
       expect(JSON.parse(read(RANKINGS_INDEX)).archive).toEqual(['2026-10']);
-      expect(console.log).toHaveBeenCalledWith('No hall-of-fame.json deployed: a new site');
+      expect(console.log).toHaveBeenCalledWith("No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks");
     });
 
     it.each([
+      ['the site has no hall-of-fame.json', { published: undefined }, 'set the repository variable HOF_START_NEW_HISTORY'],
+      ['the site has no hall-of-fame.json and HOF_START_NEW_HISTORY names another day', { published: undefined, startNewHistory: '2026-10-15' }, 'set the repository variable HOF_START_NEW_HISTORY'],
       ['hall-of-fame.json answers 500', { site: { 'hall-of-fame.json': 500 } }, 'The deployed hall-of-fame.json answered 500'],
       ['rankings.json is deployed but an archive it lists is not', { site: { [RANKINGS_INDEX]: deployed[RANKINGS_INDEX], [archivePath('2026-10')]: october } }, "which isn't deployed"],
       ['rankings.json answers with a page', { site: { [RANKINGS_INDEX]: '<!doctype html><title>Brainrot TCG</title>' } }, "The deployed rankings.json isn't JSON"],
-    ])('fails the deploy, writing nothing, when %s', async (_, fixture, error) => {
+    ])('fails the deploy, writing nothing, when %s', async (_, { startNewHistory, ...fixture }: Partial<Fixture> & { startNewHistory?: string }, error) => {
       clockAt('2026-10-16T12:00:00Z');
+      if (startNewHistory) vi.stubEnv('HOF_START_NEW_HISTORY', startNewHistory);
       const gh = github(fixture);
       await expect(build(output())).rejects.toThrow(error);
       expect(readdirSync(dir)).toEqual([]);

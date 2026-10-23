@@ -404,11 +404,14 @@ Carrying days forward means reading the deployed site (GitHub Pages, which keeps
 after a move). The build reads it before anything else, with a `?run=` query the CDN hasn't cached (as
 the smoke check does), and the deploy fails rather than drop a day:
 
-- Only a 404 means a file isn't deployed. For `hall-of-fame.json` that is a new site, or one whose
-  Pages were turned off, and the log says `No hall-of-fame.json deployed: a new site`; the build
-  lists it again from the issues. For `rankings.json` it is a site from before these files. The
-  history starts with the open days, and the log says
-  `No rankings.json deployed: starting the rankings history`.
+- Every deploy writes `hall-of-fame.json`, so a 404 for it fails: it may be a new site, but also a
+  site whose files can't be read there, such as GitHub Pages turned off or the repository renamed,
+  where starting again would lose every closed day for good. Those need the deployed files kept. A
+  new site opts in with the repository variable `HOF_START_NEW_HISTORY` set to that UTC day
+  (docs/HOSTING.md). Then the build lists everything again from the issues, and the log says
+  `No hall-of-fame.json deployed: starting a new site's history, as HOF_START_NEW_HISTORY asks`.
+- Only a 404 for `rankings.json` means a site from before these files. The history starts with the
+  open days, and the log says `No rankings.json deployed: starting the rankings history`.
 - Any other answer fails, and so does a list that isn't a JSON list, or an archive that is listed but
   not deployed or that fails its strict check (`parseRankingsFile`, `parseDailyArchive`). That covers
   an error status, a network error, or a page in place of the file, such as a fallback.

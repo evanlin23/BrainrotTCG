@@ -339,20 +339,31 @@ export interface DeployedRankings {
   archives: Map<string, { text: string; archive: DailyArchive }>;
 }
 
+/** The repository variable that lets one day's deploys start a new site's history (docs/HOSTING.md). */
+export const START_NEW_HISTORY = 'HOF_START_NEW_HISTORY';
+
 /**
- * The list and rankings the deployed site carries, which `build` keeps or carries forward. Only a 404
- * means a file isn't deployed: for hall-of-fame.json a new site (or one whose Pages were turned off),
- * which `build` can rebuild from the issues, and for rankings.json a site from before rankings were
- * deployed, with nothing to carry forward; the log says so. Any other answer for the list, or a body
- * that isn't a JSON list, throws: the site can't be read. Every deploy writes rankings.json with the
- * list (or keeps both, or neither), so once it is deployed, it and every archive it lists must read and
- * check out in full (parseRankingsFile, parseDailyArchive), and anything else throws (an error status,
- * a network error, a page that isn't the file, a 404 for an archive) rather than drop a day.
+ * The list and rankings the deployed site carries, which `build` keeps or carries forward. Every
+ * deploy writes hall-of-fame.json, so a 404 for it means a new site, or a site that can't be read
+ * there (Pages turned off or the repository renamed), where carrying nothing forward would lose every
+ * closed day for good. It throws unless `startNewHistory` says this is a new site (START_NEW_HISTORY).
+ * Only a 404 for rankings.json means a site from before rankings were deployed, with nothing to carry
+ * forward; the log says so. Any other answer for the list, or a body that isn't a JSON list, throws:
+ * the site can't be read. Every deploy writes rankings.json with the list (or keeps both, or neither),
+ * so once it is deployed, it and every archive it lists must read and check out in full
+ * (parseRankingsFile, parseDailyArchive), and anything else throws (an error status, a network error,
+ * a page that isn't the file, a 404 for an archive) rather than drop a day.
  */
-export const deployedRankings = async (get: typeof fetch = fetch): Promise<DeployedRankings> => {
+export const deployedRankings = async (get: typeof fetch = fetch, { startNewHistory = false } = {}): Promise<DeployedRankings> => {
   const list = await deployedText('hall-of-fame.json', get);
-  if (list === null) console.log('No hall-of-fame.json deployed: a new site');
-  else {
+  if (list === null) {
+    if (!startNewHistory) {
+      throw new Error(
+        `The deployed site has no hall-of-fame.json. For a new site, set the repository variable ${START_NEW_HISTORY} to today's UTC date and deploy again; otherwise restore the deployed files first (docs/HOSTING.md)`,
+      );
+    }
+    console.log(`No hall-of-fame.json deployed: starting a new site's history, as ${START_NEW_HISTORY} asks`);
+  } else {
     let listed: unknown;
     try {
       listed = JSON.parse(list);
@@ -643,7 +654,7 @@ export const build = async (output = OUTPUT) => {
     return;
   }
   // Before anything else: a site that can't be read fails the deploy rather than drop past days.
-  const deployed = await deployedRankings();
+  const deployed = await deployedRankings(fetch, { startNewHistory: process.env[START_NEW_HISTORY] === day });
   let issues: Issue[];
   let rejected: Set<number>;
   try {

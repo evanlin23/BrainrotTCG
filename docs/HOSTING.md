@@ -361,6 +361,23 @@ records/moderation intact, retain the current snapshot for comparison, and rebui
 current trusted evidence with compatible code. Do not undo submissions or rejected labels to match an
 old UI. The GitHub redirect's copy may differ until refreshed; record that explicitly.
 
+## When the build can't read the deployed Hall of Fame
+
+Before anything else, every deploy's build reads `hall-of-fame.json`, `rankings.json` and the daily
+archives from the GitHub Pages address (`https://<owner>.github.io/<repo>/`). It fails rather than
+drop a closed day (docs/ARCHITECTURE.md, "Published rankings").
+
+- **A 5xx, a network error or a page in place of a file** fails every deploy, unrelated hotfixes
+  included. The cause is GitHub Pages, not the change. Check https://www.githubstatus.com, wait until
+  Pages answers again, then run the deploy workflow again from the Actions tab.
+- **A 404 for `hall-of-fame.json`** fails too, and the error names `HOF_START_NEW_HISTORY`.
+  - On a new site or a fork, set that repository variable to today's UTC date (`YYYY-MM-DD`), run the
+    deploy, then delete the variable. It only counts on the day it names.
+  - On an existing site, the 404 means Pages lost the files, for example because Pages was turned off
+    or the repository was renamed (the address follows the name). Undo that if you can. Don't set the
+    variable: the next deploy would start a new history and lose every closed day for good. That is
+    the owner's call. The last copy of the archives is whatever the current host still serves.
+
 ## Read-only checks after deployment or recovery
 
 Every deploy ends with these checks in its `smoke` job (bounded to 15 minutes, no secrets, a
