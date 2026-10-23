@@ -14,6 +14,7 @@ import {
   MAX_RAW_MESSAGE_CHARS,
   MAX_RELAY_INVALID_MESSAGES,
   MAX_RETAINED_EVENT_BYTES,
+  oversizedEventTime,
   proofFromEvent,
   publishEvent,
   publishUntilAccepted,
@@ -289,12 +290,74 @@ describe('nostr inbox', () => {
     expect((await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, firstPage, 5)).perRelay).toEqual([{ relay: 'wss://a', count: 0, error: 'closed' }]);
   });
 
-  it("doesn't call a relay read through when a full page brings nothing new (#999)", async () => {
-    // More events at one second than a page holds: the next page, from that second, is the same one.
+  it('pages past a second with more events than a page holds, to a submission just below it (#1057)', async () => {
+    // A page from that second (`until` is inclusive) is the same crowd again: nothing new.
+    const crowd = Array.from({ length: 150 }, (_, i) => hallOfFameEvent(PROOF, `c${i}`, 2_000_000));
+    const real = hallOfFameEvent(PROOF, 'real', 1_990_000);
+    const requests: string[] = [];
+    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 100 }, ['wss://a'], 500, fakeRelays({ 'wss://a': 'accept' }, [...crowd, real], requests), 5);
+    expect(read.events).toContainEqual(real);
+    expect(requests).toEqual(['wss://a until=-', 'wss://a until=2000', 'wss://a until=1999', 'wss://a until=1990']);
+    // Read through: the crowded second counts as read, and is named.
+    expect(read.perRelay).toEqual([{ relay: 'wss://a', count: 202, error: undefined, crowded: [2000] }]);
+  });
+
+  it('reads a gap between two crowds in one read (#1057)', async () => {
+    const crowds = [3_000_000, 2_000_000].flatMap((ms) => Array.from({ length: 4 }, (_, i) => hallOfFameEvent(PROOF, `c${ms}-${i}`, ms)));
+    const gap = hallOfFameEvent(PROOF, 'gap', 2_500_000);
+    const older = hallOfFameEvent(PROOF, 'older', 1_000_000);
+    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, fakeRelays({ 'wss://a': 'accept' }, [...crowds, gap, older]), 20);
+    expect(read.events).toEqual(expect.arrayContaining([gap, older]));
+    expect(read.perRelay[0]).toMatchObject({ error: undefined, crowded: [3000, 2000] });
+    expect(read.perRelay[0].more).toBeUndefined();
+  });
+
+  it("stops at the page cap on a crowd, and doesn't ask below the filter's `since` (#1057)", async () => {
     const crowd = Array.from({ length: 4 }, (_, i) => hallOfFameEvent(PROOF, `c${i}`, 2_000_000));
-    const older = [hallOfFameEvent(PROOF, 'o0', 1_000_000), hallOfFameEvent(PROOF, 'o1', 1_001_000)];
-    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, fakeRelays({ 'wss://a': 'accept' }, [...crowd, ...older]), 5);
-    expect(read.perRelay).toEqual([{ relay: 'wss://a', count: 6, error: undefined, more: 2000 }]);
+    const older = hallOfFameEvent(PROOF, 'older', 1_000_000);
+    const store = fakeRelays({ 'wss://a': 'accept' }, [...crowd, older]);
+    // Two pages: the crowd, then the crowd again. The second of them may not have been read.
+    expect((await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, store, 2)).perRelay).toEqual([{ relay: 'wss://a', count: 6, error: undefined, more: 2000 }]);
+    const requests: string[] = [];
+    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3, since: 2000 }, ['wss://a'], 500, fakeRelays({ 'wss://a': 'accept' }, [...crowd, older], requests), 5);
+    expect(requests).toEqual(['wss://a until=-', 'wss://a until=2000']);
+    expect(read.perRelay).toEqual([{ relay: 'wss://a', count: 6, error: undefined, crowded: [2000] }]);
+  });
+
+  it("pages past a crowd of events too big to parse instead of taking it for the end (#1057)", async () => {
+    const big = (s: number) => signedHof(s, 'x'.repeat(3000));
+    const newest = hallOfFameEvent(PROOF, 'newest', 3_000_000);
+    const real = hallOfFameEvent(PROOF, 'real', 1_990_000);
+    const bounds = { maxRawMessageChars: 2000 };
+    const parse = vi.spyOn(JSON, 'parse');
+    try {
+      // Behind a parsed event, and as the newest events of all (a first page with nothing parsed).
+      for (const stored of [[newest, ...Array.from({ length: 4 }, () => big(2000)), real], [...Array.from({ length: 4 }, () => big(2000)), real]]) {
+        parse.mockClear();
+        const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://a'], 500, fakeRelays({ 'wss://a': 'accept' }, stored), 10, undefined, bounds);
+        expect(read.events).toContainEqual(real);
+        expect(read.perRelay[0]).toMatchObject({ error: undefined, crowded: [2000] });
+        expect(parse.mock.calls.some(([raw]) => String(raw).length > bounds.maxRawMessageChars)).toBe(false);
+      }
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it('fails a relay whose full page is events too big to parse with no time to page on from (#1057)', async () => {
+    const huge = (sub: unknown) => JSON.stringify(['EVENT', sub, { content: 'x'.repeat(3000) }]);
+    const read = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://big'], 500, rogueRelay((sub) => [huge(sub), huge(sub), huge(sub)]), 5, undefined, { maxRawMessageChars: 2000 });
+    expect(read.perRelay).toEqual([{ relay: 'wss://big', count: 3, error: 'a full page of events too big to read' }]);
+    // Fewer than a page of them, or frames for another request, are the end as before.
+    const short = await fetchEvents({ kinds: [HOF_KIND], limit: 3 }, ['wss://big'], 500, rogueRelay((sub) => [huge(sub), huge('other'), huge('other')]), 5, undefined, { maxRawMessageChars: 2000 });
+    expect(short.perRelay).toEqual([{ relay: 'wss://big', count: 1, error: undefined }]);
+  });
+
+  it('reads the time an unparsed event frame claims, never earlier than its own', () => {
+    expect(oversizedEventTime('["EVENT","s",{"id":"x","created_at":2000,"content":"y"}]')).toBe(2000);
+    // An extra field can't claim an earlier time, and a quoted one inside a string isn't a key.
+    expect(oversizedEventTime('["EVENT","s",{"extra":{"created_at":5},"created_at" : 2000,"content":"\\"created_at\\":1"}]')).toBe(2000);
+    expect(oversizedEventTime('["EVENT","s",{"content":"x"}]')).toBe(Infinity);
   });
 });
 

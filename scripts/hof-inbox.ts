@@ -4,7 +4,7 @@
  * that carry relay or issue text.
  */
 import { decodeProof, isNameAllowed, pullId, qualifiesForHallOfFame, verifyProof, type PullProof, type SetLookup, type TicketFn, type VerifiedPull } from '../src/engine/index.ts';
-import { proofFromEvent, scoreHintFromEvent, verifyEvent, type NostrEvent, type PublishResult } from '../src/game/nostrInbox.ts';
+import { proofFromEvent, scoreHintFromEvent, verifyEvent, type NostrEvent, type PublishResult, type RelayRead } from '../src/game/nostrInbox.ts';
 
 export interface InboxContext {
   /** Event ids already handled; updated as events are handled. */
@@ -54,12 +54,18 @@ export const logSafeError = (error: unknown, max = 200): string => {
 };
 
 /** The inbox's line for one relay; a relay's reason for closing the request is its own text. */
-export const relayReadLine = (r: { relay: string; count: number; error?: string; more?: number }): string =>
-  `${r.relay}: ${r.count} events${r.error ? ` (${logSafeError(r.error)})` : r.more !== undefined ? ', stopped at the page cap' : ''}`;
+export const relayReadLine = (r: RelayRead): string =>
+  `${r.relay}: ${r.count} events${r.error ? ` (${logSafeError(r.error)})` : r.more !== undefined ? ', stopped at the page cap' : ''}${crowdNote(r)}`;
 
 /** The inbox's line for reading one relay's older events, up to `until` (unix seconds). */
-export const olderReadLine = (r: { relay: string; count: number; error?: string; more?: number }, until: number): string =>
-  `${r.relay}: ${r.count} older events up to ${new Date(until * 1000).toISOString()}${r.error ? ` (${logSafeError(r.error)})` : r.more !== undefined ? ', stopped at the page cap' : ''}`;
+export const olderReadLine = (r: RelayRead, until: number): string =>
+  `${r.relay}: ${r.count} older events up to ${new Date(until * 1000).toISOString()}${r.error ? ` (${logSafeError(r.error)})` : r.more !== undefined ? ', stopped at the page cap' : ''}${crowdNote(r)}`;
+
+/** Seconds a read paged past with more events than a page holds, some of them unread (see fetchEvents). */
+const crowdNote = (r: RelayRead): string => {
+  const n = r.crowded?.length ?? 0;
+  return n ? `, read past ${n} second${n === 1 ? '' : 's'} with more events than a page (newest ${new Date(r.crowded![0] * 1000).toISOString()})` : '';
+};
 
 /**
  * Inclusive ranges of event times (`created_at`, unix seconds), sorted and apart. The inbox keeps,
@@ -105,9 +111,11 @@ export const oldestGap = (read: Ranges, lo: number, hi: number): [number, number
 /**
  * What one read of a relay covered, given the range it asked for: from just above where it stopped
  * (`more`: the page cap, a full page of nothing new, or a failure after some pages), or else all of
- * it. A relay that failed before finishing a page counts as read nowhere.
+ * it. A relay that failed before finishing a page counts as read nowhere. Seconds it paged past with
+ * more events than a page (`crowded`) count as read: no read can page into them, so a later run
+ * picking one as its older range would only read the same crowd again.
  */
-export const rangeRead = (r: { error?: string; more?: number }, lo: number, hi: number): Ranges =>
+export const rangeRead = (r: Pick<RelayRead, 'error' | 'more' | 'crowded'>, lo: number, hi: number): Ranges =>
   r.more !== undefined ? clipRanges([[r.more + 1, hi]], lo, hi) : r.error !== undefined ? [] : [[lo, hi]];
 
 /** The read ranges file: relay URL to ranges. Only the given relays and well-formed ranges are kept; anything else reads as nothing read. */
