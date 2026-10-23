@@ -109,8 +109,7 @@ for (const width of [320, 390]) {
 
 for (const width of [320, 390]) {
   for (const percent of [100, 200]) {
-    test(`Settings: the Motion row fits a ${width} px phone at ${percent}% text and works by keyboard (#765)`, async ({ page, baseURL }, testInfo) => {
-      test.skip(testInfo.project.name !== 'mobile-chromium', 'A phone layout check; one emulated phone is enough.');
+    test(`Settings: the Motion row fits a ${width} px phone at ${percent}% text and works by keyboard (#765)`, async ({ page, baseURL }) => {
       await page.setViewportSize({ width, height: 700 });
       const errors = await monitor(page, baseURL!);
       await page.goto('./#/settings');

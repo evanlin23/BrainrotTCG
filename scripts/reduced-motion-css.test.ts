@@ -19,7 +19,7 @@ describe('reduced-motion-css', () => {
 
   it('lets a universal selector reach the root too', () => {
     expect(scopeSelectors('*, *::before', REDUCED)).toBe(
-      ':root:where([data-motion="reduced"]), :where(:root[data-motion="reduced"]) *, :root:where([data-motion="reduced"])::before, :where(:root[data-motion="reduced"]) *::before',
+      ':where(:root[data-motion="reduced"]), :where(:root[data-motion="reduced"]) *, :where(:root[data-motion="reduced"])::before, :where(:root[data-motion="reduced"]) *::before',
     );
   });
 
@@ -33,6 +33,12 @@ describe('reduced-motion-css', () => {
       expect(weight(underRoot(selector, REDUCED)), selector).toEqual(weight(selector));
       expect(weight(underRoot(selector, CALM)), selector).toEqual(weight(selector));
     }
+    // A universal selector becomes two selectors, the root and everything below it; each weighs what it did.
+    for (const selector of ['*', '*.a', '*[hidden]', '*:hover', '*::before', '* > .a']) {
+      for (const scope of [REDUCED, CALM]) {
+        for (const half of splitSelectors(underRoot(selector, scope))) expect(weight(half), `${selector} -> ${half}`).toEqual(weight(selector));
+      }
+    }
   });
 
   it('copies a reduce block after itself as plain rules, in order, keeping !important', async () => {
@@ -40,7 +46,7 @@ describe('reduced-motion-css', () => {
     expect(out).toBe(
       '.a { x: 1 } @media (prefers-reduced-motion: reduce) { .a { x: 2 } :root { --d: 0ms } *, *::before { y: 1 !important } } '
       + ':where(:root[data-motion="reduced"]) .a { x: 2 } :root:where([data-motion="reduced"]) { --d: 0ms } '
-      + ':root:where([data-motion="reduced"]), :where(:root[data-motion="reduced"]) *, :root:where([data-motion="reduced"])::before, :where(:root[data-motion="reduced"]) *::before { y: 1 !important } .b { z: 1 }',
+      + ':where(:root[data-motion="reduced"]), :where(:root[data-motion="reduced"]) *, :where(:root[data-motion="reduced"])::before, :where(:root[data-motion="reduced"]) *::before { y: 1 !important } .b { z: 1 }',
     );
   });
 

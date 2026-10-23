@@ -393,6 +393,19 @@ for (const mode of MOTION_MODES) {
       const saved = await expectRecordedPack(page, 21);
       expect({ cards: saved.history[0].c, score: saved.history[0].x, hand: saved.stats.highestPackHandName }).toEqual(SAVED_PACK);
 
+      // Settled: the first pack unlocks an achievement, and its toast fades in after the save. Wait for it, then
+      // let what is finite finish, including a fade that only starts while another ends; then nothing loops or
+      // runs on. The last look follows the check that found no finite animation in the same task, so nothing can
+      // start between them. The motion log is read only after this, so it holds everything that ran.
+      await expect(page.locator('.toast-region .toast')).toBeVisible();
+      const left = await page.evaluate(async () => {
+        const timing = (a: Animation) => a.effect!.getComputedTiming();
+        const finite = () => document.getAnimations().filter((a) => timing(a).iterations !== Infinity && a.playState === 'running');
+        for (let pending = finite(); pending.length > 0; pending = finite()) await Promise.all(pending.map((a) => a.finished.catch(() => undefined)));
+        return document.getAnimations().filter((a) => a.playState === 'running').map((a) => `${(a as CSSAnimation).animationName ?? (a as CSSTransition).transitionProperty ?? 'animate'} x${timing(a).iterations}`);
+      });
+      if (mode.calm) expect(left, 'the summary left animations running').toEqual([]);
+
       const log = await page.evaluate(() => window.motionLog);
       if (mode.calm) {
         expect(log.filter((entry) => entry.kind === 'waapi' && entry.what !== 'opacity'), 'Framer Motion moved something').toEqual([]);
@@ -404,17 +417,6 @@ for (const mode of MOTION_MODES) {
         expect(log.some((entry) => entry.kind === 'transitionrun' && entry.what === 'transform' && entry.target === 'card-inner'), 'the cards flipped').toBe(true);
         expect(log.some((entry) => entry.iterations === Infinity), 'nothing looped').toBe(true);
       }
-
-      // Settled: let what is finite finish, including a fade that only starts while another ends (the achievement
-      // toast arrives after the save); then nothing loops or runs on. The last look follows the check that found
-      // no finite animation in the same task, so nothing can start between them.
-      const left = await page.evaluate(async () => {
-        const timing = (a: Animation) => a.effect!.getComputedTiming();
-        const finite = () => document.getAnimations().filter((a) => timing(a).iterations !== Infinity && a.playState === 'running');
-        for (let pending = finite(); pending.length > 0; pending = finite()) await Promise.all(pending.map((a) => a.finished.catch(() => undefined)));
-        return document.getAnimations().filter((a) => a.playState === 'running').map((a) => `${(a as CSSAnimation).animationName ?? (a as CSSTransition).transitionProperty ?? 'animate'} x${timing(a).iterations}`);
-      });
-      if (mode.calm) expect(left, 'the summary left animations running').toEqual([]);
       expect(errors).toEqual([]);
     });
   });

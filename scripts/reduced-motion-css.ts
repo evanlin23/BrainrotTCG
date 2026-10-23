@@ -59,8 +59,11 @@ export const underRoot = (selector: string, scope: Scope): string => {
   if (/(?:^|[^\w-])(?:html|:root)(?![\w-])/i.test(bare)) throw new Error(`"${selector}" names the root element somewhere other than its start`);
   if (rootMatch) return scope.self + rest;
   if (/^[>+~&:[]/.test(selector)) throw new Error(`"${selector}" starts with a combinator, &, a pseudo-class or an attribute, which could be the root itself`);
-  // A universal selector reaches the root too; the mirror must as well.
-  if (/^\*(?![\w-])/.test(selector)) return `${scope.self}${selector.slice(1)}, ${scope.below} ${selector}`;
+  // A universal selector reaches the root too; the mirror must as well. The root half drops the `*` and joins the
+  // condition (which weighs nothing) to the rest, so it weighs what the original does.
+  if (/^\*(?![\w-])/.test(selector)) return `${scope.below}${selector.slice(1)}, ${scope.below} ${selector}`;
+  // A class- or id-led selector could match <html class="x"> too; no stylesheet does that, and the mirror
+  // places it below the root.
   return `${scope.below} ${selector}`;
 };
 

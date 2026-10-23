@@ -103,6 +103,13 @@ test('Reduced is kept on reload and is applied before the app first renders', as
   // Reloading cancels card art still downloading, which the monitor reports. The pack screen stays mounted
   // under Settings, so wait on what the page reports: every image that is loading has loaded or failed.
   await settle(page);
+  // settle() leaves lazy images alone, since an unstarted one never loads; one in view has started, so wait for it.
+  await page.evaluate(() => Promise.all(Array.from(document.images)
+    .filter((image) => !image.complete && image.getBoundingClientRect().bottom > 0 && image.getBoundingClientRect().top < innerHeight)
+    .map((image) => new Promise<void>((resolve) => {
+      image.addEventListener('load', () => resolve(), { once: true });
+      image.addEventListener('error', () => resolve(), { once: true });
+    }))));
   await page.reload();
   const again = page.getByRole('main', { name: 'Settings', exact: true }).getByRole('radiogroup', { name: 'Motion', exact: true });
   await expect(again.getByRole('radio', { name: 'Reduced', exact: true })).toHaveAttribute('aria-checked', 'true');
