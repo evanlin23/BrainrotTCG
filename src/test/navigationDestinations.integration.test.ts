@@ -89,8 +89,14 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
   const blocked = globalThis.fetch;
   let published: Response = new Response('', { status: 503 });
   const requested: string[] = [];
+  // No rankings.json deployed: the page shows no update time, and Past days says so quietly.
+  const rankingsRequested: string[] = [];
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith('rankings.json')) {
+      rankingsRequested.push(url);
+      return Promise.resolve(new Response('Not found', { status: 404 }));
+    }
     if (!url.endsWith('hall-of-fame.json')) return blocked(input, init);
     requested.push(url);
     return Promise.resolve(published);
@@ -108,6 +114,14 @@ it('reaches best pulls, the name editor, settings and rankings as pages, and eac
   expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).toContain('No filed pulls today that we can see.');
   expect(document.querySelector('.hall-of-fame .hof-empty')?.textContent).not.toContain('Yours could be first');
   expect(document.querySelector('[aria-label="Retry loading rankings"]')).not.toBeNull();
+  expect(rankingsRequested.length).toBeGreaterThan(0);
+  expect(document.querySelector('.hall-of-fame .hof-updated')).toBeNull();
+  await app.interact(() => { button('Past days').focus(); button('Past days').click(); });
+  await app.until('Past days reports no archive', () => expect(document.querySelector('[role="dialog"] [role="status"]')?.textContent).toBe("Past days aren't available right now."));
+  expect(document.querySelector('[role="dialog"] select')).toBeNull();
+  await app.interact(() => button('Close').click());
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.activeElement).toBe(button('Past days'));
   // The legends are part of the app, so "Where it started" shows them whatever the network does.
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   await app.interact(() => { button('Where it started').focus(); button('Where it started').click(); });

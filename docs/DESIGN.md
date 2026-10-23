@@ -356,6 +356,11 @@ text or hints on `--surface` and darker; on `--surface-2` and `--surface-3` it f
   (nothing when unknown; never a login, so it is text, not a link inside the row's link).
   A quiet "Where it started" button below the lists opens the hackathon legends (screenshots from
   before pulls were verifiable, so unranked) in a sheet. World firsts are no longer published.
+  Above it, a muted "Lists last updated" line gives the published rankings' own build time in UTC
+  (hidden when `rankings.json` can't be read). A "Past days" button beside "Where it started" opens a
+  sheet with Month and Day pickers over each closed UTC day's top 10; it opens on the newest day of
+  the newest month that has one, each row links to its GitHub issue, and a missing archive is a quiet
+  note.
   A closed "How Rankings work" disclosure sits above the lists in every state (loading, failed,
   feed unavailable, empty, populated, both tabs): who qualifies, that nothing is filed
   automatically, where Submit appears and why it can be missing, and that submitting is not a rank.
