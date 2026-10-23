@@ -393,6 +393,66 @@ describe('winners an older save never scored', () => {
   });
 });
 
+describe('the settled signal', () => {
+  /** How an older build stored them: the reference only, no cached card. */
+  const unscored = () => {
+    localStorage.setItem(
+      STORAGE_KEYS.BEST_CARDS,
+      JSON.stringify({ [KEY]: { w: 1, b: [{ s: SET.id, v: SET.version, n: 0, i: 0, t: 1000 }, { s: SET.id, v: SET.version, n: 0, i: 1, t: 1000 }] } }),
+    );
+    used.value = 1;
+  };
+  const settledCalls = () => onSettled.mock.calls.map(([settled]) => settled);
+  const onSettled = vi.fn();
+  const renderWith = (cacheReady: boolean) =>
+    act(() => root.render(<BestCardsSection refreshKey="a" cacheReady={cacheReady} onSettledChange={onSettled} />));
+  beforeEach(() => onSettled.mockClear());
+
+  it('is false while the saved packs are still being read, then true once they are and nothing is unscored', async () => {
+    used.value = 1;
+    offer(weak(0));
+    await renderWith(false);
+    expect(settledCalls()).toEqual([false]);
+    await renderWith(true);
+    expect(settledCalls()).toEqual([false, true]);
+  });
+
+  it('is false while the rebuild runs for unscored winners, and true once they are scored', async () => {
+    unscored();
+    const gate: { open: () => void } = { open: () => {} };
+    const opened = new Promise<void>((resolve) => (gate.open = resolve));
+    const real = rebuild.getMockImplementation()!;
+    rebuild.mockImplementationOnce(async (...args: Parameters<typeof real>) => {
+      await opened;
+      return real(...args);
+    });
+    await renderWith(true);
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    // Unscored, then rebuilding: never settled meanwhile.
+    expect(settledCalls().length).toBeGreaterThan(0);
+    expect(settledCalls().every((settled) => settled === false)).toBe(true);
+
+    await act(async () => gate.open());
+    expect(getBestCards(KEY, 1).cards.every((c) => c.card)).toBe(true);
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+  });
+
+  it('is true once the rebuild is lost (a pack could not be derived), since no card is on its way', async () => {
+    unscored();
+    derive.failing.add(0);
+    await renderWith(true);
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+    expect(getBestCards(KEY, 1).cards.some((c) => !c.card)).toBe(true); // still unscored, yet settled
+  });
+
+  it('is true when the rebuild rejects', async () => {
+    unscored();
+    rebuild.mockRejectedValueOnce(new Error('Argon2 unavailable'));
+    await renderWith(true);
+    expect(settledCalls()[settledCalls().length - 1]).toBe(true);
+  });
+});
+
 describe('opening a card', () => {
   const open = async (row: HTMLButtonElement) => {
     await act(async () => row.click());

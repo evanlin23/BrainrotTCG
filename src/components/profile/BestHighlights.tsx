@@ -203,11 +203,15 @@ const BestHighlights = ({ stats, refreshKey, onSharePack, packBadge, expecting =
     again();
   };
 
-  const nothing = (s: BestSourceState<unknown, unknown>) => s.status === 'unavailable' && s.reason === 'none';
+  const unavailableFor = (s: BestSourceState<unknown, unknown>, reason: 'none' | 'unranked') =>
+    s.status === 'unavailable' && s.reason === reason;
+  const nothing = (s: BestSourceState<unknown, unknown>) => unavailableFor(s, 'none');
   // The empty profile keeps its own first-pack prompt.
   if (nothing(pack.state) && nothing(card.state) && !expecting) return null;
   const anyVerified = pack.state.status === 'available' || card.state.status === 'available';
-  const cardWaiting = card.state.status === 'checking' || (expecting && nothing(card.state));
+  // While the rebuild runs, winners with no cards yet read as 'unranked': that holds the place too.
+  const cardWaiting =
+    card.state.status === 'checking' || (expecting && (nothing(card.state) || unavailableFor(card.state, 'unranked')));
   const anyWaiting = cardWaiting || pack.state.status === 'checking';
 
   const shownCard = card.state.status === 'available' ? card.state : null;

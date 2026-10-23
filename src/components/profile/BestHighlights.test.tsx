@@ -209,6 +209,23 @@ describe('states', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  it('holds the place through an unranked state while the rebuild runs, then shows the note once it ends', async () => {
+    // An imported or legacy save: winners are listed but have no cached cards, so the rebuild is what ranks them.
+    seedBestCards();
+    const store = JSON.parse(localStorage.getItem(STORAGE_KEYS.BEST_CARDS)!);
+    const key = getPlayer().publicKeyHex;
+    store[key].b = store[key].b.map(({ c: _drop, ...entry }: { c?: string }) => entry);
+    localStorage.setItem(STORAGE_KEYS.BEST_CARDS, JSON.stringify(store));
+    await render({}, true);
+    expect(container.querySelector('.pull-row.profile-highlight-pending.best-card-row')).not.toBeNull();
+    expect(text('Best card')).not.toContain('Not ranked yet');
+    expect(checkBestCard).not.toHaveBeenCalled();
+    // The rebuild ended without ranking them: the place is no longer held.
+    await render({}, false);
+    expect(container.querySelector('.pull-row.profile-highlight-pending.best-card-row')).toBeNull();
+    expect(text('Best card')).toContain('Not ranked yet');
+  });
+
   it('a failed check leaves the other usable and retries on request', async () => {
     seedBestCards();
     checkBestPack.mockImplementationOnce((source) => Promise.resolve({ status: 'failed', source, reason: 'error' }));

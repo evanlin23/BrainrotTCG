@@ -9,7 +9,9 @@ import { ACHIEVEMENTS } from '../../data/achievements';
 import { getSet } from '../../content/sets';
 import { HALL_OF_FAME_MIN_MULTIPLIER, POKER_HANDS, XP_PER_HAND, XP_PER_NEW_CARD, XP_PER_PACK, pullId, scorePulled, xpForLevel, type ProfilePack, type ProfileStats } from '../../engine';
 import { toPulled } from '../../game/cardCode';
-import { getPlayer } from '../../game/player';
+import { getPlayer, PLAYER_STORAGE_KEY } from '../../game/player';
+import { resetBestCards } from '../../game/bestCards';
+import { STORAGE_KEYS } from '../../constants';
 import { toCardsWithMeta } from '../../game/pulls';
 import { scoreCards } from '../../data/cards';
 import { resetSubmissionsForTest, submitToHallOfFame, SUBMITTED_KEY } from '../../game/share';
@@ -40,6 +42,24 @@ vi.mock('../../game/bestSources', async (importOriginal) => ({
   checkBestCard,
 }));
 
+// The Best card place is held only while BestCardsSection is unsettled: record what BestHighlights is told.
+const { expectingSeen, rebuildBestCards } = vi.hoisted(() => ({ expectingSeen: vi.fn(), rebuildBestCards: vi.fn() }));
+vi.mock('./BestHighlights', async (importOriginal) => {
+  const Real = (await importOriginal<typeof import('./BestHighlights')>()).default;
+  return {
+    default: (props: React.ComponentProps<typeof Real>) => {
+      expectingSeen(props.expecting);
+      return <Real {...props} />;
+    },
+  };
+});
+// Rebuilding mines Argon2id tickets: a test releases (or never releases) it by hand.
+vi.mock('../../game/bestCards', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../game/bestCards')>()),
+  rebuildBestCards,
+}));
+const actualBestCards = await vi.importActual<typeof import('../../game/bestCards')>('../../game/bestCards');
+
 let root: Root;
 let container: HTMLElement;
 
@@ -57,6 +77,8 @@ beforeEach(() => {
   getHistory.mockReset().mockImplementation(actualHistory.getHistory);
   checkBestPack.mockReset().mockReturnValue(new Promise(() => {}));
   checkBestCard.mockReset().mockReturnValue(new Promise(() => {}));
+  expectingSeen.mockReset();
+  rebuildBestCards.mockReset().mockImplementation(actualBestCards.rebuildBestCards);
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
 });
@@ -544,5 +566,72 @@ describe('Best pack highlight', () => {
     expect(text).toContain('No Matches and Pair earn no bonus.');
     expect(text).toContain(`Level 4 needs ${xpForLevel(4).toLocaleString()} XP.`);
     for (const word of ['packs', 'cards', 'holo', 'best score', 'Collection score']) expect(text).toContain(word);
+  });
+});
+
+describe('Best card place while the Best cards are weighed', () => {
+  /** An older save's winners: listed by reference only, so the rebuild is what scores them. */
+  const seedUnscored = () => {
+    localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify({ secretKey: '22'.repeat(32), name: 'Me', nextNonce: 6, createdAt: 1 }));
+    resetBestCards();
+    const set = getSet('right-now', 2)!;
+    localStorage.setItem(
+      STORAGE_KEYS.BEST_CARDS,
+      JSON.stringify({ [getPlayer().publicKeyHex]: { w: 1, b: [{ s: set.id, v: set.version, n: 0, i: 0, t: 1000 }, { s: set.id, v: set.version, n: 0, i: 1, t: 1000 }] } }),
+    );
+  };
+  const expecting = () => expectingSeen.mock.calls[expectingSeen.mock.calls.length - 1]?.[0];
+  const heldPlace = () => document.querySelector('section.profile-highlight .pull-row.profile-highlight-pending.best-card-row') !== null;
+  /** A rebuild that ends, without scoring them, when the test says. */
+  const gated = () => {
+    let release!: () => void;
+    const opened = new Promise<void>((resolve) => (release = resolve));
+    rebuildBestCards.mockImplementation(async () => {
+      await opened;
+      return { cards: [], complete: true, unsaved: false, failed: 0 };
+    });
+    return release;
+  };
+
+  it('expects nothing while the saved packs are still being read, even with winners to weigh', async () => {
+    seedUnscored();
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
+    myPackCacheState.mockReturnValue('loading');
+    await act(async () => render());
+    expect(expectingSeen).toHaveBeenCalled();
+    expect(expectingSeen.mock.calls.every(([value]) => value === false)).toBe(true);
+    expect(rebuildBestCards).not.toHaveBeenCalled();
+  });
+
+  it('expects a best card once the packs are read and winners are still being rebuilt, then stops when it ends', async () => {
+    seedUnscored();
+    const release = gated();
+    await act(async () => render());
+    expect(rebuildBestCards).toHaveBeenCalledTimes(1);
+    expect(expecting()).toBe(true);
+    expect(heldPlace()).toBe(true);
+
+    await act(async () => release());
+    expect(expecting()).toBe(false);
+    expect(heldPlace()).toBe(false);
+  });
+
+  it('stops expecting once the section settles with nothing to weigh', async () => {
+    await act(async () => render());
+    expect(expecting()).toBe(false);
+    expect(rebuildBestCards).not.toHaveBeenCalled();
+    expect(document.querySelector('section.profile-highlight')).toBeNull();
+  });
+
+  it('expects again only after the packs are ready: loading first, ready later', async () => {
+    seedUnscored();
+    gated();
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 3, cache: 'loading' });
+    await act(async () => render());
+    expect(expecting()).toBe(false);
+
+    myProfileInfo.mockReturnValue({ packs: 3, filled: 0, missing: 0, cache: 'ready' });
+    await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEYS.HISTORY })));
+    expect(expecting()).toBe(true);
   });
 });
