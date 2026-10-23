@@ -26,4 +26,19 @@ describe('prefetchNextPack', () => {
     expect(images.length).toBeGreaterThan(0);
     expect(images.every((image) => image.src.length > 0)).toBe(true);
   });
+
+  it("leaves the bandwidth to whatever covers the Open screen, and fetches once it's called uncovered (#762)", async () => {
+    const images: { src: string }[] = [];
+    vi.stubGlobal('Image', class { src = ''; constructor() { images.push(this); } });
+    packArtSettled();
+    prefetchNextPack(getSet('right-now', 2)!, true);
+    await mined;
+    await Promise.resolve();
+    expect(images).toEqual([]);
+
+    prefetchNextPack(getSet('right-now', 2)!, false);
+    await mined;
+    await Promise.resolve();
+    expect(images.length).toBeGreaterThan(0);
+  });
 });
