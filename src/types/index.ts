@@ -1,6 +1,6 @@
 import type { Finish } from '../engine';
 import type { Card } from '../data/cards';
-import type { CardWithMeta } from '../components/cards/Card';
+import type { CardWithMeta } from './card';
 import type { PullRef } from '../game/pulls';
 
 export interface AchievementData {

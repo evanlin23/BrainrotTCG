@@ -10,7 +10,7 @@ import {
   checkCollectionAchievements, checkHistoryAchievements, checkModifierAchievements, checkPackMilestones,
 } from '../utils/achievementChecks';
 import type { AchievementData, CollectionItem, Stats } from '../types';
-import type { CardWithMeta } from '../components/cards/Card';
+import type { CardWithMeta } from '../types/card';
 
 type Unlocked = Record<string, AchievementData | number>;
 
