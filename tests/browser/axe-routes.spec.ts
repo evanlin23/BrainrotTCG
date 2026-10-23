@@ -250,7 +250,7 @@ test.describe('routes', () => {
     await page.goto(`./#/pull/${vector.proof}`);
     const pull = page.getByRole('dialog', { name: vector.hand === 'No Matches' ? 'A pull' : vector.hand, exact: true });
     // Opening a shared pull verifies its Argon2id ticket in a worker, which is slow on a cold run.
-    await expect(pull).toContainText('Verified on this device', { timeout: 20000 });
+    await expect(pull).toContainText('This pull checks out — re-verified in your browser just now', { timeout: 20000 });
     await expect(pull.locator('.sheet--deferred')).toHaveCount(0);
     await expectDecoded(pull.locator('img.card-image'), 5);
     await expectAxeClean(page, testInfo, 'shared-pull');
