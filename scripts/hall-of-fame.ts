@@ -37,6 +37,10 @@
  *     between deploys): an issue unchanged since the last deploy isn't checked
  *     again, so a deploy's cost grows with new submissions, not with all of them.
  *     Without a token, or if GitHub is down, it keeps the existing file.
+ *     Next to it, hall-of-fame-withdrawn.json (WITHDRAWN_FILE) lists the pulls of
+ *     `rejected` issues, which stay on the relays, so the page doesn't show them
+ *     as pending. If GitHub is down it carries the deployed one forward, and
+ *     writes none (the page then shows no pending pulls) rather than an empty one.
  *
  * The inbox and the issue verifier only add a pull that would join the list, so
  * the number of entries stays about the same however many people play.
@@ -59,7 +63,8 @@
  * Security: issue bodies are untrusted input. They are only ever parsed here,
  * never interpolated into a shell command, and echoed only through safe().
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getSet } from '../src/content/sets/index.ts';
 import {
@@ -467,6 +472,49 @@ const listVerifiedIssues = async (token: string, day: string): Promise<Issue[]> 
     ...(await listIssues(`labels=hall-of-fame,daily&since=${previousUtcDay(day)}T00:00:00Z`, token)),
   ]);
 
+/** Next to hall-of-fame.json: the pulls a maintainer withdrew, for the page's pending check (`loadPending`). */
+export const WITHDRAWN_FILE = 'hall-of-fame-withdrawn.json';
+
+/** Each pull once, sorted, as the page reads it. */
+const withdrawnText = (ids: Iterable<string>) => JSON.stringify([...new Set(ids)].sort()) + '\n';
+
+/**
+ * The pulls of every Hall of Fame issue labelled `rejected`, open or closed. Removing an entry can't
+ * take its submission off the public relays, so the page needs this list to stop showing it there.
+ * One refused for its display name isn't listed (`listedPullId`): the page leaves blocked names out
+ * itself, and the same pull renamed may be submitted again.
+ */
+const listWithdrawn = async (token: string): Promise<string[]> =>
+  (await listIssues('labels=hall-of-fame,rejected', token)).flatMap((issue) => listedPullId(issue) ?? []);
+
+/** The withdrawn list as deployed now, or null if it can't be read. */
+const deployedWithdrawn = async (): Promise<string[] | null> => {
+  try {
+    const res = await fetch(`${pagesUrl()}${WITHDRAWN_FILE}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    return Array.isArray(data) && data.every((id) => typeof id === 'string') ? data : null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * When the rejected issues can't be listed: the deployed list, unchanged. An empty one would show every
+ * withdrawn pull still on the relays as pending again, so if the deployed one can't be read either,
+ * `file` is removed and the page shows no pending pulls until a build can list the issues.
+ */
+const carryWithdrawn = async (file: string) => {
+  const deployed = await deployedWithdrawn();
+  if (deployed) {
+    writeFileSync(file, withdrawnText(deployed));
+    console.warn(`Kept the deployed ${WITHDRAWN_FILE} (${deployed.length} pulls).`);
+  } else {
+    rmSync(file, { force: true });
+    console.warn(`Could not read the deployed ${WITHDRAWN_FILE}; publishing none, so the page shows no pending pulls.`);
+  }
+};
+
 /** Each verified issue's result as of its last change (see `build`). */
 const BUILD_CACHE = 'hof-build-cache.json';
 type BuildCache = Record<string, { updatedAt: string; entry: HallOfFameEntry | null; reason?: string }>;
@@ -486,8 +534,10 @@ export const build = async (output = OUTPUT) => {
   const now = new Date();
   const day = utcDay(now.toISOString());
   const token = process.env.GITHUB_TOKEN;
+  const withdrawn = join(dirname(output), WITHDRAWN_FILE);
   if (!token) {
     if (!existsSync(output)) writeFileSync(output, '[]\n');
+    if (!existsSync(withdrawn)) writeFileSync(withdrawn, '[]\n');
     console.log('No GITHUB_TOKEN; keeping the existing hall-of-fame.json');
     return;
   }
@@ -499,6 +549,7 @@ export const build = async (output = OUTPUT) => {
     // Don't block a deploy on the Issues API: the committed file is still a verified snapshot.
     if (!existsSync(output)) writeFileSync(output, '[]\n');
     console.warn(`Could not list Hall of Fame issues; keeping the existing hall-of-fame.json. ${error}`);
+    await carryWithdrawn(withdrawn);
     return;
   }
   // A pull's pack can't change, so an issue untouched since the last deploy (same updated_at: no
@@ -542,6 +593,15 @@ export const build = async (output = OUTPUT) => {
   for (const e of entries) console.log(`#${e.issue}: ${e.hand} (${e.score}), verified ${e.submittedAt}`);
   writeFileSync(output, JSON.stringify(entries, null, 1) + '\n');
   console.log(`${issues.length} verified issues (${reused} unchanged since the last deploy) -> ${entries.length} entries in public/hall-of-fame.json`);
+  try {
+    const ids = await listWithdrawn(token);
+    writeFileSync(withdrawn, withdrawnText(ids));
+    console.log(`${ids.length} pulls of rejected issues -> ${WITHDRAWN_FILE}`);
+  } catch (error) {
+    if (error instanceof TooManyIssues) throw error;
+    console.warn(`Could not list rejected Hall of Fame issues. ${error}`);
+    await carryWithdrawn(withdrawn);
+  }
 };
 
 export const SEEN_PATH = 'hof-inbox-seen.json';

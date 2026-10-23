@@ -172,6 +172,7 @@ by hand  ─► GitHub issue form (pull link; needs an account; not linked from 
                                    │
                     .github/workflows/deploy.yml
                     scripts/hall-of-fame.ts build  ─► public/hall-of-fame.json (top 100 + two days' daily top 50)
+                                                   + hall-of-fame-withdrawn.json (pulls of `rejected` issues)
                                    │
                     Rankings page shows it as published; pull links verify individually
 ```
@@ -231,10 +232,11 @@ check skips them. Other players' names show through `visitorName` (`publicName`,
 read as "Someone"), beside the key fingerprint in Rankings, shared pull links and shared profiles.
 
 - Removal, including a reported name the check missed: the owner adds the `rejected` label to the
-  entry's issue and the next deploy leaves it out. The workflows never take that label off, and the
-  issue still counts as filed, so the relays can't file the same pull again. To restore an entry,
-  the owner removes `rejected` and the next deploy lists it again (a blocked name stays out; see
-  Appeal).
+  entry's issue. That starts a deploy ([hall-of-fame-removal.yml](../.github/workflows/hall-of-fame-removal.yml),
+  only for that label on a `hall-of-fame` issue, added by a person), which leaves it out; then check
+  that the deploy run succeeds. The workflows never take that label off, and the issue still counts
+  as filed, so the relays can't file the same pull again. To restore an entry, the owner removes
+  `rejected`, which deploys again and lists it (a blocked name stays out; see Appeal).
 - A name the check refused: the player renames in Profile, shares the pull again (a new link to the
   same pull) and submits it again.
 - Duplicates (#21): `verify-issue` closes an opened or edited issue, as a duplicate, when a
@@ -250,6 +252,23 @@ read as "Someone"), beside the key fingerprint in Rankings, shared pull links an
   counts as filed (for the relay inbox or a day's top), so the player can resubmit it under a new name.
 - Appeal: the player opens an issue. The owner takes `rejected` off a wrongly removed entry, or fixes
   the word list for a wrongly blocked name so the pull can be submitted again.
+
+**How a removal reaches every copy.** The pull stays signed and stays on the relays, so each place
+that shows it drops it separately:
+
+- The published list: the deploy the label starts rebuilds `hall-of-fame.json` without it, and the
+  old address's copy with it (`copyHallOfFame` in `scripts/redirect-site.ts`).
+- Pending: the same build writes `hall-of-fame-withdrawn.json`, the pull ids of `rejected` issues,
+  open or closed, and `loadPending` never shows one of those as pending. A pull refused only for its
+  name isn't listed: the page skips blocked names itself, and the same pull renamed may come back.
+  If the file can't be loaded, the page shows nothing pending rather than risk a removed pull. A
+  build that can't list the issues carries the deployed file forward (read from the old address),
+  and otherwise publishes none, never an empty one.
+- Open tabs: `loadHallOfFame` reuses a loaded list for at most five minutes, so a tab left open
+  drops the entry the next time it shows the list after that. Both files are fetched with
+  `cache: 'no-cache'`, and the client keeps no other copy (no service worker, nothing in storage).
+- Shared pull links: a link is the signed proof itself, so it still verifies anywhere, by design.
+  Removal only decides what the Hall of Fame lists.
 
 Each Rankings row also says where the entry was submitted from, on its muted set line (`provenanceText`
 in `src/game/hallOfFameList.ts`): "via relay" when `githubUser` is `nostr`, "via GitHub" for an

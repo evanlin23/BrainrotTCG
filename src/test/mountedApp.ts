@@ -17,7 +17,7 @@ const onFakeFrame = (callback: FrameRequestCallback) => fakeFrame(callback);
 export type TicketReply = { delayMs: number } | { error: string } | 'crash';
 
 /**
- * jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. hallOfFame answers the published list's request with that list (a summary whose pull qualifies
+ * jsdom only: no resource loading, native media, canvas, Worker or IndexedDB claims. hallOfFame answers the published list's request with that list, and the withdrawn list's with none (a summary whose pull qualifies
  * asks for it), and relay sockets close unanswered; every other request still fails.
  */
 export async function mountedApp(storage: Record<string, string>,
@@ -51,8 +51,11 @@ export async function mountedApp(storage: Record<string, string>,
     throw new Error(error);
   };
   const { hallOfFame } = options;
+  // With a list, nothing has been withdrawn from it either (the pending check reads that next to it).
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) =>
-    hallOfFame && String(input).endsWith('hall-of-fame.json') ? Promise.resolve(Response.json(hallOfFame)) : blocked('fetch')()));
+    hallOfFame && String(input).endsWith('hall-of-fame.json') ? Promise.resolve(Response.json(hallOfFame))
+      : hallOfFame && String(input).endsWith('hall-of-fame-withdrawn.json') ? Promise.resolve(Response.json([]))
+        : blocked('fetch')()));
   // With a list, the summary also asks the relays for pending sends: each socket closes unanswered,
   // so nothing is read or sent. Otherwise any socket is an error.
   vi.stubGlobal('WebSocket', hallOfFame

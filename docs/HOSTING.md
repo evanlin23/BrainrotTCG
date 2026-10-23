@@ -377,7 +377,9 @@ and migration origins consistent with the selected release.
    `verified` if the pull makes the all-time list (judged without the issue's own entry), else
    `daily` (also when the published list can't be read), whatever day it was first verified. And
    [hall-of-fame-inbox.yml](../.github/workflows/hall-of-fame-inbox.yml)
-   when a run (dispatched about every 15 minutes) files new entries. Land the forward-fix PR first, or
+   when a run (dispatched about every 15 minutes) files new entries, and
+   [hall-of-fame-removal.yml](../.github/workflows/hall-of-fame-removal.yml) when a person adds or
+   removes `rejected` on a Hall of Fame issue. Land the forward-fix PR first, or
    pause those workflows, before they redeploy a bad `main`. Avoid overlapping recovery and deploy
    runs; the workflow's concurrency group does not serialize dashboard rollbacks.
 

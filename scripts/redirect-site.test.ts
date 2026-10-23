@@ -1,8 +1,11 @@
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { SETS } from '../src/content/sets/index.ts';
 import { PAGE_TITLES, pageHash, setLinkHash, type Page } from '../src/game/route.ts';
-import { redirectPage } from './redirect-site.ts';
+import { copyHallOfFame, redirectPage } from './redirect-site.ts';
 
 const NEW = 'https://brainrottcg.pages.dev/';
 const PROOF = 'v4.' + 'A'.repeat(80);
@@ -206,5 +209,37 @@ describe('redirectPage', () => {
     listener({ origin: new URL(NEW).origin, source: page.popup, data: { type: 'brainrot-move-result', result: 'full' } });
     expect(page.save['brainrot-moved-v1']).toBeUndefined();
     expect(page.target).toBe(`${NEW}#/cards`);
+  });
+});
+
+describe('copyHallOfFame', () => {
+  it('copies the list and the pulls of rejected issues, which a GitHub-down build reads back from here', () => {
+    const dist = mkdtempSync(path.join(os.tmpdir(), 'redirect-dist-'));
+    const out = mkdtempSync(path.join(os.tmpdir(), 'redirect-out-'));
+    try {
+      writeFileSync(path.join(dist, 'hall-of-fame.json'), '[{"issue":1}]\n');
+      writeFileSync(path.join(dist, 'hall-of-fame-withdrawn.json'), '["a-pull"]\n');
+      writeFileSync(path.join(dist, 'index.html'), '<!doctype html>');
+      copyHallOfFame(dist, out);
+      expect(readdirSync(out).sort()).toEqual(['hall-of-fame-withdrawn.json', 'hall-of-fame.json']);
+      expect(readFileSync(path.join(out, 'hall-of-fame-withdrawn.json'), 'utf8')).toBe('["a-pull"]\n');
+      expect(readFileSync(path.join(out, 'hall-of-fame.json'), 'utf8')).toBe('[{"issue":1}]\n');
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  it("copies nothing the build didn't write, so the old address never serves an empty withdrawn list", () => {
+    const dist = mkdtempSync(path.join(os.tmpdir(), 'redirect-dist-'));
+    const out = mkdtempSync(path.join(os.tmpdir(), 'redirect-out-'));
+    try {
+      writeFileSync(path.join(dist, 'hall-of-fame.json'), '[]\n');
+      copyHallOfFame(dist, out);
+      expect(readdirSync(out)).toEqual(['hall-of-fame.json']);
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+      rmSync(out, { recursive: true, force: true });
+    }
   });
 });

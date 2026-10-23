@@ -122,6 +122,9 @@ describe('Hall of Fame workflows (offline contracts)', () => {
       inbox: { contents: 'read', issues: 'write' },
       redeploy: { actions: 'write' },
     },
+    'hall-of-fame-removal.yml': {
+      redeploy: { actions: 'write' },
+    },
   };
 
   for (const [file, want] of Object.entries(expected)) {
@@ -243,6 +246,51 @@ fi
         ...REFUSED,
         'api --method PATCH repos/owner/repo/issues/7 -f state=closed -f state_reason=duplicate',
       ]);
+    });
+  });
+
+  describe('hall-of-fame-removal.yml, which redeploys when a maintainer rejects a pull (#21)', () => {
+    const text = read('hall-of-fame-removal.yml');
+    const { redeploy } = jobs(text);
+
+    it('runs when a label goes on or comes off an issue, and on nothing else', () => {
+      const lines = triggers(text).split('\n').filter((l) => l.trim() && !l.trim().startsWith('#'));
+      expect(lines).toEqual(['on:', '  issues:', '    types: [labeled, unlabeled]']);
+    });
+
+    it('starts only for `rejected` on a Hall of Fame issue, by a person rather than the verify workflow', () => {
+      const condition = redeploy.find((l) => l.trim().startsWith('if:'));
+      expect(condition?.trim()).toBe(
+        "if: github.event.label.name == 'rejected' && contains(github.event.issue.labels.*.name, 'hall-of-fame') && github.event.sender.type != 'Bot'",
+      );
+    });
+
+    it('only starts a deploy of the default branch, which deploy.yml accepts by hand', () => {
+      expect(triggers(read('deploy.yml'))).toMatch(/^ {2}workflow_dispatch:/m);
+      const [step, ...others] = steps(redeploy);
+      expect(others).toEqual([]);
+      expect(step).not.toMatch(/uses:/);
+      expect(step).toContain('REF: ${{ github.event.repository.default_branch }}');
+      expect(step).toContain('GH_REPO: ${{ github.repository }}');
+      expect(runCommands(step).map((r) => r.trim())).toEqual(['run: gh workflow run deploy.yml --ref "$REF"']);
+    });
+
+    it('runs its step in the shell it declares, against a fake gh, and dispatches nothing real', () => {
+      const [step] = steps(redeploy);
+      const command = /^ {8}run: (.+)$/m.exec(step)![1];
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'hof-removal-'));
+      try {
+        mkdirSync(path.join(dir, 'bin'));
+        writeFileSync(path.join(dir, 'bin', 'gh'), '#!/bin/sh\nprintf \'%s|%s\\n\' "$GH_REPO" "$*" >> "$GH_LOG"\n', { mode: 0o755 });
+        writeFileSync(path.join(dir, 'step.sh'), `${command}\n`);
+        const log = path.join(dir, 'gh.log');
+        const env = { PATH: `${path.join(dir, 'bin')}:${process.env.PATH}`, GH_LOG: log, GH_REPO: 'owner/repo', REF: 'main' };
+        const ran = spawnSync('bash', [...bashArgs(step), 'step.sh'], { cwd: dir, env, encoding: 'utf8' });
+        expect(ran.status, ran.stderr).toBe(0);
+        expect(readFileSync(log, 'utf8')).toBe('owner/repo|workflow run deploy.yml --ref main\n');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 
