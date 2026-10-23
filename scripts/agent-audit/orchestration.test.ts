@@ -257,6 +257,20 @@ const LEDGER_387_EXCERPT = [
   'done: #899 #900 merged',
 ].join('\n');
 
+// The /work quality review keeps one `quality review:` line (scripts/quality-review.ts) in the ledger.
+const qualityReviewAfterHolds = [
+  '# Run: Quality', 'ledger issue: #387', 'authority: allowed',
+  'holds:', '  #85 held', 'quality review: every=7d last=pass@2026-10-20:abc1234 next=2026-10-27', 'current: idle',
+].join('\n');
+
+describe('quality review ledger line', () => {
+  it('ends the holds block instead of becoming a hold', () => {
+    const result = projectState(qualityReviewAfterHolds);
+    expect(result.holdsTracked).toBe(1);
+    expect(result.projection).toContain('quality review: every=7d');
+  });
+});
+
 describe('#387 ledger snapshot', () => {
   it('tracks every line of its authority and holds blocks and fails closed when either is cut off', () => {
     const result = projectState(LEDGER_387_EXCERPT);
@@ -542,6 +556,7 @@ describe('orient hook hold tracking (fail closed)', () => {
       colon: colonHoldsAtBoundary,
       ledger387: LEDGER_387_EXCERPT,
       history: longHistory.join('\n'),
+      qualityReview: qualityReviewAfterHolds,
       noHolds: ['# Run: No holds', 'ledger issue: #387', 'authority: allowed', 'order: #717'].join('\n'),
       hugeHold: ['# Run: Huge', 'authority: allowed', 'holds:', '- #85: ' + 'y'.repeat(500)].join('\n'),
     };

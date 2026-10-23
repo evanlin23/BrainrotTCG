@@ -41,7 +41,7 @@ afterEach(() => {
 
 const waitForVerification = async () => {
   for (let i = 0; i < 50; i++) {
-    if (document.body.textContent?.includes('Verified on this device')) return;
+    if (document.body.textContent?.includes('This pull checks out')) return;
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
@@ -66,7 +66,7 @@ describe('PullViewerPage historical card guide (#676)', () => {
     });
     await waitForVerification();
 
-    expect(document.body.textContent).toContain('Verified on this device');
+    expect(document.body.textContent).toContain('This pull checks out');
     expect(document.body.textContent).toContain('Web Ancients v1');
 
     await openCardGuide();
@@ -88,7 +88,7 @@ describe('PullViewerPage historical card guide (#676)', () => {
     });
     await waitForVerification();
 
-    expect(document.body.textContent).toContain('Verified on this device');
+    expect(document.body.textContent).toContain('This pull checks out');
 
     await openCardGuide();
 
@@ -108,7 +108,7 @@ describe('PullViewerPage historical card guide (#676)', () => {
     });
     await waitForVerification();
 
-    expect(document.body.textContent).toContain('Verified on this device');
+    expect(document.body.textContent).toContain('This pull checks out');
     expect(document.body.textContent).toContain('Genesis v1');
 
     await openCardGuide();
