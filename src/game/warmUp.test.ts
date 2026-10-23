@@ -70,10 +70,34 @@ describe('warmUpFirstPack', () => {
     return () => images.map((image) => image.src);
   };
 
+  // Each test starts before the sealed pack's art has loaded; load() is it loading.
+  let load: () => Promise<void>;
+  beforeEach(async () => {
+    vi.resetModules();
+    const { packArtSettled } = await import('./packArt');
+    load = async () => {
+      packArtSettled();
+      await Promise.resolve();
+    };
+  });
+
+  it("waits for the sealed pack's art first, however idle the page is (#776)", async () => {
+    const images = fetched();
+    const { warmUpFirstPack } = await import('./warmUp');
+    warmUpFirstPack();
+    vi.runAllTimers();
+    expect(images()).toEqual([]);
+    await load();
+    expect(images()).toEqual([]);
+    vi.runAllTimers();
+    expect(images()).toEqual(['/card_back.webp']);
+  });
+
   it('fetches the card back once the page is idle, not before', async () => {
     const images = fetched();
     const { warmUpFirstPack } = await import('./warmUp');
     warmUpFirstPack();
+    await load();
     expect(images()).toEqual([]);
     vi.runAllTimers();
     expect(images()).toEqual(['/card_back.webp']);
@@ -84,6 +108,7 @@ describe('warmUpFirstPack', () => {
     const { warmUpFirstPack } = await import('./warmUp');
     visibility = 'hidden';
     warmUpFirstPack();
+    await load();
     vi.advanceTimersByTime(60_000);
     expect(images()).toEqual([]);
     show('visible');
@@ -95,6 +120,7 @@ describe('warmUpFirstPack', () => {
     const images = fetched();
     const { warmUpFirstPack } = await import('./warmUp');
     warmUpFirstPack();
+    await load();
     visibility = 'hidden';
     vi.runAllTimers();
     expect(images()).toEqual([]);
@@ -108,6 +134,7 @@ describe('warmUpFirstPack', () => {
     vi.stubGlobal('navigator', { ...navigator, connection: { saveData: true } });
     const { warmUpFirstPack } = await import('./warmUp');
     warmUpFirstPack();
+    await load();
     vi.runAllTimers();
     expect(images()).toEqual([]);
   });
@@ -119,6 +146,8 @@ describe('warmUpFirstPack', () => {
       history.replaceState(null, '', `/${hash}`);
       const { warmUpFirstPack } = await import('./warmUp');
       warmUpFirstPack();
+      await load();
+    await load();
       vi.runAllTimers();
       expect(images()).toEqual([]);
     },

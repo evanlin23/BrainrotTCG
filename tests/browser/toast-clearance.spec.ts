@@ -17,7 +17,7 @@ async function toSummaryWithToast(page: Page, baseURL: string) {
   const errors = await monitor(page, baseURL);
   await page.goto('./');
   await expect(page.locator('.app-logo')).toBeVisible();
-  await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+  await page.getByRole('button', { name: /^Open pack/ }).focus();
   await page.keyboard.press('Space');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   await page.locator('button.reveal-skip').click({ timeout: 15000 });
@@ -60,7 +60,7 @@ for (const viewport of PHONES) {
       await page.touchscreen.tap(close!.x + close!.width / 2, close!.y + close!.height / 2);
 
       // Back to packs, not Profile.
-      await expect(page.getByRole('button', { name: 'Open pack', exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByRole('button', { name: /^Open pack/ })).toBeVisible({ timeout: 10000 });
       await expect(page.locator('.profile-section')).toHaveCount(0);
       expect(errors).toEqual([]);
     });

@@ -88,4 +88,6 @@ odds or pack size** breaks every proof for that version, so:
 
 1. Copy `set.json` to `set.v1.json` and import it in the registry as well.
 2. Bump `version` in `set.json` and make the change.
-3. Run `npm run cards` and `npm run check:sets -- --update`.
+3. Run `npm run cards` and `npm run check:sets -- --update`. The lock gains the new version's key;
+   every existing key and hash must stay as it was, which `npm run check:history` checks against
+   main (docs/ARCHITECTURE.md, Compatibility rules).

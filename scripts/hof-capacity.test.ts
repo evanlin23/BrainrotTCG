@@ -10,7 +10,7 @@ import {
   type ScenarioInput, type Summary,
 } from './hof-capacity.ts';
 import { HOF_RELAYS } from '../src/game/nostrInbox.ts';
-import { INBOX_BUDGET, INBOX_MAX_FILED } from './hall-of-fame.ts';
+import { INBOX_BUDGET, INBOX_MAX_FILED, INBOX_SEEN_CAP } from './hall-of-fame.ts';
 
 const KINDS = ['qualifying', 'duplicate', 'invalid', 'nonqualifying'] as const;
 
@@ -53,7 +53,7 @@ describe('shipped caps', () => {
     // 305 events, most with bad signatures: invalid proofs spend the budget too.
     const s = await run({ name: 'budget', runs: 2, phases: [{ fromS: 0, toS: 900, ratePerS: 305 / 900 }], invalidFraction: 0.9, qualifyingFraction: 0.5 });
     expectPassed(s);
-    expect(s.meta.shipped).toMatchObject({ budget: 300, maxFiled: 20, pageSize: 100, pages: 50, windowS: 7 * 86_400, seenCap: 20_000 });
+    expect(s.meta.shipped).toMatchObject({ budget: 300, maxFiled: 20, pageSize: 100, pages: 50, windowS: 7 * 86_400, seenCap: 100_000 });
     const [first, second] = s.runs;
     expect([first.arrived, first.eventsRead, first.beyondPaging]).toEqual([305, 305, 0]);
     expect(first.relayRequests).toBeGreaterThanOrEqual(HOF_RELAYS.length * 4); // 4 pages of 100 on each relay
@@ -97,6 +97,9 @@ describe('outages and expiry', () => {
     expectPassed(s);
     expect(s.runs[0].relaysFailed).toBe(HOF_RELAYS.length);
     expect(s.runs[0].eventsRead).toBe(0);
+    // Every run in the outage fails, so it shows long before the window expires; the rest succeed.
+    expect(s.runs.map((r) => r.outcome)).toEqual([...Array(8).fill('failed'), ...Array(4).fill('ok')]);
+    expect(s.runs[0].error).toContain('every relay failed');
     expect([s.runs[0].beyondPaging, s.runs[0].unreadable]).toEqual([0, s.runs[0].onRelays]); // unread because every relay was down, not past the paging cap
     expect(s.runs[0].onRelays).toBeGreaterThan(0);
     expect(s.totals.kinds.qualifying.expiredWindow).toBe(s.runs[0].arrived); // the first batch aged out unread
@@ -104,6 +107,13 @@ describe('outages and expiry', () => {
     expect(s.totals.pulls.expiredBeforeHandled).toBe(s.runs[0].arrived);
     expect(s.totals.pulls.delivered).toBe(s.totals.arrived - s.runs[0].arrived); // later arrivals were not lost to it
     expect(s.totals.pulls.lost).toBe(0);
+  }, 30_000);
+
+  it('keeps succeeding and delivering while only some relays are down', async () => {
+    const s = await run({ name: 'some-relays-down', runs: 3, cadenceS: 3600, qualifyingFraction: 1, phases: [{ fromS: 0, toS: 3600, ratePerS: 0.002 }], relayOutage: { fromS: 0, durationS: 10 * 3600, relaysDown: HOF_RELAYS.length - 1 } });
+    expectPassed(s);
+    expect(s.runs.map((r) => [r.outcome, r.relaysFailed])).toEqual(Array(3).fill(['ok', HOF_RELAYS.length - 1]));
+    expect(s.totals.pulls).toMatchObject({ delivered: s.totals.arrived, pending: 0, lost: 0 });
   }, 30_000);
 
   it('counts relay retention expiry apart from the read window', async () => {
@@ -127,12 +137,20 @@ describe('replay and seen-cache retention', () => {
     expect(s.runs[1].filed + s.runs[2].filed + s.runs[3].filed).toBeGreaterThan(0); // a later run did the rest
   }, 30_000);
 
-  it('re-derives handled events once the seen cache overflows, without filing again', async () => {
-    const s = await run({ name: 'seen-overflow', runs: 2, phases: [{ fromS: 0, toS: 900, ratePerS: 20 / 900 }], invalidFraction: 0.5, qualifyingFraction: 0.5, seenFillerPerRun: 20_000 });
+  it('keeps handled events in the seen cache for the whole window, however much other traffic there is', async () => {
+    // 20,000 ids a run used to push handled events out of a 20,000-id cache, and every later run derived them again.
+    const s = await run({ name: 'seen-overflow', runs: 4, phases: [{ fromS: 0, toS: 900, ratePerS: 20 / 900 }], invalidFraction: 0.5, qualifyingFraction: 0.5, seenFillerPerRun: 20_000 });
+    expectPassed(s);
+    expect(s.runs.slice(1).map((r) => [r.arrived, r.budgetUsed, r.backlog])).toEqual(Array(3).fill([0, 0, 0]));
+    expect(s.totals.pulls.lost).toBe(0);
+  }, 30_000);
+
+  it('past the cap, drops the oldest handled events first and still files nothing twice', async () => {
+    const s = await run({ name: 'seen-over-cap', runs: 2, phases: [{ fromS: 0, toS: 900, ratePerS: 20 / 900 }], invalidFraction: 0.5, qualifyingFraction: 0.5, seenFillerPerRun: INBOX_SEEN_CAP });
     expectPassed(s);
     expect(s.runs[1].arrived).toBe(0);
-    expect(s.runs[1].budgetUsed).toBeGreaterThan(0); // nothing new, yet attempts are spent again
-    expect(s.totals.derivations).toBeGreaterThan(s.totals.kinds.qualifying.arrived + s.totals.kinds.nonqualifying.arrived);
+    expect(s.runs[1].budgetUsed).toBeGreaterThan(0); // the filler is newer, so the handled events made way
+    expect(s.runs[1].filed).toBe(0);
     expect(s.totals.pulls.lost).toBe(0);
   }, 30_000);
 });

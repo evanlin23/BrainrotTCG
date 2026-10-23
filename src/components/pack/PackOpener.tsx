@@ -7,8 +7,9 @@ import { openPack, prefetchNextPack, type OpenedPack, type PullRef } from '../..
 import { holdLive } from '../../game/admission';
 import { reloadPage } from '../../game/reload';
 import { whenIdle } from '../../game/idle';
-import { triggerRarityConfetti, triggerHoloSparkles } from '../../utils/confettiEffects';
+import { triggerRarityConfetti, triggerHoloSparkles } from './confettiEffects';
 import { buzz } from '../../utils/motion';
+import { useOpenCue } from '../../hooks/useOpenCue';
 import { usePackCutter } from '../../hooks/usePackCutter';
 import { useAudio } from '../../hooks/useAudio';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
@@ -71,9 +72,11 @@ interface PackOpenerProps {
   isOwned?: (cardKey: string) => boolean;
   /** The player closed a reveal with cards still face down; they're recorded anyway, so say so (unless the save failed). */
   onLeaveEarly?: (pack: OpenedPack) => void;
+  /** No pack is saved yet: the sealed pack plays its opening cue (a finger tearing along the seam) a couple of times. */
+  openCue?: boolean;
 }
 
-const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly }: PackOpenerProps) => {
+const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseChange, set, disabled = false, openBlocked = false, mountedSave, settings, cardBack, isOwned, onLeaveEarly, openCue = false }: PackOpenerProps) => {
   const [isOpening, setIsOpening] = useState(false);
   const [openedPack, setOpenedPack] = useState<OpenedPack | null>(null);
   /** Why the last tear didn't open a pack, shown under it with a way to try again. */
@@ -179,19 +182,17 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   // Mining taking a while: say so, rather than leave a torn pack sitting still.
   const [slowOpen, setSlowOpen] = useState(false);
   /**
-   * A press on the pack landed below the band a swipe can start in ('miss'), or tapped in that band
-   * without swiping ('tap'), or a swipe was let go too short to open ('short'), so it shows where, or
-   * how, to swipe for a moment.
+   * A press on the pack landed below the band a swipe can start in ('miss'), or a swipe was let go too
+   * short to open ('short'), so it shows where, or how, to swipe for a moment. A tap opens the pack.
    */
-  const [nudging, setNudging] = useState<false | 'miss' | 'tap' | 'short'>(false);
+  const [nudging, setNudging] = useState<false | 'miss' | 'short'>(false);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nudge = useCallback((kind: 'miss' | 'tap' | 'short') => {
+  const nudge = useCallback((kind: 'miss' | 'short') => {
     setNudging(kind);
     if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
     nudgeTimerRef.current = setTimeout(() => setNudging(false), 1800);
   }, []);
   const nudgeMiss = useCallback(() => nudge('miss'), [nudge]);
-  const nudgeTap = useCallback(() => nudge('tap'), [nudge]);
   const nudgeShort = useCallback(() => nudge('short'), [nudge]);
   useEffect(() => {
     if (!isPackCut || isOpening) return;
@@ -244,7 +245,6 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     particlesEnabled: settings.particlesEnabled,
     disabled: disabled || openBlocked,
     onMiss: nudgeMiss,
-    onSeamTap: nudgeTap,
     onShortSwipe: nudgeShort,
   });
 
@@ -270,19 +270,21 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   }, [refusal, resetCutState]);
 
   /**
-   * The Open pack button (and Space or Enter with focus nowhere in particular): exactly a finished
-   * swipe, through the same cut, tear and ticket. A save another tab changed opens nothing, and says so.
+   * A tap, a click, or Space or Enter with focus on the pack: exactly a finished swipe, through the
+   * same cut, tear and ticket. A save another tab changed opens nothing, and says so.
    */
+  const { cue, end: endCue, touch: touchPack } = useOpenCue(openCue);
   const handleOpen = useCallback(() => {
     if (disabled || isPackCut || isOpening) return;
+    touchPack();
     if (openBlocked) {
       setRefusal('blocked');
       return;
     }
     completeCut();
-  }, [disabled, isPackCut, isOpening, openBlocked, completeCut]);
+  }, [disabled, isPackCut, isOpening, openBlocked, completeCut, touchPack]);
 
-  /** Set when the player goes back to the sealed pack, so the Open pack button takes focus once it's there. */
+  /** Set when the player goes back to the sealed pack, so the pack takes focus once it's there. */
   const focusOpenRef = useRef(false);
 
   const retryOpen = useCallback(() => {
@@ -290,11 +292,11 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
       reloadPage();
       return;
     }
-    // Try again goes as the Open pack button comes back (disabled while the ticket is on its way):
-    // focus moves to it rather than falling to the page for the whole wait.
-    focusOpenRef.current = true;
+    // Try again goes as the pack is torn again (busy while the ticket is on its way): focus moves to
+    // the pack rather than falling to the page for the whole wait.
+    focusIfFree(packRef.current);
     handleOpen();
-  }, [refusal, handleOpen]);
+  }, [refusal, handleOpen, packRef]);
   /** The sealed pack's stage, which scrolls on a desktop window (PackOpener.css). */
   const stageRef = useRef<HTMLDivElement>(null);
   // The stage is on its way out when the cards come in, and the reveal must not inherit anything it
@@ -302,14 +304,6 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
   useLayoutEffect(() => {
     if (isOpening && stageRef.current) stageRef.current.scrollTop = 0;
   }, [isOpening]);
-  const openButtonEl = useRef<HTMLButtonElement | null>(null);
-  const openButtonRef = useCallback((el: HTMLButtonElement | null) => {
-    openButtonEl.current = el;
-    if (el && focusOpenRef.current) {
-      focusOpenRef.current = false;
-      focusIfFree(el);
-    }
-  }, []);
   // A refusal replaces the button the player was on: its Try again takes focus.
   const retryButtonRef = useCallback((el: HTMLButtonElement | null) => focusIfFree(el), []);
 
@@ -486,12 +480,12 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
     }
   }, [isOpening, showSummary, isPackCut, refusal, openedCards, dealtPack, recordPack, finishPack, onLeaveEarly, resetCutState]);
 
-  // Back on the sealed pack with its button already there (a torn pack put back, a refusal dismissed):
-  // the X the player left by has gone, so focus goes to Open pack rather than the page.
+  // Back on the sealed pack (a torn pack put back, a refusal dismissed, Try again): the X the player
+  // left by has gone, so focus goes to the pack rather than the page.
   useEffect(() => {
-    if (!focusOpenRef.current || stageInPack || !openButtonEl.current) return;
+    if (!focusOpenRef.current || stageInPack || !packRef.current) return;
     focusOpenRef.current = false;
-    focusIfFree(openButtonEl.current);
+    focusIfFree(packRef.current);
   });
 
   // Like skipAll: an open sheet disables the opener, so a stray press or key behind it does nothing.
@@ -723,13 +717,14 @@ const PackOpener = ({ onOpen, onShare, onBusyChange, onFocusChange, onShowcaseCh
               refusal={refusal}
               onOpen={handleOpen}
               onRetry={retryOpen}
-              openButtonRef={openButtonRef}
               retryButtonRef={retryButtonRef}
               nudging={nudging === 'miss'}
-              tapped={nudging === 'tap'}
               fellShort={nudging === 'short'}
               cutPoints={cutPoints}
               sparks={sparks}
+              cue={cue}
+              onCueEnd={endCue}
+              onTouch={touchPack}
             />
           </Motion.div>
         ) : (

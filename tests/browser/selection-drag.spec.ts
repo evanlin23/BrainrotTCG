@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { monitor, expectDecoded, expectStill, fingerFor, type Finger } from './support';
+import { monitor, expectDecoded, expectRecordedPack, expectStill, expectSummaryTakesClicks, fingerFor, type Finger } from './support';
 
 // Rapid presses on game controls must not highlight text or start a native image drag, while
 // inputs, copyable text and links keep their normal behaviour (#264).
@@ -120,16 +120,16 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   await tryDrag(page, logo, 60, 0);
   expect(await selectedText(page)).toBe('');
   await logo.click({ clickCount: 3 });
-  await packShell.dblclick();
-  await packShell.click({ clickCount: 3 });
-  expect(await selectedText(page)).toBe('');
-  // A short vertical press-drag stays well inside the cut gesture's threshold.
+  // A short vertical press-drag stays well inside the cut gesture's threshold, and the click it ends
+  // in is not a tap, so the pack stays sealed.
   await tryDrag(page, packShell.locator('img').first(), 0, 40);
   expect(await dragStarts()).toBe(0);
   expect(await selectedText(page)).toBe('');
+  await expect(packShell).toHaveAttribute('aria-label', /^Open pack, /);
 
-  await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
-  await page.keyboard.press('Space');
+  // A tap opens the pack (#898), so the rapid clicks end here: the double click opens it once.
+  await packShell.dblclick();
+  expect(await selectedText(page)).toBe('');
   await expect(page.locator('.card-reveal-area')).toBeVisible({ timeout: 15000 });
   // The previous card stays in the DOM while it animates out; the current one is last.
   const card = page.locator('.reveal-card').last().locator('.card-wrapper');
@@ -151,8 +151,12 @@ test('rapid clicks and drags on the pack and reveal select no text and start no 
   await page.locator('button.reveal-skip').dblclick({ timeout: 15000 });
   await expect(page.locator('.pack-summary')).toBeVisible({ timeout: 30000 });
   expect(await selectedText(page)).toBe('');
+  // The double click on the pack spent one pack, not two.
+  await expect(page.locator('.summary-card')).toHaveCount(5);
+  await expectRecordedPack(page);
   // Short enough to end on the same compact card (#339), so the press is also a click, which opens the
-  // card viewer over the summary.
+  // card viewer over the summary (once the summary's settling window has passed, #627).
+  await expectSummaryTakesClicks(page);
   await tryDrag(page, page.locator('.summary-cards img').first(), 12, 12);
   expect(await dragStarts()).toBe(0);
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -202,7 +206,7 @@ test.describe('with a touch screen', () => {
     expect(await selectedText(page)).toBe('');
     await expect(packShell).not.toHaveClass(/\bis-cut\b/);
 
-    await page.getByRole('button', { name: 'Open pack', exact: true }).focus();
+    await page.getByRole('button', { name: /^Open pack/ }).focus();
     await page.keyboard.press('Space');
     const card = page.locator('.reveal-card').last().locator('.card-wrapper');
     await expect(card).toBeVisible({ timeout: 15000 });

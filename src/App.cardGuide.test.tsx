@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { STORAGE_KEYS } from './constants/config';
 import { DEFAULT_SET_ID, getLatestSet } from './content/sets';
 import App from './App';
 
@@ -25,11 +26,9 @@ beforeEach(async () => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
-  // A new player: nothing saved, so no tabs or set picker, only the pack.
   localStorage.clear();
   container = document.body.appendChild(document.createElement('div'));
   root = createRoot(container);
-  await act(async () => root.render(<App />));
 });
 
 afterEach(async () => {
@@ -40,11 +39,23 @@ afterEach(async () => {
   localStorage.clear();
 });
 
+/** A new player has nothing saved: no tabs or set picker, only the pack. A returning one has a pack saved. */
+const mount = async (savedPack: boolean) => {
+  if (savedPack) localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify({ packsOpened: 1, holoCards: {}, highestPackValue: 0, highestPackCards: [] }));
+  await act(async () => root.render(<App />));
+};
+
 const guideButton = () => [...document.querySelectorAll('main button')].find((b) => b.textContent?.trim() === 'Card guide') as HTMLButtonElement | undefined;
 const dialog = () => document.querySelector('[role="dialog"]');
 
-it('offers a new player the card guide before their first pack, and gives focus back when it closes', async () => {
+it('shows a new player no card guide link before their first pack is saved (#898)', async () => {
+  await mount(false);
   expect(document.querySelector('nav')).toBeNull();
+  expect(guideButton()).toBeUndefined();
+});
+
+it('offers the card guide once a pack is saved, and gives focus back when it closes', async () => {
+  await mount(true);
   const button = guideButton()!;
   expect(button).toBeDefined();
   expect(button.getAttribute('aria-haspopup')).toBe('dialog');
@@ -62,6 +73,7 @@ it('offers a new player the card guide before their first pack, and gives focus 
 });
 
 it('steps aside while a pack is torn and opening, and comes back once it is put away', async () => {
+  await mount(true);
   expect(guideButton()).toBeDefined();
   await act(async () => opener.onFocusChange!(true));
   expect(guideButton()).toBeUndefined();

@@ -1,6 +1,16 @@
 @import './tokens.css';
 @import './base.css';
 
+/* index.html's placeholder: styled by this sheet, which loads before anything paints, so it shows
+   while the app's code is still on its way and goes when the app first renders (#776). */
+.boot-status {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  margin: 0;
+  color: var(--text-muted);
+}
+
 /* ---- App shell: header (logo + nav on wide screens), main, bottom tab bar on phones ---- */
 
 .app {

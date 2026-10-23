@@ -88,7 +88,7 @@ test('a pack summary hides the finish captions on pending art, and shows them on
   const errors = await monitor(page, baseURL!, 0, { returning: true });
   const art = await holdArt(page);
   await page.goto('./');
-  const opener = page.getByRole('button', { name: 'Open pack', exact: true });
+  const opener = page.getByRole('button', { name: /^Open pack/ });
   await expect(opener).toBeEnabled();
   await opener.focus();
   await page.keyboard.press('Space');
