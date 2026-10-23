@@ -659,7 +659,7 @@ describe('Rankings tabs', () => {
     ]);
     await act(async () => root.render(<HallOfFamePage />));
     expect(empty()).toContain('No pulls filed today yet.');
-    expect(empty()).toContain('submit it from the share sheet');
+    expect(empty()).toContain(`Pull a Full House or better (or a Brainrot Score of ${HALL_OF_FAME_MIN_SCORE.toLocaleString()}+), share it, and submit it from the share sheet.`);
 
     const section = yesterdaySection()!;
     const heading = section.querySelector('h2')!;
