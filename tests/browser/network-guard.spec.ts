@@ -239,6 +239,30 @@ test('explicit fixture allowlist permits secondary local origin without errors',
   expect(errors.blocked).toEqual([]);
 });
 
+test('a local origin is allowed only under its own paths', async ({ page }) => {
+  const errors = await monitor(page, primaryUrl, 0, {
+    localOrigins: { [externalOrigin]: ['/old-site/'] },
+    failOnUnexpected: false,
+  });
+  await page.goto(primaryUrl);
+  const result = await page.evaluate(async (target) => {
+    const inside = await fetch(`${target}old-site/data.json`);
+    const outside = await fetch(`${target}elsewhere`);
+    return { inside: inside.status, outside: outside.status, text: await outside.text() };
+  }, externalUrl);
+
+  expect(result).toEqual({ inside: 200, outside: 403, text: 'Forbidden path' });
+  expect(externalHits).toBe(1);
+  expect(errors.blocked).toEqual([`[disallowed path] GET ${externalOrigin}/elsewhere`]);
+});
+
+test('a local origin that is not plain http on a loopback host is refused before guarding', async ({ page }) => {
+  for (const origin of ['https://example.com', 'http://192.168.1.10:8080', `${externalOrigin}/path`, `https://127.0.0.1:${new URL(externalOrigin).port}`]) {
+    await expect(monitor(page, primaryUrl, 0, { localOrigins: { [origin]: ['/'] } })).rejects.toThrow('localOrigins takes http loopback origins');
+  }
+  await expect(monitor(page, primaryUrl, 0, { localOrigins: { [externalOrigin]: [] } })).rejects.toThrow('at least one path');
+});
+
 test('sanitization strips query parameters, hashes, bodies, and bounding to 40 entries', async ({ page }) => {
   const errors = await monitor(page, primaryUrl, 0, { failOnUnexpected: false });
   await page.goto(primaryUrl);

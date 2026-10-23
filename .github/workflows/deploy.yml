@@ -150,6 +150,23 @@ jobs:
 
       - run: npm ci
       - run: npm run check
+      # Every old vector and set lock entry is still there, unchanged (docs/ARCHITECTURE.md,
+      # Compatibility rules): compared with main before this push, or the parent for a manual run.
+      # The base is fetched by SHA from the public repository without a token and read as data.
+      # A run cancelled by a later push or dispatch (see concurrency) leaves its range unchecked
+      # here; only the pull request gate covers it (docs/ARCHITECTURE.md, Base).
+      - name: Keep old vectors and set locks
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+            base=$(git rev-parse "$GITHUB_SHA^1")
+          else
+            git fetch --no-tags --depth=1 origin "$BEFORE"
+            base=$BEFORE
+          fi
+          npm run check:history -- --base "$base"
       # Verify Hall of Fame issues and bake the list into the site. Results for issues unchanged
       # since the last deploy are cached; the key covers everything that decides a result.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
