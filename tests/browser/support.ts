@@ -506,6 +506,55 @@ export async function snapshot(page: Page) {
   }>;
 }
 
+type SavedStorage = Record<string, string | null>;
+
+/** Every key in this origin's storage, sorted. Compare it with `sameStorage`, never in a diff: it holds secret keys. */
+export const storageOf = (page: Page) => page.evaluate(() => Object.fromEntries(
+  Object.keys(localStorage).sort().map((key) => [key, localStorage.getItem(key)]),
+)) as Promise<SavedStorage>;
+
+/** Byte-for-byte equality as a boolean, so a failure prints `false` and not the storage (secret keys included). */
+export const sameStorage = (a: SavedStorage, b: SavedStorage) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Settings' Back up and Restore rows, and Restore's note and buttons. */
+export const settingsOf = (page: Page) => {
+  const main = page.getByRole('main', { name: 'Settings', exact: true });
+  const row = (label: string) => main.locator('.settings-row').filter({ has: page.locator('.settings-label', { hasText: new RegExp(`^${label}$`) }) });
+  const restore = row('Restore');
+  return {
+    main,
+    backUp: row('Back up'),
+    restore,
+    restoreNote: restore.locator('.settings-desc'),
+    importButton: restore.getByRole('button', { name: 'Import', exact: true }),
+    keep: restore.getByRole('button', { name: 'Keep mine', exact: true }),
+    replace: restore.getByRole('button', { name: 'Replace', exact: true }),
+  };
+};
+
+/** Picks `file` (a path, or bytes) through the chooser the Import button opens: the real hidden input. */
+export async function pickWithImport(page: Page, file: string | { name: string; buffer: Buffer }) {
+  const { importButton } = settingsOf(page);
+  const chooser = page.waitForEvent('filechooser');
+  await importButton.click();
+  const picked = await chooser;
+  expect(picked.isMultiple()).toBe(false);
+  await picked.setFiles(typeof file === 'string' ? file : { ...file, mimeType: 'text/plain' });
+}
+
+/**
+ * Stand-in relays that answer every read with "nothing stored". `monitor` closes every socket, which the
+ * page reads as the live feed being down; this is a relay that works and has nothing, so an empty board
+ * is a real one. Nothing leaves the browser. `down`, when given, closes each socket opened while it is true.
+ */
+export const relaysAnswerEmpty = (page: Page, down: () => boolean = () => false) => page.routeWebSocket(/.*/, (socket) => {
+  if (down()) return socket.close();
+  socket.onMessage((message) => {
+    const [type, subscription] = JSON.parse(String(message)) as [string, string];
+    if (type === 'REQ') socket.send(JSON.stringify(['EOSE', subscription]));
+  });
+});
+
 export async function expectRecordedPack(page: Page, nonce = 0, historyCount = 1) {
   const before = await snapshot(page);
   expect(before.stats.packsOpened).toBe(1);
